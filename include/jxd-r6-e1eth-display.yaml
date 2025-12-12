@@ -53,10 +53,7 @@ display:
           it.printf(0, y_pos, id(f6x12),"UP: %s", id(uptime_sensor).get_state().c_str());
 
           // Uncomment if use Ethernet
-          std::string res = id(ip_eth).state;
-
-          // Uncomment if use WiFi
-          //std::string res = id(ip_wifi).state;
+          std::string res = id(ip).state;
 
           y_pos += row_size;
           it.printf(0, y_pos, id(f6x12), "VIN: %2.1fV", id(input_voltage).state);
@@ -105,57 +102,18 @@ graphical_display_menu:
       text: "Info"
       id: info_submenu
       items:
-
-      # Uncomment if use Ethernet
-      - type: label
-        text: "IP(Eth):"
-
-      - type: label
-        text: !lambda |-
-          return " " + id(ip_eth).state;
-
-      # Uncomment if use WiFi 
-      # - type: label
-      #   text: "IP(WiFi):"
-      
-      # - type: label
-      #   text: !lambda |-
-      #     std::string res;
-      #     if (id(captive_portal_id).is_active()) {
-      #       res = id(wifi_id).wifi_soft_ap_ip().str();
-      #     }
-      #     else {
-      #       res = id(ip_wifi).state;
-      #     return " " + id(ip_wifi).state;
-
-      - type: label
-        text: "MAC:"
-
-      # Uncomment if use Ethernet
-      - type: label
-        text: !lambda |-
-          return " " + id(mac_eth).state;
+        # Network info items are added via network-specific packages:
+        # - For Ethernet: include jxd-r6-eth-menu-items.yaml
+        # - For WiFi: include jxd-r6-wifi-menu-items.yaml
         
-      # Uncomment if use WiFi
-      #- type: label
-      #   text: !lambda |-
-      #     return " " + id(mac_wifi).state;
 
     - type: menu
       text: "Settings"
       id: menu_settings_id
       items:
-            # Uncomment if use WiFi
-            # - type: menu
-            #   text: "Reset WiFi creds"
-            #   items:
-            #     - type: label
-            #       text: "Reset?"
-
-            #     - type: command
-            #       text: "Yes"
-            #       on_value:
-            #         - script.execute: reset_wifi
+        # Uncomment if use WiFi
+        # See jxd-r6-wifi-menu-items.yaml for WiFi settings menu items
+        
         - type: menu
           text: "Display"
           items:

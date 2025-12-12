@@ -1,7 +1,6 @@
 wifi:
   id: wifi_id
   reboot_timeout: 5min
-  enable_on_boot: false
   ap:
 
 captive_portal:
@@ -28,7 +27,7 @@ text_sensor:
   - platform: wifi_info
     ip_address:
       name: "WiFi IP"
-      id: ip_wifi
+      id: ip
     mac_address:
       name: "WiFi MAC"
       id: mac_wifi

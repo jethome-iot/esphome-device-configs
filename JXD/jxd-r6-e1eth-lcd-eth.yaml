@@ -7,11 +7,22 @@ substitutions:
 packages:
   display: !include ../include/jxd-r6-e1eth-display.yaml
   main: !include jxd-r6-e1eth-base.yaml
+  ethernet: !include ../include/jxd-r6-eth.yaml
+  eth_menu: !include ../include/jxd-r6-eth-menu-items.yaml
 
 esphome:
+  name: ${name}
+  name_add_mac_suffix: true
+  friendly_name: ${friendly_name}
   project:
     name: JetHub.JXD R6-E1ETH-LCD
     version: ${version}
+  on_boot:
+      priority: 600
+      then:
+        - delay: 200ms
+        - pcf8563.read_time:
+            id: pcf8563_time
 
 external_components:
   - source:

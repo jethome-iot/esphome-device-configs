@@ -3,9 +3,6 @@ packages:
   vin_measure: !include ../include/jxd-r6-vin-measure.yaml
   time: !include ../include/jxd-r6-e1eth-time.yaml
   one-wire: !include ../include/jxd-r6-one-wire.yaml
-  # Uncomment if use WiFi
-  # wifi: !include ../include/wifi.yaml
-  ethernet: !include ../include/jxd-r6-eth.yaml
 
 substitutions: #defaults
   name: "jxd-r6-e1eth-main"
@@ -15,19 +12,6 @@ substitutions: #defaults
 api:
   encryption:
   reboot_timeout: 15min
-
-esphome:
-  name: ${name}
-  name_add_mac_suffix: true
-  friendly_name: ${friendly_name}
-  on_boot:
-    priority: 600
-    then:
-      # Uncomment if use WiFi
-      #- script.execute: set_wifi_ap
-      - delay: 200ms
-      - pcf8563.read_time:
-          id: pcf8563_time
 
 ota:
   - platform: esphome

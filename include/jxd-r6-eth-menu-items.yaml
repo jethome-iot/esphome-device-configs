@@ -1,0 +1,22 @@
+# Ethernet-specific menu items for graphical_display_menu
+# Include this file in packages when using Ethernet
+# This extends the existing menu items defined in jxd-r6-e1eth-display.yaml
+
+graphical_display_menu:
+  items:
+    - id: !extend info_submenu
+      items:
+        - type: label
+          text: "IP(Eth):"
+
+        - type: label
+          text: !lambda |-
+            return " " + id(ip).state;
+
+        - type: label
+          text: "MAC:"
+
+        - type: label
+          text: !lambda |-
+            return " " + id(mac_eth).state;
+

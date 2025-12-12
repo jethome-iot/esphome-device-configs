@@ -1,0 +1,41 @@
+# WiFi-specific menu items for graphical_display_menu
+# Include this file in packages when using WiFi instead of Ethernet
+# This extends the existing menu items defined in jxd-r6-e1eth-display.yaml
+
+graphical_display_menu:
+  items:
+    - id: !extend info_submenu
+      items:
+        - type: label
+          text: "IP(WiFi):"
+        
+        - type: label
+          text: !lambda |-
+            std::string res;
+            if (id(captive_portal_id).is_active()) {
+              res = id(wifi_id).wifi_soft_ap_ip().str();
+            }
+            else {
+              res = id(ip).state;
+            }
+            return " " + res;
+
+        - type: label
+          text: "MAC:"
+
+        - type: label
+          text: !lambda |-
+            return " " + id(mac_wifi).state;
+
+    - id: !extend menu_settings_id
+      items:
+        - type: menu
+          text: "Reset WiFi creds"
+          items:
+            - type: label
+              text: "Reset?"
+
+            - type: command
+              text: "Yes"
+              on_value:
+                - script.execute: reset_wifi

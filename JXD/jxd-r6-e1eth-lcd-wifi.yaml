@@ -1,0 +1,42 @@
+substitutions:
+  name: "jxd-r6-e1eth-lcd"
+  friendly_name: JXD-R6-E1ETH-LCD
+  device_description: JXD-R6-E1ETH-LCD v1
+  version: 1.0.0
+
+packages:
+  display: !include ../include/jxd-r6-e1eth-display.yaml
+  main: !include jxd-r6-e1eth-base.yaml
+  wifi: !include ../include/wifi.yaml
+  wifi_menu: !include ../include/jxd-r6-wifi-menu-items.yaml 
+
+esphome:
+  name: ${name}
+  name_add_mac_suffix: true
+  friendly_name: ${friendly_name}
+  project:
+    name: JetHub.JXD R6-E1ETH-LCD
+    version: ${version}
+  on_boot:
+      priority: 600
+      then:
+        # Uncomment if use WiFi
+        - script.execute: set_wifi_ap
+        - delay: 200ms
+        - pcf8563.read_time:
+            id: pcf8563_time
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+
+http_request:
+
+ota:
+  - platform: http_request
+    id: ota_http_request
+
+dashboard_import:
+  package_import_url: github://jethome-iot/esphome-configs/JXD/jxd-r6-e1eth-lcd.yaml@master
+  import_full_config: true

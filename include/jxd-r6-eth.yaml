@@ -11,7 +11,7 @@ text_sensor:
   ip_address:
     name: "Ethernet IP"
     address_0:
-      id: ip_eth
+      id: ip
   mac_address:
     name: "Ethernet MAC"
     id: mac_eth
