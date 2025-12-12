@@ -62,6 +62,8 @@ void GraphicalDisplayMenu::set_font(display::BaseFont *font) { this->font_ = fon
 
 void GraphicalDisplayMenu::set_foreground_color(Color foreground_color) { this->foreground_color_ = foreground_color; }
 void GraphicalDisplayMenu::set_background_color(Color background_color) { this->background_color_ = background_color; }
+void GraphicalDisplayMenu::set_fill_row(bool val) { this->fill_row_ = val; }
+void GraphicalDisplayMenu::set_restore_page(bool val) { this->restore_page_ = val; }
 
 void GraphicalDisplayMenu::on_before_show() {
   if (this->display_ != nullptr) {
@@ -74,7 +76,7 @@ void GraphicalDisplayMenu::on_before_show() {
 }
 
 void GraphicalDisplayMenu::on_before_hide() {
-  if (this->previous_display_page_ != nullptr) {
+  if (this->restore_page_ && this->previous_display_page_ != nullptr) {
     this->display_->show_page((display::DisplayPage *) this->previous_display_page_);
     this->display_->clear();
     this->update();
@@ -213,7 +215,7 @@ display::Rect GraphicalDisplayMenu::measure_item(display::Display *display, cons
   int height;
   display->get_text_bounds(0, 0, label.c_str(), this->font_, display::TextAlign::TOP_LEFT, &x1, &y1, &width, &height);
 
-  dimensions.w = std::min((int16_t) width, bounds->w);
+  dimensions.w = this->fill_row_ ? bounds->w : std::min((int16_t) width, bounds->w);
   dimensions.h = std::min((int16_t) height, bounds->h);
 
   return dimensions;

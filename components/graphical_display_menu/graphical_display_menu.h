@@ -47,6 +47,8 @@ class GraphicalDisplayMenu : public display_menu_base::DisplayMenuComponent {
   void add_on_redraw_callback(std::function<void()> &&cb) { this->on_redraw_callbacks_.add(std::move(cb)); }
 
   void draw(display::Display *display, const display::Rect *bounds);
+  void set_fill_row(bool val);
+  void set_restore_page(bool val);
 
  protected:
   void draw_and_update() override;
@@ -69,7 +71,9 @@ class GraphicalDisplayMenu : public display_menu_base::DisplayMenuComponent {
   TemplatableValue<std::string, const MenuItemValueArguments *> menu_item_value_;
   Color foreground_color_{COLOR_ON};
   Color background_color_{COLOR_OFF};
-
+  
+  bool restore_page_;
+  bool fill_row_;
   CallbackManager<void()> on_redraw_callbacks_{};
 };
 
