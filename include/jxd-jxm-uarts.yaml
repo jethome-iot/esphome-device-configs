@@ -1,0 +1,30 @@
+# UART configuration for JXD JXM devices
+# This file defines the UART interfaces used for RS485 communication
+#
+# Usage:
+#   Add to your device configuration:
+#   packages:
+#     jxd_jxm_uarts: !include include/jxd-jxm-uarts.yaml
+#
+# Hardware:
+#   UART1 - Primary RS485 interface
+#   UART2 - Secondary RS485 interface (if needed)
+
+uart:
+  # UART1 - Primary RS485 interface for Modbus
+  - id: jxm_uart1
+    tx_pin: GPIO33
+    rx_pin: GPIO34
+    baud_rate: 9600
+    stop_bits: 1
+    # data_bits: 8  # Default
+    # parity: NONE  # Default
+
+  # UART2 - Secondary RS485 interface (optional)
+  - id: jxm_uart2
+    tx_pin: GPIO32
+    rx_pin: GPIO39
+    baud_rate: 9600
+    stop_bits: 1
+    # data_bits: 8  # Default
+    # parity: NONE  # Default

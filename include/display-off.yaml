@@ -1,0 +1,56 @@
+globals:
+  - id: current_display_off_threshold_s
+    type: uint32_t
+
+  - id: current_display_off_s
+    type: uint32_t
+
+# Display off timer select
+select:
+  - platform: template
+    id: display_off_timer_select
+    optimistic: true
+    options:
+      - "5m"
+      - "10m"
+      - "15m"
+      - "never"
+    initial_option: "5m"
+    internal: true
+    restore_value: true
+    on_value:
+      then:
+        - lambda: |-
+            const uint32_t MINUTES_TO_SECONDS = 60;
+            switch(i) {
+            case 0:
+              id(current_display_off_threshold_s) = 5 * MINUTES_TO_SECONDS;
+              break;
+            case 1:
+              id(current_display_off_threshold_s) = 10 * MINUTES_TO_SECONDS;
+              break;
+            case 2:
+              id(current_display_off_threshold_s) = 15 * MINUTES_TO_SECONDS;
+              break;
+            case 3:
+              id(current_display_off_threshold_s) = 0;
+              break;
+            };
+            id(current_display_off_s) = 0;
+
+# Display off interval
+interval:
+  - id: display_off_interval
+    interval: 1s
+    then:
+      - lambda: |-
+          if (id(current_display_off_threshold_s) == 0)
+            return;
+
+          if (id(current_display_off_s) >= id(current_display_off_threshold_s)) {
+            id(display_menu).hide();
+            id(${display_settings_id}).show_page(id(blank_page));
+          }
+          else {
+            id(current_display_off_s)++;
+          }

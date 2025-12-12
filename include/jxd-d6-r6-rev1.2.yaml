@@ -1,0 +1,133 @@
+pca9554:
+  - id: jxd_d6_r6_exp
+    pin_count: 16
+    address: 0x22
+
+switch:
+  # relay 1
+  - platform: gpio
+    name: "Relay 1"
+    id: relay_1
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 0
+      mode:
+        output: true
+      inverted: false
+  # relay 2
+  - platform: gpio
+    name: "Relay 2"
+    id: relay_2
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 1
+      mode:
+        output: true
+      inverted: false
+  # relay 3
+  - platform: gpio
+    name: "Relay 3"
+    id: relay_3
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 2
+      mode:
+        output: true
+      inverted: false
+  # relay 4
+  - platform: gpio
+    name: "Relay 4"
+    id: relay_4
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 3
+      mode:
+        output: true
+      inverted: false
+  # relay 5
+  - platform: gpio
+    name: "Relay 5"
+    id: relay_5
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 4
+      mode:
+        output: true
+      inverted: false
+  # relay 6
+  - platform: gpio
+    name: "Relay 6"
+    id: relay_6
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 5
+      mode:
+        output: true
+      inverted: false
+
+binary_sensor:
+# input 1
+  - platform: gpio
+    name: "Input 1"
+    id: input_1
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 8
+      mode:
+        input: true
+      inverted: false
+
+  # input 2
+  - platform: gpio
+    name: "Input 2"
+    id: input_2
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 9
+      mode:
+        input: true
+      inverted: false
+
+  # input 3
+  - platform: gpio
+    name: "Input 3"
+    id: input_3
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 10
+      mode:
+        input: true
+      inverted: False
+
+  # input 4
+  - platform: gpio
+    name: "Input 4"
+    id: input_4
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 11
+      mode:
+        input: true
+      inverted: false
+
+  # input 5
+  - platform: gpio
+    name: "Input 5"
+    id: input_5
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 12
+      mode:
+        input: true
+      inverted: false
+
+  # input 6
+  - platform: gpio
+    name: "Input 6"
+    id: input_6
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 13
+      mode:
+        input: true
+      inverted: false

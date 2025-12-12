@@ -1,0 +1,34 @@
+wifi:
+  id: wifi_id
+  reboot_timeout: 5min
+  enable_on_boot: false
+  ap:
+
+captive_portal:
+  id: captive_portal_id
+
+script:
+  - id: reset_wifi
+    then:
+      - logger.log: 'Reset WiFi creds'
+      - lambda: 'id(wifi_id).save_wifi_sta("", "");'
+      - lambda: 'App.reboot();'
+  - id: set_wifi_ap
+    then:
+      - lambda: |-
+          wifi::WiFiAP wifi_ap;
+          uint8_t mac[6];
+          get_mac_address_raw(mac);
+          wifi_ap.set_ssid("${friendly_name}-" + str_snprintf("%02X%02X", 4, mac[4], mac[5]));
+          wifi_ap.set_password(str_snprintf("%02x%02x%02x%02x", 8, mac[2], mac[3], mac[4], mac[5]));
+          id(wifi_id)->set_ap(wifi_ap);
+
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "WiFi IP"
+      id: ip_wifi
+    mac_address:
+      name: "WiFi MAC"
+      id: mac_wifi

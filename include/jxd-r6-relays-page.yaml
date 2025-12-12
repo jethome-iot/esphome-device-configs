@@ -1,0 +1,116 @@
+globals:
+   - id: active_page_num
+     type: int
+     restore_value: no
+     initial_value: '1'
+   - id: active_relay_num
+     type: int
+     restore_value: no
+     initial_value: '1'
+
+display:
+  - platform: ssd1306_i2c
+    id: !extend ${display_settings_id}
+    pages:
+      - id: relays_page
+        lambda: |-
+          id(active_page_num) = 2;
+          auto black = Color(0, 0, 0);
+          //it.filled_rectangle(0, 0, 128, 13);
+          it.print(1, 0, id(f6x12), "RELAYS");
+
+          // R1
+          it.rectangle(0, 16, 17, 35);
+          if (id(active_page_num) == 2 && id(active_relay_num) == 1) {
+            it.filled_rectangle(0, 52, 17, 12);
+            it.print(4, 52, id(f6x12), black, "1");
+          } else {
+            it.print(4, 52, id(f6x12), "1");
+          }
+          if (id(relay_1).state) {
+            it.filled_rectangle(2, 18, 13, 15);
+            it.circle(8, 25, 3, black);
+          } else {
+            it.filled_rectangle(2, 34, 13, 15);
+            it.filled_circle(8, 41, 3, black);
+          }
+
+          // R2
+          it.rectangle(22, 16, 17, 35);
+          if (id(active_page_num) == 2 && id(active_relay_num) == 2) {
+            it.filled_rectangle(22, 52, 17, 12);
+            it.print(28, 52, id(f6x12), black, "2");
+          } else {
+            it.print(28, 52, id(f6x12), "2");
+          }
+          if (id(relay_2).state) {
+            it.filled_rectangle(24, 18, 13, 15);
+            it.circle(30, 25, 3, black);
+          } else {
+            it.filled_rectangle(24, 34, 13, 15);
+            it.filled_circle(30, 41, 3, black);
+          }
+
+          // R3
+          it.rectangle(44, 16, 17, 35);\
+          if (id(active_page_num) == 2 && id(active_relay_num) == 3) {
+            it.filled_rectangle(44, 52, 17, 12);
+            it.print(48, 52, id(f6x12), black, "3");
+          } else {
+            it.print(48, 52, id(f6x12), "3");
+          }
+          if (id(relay_3).state) {
+            it.filled_rectangle(46, 18, 13, 15);
+            it.circle(52, 25, 3, black);
+          } else {
+            it.filled_rectangle(46, 34, 13, 15);
+            it.filled_circle(52, 41, 3, black);
+          }
+
+          // R4
+          it.rectangle(66, 16, 17, 35);
+          if (id(active_page_num) == 2 && id(active_relay_num) == 4) {
+            it.filled_rectangle(66, 52, 17, 12);
+            it.print(70, 52, id(f6x12), black, "4");
+          } else {
+            it.print(70, 52, id(f6x12), "4");
+          }
+          if (id(relay_4).state) {
+            it.filled_rectangle(68, 18, 13, 15);
+            it.circle(74, 25, 3, black);
+          } else {
+            it.filled_rectangle(68, 34, 13, 15);
+            it.filled_circle(74, 41, 3, black);
+          }
+
+          // R5
+          it.rectangle(88, 16, 17, 35);
+          if (id(active_page_num) == 2 && id(active_relay_num) == 5) {
+            it.filled_rectangle(88, 52, 17, 12);
+            it.print(92, 52, id(f6x12), black, "5");
+          } else {
+            it.print(92, 52, id(f6x12), "5");
+          }
+          if (id(relay_5).state) {
+            it.filled_rectangle(90, 18, 13, 15);
+            it.circle(96, 25, 3, black);
+          } else {
+            it.filled_rectangle(90, 34, 13, 15);
+            it.filled_circle(96, 41, 3, black);
+          }
+
+          // R6
+          it.rectangle(110, 16, 17, 35);
+          if (id(active_page_num) == 2 && id(active_relay_num) == 6) {
+            it.filled_rectangle(110, 52, 17, 12);
+            it.print(114, 52, id(f6x12), black, "6");
+          } else {
+            it.print(114, 52, id(f6x12), "6");
+          }
+          if (id(relay_6).state) {
+            it.filled_rectangle(112, 18, 13, 15);
+            it.circle(118, 25, 3, black);
+          } else {
+            it.filled_rectangle(112, 34, 13, 15);
+            it.filled_circle(118, 41, 3, black);
+          }

@@ -1,0 +1,80 @@
+display:
+  - platform: ssd1306_i2c
+    id: !extend ${display_settings_id}
+    pages:
+      - id: status_page
+        lambda: |-
+          const auto width = it.get_width();
+          const auto height = it.get_height();
+          const int radius = 4;
+          const int x_spacing = 15;
+          const int y_indent = 8;
+          const int font_height = 7;
+          const int nums_y_indent = 3;
+          const int x_pos_start = 5;
+
+          // Top row - Relays
+          const char* relays_label = "Relays";
+          int label_y = 0;
+          it.printf(0, label_y, id(f5x7), relays_label);
+          int x_pos = x_pos_start;
+          int relay_num = 1;
+          for (auto *entity : id(rele_group_id)->items()) {
+            auto *relay = static_cast<switch_::Switch *>(entity);
+            int y_pos = label_y + font_height + y_indent;
+            if (relay->state) {
+              it.filled_circle(x_pos, y_pos, radius);
+            } else {
+              it.circle(x_pos, y_pos, radius);
+            }
+            it.printf(x_pos - 2, y_pos + radius + nums_y_indent, id(f5x7), "%d", relay_num);
+            x_pos += x_spacing;
+            relay_num++;
+          }
+
+          // Bottom row - Inputs
+          const char* inputs_label = "Inputs";
+          label_y = 32;
+          it.printf(0, label_y, id(f5x7), inputs_label);
+          x_pos = x_pos_start;
+          int input_num = 1;
+          for (auto *entity : id(digital_inputs_group_id)->items()) {
+            auto *input = static_cast<binary_sensor::BinarySensor *>(entity);
+            int y_pos = label_y + font_height + y_indent;
+            if (input->state) {
+              it.filled_circle(x_pos, y_pos, radius);
+            } else {
+              it.circle(x_pos, y_pos, radius);
+            }
+            it.printf(x_pos - 2, y_pos + radius + nums_y_indent, id(f5x7), "%d", input_num);
+            x_pos += x_spacing;
+            input_num++;
+          }
+
+          // Right side - Temperature sensors
+          const char* temp_label = "Temp";
+          const int temp_x = 92;
+          const int temp_y_spacing = 4;
+          int temp_y = 0;
+          it.printf(temp_x, temp_y, id(f5x7), temp_label);
+          temp_y += font_height + temp_y_spacing;
+          x_pos = temp_x;
+          for (auto *entity : id(onewire_group_id)->items()) {
+            auto *sensor = static_cast<sensor::Sensor *>(entity);
+
+            // Print short name (truncated to 7 chars)
+            std::string name = sensor->get_name();
+            if (name.length() > 7) {
+              name = name.substr(0, 7);
+            }
+            it.printf(x_pos, temp_y, id(f5x7), "%s", name.c_str());
+            temp_y += font_height + 1;
+
+            // Print temperature value
+            if (sensor->has_state()) {
+              it.printf(x_pos, temp_y, id(f5x7), "%.1f", sensor->state);
+            } else {
+              it.printf(x_pos, temp_y, id(f5x7), "--.-");
+            }
+            temp_y += font_height + temp_y_spacing;
+          }

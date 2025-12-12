@@ -1,0 +1,19 @@
+time:
+# RTC PCF8563
+  - platform: pcf8563
+    id: pcf8563_time
+    address: 0x51
+    timezone: Asia/Shanghai
+    update_interval: 15min
+# Getting time from ntp
+  - platform: sntp
+    id: sntp_time
+    timezone: Asia/Shanghai
+    servers:
+      - 0.pool.ntp.org
+      - 1.pool.ntp.org
+      - 2.pool.ntp.org
+# Time synchronization
+    on_time_sync:
+      then:
+        pcf8563.write_time:

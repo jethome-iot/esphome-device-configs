@@ -1,0 +1,24 @@
+esphome:
+  includes:
+    - <network_states.h>
+
+globals:
+  - id: connection_state
+    type: NetworkState
+    initial_value: NetworkState::DISCONNECTED
+
+interval:
+  - interval: 1s
+    then:
+      lambda: |-
+
+        // Uncomment if use Ethernet
+        bool connected = id(ethernet_id).is_connected();
+
+        // Uncomment if use WiFi
+        //bool connected = id(wifi_id).is_connected();
+
+        id(connection_state) = connected ? NetworkState::CONNECTED : NetworkState::DISCONNECTED;
+
+        if (connected && global_api_server->is_connected())
+          id(connection_state) = NetworkState::CONNECTED_HA;

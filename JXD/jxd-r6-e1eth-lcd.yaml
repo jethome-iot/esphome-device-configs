@@ -1,0 +1,29 @@
+substitutions:
+  name: "jxd-r6-e1eth-lcd"
+  friendly_name: JXD-R6-E1ETH-LCD
+  device_description: JXD-R6-E1ETH-LCD v1
+  version: 1.0.0
+
+packages:
+  display: !include ../include/jxd-r6-e1eth-display.yaml
+  main: !include jxd-r6-e1eth-base.yaml
+
+esphome:
+  project:
+    name: JetHub.JXD R6-E1ETH-LCD
+    version: ${version}
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+
+http_request:
+
+ota:
+  - platform: http_request
+    id: ota_http_request
+
+dashboard_import:
+  package_import_url: github://jethome-iot/esphome-configs/JXD/jxd-r6-e1eth-lcd.yaml@master
+  import_full_config: true

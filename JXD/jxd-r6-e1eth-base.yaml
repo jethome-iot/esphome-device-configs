@@ -1,0 +1,125 @@
+packages:
+  d6-r6-board: !include ../include/jxd-d6-r6-rev1.2.yaml
+  vin_measure: !include ../include/jxd-r6-vin-measure.yaml
+  time: !include ../include/jxd-r6-e1eth-time.yaml
+  one-wire: !include ../include/jxd-r6-one-wire.yaml
+  # Uncomment if use WiFi
+  # wifi: !include ../include/wifi.yaml
+  ethernet: !include ../include/jxd-r6-eth.yaml
+
+substitutions: #defaults
+  name: "jxd-r6-e1eth-main"
+  friendly_name: JXD-R6-E1ETH
+  device_description: JXD-R6-E1ETH v1
+
+api:
+  encryption:
+  reboot_timeout: 15min
+
+esphome:
+  name: ${name}
+  name_add_mac_suffix: true
+  friendly_name: ${friendly_name}
+  on_boot:
+    priority: 600
+    then:
+      # Uncomment if use WiFi
+      #- script.execute: set_wifi_ap
+      - delay: 200ms
+      - pcf8563.read_time:
+          id: pcf8563_time
+
+ota:
+  - platform: esphome
+
+esp32:
+  board: esp32dev
+  flash_size: 8MB
+  framework:
+    type: esp-idf
+# Custom sdkconfig options
+    sdkconfig_options:
+      CONFIG_COMPILER_OPTIMIZATION_SPEED: y
+      CONFIG_D0WD_PSRAM_CLK_IO: "6"
+
+psram:
+  mode: quad
+  speed: 80MHz
+
+# Enable logging
+logger:
+  level: debug
+  logs:
+    esp-idf: INFO
+    wifi: INFO
+    sensor: INFO
+
+# Enable built-in web server
+web_server:
+  port: 80
+
+groups:
+  - id: rele_group_id
+    name: "Relays"
+    entities:
+      - relay_1
+      - relay_2
+      - relay_3
+      - relay_4
+      - relay_5
+      - relay_6
+  - id: temperature_group_id
+    name: "Temperature"
+    entities:
+      - pcb_temp
+  - id: onewire_group_id
+    name: "OneWire Temp"
+    entities:
+      - temperature_sensor
+  - id: digital_inputs_group_id
+    name: "Digital inputs"
+    entities:
+      - input_1
+      - input_2
+      - input_3
+      - input_4
+      - input_5
+      - input_6
+
+text_sensor:
+  - platform: uptime
+    name: Uptime
+    id: uptime_sensor
+    internal: true
+    format:
+      separator: " "
+
+i2c:
+  sda: 5
+  scl: 4
+  frequency: 400kHz
+  scan: true
+  id: i2c1
+
+sensor:
+# temperature sensor
+  - platform: tmp102
+    name: "PCB Temp"
+    id: pcb_temp
+    update_interval: 20s
+    entity_category: diagnostic
+
+switch:
+  - platform: gpio
+    name: "Red led"
+    id: red_led
+    pin: GPIO2
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO0
+      inverted: true
+    name: "FN button"
+    id: fn_button
+    internal: true

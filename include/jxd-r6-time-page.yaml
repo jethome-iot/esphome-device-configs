@@ -1,0 +1,14 @@
+display:
+  - platform: ssd1306_i2c
+    id: !extend ${display_settings_id}
+    pages:
+      - id: time_page
+        lambda: |-
+          const auto width = it.get_width();
+          const auto height = it.get_height();
+
+          // Display time centered using big_label_font font
+          it.strftime(width / 2, height / 2 - 12, id(big_label_font), TextAlign::CENTER, "%H:%M:%S", id(pcf8563_time).now());
+
+          // Display date centered below time using small_label_font font
+          it.strftime(width / 2, height / 2 + 8, id(f7x14_mod2), TextAlign::CENTER, "%a, %b %d", id(pcf8563_time).now());
