@@ -92,15 +92,15 @@ graphical_display_menu:
             id(display1).show_page(id(inputs_page));
 
     - type: menu
-      text: "Temperature"
+      text: "Temperatures"
       items:
       - type: value
         text: !lambda |-
           return std::string(id(temperature_sensor).get_name());
-
         value_lambda: !lambda |-
           return str_sprintf(": %2.1f°C", id(temperature_sensor).state);
-      ### Add more temperature sensors here ###
+
+      ### Add more temperature sensors here like above ###
 
     - type: menu
       text: "Info"
