@@ -2,6 +2,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_NAME
 
+CODEOWNERS = ["@jethome-iot"]
 GROUPS_STORAGE_ID = "groups_storage_id"
 CONF_ENTITIES = "entities"
 CONF_GROUPS = "groups"
