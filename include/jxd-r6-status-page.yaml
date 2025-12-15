@@ -19,7 +19,7 @@ display:
           it.printf(0, label_y, id(f5x7), relays_label);
           int x_pos = x_pos_start;
           int relay_num = 1;
-          for (auto *entity : id(rele_group_id)->items()) {
+          for (auto *entity : id(relays_group_id)->items()) {
             auto *relay = static_cast<switch_::Switch *>(entity);
             int y_pos = label_y + font_height + y_indent;
             if (relay->state) {

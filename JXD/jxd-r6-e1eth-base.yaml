@@ -49,7 +49,7 @@ external_components:
     components: [groups]
 
 groups:
-  - id: rele_group_id
+  - id: relays_group_id
     name: "Relays"
     entities:
       - relay_1
