@@ -28,6 +28,7 @@ enum MenuItemType {
   MENU_ITEM_SWITCH,
   MENU_ITEM_COMMAND,
   MENU_ITEM_CUSTOM,
+  MENU_ITEM_VALUE
 };
 
 /// @brief Returns a string representation of a menu item type suitable for logging
@@ -71,6 +72,17 @@ class MenuItem {
   CallbackManager<void()> on_value_callbacks_{};
 };
 
+class MenuItemValueBase : public MenuItem {
+ public:
+  explicit MenuItemValueBase(MenuItemType t) : MenuItem(t) {}
+  void set_value_lambda(value_getter_t &&getter) { this->value_getter_ = getter; }
+  std::string get_value_text() const override;
+  bool has_value() const override { return this->value_getter_.has_value(); }
+
+ protected:
+  optional<value_getter_t> value_getter_{};
+};
+
 class MenuItemMenu : public MenuItem {
  public:
   explicit MenuItemMenu() : MenuItem(MENU_ITEM_MENU) {}
@@ -78,6 +90,7 @@ class MenuItemMenu : public MenuItem {
     item->set_parent(this);
     this->items_.push_back(item);
   }
+
   size_t items_size() const { return this->items_.size(); }
   MenuItem *get_item(size_t i) { return this->items_[i]; }
 
@@ -85,16 +98,14 @@ class MenuItemMenu : public MenuItem {
   std::vector<MenuItem *> items_;
 };
 
-class MenuItemEditable : public MenuItem {
+class MenuItemEditable : public MenuItemValueBase {
  public:
-  explicit MenuItemEditable(MenuItemType t) : MenuItem(t) {}
+  explicit MenuItemEditable(MenuItemType t) : MenuItemValueBase(t) {}
   void set_immediate_edit(bool val) { this->immediate_edit_ = val; }
   bool get_immediate_edit() const override { return this->immediate_edit_; }
-  void set_value_lambda(value_getter_t &&getter) { this->value_getter_ = getter; }
 
  protected:
   bool immediate_edit_{false};
-  optional<value_getter_t> value_getter_{};
 };
 
 #ifdef USE_SELECT
@@ -174,7 +185,6 @@ class MenuItemCustom : public MenuItemEditable {
   void add_on_prev_callback(std::function<void()> &&cb) { this->on_prev_callbacks_.add(std::move(cb)); }
 
   bool has_value() const override { return this->value_getter_.has_value(); }
-  std::string get_value_text() const override;
 
   bool select_next() override;
   bool select_prev() override;
@@ -185,6 +195,11 @@ class MenuItemCustom : public MenuItemEditable {
 
   CallbackManager<void()> on_next_callbacks_{};
   CallbackManager<void()> on_prev_callbacks_{};
+};
+
+class MenuItemValue : public MenuItemValueBase {
+ public:
+  explicit MenuItemValue() : MenuItemValueBase(MENU_ITEM_VALUE) {}
 };
 
 }  // namespace display_menu_base

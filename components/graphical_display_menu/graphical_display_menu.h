@@ -49,6 +49,7 @@ class GraphicalDisplayMenu : public display_menu_base::DisplayMenuComponent {
   void draw(display::Display *display, const display::Rect *bounds);
   void set_fill_row(bool val);
   void set_restore_page(bool val);
+  void set_shrink_label(bool val);
 
  protected:
   void draw_and_update() override;
@@ -64,6 +65,13 @@ class GraphicalDisplayMenu : public display_menu_base::DisplayMenuComponent {
   void on_before_show() override;
   void on_before_hide() override;
 
+  /** Shrink text with '…' with given font and max width
+   * @param str source string
+   * @param font Font
+   * @param max_width Max width
+   */
+  std::string shrink_text_to_width(const std::string &str, uint16_t max_width);
+
   std::unique_ptr<display::DisplayPage> display_page_{nullptr};
   const display::DisplayPage *previous_display_page_{nullptr};
   display::Display *display_{nullptr};
@@ -71,9 +79,11 @@ class GraphicalDisplayMenu : public display_menu_base::DisplayMenuComponent {
   TemplatableValue<std::string, const MenuItemValueArguments *> menu_item_value_;
   Color foreground_color_{COLOR_ON};
   Color background_color_{COLOR_OFF};
-  
+
   bool restore_page_;
   bool fill_row_;
+  bool shrink_label_;
+  
   CallbackManager<void()> on_redraw_callbacks_{};
 };
 

@@ -18,15 +18,18 @@ void GraphicalDisplayMenu::setup() {
 
   if (!this->menu_item_value_.has_value()) {
     this->menu_item_value_ = [](const MenuItemValueArguments *it) {
-      std::string label = " ";
+      std::string label;
       if (it->is_item_selected && it->is_menu_editing) {
-        label.append(">");
+        label.append(" >");
         label.append(it->item->get_value_text());
         label.append("<");
-      } else {
-        label.append("(");
+      } else if (it->item->get_type() == display_menu_base::MENU_ITEM_SWITCH) {
+        label.append(" (");
         label.append(it->item->get_value_text());
         label.append(")");
+      } else if (it->item->has_value()) {
+        label.append(": ");
+        label.append(it->item->get_value_text());
       }
       return label;
     };
@@ -63,6 +66,7 @@ void GraphicalDisplayMenu::set_font(display::BaseFont *font) { this->font_ = fon
 void GraphicalDisplayMenu::set_foreground_color(Color foreground_color) { this->foreground_color_ = foreground_color; }
 void GraphicalDisplayMenu::set_background_color(Color background_color) { this->background_color_ = background_color; }
 void GraphicalDisplayMenu::set_fill_row(bool val) { this->fill_row_ = val; }
+void GraphicalDisplayMenu::set_shrink_label(bool val) { this->shrink_label_ = val; }
 void GraphicalDisplayMenu::set_restore_page(bool val) { this->restore_page_ = val; }
 
 void GraphicalDisplayMenu::on_before_show() {
@@ -74,6 +78,46 @@ void GraphicalDisplayMenu::on_before_show() {
     this->update();
   }
 }
+
+std::string GraphicalDisplayMenu::shrink_text_to_width(const std::string &str, uint16_t max_width) {
+  static const char DOTS_STR[] = "…";
+  const size_t str_size = str.size();
+
+  if (str_size < 4)
+    return str;
+
+  int str_x1, str_y1, str_width, str_height;
+  this->display_->get_text_bounds(0, 0, str.c_str(), this->font_, display::TextAlign::TOP_LEFT, &str_x1, &str_y1, &str_width, &str_height);
+
+  if (max_width >= str_width) {
+    return str;
+  }
+
+  const size_t buffer_size = str_size + sizeof(DOTS_STR) + 1;
+  std::unique_ptr<char[]> buffer_ptr(new char[buffer_size]{0});
+  char *buffer = buffer_ptr.get();
+
+  int mid_index = str_size / 2;
+  int left_end = mid_index;
+  int right_start = mid_index + 1;
+
+  bool direction_to_right = true;
+
+  while (max_width < str_width) {
+    memcpy(buffer, str.c_str(), left_end);
+    strlcpy(buffer + left_end, DOTS_STR, buffer_size - left_end);
+    strlcat(buffer, str.c_str() + right_start, buffer_size);
+
+    this->display_->get_text_bounds(0, 0, buffer, this->font_, display::TextAlign::TOP_LEFT, &str_x1, &str_y1, &str_width, &str_height);
+
+    direction_to_right ? left_end-- : right_start++;
+
+    direction_to_right = !direction_to_right;
+  }
+
+  return std::string(buffer);
+}
+
 
 void GraphicalDisplayMenu::on_before_hide() {
   if (this->restore_page_ && this->previous_display_page_ != nullptr) {
@@ -222,23 +266,37 @@ display::Rect GraphicalDisplayMenu::measure_item(display::Display *display, cons
 }
 
 inline void GraphicalDisplayMenu::draw_item(display::Display *display, const display_menu_base::MenuItem *item,
-                                            const display::Rect *bounds, const bool selected) {
-  const auto background_color = selected ? this->foreground_color_ : this->background_color_;
-  const auto foreground_color = selected ? this->background_color_ : this->foreground_color_;
+  const display::Rect *bounds, const bool selected) {
+const auto background_color = selected ? this->foreground_color_ : this->background_color_;
+const auto foreground_color = selected ? this->background_color_ : this->foreground_color_;
 
-  // int background_width = std::max(bounds->width, available_width);
-  int background_width = bounds->w;
+// int background_width = std::max(bounds->width, available_width);
+int background_width = bounds->w;
 
-  display->filled_rectangle(bounds->x, bounds->y, background_width, bounds->h, background_color);
+display->filled_rectangle(bounds->x, bounds->y, background_width, bounds->h, background_color);
 
-  std::string label = item->get_text();
-  if (item->has_value()) {
-    MenuItemValueArguments args(item, selected, this->editing_);
-    label.append(this->menu_item_value_.value(&args));
-  }
+std::string label = item->get_text();
+std::string value;
+if (item->has_value()) {
+MenuItemValueArguments args(item, selected, this->editing_);
+value = this->menu_item_value_.value(&args);
+}
 
-  display->print(bounds->x, bounds->y, this->font_, foreground_color, display::TextAlign::TOP_LEFT, label.c_str(),
-                 background_color);
+int width_label = background_width;
+
+// Measure value size
+int value_x1, value_y1, value_width = 0, value_height;
+if (!value.empty()) {
+display->get_text_bounds(0, 0, value.c_str(), this->font_, display::TextAlign::TOP_LEFT, &value_x1, &value_y1,
+&value_width, &value_height);
+width_label -= value_width;
+}
+if (this->shrink_label_) {
+label = this->shrink_text_to_width(label, width_label);
+}
+std::string res = label + value;
+
+display->print(bounds->x, bounds->y, this->font_, foreground_color, display::TextAlign::TOP_LEFT, res.c_str());
 }
 
 void GraphicalDisplayMenu::draw_item(const display_menu_base::MenuItem *item, const uint8_t row, const bool selected) {
