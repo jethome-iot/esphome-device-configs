@@ -3,12 +3,13 @@ substitutions:
   friendly_name: JXD-R6-E1ETH-LCD
   device_description: JXD-R6-E1ETH-LCD v1
   version: 1.0.0
+  # timezone: Asia/Shanghai
 
 packages:
   display: !include ../include/jxd-r6-e1eth-display.yaml
   main: !include jxd-r6-e1eth-base.yaml
   wifi: !include ../include/wifi.yaml
-  wifi_menu: !include ../include/jxd-r6-wifi-menu-items.yaml 
+  wifi_menu: !include ../include/jxd-r6-wifi-menu-items.yaml
 
 esphome:
   name: ${name}

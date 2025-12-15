@@ -3,12 +3,12 @@ time:
   - platform: pcf8563
     id: pcf8563_time
     address: 0x51
-    timezone: Asia/Shanghai
+    timezone: ${timezone}
     update_interval: 15min
 # Getting time from ntp
   - platform: sntp
     id: sntp_time
-    timezone: Asia/Shanghai
+    timezone: ${timezone}
     servers:
       - 0.pool.ntp.org
       - 1.pool.ntp.org
