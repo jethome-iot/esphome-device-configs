@@ -28,8 +28,9 @@ esphome:
 
 external_components:
   - source:
-      type: local
+      type: local 
       path: ../components
+    components: [display_menu_base, graphical_display_menu]
 
 http_request:
 
