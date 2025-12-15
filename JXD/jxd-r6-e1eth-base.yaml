@@ -3,6 +3,8 @@ packages:
   vin_measure: !include ../include/jxd-r6-vin-measure.yaml
   time: !include ../include/jxd-r6-e1eth-time.yaml
   one-wire: !include ../include/jxd-r6-one-wire.yaml
+  modbus: !include ../include/jxd-jxm-modbus-auto.yaml
+  uarts: !include ../include/jxd-jxm-uarts.yaml
 
 substitutions: #defaults
   name: "jxd-r6-e1eth-main"

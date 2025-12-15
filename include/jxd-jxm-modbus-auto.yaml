@@ -1,0 +1,78 @@
+# Modbus Server configuration for JXD devices - Auto Group-Based Configuration
+# This file configures the device to act as a Modbus RTU server using the
+# modbus_server_group component which automatically creates coils and discrete
+# inputs from ESPHome groups.
+#
+# Dependencies:
+#   - jxd-jxm-uarts.yaml (for UART definitions)
+#   - Device must define relay switches in group 'relays_group_id'
+#   - Device must define binary sensors in group 'digital_inputs_group_id'
+#
+# Usage:
+#   packages:
+#     jxd_jxm_uarts: !include include/jxd-jxm-uarts.yaml
+#     jxd_jxm_modbus: !include include/jxd-jxm-modbus-auto.yaml
+#
+# Modbus Register Map:
+#   Function Code 0x01 (Read Coils):
+#     0xA000+ - Relay states (OFF/ON) - Read/Write
+#     One coil per switch in 'relays_group_id', sequential addresses
+#
+#   Function Code 0x02 (Read Discrete Inputs):
+#     0xA100+ - Digital Input states (OFF/ON) - Read-only
+#     One discrete input per binary sensor in 'digital_inputs_group_id', sequential
+#
+#   Function Code 0x03 (Read Holding Registers):
+#     0x0200 - Number of digital inputs (read-only)
+#     0x0201 - Number of relays/outputs (read-only)
+#
+#   Function Code 0x05 (Write Single Coil):
+#     Can write to any coil address in the relay range
+#
+#   Function Code 0x0F (Write Multiple Coils):
+#     Can write to any range of coils in the relay range
+#
+# Benefits over manual configuration:
+#   - No need to manually specify each relay/input
+#   - Automatically adapts to number of entities in groups
+#   - Cleaner, more maintainable configuration
+#   - Provides count registers for discovery
+
+external_components:
+  - source:
+      type: local 
+      path: ../components
+    components: [modbus, modbus_controller, modbus_server_group]
+
+
+# Modbus component configuration
+modbus:
+  id: modbus_jxd
+  uart_id: jxm_uart2
+  # flow_control_pin: GPIO_XX  # Optional: RS485 direction control pin
+  send_wait_time: 200ms
+  role: server  # Act as Modbus server (slave)
+
+# Modbus controller configuration
+modbus_controller:
+  - id: jxd_modbus_server
+    modbus_id: modbus_jxd
+    address: 0x01  # Modbus slave address
+    update_interval: 1s
+    server_courtesy_response:
+      enabled: true
+
+# Automatic group-based Modbus server configuration
+modbus_server_group:
+  id: modbus_server_group_config
+  modbus_controller_id: jxd_modbus_server
+  
+  # Configure outputs (relays) as coils
+  outputs_group: relays_group_id
+  outputs_start_address: 0xA000
+  
+  # Configure inputs (binary sensors) as discrete inputs
+  inputs_group: digital_inputs_group_id
+  inputs_start_address: 0xA000
+
+
