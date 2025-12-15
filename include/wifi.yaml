@@ -2,6 +2,7 @@ wifi:
   id: wifi_id
   reboot_timeout: 5min
   ap:
+    ap_timeout: 5s
 
 captive_portal:
   id: captive_portal_id
@@ -10,8 +11,10 @@ script:
   - id: reset_wifi
     then:
       - logger.log: 'Reset WiFi creds'
-      - lambda: 'id(wifi_id).save_wifi_sta("", "");'
-      - lambda: 'App.reboot();'
+      - lambda: |-
+          id(wifi_id).save_wifi_sta("", "");
+          App.safe_reboot();
+
   - id: set_wifi_ap
     then:
       - lambda: |-

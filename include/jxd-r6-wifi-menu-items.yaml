@@ -33,9 +33,14 @@ graphical_display_menu:
           text: "Reset WiFi creds"
           items:
             - type: label
+
               text: "Reset?"
 
             - type: command
               text: "Yes"
+              id: wifi_reset_yes
               on_value:
+                - lambda: |-
+                    id(wifi_reset_yes)->set_text("Yes - OK");
+                - delay: 1s
                 - script.execute: reset_wifi
