@@ -112,62 +112,19 @@ void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t 
            "0x%X.",
            this->address_, function_code, start_address, number_of_registers);
 
-  if (number_of_registers == 0 || number_of_registers > modbus::MAX_NUM_OF_REGISTERS_TO_READ) {
-    ESP_LOGW(TAG, "Invalid number of registers %d. Sending exception response.", number_of_registers);
-    this->send_error(function_code, ModbusExceptionCode::ILLEGAL_DATA_ADDRESS);
+  // Determine which collection to use based on function code and call template directly
+  if (function_code == static_cast<uint8_t>(ModbusFunctionCode::READ_INPUT_REGISTERS)) {
+    // FC 0x04 - Input Registers (read-only) - pass collection directly
+    this->read_registers_(server_input_registers_, start_address, number_of_registers, function_code, "input register");
+  } else if (function_code == static_cast<uint8_t>(ModbusFunctionCode::READ_HOLDING_REGISTERS)) {
+    // FC 0x03 - Holding Registers (read-write) - pass collection directly
+    this->read_registers_(server_holding_registers_, start_address, number_of_registers, function_code,
+                          "holding register");
+  } else {
+    ESP_LOGW(TAG, "Unsupported function code 0x%X for read registers. Sending exception response.", function_code);
+    this->send_error(function_code, ModbusExceptionCode::ILLEGAL_FUNCTION);
     return;
   }
-
-  std::vector<uint16_t> sixteen_bit_response;
-  for (uint16_t current_address = start_address; current_address < start_address + number_of_registers;) {
-    bool found = false;
-    for (auto *server_register : this->server_registers_) {
-      if (server_register->address == current_address) {
-        if (!server_register->read_lambda) {
-          break;
-        }
-        int64_t value = server_register->read_lambda();
-        ESP_LOGD(TAG, "Matched register. Address: 0x%02X. Value type: %zu. Register count: %u. Value: %s.",
-                 server_register->address, static_cast<size_t>(server_register->value_type),
-                 server_register->register_count, server_register->format_value(value).c_str());
-
-        std::vector<uint16_t> payload;
-        payload.reserve(server_register->register_count * 2);
-        number_to_payload(payload, value, server_register->value_type);
-        sixteen_bit_response.insert(sixteen_bit_response.end(), payload.cbegin(), payload.cend());
-        current_address += server_register->register_count;
-        found = true;
-        break;
-      }
-    }
-
-    if (!found) {
-      if (this->server_courtesy_response_.enabled &&
-          (current_address <= this->server_courtesy_response_.register_last_address)) {
-        ESP_LOGD(TAG,
-                 "Could not match any register to address 0x%02X, but default allowed. "
-                 "Returning default value: %d.",
-                 current_address, this->server_courtesy_response_.register_value);
-        sixteen_bit_response.push_back(this->server_courtesy_response_.register_value);
-        current_address += 1;  // Just increment by 1, as the default response is a single register
-      } else {
-        ESP_LOGW(TAG,
-                 "Could not match any register to address 0x%02X and default not allowed. Sending exception response.",
-                 current_address);
-        this->send_error(function_code, ModbusExceptionCode::ILLEGAL_DATA_ADDRESS);
-        return;
-      }
-    }
-  }
-
-  std::vector<uint8_t> response;
-  for (auto v : sixteen_bit_response) {
-    auto decoded_value = decode_value(v);
-    response.push_back(decoded_value[0]);
-    response.push_back(decoded_value[1]);
-  }
-
-  this->send(function_code, start_address, number_of_registers, response.size(), response.data());
 }
 
 void ModbusController::on_modbus_write_registers(uint8_t function_code, const std::vector<uint8_t> &data) {
@@ -204,16 +161,27 @@ void ModbusController::on_modbus_write_registers(uint8_t function_code, const st
            "0x%X.",
            this->address_, function_code, start_address, number_of_registers);
 
+  // Check for address range overflow (start_address + number_of_registers must not exceed address space)
+  if (static_cast<uint32_t>(start_address) + number_of_registers > MODBUS_ADDRESS_SPACE_SIZE) {
+    ESP_LOGW(TAG,
+             "Address range overflow: start_address 0x%04X + number_of_registers %d exceeds maximum address space. "
+             "Sending exception response.",
+             start_address, number_of_registers);
+    this->send_error(function_code, ModbusExceptionCode::ILLEGAL_DATA_ADDRESS);
+    return;
+  }
+
   auto for_each_register = [this, start_address, number_of_registers, payload_offset](
-                               const std::function<bool(ServerRegister *, uint16_t offset)> &callback) -> bool {
+                               const std::function<bool(ServerHoldingRegister *, uint16_t offset)> &callback) -> bool {
     uint16_t offset = payload_offset;
-    for (uint16_t current_address = start_address; current_address < start_address + number_of_registers;) {
+    uint16_t end_address = start_address + number_of_registers;  // Safe after overflow check above
+    for (uint16_t current_address = start_address; current_address < end_address;) {
       bool ok = false;
-      for (auto *server_register : this->server_registers_) {
-        if (server_register->address == current_address) {
-          ok = callback(server_register, offset);
-          current_address += server_register->register_count;
-          offset += server_register->register_count * sizeof(uint16_t);
+      for (auto *server_holding_register : this->server_holding_registers_) {
+        if (server_holding_register->address == current_address) {
+          ok = callback(server_holding_register, offset);
+          current_address += server_holding_register->register_count;
+          offset += server_holding_register->register_count * sizeof(uint16_t);
           break;
         }
       }
@@ -226,20 +194,140 @@ void ModbusController::on_modbus_write_registers(uint8_t function_code, const st
   };
 
   // check all registers are writable before writing to any of them:
-  if (!for_each_register([](ServerRegister *server_register, uint16_t offset) -> bool {
-        return server_register->write_lambda != nullptr;
+  if (!for_each_register([](ServerHoldingRegister *server_holding_register, uint16_t offset) -> bool {
+        return server_holding_register->write_lambda != nullptr;
       })) {
     this->send_error(function_code, ModbusExceptionCode::ILLEGAL_FUNCTION);
     return;
   }
 
   // Actually write to the registers:
-  if (!for_each_register([&data](ServerRegister *server_register, uint16_t offset) {
-        int64_t number = payload_to_number(data, server_register->value_type, offset, 0xFFFFFFFF);
-        return server_register->write_lambda(number);
+  if (!for_each_register([&data](ServerHoldingRegister *server_holding_register, uint16_t offset) {
+        int64_t number = payload_to_number(data, server_holding_register->value_type, offset, 0xFFFFFFFF);
+        return server_holding_register->write_lambda(number);
       })) {
     this->send_error(function_code, ModbusExceptionCode::SERVICE_DEVICE_FAILURE);
     return;
+  }
+
+  std::vector<uint8_t> response;
+  response.reserve(6);
+  response.push_back(this->address_);
+  response.push_back(function_code);
+  response.insert(response.end(), data.begin(), data.begin() + 4);
+  this->send_raw(response);
+}
+
+void ModbusController::on_modbus_read_coils(uint16_t start_address, uint16_t number_of_coils) {
+  ESP_LOGD(TAG, "Received read coils for device 0x%X. Start address: 0x%X. Number of coils: 0x%X.", this->address_,
+           start_address, number_of_coils);
+
+  // Pass collection directly to template function - zero overhead
+  this->read_boolean_items_(server_coils_, start_address, number_of_coils,
+                            static_cast<uint8_t>(ModbusFunctionCode::READ_COILS), "coil");
+}
+
+void ModbusController::on_modbus_read_discrete_inputs(uint16_t start_address, uint16_t number_of_inputs) {
+  ESP_LOGD(TAG, "Received read discrete inputs for device 0x%X. Start address: 0x%X. Number of inputs: 0x%X.",
+           this->address_, start_address, number_of_inputs);
+
+  // Pass collection directly to template function - zero overhead
+  this->read_boolean_items_(server_discrete_inputs_, start_address, number_of_inputs,
+                            static_cast<uint8_t>(ModbusFunctionCode::READ_DISCRETE_INPUTS), "discrete input");
+}
+
+void ModbusController::on_modbus_write_coils(uint8_t function_code, const std::vector<uint8_t> &data) {
+  uint16_t number_of_coils;
+  uint16_t payload_offset;
+
+  if (function_code == ModbusFunctionCode::WRITE_MULTIPLE_COILS) {
+    number_of_coils = uint16_t(data[3]) | (uint16_t(data[2]) << 8);
+    if (number_of_coils == 0 || number_of_coils > 1968) {  // Modbus spec limit for write multiple coils
+      ESP_LOGW(TAG, "Invalid number of coils %d. Sending exception response.", number_of_coils);
+      this->send_error(function_code, ModbusExceptionCode::ILLEGAL_DATA_VALUE);
+      return;
+    }
+    uint16_t payload_size = data[4];
+    uint16_t expected_byte_count = (number_of_coils + 7) / 8;
+    if (payload_size != expected_byte_count) {
+      ESP_LOGW(TAG, "Payload size of %d bytes doesn't match expected %d bytes. Sending exception response.",
+               payload_size, expected_byte_count);
+      this->send_error(function_code, ModbusExceptionCode::ILLEGAL_DATA_VALUE);
+      return;
+    }
+    payload_offset = 5;
+  } else if (function_code == ModbusFunctionCode::WRITE_SINGLE_COIL) {
+    number_of_coils = 1;
+    payload_offset = 2;
+  } else {
+    ESP_LOGW(TAG, "Invalid function code 0x%X. Sending exception response.", function_code);
+    this->send_error(function_code, ModbusExceptionCode::ILLEGAL_FUNCTION);
+    return;
+  }
+
+  uint16_t start_address = uint16_t(data[1]) | (uint16_t(data[0]) << 8);
+  ESP_LOGD(TAG, "Received write coils for device 0x%X. FC: 0x%X. Start address: 0x%X. Number of coils: 0x%X.",
+           this->address_, function_code, start_address, number_of_coils);
+
+  // Check for address range overflow (start_address + number_of_coils must not exceed address space)
+  if (static_cast<uint32_t>(start_address) + number_of_coils > MODBUS_ADDRESS_SPACE_SIZE) {
+    ESP_LOGW(TAG,
+             "Address range overflow: start_address 0x%04X + number_of_coils %d exceeds maximum address space. "
+             "Sending exception response.",
+             start_address, number_of_coils);
+    this->send_error(function_code, ModbusExceptionCode::ILLEGAL_DATA_ADDRESS);
+    return;
+  }
+
+  // Check all coils are writable before writing to any of them
+  uint16_t end_address = start_address + number_of_coils;  // Safe after overflow check above
+  for (uint16_t current_address = start_address; current_address < end_address; current_address++) {
+    bool found = false;
+    for (auto *server_coil : this->server_coils_) {
+      if (server_coil->address == current_address) {
+        if (!server_coil->write_lambda) {
+          ESP_LOGW(TAG, "Coil at address 0x%02X is not writable. Sending exception response.", current_address);
+          this->send_error(function_code, ModbusExceptionCode::ILLEGAL_FUNCTION);
+          return;
+        }
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      ESP_LOGW(TAG, "Could not match any coil to address 0x%02X. Sending exception response.", current_address);
+      this->send_error(function_code, ModbusExceptionCode::ILLEGAL_DATA_ADDRESS);
+      return;
+    }
+  }
+
+  // Actually write to the coils
+  for (uint16_t current_address = start_address; current_address < end_address; current_address++) {
+    uint16_t coil_index = current_address - start_address;
+    bool value;
+
+    if (function_code == ModbusFunctionCode::WRITE_SINGLE_COIL) {
+      // For WRITE_SINGLE_COIL, value is 0xFF00 for ON, 0x0000 for OFF
+      uint16_t coil_value = uint16_t(data[3]) | (uint16_t(data[2]) << 8);
+      value = (coil_value == 0xFF00);
+    } else {
+      // For WRITE_MULTIPLE_COILS, unpack bits from bytes
+      size_t byte_index = payload_offset + (coil_index / 8);
+      size_t bit_index = coil_index % 8;
+      value = (data[byte_index] & (1 << bit_index)) != 0;
+    }
+
+    for (auto *server_coil : this->server_coils_) {
+      if (server_coil->address == current_address) {
+        if (!server_coil->write_lambda(value)) {
+          ESP_LOGW(TAG, "Failed to write coil at address 0x%02X. Sending exception response.", current_address);
+          this->send_error(function_code, ModbusExceptionCode::SERVICE_DEVICE_FAILURE);
+          return;
+        }
+        ESP_LOGV(TAG, "Wrote coil at address 0x%02X. Value: %s.", current_address, ONOFF(value));
+        break;
+      }
+    }
   }
 
   std::vector<uint8_t> response;
@@ -453,10 +541,18 @@ void ModbusController::dump_config() {
                 "  Server Courtesy Response:\n"
                 "    Enabled: %s\n"
                 "    Register Last Address: 0x%02X\n"
-                "    Register Value: %d",
+                "    Register Value: %d\n"
+                "    Coil Last Address: 0x%02X\n"
+                "    Coil Value: %s\n"
+                "    Discrete Input Last Address: 0x%02X\n"
+                "    Discrete Input Value: %s",
                 this->address_, this->max_cmd_retries_, this->offline_skip_updates_,
                 this->server_courtesy_response_.enabled ? "true" : "false",
-                this->server_courtesy_response_.register_last_address, this->server_courtesy_response_.register_value);
+                this->server_courtesy_response_.register_last_address, this->server_courtesy_response_.register_value,
+                this->server_courtesy_response_.coil_last_address,
+                this->server_courtesy_response_.coil_value ? "true" : "false",
+                this->server_courtesy_response_.discrete_input_last_address,
+                this->server_courtesy_response_.discrete_input_value ? "true" : "false");
 
 #if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
   ESP_LOGCONFIG(TAG, "sensormap");
@@ -470,8 +566,13 @@ void ModbusController::dump_config() {
     ESP_LOGCONFIG(TAG, "  Range type=%zu start=0x%X count=%d skip_updates=%d", static_cast<uint8_t>(it.register_type),
                   it.start_address, it.register_count, it.skip_updates);
   }
-  ESP_LOGCONFIG(TAG, "server registers");
-  for (auto &r : this->server_registers_) {
+  ESP_LOGCONFIG(TAG, "server input registers");
+  for (auto &r : this->server_input_registers_) {
+    ESP_LOGCONFIG(TAG, "  Address=0x%02X value_type=%zu register_count=%u", r->address,
+                  static_cast<uint8_t>(r->value_type), r->register_count);
+  }
+  ESP_LOGCONFIG(TAG, "server holding registers");
+  for (auto &r : this->server_holding_registers_) {
     ESP_LOGCONFIG(TAG, "  Address=0x%02X value_type=%zu register_count=%u", r->address,
                   static_cast<uint8_t>(r->value_type), r->register_count);
   }
@@ -825,6 +926,176 @@ void ModbusController::add_on_online_callback(std::function<void(int, int)> &&ca
 void ModbusController::add_on_offline_callback(std::function<void(int, int)> &&callback) {
   this->offline_callback_.add(std::move(callback));
 }
+
+// Template implementations for generic read functions
+
+template<typename Container>
+bool ModbusController::read_boolean_items_(const Container &items, uint16_t start_address, uint16_t item_count,
+                                           uint8_t function_code, const char *item_type_name) {
+  if (item_count == 0 || item_count > MAX_BOOLEAN_ITEMS) {
+    ESP_LOGW(TAG, "Invalid number of %s %d. Sending exception response.", item_type_name, item_count);
+    this->send_error(function_code, ModbusExceptionCode::ILLEGAL_DATA_ADDRESS);
+    return false;
+  }
+
+  // Check for address range overflow (start_address + item_count must not exceed address space)
+  if (static_cast<uint32_t>(start_address) + item_count > MODBUS_ADDRESS_SPACE_SIZE) {
+    ESP_LOGW(TAG,
+             "Address range overflow: start_address 0x%04X + item_count %d exceeds maximum address space. "
+             "Sending exception response.",
+             start_address, item_count);
+    this->send_error(function_code, ModbusExceptionCode::ILLEGAL_DATA_ADDRESS);
+    return false;
+  }
+
+  // Determine courtesy response parameters based on function code
+  bool is_coil = (function_code == static_cast<uint8_t>(ModbusFunctionCode::READ_COILS));
+  uint16_t courtesy_last_address = is_coil ? this->server_courtesy_response_.coil_last_address
+                                           : this->server_courtesy_response_.discrete_input_last_address;
+  bool courtesy_value =
+      is_coil ? this->server_courtesy_response_.coil_value : this->server_courtesy_response_.discrete_input_value;
+
+  std::bitset<MAX_BOOLEAN_ITEMS> states;
+
+  for (uint16_t i = 0; i < item_count; i++) {
+    uint16_t current_address = start_address + i;
+    bool found = false;
+
+    for (auto *item : items) {
+      if (item->address == current_address) {
+        if (!item->read_lambda) {
+          ESP_LOGW(TAG, "%s at address 0x%02X has no read lambda. Sending exception response.", item_type_name,
+                   current_address);
+          this->send_error(function_code, ModbusExceptionCode::ILLEGAL_DATA_ADDRESS);
+          return false;
+        }
+        bool value = item->read_lambda();
+        ESP_LOGV(TAG, "Matched %s. Address: 0x%02X. Value: %s.", item_type_name, item->address, ONOFF(value));
+        states[i] = value;
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      if (this->server_courtesy_response_.enabled && (current_address <= courtesy_last_address)) {
+        ESP_LOGV(TAG, "Could not match any %s to address 0x%02X, but default allowed. Returning default value: %s.",
+                 item_type_name, current_address, ONOFF(courtesy_value));
+        states[i] = courtesy_value;
+      } else {
+        ESP_LOGW(TAG, "Could not match any %s to address 0x%02X and default not allowed. Sending exception response.",
+                 item_type_name, current_address);
+        this->send_error(function_code, ModbusExceptionCode::ILLEGAL_DATA_ADDRESS);
+        return false;
+      }
+    }
+  }
+
+  std::vector<uint8_t> response_bytes;
+  uint8_t byte_count = (item_count + 7) / 8;
+  response_bytes.reserve(byte_count);
+
+  for (size_t i = 0; i < byte_count; i++) {
+    uint8_t byte_value = 0;
+    for (size_t bit = 0; bit < 8 && (i * 8 + bit) < item_count; bit++) {
+      if (states[i * 8 + bit]) {
+        byte_value |= (1 << bit);
+      }
+    }
+    response_bytes.push_back(byte_value);
+  }
+
+  this->send(function_code, start_address, item_count, response_bytes.size(), response_bytes.data());
+  return true;
+}
+
+template<typename Container>
+bool ModbusController::read_registers_(const Container &items, uint16_t start_address, uint16_t register_count,
+                                       uint8_t function_code, const char *register_type_name) {
+  if (register_count == 0 || register_count > modbus::MAX_NUM_OF_REGISTERS_TO_READ) {
+    ESP_LOGW(TAG, "Invalid number of %s %d. Sending exception response.", register_type_name, register_count);
+    this->send_error(function_code, ModbusExceptionCode::ILLEGAL_DATA_ADDRESS);
+    return false;
+  }
+
+  // Check for address range overflow (start_address + register_count must not exceed address space)
+  if (static_cast<uint32_t>(start_address) + register_count > MODBUS_ADDRESS_SPACE_SIZE) {
+    ESP_LOGW(TAG,
+             "Address range overflow: start_address 0x%04X + register_count %d exceeds maximum address space. "
+             "Sending exception response.",
+             start_address, register_count);
+    this->send_error(function_code, ModbusExceptionCode::ILLEGAL_DATA_ADDRESS);
+    return false;
+  }
+
+  std::vector<uint16_t> sixteen_bit_response;
+  uint16_t end_address = start_address + register_count;  // Safe after overflow check above
+  for (uint16_t current_address = start_address; current_address < end_address;) {
+    bool found = false;
+    for (auto *item : items) {
+      if (item->address == current_address) {
+        if (!item->read_lambda) {
+          break;
+        }
+        int64_t value = item->read_lambda();
+        ESP_LOGV(TAG, "Matched %s. Address: 0x%02X. Value type: %zu. Register count: %u. Value: %s.",
+                 register_type_name, item->address, static_cast<size_t>(item->value_type), item->register_count,
+                 item->format_value(value).c_str());
+
+        std::vector<uint16_t> payload;
+        payload.reserve(item->register_count * 2);
+        number_to_payload(payload, value, item->value_type);
+        sixteen_bit_response.insert(sixteen_bit_response.end(), payload.cbegin(), payload.cend());
+        current_address += item->register_count;
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      if (this->server_courtesy_response_.enabled &&
+          (current_address <= this->server_courtesy_response_.register_last_address)) {
+        ESP_LOGV(TAG,
+                 "Could not match any %s to address 0x%02X, but default allowed. "
+                 "Returning default value: %d.",
+                 register_type_name, current_address, this->server_courtesy_response_.register_value);
+        sixteen_bit_response.push_back(this->server_courtesy_response_.register_value);
+        current_address += 1;  // Just increment by 1, as the default response is a single register
+      } else {
+        ESP_LOGW(TAG, "Could not match any %s to address 0x%02X and default not allowed. Sending exception response.",
+                 register_type_name, current_address);
+        this->send_error(function_code, ModbusExceptionCode::ILLEGAL_DATA_ADDRESS);
+        return false;
+      }
+    }
+  }
+
+  std::vector<uint8_t> response;
+  for (auto v : sixteen_bit_response) {
+    auto decoded_value = decode_value(v);
+    response.push_back(decoded_value[0]);
+    response.push_back(decoded_value[1]);
+  }
+
+  this->send(function_code, start_address, register_count, response.size(), response.data());
+  return true;
+}
+
+// Explicit template instantiations
+template bool ModbusController::read_boolean_items_<std::vector<ServerCoil *>>(const std::vector<ServerCoil *> &items,
+                                                                               uint16_t start_address,
+                                                                               uint16_t item_count,
+                                                                               uint8_t function_code,
+                                                                               const char *item_type_name);
+template bool ModbusController::read_boolean_items_<std::vector<ServerDiscreteInput *>>(
+    const std::vector<ServerDiscreteInput *> &items, uint16_t start_address, uint16_t item_count, uint8_t function_code,
+    const char *item_type_name);
+template bool ModbusController::read_registers_<std::vector<ServerInputRegister *>>(
+    const std::vector<ServerInputRegister *> &items, uint16_t start_address, uint16_t register_count,
+    uint8_t function_code, const char *register_type_name);
+template bool ModbusController::read_registers_<std::vector<ServerHoldingRegister *>>(
+    const std::vector<ServerHoldingRegister *> &items, uint16_t start_address, uint16_t register_count,
+    uint8_t function_code, const char *register_type_name);
 
 }  // namespace modbus_controller
 }  // namespace esphome

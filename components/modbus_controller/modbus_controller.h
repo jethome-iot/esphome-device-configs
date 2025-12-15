@@ -5,6 +5,7 @@
 #include "esphome/components/modbus/modbus.h"
 #include "esphome/core/automation.h"
 
+#include <bitset>
 #include <list>
 #include <queue>
 #include <set>
@@ -234,18 +235,22 @@ struct ServerCourtesyResponse {
   bool enabled{false};
   uint16_t register_last_address{0xFFFF};
   uint16_t register_value{0};
+  uint16_t coil_last_address{0xFFFF};
+  bool coil_value{false};
+  uint16_t discrete_input_last_address{0xFFFF};
+  bool discrete_input_value{false};
 };
 
-class ServerRegister {
-  using ReadLambda = std::function<int64_t()>;
-  using WriteLambda = std::function<bool(int64_t value)>;
-
+class ServerRegisterItem {
  public:
-  ServerRegister(uint16_t address, SensorValueType value_type, uint8_t register_count) {
+  using ReadLambda = std::function<int64_t()>;
+
+  ServerRegisterItem(uint16_t address, SensorValueType value_type, uint8_t register_count) {
     this->address = address;
     this->value_type = value_type;
     this->register_count = register_count;
   }
+  virtual ~ServerRegisterItem() = default;
 
   template<typename T> void set_read_lambda(const std::function<T(uint16_t address)> &&user_read_lambda) {
     this->read_lambda = [this, user_read_lambda]() -> int64_t {
@@ -255,17 +260,6 @@ class ServerRegister {
       } else {
         return static_cast<int64_t>(user_value);
       }
-    };
-  }
-
-  template<typename T>
-  void set_write_lambda(const std::function<bool(uint16_t address, const T v)> &&user_write_lambda) {
-    this->write_lambda = [this, user_write_lambda](int64_t number) {
-      if constexpr (std::is_same_v<T, float>) {
-        float float_value = bit_cast<float>(static_cast<uint32_t>(number));
-        return user_write_lambda(this->address, float_value);
-      }
-      return user_write_lambda(this->address, static_cast<T>(number));
     };
   }
 
@@ -296,7 +290,66 @@ class ServerRegister {
   SensorValueType value_type{SensorValueType::RAW};
   uint8_t register_count{0};
   ReadLambda read_lambda;
+};
+
+class ServerInputRegister : public ServerRegisterItem {
+ public:
+  ServerInputRegister(uint16_t address, SensorValueType value_type, uint8_t register_count)
+      : ServerRegisterItem(address, value_type, register_count) {}
+};
+
+class ServerHoldingRegister : public ServerRegisterItem {
+  using WriteLambda = std::function<bool(int64_t value)>;
+
+ public:
+  ServerHoldingRegister(uint16_t address, SensorValueType value_type, uint8_t register_count)
+      : ServerRegisterItem(address, value_type, register_count) {}
+
+  template<typename T>
+  void set_write_lambda(const std::function<bool(uint16_t address, const T v)> &&user_write_lambda) {
+    this->write_lambda = [this, user_write_lambda](int64_t number) {
+      if constexpr (std::is_same_v<T, float>) {
+        float float_value = bit_cast<float>(static_cast<uint32_t>(number));
+        return user_write_lambda(this->address, float_value);
+      }
+      return user_write_lambda(this->address, static_cast<T>(number));
+    };
+  }
+
   WriteLambda write_lambda;
+};
+
+class ServerBooleanItem {
+ public:
+  using ReadLambda = std::function<bool()>;
+
+  ServerBooleanItem(uint16_t address) { this->address = address; }
+  virtual ~ServerBooleanItem() = default;
+
+  void set_read_lambda(const std::function<bool(uint16_t address)> &&user_read_lambda) {
+    this->read_lambda = [this, user_read_lambda]() -> bool { return user_read_lambda(this->address); };
+  }
+
+  uint16_t address{0};
+  ReadLambda read_lambda;
+};
+
+class ServerCoil : public ServerBooleanItem {
+  using WriteLambda = std::function<bool(bool value)>;
+
+ public:
+  ServerCoil(uint16_t address) : ServerBooleanItem(address) {}
+
+  void set_write_lambda(const std::function<bool(uint16_t address, bool value)> &&user_write_lambda) {
+    this->write_lambda = [this, user_write_lambda](bool value) { return user_write_lambda(this->address, value); };
+  }
+
+  WriteLambda write_lambda;
+};
+
+class ServerDiscreteInput : public ServerBooleanItem {
+ public:
+  ServerDiscreteInput(uint16_t address) : ServerBooleanItem(address) {}
 };
 
 // ModbusController::create_register_ranges_ tries to optimize register range
@@ -461,6 +514,11 @@ class ModbusCommandItem {
 
 class ModbusController : public PollingComponent, public modbus::ModbusDevice {
  public:
+  /// Modbus specification limit for boolean items (coils and discrete inputs)
+  static constexpr uint16_t MAX_BOOLEAN_ITEMS = 2000;
+  /// Modbus address space size (16-bit address space: 0x0000 to 0xFFFF)
+  static constexpr uint32_t MODBUS_ADDRESS_SPACE_SIZE = 0x10000;
+
   void dump_config() override;
   void loop() override;
   void setup() override;
@@ -470,8 +528,20 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   void queue_command(const ModbusCommandItem &command);
   /// Registers a sensor with the controller. Called by esphomes code generator
   void add_sensor_item(SensorItem *item) { sensorset_.insert(item); }
-  /// Registers a server register with the controller. Called by esphomes code generator
-  void add_server_register(ServerRegister *server_register) { server_registers_.push_back(server_register); }
+  /// Registers a server input register with the controller. Called by esphomes code generator
+  void add_server_input_register(ServerInputRegister *server_input_register) {
+    server_input_registers_.push_back(server_input_register);
+  }
+  /// Registers a server holding register with the controller. Called by esphomes code generator
+  void add_server_holding_register(ServerHoldingRegister *server_holding_register) {
+    server_holding_registers_.push_back(server_holding_register);
+  }
+  /// Registers a server coil with the controller. Called by esphomes code generator
+  void add_server_coil(ServerCoil *server_coil) { server_coils_.push_back(server_coil); }
+  /// Registers a server discrete input with the controller. Called by esphomes code generator
+  void add_server_discrete_input(ServerDiscreteInput *server_discrete_input) {
+    server_discrete_inputs_.push_back(server_discrete_input);
+  }
   /// called when a modbus response was parsed without errors
   void on_modbus_data(const std::vector<uint8_t> &data) override;
   /// called when a modbus error response was received
@@ -480,6 +550,12 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   void on_modbus_read_registers(uint8_t function_code, uint16_t start_address, uint16_t number_of_registers) final;
   /// called when a modbus request (function code 0x06 or 0x10) was parsed without errors
   void on_modbus_write_registers(uint8_t function_code, const std::vector<uint8_t> &data) final;
+  /// called when a modbus request (function code 0x01) was parsed without errors
+  void on_modbus_read_coils(uint16_t start_address, uint16_t number_of_coils) final;
+  /// called when a modbus request (function code 0x02) was parsed without errors
+  void on_modbus_read_discrete_inputs(uint16_t start_address, uint16_t number_of_inputs) final;
+  /// called when a modbus request (function code 0x05 or 0x0F) was parsed without errors
+  void on_modbus_write_coils(uint8_t function_code, const std::vector<uint8_t> &data) final;
   /// default delegate called by process_modbus_data when a response has retrieved from the incoming queue
   void on_register_data(ModbusRegisterType register_type, uint16_t start_address, const std::vector<uint8_t> &data);
   /// default delegate called by process_modbus_data when a response for a write response has retrieved from the
@@ -530,10 +606,24 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   bool send_next_command_();
   /// dump the parsed sensormap for diagnostics
   void dump_sensors_();
+  /// generic template function to read boolean items (coils or discrete inputs)
+  template<typename Container>
+  bool read_boolean_items_(const Container &items, uint16_t start_address, uint16_t item_count, uint8_t function_code,
+                           const char *item_type_name);
+  /// generic template function to read register items (input or holding registers)
+  template<typename Container>
+  bool read_registers_(const Container &items, uint16_t start_address, uint16_t register_count, uint8_t function_code,
+                       const char *register_type_name);
   /// Collection of all sensors for this component
   SensorSet sensorset_;
-  /// Collection of all server registers for this component
-  std::vector<ServerRegister *> server_registers_{};
+  /// Collection of all server input registers for this component
+  std::vector<ServerInputRegister *> server_input_registers_{};
+  /// Collection of all server holding registers for this component
+  std::vector<ServerHoldingRegister *> server_holding_registers_{};
+  /// Collection of all server coils for this component
+  std::vector<ServerCoil *> server_coils_{};
+  /// Collection of all server discrete inputs for this component
+  std::vector<ServerDiscreteInput *> server_discrete_inputs_{};
   /// Continuous range of modbus registers
   std::vector<RegisterRange> register_ranges_{};
   /// Hold the pending requests to be sent
@@ -559,8 +649,13 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   /// Server offline callback
   CallbackManager<void(int, int)> offline_callback_{};
   /// Server courtesy response
-  ServerCourtesyResponse server_courtesy_response_{
-      .enabled = false, .register_last_address = 0xFFFF, .register_value = 0};
+  ServerCourtesyResponse server_courtesy_response_{.enabled = false,
+                                                   .register_last_address = 0xFFFF,
+                                                   .register_value = 0,
+                                                   .coil_last_address = 0xFFFF,
+                                                   .coil_value = false,
+                                                   .discrete_input_last_address = 0xFFFF,
+                                                   .discrete_input_value = false};
 };
 
 /** Convert vector<uint8_t> response payload to float.

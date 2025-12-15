@@ -98,15 +98,18 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
           function_code == ModbusFunctionCode::READ_DISCRETE_INPUTS ||
           function_code == ModbusFunctionCode::READ_HOLDING_REGISTERS ||
           function_code == ModbusFunctionCode::READ_INPUT_REGISTERS ||
-          function_code == ModbusFunctionCode::WRITE_SINGLE_REGISTER) {
+          function_code == ModbusFunctionCode::WRITE_SINGLE_REGISTER ||
+          function_code == ModbusFunctionCode::WRITE_SINGLE_COIL) {
         data_offset = 2;
         data_len = 4;
-      } else if (function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS) {
+      } else if (function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS ||
+                 function_code == ModbusFunctionCode::WRITE_MULTIPLE_COILS) {
         if (at < 6) {
           return true;
         }
         data_offset = 2;
-        // starting address (2 bytes) + quantity of registers (2 bytes) + byte count itself (1 byte) + actual byte count
+        // starting address (2 bytes) + quantity of registers/coils (2 bytes) + byte count itself (1 byte) + actual byte
+        // count
         data_len = 2 + 2 + 1 + raw[6];
       }
     } else {
@@ -173,6 +176,21 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
         if (function_code == ModbusFunctionCode::WRITE_SINGLE_REGISTER ||
             function_code == ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS) {
           device->on_modbus_write_registers(function_code, data);
+          continue;
+        }
+        if (function_code == ModbusFunctionCode::READ_COILS) {
+          device->on_modbus_read_coils(uint16_t(data[1]) | (uint16_t(data[0]) << 8),
+                                       uint16_t(data[3]) | (uint16_t(data[2]) << 8));
+          continue;
+        }
+        if (function_code == ModbusFunctionCode::READ_DISCRETE_INPUTS) {
+          device->on_modbus_read_discrete_inputs(uint16_t(data[1]) | (uint16_t(data[0]) << 8),
+                                                 uint16_t(data[3]) | (uint16_t(data[2]) << 8));
+          continue;
+        }
+        if (function_code == ModbusFunctionCode::WRITE_SINGLE_COIL ||
+            function_code == ModbusFunctionCode::WRITE_MULTIPLE_COILS) {
+          device->on_modbus_write_coils(function_code, data);
           continue;
         }
       }
