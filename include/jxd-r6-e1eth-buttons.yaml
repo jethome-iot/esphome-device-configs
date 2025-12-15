@@ -51,6 +51,7 @@ binary_sensor:
       mode:
         input: true
       inverted: false
+    internal: true
     on_press:
       - if:
           condition:
@@ -86,6 +87,7 @@ binary_sensor:
       mode:
         input: true
       inverted: false
+    internal: true
     on_press:
       - if:
           condition:
@@ -118,6 +120,7 @@ binary_sensor:
       mode:
         input: true
       inverted: false
+    internal: true
     on_press:
       - if:
           condition:
@@ -150,6 +153,7 @@ binary_sensor:
       mode:
         input: true
       inverted: false
+    internal: true
     on_press:
       - lambda: |-
           auto *active_page = id(${display_settings_id}).get_active_page();
