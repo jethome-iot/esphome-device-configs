@@ -69,6 +69,7 @@ graphical_display_menu:
   display: display1
   active: false
   fill_row: true
+  shrink_label: true
   restore_page: false
   right_for_menu_enter: false
   on_redraw:
@@ -93,9 +94,12 @@ graphical_display_menu:
     - type: menu
       text: "Temperature"
       items:
-      - type: label
+      - type: value
         text: !lambda |-
-          return std::string(id(temperature_sensor).get_name()) + str_sprintf(": %2.1f°C", id(temperature_sensor).state);
+          return std::string(id(temperature_sensor).get_name());
+
+        value_lambda: !lambda |-
+          return str_sprintf(": %2.1f°C", id(temperature_sensor).state);
       ### Add more temperature sensors here ###
 
     - type: menu

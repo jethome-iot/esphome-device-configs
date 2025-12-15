@@ -6,7 +6,7 @@ one_wire:
 sensor:
   # only one device
   - platform: dallas_temp
-    name: "Temp1"
+    name: "Temperature"
     id: temperature_sensor
     update_interval: 20s
   # specific address
