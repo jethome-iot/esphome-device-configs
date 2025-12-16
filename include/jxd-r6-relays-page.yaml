@@ -1,8 +1,4 @@
 globals:
-   - id: active_page_num
-     type: int
-     restore_value: no
-     initial_value: '1'
    - id: active_relay_num
      type: int
      restore_value: no
@@ -14,7 +10,6 @@ display:
     pages:
       - id: relays_page
         lambda: |-
-          id(active_page_num) = 2;
           auto black = Color(0, 0, 0);
           //it.filled_rectangle(0, 0, 128, 13);
           it.print(1, 0, id(f6x12), "RELAYS");
@@ -34,7 +29,7 @@ display:
             it.rectangle(x, 16, 17, 35);
             
             // Draw number with selection highlight
-            if (id(active_page_num) == 2 && id(active_relay_num) == relay_num) {
+            if (id(active_relay_num) == relay_num) {
               it.filled_rectangle(x, 52, 17, 12);
               it.printf(x + 4, 52, id(f6x12), black, "%d", relay_num);
             } else {
