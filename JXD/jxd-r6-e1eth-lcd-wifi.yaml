@@ -7,7 +7,7 @@ substitutions:
 
 packages:
   display: !include ../include/jxd-r6-e1eth-display.yaml
-  main: !include jxd-r6-e1eth-base.yaml
+  main: !include ../include/jxd-r6-e1eth-base.yaml
   wifi: !include ../include/wifi.yaml
   wifi_menu: !include ../include/jxd-r6-wifi-menu-items.yaml
 
