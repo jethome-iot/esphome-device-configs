@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="768" height="384" viewBox="0 0 128 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="128" height="64" fill="#000000"/>
+  
+  <!-- Time - centered, big_label_font (spleen 12x24) -->
+  <text x="64" y="32" font-family="monospace" font-size="24" fill="#FFFFFF" text-anchor="middle">14:23:47</text>
+  
+  <!-- Date - centered below time, f7x14_mod2 font -->
+  <text x="64" y="48" font-family="monospace" font-size="14" fill="#FFFFFF" text-anchor="middle">Tue, Dec 16</text>
+</svg>
+

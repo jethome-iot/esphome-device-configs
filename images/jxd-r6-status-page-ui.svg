@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="768" height="384" viewBox="0 0 128 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="128" height="64" fill="#000000"/>
+  
+  <!-- Border -->
+  <!-- <rect x="2" y="2" width="124" height="60" fill="none" stroke="#666666" stroke-width="0.5"/> -->
+  
+  <!-- Top row - Relays -->
+  <g id="relays">
+    <!-- Label -->
+    <text x="5" y="8" font-family="monospace" font-size="7" fill="#FFFFFF">Relays</text>
+    
+    <!-- Relay circles (showing 6 relays, first 3 ON, last 3 OFF) -->
+    <!-- Relay 1 - ON -->
+    <circle cx="8" cy="19" r="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="0.5"/>
+    <text x="6.5" y="28" font-family="monospace" font-size="5" fill="#FFFFFF">1</text>
+    
+    <!-- Relay 2 - ON -->
+    <circle cx="23" cy="19" r="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="0.5"/>
+    <text x="21.5" y="28" font-family="monospace" font-size="5" fill="#FFFFFF">2</text>
+    
+    <!-- Relay 3 - ON -->
+    <circle cx="38" cy="19" r="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="0.5"/>
+    <text x="36.5" y="28" font-family="monospace" font-size="5" fill="#FFFFFF">3</text>
+    
+    <!-- Relay 4 - OFF -->
+    <circle cx="53" cy="19" r="4" fill="none" stroke="#FFFFFF" stroke-width="0.5"/>
+    <text x="51.5" y="28" font-family="monospace" font-size="5" fill="#FFFFFF">4</text>
+    
+    <!-- Relay 5 - OFF -->
+    <circle cx="68" cy="19" r="4" fill="none" stroke="#FFFFFF" stroke-width="0.5"/>
+    <text x="66.5" y="28" font-family="monospace" font-size="5" fill="#FFFFFF">5</text>
+    
+    <!-- Relay 6 - OFF -->
+    <circle cx="83" cy="19" r="4" fill="none" stroke="#FFFFFF" stroke-width="0.5"/>
+    <text x="81.5" y="28" font-family="monospace" font-size="5" fill="#FFFFFF">6</text>
+  </g>
+  
+  <!-- Bottom row - Inputs -->
+  <g id="inputs">
+    <!-- Label -->
+    <text x="5" y="40" font-family="monospace" font-size="7" fill="#FFFFFF">Inputs</text>
+    
+    <!-- Input circles (showing 6 inputs, alternating states) -->
+    <!-- Input 1 - OFF -->
+    <circle cx="8" cy="51" r="4" fill="none" stroke="#FFFFFF" stroke-width="0.5"/>
+    <text x="6.5" y="60" font-family="monospace" font-size="5" fill="#FFFFFF">1</text>
+    
+    <!-- Input 2 - ON -->
+    <circle cx="23" cy="51" r="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="0.5"/>
+    <text x="21.5" y="60" font-family="monospace" font-size="5" fill="#FFFFFF">2</text>
+    
+    <!-- Input 3 - OFF -->
+    <circle cx="38" cy="51" r="4" fill="none" stroke="#FFFFFF" stroke-width="0.5"/>
+    <text x="36.5" y="60" font-family="monospace" font-size="5" fill="#FFFFFF">3</text>
+    
+    <!-- Input 4 - ON -->
+    <circle cx="53" cy="51" r="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="0.5"/>
+    <text x="51.5" y="60" font-family="monospace" font-size="5" fill="#FFFFFF">4</text>
+    
+    <!-- Input 5 - OFF -->
+    <circle cx="68" cy="51" r="4" fill="none" stroke="#FFFFFF" stroke-width="0.5"/>
+    <text x="66.5" y="60" font-family="monospace" font-size="5" fill="#FFFFFF">5</text>
+    
+    <!-- Input 6 - OFF -->
+    <circle cx="83" cy="51" r="4" fill="none" stroke="#FFFFFF" stroke-width="0.5"/>
+    <text x="81.5" y="60" font-family="monospace" font-size="5" fill="#FFFFFF">6</text>
+  </g>
+  
+  <!-- Right side - Temperature sensors -->
+  <g id="temperature">
+    <!-- Label -->
+    <text x="95" y="8" font-family="monospace" font-size="7" fill="#FFFFFF">Temp</text>
+    
+    <!-- Temperature sensor 1 -->
+    <text x="95" y="19" font-family="monospace" font-size="7" fill="#FFFFFF">Room</text>
+    <text x="95" y="27" font-family="monospace" font-size="7" fill="#FFFFFF">22.4</text>
+    
+    <!-- Temperature sensor 2 -->
+    <text x="95" y="39" font-family="monospace" font-size="7" fill="#FFFFFF">Outside</text>
+    <text x="95" y="47" font-family="monospace" font-size="7" fill="#FFFFFF">15.2</text>
+    
+  </g>
+  
+  <!-- Dividing line (optional, for visual clarity) -->
+  <line x1="91" y1="2" x2="91" y2="62" stroke="#444444" stroke-width="0.5" stroke-dasharray="2,2"/>
+</svg>
+

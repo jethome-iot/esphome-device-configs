@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="768" height="384" viewBox="0 0 128 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="128" height="64" fill="#000000"/>
+  
+  <!-- Header -->
+  <text x="5" y="12" font-family="monospace" font-size="12" fill="#FFFFFF">RELAYS</text>
+  
+  <!-- Relay 1 - ON, Active (selected) -->
+  <g id="relay1">
+    <rect x="5" y="16" width="17" height="35" fill="none" stroke="#FFFFFF" stroke-width="1"/>
+    <!-- ON state - filled top with empty circle -->
+    <rect x="7" y="18" width="13" height="15" fill="#FFFFFF"/>
+    <circle cx="13" cy="25" r="3" fill="#000000" stroke="#000000" stroke-width="0.5"/>
+    <!-- Active number (inverted) -->
+    <rect x="5" y="52" width="17" height="10" fill="#FFFFFF"/>
+    <text x="9" y="60" font-family="monospace" font-size="10" fill="#000000">1</text>
+  </g>
+  
+  <!-- Relay 2 - ON -->
+  <g id="relay2">
+    <rect x="25" y="16" width="17" height="35" fill="none" stroke="#FFFFFF" stroke-width="1"/>
+    <!-- ON state - filled top with empty circle -->
+    <rect x="27" y="18" width="13" height="15" fill="#FFFFFF"/>
+    <circle cx="33" cy="25" r="3" fill="#000000" stroke="#000000" stroke-width="0.5"/>
+    <!-- Normal number -->
+    <text x="29" y="60" font-family="monospace" font-size="10" fill="#FFFFFF">2</text>
+  </g>
+  
+  <!-- Relay 3 - OFF -->
+  <g id="relay3">
+    <rect x="45" y="16" width="17" height="35" fill="none" stroke="#FFFFFF" stroke-width="1"/>
+    <!-- OFF state - filled bottom with filled circle -->
+    <rect x="47" y="34" width="13" height="15" fill="#FFFFFF"/>
+    <circle cx="53" cy="41" r="3" fill="#000000" stroke="#000000" stroke-width="0.5"/>
+    <!-- Normal number -->
+    <text x="49" y="60" font-family="monospace" font-size="10" fill="#FFFFFF">3</text>
+  </g>
+  
+  <!-- Relay 4 - ON -->
+  <g id="relay4">
+    <rect x="65" y="16" width="17" height="35" fill="none" stroke="#FFFFFF" stroke-width="1"/>
+    <!-- ON state - filled top with empty circle -->
+    <rect x="67" y="18" width="13" height="15" fill="#FFFFFF"/>
+    <circle cx="73" cy="25" r="3" fill="#000000" stroke="#000000" stroke-width="0.5"/>
+    <!-- Normal number -->
+    <text x="69" y="60" font-family="monospace" font-size="10" fill="#FFFFFF">4</text>
+  </g>
+  
+  <!-- Relay 5 - OFF -->
+  <g id="relay5">
+    <rect x="85" y="16" width="17" height="35" fill="none" stroke="#FFFFFF" stroke-width="1"/>
+    <!-- OFF state - filled bottom with filled circle -->
+    <rect x="87" y="34" width="13" height="15" fill="#FFFFFF"/>
+    <circle cx="93" cy="41" r="3" fill="#000000" stroke="#000000" stroke-width="0.5"/>
+    <!-- Normal number -->
+    <text x="89" y="60" font-family="monospace" font-size="10" fill="#FFFFFF">5</text>
+  </g>
+  
+  <!-- Relay 6 - OFF -->
+  <g id="relay6">
+    <rect x="105" y="16" width="17" height="35" fill="none" stroke="#FFFFFF" stroke-width="1"/>
+    <!-- OFF state - filled bottom with filled circle -->
+    <rect x="107" y="34" width="13" height="15" fill="#FFFFFF"/>
+    <circle cx="113" cy="41" r="3" fill="#000000" stroke="#000000" stroke-width="0.5"/>
+    <!-- Normal number -->
+    <text x="109" y="60" font-family="monospace" font-size="10" fill="#FFFFFF">6</text>
+  </g>
+</svg>
+

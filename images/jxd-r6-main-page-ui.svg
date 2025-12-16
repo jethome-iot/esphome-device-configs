@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="768" height="384" viewBox="0 0 128 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="128" height="64" fill="#000000"/>
+  
+  <!-- Main page - 4 rows of information, vertically centered -->
+  
+  <!-- Row 1: Device name with MAC -->
+  <text x="2" y="10" font-family="monospace" font-size="10" fill="#FFFFFF">JXD-R6E1ETH-LCD-E918</text>
+  
+  <!-- Row 2: Uptime -->
+  <text x="2" y="25" font-family="monospace" font-size="10" fill="#FFFFFF">UP: 2d 5h 30m</text>
+  
+  <!-- Row 3: Input voltage -->
+  <text x="2" y="40" font-family="monospace" font-size="10" fill="#FFFFFF">VIN: 12.3V</text>
+  
+  <!-- Row 4: IP address -->
+  <text x="2" y="55" font-family="monospace" font-size="10" fill="#FFFFFF">IP: 192.168.1.100</text>
+</svg>
+

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="768" height="384" viewBox="0 0 128 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="128" height="64" fill="#000000"/>
+  
+  <!-- Menu Row 1 - Relays (normal) -->
+  <g id="menu_row1">
+    <text x="5" y="13" font-family="monospace" font-size="14" fill="#FFFFFF">Relays</text>
+  </g>
+  
+  <!-- Menu Row 2 - Inputs (selected - filled row with border) -->
+  <g id="menu_row2">
+    <rect x="1" y="17" width="126" height="14" fill="#FFFFFF"/>
+    <text x="5" y="28" font-family="monospace" font-size="14" fill="#000000">Inputs</text>
+  </g>
+  
+  <!-- Menu Row 3 - Temperatures (normal) -->
+  <g id="menu_row3">
+    <text x="5" y="45" font-family="monospace" font-size="14" fill="#FFFFFF">Temperatures</text>
+  </g>
+  
+  <!-- Menu Row 4 - Info (normal) -->
+  <g id="menu_row4">
+    <text x="5" y="61" font-family="monospace" font-size="14" fill="#FFFFFF">Info</text>
+  </g>
+</svg>
+
