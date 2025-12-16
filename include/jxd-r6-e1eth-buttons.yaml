@@ -27,16 +27,9 @@ binary_sensor:
                 auto *active_page = id(${display_settings_id}).get_active_page();
 
                 if (active_page == id(relays_page)) {
-                  if (id(active_relay_num) != 0) {
-                    switch (id(active_relay_num)) {
-                      case 1: id(relay_1).turn_on(); break;
-                      case 2: id(relay_2).turn_on(); break;
-                      case 3: id(relay_3).turn_on(); break;
-                      case 4: id(relay_4).turn_on(); break;
-                      case 5: id(relay_5).turn_on(); break;
-                      case 6: id(relay_6).turn_on(); break;
-                      default: break;
-                    }
+                  if (id(active_relay_num) != 0 && id(active_relay_num) <= id(relays_group_id).items().size()) {
+                    auto *relay = static_cast<esphome::switch_::Switch *>(id(relays_group_id).items()[id(active_relay_num) - 1]);
+                    relay->turn_on();
                     id(${display_settings_id}).update();
                   }
                 }
@@ -63,16 +56,9 @@ binary_sensor:
                 auto *active_page = id(${display_settings_id}).get_active_page();
 
                 if (active_page == id(relays_page)) {
-                  if (id(active_relay_num) != 0) {
-                    switch (id(active_relay_num)) {
-                      case 1: id(relay_1).turn_off(); break;
-                      case 2: id(relay_2).turn_off(); break;
-                      case 3: id(relay_3).turn_off(); break;
-                      case 4: id(relay_4).turn_off(); break;
-                      case 5: id(relay_5).turn_off(); break;
-                      case 6: id(relay_6).turn_off(); break;
-                      default: break;
-                    }
+                  if (id(active_relay_num) != 0 && id(active_relay_num) <= id(relays_group_id).items().size()) {
+                    auto *relay = static_cast<esphome::switch_::Switch *>(id(relays_group_id).items()[id(active_relay_num) - 1]);
+                    relay->turn_off();
                     id(${display_settings_id}).update();
                   }
                 }
@@ -104,7 +90,7 @@ binary_sensor:
                   if (id(active_relay_num) != 0) {
                     id(active_relay_num)--;
                     if (id(active_relay_num) == 0) {
-                      id(active_relay_num) = 6;
+                      id(active_relay_num) = id(relays_group_id).items().size();
                     }
                     id(${display_settings_id}).update();
                   }
@@ -136,7 +122,7 @@ binary_sensor:
                 if (active_page == id(relays_page)) {
                   if (id(active_relay_num) != 0) {
                     id(active_relay_num)++;
-                    if (id(active_relay_num) == 7) {
+                    if (id(active_relay_num) > id(relays_group_id).items().size()) {
                       id(active_relay_num) = 1;
                     }
                     id(${display_settings_id}).update();
@@ -165,16 +151,9 @@ binary_sensor:
           }
 
           if (active_page == id(relays_page)) {
-            if (id(active_relay_num) != 0) {
-              switch (id(active_relay_num)) {
-                case 1: id(relay_1).toggle(); break;
-                case 2: id(relay_2).toggle(); break;
-                case 3: id(relay_3).toggle(); break;
-                case 4: id(relay_4).toggle(); break;
-                case 5: id(relay_5).toggle(); break;
-                case 6: id(relay_6).toggle(); break;
-                default: break;
-              }
+            if (id(active_relay_num) != 0 && id(active_relay_num) <= id(relays_group_id).items().size()) {
+              auto *relay = static_cast<esphome::switch_::Switch *>(id(relays_group_id).items()[id(active_relay_num) - 1]);
+              relay->toggle();
               id(${display_settings_id}).update();
             }
           }
