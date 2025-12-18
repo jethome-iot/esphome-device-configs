@@ -14,9 +14,15 @@ substitutions: #defaults
 api:
   encryption:
   reboot_timeout: 15min
+  on_client_connected:
+    - lambda: |-
+        id(ha_time_source).update();
 
 ota:
   - platform: esphome
+
+preferences:
+  flash_write_interval: 5s
 
 esp32:
   board: esp32dev

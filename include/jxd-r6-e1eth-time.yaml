@@ -17,3 +17,28 @@ time:
     on_time_sync:
       then:
         pcf8563.write_time:
+  - platform: homeassistant
+    id: ha_time_source
+    update_interval: 15min
+    on_time_sync:
+      - lambda: |-
+          id(sntp_time).set_timezone(id(ha_time_source).get_timezone());
+          id(pcf8563_time).set_timezone(id(ha_time_source).get_timezone());
+          id(timezone_string) = id(ha_time_source).get_timezone();
+
+script:
+  - id: setup_time
+    then:
+      - logger.log: 'Setup time'
+      - lambda: |-
+          id(sntp_time).set_timezone(id(timezone_string));
+          id(pcf8563_time).set_timezone(id(timezone_string));
+      - pcf8563.read_time:
+          id: pcf8563_time
+
+globals:
+  - id: timezone_string
+    type: std::string
+    restore_value: yes
+    initial_value: '"GMT"'
+    max_restore_data_length: 24

@@ -22,8 +22,7 @@ esphome:
       priority: 600
       then:
         - delay: 200ms
-        - pcf8563.read_time:
-            id: pcf8563_time
+        - script.execute: setup_time
 
 external_components:
   - source:
