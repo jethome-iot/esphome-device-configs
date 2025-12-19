@@ -18,7 +18,7 @@ This repository includes custom and modified ESPHome components. Some are copied
 Base component for menu systems on displays. Copied from ESPHome core and modified.
 
 **Modifications**:
-- BackAction support - customizable back button behavior
+- BackAction support - add back action
 - `right_for_menu_enter` option - joystick navigation mode
 - `reset_menu()` method - programmatic menu reset
 
@@ -30,7 +30,7 @@ Graphical menu rendering for OLED displays (SSD1306, SH1106). Copied from ESPHom
 
 **Modifications**:
 - `fill_row` and `restore_page` options
-- MenuItemValue support - display read-only sensor values in menus
+- MenuItemValue support - display read-only values in menus with separation into text and value
 - `shrink_label` option - truncate long text to fit display
 
 ---
