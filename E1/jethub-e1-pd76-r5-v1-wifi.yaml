@@ -10,3 +10,8 @@ packages:
   wifi: !include ../include/wifi.yaml
   onewire: !include include/e1-onewire.yaml
 
+esphome:
+  on_boot:
+    priority: 600
+    then:
+      - script.execute: set_wifi_ap
