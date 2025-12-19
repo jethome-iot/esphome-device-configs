@@ -41,4 +41,4 @@ globals:
     type: std::string
     restore_value: yes
     initial_value: '"GMT"'
-    max_restore_data_length: 24
+    max_restore_data_length: 32
