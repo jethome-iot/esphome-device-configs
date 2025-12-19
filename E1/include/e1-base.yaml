@@ -50,3 +50,8 @@ binary_sensor:
       number: 0
       inverted: true
 
+# Factory reset button
+button:
+  - platform: factory_reset
+    name: "Factory Reset"
+
