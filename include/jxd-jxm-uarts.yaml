@@ -5,10 +5,14 @@
 #   Add to your device configuration:
 #   packages:
 #     jxd_jxm_uarts: !include include/jxd-jxm-uarts.yaml
+#     uart_settings: !include include/uart-settings.yaml
 #
 # Hardware:
 #   UART1 - Primary RS485 interface
 #   UART2 - Secondary RS485 interface (if needed)
+#
+# Note: Baudrate is configurable at runtime via uart-settings.yaml
+#       Changes take effect immediately (no reboot required)
 
 uart:
   # UART1 - Primary RS485 interface for Modbus

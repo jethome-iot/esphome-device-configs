@@ -1,0 +1,26 @@
+# Modbus settings
+# This file defines configurable Modbus settings
+# Settings are stored in flash and persist across reboots
+# Changes take effect immediately without requiring a reboot
+
+# Modbus server address
+number:
+  - platform: template
+    id: modbus_address_number
+    name: "Modbus Address"
+    optimistic: true
+    min_value: 1
+    max_value: 247
+    step: 1
+    initial_value: 1
+    restore_value: true
+    entity_category: config
+    icon: mdi:identifier
+    mode: box
+    on_value:
+      - lambda: |-
+          uint8_t new_address = (uint8_t)x;
+          ESP_LOGI("modbus_settings", "Setting Modbus address to 0x%02X", new_address);
+          id(jxd_modbus_server).set_address(new_address);
+          ESP_LOGI("modbus_settings", "Modbus address changed successfully");
+

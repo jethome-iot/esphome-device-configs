@@ -1,0 +1,66 @@
+# UART baudrate settings
+# This file defines configurable baudrate settings for UART interfaces
+# Settings are stored in flash and persist across reboots
+# Changes take effect immediately without requiring a reboot
+
+# UART1 baudrate select
+select:
+  - platform: template
+    id: uart1_baudrate_select
+    name: "UART1 Baudrate"
+    optimistic: true
+    options:
+      - "1200"
+      - "2400"
+      - "4800"
+      - "9600"
+      - "19200"
+      - "38400"
+      - "57600"
+      - "115200"
+    initial_option: "9600"
+    restore_value: true
+    entity_category: config
+    icon: mdi:swap-horizontal
+    on_value:
+      - lambda: |-
+          id(jxm_uart1).flush();
+          uint32_t new_baud_rate = stoi(x);
+          ESP_LOGI("uart_settings", "Changing UART1 baud rate from %i to %i", 
+                   id(jxm_uart1).get_baud_rate(), new_baud_rate);
+          if (id(jxm_uart1).get_baud_rate() != new_baud_rate) {
+            id(jxm_uart1).set_baud_rate(new_baud_rate);
+            id(jxm_uart1).load_settings();
+            ESP_LOGI("uart_settings", "UART1 baud rate changed successfully");
+          }
+
+  # UART2 baudrate select
+  - platform: template
+    id: uart2_baudrate_select
+    name: "UART2 Baudrate"
+    optimistic: true
+    options:
+      - "1200"
+      - "2400"
+      - "4800"
+      - "9600"
+      - "19200"
+      - "38400"
+      - "57600"
+      - "115200"
+    initial_option: "9600"
+    restore_value: true
+    entity_category: config
+    icon: mdi:swap-horizontal
+    on_value:
+      - lambda: |-
+          id(jxm_uart2).flush();
+          uint32_t new_baud_rate = stoi(x);
+          ESP_LOGI("uart_settings", "Changing UART2 baud rate from %i to %i", 
+                   id(jxm_uart2).get_baud_rate(), new_baud_rate);
+          if (id(jxm_uart2).get_baud_rate() != new_baud_rate) {
+            id(jxm_uart2).set_baud_rate(new_baud_rate);
+            id(jxm_uart2).load_settings();
+            ESP_LOGI("uart_settings", "UART2 baud rate changed successfully");
+          }
+

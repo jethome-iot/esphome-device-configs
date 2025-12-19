@@ -220,6 +220,8 @@ Interactive menu for accessing temperatures, device info, and settings including
 - Temperature sensors display
 - Network information (IP, MAC address)
 - Display settings (auto-off timer)
+- UART settings (baudrate configuration for RS485 interfaces)
+- Modbus settings (server address configuration)
 - WiFi configuration (WiFi version only - Reset WiFi credentials)
 - Factory reset
 - Device reboot
@@ -245,8 +247,15 @@ See [Components Documentation](doc/COMPONENTS.md) for detailed information.
 
 The device can act as a Modbus RTU server (slave) for integration with PLCs, SCADA systems, and other industrial automation equipment:
 
-- **Slave Address**: 0x01 (configurable)
-- **Baud Rate**: Configurable via UART settings
+- **Slave Address**: Configurable via display menu (Settings → Modbus) or Home Assistant
+  - Range: 1-247 (0x01-0xF7)
+  - Default: 1 (0x01)
+  - **Changes take effect immediately** - no reboot required
+- **Baud Rate**: Configurable via display menu (Settings → UART) or Home Assistant
+  - Supported rates: 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200 baud
+  - Default: 9600 baud
+  - Stored in flash memory (persists across reboots)
+  - **Changes take effect immediately** - no reboot required
 - **Coils** (0xA000+): Read/write relay states
 - **Discrete Inputs** (0xA000+): Read digital input states
 - **Holding Registers**: Device information and configuration

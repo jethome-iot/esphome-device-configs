@@ -1,0 +1,22 @@
+# UART settings menu items for graphical_display_menu
+# Include this file in packages to add UART configuration to the Settings menu
+# This extends the existing menu items defined in jxd-r6-e1eth-display.yaml
+
+graphical_display_menu:
+  items:
+    - id: !extend menu_settings_id
+      items:
+        - type: menu
+          text: "UART"
+          items:
+            - type: label
+              text: "Baudrate (RS485)"
+
+            - type: select
+              text: "UART1"
+              select: uart1_baudrate_select
+
+            - type: select
+              text: "UART2"
+              select: uart2_baudrate_select
+
