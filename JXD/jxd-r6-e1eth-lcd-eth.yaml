@@ -8,7 +8,7 @@ substitutions:
 packages:
   display: !include ../include/jxd-r6-e1eth-display.yaml
   main: !include ../include/jxd-r6-e1eth-base.yaml
-  ethernet: !include ../include/jxd-r6-eth.yaml
+  ethernet: !include ../include/ethernet.yaml
   eth_menu: !include ../include/jxd-r6-eth-menu-items.yaml
 
 esphome:
