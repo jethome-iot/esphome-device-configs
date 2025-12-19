@@ -1,7 +1,7 @@
 packages:
   d6-r6-board: !include ../include/jxd-d6-r6-rev1.2.yaml
   vin_measure: !include ../include/jxd-r6-vin-measure.yaml
-  time: !include ../include/jxd-r6-e1eth-time.yaml
+  time: !include ../include/pcf8563-time.yaml
   one-wire: !include ../include/jxd-r6-one-wire.yaml
   modbus: !include ../include/jxd-jxm-modbus-auto.yaml
   uarts: !include ../include/jxd-jxm-uarts.yaml
