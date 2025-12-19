@@ -17,3 +17,6 @@ secrets.yaml
 
 # gitignore
 JXD/.gitignore
+
+# vscode
+.vscode/*
