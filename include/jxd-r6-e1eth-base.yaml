@@ -13,7 +13,7 @@ substitutions: #defaults
 
 api:
   encryption:
-  reboot_timeout: 15min
+  reboot_timeout: 0min
   on_client_connected:
     - lambda: |-
         id(ha_time_source).update();
