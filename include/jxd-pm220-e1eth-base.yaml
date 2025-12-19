@@ -1,0 +1,178 @@
+substitutions: #defaults
+  name: "jxd-pm220-e1eth"
+  friendly_name: JXD-PM220-E1ETH
+  device_description: JXD-PM220-E1ETH v1.0
+  timezone: GMT
+
+packages:
+  time: !include ../include/pcf8563-time.yaml
+  vin_measure: !include ../include/jxd-r6-vin-measure.yaml
+
+api:
+  encryption:
+  reboot_timeout: 0min
+  on_client_connected:
+    - lambda: |-
+        id(ha_time_source).update();
+
+ota:
+  - platform: esphome
+
+preferences:
+  flash_write_interval: 5s
+
+esp32:
+  board: esp32dev
+  flash_size: 8MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_COMPILER_OPTIMIZATION_SPEED: y
+      CONFIG_D0WD_PSRAM_CLK_IO: "6"
+      CONFIG_D0WD_PSRAM_CS_IO: "16"
+
+psram:
+  mode: quad
+  speed: 40MHz
+
+# Enable logging
+logger:
+  level: debug
+  logs:
+    esp-idf: INFO
+    wifi: INFO
+
+# Enable built-in web server
+web_server:
+  port: 80
+  version: 3
+  sorting_groups:
+    - id: device
+      name: "Device controls"
+      sorting_weight: 10
+
+external_components:
+  - source: github://pilotak/esphome-eeprom
+    components: [i2c_eeprom]
+
+i2c:
+  sda: 5
+  scl: 4
+  frequency: 400kHz
+  scan: true
+  id: i2c1
+  timeout: 100ms
+
+i2c_eeprom:
+# peripheral board eeprom
+  - id: eeprom_per
+    size: 64KB # size in Kbits
+    address: 0x56
+# cpu board eeprom
+  - id: eeprom_cpu
+    size: 64KB # size in Kbits
+    address: 0x54
+# cpu board fram
+  - id: fram_cpu
+    size: 64KB # size in Kbits
+    address: 0x52
+
+uart:
+  tx_pin: GPIO33
+  rx_pin: GPIO34
+  baud_rate: 19200
+
+sensor:
+  - platform: bl0906
+    frequency:
+      name: 'Frequency'
+    temperature:
+      name: 'Temperature'
+    voltage:
+      name: 'Voltage'
+      filters:
+        - lambda: return x * 0.8;
+    channel_1:
+      current:
+        name: 'Current_1'
+      power:
+        name: 'Power_1'
+      energy:
+        name: 'Energy_1'
+    channel_2:
+      current:
+        name: 'Current_2'
+      power:
+        name: 'Power_2'
+      energy:
+        name: 'Energy_2'
+    channel_3:
+      current:
+        name: 'Current_3'
+      power:
+        name: 'Power_3'
+      energy:
+        name: 'Energy_3'
+    channel_4:
+      current:
+        name: 'Current_4'
+      power:
+        name: 'Power_4'
+      energy:
+        name: 'Energy_4'
+    channel_5:
+      current:
+        name: 'Current_5'
+      power:
+        name: 'Power_5'
+      energy:
+        name: 'Energy_5'
+    channel_6:
+      current:
+        name: 'Current_6'
+      power:
+        name: 'Power_6'
+      energy:
+        name: 'Energy_6'
+    total_energy:
+      name: 'Total_Energy'
+    total_power:
+      name: 'Total_Power'
+
+# temperature sensor
+  - platform: tmp102
+    id: cpu_board_temp
+    address: 0x48
+    name: "PCB TEMPERATURE"
+    update_interval: 20s
+    web_server:
+      sorting_group_id: device
+      sorting_weight: 1
+
+text_sensor:
+  - platform: uptime
+    name: Uptime
+    id: uptime_sensor
+    internal: true
+    format:
+      separator: " "
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO0
+      inverted: true
+    name: "FN button"
+    id: fn_button
+    web_server:
+      sorting_group_id: device
+      sorting_weight: 1
+
+switch:
+  - platform: gpio
+    name: "Red led"
+    id: red_led
+    pin: GPIO2
+    web_server:
+      sorting_group_id: device
+      sorting_weight: 1

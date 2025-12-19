@@ -1,0 +1,34 @@
+substitutions:
+  name: "jxd-pm220-e1eth"
+  friendly_name: JXD-PM220-E1ETH
+  device_description: JXD-PM220-E1ETH v1.0
+  version: 1.0.0
+  timezone: GMT
+
+packages:
+  main: !include ../include/jxd-pm220-e1eth-base.yaml
+  ethernet: !include ../include/ethernet.yaml
+
+esphome:
+  name: ${name}
+  name_add_mac_suffix: true
+  friendly_name: ${friendly_name}
+  project:
+    name: JetHub.JXD PM220-E1ETH
+    version: ${version}
+  on_boot:
+    priority: 600
+    then:
+      - delay: 200ms
+      - script.execute: setup_time
+
+http_request:
+
+ota:
+  - platform: http_request
+    id: ota_http_request
+
+dashboard_import:
+  package_import_url: github://jethome-iot/esphome-configs/JXD/jxd-pm220-e1eth-eth.yaml@master
+  import_full_config: true
+
