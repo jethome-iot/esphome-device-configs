@@ -1,4 +1,4 @@
-# ESPHome Device Configurations
+# ESPHome Device Configurations made by JetHome
 
 ![ESPHome](https://img.shields.io/badge/ESPHome-2025.10.5-blue)
 
