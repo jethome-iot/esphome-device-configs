@@ -237,6 +237,8 @@ The device can act as a Modbus RTU server (slave) for integration with PLCs, SCA
 
 Configuration example in `include/jxd-jxm-modbus-auto.yaml` uses the automatic group-based mapping for simple setup.
 
+For detailed information about the automatic Modbus server configuration, see the [modbus_server_group component documentation](components/modbus_server_group/README.md).
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues or pull requests.

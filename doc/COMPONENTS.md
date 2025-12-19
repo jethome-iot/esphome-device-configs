@@ -101,30 +101,14 @@ modbus_controller:
 
 ## modbus_server_group
 
-Custom component for simple automatic mapping of coils and discrete inputs from ESPHome groups to Modbus.
+Custom component for automatic mapping of ESPHome groups to Modbus registers. Eliminates manual lambda-based configuration.
 
 **Features**:
-- Auto-maps switches from group to Modbus coils (read/write)
+- Auto-maps switches to Modbus coils (read/write)
 - Auto-maps binary sensors to discrete inputs (read-only)
-- Provides count registers (0x0200, 0x0201) for discovery
-- Configurable start addresses
-- Eliminates manual lambda-based Modbus configuration
+- Provides count registers for discovery
 
-**Example**:
-```yaml
-modbus_server_group:
-  modbus_controller_id: jxd_modbus_server
-  outputs_group: relays_group_id
-  outputs_start_address: 0xA000
-  inputs_group: digital_inputs_group_id
-  inputs_start_address: 0xA000
-```
-
-**Result**: With 6 relays and 6 inputs:
-- Coils 0xA000-0xA005: Relay 1-6 (read/write)
-- Discrete Inputs 0xA000-0xA005: Input 1-6 (read-only)
-- Register 0x0200: Input count (6)
-- Register 0x0201: Output count (6)
+See [modbus_server_group/README.md](../components/modbus_server_group/README.md) for detailed configuration and examples.
 
 ---
 
