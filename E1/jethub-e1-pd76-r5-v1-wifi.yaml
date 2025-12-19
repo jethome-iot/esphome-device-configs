@@ -1,0 +1,12 @@
+substitutions:
+  name: "e1-pd76-r5-v1"
+  friendly_name: "JetHub E1-PD76-R5 v1"
+  device_description: "JetHub E1-PD76-R5 v1"
+  version: "1.0.0"
+
+packages:
+  base: !include include/e1-base.yaml
+  board: !include include/e1-board-v1v2.yaml
+  wifi: !include ../include/wifi.yaml
+  onewire: !include include/e1-onewire.yaml
+

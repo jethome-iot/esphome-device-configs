@@ -1,0 +1,52 @@
+esphome:
+  name: ${name}
+  name_add_mac_suffix: true
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: nodemcu-32s
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+  logs:
+    esp-idf: INFO
+    wifi: INFO
+    sensor: INFO
+
+web_server:
+  port: 80
+
+# Enable Home Assistant API
+api:
+  encryption:
+  reboot_timeout: 0min
+
+preferences:
+  flash_write_interval: 5s
+
+http_request:
+
+# Enable OTA firmware update
+ota:
+  - platform: http_request
+    id: ota_http_request
+
+# Enable I2C bus
+i2c:
+  sda: 5
+  scl: 4
+  frequency: 400kHz
+  scan: true
+  id: i2c1
+
+# FN button
+binary_sensor:
+  - platform: gpio
+    name: "FN button"
+    pin:
+      number: 0
+      inverted: true
+

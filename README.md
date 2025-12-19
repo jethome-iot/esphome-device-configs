@@ -13,6 +13,17 @@ JetHome DIN-rail automation controller with display. For a proprietary firmware 
 - `JXD/jxd-r6-e1eth-lcd-eth.yaml` - Ethernet variant
 - `JXD/jxd-r6-e1eth-lcd-wifi.yaml` - WiFi variant
 
+### JetHub E1-PD76-R5
+JetHome DIN-rail automation controller (E1 series). Basic configuration without display. For official documentation and hardware details, visit [JetHome E1 Documentation](https://docs.jethome.com/en/controllers/mcu/software/esphome/).
+
+**Configurations**:
+- `E1/jethub-e1-pd76-r5-v1-eth.yaml` - Version 1, Ethernet variant
+- `E1/jethub-e1-pd76-r5-v1-wifi.yaml` - Version 1, WiFi variant
+- `E1/jethub-e1-pd76-r5-v2-eth.yaml` - Version 2, Ethernet variant
+- `E1/jethub-e1-pd76-r5-v2-wifi.yaml` - Version 2, WiFi variant
+- `E1/jethub-e1-pd76-r5-v3-eth.yaml` - Version 3, Ethernet variant
+- `E1/jethub-e1-pd76-r5-v3-wifi.yaml` - Version 3, WiFi variant
+
 ## JXD-R6-E1ETH-LCD Features
 
 The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the following capabilities:
@@ -35,6 +46,31 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
 - **Home Assistant Integration**: Native ESPHome API with automatic entity discovery and OTA updates
 - **Display Control**: Interactive OLED menu with status, time, relay control, inputs monitoring, and settings
 - **Dallas Temperature Sensors**: OneWire support for multiple DS18B20 sensors ([setup guide](doc/ONEWIRE_WORKFLOW.md))
+
+## JetHub E1-PD76-R5 Features
+
+The JetHub E1-PD76-R5 is a compact DIN-rail automation controller with the following capabilities:
+
+### Hardware
+- **ESP32** microcontroller (nodemcu-32s)
+- **5 Relay outputs** via PCF8575 I/O expander
+- **6 Digital inputs** via PCF8575 I/O expander
+- **Status LEDs**: Red and Green LEDs via PCF8575
+- **Connectivity**: LAN8720 Ethernet or WiFi (ESP32 built-in)
+- **I2C Bus**: For peripheral expansion
+- **FN Button**: Hardware button on GPIO0
+
+### Software Features
+- **Home Assistant Integration**: Native ESPHome API with automatic entity discovery and OTA updates
+- **Dual Connectivity**: Choose between stable Ethernet or flexible WiFi connectivity
+- **Modular Configuration**: Easy to customize with include files
+- **Optional OneWire Support**: Can be configured for Dallas DS18B20 temperature sensors
+
+### Version Differences
+All three hardware versions (v1, v2, v3) have identical functionality:
+- **v1**: Initial release
+- **v2**: AC/DC power variants ([v2 documentation](https://docs.jethome.com/en/controllers/mcu/software/esphome/configs/e1/e1_pd76_r5_v2/))
+- **v3**: Updated board revision ([v3 documentation](https://docs.jethome.com/en/controllers/mcu/software/esphome/configs/e1/e1_pd76_r5_v3/))
 
 ## Quick Start
 
