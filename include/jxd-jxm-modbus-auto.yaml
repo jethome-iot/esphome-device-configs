@@ -42,7 +42,10 @@ external_components:
   - source:
       type: local 
       path: ../components
-    components: [modbus, modbus_controller, modbus_server_group]
+    components: [modbus_server_group]
+
+  - source: github://jethome-iot/esphome@dev-jethub
+    components: [modbus, modbus_controller]
 
 
 # Modbus component configuration
