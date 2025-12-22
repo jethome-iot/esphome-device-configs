@@ -1,0 +1,16 @@
+one_wire:
+  id: one_wire1_id
+  platform: gpio
+  pin: GPIO16
+
+sensor:
+  # only one device
+  - platform: dallas_temp
+    name: "Temperature"
+    id: temperature_sensor
+    update_interval: 20s
+  # specific address
+  # - platform: dallas_temp
+  #   address: 0x1234567812345628
+  #   name: temperature2
+
