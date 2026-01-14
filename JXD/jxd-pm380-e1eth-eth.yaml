@@ -8,6 +8,8 @@ substitutions:
 packages:
   jxd-d3-pm3-3: !include ../include/jxd-d3-pm3-3.yaml
   ethernet: !include ../include/ethernet.yaml
+  jxd-pm380-e1eth-display: !include ../include/jxd-pm380-e1eth-display.yaml
+  jxd-r6-e1eth-buttons: !include ../include/jxd-r6-e1eth-buttons.yaml
 
 esphome:
   name: ${lowercase_name}
@@ -66,6 +68,10 @@ psram:
 external_components:
   - source: github://pilotak/esphome-eeprom
     components: [i2c_eeprom]
+  - source:
+      type: local 
+      path: ../components
+    components: [display_menu_base, graphical_display_menu]
   # - source:
   #     type: git
   #     url: https://github.com/jethome-iot/esphome

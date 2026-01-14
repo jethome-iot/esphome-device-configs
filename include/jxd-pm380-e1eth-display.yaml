@@ -1,0 +1,130 @@
+# JXD-DISPLAY2 rev 1.0
+
+# script:
+#   - id: check_blank_page
+#     then:
+#       - lambda: |-
+#           id(current_display_off_s) = 0;
+#           if (id(display1).get_active_page() == id(blank_page)) {
+#             id(display1).show_page(id(main_page));
+#           }
+
+font:
+  - file: ../fonts/7x14-mod2.bdf
+    id: f7x14_mod2
+
+  - file: ../fonts/6x12.bdf
+    id: f6x12
+
+  - file: ../fonts/5x7.bdf
+    id: f5x7
+
+  - file: ../fonts/spleen-12x24.bdf
+    id: big_label_font
+
+# packages:
+#   status_page: !include {file: jxd-r6-status-page.yaml, vars: {display_settings_id: display1}}
+#   time_page: !include {file: jxd-r6-time-page.yaml, vars: {display_settings_id: display1}}
+#   buttons: !include {file: jxd-r6-e1eth-buttons.yaml, vars: {display_settings_id: display1}}
+#   display_off: !include {file: display-off.yaml, vars: {display_settings_id: display1}}
+#   relays_page: !include {file: jxd-r6-relays-page.yaml, vars: {display_settings_id: display1}}
+#   inputs_page: !include {file: jxd-r6-inputs-page.yaml, vars: {display_settings_id: display1}}
+
+display:
+  - platform: ssd1306_i2c
+    id: display1
+    model: "SSD1306_128X64"
+    address: 0x3C
+    update_interval: 200ms
+    pages:
+      - id: main_page
+        lambda: |-
+          const auto width = it.get_width();
+          const auto height = it.get_height();
+          uint8_t mac[6];
+          get_mac_address_raw(mac);
+          
+          it.printf(width / 2, height / 2, id(f6x12), TextAlign::CENTER, "${friendly_name}");
+
+      - id: blank_page
+        lambda: return;
+
+graphical_display_menu:
+  id: display_menu
+  font: f7x14_mod2
+  display: display1
+  active: false
+  fill_row: true
+  shrink_label: true
+  restore_page: false
+  right_for_menu_enter: false
+  on_redraw:
+    then:
+      component.update: display1
+  mode: joystick
+  items:
+    # - type: command
+    #   text: "Relays"
+    #   on_value:
+    #     - lambda: |-
+    #         id(display_menu).hide();
+    #         id(display1).show_page(id(relays_page));
+            
+    # - type: command
+    #   text: "Inputs"
+      # on_value:
+      #   - lambda: |-
+      #       id(display_menu).hide();
+      #       id(display1).show_page(id(inputs_page));
+
+    # - type: menu
+    #   text: "Temperatures"
+    #   items:
+    #   - type: value
+    #     text: !lambda |-
+    #       return std::string(id(temperature_sensor).get_name());
+    #     value_lambda: !lambda |-
+    #       return str_sprintf(": %2.1f°C", id(temperature_sensor).state);
+
+      ### Add more temperature sensors here like above ###
+
+    # - type: menu
+    #   text: "Info"
+    #   id: info_submenu
+    #   items:
+        # Network info items are added via network-specific packages:
+        # - For Ethernet: include jxd-r6-eth-menu-items.yaml
+        # - For WiFi: include jxd-r6-wifi-menu-items.yaml
+        
+
+    - type: menu
+      text: "Settings"
+      id: menu_settings_id
+      items:
+        # Uncomment if use WiFi
+        # See jxd-r6-wifi-menu-items.yaml for WiFi settings menu items
+        
+        # - type: menu
+        #   text: "Display"
+          # items:
+          #   - type: select
+          #     text: "Turn off"
+              # select: display_off_timer_select
+
+        - type: menu
+          text: "Factory reset"
+          items:
+            - type: label
+              text: "Factory reset?"
+
+            - type: command
+              text: "Yes"
+              on_value:
+                - lambda: |-
+                    global_preferences->reset();
+                    App.safe_reboot();
+
+        - type: command
+          text: "Reboot device"
+          on_value:
+            - lambda: App.safe_reboot();

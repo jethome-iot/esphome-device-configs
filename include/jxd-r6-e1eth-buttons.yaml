@@ -16,24 +16,24 @@ binary_sensor:
         input: true
       inverted: false
     internal: true
-    on_press:
-      - if:
-          condition:
-            display_menu.is_active:
-          then:
-            - display_menu.up:
-          else:
-            - lambda: |-
-                auto *active_page = id(${display_settings_id}).get_active_page();
+    # on_press:
+    #   - if:
+    #       condition:
+    #         display_menu.is_active:
+    #       then:
+    #         - display_menu.up:
+    #       else:
+    #         - lambda: |-
+    #             auto *active_page = id(${display_settings_id}).get_active_page();
 
-                if (active_page == id(relays_page)) {
-                  if (id(active_relay_num) != 0 && id(active_relay_num) <= id(relays_group_id).items().size()) {
-                    auto *relay = static_cast<esphome::switch_::Switch *>(id(relays_group_id).items()[id(active_relay_num) - 1]);
-                    relay->turn_on();
-                    id(${display_settings_id}).update();
-                  }
-                }
-      - script.execute: check_blank_page
+    #             if (active_page == id(relays_page)) {
+    #               if (id(active_relay_num) != 0 && id(active_relay_num) <= id(relays_group_id).items().size()) {
+    #                 auto *relay = static_cast<esphome::switch_::Switch *>(id(relays_group_id).items()[id(active_relay_num) - 1]);
+    #                 relay->turn_on();
+    #                 id(${display_settings_id}).update();
+    #               }
+    #             }
+    #   - script.execute: check_blank_page
 
   - platform: gpio
     name: "DOWN"
@@ -45,24 +45,24 @@ binary_sensor:
         input: true
       inverted: false
     internal: true
-    on_press:
-      - if:
-          condition:
-            display_menu.is_active:
-          then:
-            - display_menu.down:
-          else:
-            - lambda: |-
-                auto *active_page = id(${display_settings_id}).get_active_page();
+    # on_press:
+    #   - if:
+    #       condition:
+    #         display_menu.is_active:
+    #       then:
+    #         - display_menu.down:
+    #       else:
+    #         - lambda: |-
+    #             auto *active_page = id(${display_settings_id}).get_active_page();
 
-                if (active_page == id(relays_page)) {
-                  if (id(active_relay_num) != 0 && id(active_relay_num) <= id(relays_group_id).items().size()) {
-                    auto *relay = static_cast<esphome::switch_::Switch *>(id(relays_group_id).items()[id(active_relay_num) - 1]);
-                    relay->turn_off();
-                    id(${display_settings_id}).update();
-                  }
-                }
-      - script.execute: check_blank_page
+    #             if (active_page == id(relays_page)) {
+    #               if (id(active_relay_num) != 0 && id(active_relay_num) <= id(relays_group_id).items().size()) {
+    #                 auto *relay = static_cast<esphome::switch_::Switch *>(id(relays_group_id).items()[id(active_relay_num) - 1]);
+    #                 relay->turn_off();
+    #                 id(${display_settings_id}).update();
+    #               }
+    #             }
+    #   - script.execute: check_blank_page
 
   - platform: gpio
     name: "LEFT"
@@ -74,28 +74,28 @@ binary_sensor:
         input: true
       inverted: false
     internal: true
-    on_press:
-      - if:
-          condition:
-            display_menu.is_active:
-          then:
-            - display_menu.left:
-          else:
-            - lambda: |-
-                auto *active_page = id(${display_settings_id}).get_active_page();
-                if (active_page == id(main_page) || active_page == id(blank_page)) {
-                  id(${display_settings_id}).show_page(id(status_page));
-                }
-                if (active_page == id(relays_page)) {
-                  if (id(active_relay_num) != 0) {
-                    id(active_relay_num)--;
-                    if (id(active_relay_num) == 0) {
-                      id(active_relay_num) = id(relays_group_id).items().size();
-                    }
-                    id(${display_settings_id}).update();
-                  }
-                }
-      - script.execute: check_blank_page
+    # on_press:
+    #   - if:
+    #       condition:
+    #         display_menu.is_active:
+    #       then:
+    #         - display_menu.left:
+    #       else:
+    #         - lambda: |-
+    #             auto *active_page = id(${display_settings_id}).get_active_page();
+    #             if (active_page == id(main_page) || active_page == id(blank_page)) {
+    #               id(${display_settings_id}).show_page(id(status_page));
+    #             }
+    #             if (active_page == id(relays_page)) {
+    #               if (id(active_relay_num) != 0) {
+    #                 id(active_relay_num)--;
+    #                 if (id(active_relay_num) == 0) {
+    #                   id(active_relay_num) = id(relays_group_id).items().size();
+    #                 }
+    #                 id(${display_settings_id}).update();
+    #               }
+    #             }
+    #   - script.execute: check_blank_page
 
   - platform: gpio
     name: "RIGHT"
@@ -107,28 +107,28 @@ binary_sensor:
         input: true
       inverted: false
     internal: true
-    on_press:
-      - if:
-          condition:
-            display_menu.is_active:
-          then:
-            - display_menu.right:
-          else:
-            - lambda: |-
-                auto *active_page = id(${display_settings_id}).get_active_page();
-                if (active_page == id(main_page) || active_page == id(blank_page)) {
-                  id(${display_settings_id}).show_page(id(time_page));
-                }
-                if (active_page == id(relays_page)) {
-                  if (id(active_relay_num) != 0) {
-                    id(active_relay_num)++;
-                    if (id(active_relay_num) > id(relays_group_id).items().size()) {
-                      id(active_relay_num) = 1;
-                    }
-                    id(${display_settings_id}).update();
-                  }
-                }
-      - script.execute: check_blank_page
+    # on_press:
+    #   - if:
+    #       condition:
+    #         display_menu.is_active:
+    #       then:
+    #         - display_menu.right:
+    #       else:
+    #         - lambda: |-
+    #             auto *active_page = id(${display_settings_id}).get_active_page();
+    #             if (active_page == id(main_page) || active_page == id(blank_page)) {
+    #               id(${display_settings_id}).show_page(id(time_page));
+    #             }
+    #             if (active_page == id(relays_page)) {
+    #               if (id(active_relay_num) != 0) {
+    #                 id(active_relay_num)++;
+    #                 if (id(active_relay_num) > id(relays_group_id).items().size()) {
+    #                   id(active_relay_num) = 1;
+    #                 }
+    #                 id(${display_settings_id}).update();
+    #               }
+    #             }
+    #   - script.execute: check_blank_page
 
   - platform: gpio
     name: "CENTER"
@@ -140,24 +140,24 @@ binary_sensor:
         input: true
       inverted: false
     internal: true
-    on_press:
-      - lambda: |-
-          auto *active_page = id(${display_settings_id}).get_active_page();
-          if (id(display_menu).is_active()) {
-            id(display_menu).enter();
-          }
-          else if (id(${display_settings_id}).get_active_page() == id(main_page)) {
-            id(display_menu).show_main();
-          }
+    # on_press:
+    #   - lambda: |-
+    #       auto *active_page = id(${display_settings_id}).get_active_page();
+    #       if (id(display_menu).is_active()) {
+    #         id(display_menu).enter();
+    #       }
+    #       else if (id(${display_settings_id}).get_active_page() == id(main_page)) {
+    #         id(display_menu).show_main();
+    #       }
 
-          if (active_page == id(relays_page)) {
-            if (id(active_relay_num) != 0 && id(active_relay_num) <= id(relays_group_id).items().size()) {
-              auto *relay = static_cast<esphome::switch_::Switch *>(id(relays_group_id).items()[id(active_relay_num) - 1]);
-              relay->toggle();
-              id(${display_settings_id}).update();
-            }
-          }
-      - script.execute: check_blank_page
+    #       if (active_page == id(relays_page)) {
+    #         if (id(active_relay_num) != 0 && id(active_relay_num) <= id(relays_group_id).items().size()) {
+    #           auto *relay = static_cast<esphome::switch_::Switch *>(id(relays_group_id).items()[id(active_relay_num) - 1]);
+    #           relay->toggle();
+    #           id(${display_settings_id}).update();
+    #         }
+    #       }
+    #   - script.execute: check_blank_page
 
   - platform: gpio
     name: "HOME"
@@ -168,14 +168,14 @@ binary_sensor:
         input: true
       inverted: false
     internal: true
-    on_press:
-      - lambda: |-
-          if (id(${display_settings_id}).get_active_page() != id(main_page)) {
-            id(display_menu).hide();
-            id(display_menu).reset_menu();
-            id(${display_settings_id}).show_page(id(main_page));
-          }
-      - script.execute: check_blank_page
+    # on_press:
+    #   - lambda: |-
+    #       if (id(${display_settings_id}).get_active_page() != id(main_page)) {
+    #         id(display_menu).hide();
+    #         id(display_menu).reset_menu();
+    #         id(${display_settings_id}).show_page(id(main_page));
+    #       }
+    #   - script.execute: check_blank_page
 
   - platform: gpio
     name: "BACK"
@@ -186,30 +186,30 @@ binary_sensor:
         input: true
       inverted: false
     internal: true
-    on_press:
-      - then:
-          - lambda: |-
-              if (id(display_menu).is_active()) {
-                  if (id(display_menu).is_at_main()) {
-                    id(display_menu).hide();
-                    id(${display_settings_id}).show_page(id(main_page));
-                  } else {
-                    id(display_menu).back();
-                  }
-              }
-              else if (id(${display_settings_id}).get_active_page() == id(time_page) ||
-                       id(${display_settings_id}).get_active_page() == id(status_page)) {
-                id(${display_settings_id}).show_page(id(main_page));
-              }
-              else if (id(${display_settings_id}).get_active_page() == id(blank_page)) {
-                id(current_display_off_s) = 0;
-                id(${display_settings_id}).show_page(id(main_page));
-              }
-              else if(id(${display_settings_id}).get_active_page() != id(main_page)) {
-                // When display pages from menu
-                id(display_menu).show();
-              }
-              else {
-                // Main page is displayed
-                id(${display_settings_id}).show_page(id(blank_page));
-              }
+    # on_press:
+    #   - then:
+    #       - lambda: |-
+    #           if (id(display_menu).is_active()) {
+    #               if (id(display_menu).is_at_main()) {
+    #                 id(display_menu).hide();
+    #                 id(${display_settings_id}).show_page(id(main_page));
+    #               } else {
+    #                 id(display_menu).back();
+    #               }
+    #           }
+    #           else if (id(${display_settings_id}).get_active_page() == id(time_page) ||
+    #                    id(${display_settings_id}).get_active_page() == id(status_page)) {
+    #             id(${display_settings_id}).show_page(id(main_page));
+    #           }
+    #           else if (id(${display_settings_id}).get_active_page() == id(blank_page)) {
+    #             id(current_display_off_s) = 0;
+    #             id(${display_settings_id}).show_page(id(main_page));
+    #           }
+    #           else if(id(${display_settings_id}).get_active_page() != id(main_page)) {
+    #             // When display pages from menu
+    #             id(display_menu).show();
+    #           }
+    #           else {
+    #             // Main page is displayed
+    #             id(${display_settings_id}).show_page(id(blank_page));
+    #           }
