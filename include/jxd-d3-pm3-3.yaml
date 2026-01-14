@@ -12,8 +12,8 @@ substitutions:
   gain_voltage_2: '39470'
   gain_voltage_3: '39470'
   gain_ct1: '65327'
-  gain_ct2: '52495'
-  gain_ct3: '52495'
+  gain_ct2: '65327'
+  gain_ct3: '65327'
 
 sensor:
   - platform: atm90e32
@@ -83,3 +83,17 @@ sensor:
     update_interval: ${update_time}
     # enable_offset_calibration: true
     # enable_gain_calibration: true
+
+text_sensor:
+  - platform: atm90e32
+    phase_status:
+      phase_a:
+        name: "Phase A Status"
+      phase_b:
+        name: "Phase B Status"
+      phase_c:
+        name: "Phase C Status"
+    frequency_status:
+      name: "Frequency Status"
+
+  

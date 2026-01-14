@@ -9,7 +9,6 @@ packages:
   jxd-d3-pm3-3: !include ../include/jxd-d3-pm3-3.yaml
   ethernet: !include ../include/ethernet.yaml
 
-
 esphome:
   name: ${lowercase_name}
   # name_add_mac_suffix: true
@@ -24,7 +23,6 @@ esphome:
       - delay: 300ms
       - switch.turn_off: red_led
       
-
 # Enable logging
 logger:
   level: DEBUG
@@ -73,6 +71,10 @@ external_components:
   #     url: https://github.com/jethome-iot/esphome
   #     ref: dev-jethub
   #   components: [wifi, ethernet]
+
+dashboard_import:
+  package_import_url: github://jethome-iot/esphome-configs/JXD/jxd-pm380-e1eth-eth.yaml@master
+  import_full_config: true
 
 time:
 # компонент для RTC PCF8563
