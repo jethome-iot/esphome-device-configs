@@ -1,0 +1,219 @@
+substitutions:
+  friendly_name: JXD-PM380-E1ETH v1.0
+  lowercase_name: jxd-pm380-e1eth-test
+  device_description: JXD-PM380-E1ETH v1.0
+
+packages:
+  jxd-d3-pm3-3: !include ../include/jxd-d3-pm3-3.yaml
+
+
+esphome:
+  name: ${lowercase_name}
+  # name_add_mac_suffix: true
+  friendly_name: ${friendly_name}
+
+# Enable logging
+logger:
+  level: DEBUG
+  logs:
+    text_sensor: NONE
+    sensor: NONE
+    adc.common: WARN
+
+# Enable Home Assistant API
+api:
+  reboot_timeout: 0s
+
+# Enable Over-the-Air updates
+ota:
+  - platform: esphome
+
+# Enable web server
+web_server:
+  port: 80
+  version: 3
+  sorting_groups:
+    - id: device
+      name: "Device controls"
+      sorting_weight: 10
+
+wifi:
+  ssid: TVIP-2
+  password: tvip2014
+
+# ethernet:
+#   type: LAN8720
+#   mdc_pin: GPIO23
+#   mdio_pin: GPIO18
+#   clk_mode: GPIO17_OUT
+#   phy_addr: 1
+
+# esp32:
+#   board: esp32dev
+#   flash_size: 8MB
+#   framework:
+#     type: esp-idf
+#     sdkconfig_options:
+#       CONFIG_COMPILER_OPTIMIZATION_SPEED: y
+#       CONFIG_D0WD_PSRAM_CLK_IO: "6"
+#       CONFIG_D0WD_PSRAM_CS_IO: "16"
+#       CONFIG_ESP_MAC_USE_CUSTOM_MAC_AS_BASE_MAC: y
+#     version: 5.1.2
+#     # version: recommended
+#     platform_version: https://github.com/platformio/platform-espressif32
+esp32:
+  board: esp32dev
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+# Custom sdkconfig options
+    sdkconfig_options:
+      CONFIG_COMPILER_OPTIMIZATION_SPEED: y
+      CONFIG_D0WD_PSRAM_CLK_IO: "6"
+      CONFIG_D0WD_PSRAM_CS_IO: "16"
+
+psram:
+  mode: quad
+  speed: 80MHz
+
+external_components:
+  - source: github://pilotak/esphome-eeprom
+    components: [i2c_eeprom]
+  # - source:
+  #     type: git
+  #     url: https://github.com/jethome-iot/esphome
+  #     ref: dev-jethub
+  #   components: [wifi, ethernet]
+
+time:
+# компонент для RTC PCF8563
+  - platform: pcf8563
+    id: pcf8563_time
+    address: 0x51
+    timezone: Europe/Moscow
+    update_interval: 5 min
+# получение времени с ntp
+  - platform: sntp
+    id: sntp_time
+    timezone: Europe/Moscow
+    servers:
+     - 0.pool.ntp.org
+     - 1.pool.ntp.org
+     - 2.pool.ntp.org
+# синхронизация времени
+    on_time_sync:
+      then:
+        pcf8563.write_time:
+          id: pcf8563_time
+
+i2c:
+  sda: 5
+  scl: 4
+  frequency: 400kHz
+  scan: true
+  id: i2c1
+  timeout: 100ms
+
+i2c_eeprom:
+# peripheral board eeprom
+  - id: eeprom_per
+    size: 64KB # size in Kbits
+    address: 0x56
+# cpu board eeprom
+  - id: eeprom_cpu
+    size: 64KB # size in Kbits
+    address: 0x54
+# cpu board fram
+  - id: fram_cpu
+    size: 64KB # size in Kbits
+    address: 0x52
+
+# uart:
+#   tx_pin: GPIO33
+#   rx_pin: GPIO34
+#   baud_rate: 19200
+
+sensor:
+# VIN measure
+  - platform: adc
+    pin: GPIO35
+    attenuation: 2.5dB
+    accuracy_decimals: 2
+    samples: 100
+    sampling_mode: max
+    # raw: true
+    filters:
+      - multiply: 32.0
+      # - multiply: 0.00036630
+      - sliding_window_moving_average:
+          window_size: 20
+          send_every: 20
+      - clamp:
+          min_value: 0
+      - lambda: |-
+          if (x <=2.8) return 0;
+          return x;
+
+    name: "VIN voltage"
+    id: vin_voltage
+    update_interval: 200ms
+    web_server:
+      sorting_group_id: device
+      sorting_weight: 2
+
+# PoE voltage measure
+  - platform: adc
+    pin: GPIO37
+    attenuation: 2.5dB
+    id: poe_voltage
+    accuracy_decimals: 2
+    samples: 100
+    sampling_mode: max
+    filters:
+      - multiply: 32.0
+      - sliding_window_moving_average:
+          window_size: 20
+          send_every: 20
+      - clamp:
+          min_value: 0
+      - lambda: |-
+          if (x <=2.8) return 0;
+          return x;
+    name: "PoE voltage"
+    update_interval: 200ms
+    web_server:
+      sorting_group_id: device
+      sorting_weight: 3
+
+# temperature sensor
+  - platform: tmp102
+    id: cpu_board_temp
+    address: 0x48
+    name: "PCB TEMPERATURE"
+    update_interval: 20s
+    web_server:
+      sorting_group_id: device
+      sorting_weight: 1
+  
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO0
+      inverted: true
+    name: "FN button"
+    id: fn_button
+    web_server:
+      sorting_group_id: device
+      sorting_weight: 1
+
+switch:
+  - platform: gpio
+    name: "Red led"
+    id: red_led
+    pin: GPIO2
+    web_server:
+      sorting_group_id: device
+      sorting_weight: 1
+
+  

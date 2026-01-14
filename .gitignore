@@ -20,3 +20,4 @@ JXD/.gitignore
 
 # vscode
 .vscode/*
+*.code-workspace

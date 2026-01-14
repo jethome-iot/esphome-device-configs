@@ -1,0 +1,85 @@
+# JXD-D3-PM3-3 Rev 1.0
+spi:
+  - id: spi_bus1
+    interface: hardware
+    clk_pin: GPIO14
+    mosi_pin: GPIO13
+    miso_pin: GPIO12
+
+substitutions:
+  update_time: 2s
+  gain_voltage_1: '39470'
+  gain_voltage_2: '39470'
+  gain_voltage_3: '39470'
+  gain_ct1: '65327'
+  gain_ct2: '52495'
+  gain_ct3: '52495'
+
+sensor:
+  - platform: atm90e32
+    cs_pin: GPIO15
+    phase_a:
+      voltage:
+        name: "Voltage L1"
+        accuracy_decimals: 1
+      current:
+        name: "Current phase L1"
+      power:
+        name: "Active Power L1"
+      reactive_power:
+        name: "Reactive Power L1"
+      power_factor:
+        name: "Power Factor L1"
+      phase_angle:
+        name: "Phase Angle L1"
+
+      gain_voltage: ${gain_voltage_1}
+      gain_ct: ${gain_ct1}
+      offset_voltage: 0
+      offset_current: 0
+      offset_active_power: 0
+      offset_reactive_power: 0
+
+    phase_b:
+      voltage:
+        name: "Voltage L2"
+        accuracy_decimals: 1
+      current:
+        name: "Current phase L2"
+      power:
+        name: "Active Power L2"
+      reactive_power:
+        name: "Reactive Power L2"
+      power_factor:
+        name: "Power Factor L2"
+      phase_angle:
+        name: "Phase Angle L2"
+      gain_voltage: ${gain_voltage_2}
+      gain_ct: ${gain_ct2}
+    phase_c:
+      voltage:
+        name: "Voltage L3"
+        accuracy_decimals: 1
+      current:
+        name: "Current phase L3"
+      power:
+        name: "Active Power L3"
+      reactive_power:
+        name: "Reactive Power L3"
+      power_factor:
+        name: "Power Factor L3"
+      phase_angle:
+        name: "Phase Angle L3"
+      gain_voltage:  ${gain_voltage_3}
+      gain_ct: ${gain_ct3}
+    
+    frequency:
+      name: "Line Frequency"
+    chip_temperature:
+      name: "ATM90E32 Temperature"
+    line_frequency: 50Hz
+    current_phases: 3
+    gain_pga: 2X
+    update_interval: ${update_time}
+    # enable_offset_calibration: true
+    # enable_gain_calibration: true
