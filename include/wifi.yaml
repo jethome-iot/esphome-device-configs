@@ -1,5 +1,7 @@
 wifi:
   id: wifi_id
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
   reboot_timeout: 5min
   ap:
     ap_timeout: 5s

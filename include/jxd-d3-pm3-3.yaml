@@ -56,6 +56,11 @@ sensor:
         name: "Phase Angle L2"
       gain_voltage: ${gain_voltage_2}
       gain_ct: ${gain_ct2}
+      offset_voltage: 0
+      offset_current: 0
+      offset_active_power: 0
+      offset_reactive_power: 0
+
     phase_c:
       voltage:
         name: "Voltage L3"
@@ -72,6 +77,10 @@ sensor:
         name: "Phase Angle L3"
       gain_voltage:  ${gain_voltage_3}
       gain_ct: ${gain_ct3}
+      offset_voltage: 0
+      offset_current: 0
+      offset_active_power: 0
+      offset_reactive_power: 0
     
     frequency:
       name: "Line Frequency"
@@ -81,19 +90,49 @@ sensor:
     current_phases: 3
     gain_pga: 2X
     update_interval: ${update_time}
-    # enable_offset_calibration: true
-    # enable_gain_calibration: true
+    enable_offset_calibration: true
+    enable_gain_calibration: true
 
 text_sensor:
   - platform: atm90e32
     phase_status:
       phase_a:
-        name: "Phase A Status"
+        name: "Phase L1 Status"
       phase_b:
-        name: "Phase B Status"
+        name: "Phase L2 Status"
       phase_c:
-        name: "Phase C Status"
+        name: "Phase L3 Status"
     frequency_status:
       name: "Frequency Status"
 
-  
+button:
+  - platform: atm90e32
+    run_gain_calibration:
+      name: "Run Gain Calibration"
+    clear_gain_calibration:
+      name: "Clear Gain Calibration"
+    run_offset_calibration:
+      name: "Run Offset Calibration"
+    clear_offset_calibration:
+      name: "Clear Offset Calibration"
+    run_power_offset_calibration:
+      name: "Run Power Offset Calibration"
+    clear_power_offset_calibration:
+      name: "Clear Power Offset Calibration"
+
+number:
+  - platform: atm90e32
+    reference_voltage:
+      phase_a:
+        name: "Phase L1 Ref Voltage"
+      phase_b:
+        name: "Phase L2 Ref Voltage"
+      phase_c:
+        name: "Phase L3 Ref Voltage"
+    reference_current:
+      phase_a:
+        name: "Phase L1 Ref Current"
+      phase_b:
+        name: "Phase L2 Ref Current"
+      phase_c:
+        name: "Phase L3 Ref Current"

@@ -8,6 +8,7 @@ substitutions:
 packages:
   jxd-d3-pm3-3: !include ../include/jxd-d3-pm3-3.yaml
   ethernet: !include ../include/ethernet.yaml
+  # wifi: !include ../include/wifi.yaml
   jxd-pm380-e1eth-display: !include ../include/jxd-pm380-e1eth-display.yaml
   jxd-r6-e1eth-buttons: !include ../include/jxd-r6-e1eth-buttons.yaml
 
@@ -27,11 +28,14 @@ esphome:
       
 # Enable logging
 logger:
-  level: DEBUG
+  level: VERBOSE
+  initial_level: DEBUG
   logs:
     text_sensor: NONE
     sensor: NONE
     adc.common: WARN
+    pca9554: WARN
+    atm90e32: VERBOSE
 
 # Enable Home Assistant API
 api:
