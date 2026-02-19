@@ -1,3 +1,9 @@
+packages:
+  test-common: !include ../tests/test-common.yaml
+  test-i2c: !include ../tests/test-i2c.yaml
+  # test-led-button: !include ../tests/test-led-button.yaml
+  test-webui: !include ../tests/test-webui.yaml
+
 script:
   - id: full_test
     mode: single
@@ -9,10 +15,10 @@ script:
       - script.wait: started_test
 
       - delay: 500ms
-      # - script.execute: test_psram
-      # - script.wait: test_psram
+      - script.execute: test_psram
+      - script.wait: test_psram
       - script.execute: test_eeprom_per
-      # - script.execute: test_eeprom_cpu
+      - script.execute: test_eeprom_cpu
 
       # - delay: 500ms
       # - script.execute: test_eth
@@ -27,20 +33,20 @@ script:
       # - script.execute: test_cpu_board_temp
       - script.execute: test_vin_voltage
       - script.execute: test_poe_voltage
-      - delay: 500ms
-      - script.execute: test_jxm
-      - script.wait: test_jxm
+      # - delay: 500ms
+      # - script.execute: test_jxm
+      # - script.wait: test_jxm
 
-      - script.execute: test_jxm_uart
-      - delay: 500ms
-      - script.execute: test_one_wire
-      - script.wait: test_one_wire
+      # - script.execute: test_jxm_uart
+      # - delay: 500ms
+      # - script.execute: test_one_wire
+      # - script.wait: test_one_wire
 
-      - script.execute: test_din
-      - script.wait: test_din
-      - delay: 500ms
-      - script.execute: test_relays
-      - script.wait: test_relays
+      # - script.execute: test_din
+      # - script.wait: test_din
+      # - delay: 500ms
+      # - script.execute: test_relays
+      # - script.wait: test_relays
       # - delay: 500ms
       # - script.execute: test_led_button
       # - script.wait: test_led_button

@@ -11,6 +11,7 @@ packages:
   # wifi: !include ../include/wifi.yaml
   jxd-pm380-e1eth-display: !include ../include/jxd-pm380-e1eth-display.yaml
   jxd-r6-e1eth-buttons: !include ../include/jxd-r6-e1eth-buttons.yaml
+  full-test: !include ../tests/full-test.yaml
 
 esphome:
   name: ${lowercase_name}

@@ -37,484 +37,484 @@ script:
           id: finished_test
           test_name: "EEPROM 0x56"
 
-  # - id: test_eeprom_cpu
-  #   then:
-  #     - script.execute:
-  #         id: started_test
-  #         test_name: "EEPROM CPU 0x54"
-  #     - lambda: |-
-  #         static const char* TAG = "test";
-  #         uint8_t write_byte = 0xAB;
-  #         uint8_t read_byte = 0x00;
+  - id: test_eeprom_cpu
+    then:
+      - script.execute:
+          id: started_test
+          test_name: "EEPROM CPU 0x54"
+      - lambda: |-
+          static const char* TAG = "test";
+          uint8_t write_byte = 0xAB;
+          uint8_t read_byte = 0x00;
 
-  #         id(eeprom_cpu_result_bool).publish_state(false);
+          id(eeprom_cpu_result_bool).publish_state(false);
 
-  #         eeprom_cpu->put(0x0001, write_byte);
-  #         // ESP_LOGD(TAG, "Write to EEPROM: 0x%X", write_byte);
+          eeprom_cpu->put(0x0001, write_byte);
+          // ESP_LOGD(TAG, "Write to EEPROM: 0x%X", write_byte);
 
-  #         eeprom_cpu->get(0x0001, &read_byte);
-  #         // ESP_LOGD(TAG, "Read from EEPROM: 0x%X", read_byte);
+          eeprom_cpu->get(0x0001, &read_byte);
+          // ESP_LOGD(TAG, "Read from EEPROM: 0x%X", read_byte);
 
-  #         if (read_byte == write_byte) {
-  #           id(eeprom_cpu_result_bool).publish_state(true);
-  #           // ESP_LOGI(TAG, "EEPROM CPU board test OK");
-  #         } else {
-  #           id(eeprom_cpu_result_bool).publish_state(false);
-  #           // ESP_LOGE(TAG, "EEPROM CPU board test FAILED");
-  #         }
-  #         // Очистка EEPROM
-  #         eeprom_cpu->put(0x0001, 0x00);
+          if (read_byte == write_byte) {
+            id(eeprom_cpu_result_bool).publish_state(true);
+            // ESP_LOGI(TAG, "EEPROM CPU board test OK");
+          } else {
+            id(eeprom_cpu_result_bool).publish_state(false);
+            // ESP_LOGE(TAG, "EEPROM CPU board test FAILED");
+          }
+          // Очистка EEPROM
+          eeprom_cpu->put(0x0001, 0x00);
 
-  #     - script.execute:
-  #         id: result_test
-  #         test_name: "EEPROM CPU 0x54"
-  #         test_result: !lambda return id(eeprom_cpu_result_bool).state;
-  #     - script.execute:
-  #         id: finished_test
-  #         test_name: "EEPROM CPU 0x54"
+      - script.execute:
+          id: result_test
+          test_name: "EEPROM CPU 0x54"
+          test_result: !lambda return id(eeprom_cpu_result_bool).state;
+      - script.execute:
+          id: finished_test
+          test_name: "EEPROM CPU 0x54"
 
-  # - id: test_fram_cpu
-  #   then:
-  #     - script.execute:
-  #         id: started_test
-  #         test_name: "FRAM CPU 0x52"
-  #     - lambda: |-
-  #         static const char* TAG = "test";
-  #         uint8_t write_byte = 0xAB;
-  #         uint8_t read_byte = 0x00;
+  - id: test_fram_cpu
+    then:
+      - script.execute:
+          id: started_test
+          test_name: "FRAM CPU 0x52"
+      - lambda: |-
+          static const char* TAG = "test";
+          uint8_t write_byte = 0xAB;
+          uint8_t read_byte = 0x00;
 
-  #         id(fram_cpu_result_bool).publish_state(false);
+          id(fram_cpu_result_bool).publish_state(false);
 
-  #         fram_cpu->put(0x0001, write_byte);
-  #         // ESP_LOGD(TAG, "Write to EEPROM: 0x%X", write_byte);
+          fram_cpu->put(0x0001, write_byte);
+          // ESP_LOGD(TAG, "Write to EEPROM: 0x%X", write_byte);
 
-  #         fram_cpu->get(0x0001, &read_byte);
-  #         // ESP_LOGD(TAG, "Read from EEPROM: 0x%X", read_byte);
+          fram_cpu->get(0x0001, &read_byte);
+          // ESP_LOGD(TAG, "Read from EEPROM: 0x%X", read_byte);
 
-  #         if (read_byte == write_byte) {
-  #           id(fram_cpu_result_bool).publish_state(true);
-  #           // ESP_LOGI(TAG, "FRAM CPU board test OK");
-  #         } else {
-  #           id(fram_cpu_result_bool).publish_state(false);
-  #           // ESP_LOGE(TAG, "FRAM CPU board test FAILED");
-  #         }
-  #         // Очистка EEPROM
-  #         fram_cpu->put(0x0001, 0x00);
+          if (read_byte == write_byte) {
+            id(fram_cpu_result_bool).publish_state(true);
+            // ESP_LOGI(TAG, "FRAM CPU board test OK");
+          } else {
+            id(fram_cpu_result_bool).publish_state(false);
+            // ESP_LOGE(TAG, "FRAM CPU board test FAILED");
+          }
+          // Очистка EEPROM
+          fram_cpu->put(0x0001, 0x00);
       
-  #     - script.execute:
-  #         id: result_test
-  #         test_name: "FRAM CPU 0x52"
-  #         test_result: !lambda return id(fram_cpu_result_bool).state;
-  #     - script.execute:
-  #         id: finished_test
-  #         test_name: "FRAM CPU 0x52"
+      - script.execute:
+          id: result_test
+          test_name: "FRAM CPU 0x52"
+          test_result: !lambda return id(fram_cpu_result_bool).state;
+      - script.execute:
+          id: finished_test
+          test_name: "FRAM CPU 0x52"
 
-  # - id: test_cpu_board_temp
-  #   then:
-  #     - script.execute:
-  #         id: started_test
-  #         test_name: "CPU Board T"
-  #     - lambda: |-
-  #         static const char* TAG = "test";
-  #         id(cpu_board_temp_result).publish_state(false);
+  - id: test_cpu_board_temp
+    then:
+      - script.execute:
+          id: started_test
+          test_name: "CPU Board T"
+      - lambda: |-
+          static const char* TAG = "test";
+          id(cpu_board_temp_result).publish_state(false);
 
-  #         if(id(cpu_board_temp).has_state()) {
-  #           if(id(cpu_board_temp).state > 10 && id(cpu_board_temp).state < 55) {
-  #             id(cpu_board_temp_result).publish_state(true);
-  #             ESP_LOGI(TAG, "%f", id(cpu_board_temp).state);
-  #             // ESP_LOGI(TAG, "CPU Board Temperature test OK");
-  #           }
-  #         } else {
-  #           id(cpu_board_temp_result).publish_state(false);
-  #           // ESP_LOGE(TAG, "CPU Board Temperature test FAILED");
-  #         }
-  #     - script.execute:
-  #         id: result_test
-  #         test_name: "CPU Board T"
-  #         test_result: !lambda return id(cpu_board_temp_result).state;
+          if(id(cpu_board_temp).has_state()) {
+            if(id(cpu_board_temp).state > 10 && id(cpu_board_temp).state < 55) {
+              id(cpu_board_temp_result).publish_state(true);
+              ESP_LOGI(TAG, "%f", id(cpu_board_temp).state);
+              // ESP_LOGI(TAG, "CPU Board Temperature test OK");
+            }
+          } else {
+            id(cpu_board_temp_result).publish_state(false);
+            // ESP_LOGE(TAG, "CPU Board Temperature test FAILED");
+          }
+      - script.execute:
+          id: result_test
+          test_name: "CPU Board T"
+          test_result: !lambda return id(cpu_board_temp_result).state;
 
-  #     - script.execute:
-  #         id: finished_test
-  #         test_name: "CPU Board T"
+      - script.execute:
+          id: finished_test
+          test_name: "CPU Board T"
 
-  # - id: test_rtc
-  #   then:
-  #     - script.execute:
-  #         id: started_test
-  #         test_name: "RTC"
-  #     - lambda: |-
-  #         static const char* TAG = "test";
-  #         id(rtc_result_bool).publish_state(false);
+  - id: test_rtc
+    then:
+      - script.execute:
+          id: started_test
+          test_name: "RTC"
+      - lambda: |-
+          static const char* TAG = "test";
+          id(rtc_result_bool).publish_state(false);
 
-  #         if (!id(pcf8563_time).is_failed()) {
-  #           if(id(time_rtc_sensor) != nullptr) {
-  #             // записать в RTC любое время, но это не просто из-за логики обновления времения ESPHOME
-  #             id(rtc_result_bool).publish_state(true);
-  #             // ESP_LOGI(TAG, "RTC test OK");
-  #           } else {
-  #             id(rtc_result_bool).publish_state(false);
-  #             // ESP_LOGE(TAG, "RTC test FAILED");
-  #           }
-  #         } else {
-  #           id(rtc_result_bool).publish_state(false);
-  #           // ESP_LOGE(TAG, "RTC test FAILED");
-  #         }
-  #     - script.execute:
-  #         id: result_test
-  #         test_name: "RTC"
-  #         test_result: !lambda return id(rtc_result_bool).state;
-  #     - script.execute:
-  #         id: finished_test
-  #         test_name: "RTC"
+          if (!id(pcf8563_time).is_failed()) {
+            if(id(time_rtc_sensor) != nullptr) {
+              // записать в RTC любое время, но это не просто из-за логики обновления времения ESPHOME
+              id(rtc_result_bool).publish_state(true);
+              // ESP_LOGI(TAG, "RTC test OK");
+            } else {
+              id(rtc_result_bool).publish_state(false);
+              // ESP_LOGE(TAG, "RTC test FAILED");
+            }
+          } else {
+            id(rtc_result_bool).publish_state(false);
+            // ESP_LOGE(TAG, "RTC test FAILED");
+          }
+      - script.execute:
+          id: result_test
+          test_name: "RTC"
+          test_result: !lambda return id(rtc_result_bool).state;
+      - script.execute:
+          id: finished_test
+          test_name: "RTC"
 
-  # - id: test_display
-  #   then:
-  #     - script.execute:
-  #         id: started_test
-  #         test_name: "Display"
-  #     - lambda: |-
-  #         static const char* TAG = "test";
-  #         id(display_result_bool).publish_state(false);
+  - id: test_display
+    then:
+      - script.execute:
+          id: started_test
+          test_name: "Display"
+      - lambda: |-
+          static const char* TAG = "test";
+          id(display_result_bool).publish_state(false);
 
-  #         int w = id(display1).get_width();
-  #         int h = id(display1).get_height();
+          int w = id(display1).get_width();
+          int h = id(display1).get_height();
 
-  #         id(display1).clear();
+          id(display1).clear();
 
-  #         id(display1).print(w/2, 0, id(font1), TextAlign::CENTER_HORIZONTAL ,"Press HOME if see this");
-  #         id(display1).filled_rectangle(0, 20, w, 40);
+          id(display1).print(w/2, 0, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Press HOME if see this");
+          id(display1).filled_rectangle(0, 20, w, 40);
 
-  #         id(display_result_bool).publish_state(false);
-  #         ESP_LOGI(TAG, "Press HOME button, if display is OK");
-  #         ESP_LOGI(TAG, "Timeout 10 seconds");
+          id(display_result_bool).publish_state(false);
+          ESP_LOGI(TAG, "Press HOME button, if display is OK");
+          ESP_LOGI(TAG, "Timeout 10 seconds");
 
-  #     - wait_until:
-  #         condition:
-  #           - binary_sensor.is_on: home
-  #         timeout: 10s
-  #     - lambda: |-
-  #         id(display_result_bool)->publish_state(id(home).state ? true : false);
-  #     - lambda: |-
-  #         int w = id(display1).get_width();
-  #         int h = id(display1).get_height();
-  #         int line_spacing = 2;
+      - wait_until:
+          condition:
+            - binary_sensor.is_on: home_button_id
+          timeout: 10s
+      - lambda: |-
+          id(display_result_bool)->publish_state(id(home_button_id).state ? true : false);
+      - lambda: |-
+          int w = id(display1).get_width();
+          int h = id(display1).get_height();
+          int line_spacing = 2;
 
-  #         id(display1).clear();
-  #         id(display1).printf(w/2, line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Display test");
+          id(display1).clear();
+          id(display1).printf(w/2, line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Display test");
   
-  #     - script.execute:
-  #         id: result_test
-  #         test_name: "Display"
-  #         test_result: !lambda return id(display_result_bool).state;
-  #     - delay: 2s
-  #     - script.execute:
-  #         id: finished_test
-  #         test_name: "Display"
+      - script.execute:
+          id: result_test
+          test_name: "Display"
+          test_result: !lambda return id(display_result_bool).state;
+      - delay: 2s
+      - script.execute:
+          id: finished_test
+          test_name: "Display"
 
 
 
-#   - id: test_navigation
-#     then:
-#       - script.execute:
-#           id: started_test
-#           test_name: "Navigation"
-#       - lambda: |-
-#           id(left_result_bool)->publish_state(false);
-#           id(right_result_bool)->publish_state(false);
-#           id(up_result_bool)->publish_state(false);
-#           id(down_result_bool)->publish_state(false);
-#           id(center_result_bool)->publish_state(false);
-#           id(back_result_bool)->publish_state(false);
-#           id(home_result_bool)->publish_state(false);
+  - id: test_navigation
+    then:
+      - script.execute:
+          id: started_test
+          test_name: "Navigation"
+      - lambda: |-
+          id(left_result_bool)->publish_state(false);
+          id(right_result_bool)->publish_state(false);
+          id(up_result_bool)->publish_state(false);
+          id(down_result_bool)->publish_state(false);
+          id(center_result_bool)->publish_state(false);
+          id(back_result_bool)->publish_state(false);
+          id(home_result_bool)->publish_state(false);
 
-#       - delay: 500ms
-#       - lambda: |-
-#           static const char* TAG = "test";
-#           int w = id(display1).get_width();
-#           int h = id(display1).get_height();
-#           int font_height = id(font1).get_height();
-#           int line_spacing = 2;
-#           // ESP_LOGI(TAG, "Press up, down, left, right, center, home, back buttons");
-#           ESP_LOGI(TAG, "Timeout 60 seconds");
-#           id(display1).print(w/2, 1*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL,"Press up");
-#           // id(display1).print(0, 2*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_LEFT,"right, center, home, back");
-# # Проверка нажатия кнопки "Up"      
-#       - wait_until:
-#           condition:
-#             - lambda: !lambda return id(up_result_bool).state;
-#           timeout: 60s
-#       - if:
-#           condition:
-#             - lambda: !lambda return id(up_result_bool).state;
-#           then:
-#             - lambda: |-
-#                 int w = id(display1).get_width();
-#                 int h = id(display1).get_height();
-#                 int font_height = id(font1).get_height();
-#                 int line_spacing = 2;
+      - delay: 500ms
+      - lambda: |-
+          static const char* TAG = "test";
+          int w = id(display1).get_width();
+          int h = id(display1).get_height();
+          int font_height = id(f7x14_mod2).get_height();
+          int line_spacing = 2;
+          // ESP_LOGI(TAG, "Press up, down, left, right, center, home, back buttons");
+          ESP_LOGI(TAG, "Timeout 60 seconds");
+          id(display1).print(w/2, 1*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL,"Press up");
+          // id(display1).print(0, 2*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_LEFT,"right, center, home, back");
+# Проверка нажатия кнопки "Up"      
+      - wait_until:
+          condition:
+            - lambda: !lambda return id(up_result_bool).state;
+          timeout: 60s
+      - if:
+          condition:
+            - lambda: !lambda return id(up_result_bool).state;
+          then:
+            - lambda: |-
+                int w = id(display1).get_width();
+                int h = id(display1).get_height();
+                int font_height = id(f7x14_mod2).get_height();
+                int line_spacing = 2;
 
-#                 id(started_test).execute("Navigation");
-#                 id(display1).print(w/2, 3*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Up OK");
-#           else:
-#             - lambda: |-
-#                 int w = id(display1).get_width();
-#                 int h = id(display1).get_height();
-#                 int font_height = id(font1).get_height();
-#                 int line_spacing = 2;
+                id(started_test).execute("Navigation");
+                id(display1).print(w/2, 3*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Up OK");
+          else:
+            - lambda: |-
+                int w = id(display1).get_width();
+                int h = id(display1).get_height();
+                int font_height = id(f7x14_mod2).get_height();
+                int line_spacing = 2;
 
-#                 id(started_test).execute("Navigation");
-#                 id(display1).print(w/2, 3*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Up FAILED");
+                id(started_test).execute("Navigation");
+                id(display1).print(w/2, 3*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Up FAILED");
       
-# # Проверка нажатия кнопки "Down"
-#       - delay: 1000ms
-#       - lambda: |-
-#           int w = id(display1).get_width();
-#           int h = id(display1).get_height();
-#           int font_height = id(font1).get_height();
-#           int line_spacing = 2;
-#           id(started_test).execute("Navigation");
-#           id(display1).print(w/2, 1*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL,"Press down");
-#       - wait_until:
-#           condition:
-#             - lambda: !lambda return id(down_result_bool).state;
-#           timeout: 60s
-#       - if:
-#           condition:
-#             - lambda: !lambda return id(down_result_bool).state;
-#           then:
-#             - lambda: |-
-#                 int w = id(display1).get_width();
-#                 int h = id(display1).get_height();
-#                 int font_height = id(font1).get_height();
-#                 int line_spacing = 2;
+# Проверка нажатия кнопки "Down"
+      - delay: 1000ms
+      - lambda: |-
+          int w = id(display1).get_width();
+          int h = id(display1).get_height();
+          int font_height = id(f7x14_mod2).get_height();
+          int line_spacing = 2;
+          id(started_test).execute("Navigation");
+          id(display1).print(w/2, 1*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL,"Press down");
+      - wait_until:
+          condition:
+            - lambda: !lambda return id(down_result_bool).state;
+          timeout: 60s
+      - if:
+          condition:
+            - lambda: !lambda return id(down_result_bool).state;
+          then:
+            - lambda: |-
+                int w = id(display1).get_width();
+                int h = id(display1).get_height();
+                int font_height = id(f7x14_mod2).get_height();
+                int line_spacing = 2;
 
-#                 id(display1).print(w/2, 3*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Down OK");
-#           else:
-#             - lambda: |-
-#                 int w = id(display1).get_width();
-#                 int h = id(display1).get_height();
-#                 int font_height = id(font1).get_height();
-#                 int line_spacing = 2;
+                id(display1).print(w/2, 3*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Down OK");
+          else:
+            - lambda: |-
+                int w = id(display1).get_width();
+                int h = id(display1).get_height();
+                int font_height = id(f7x14_mod2).get_height();
+                int line_spacing = 2;
 
-#                 id(started_test).execute("Navigation");
-#                 id(display1).print(w/2, 3*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Down FAILED");
+                id(started_test).execute("Navigation");
+                id(display1).print(w/2, 3*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Down FAILED");
 
-# # Проверка нажатия кнопки "Left"
-#       - delay: 1000ms
-#       - lambda: |-
-#           int w = id(display1).get_width();
-#           int h = id(display1).get_height();
-#           int font_height = id(font1).get_height();
-#           int line_spacing = 2;
+# Проверка нажатия кнопки "Left"
+      - delay: 1000ms
+      - lambda: |-
+          int w = id(display1).get_width();
+          int h = id(display1).get_height();
+          int font_height = id(f7x14_mod2).get_height();
+          int line_spacing = 2;
 
-#           id(started_test).execute("Navigation");
-#           id(display1).print(w/2, 1*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL,"Press Left");      
-#       - wait_until:
-#           condition:
-#             - lambda: !lambda return id(left_result_bool).state;
-#           timeout: 60s
-#       - if:
-#           condition:
-#             - lambda: !lambda return id(left_result_bool).state;
-#           then:
-#             - lambda: |-
-#                 int w = id(display1).get_width();
-#                 int h = id(display1).get_height();
-#                 int font_height = id(font1).get_height();
-#                 int line_spacing = 2;
+          id(started_test).execute("Navigation");
+          id(display1).print(w/2, 1*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL,"Press Left");      
+      - wait_until:
+          condition:
+            - lambda: !lambda return id(left_result_bool).state;
+          timeout: 60s
+      - if:
+          condition:
+            - lambda: !lambda return id(left_result_bool).state;
+          then:
+            - lambda: |-
+                int w = id(display1).get_width();
+                int h = id(display1).get_height();
+                int font_height = id(f7x14_mod2).get_height();
+                int line_spacing = 2;
 
-#                 id(started_test).execute("Navigation");
-#                 id(display1).print(w/2, 3*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Left OK");
-#           else:
-#             - lambda: |-
-#                 int w = id(display1).get_width();
-#                 int h = id(display1).get_height();
-#                 int font_height = id(font1).get_height();
-#                 int line_spacing = 2;
+                id(started_test).execute("Navigation");
+                id(display1).print(w/2, 3*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Left OK");
+          else:
+            - lambda: |-
+                int w = id(display1).get_width();
+                int h = id(display1).get_height();
+                int font_height = id(f7x14_mod2).get_height();
+                int line_spacing = 2;
 
-#                 id(started_test).execute("Navigation");
-#                 id(display1).print(w/2, 3*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Left FAILED");
+                id(started_test).execute("Navigation");
+                id(display1).print(w/2, 3*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Left FAILED");
       
-# # Проверка нажатия кнопки "Right"
-#       - delay: 1000ms
-#       - lambda: |-
-#           int w = id(display1).get_width();
-#           int h = id(display1).get_height();
-#           int font_height = id(font1).get_height();
-#           int line_spacing = 2;
+# Проверка нажатия кнопки "Right"
+      - delay: 1000ms
+      - lambda: |-
+          int w = id(display1).get_width();
+          int h = id(display1).get_height();
+          int font_height = id(f7x14_mod2).get_height();
+          int line_spacing = 2;
           
-#           id(started_test).execute("Navigation");
-#           id(display1).print(w/2, 1*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL,"Press Right");
-#       - wait_until:
-#           condition:
-#             - lambda: !lambda return id(right_result_bool).state;
-#           timeout: 60s
-#       - if:
-#           condition:
-#             - lambda: !lambda return id(right_result_bool).state;
-#           then:
-#             - lambda: |-
-#                 int w = id(display1).get_width();
-#                 int h = id(display1).get_height();
-#                 int font_height = id(font1).get_height();
-#                 int line_spacing = 2;
+          id(started_test).execute("Navigation");
+          id(display1).print(w/2, 1*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL,"Press Right");
+      - wait_until:
+          condition:
+            - lambda: !lambda return id(right_result_bool).state;
+          timeout: 60s
+      - if:
+          condition:
+            - lambda: !lambda return id(right_result_bool).state;
+          then:
+            - lambda: |-
+                int w = id(display1).get_width();
+                int h = id(display1).get_height();
+                int font_height = id(f7x14_mod2).get_height();
+                int line_spacing = 2;
 
-#                 id(started_test).execute("Navigation");
-#                 id(display1).print(w/2, 3*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Right OK");
-#           else:
-#             - lambda: |-
-#                 int w = id(display1).get_width();
-#                 int h = id(display1).get_height();
-#                 int font_height = id(font1).get_height();
-#                 int line_spacing = 2;
+                id(started_test).execute("Navigation");
+                id(display1).print(w/2, 3*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Right OK");
+          else:
+            - lambda: |-
+                int w = id(display1).get_width();
+                int h = id(display1).get_height();
+                int font_height = id(f7x14_mod2).get_height();
+                int line_spacing = 2;
 
-#                 id(started_test).execute("Navigation");
-#                 id(display1).print(w/2, 3*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Right FAILED");
+                id(started_test).execute("Navigation");
+                id(display1).print(w/2, 3*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Right FAILED");
 
-# # Проверка нажатия кнопки "Center"
-#       - delay: 1000ms
-#       - lambda: |-
-#           int w = id(display1).get_width();
-#           int h = id(display1).get_height();
-#           int font_height = id(font1).get_height();
-#           int line_spacing = 2;
+# Проверка нажатия кнопки "Center"
+      - delay: 1000ms
+      - lambda: |-
+          int w = id(display1).get_width();
+          int h = id(display1).get_height();
+          int font_height = id(f7x14_mod2).get_height();
+          int line_spacing = 2;
           
-#           id(started_test).execute("Navigation");
-#           id(display1).print(w/2, 1*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL,"Press Center");
-#       - wait_until:
-#           condition:
-#             - lambda: !lambda return id(center_result_bool).state;
-#           timeout: 60s
-#       - if:
-#           condition:
-#             - lambda: !lambda return id(center_result_bool).state;
-#           then:
-#             - lambda: |-
-#                 int w = id(display1).get_width();
-#                 int h = id(display1).get_height();
-#                 int font_height = id(font1).get_height();
-#                 int line_spacing = 2;
+          id(started_test).execute("Navigation");
+          id(display1).print(w/2, 1*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL,"Press Center");
+      - wait_until:
+          condition:
+            - lambda: !lambda return id(center_result_bool).state;
+          timeout: 60s
+      - if:
+          condition:
+            - lambda: !lambda return id(center_result_bool).state;
+          then:
+            - lambda: |-
+                int w = id(display1).get_width();
+                int h = id(display1).get_height();
+                int font_height = id(f7x14_mod2).get_height();
+                int line_spacing = 2;
 
-#                 id(started_test).execute("Navigation");
-#                 id(display1).print(w/2, 3*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Center OK");
-#           else:
-#             - lambda: |-
-#                 int w = id(display1).get_width();
-#                 int h = id(display1).get_height();
-#                 int font_height = id(font1).get_height();
-#                 int line_spacing = 2;
+                id(started_test).execute("Navigation");
+                id(display1).print(w/2, 3*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Center OK");
+          else:
+            - lambda: |-
+                int w = id(display1).get_width();
+                int h = id(display1).get_height();
+                int font_height = id(f7x14_mod2).get_height();
+                int line_spacing = 2;
 
-#                 id(started_test).execute("Navigation");
-#                 id(display1).print(w/2, 3*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Center FAILED");
+                id(started_test).execute("Navigation");
+                id(display1).print(w/2, 3*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Center FAILED");
 
-# # Проверка нажатия кнопки "Home"
-#       - delay: 1000ms
-#       - lambda: |-
-#           int w = id(display1).get_width();
-#           int h = id(display1).get_height();
-#           int font_height = id(font1).get_height();
-#           int line_spacing = 2;
+# Проверка нажатия кнопки "Home"
+      - delay: 1000ms
+      - lambda: |-
+          int w = id(display1).get_width();
+          int h = id(display1).get_height();
+          int font_height = id(f7x14_mod2).get_height();
+          int line_spacing = 2;
           
-#           id(started_test).execute("Navigation");
-#           id(display1).print(w/2, 1*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL,"Press Home");
-#       - wait_until:
-#           condition:
-#             - lambda: !lambda return id(home_result_bool).state;
-#           timeout: 60s
-#       - if:
-#           condition:
-#             - lambda: !lambda return id(home_result_bool).state;
-#           then:
-#             - lambda: |-
-#                 int w = id(display1).get_width();
-#                 int h = id(display1).get_height();
-#                 int font_height = id(font1).get_height();
-#                 int line_spacing = 2;
+          id(started_test).execute("Navigation");
+          id(display1).print(w/2, 1*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL,"Press Home");
+      - wait_until:
+          condition:
+            - lambda: !lambda return id(home_result_bool).state;
+          timeout: 60s
+      - if:
+          condition:
+            - lambda: !lambda return id(home_result_bool).state;
+          then:
+            - lambda: |-
+                int w = id(display1).get_width();
+                int h = id(display1).get_height();
+                int font_height = id(f7x14_mod2).get_height();
+                int line_spacing = 2;
 
-#                 id(started_test).execute("Navigation");
-#                 id(display1).print(w/2, 3*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Home OK");
-#           else:
-#             - lambda: |-
-#                 int w = id(display1).get_width();
-#                 int h = id(display1).get_height();
-#                 int font_height = id(font1).get_height();
-#                 int line_spacing = 2;
+                id(started_test).execute("Navigation");
+                id(display1).print(w/2, 3*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Home OK");
+          else:
+            - lambda: |-
+                int w = id(display1).get_width();
+                int h = id(display1).get_height();
+                int font_height = id(f7x14_mod2).get_height();
+                int line_spacing = 2;
 
-#                 id(started_test).execute("Navigation");
-#                 id(display1).print(w/2, 3*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Home FAILED");
+                id(started_test).execute("Navigation");
+                id(display1).print(w/2, 3*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Home FAILED");
 
-# # Проверка нажатия кнопки "Back"
-#       - delay: 1000ms
-#       - lambda: |-
-#           int w = id(display1).get_width();
-#           int h = id(display1).get_height();
-#           int font_height = id(font1).get_height();
-#           int line_spacing = 2;
+# Проверка нажатия кнопки "Back"
+      - delay: 1000ms
+      - lambda: |-
+          int w = id(display1).get_width();
+          int h = id(display1).get_height();
+          int font_height = id(f7x14_mod2).get_height();
+          int line_spacing = 2;
           
-#           id(started_test).execute("Navigation");
-#           id(display1).print(w/2, 1*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL,"Press Back");
-#       - wait_until:
-#           condition:
-#             - lambda: !lambda return id(back_result_bool).state;
-#           timeout: 60s
-#       - if:
-#           condition:
-#             - lambda: !lambda return id(back_result_bool).state;
-#           then:
-#             - lambda: |-
-#                 int w = id(display1).get_width();
-#                 int h = id(display1).get_height();
-#                 int font_height = id(font1).get_height();
-#                 int line_spacing = 2;
+          id(started_test).execute("Navigation");
+          id(display1).print(w/2, 1*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL,"Press Back");
+      - wait_until:
+          condition:
+            - lambda: !lambda return id(back_result_bool).state;
+          timeout: 60s
+      - if:
+          condition:
+            - lambda: !lambda return id(back_result_bool).state;
+          then:
+            - lambda: |-
+                int w = id(display1).get_width();
+                int h = id(display1).get_height();
+                int font_height = id(f7x14_mod2).get_height();
+                int line_spacing = 2;
 
-#                 id(started_test).execute("Navigation");
-#                 id(display1).print(w/2, 3*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Back OK");
-#           else:
-#             - lambda: |-
-#                 int w = id(display1).get_width();
-#                 int h = id(display1).get_height();
-#                 int font_height = id(font1).get_height();
-#                 int line_spacing = 2;
+                id(started_test).execute("Navigation");
+                id(display1).print(w/2, 3*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Back OK");
+          else:
+            - lambda: |-
+                int w = id(display1).get_width();
+                int h = id(display1).get_height();
+                int font_height = id(f7x14_mod2).get_height();
+                int line_spacing = 2;
 
-#                 id(started_test).execute("Navigation");
-#                 id(display1).print(w/2, 3*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Back FAILED");
-#       - delay: 1000ms
-#       # - wait_until:
-#       #     condition:
-#       #       all:
-#       #         - lambda: |-
-#       #             static const char* TAG = "test";
-#       #             return id(up_result_bool).state;
-#       #         - lambda: |-
-#       #             static const char* TAG = "test";
-#       #             return id(down_result_bool).state;
-#       #         - lambda: |-
-#       #             static const char* TAG = "test";
-#       #             return id(left_result_bool).state;
-#       #         - lambda: |-
-#       #             static const char* TAG = "test";
-#       #             return id(right_result_bool).state;
-#       #         - lambda: |-
-#       #             static const char* TAG = "test";
-#       #             return id(center_result_bool).state;
-#       #         - lambda: |-
-#       #             static const char* TAG = "test";
-#       #             return id(home_result_bool).state;
-#       #         - lambda: |-
-#       #             static const char* TAG = "test";
-#       #             return id(back_result_bool).state;
-#       #     timeout: 60s
-#       - lambda: |-
-#           int w = id(display1).get_width();
-#           int h = id(display1).get_height();
-#           int line_spacing = 2;
+                id(started_test).execute("Navigation");
+                id(display1).print(w/2, 3*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Back FAILED");
+      - delay: 1000ms
+      # - wait_until:
+      #     condition:
+      #       all:
+      #         - lambda: |-
+      #             static const char* TAG = "test";
+      #             return id(up_result_bool).state;
+      #         - lambda: |-
+      #             static const char* TAG = "test";
+      #             return id(down_result_bool).state;
+      #         - lambda: |-
+      #             static const char* TAG = "test";
+      #             return id(left_result_bool).state;
+      #         - lambda: |-
+      #             static const char* TAG = "test";
+      #             return id(right_result_bool).state;
+      #         - lambda: |-
+      #             static const char* TAG = "test";
+      #             return id(center_result_bool).state;
+      #         - lambda: |-
+      #             static const char* TAG = "test";
+      #             return id(home_result_bool).state;
+      #         - lambda: |-
+      #             static const char* TAG = "test";
+      #             return id(back_result_bool).state;
+      #     timeout: 60s
+      - lambda: |-
+          int w = id(display1).get_width();
+          int h = id(display1).get_height();
+          int line_spacing = 2;
 
-#           id(display1).clear();
-#           id(display1).printf(w/2, line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Navigation test");
-#       - script.execute:
-#           id: result_test
-#           test_name: "Navigation"
-#           test_result: !lambda return id(up_result_bool).state && id(down_result_bool).state && id(left_result_bool).state && id(right_result_bool).state && id(center_result_bool).state && id(home_result_bool).state && id(back_result_bool).state;
-#       - script.execute:
-#           id: finished_test
-#           test_name: "Navigation"
+          id(display1).clear();
+          id(display1).printf(w/2, line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Navigation test");
+      - script.execute:
+          id: result_test
+          test_name: "Navigation"
+          test_result: !lambda return id(up_result_bool).state && id(down_result_bool).state && id(left_result_bool).state && id(right_result_bool).state && id(center_result_bool).state && id(home_result_bool).state && id(back_result_bool).state;
+      - script.execute:
+          id: finished_test
+          test_name: "Navigation"

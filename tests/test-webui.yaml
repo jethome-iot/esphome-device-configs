@@ -362,28 +362,28 @@ web_server:
       name: "Display board results"
       sorting_weight: 2
 
-modbus:
-  - uart_id: jxm1_uart
-    id: jxm1_modbus_client
-    role: client
+# modbus:
+#   - uart_id: jxm1_uart
+#     id: jxm1_modbus_client
+#     role: client
 
-  - uart_id: jxm2_uart
-    id: jxm2_modbus_server
-    role: server
+#   - uart_id: jxm2_uart
+#     id: jxm2_modbus_server
+#     role: server
     
-modbus_controller:
-  - id: jxm1_modbus_controller
-    modbus_id: jxm1_modbus_client
-    address: 0x4
-    update_interval: 2s
+# modbus_controller:
+#   - id: jxm1_modbus_controller
+#     modbus_id: jxm1_modbus_client
+#     address: 0x4
+#     update_interval: 2s
 
-  - modbus_id: jxm2_modbus_server
-    address: 0x4
-    server_registers:
-      - address: 0x0002
-        value_type: S_DWORD_R
-        read_lambda: |-
-          return 42;
+#   - modbus_id: jxm2_modbus_server
+#     address: 0x4
+#     server_registers:
+#       - address: 0x0002
+#         value_type: S_DWORD_R
+#         read_lambda: |-
+#           return 42;
 
 sensor:
   # - platform: wifi_signal
@@ -393,20 +393,20 @@ sensor:
   #   web_server:
   #     sorting_group_id: cpu_board_group
   #     sorting_weight: 1
-  - platform: modbus_controller
-    modbus_controller_id: jxm1_modbus_controller
-    name: "Received from server"
-    address: 0x0002
-    register_type: holding
-    value_type: S_DWORD_R
-    id: jxm_modbus_sensor
-    filters:
-      - timeout: 5s
-    web_server:
-      sorting_group_id: peripheral_board_group
-      sorting_weight: 1
+  # - platform: modbus_controller
+  #   modbus_controller_id: jxm1_modbus_controller
+  #   name: "Received from server"
+  #   address: 0x0002
+  #   register_type: holding
+  #   value_type: S_DWORD_R
+  #   id: jxm_modbus_sensor
+  #   filters:
+  #     - timeout: 5s
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
+  #     sorting_weight: 1
 
-# text_sensor:
+text_sensor:
 # # для Wifi используется wifi_info
 #   - platform: wifi_info
 #     ip_address:
@@ -423,6 +423,27 @@ sensor:
     # mac_address:
     #   name: MAC
     #   id: mac1
+
+  - platform: template
+    id: time_rtc_sensor
+    name: "Time RTC"
+    lambda: |-
+      if(!id(pcf8563_time).is_failed()){
+        char str[30];
+        time_t currTime = id(pcf8563_time).now().timestamp;
+
+        strftime(str, sizeof(str), "%d.%m.%Y %X", localtime(&currTime));
+        //ESP_LOGD("custom", "time: %s", str);
+        return std::string(str);
+
+      } else {
+        return std::string("");
+      }
+
+    update_interval: 1s
+    web_server:
+      sorting_group_id: device
+      sorting_weight: 1
 
 
 button:
@@ -473,19 +494,19 @@ button:
   #       - lambda: |-
   #           int w = id(display1).get_width();
   #           int h = id(display1).get_height();
-  #           int font_height = id(font1).get_height();
+  #           int font_height = id(f7x14_mod2).get_height();
   #           int line_spacing = 2;
   #           // int h1 = 5;
   #           // int a = 10;
   #           // float k = 0.8;
 
   #           id(display1).clear();
-  #           id(display1).printf(w/2, 0, id(font1), TextAlign::CENTER_HORIZONTAL ,"Navigation test");
+  #           id(display1).printf(w/2, 0, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Navigation test");
 
-  #           id(display1).print(0, 1*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_LEFT,"Press up, down, left,");
-  #           id(display1).print(0, 2*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_LEFT,"right, center, home, back");
+  #           id(display1).print(0, 1*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_LEFT,"Press up, down, left,");
+  #           id(display1).print(0, 2*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_LEFT,"right, center, home, back");
 
-  #           id(display1).print(w/2, 3*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Left OK");
+  #           id(display1).print(w/2, 3*font_height + 3*line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Left OK");
 
             # // id(display1).clear();
 

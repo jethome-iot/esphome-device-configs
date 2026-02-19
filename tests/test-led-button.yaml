@@ -12,7 +12,7 @@ script:
 
           int w = id(display1).get_width();
           int h = id(display1).get_height();
-          int font_height = id(font1).get_height();
+          int font_height = id(f7x14_mod2).get_height();
           int line_spacing = 2;
 
 
@@ -27,8 +27,8 @@ script:
           }
           ESP_LOGI(TAG, "Press FN button");
           ESP_LOGI(TAG, "Timeout 20 seconds");
-          id(display1).printf(w/2, 1*font_height+line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Press FN button");
-          id(display1).printf(w/2, 2*font_height+line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Timeout 20 seconds");
+          id(display1).printf(w/2, 1*font_height+line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Press FN button");
+          id(display1).printf(w/2, 2*font_height+line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Timeout 20 seconds");
 
       - delay: 500ms
       - repeat:

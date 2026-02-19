@@ -37,7 +37,7 @@ script:
             for (int i = 0; i < max_size / 4; i++) {
               uint32_t ex = rand_r(&rseed);
               if (ex != *p) {
-                ESP_LOGE(TAG, "check_mem_seed: %x has 0x%08"PRIx32" expected 0x%08"PRIx32"\n", (char*)p-(char*)mem, *p, ex);
+                ESP_LOGE(TAG, "check_mem_seed: %x has 0x%08" PRIx32 " expected 0x%08" PRIx32 "", (char*)p-(char*)mem, *p, ex);
                 // id(psram_result_bool).publish_state(false);
                 break;
               }
@@ -142,7 +142,7 @@ script:
           ESP_LOGI(TAG, "%s test started", test_name.c_str());
 
           // id(display1).clear();
-          // id(display1).printf(w/2, line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"%s test",test_name.c_str());
+          // id(display1).printf(w/2, line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"%s test",test_name.c_str());
           
   - id: finished_test
     parameters:
@@ -156,7 +156,7 @@ script:
           ESP_LOGI(TAG, "%s test finished", test_name.c_str());
 
           // id(display1).clear();
-          // id(display1).printf(w/2, 40, id(font1), TextAlign::CENTER_HORIZONTAL ,"%s test finished",test_name.c_str());
+          // id(display1).printf(w/2, 40, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"%s test finished",test_name.c_str());
 
   - id: result_test
     parameters:
@@ -172,15 +172,15 @@ script:
 
           // int w = id(display1).get_width();
           // int h = id(display1).get_height();
-          // int font_height = id(font1).get_height();
+          // int font_height = id(f7x14_mod2).get_height();
           // int line_spacing = 2;
 
-          // id(display1).printf(w/2, line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"%s test finished",test_name.c_str());
-          // dp.printf(line_spacing, 0*font_height+5, id(font1), TextAlign::TOP_LEFT ,"%s : %s", test_name.c_str(), test_result ? "OK" : "FAILED");
+          // id(display1).printf(w/2, line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"%s test finished",test_name.c_str());
+          // dp.printf(line_spacing, 0*font_height+5, id(f7x14_mod2), TextAlign::TOP_LEFT ,"%s : %s", test_name.c_str(), test_result ? "OK" : "FAILED");
 
           // dp->clear();
-          // dp->printf(line_spacing, 2*font_height+line_spacing, id(font1), TextAlign::TOP_LEFT ,"%s", test_name.c_str());
-          // dp->printf(w-line_spacing, 2*font_height+line_spacing, id(font1), TextAlign::TOP_RIGHT ,"%s", test_result ? "OK" : "FAILED");
+          // dp->printf(line_spacing, 2*font_height+line_spacing, id(f7x14_mod2), TextAlign::TOP_LEFT ,"%s", test_name.c_str());
+          // dp->printf(w-line_spacing, 2*font_height+line_spacing, id(f7x14_mod2), TextAlign::TOP_RIGHT ,"%s", test_result ? "OK" : "FAILED");
 
   - id: result_full_test
     then:
@@ -191,7 +191,7 @@ script:
 
           // int w = id(display1).get_width();
           // int h = id(display1).get_height();
-          // int font_height = id(font1).get_height();
+          // int font_height = id(f7x14_mod2).get_height();
           // int line_spacing = 2;
           bool test_result_full = false;
           bool r1_r6_result = false;
@@ -246,20 +246,20 @@ script:
             test_result_full = true;
           }
 
-          id(full_test_result_bool).publish_state(test_result_full);
-          if(!test_result_full) {
-            id(red_led).turn_on();
-            id(test_green_led).turn_on();
-          }
-          else {
-            id(test_red_led).turn_off();
-            id(test_green_led).turn_off();
-          }
+          // id(full_test_result_bool).publish_state(test_result_full);
+          // if(!test_result_full) {
+          //   id(red_led).turn_on();
+          //   id(test_green_led).turn_on();
+          // }
+          // else {
+          //   id(test_red_led).turn_off();
+          //   id(test_green_led).turn_off();
+          // }
 
           ESP_LOGI(TAG, "Full test result: %s", test_result_full ? "OK" : "FAILED");
 
           // dp->clear();
-          // dp->printf(w/2, line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Full test");
+          // dp->printf(w/2, line_spacing, id(f7x14_mod2), TextAlign::CENTER_HORIZONTAL ,"Full test");
 
           // dp->printf(w/2, 2*font_height+line_spacing, id(font2), TextAlign::CENTER_HORIZONTAL ,"%s", test_result_full ? "OK" : "FAILED");
 
