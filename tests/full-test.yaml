@@ -1,0 +1,58 @@
+script:
+  - id: full_test
+    mode: single
+    then:
+      # - script.execute: test_ethernet
+      - script.execute:
+          id: started_test
+          test_name: "Full"
+      - script.wait: started_test
+
+      - delay: 500ms
+      # - script.execute: test_psram
+      # - script.wait: test_psram
+      - script.execute: test_eeprom_per
+      # - script.execute: test_eeprom_cpu
+
+      # - delay: 500ms
+      # - script.execute: test_eth
+      # - script.wait: test_eth
+      # - delay: 500ms
+      # - script.execute: test_wf
+      # - script.wait: test_wf
+      # - delay: 500ms
+      # - script.execute: test_fram_cpu
+      # - script.execute: test_rtc
+      # - delay: 500ms
+      # - script.execute: test_cpu_board_temp
+      - script.execute: test_vin_voltage
+      - script.execute: test_poe_voltage
+      - delay: 500ms
+      - script.execute: test_jxm
+      - script.wait: test_jxm
+
+      - script.execute: test_jxm_uart
+      - delay: 500ms
+      - script.execute: test_one_wire
+      - script.wait: test_one_wire
+
+      - script.execute: test_din
+      - script.wait: test_din
+      - delay: 500ms
+      - script.execute: test_relays
+      - script.wait: test_relays
+      # - delay: 500ms
+      # - script.execute: test_led_button
+      # - script.wait: test_led_button
+      # - delay: 500ms
+      # - script.execute: test_display
+      # - script.wait: test_display
+      # - delay: 500ms
+      # - script.execute: test_navigation
+      # - script.wait: test_navigation
+      - script.execute:
+          id: finished_test
+          test_name: "Full"
+      - script.execute: result_full_test
+
+

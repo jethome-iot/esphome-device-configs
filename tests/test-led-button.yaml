@@ -1,0 +1,62 @@
+script:
+# тест для кнопки и светодиода
+# если было мигание светодиода, нажать кнопку
+  - id: test_led_button
+    then:
+      - script.execute:
+          id: started_test
+          test_name: "LED BTN"
+      - lambda: |-
+          static const char* TAG = "test";
+          id(led_button_result_bool).publish_state(false);
+
+          int w = id(display1).get_width();
+          int h = id(display1).get_height();
+          int font_height = id(font1).get_height();
+          int line_spacing = 2;
+
+
+          // проверка начального состояния кнопки
+          // если нажата, то завершить тест
+          if (id(fn_button).state) {
+            ESP_LOGE(TAG, "Button is pressed");
+            id(led_button_result_bool).publish_state(false);
+            id(test_led_button).stop();
+          } else {
+            ESP_LOGI(TAG, "Button is not pressed");
+          }
+          ESP_LOGI(TAG, "Press FN button");
+          ESP_LOGI(TAG, "Timeout 20 seconds");
+          id(display1).printf(w/2, 1*font_height+line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Press FN button");
+          id(display1).printf(w/2, 2*font_height+line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Timeout 20 seconds");
+
+      - delay: 500ms
+      - repeat:
+          count: 10
+          then:
+            - switch.turn_on: red_led
+            - delay: 500ms
+            - switch.turn_off: red_led
+            - delay: 500ms
+
+      - wait_until:
+          condition:
+            - lambda: |-
+                return id(led_button_result_bool).state;
+            # binary_sensor.is_on: fn_button
+          timeout: 20s
+      # - lambda: |-
+      #     id(led_button_result_bool).publish_state(true);
+      - switch.turn_off: red_led
+      - script.execute:
+          id: started_test
+          test_name: "LED BTN"
+          
+      - script.execute:
+          id: result_test
+          test_name: "LED BTN"
+          test_result: !lambda return id(led_button_result_bool).state;
+
+      - script.execute:
+          id: finished_test
+          test_name: "LED BTN"

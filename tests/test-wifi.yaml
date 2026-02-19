@@ -1,0 +1,50 @@
+script:
+  - id: test_wf
+    then:
+      - script.execute:
+          id: started_test
+          test_name: "WIFI"
+      - lambda: |-
+          static const char* TAG = "test";
+          id(wifi_result_bool).publish_state(false);
+
+          if (id(wf_signal).has_state()) {
+            float wifi_signal_value = id(wf_signal).state;
+
+            if(wifi_signal_value >= -80.0 && wifi_signal_value < -10.0) {
+              id(wifi_result_bool).publish_state(true);
+              // ESP_LOGI(TAG, "WIFI signal test OK");
+            } else {
+              id(wifi_result_bool).publish_state(false);
+              // ESP_LOGE(TAG, "WIFI signal test FAILED");
+            }
+          } else {
+            id(wifi_result_bool).publish_state(false);
+            // ESP_LOGE(TAG, "WIFI signal test FAILED");
+          }
+      # - lambda: |-
+      #     static const char* TAG = "test";
+      #     id(wifi_result_bool).publish_state(false);
+          
+      #     if (id(wifi_signal).has_state()) {
+      #       float wifi_signal_value = id(wifi_signal).state;
+      #       if(wifi_signal_value >= -80.0 && wifi_signal_value < -10.0) {
+      #         id(wifi_result_bool).publish_state(true);
+      #         // ESP_LOGI(TAG, "WIFI signal test OK");
+      #       } else {
+      #         id(wifi_result_bool).publish_state(false);
+      #         // ESP_LOGE(TAG, "WIFI signal test FAILED");
+      #       }
+      #     } else {
+      #       id(wifi_result_bool).publish_state(false);
+      #       // ESP_LOGE(TAG, "WIFI signal test FAILED");
+      #     }
+
+      - script.execute:
+          id: result_test
+          test_name: "WIFI"
+          test_result: !lambda return id(wifi_result_bool).state;
+
+      - script.execute:
+          id: finished_test
+          test_name: "WIFI"

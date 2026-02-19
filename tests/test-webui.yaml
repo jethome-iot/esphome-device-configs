@@ -1,0 +1,524 @@
+# test scripts for production
+globals:
+  - id: relay1_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: relay2_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: relay3_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: relay4_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: relay5_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: relay6_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: in1_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: in2_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: in3_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: in4_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: in5_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: in6_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: left_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: right_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: up_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: down_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: center_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: home_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: back_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: jxm1_reset_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: jxm1_mode_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: jxm2_reset_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: jxm2_mode_result
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: up_result_displayed
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: down_result_displayed
+    type: bool
+    restore_value: no
+    initial_value: 'false'  
+  - id: left_result_displayed
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: right_result_displayed
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: center_result_displayed
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: home_result_displayed
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: back_result_displayed
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+# результат тестов
+binary_sensor:
+  - platform: template
+    name: "EEPROM peripheral board 0x56"
+    id: eeprom_per_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+  - platform: template
+    name: "EEPROM CPU board 0x54"
+    id: eeprom_cpu_result_bool
+    web_server:
+      sorting_group_id: cpu_board_group
+      sorting_weight: 0
+  - platform: template
+    name: "Ethernet result"
+    id: eth_result_bool
+    web_server:
+      sorting_group_id: cpu_board_group
+      sorting_weight: 0
+  - platform: template
+    name: "PSRAM CPU board"
+    id: psram_result_bool
+    web_server:
+      sorting_group_id: cpu_board_group
+      sorting_weight: 0
+  - platform: template
+    name: "FRAM CPU board 0x52"
+    id: fram_cpu_result_bool
+    web_server:
+      sorting_group_id: cpu_board_group
+      sorting_weight: 1
+  - platform: template
+    name: "RTC 0x51"
+    id: rtc_result_bool
+    web_server:
+      sorting_group_id: cpu_board_group
+      sorting_weight: 2
+  - platform: template
+    name: "CPU board temperature result"
+    id: cpu_board_temp_result
+    web_server:
+      sorting_group_id: cpu_board_group
+      sorting_weight: 3
+  - platform: template
+    name: "VIN result"
+    id: vin_result_bool
+    web_server:
+      sorting_group_id: cpu_board_group
+      sorting_weight: 4
+  - platform: template
+    name: "POE voltage result"
+    id: poe_result_bool
+    web_server:
+      sorting_group_id: cpu_board_group
+      sorting_weight: 5
+  - platform: template
+    name: "LED and button result"
+    id: led_button_result_bool
+    web_server:
+      sorting_group_id: cpu_board_group
+      sorting_weight: 6
+
+  - platform: template
+    name: "1-WIRE result"
+    id: one_wire_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+      sorting_weight: 2
+
+  - platform: template
+    name: "Relay 1 result"
+    id: r1_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+  - platform: template
+    name: "Relay 2 result"
+    id: r2_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+  - platform: template
+    name: "Relay 3 result"
+    id: r3_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+  - platform: template
+    name: "Relay 4 result"
+    id: r4_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+  - platform: template
+    name: "Relay 5 result"
+    id: r5_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+  - platform: template
+    name: "Relay 6 result"
+    id: r6_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+
+  - platform: template
+    name: "IN1 result"
+    id: in1_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+  - platform: template
+    name: "IN2 result"
+    id: in2_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+  - platform: template
+    name: "IN3 result"
+    id: in3_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+  - platform: template
+    name: "IN4 result"
+    id: in4_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+  - platform: template
+    name: "IN5 result"
+    id: in5_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+  - platform: template
+    name: "IN6 result"
+    id: in6_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+
+  - platform: template
+    name: "JXM1 Reset result"
+    id: jxm1_reset_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+  - platform: template
+    name: "JXM1 mode result"
+    id: jxm1_mode_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+  - platform: template
+    name: "JXM2 Reset result"
+    id: jxm2_reset_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+  - platform: template
+    name: "JXM2 mode result"
+    id: jxm2_mode_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+
+  - platform: template
+    name: "JXM UART result"
+    id: jxm_uart_result_bool
+    web_server:
+      sorting_group_id: peripheral_board_group
+
+  - platform: template
+    name: "Display test result"
+    id: display_result_bool
+    web_server:
+      sorting_group_id: display_board_group
+      sorting_weight: 0
+  - platform: template
+    name: "LEFT result"
+    id: left_result_bool
+    web_server:
+      sorting_group_id: display_board_group
+      sorting_weight: 1
+  - platform: template
+    name: "RIGHT result"
+    id: right_result_bool
+    web_server:
+      sorting_group_id: display_board_group
+      sorting_weight: 2
+  - platform: template
+    name: "UP result"
+    id: up_result_bool
+    web_server:
+      sorting_group_id: display_board_group
+      sorting_weight: 3
+  - platform: template
+    name: "DOWN result"
+    id: down_result_bool
+    web_server:
+      sorting_group_id: display_board_group
+      sorting_weight: 4
+  - platform: template
+    name: "CENTER result"
+    id: center_result_bool
+    web_server:
+      sorting_group_id: display_board_group
+      sorting_weight: 5
+  - platform: template
+    name: "HOME result"
+    id: home_result_bool
+    web_server:
+      sorting_group_id: display_board_group
+      sorting_weight: 6
+  - platform: template
+    name: "BACK result"
+    id: back_result_bool
+    web_server:
+      sorting_group_id: display_board_group
+      sorting_weight: 7
+  - platform: template
+    name: "Full test"
+    id: full_test_result_bool
+    web_server:
+      sorting_group_id: test_group
+      sorting_weight: 0
+
+  - platform: template
+    name: "WIFI"
+    id: wifi_result_bool
+    web_server:
+      sorting_group_id: cpu_board_group
+      sorting_weight: 0
+
+web_server:
+  port: 80
+  version: 3
+  sorting_groups:
+    - id: test_group
+      name: "Tests"
+      sorting_weight: -1
+    - id: cpu_board_group
+      name: "CPU board results"
+      sorting_weight: 0
+    - id: peripheral_board_group
+      name: "Peripheral board results"
+      sorting_weight: 1
+    - id: display_board_group
+      name: "Display board results"
+      sorting_weight: 2
+
+modbus:
+  - uart_id: jxm1_uart
+    id: jxm1_modbus_client
+    role: client
+
+  - uart_id: jxm2_uart
+    id: jxm2_modbus_server
+    role: server
+    
+modbus_controller:
+  - id: jxm1_modbus_controller
+    modbus_id: jxm1_modbus_client
+    address: 0x4
+    update_interval: 2s
+
+  - modbus_id: jxm2_modbus_server
+    address: 0x4
+    server_registers:
+      - address: 0x0002
+        value_type: S_DWORD_R
+        read_lambda: |-
+          return 42;
+
+sensor:
+  # - platform: wifi_signal
+  #   id: wf_signal
+  #   name: "WiFi Signal Sensor"
+  #   update_interval: 2s
+  #   web_server:
+  #     sorting_group_id: cpu_board_group
+  #     sorting_weight: 1
+  - platform: modbus_controller
+    modbus_controller_id: jxm1_modbus_controller
+    name: "Received from server"
+    address: 0x0002
+    register_type: holding
+    value_type: S_DWORD_R
+    id: jxm_modbus_sensor
+    filters:
+      - timeout: 5s
+    web_server:
+      sorting_group_id: peripheral_board_group
+      sorting_weight: 1
+
+# text_sensor:
+# # для Wifi используется wifi_info
+#   - platform: wifi_info
+#     ip_address:
+#       name: "Wifi IP"
+#       id: ip
+    # mac_address:
+    #   name: ESP Mac Wifi Address
+    #   id: mac1
+# для ETH используется ethernet_info
+  # - platform: ethernet_info
+  #   ip_address:
+  #     name: ETH IP Address
+  #     id: eth_ip
+    # mac_address:
+    #   name: MAC
+    #   id: mac1
+
+
+button:
+  - platform: template
+    name: "Start Test"
+    id: start_test
+    icon: mdi:play-circle
+    web_server:
+      sorting_group_id: test_group
+      sorting_weight: -1
+    on_press:
+      then:
+        - script.execute: full_test
+    
+  # - platform: template
+  #   name: "Test jxm"
+  #   id: test_jxm_start
+  #   icon: mdi:play-circle
+  #   web_server:
+  #     sorting_group_id: test_group
+  #     sorting_weight: -1
+  #   on_press:
+  #     then:
+  #       - script.execute: test_jxm
+  # - platform: template
+  #   name: "Start Test navigation"
+  #   id: start_test_navigation
+  #   icon: mdi:play-circle
+  #   web_server:
+  #     sorting_group_id: test_group
+  #     sorting_weight: -1
+  #   on_press:
+  #     then:
+  #       - script.execute: test_navigation
+
+  # - platform: template
+  #   name: "Temp test"
+  #   id: print_temp_test_start
+  #   icon: mdi:play-circle
+  #   web_server:
+  #     sorting_group_id: test_group
+  #     sorting_weight: -1
+  #   on_press:
+  #     then:
+  #       - script.execute:
+  #           id: started_test
+  #           test_name: "Navigation"
+  #       - lambda: |-
+  #           int w = id(display1).get_width();
+  #           int h = id(display1).get_height();
+  #           int font_height = id(font1).get_height();
+  #           int line_spacing = 2;
+  #           // int h1 = 5;
+  #           // int a = 10;
+  #           // float k = 0.8;
+
+  #           id(display1).clear();
+  #           id(display1).printf(w/2, 0, id(font1), TextAlign::CENTER_HORIZONTAL ,"Navigation test");
+
+  #           id(display1).print(0, 1*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_LEFT,"Press up, down, left,");
+  #           id(display1).print(0, 2*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_LEFT,"right, center, home, back");
+
+  #           id(display1).print(w/2, 3*font_height + 3*line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Left OK");
+
+            # // id(display1).clear();
+
+            # // id(display1).triangle((w-a)/2, 3*h1 + h1, w/2, h1+10, (w+a)/2, 3*h1 + h1);
+
+      # - script.execute: test_navigation
+      # - script.wait: test_navigation
+      # - script.execute:
+      #     id: result_test
+      #     test_name: "Temp"
+      #     test_result: !lambda return id(psram_result_bool).state;
+
+  # - platform: template
+  #   name: "Temp test start"
+  #   id: temp_test_start
+  #   icon: mdi:play-circle
+  #   web_server:
+  #     sorting_group_id: test_group
+  #     sorting_weight: -1
+  #   on_press:
+  #     then:
+  #       - script.execute: test_eth
+
+  # - platform: template
+  #   name: "Temp test finished"
+  #   id: temp_test_finished
+  #   icon: mdi:play-circle
+  #   web_server:
+  #     sorting_group_id: test_group
+  #     sorting_weight: -1
+  #   on_press:
+  #     then:
+  #       - script.execute:
+  #           id: result_test
+  #           test_name: "PSRAM"
+  #           test_result: !lambda return id(psram_result_bool).state;

@@ -1,0 +1,255 @@
+script:
+  - id: test_relays
+    then:
+      - script.execute:
+          id: started_test
+          test_name: "Relays"
+      # test relay_1 Проверка всех NO контактов по очереди
+      - delay: 500ms
+      - switch.turn_off: relay_1
+      - switch.turn_off: relay_2
+      - switch.turn_off: relay_3
+      - switch.turn_off: relay_4
+      - switch.turn_off: relay_5
+      - switch.turn_off: relay_6
+
+      - delay: 1000ms
+      - script.execute: check_init_relay_no
+      - delay: 1000ms
+      
+      - switch.turn_on: relay_1
+      - delay: 1000ms
+      - lambda: |-
+          static const char* TAG = "test";
+          bool NO_CON = id(input_2).state;
+          id(relay1_result) = NO_CON ? id(relay1_result) += 1 : 0;
+      - switch.turn_off: relay_1
+      - delay: 1000ms
+
+      - switch.turn_on: relay_2
+      - delay: 1000ms
+      - lambda: |-
+          static const char* TAG = "test";
+          bool NO_CON = id(input_2).state;
+          id(relay2_result) = NO_CON ? id(relay2_result) += 1 : 0;
+          // ESP_LOGI(TAG, "relay2_result is %d", id(relay2_result));
+      - switch.turn_off: relay_2
+      - delay: 1000ms
+      
+      - switch.turn_on: relay_3
+      - delay: 1000ms
+      - lambda: |-
+          static const char* TAG = "test";
+          bool NO_CON = id(input_2).state;
+          id(relay3_result) = NO_CON ? id(relay3_result) += 1 : 0;
+          // ESP_LOGI(TAG, "relay3_result is %d", id(relay3_result));
+      - switch.turn_off: relay_3
+      - delay: 1000ms
+      
+      - switch.turn_on: relay_4
+      - delay: 1000ms
+      - lambda: |-
+          static const char* TAG = "test";
+          bool NO_CON = id(input_2).state;
+          id(relay4_result) = NO_CON ? id(relay4_result) += 1 : 0;
+          // ESP_LOGI(TAG, "relay4_result is %d", id(relay4_result));
+      - switch.turn_off: relay_4
+      - delay: 1000ms
+
+      - switch.turn_on: relay_5
+      - delay: 1000ms
+      - lambda: |-
+          static const char* TAG = "test";
+          bool NO_CON = id(input_2).state;
+          id(relay5_result) = NO_CON ? id(relay5_result) += 1 : 0;
+          // ESP_LOGI(TAG, "relay5_result is %d", id(relay5_result));
+      - switch.turn_off: relay_5
+      - delay: 500ms
+  
+      - switch.turn_on: relay_6
+      - delay: 1000ms
+      - lambda: |-
+          static const char* TAG = "test";
+          bool NO_CON = id(input_2).state;
+
+          id(relay6_result) = NO_CON ? id(relay6_result) += 1 : 0;
+          // ESP_LOGI(TAG, "relay6_result is %d", id(relay6_result));
+      - switch.turn_off: relay_6
+      - delay: 1000ms
+
+      # - lambda: |-
+      #     static const char* TAG = "test";
+      #     ESP_LOGI(TAG, "relay1_result is %d", id(relay1_result));
+      #     ESP_LOGI(TAG, "relay2_result is %d", id(relay2_result));
+      #     ESP_LOGI(TAG, "relay3_result is %d", id(relay3_result));
+      #     ESP_LOGI(TAG, "relay4_result is %d", id(relay4_result));
+      #     ESP_LOGI(TAG, "relay5_result is %d", id(relay5_result));
+      #     ESP_LOGI(TAG, "relay6_result is %d", id(relay6_result));
+      # проверка NO контактов закончена
+
+      # проверка NC контактов
+      # включаем все реле, и по очереди выключаем
+      - switch.turn_on: relay_1
+      - switch.turn_on: relay_2
+      - switch.turn_on: relay_3
+      - switch.turn_on: relay_4
+      - switch.turn_on: relay_5
+      - switch.turn_on: relay_6 
+
+      - delay: 1000ms
+      - script.execute: check_init_relay_nc
+      - delay: 1000ms
+
+      - switch.turn_off: relay_1
+      - delay: 1000ms
+      - lambda: |-
+          static const char* TAG = "test";
+          bool NC_CON = id(input_1).state;
+          id(relay1_result) = NC_CON ? id(relay1_result) += 1 : 0;
+      - switch.turn_on: relay_1
+      - delay: 1000ms
+
+      - switch.turn_off: relay_2
+      - delay: 1000ms
+      - lambda: |-
+          static const char* TAG = "test";
+          bool NC_CON = id(input_1).state;
+          id(relay2_result) = NC_CON ? id(relay2_result) += 1 : 0;
+      - switch.turn_on: relay_2
+      - delay: 1000ms
+
+      - switch.turn_off: relay_3
+      - delay: 1000ms
+      - lambda: |-
+          static const char* TAG = "test";
+          bool NC_CON = id(input_1).state;
+          id(relay3_result) = NC_CON ? id(relay3_result) += 1 : 0;
+      - switch.turn_on: relay_3
+      - delay: 1000ms
+
+      - switch.turn_off: relay_4
+      - delay: 1000ms
+      - lambda: |-
+          static const char* TAG = "test";
+          bool NC_CON = id(input_1).state;
+          id(relay4_result) = NC_CON ? id(relay4_result) += 1 : 0;
+      - switch.turn_on: relay_4
+      - delay: 1000ms
+
+      - switch.turn_off: relay_5
+      - delay: 1000ms
+      - lambda: |-
+          static const char* TAG = "test";
+          bool NC_CON = id(input_1).state;
+          id(relay5_result) = NC_CON ? id(relay5_result) += 1 : 0;
+      - switch.turn_on: relay_5
+      - delay: 1000ms
+
+      - switch.turn_off: relay_6
+      - delay: 1000ms
+      - lambda: |-
+          static const char* TAG = "test";
+          bool NC_CON = id(input_1).state;
+          id(relay6_result) = NC_CON ? id(relay6_result) += 1 : 0;
+      - switch.turn_on: relay_6
+      - delay: 1000ms
+
+      - switch.turn_off: relay_1
+      - switch.turn_off: relay_2
+      - switch.turn_off: relay_3
+      - switch.turn_off: relay_4
+      - switch.turn_off: relay_5
+      - switch.turn_off: relay_6
+      - delay: 1000ms
+
+      # - lambda: |-
+      #     static const char* TAG = "test";
+      #     ESP_LOGI(TAG, "relay1_result is %d", id(relay1_result));
+      #     ESP_LOGI(TAG, "relay2_result is %d", id(relay2_result));
+      #     ESP_LOGI(TAG, "relay3_result is %d", id(relay3_result));
+      #     ESP_LOGI(TAG, "relay4_result is %d", id(relay4_result));
+      #     ESP_LOGI(TAG, "relay5_result is %d", id(relay5_result));
+      #     ESP_LOGI(TAG, "relay6_result is %d", id(relay6_result));
+
+      - lambda: |-
+          id(r1_result_bool)->publish_state(
+            id(relay1_result) == 4 ? true : false
+          );
+          id(r2_result_bool)->publish_state(
+            id(relay2_result) == 4 ? true : false
+          );
+          id(r3_result_bool)->publish_state(
+            id(relay3_result) == 4 ? true : false
+          );
+          id(r4_result_bool)->publish_state(
+            id(relay4_result) == 4 ? true : false
+          );
+          id(r5_result_bool)->publish_state(
+            id(relay5_result) == 4 ? true : false
+          );
+          id(r6_result_bool)->publish_state(
+            id(relay6_result) == 4 ? true : false
+          );
+
+      - lambda: |-
+          static const char* TAG = "test";
+
+          id(result_test).execute("Relays",
+                id(r1_result_bool).state && id(r2_result_bool).state &&
+                id(r3_result_bool).state && id(r4_result_bool).state &&
+                id(r5_result_bool).state && id(r6_result_bool).state
+          );
+      - script.execute:
+          id: finished_test
+          test_name: "Relays"
+
+  - id: check_init_relay_no
+    then:
+      # Проверка состояния входов. In1 должен быть ON, другой OFF
+      # Проверка состояния реле. In2-In6 должны быть OFF
+      - lambda: |-
+          static const char* TAG = "test";
+
+          id(relay1_result) = 0;
+          id(relay2_result) = 0;
+          id(relay3_result) = 0;
+          id(relay4_result) = 0;
+          id(relay5_result) = 0;
+          id(relay6_result) = 0;
+          id(r1_result_bool)->publish_state(false);
+          id(r2_result_bool)->publish_state(false);
+          id(r3_result_bool)->publish_state(false);
+          id(r4_result_bool)->publish_state(false);
+          id(r5_result_bool)->publish_state(false);
+          id(r6_result_bool)->publish_state(false);
+          bool NC_CON = id(input_1).state;
+          bool NO_CON = id(input_2).state;
+
+          id(relay1_result) = NO_CON ? 0 : id(relay1_result) += 1;
+          id(relay2_result) = NO_CON ? 0 : id(relay2_result) += 1;
+          id(relay3_result) = NO_CON ? 0 : id(relay3_result) += 1;
+          id(relay4_result) = NO_CON ? 0 : id(relay4_result) += 1;
+          id(relay5_result) = NO_CON ? 0 : id(relay5_result) += 1;
+          id(relay6_result) = NO_CON ? 0 : id(relay6_result) += 1;
+          // ESP_LOGI(TAG, "relay1_result is %d", id(relay1_result));
+          // ESP_LOGI(TAG, "relay2_result is %d", id(relay2_result));
+          // ESP_LOGI(TAG, "relay3_result is %d", id(relay3_result));
+          // ESP_LOGI(TAG, "relay4_result is %d", id(relay4_result));
+          // ESP_LOGI(TAG, "relay5_result is %d", id(relay5_result));
+          // ESP_LOGI(TAG, "relay6_result is %d", id(relay6_result));
+
+  - id: check_init_relay_nc
+    then:
+      # Проверка состояния входов. In1 должен быть ON, другой OFF
+      # Проверка состояния реле. In2-In6 должны быть OFF
+      - lambda: |-
+          static const char* TAG = "test";
+
+          bool NC_CON = id(input_1).state;
+
+          id(relay1_result) = NC_CON ? 0 : id(relay1_result) += 1;
+          id(relay2_result) = NC_CON ? 0 : id(relay2_result) += 1;
+          id(relay3_result) = NC_CON ? 0 : id(relay3_result) += 1;
+          id(relay4_result) = NC_CON ? 0 : id(relay4_result) += 1;
+          id(relay5_result) = NC_CON ? 0 : id(relay5_result) += 1;
+          id(relay6_result) = NC_CON ? 0 : id(relay6_result) += 1;

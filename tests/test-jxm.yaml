@@ -1,0 +1,110 @@
+script:
+  - id: test_jxm
+    then:
+      - script.execute:
+          id: started_test
+          test_name: "JXM"
+    # проверка начального состояния выходов JXM
+      - lambda: |-
+          static const char* TAG = "test";
+
+          id(jxm1_reset_result) = 0;
+          id(jxm1_mode_result) = 0;
+          id(jxm2_reset_result) = 0;
+          id(jxm2_mode_result) = 0;
+
+          id(jxm1_reset_result) = id(input_3).state ? 0 : id(jxm1_reset_result) += 1;
+          id(jxm1_mode_result) = id(input_4).state ? 0 : id(jxm1_mode_result) += 1;
+          id(jxm2_reset_result) = id(input_5).state ? 0 : id(jxm2_reset_result) += 1;
+          id(jxm2_mode_result) = id(input_6).state ? 0 : id(jxm2_mode_result) += 1;
+          
+          // ESP_LOGI(TAG, "jxm1_reset_result is %d", id(jxm1_reset_result));
+          // ESP_LOGI(TAG, "jxm1_mode_result is %d", id(jxm1_mode_result));
+          // ESP_LOGI(TAG, "jxm2_reset_result is %d", id(jxm2_reset_result));
+          // ESP_LOGI(TAG, "jxm2_mode_result is %d", id(jxm2_mode_result));
+
+      - switch.turn_on: jxm1_reset
+      - switch.turn_on: jxm1_mode
+      - switch.turn_on: jxm2_reset
+      - switch.turn_on: jxm2_mode
+      - delay: 50ms
+    # проверка срабатывания входа, если вход true, то +1
+      - lambda: |-
+          id(jxm1_reset_result) = id(input_3).state ? id(jxm1_reset_result) += 1 : 0;
+          id(jxm1_mode_result) = id(input_4).state ? id(jxm1_mode_result) += 1 : 0;
+          id(jxm2_reset_result) = id(input_5).state ? id(jxm2_reset_result) += 1 : 0;
+          id(jxm2_mode_result) = id(input_6).state ? id(jxm2_mode_result) += 1 : 0;
+
+      - switch.turn_off: jxm1_reset
+      - switch.turn_off: jxm1_mode
+      - switch.turn_off: jxm2_reset
+      - switch.turn_off: jxm2_mode
+      - delay: 50ms
+
+    # проверка конечного состояния выходов JXM
+      - lambda: |-
+          static const char* TAG = "test";
+          id(jxm1_reset_result) = id(input_3).state ? 0 : id(jxm1_reset_result) += 1;
+          id(jxm1_mode_result) = id(input_4).state ? 0 : id(jxm1_mode_result) += 1;
+          id(jxm2_reset_result) = id(input_5).state ? 0 : id(jxm2_reset_result) += 1;
+          id(jxm2_mode_result) = id(input_6).state ? 0 : id(jxm2_mode_result) += 1;
+
+          // ESP_LOGI(TAG, "jxm1_reset_result is %d", id(jxm1_reset_result));
+          // ESP_LOGI(TAG, "jxm1_mode_result is %d", id(jxm1_mode_result));
+          // ESP_LOGI(TAG, "jxm2_reset_result is %d", id(jxm2_reset_result));
+          // ESP_LOGI(TAG, "jxm2_mode_result is %d", id(jxm2_mode_result));
+
+      # Вывод результата
+      - lambda: |-
+          id(jxm1_reset_result_bool)->publish_state(
+            id(jxm1_reset_result) == 3 ? true : false
+          );
+
+          id(jxm1_mode_result_bool)->publish_state(
+            id(jxm1_mode_result) == 3 ? true : false
+          );
+
+          id(jxm2_reset_result_bool)->publish_state(
+            id(jxm2_reset_result) == 3 ? true : false
+          );
+
+          id(jxm2_mode_result_bool)->publish_state(
+            id(jxm2_mode_result) == 3 ? true : false
+          );
+      - lambda: |-
+          static const char* TAG = "test";
+
+          id(result_test).execute("JXM",
+                id(jxm1_reset_result_bool).state && id(jxm1_mode_result_bool).state &&
+                id(jxm2_reset_result_bool).state && id(jxm2_mode_result_bool).state
+          );
+
+      - script.execute:
+          id: finished_test
+          test_name: "JXM"
+
+  - id: test_jxm_uart
+    then:
+      - script.execute:
+          id: started_test
+          test_name: "JXM UART"
+      - lambda: |-
+          static const char* TAG = "test";
+          id(jxm_uart_result_bool).publish_state(false);
+
+          if(isnan(id(jxm_modbus_sensor).state)) {
+            id(jxm_uart_result_bool).publish_state(false);
+            // ESP_LOGE(TAG, "JXM UART test OK");
+          } else {
+            if(id(jxm_modbus_sensor).state == 42) {
+              id(jxm_uart_result_bool).publish_state(true);
+              // ESP_LOGI(TAG, "JXM UART test PASSED");
+            }
+          }
+      - script.execute:
+          id: result_test
+          test_name: "JXM UART"
+          test_result: !lambda return id(jxm_uart_result_bool).state;
+      - script.execute:
+          id: finished_test
+          test_name: "JXM UART"

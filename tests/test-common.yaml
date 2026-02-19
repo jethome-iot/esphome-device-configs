@@ -1,0 +1,282 @@
+script:
+# тест PSRAM
+  - id: test_psram
+    then:
+      - script.execute:
+          id: started_test
+          test_name: "PSRAM"
+      - lambda: |-
+          static const char* TAG = "test";
+          id(psram_result_bool).publish_state(false);
+
+          RAMAllocator<uint8_t> allocator(RAMAllocator<uint8_t>::ALLOC_EXTERNAL);
+          size_t max_size = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+
+          if (max_size != 0) {
+            ESP_LOGI(TAG,"PSRAM size %dKb", heap_caps_get_total_size(MALLOC_CAP_SPIRAM)>>10);
+            ESP_LOGI(TAG,"Testing max free block size %dKb", max_size>>10);
+
+            uint8_t *mem = allocator.allocate(max_size);
+            const unsigned int seed = 0xaaaa;
+
+            if (mem == nullptr) {
+              ESP_LOGE(TAG, "Cannot allocate psram");
+              id(psram_result_bool).publish_state(false);
+              return;
+            }
+            // Writing
+            uint32_t *p = (uint32_t *)mem;
+            unsigned int rseed = seed ^ 0xa5a5a5a5;
+            for (int i = 0; i < max_size / 4; i++) {
+                *p++ = rand_r(&rseed);
+            }
+
+            // Reading
+            p = (uint32_t *)mem;
+            rseed = seed ^ 0xa5a5a5a5;
+            for (int i = 0; i < max_size / 4; i++) {
+              uint32_t ex = rand_r(&rseed);
+              if (ex != *p) {
+                ESP_LOGE(TAG, "check_mem_seed: %x has 0x%08"PRIx32" expected 0x%08"PRIx32"\n", (char*)p-(char*)mem, *p, ex);
+                // id(psram_result_bool).publish_state(false);
+                break;
+              }
+              p++;
+            }
+            allocator.deallocate(mem, max_size);
+            id(psram_result_bool).publish_state(true);
+
+
+          } else {
+            ESP_LOGE(TAG, "PSRAM wasn't finded");
+            id(psram_result_bool).publish_state(false);
+            return;
+          }
+      - script.execute:
+          id: result_test
+          test_name: "PSRAM"
+          test_result: !lambda return id(psram_result_bool).state;
+
+      - script.execute:
+          id: finished_test
+          test_name: "PSRAM"
+
+# тест измерения напряжения
+  - id: test_vin_voltage
+    then:
+      - script.execute:
+          id: started_test
+          test_name: "VIN voltage"
+      - lambda: |-
+          static const char* TAG = "test";
+          id(vin_result_bool).publish_state(false);
+
+          if (id(vin_voltage).has_state()) {
+            float vin_voltage_value = id(vin_voltage).state;
+
+            if(vin_voltage_value >= 0 && vin_voltage_value < 60) {
+              id(vin_result_bool).publish_state(true);
+              // ESP_LOGI(TAG, "VIN voltage test OK");
+            } else {
+              id(vin_result_bool).publish_state(false);
+              // ESP_LOGE(TAG, "VIN voltage test FAILED");
+            }
+          } else {
+            id(vin_result_bool).publish_state(false);
+            // ESP_LOGE(TAG, "VIN voltage test FAILED");
+          }
+      - script.execute:
+          id: result_test
+          test_name: "VIN voltage"
+          test_result: !lambda return id(vin_result_bool).state;
+
+      - script.execute:
+          id: finished_test
+          test_name: "VIN voltage"
+
+# тест измерения напряжения POE
+  - id: test_poe_voltage
+    then:
+      - script.execute:
+          id: started_test
+          test_name: "POE voltage"
+      - lambda: |-
+          static const char* TAG = "test";
+          id(poe_result_bool).publish_state(false);
+
+          if (id(poe_voltage).has_state()) {
+            float poe_voltage_value = id(poe_voltage).state;
+
+            if(poe_voltage_value >= 0 && poe_voltage_value < 60) {
+              id(poe_result_bool).publish_state(true);
+              // ESP_LOGI(TAG, "POE voltage test OK");
+            } else {
+              id(poe_result_bool).publish_state(false);
+              // ESP_LOGE(TAG, "POE voltage test FAILED");
+            }
+          } else {
+            id(poe_result_bool).publish_state(false);
+            // ESP_LOGE(TAG, "POE voltage test FAILED");
+          }
+      - script.execute:
+          id: result_test
+          test_name: "POE voltage"
+          test_result: !lambda return id(poe_result_bool).state;
+  
+      - script.execute:
+          id: finished_test
+          test_name: "POE voltage"
+
+# common print functions
+  - id: started_test
+    parameters:
+      test_name: string
+    then:
+      - lambda: |-
+          static const char* TAG = "test";
+
+          // int w = id(display1).get_width();
+          // int h = id(display1).get_height();
+          // int line_spacing = 2;
+
+          ESP_LOGI(TAG, "%s test started", test_name.c_str());
+
+          // id(display1).clear();
+          // id(display1).printf(w/2, line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"%s test",test_name.c_str());
+          
+  - id: finished_test
+    parameters:
+      test_name: string
+    then:
+      - lambda: |-
+          static const char* TAG = "test";
+
+          // int w = id(display1).get_width();
+          // int h = id(display1).get_height();
+          ESP_LOGI(TAG, "%s test finished", test_name.c_str());
+
+          // id(display1).clear();
+          // id(display1).printf(w/2, 40, id(font1), TextAlign::CENTER_HORIZONTAL ,"%s test finished",test_name.c_str());
+
+  - id: result_test
+    parameters:
+      test_name: string
+      test_result: bool
+    then:
+      - lambda: |-
+          static const char* TAG = "test";
+
+          ESP_LOGI(TAG, "%s result: %s", test_name.c_str(), test_result ? "OK" : "FAILED");
+
+          // auto dp = id(display1);
+
+          // int w = id(display1).get_width();
+          // int h = id(display1).get_height();
+          // int font_height = id(font1).get_height();
+          // int line_spacing = 2;
+
+          // id(display1).printf(w/2, line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"%s test finished",test_name.c_str());
+          // dp.printf(line_spacing, 0*font_height+5, id(font1), TextAlign::TOP_LEFT ,"%s : %s", test_name.c_str(), test_result ? "OK" : "FAILED");
+
+          // dp->clear();
+          // dp->printf(line_spacing, 2*font_height+line_spacing, id(font1), TextAlign::TOP_LEFT ,"%s", test_name.c_str());
+          // dp->printf(w-line_spacing, 2*font_height+line_spacing, id(font1), TextAlign::TOP_RIGHT ,"%s", test_result ? "OK" : "FAILED");
+
+  - id: result_full_test
+    then:
+      - lambda: |-
+          static const char* TAG = "test";
+
+          // auto dp = id(display1);
+
+          // int w = id(display1).get_width();
+          // int h = id(display1).get_height();
+          // int font_height = id(font1).get_height();
+          // int line_spacing = 2;
+          bool test_result_full = false;
+          bool r1_r6_result = false;
+          bool in1_6_result = false;
+          bool jxm_result_common = false;
+          bool navigation_result_common = false;
+
+          if(id(in1_result_bool).state &&
+             id(in2_result_bool).state &&
+             id(in3_result_bool).state &&
+             id(in4_result_bool).state &&
+             id(in5_result_bool).state &&
+             id(in6_result_bool).state) {
+
+            in1_6_result = true;
+          }
+
+          if(id(r1_result_bool).state &&
+             id(r2_result_bool).state &&
+             id(r3_result_bool).state &&
+             id(r4_result_bool).state &&
+             id(r5_result_bool).state &&
+             id(r6_result_bool).state) {
+
+            r1_r6_result = true;
+          }
+
+          if(id(jxm1_reset_result_bool).state &&
+             id(jxm2_reset_result_bool).state &&
+             id(jxm1_mode_result_bool).state &&
+             id(jxm2_mode_result_bool).state &&
+             id(jxm_uart_result_bool).state) {
+
+            jxm_result_common = true;
+          }
+
+          // if(id(left_result_bool).state &&
+          //    id(right_result_bool).state &&
+          //    id(up_result_bool).state &&
+          //    id(down_result_bool).state &&
+          //    id(center_result_bool).state &&
+          //    id(home_result_bool).state &&
+          //    id(back_result_bool).state) {
+          //   navigation_result_common = true;
+          // }
+
+          if(
+             id(eeprom_per_result_bool).state &&
+             id(one_wire_result_bool).state &&             
+             in1_6_result && r1_r6_result && jxm_result_common) {
+
+            test_result_full = true;
+          }
+
+          id(full_test_result_bool).publish_state(test_result_full);
+          if(!test_result_full) {
+            id(red_led).turn_on();
+            id(test_green_led).turn_on();
+          }
+          else {
+            id(test_red_led).turn_off();
+            id(test_green_led).turn_off();
+          }
+
+          ESP_LOGI(TAG, "Full test result: %s", test_result_full ? "OK" : "FAILED");
+
+          // dp->clear();
+          // dp->printf(w/2, line_spacing, id(font1), TextAlign::CENTER_HORIZONTAL ,"Full test");
+
+          // dp->printf(w/2, 2*font_height+line_spacing, id(font2), TextAlign::CENTER_HORIZONTAL ,"%s", test_result_full ? "OK" : "FAILED");
+
+interval:
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            all:
+              - lambda: !lambda return id(full_test_result_bool).state;
+              - not:
+                  - script.is_running: full_test
+          then:
+            - switch.turn_on: red_led
+            - delay: 500ms
+            - switch.turn_off: red_led
+            - delay: 500ms
+          # else:
+          #   - switch.turn_on: red_led
+

@@ -1,0 +1,28 @@
+script:
+  - id: test_one_wire
+  # проверка значения на nan
+    then:
+      - script.execute:
+          id: started_test
+          test_name: "1-WIRE"
+      - lambda: |-
+          static const char* TAG = "test";
+          
+          id(one_wire_result_bool).publish_state(false);
+          if(!std::isnan(id(one_wire_temp).state)) {
+            if(id(one_wire_temp).state > 10 && id(one_wire_temp).state < 55) {
+              id(one_wire_result_bool).publish_state(true);
+              ESP_LOGI(TAG, "%f", id(one_wire_temp).state);
+              ESP_LOGI(TAG, "1-WIRE test OK");
+            }
+          } else {
+            id(one_wire_result_bool).publish_state(false);
+            ESP_LOGE(TAG, "1-WIRE test FAILED");
+          }
+      - script.execute:
+          id: result_test
+          test_name: "1-WIRE"
+          test_result: !lambda return id(one_wire_result_bool).state;
+      - script.execute: 
+          id: finished_test
+          test_name: "1-WIRE"

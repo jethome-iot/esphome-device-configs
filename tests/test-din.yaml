@@ -1,0 +1,170 @@
+script:
+# тест для дискретных входов
+  - id: test_din
+    then:
+      # проверка начального состояния входов, предварительно реле должны быть разомкнуты
+      # In1 замкнут, in2, разомкнут
+      - script.execute:
+          id: started_test
+          test_name: "DIN"
+      - switch.turn_off: relay_1
+      - switch.turn_off: relay_2
+      - switch.turn_off: relay_3
+      - switch.turn_off: relay_4
+      - switch.turn_off: relay_5
+      - switch.turn_off: relay_6
+      - delay: 1000ms
+      - lambda: |-
+          static const char* TAG = "test";
+          
+          id(in1_result) = 0;
+          id(in2_result) = 0;
+          id(in3_result) = 0;
+          id(in4_result) = 0;
+          id(in5_result) = 0;
+          id(in6_result) = 0;
+          id(in1_result_bool)->publish_state(false);
+          id(in2_result_bool)->publish_state(false);
+          id(in3_result_bool)->publish_state(false);
+          id(in4_result_bool)->publish_state(false);
+          id(in5_result_bool)->publish_state(false);
+          id(in6_result_bool)->publish_state(false);
+
+          id(in1_result) = id(input_1).state ? id(in1_result) += 1 : 0;
+          // ESP_LOGI(TAG, "in1_result is %d", id(in1_result));
+
+          id(in2_result) = id(input_2).state ? 0 : id(in2_result) += 1;
+          // ESP_LOGI(TAG, "in2_result is %d", id(in2_result));
+
+          id(in3_result) = id(input_3).state ? 0 : id(in3_result) += 1;
+          id(in4_result) = id(input_4).state ? 0 : id(in4_result) += 1;
+          id(in5_result) = id(input_5).state ? 0 : id(in5_result) += 1;
+          id(in6_result) = id(input_6).state ? 0 : id(in6_result) += 1;
+
+      - delay: 50ms
+      # включаем relay1, проверяем input_2, должен быть true
+      - switch.turn_on: relay_1
+      - delay: 500ms
+      - lambda: |-
+          static const char* TAG = "test";
+
+          id(in2_result) = id(input_2).state ? id(in2_result) += 1 : 0;     
+          // ESP_LOGI(TAG, "in2_result is %d", id(in2_result));
+
+      # выключаем relay1, проверяем input_2, должен быть false
+      - switch.turn_off: relay_1
+      - delay: 500ms
+      - lambda: |-
+          static const char* TAG = "test";
+          id(in2_result) = id(input_2).state ? 0 : id(in2_result) += 1;
+          // ESP_LOGI(TAG, "in2_result is %d", id(in2_result));
+
+      - delay: 50ms
+      # начальная проверка input1 сделана, замыкаем все реле
+      # проверяем состояние input1, должно быть false
+      - switch.turn_on: relay_1
+      - switch.turn_on: relay_2
+      - switch.turn_on: relay_3
+      - switch.turn_on: relay_4
+      - switch.turn_on: relay_5
+      - switch.turn_on: relay_6
+      - delay: 1000ms
+      
+      - lambda: |-
+          static const char* TAG = "test";
+
+          id(in1_result) = id(input_1).state ? 0 : id(in1_result) += 1;
+          // ESP_LOGI(TAG, "in1_result is %d", id(in1_result));
+        
+      - delay: 50ms
+      - switch.turn_off: relay_1
+      - switch.turn_off: relay_2
+      - switch.turn_off: relay_3
+      - switch.turn_off: relay_4
+      - switch.turn_off: relay_5
+      - switch.turn_off: relay_6
+      - delay: 500ms
+      - lambda: |-
+          static const char* TAG = "test";
+
+          id(in1_result) = id(input_1).state ? id(in1_result) + 1 : 0;
+          // ESP_LOGI(TAG, "in1_result is %d", id(in1_result));
+      - delay: 50ms
+     
+      # проверка для in3-in6
+      # тот же кусок кода, что и для jxm контактов
+      - switch.turn_on: jxm1_reset
+      - switch.turn_on: jxm1_mode
+      - switch.turn_on: jxm2_reset
+      - switch.turn_on: jxm2_mode
+      - delay: 50ms
+    # проверка срабатывания входов In3..In6, если вход true, то +1
+      - lambda: |-
+          static const char* TAG = "test";
+
+          id(in3_result) = id(input_3).state ? id(in3_result) += 1 : 0;
+          id(in4_result) = id(input_4).state ? id(in4_result) += 1 : 0;
+          id(in5_result) = id(input_5).state ? id(in5_result) += 1 : 0;
+          id(in6_result) = id(input_6).state ? id(in6_result) += 1 : 0;
+
+      - switch.turn_off: jxm1_reset
+      - switch.turn_off: jxm1_mode
+      - switch.turn_off: jxm2_reset
+      - switch.turn_off: jxm2_mode
+      - delay: 50ms
+
+    # проверка конечного состояния входов In3..In6
+      - lambda: |-
+          static const char* TAG = "test";
+
+          id(in3_result) = id(input_3).state ? 0 : id(in3_result) += 1;
+          id(in4_result) = id(input_4).state ? 0 : id(in4_result) += 1;
+          id(in5_result) = id(input_5).state ? 0 : id(in5_result) += 1;
+          id(in6_result) = id(input_6).state ? 0 : id(in6_result) += 1;
+          
+          // ESP_LOGI(TAG, "in3_result is %d", id(in3_result));
+          // ESP_LOGI(TAG, "in4_result is %d", id(in4_result));
+          // ESP_LOGI(TAG, "in5_result is %d", id(in5_result));
+          // ESP_LOGI(TAG, "in6_result is %d", id(in6_result));
+      
+      # вывод результата
+      - delay: 50ms
+      - lambda: |-
+          static const char* TAG = "test";
+
+          id(in1_result_bool)->publish_state( 
+            id(in1_result) == 3 ? true : false
+          );
+          
+          id(in2_result_bool)->publish_state( 
+            id(in2_result) == 3 ? true : false
+          );
+          id(in3_result_bool)->publish_state( 
+            id(in3_result) == 3 ? true : false
+          );
+
+          id(in4_result_bool)->publish_state( 
+            id(in4_result) == 3 ? true : false
+          );
+
+          id(in5_result_bool)->publish_state( 
+            id(in5_result) == 3 ? true : false
+          );
+
+          id(in6_result_bool)->publish_state( 
+            id(in6_result) == 3 ? true : false
+          );
+
+      - lambda: |-
+          static const char* TAG = "test";
+
+          id(result_test).execute("DIN",
+                id(in1_result_bool).state && id(in2_result_bool).state &&
+                id(in3_result_bool).state && id(in4_result_bool).state &&
+                id(in5_result_bool).state && id(in6_result_bool).state
+          );
+      - delay: 1000ms
+      - script.execute:
+          id: finished_test
+          test_name: "DIN"
+
