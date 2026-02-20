@@ -1,54 +1,54 @@
 # test scripts for production
 globals:
-  - id: relay1_result
-    type: int
-    restore_value: no
-    initial_value: '0'
-  - id: relay2_result
-    type: int
-    restore_value: no
-    initial_value: '0'
-  - id: relay3_result
-    type: int
-    restore_value: no
-    initial_value: '0'
-  - id: relay4_result
-    type: int
-    restore_value: no
-    initial_value: '0'
-  - id: relay5_result
-    type: int
-    restore_value: no
-    initial_value: '0'
-  - id: relay6_result
-    type: int
-    restore_value: no
-    initial_value: '0'
+  # - id: relay1_result
+  #   type: int
+  #   restore_value: no
+  #   initial_value: '0'
+  # - id: relay2_result
+  #   type: int
+  #   restore_value: no
+  #   initial_value: '0'
+  # - id: relay3_result
+  #   type: int
+  #   restore_value: no
+  #   initial_value: '0'
+  # - id: relay4_result
+  #   type: int
+  #   restore_value: no
+  #   initial_value: '0'
+  # - id: relay5_result
+  #   type: int
+  #   restore_value: no
+  #   initial_value: '0'
+  # - id: relay6_result
+  #   type: int
+  #   restore_value: no
+  #   initial_value: '0'
 
-  - id: in1_result
-    type: int
-    restore_value: no
-    initial_value: '0'
-  - id: in2_result
-    type: int
-    restore_value: no
-    initial_value: '0'
-  - id: in3_result
-    type: int
-    restore_value: no
-    initial_value: '0'
-  - id: in4_result
-    type: int
-    restore_value: no
-    initial_value: '0'
-  - id: in5_result
-    type: int
-    restore_value: no
-    initial_value: '0'
-  - id: in6_result
-    type: int
-    restore_value: no
-    initial_value: '0'
+  # - id: in1_result
+  #   type: int
+  #   restore_value: no
+  #   initial_value: '0'
+  # - id: in2_result
+  #   type: int
+  #   restore_value: no
+  #   initial_value: '0'
+  # - id: in3_result
+  #   type: int
+  #   restore_value: no
+  #   initial_value: '0'
+  # - id: in4_result
+  #   type: int
+  #   restore_value: no
+  #   initial_value: '0'
+  # - id: in5_result
+  #   type: int
+  #   restore_value: no
+  #   initial_value: '0'
+  # - id: in6_result
+  #   type: int
+  #   restore_value: no
+  #   initial_value: '0'
 
   - id: left_result
     type: int
@@ -79,22 +79,22 @@ globals:
     restore_value: no
     initial_value: '0'
 
-  - id: jxm1_reset_result
-    type: int
-    restore_value: no
-    initial_value: '0'
-  - id: jxm1_mode_result
-    type: int
-    restore_value: no
-    initial_value: '0'
-  - id: jxm2_reset_result
-    type: int
-    restore_value: no
-    initial_value: '0'
-  - id: jxm2_mode_result
-    type: int
-    restore_value: no
-    initial_value: '0'
+  # - id: jxm1_reset_result
+  #   type: int
+  #   restore_value: no
+  #   initial_value: '0'
+  # - id: jxm1_mode_result
+  #   type: int
+  #   restore_value: no
+  #   initial_value: '0'
+  # - id: jxm2_reset_result
+  #   type: int
+  #   restore_value: no
+  #   initial_value: '0'
+  # - id: jxm2_mode_result
+  #   type: int
+  #   restore_value: no
+  #   initial_value: '0'
 
   - id: up_result_displayed
     type: bool
@@ -187,101 +187,101 @@ binary_sensor:
       sorting_group_id: cpu_board_group
       sorting_weight: 6
 
-  - platform: template
-    name: "1-WIRE result"
-    id: one_wire_result_bool
-    web_server:
-      sorting_group_id: peripheral_board_group
-      sorting_weight: 2
+  # - platform: template
+  #   name: "1-WIRE result"
+  #   id: one_wire_result_bool
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
+  #     sorting_weight: 2
 
-  - platform: template
-    name: "Relay 1 result"
-    id: r1_result_bool
-    web_server:
-      sorting_group_id: peripheral_board_group
-  - platform: template
-    name: "Relay 2 result"
-    id: r2_result_bool
-    web_server:
-      sorting_group_id: peripheral_board_group
-  - platform: template
-    name: "Relay 3 result"
-    id: r3_result_bool
-    web_server:
-      sorting_group_id: peripheral_board_group
-  - platform: template
-    name: "Relay 4 result"
-    id: r4_result_bool
-    web_server:
-      sorting_group_id: peripheral_board_group
-  - platform: template
-    name: "Relay 5 result"
-    id: r5_result_bool
-    web_server:
-      sorting_group_id: peripheral_board_group
-  - platform: template
-    name: "Relay 6 result"
-    id: r6_result_bool
-    web_server:
-      sorting_group_id: peripheral_board_group
+  # - platform: template
+  #   name: "Relay 1 result"
+  #   id: r1_result_bool
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
+  # - platform: template
+  #   name: "Relay 2 result"
+  #   id: r2_result_bool
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
+  # - platform: template
+  #   name: "Relay 3 result"
+  #   id: r3_result_boolы
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
+  # - platform: template
+  #   name: "Relay 4 result"
+  #   id: r4_result_bool
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
+  # - platform: template
+  #   name: "Relay 5 result"
+  #   id: r5_result_bool
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
+  # - platform: template
+  #   name: "Relay 6 result"
+  #   id: r6_result_bool
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
 
-  - platform: template
-    name: "IN1 result"
-    id: in1_result_bool
-    web_server:
-      sorting_group_id: peripheral_board_group
-  - platform: template
-    name: "IN2 result"
-    id: in2_result_bool
-    web_server:
-      sorting_group_id: peripheral_board_group
-  - platform: template
-    name: "IN3 result"
-    id: in3_result_bool
-    web_server:
-      sorting_group_id: peripheral_board_group
-  - platform: template
-    name: "IN4 result"
-    id: in4_result_bool
-    web_server:
-      sorting_group_id: peripheral_board_group
-  - platform: template
-    name: "IN5 result"
-    id: in5_result_bool
-    web_server:
-      sorting_group_id: peripheral_board_group
-  - platform: template
-    name: "IN6 result"
-    id: in6_result_bool
-    web_server:
-      sorting_group_id: peripheral_board_group
+  # - platform: template
+  #   name: "IN1 result"
+  #   id: in1_result_bool
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
+  # - platform: template
+  #   name: "IN2 result"
+  #   id: in2_result_bool
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
+  # - platform: template
+  #   name: "IN3 result"
+  #   id: in3_result_bool
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
+  # - platform: template
+  #   name: "IN4 result"
+  #   id: in4_result_bool
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
+  # - platform: template
+  #   name: "IN5 result"
+  #   id: in5_result_bool
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
+  # - platform: template
+  #   name: "IN6 result"
+  #   id: in6_result_bool
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
 
-  - platform: template
-    name: "JXM1 Reset result"
-    id: jxm1_reset_result_bool
-    web_server:
-      sorting_group_id: peripheral_board_group
-  - platform: template
-    name: "JXM1 mode result"
-    id: jxm1_mode_result_bool
-    web_server:
-      sorting_group_id: peripheral_board_group
-  - platform: template
-    name: "JXM2 Reset result"
-    id: jxm2_reset_result_bool
-    web_server:
-      sorting_group_id: peripheral_board_group
-  - platform: template
-    name: "JXM2 mode result"
-    id: jxm2_mode_result_bool
-    web_server:
-      sorting_group_id: peripheral_board_group
+  # - platform: template
+  #   name: "JXM1 Reset result"
+  #   id: jxm1_reset_result_bool
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
+  # - platform: template
+  #   name: "JXM1 mode result"
+  #   id: jxm1_mode_result_bool
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
+  # - platform: template
+  #   name: "JXM2 Reset result"
+  #   id: jxm2_reset_result_bool
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
+  # - platform: template
+  #   name: "JXM2 mode result"
+  #   id: jxm2_mode_result_bool
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
 
-  - platform: template
-    name: "JXM UART result"
-    id: jxm_uart_result_bool
-    web_server:
-      sorting_group_id: peripheral_board_group
+  # - platform: template
+  #   name: "JXM UART result"
+  #   id: jxm_uart_result_bool
+  #   web_server:
+  #     sorting_group_id: peripheral_board_group
 
   - platform: template
     name: "Display test result"
@@ -457,6 +457,17 @@ button:
     on_press:
       then:
         - script.execute: full_test
+
+  # - platform: template
+  #   name: "Start Display Test"
+  #   id: start_display_test
+  #   icon: mdi:monitor-play
+  #   web_server:
+  #     sorting_group_id: test_group
+  #     sorting_weight: -1
+  #   on_press:
+  #     then:
+  #       - script.execute: test_display
     
   # - platform: template
   #   name: "Test jxm"

@@ -194,39 +194,39 @@ script:
           // int font_height = id(f7x14_mod2).get_height();
           // int line_spacing = 2;
           bool test_result_full = false;
-          bool r1_r6_result = false;
-          bool in1_6_result = false;
-          bool jxm_result_common = false;
+          // bool r1_r6_result = false;
+          // bool in1_6_result = false;
+          // bool jxm_result_common = false;
           bool navigation_result_common = false;
 
-          if(id(in1_result_bool).state &&
-             id(in2_result_bool).state &&
-             id(in3_result_bool).state &&
-             id(in4_result_bool).state &&
-             id(in5_result_bool).state &&
-             id(in6_result_bool).state) {
+          // if(id(in1_result_bool).state &&
+          //    id(in2_result_bool).state &&
+          //    id(in3_result_bool).state &&
+          //    id(in4_result_bool).state &&
+          //    id(in5_result_bool).state &&
+          //    id(in6_result_bool).state) {
 
-            in1_6_result = true;
-          }
+          //   in1_6_result = true;
+          // }
 
-          if(id(r1_result_bool).state &&
-             id(r2_result_bool).state &&
-             id(r3_result_bool).state &&
-             id(r4_result_bool).state &&
-             id(r5_result_bool).state &&
-             id(r6_result_bool).state) {
+          // if(id(r1_result_bool).state &&
+          //    id(r2_result_bool).state &&
+          //    id(r3_result_bool).state &&
+          //    id(r4_result_bool).state &&
+          //    id(r5_result_bool).state &&
+          //    id(r6_result_bool).state) {
 
-            r1_r6_result = true;
-          }
+          //   r1_r6_result = true;
+          // }
 
-          if(id(jxm1_reset_result_bool).state &&
-             id(jxm2_reset_result_bool).state &&
-             id(jxm1_mode_result_bool).state &&
-             id(jxm2_mode_result_bool).state &&
-             id(jxm_uart_result_bool).state) {
+          // if(id(jxm1_reset_result_bool).state &&
+          //    id(jxm2_reset_result_bool).state &&
+          //    id(jxm1_mode_result_bool).state &&
+          //    id(jxm2_mode_result_bool).state &&
+          //    id(jxm_uart_result_bool).state) {
 
-            jxm_result_common = true;
-          }
+          //   jxm_result_common = true;
+          // }
 
           // if(id(left_result_bool).state &&
           //    id(right_result_bool).state &&
@@ -238,13 +238,13 @@ script:
           //   navigation_result_common = true;
           // }
 
-          if(
-             id(eeprom_per_result_bool).state &&
-             id(one_wire_result_bool).state &&             
-             in1_6_result && r1_r6_result && jxm_result_common) {
+          // if(
+          //    id(eeprom_per_result_bool).state &&
+          //    id(one_wire_result_bool).state &&             
+          //    in1_6_result && r1_r6_result && jxm_result_common) {
 
-            test_result_full = true;
-          }
+          //   test_result_full = true;
+          // }
 
           // id(full_test_result_bool).publish_state(test_result_full);
           // if(!test_result_full) {

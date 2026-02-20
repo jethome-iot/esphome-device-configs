@@ -27,13 +27,13 @@ script:
       # - script.execute: test_wf
       # - script.wait: test_wf
       # - delay: 500ms
-      # - script.execute: test_fram_cpu
-      # - script.execute: test_rtc
-      # - delay: 500ms
-      # - script.execute: test_cpu_board_temp
+      - script.execute: test_fram_cpu
+      - script.execute: test_rtc
+      - delay: 500ms
+      - script.execute: test_cpu_board_temp
       - script.execute: test_vin_voltage
       - script.execute: test_poe_voltage
-      # - delay: 500ms
+      - delay: 500ms
       # - script.execute: test_jxm
       # - script.wait: test_jxm
 
@@ -51,11 +51,11 @@ script:
       # - script.execute: test_led_button
       # - script.wait: test_led_button
       # - delay: 500ms
-      # - script.execute: test_display
-      # - script.wait: test_display
-      # - delay: 500ms
-      # - script.execute: test_navigation
-      # - script.wait: test_navigation
+      - script.execute: test_display
+      - script.wait: test_display
+      - delay: 500ms
+      - script.execute: test_navigation
+      - script.wait: test_navigation
       - script.execute:
           id: finished_test
           test_name: "Full"
