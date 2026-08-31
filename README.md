@@ -1,6 +1,6 @@
 # ESPHome Device Configurations made by JetHome
 
-![ESPHome](https://img.shields.io/badge/ESPHome-2025.10.5-blue)
+![ESPHome](https://img.shields.io/badge/ESPHome-2026.8.2-blue)
 
 This repository contains ESPHome configurations for various automation devices, including custom components for enhanced functionality. These are **open-source firmware configurations** that you can customize and build yourself.
 
@@ -41,7 +41,7 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
 ### Requirements
 
 - **Python 3.11 or higher**
-- **ESPHome 2025.10.5** (pinned version for compatibility)
+- **ESPHome 2026.8.2** (pinned version for compatibility)
 - USB cable or serial adapter for initial flashing
 - Network connection for OTA updates
 
@@ -87,6 +87,28 @@ esphome run JXD/jxd-r6-e1eth-lcd-wifi.yaml
 - Captive portal for easy setup
 - WiFi credentials stored in device
 - Access Point mode for configuration
+
+### Timezone
+
+The device gets its timezone from Home Assistant and keeps it across reboots, so local
+time stays correct even when it boots without HA.
+
+Until HA is reachable the firmware uses a compiled-in timezone. By default that is the
+timezone of the machine doing the build — pin it explicitly for reproducible builds:
+
+```bash
+esphome -s timezone UTC run JXD/jxd-r6-e1eth-lcd-eth.yaml
+```
+
+or per device in `JXD/*.yaml`:
+
+```yaml
+substitutions:
+  timezone: Europe/Berlin
+```
+
+Both IANA names (`Europe/Berlin`) and POSIX TZ strings (`CET-1CEST,M3.5.0,M10.5.0/3`)
+are accepted. POSIX strings per zone: [posix_tz_db](https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv).
 
 ### First Flash
 

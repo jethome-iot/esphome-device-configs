@@ -1,5 +1,5 @@
 substitutions:
-  name: "jxd-r6-e1eth-lcd"
+  name: "jxd-r6-e1eth-lcd-eth"
   friendly_name: JXD-R6-E1ETH-LCD
   device_description: JXD-R6-E1ETH-LCD v1
   version: 1.0.0

@@ -1,5 +1,5 @@
 # ESPHome and dependencies
 # Pin to specific version for reproducibility
-esphome==2025.10.5
+esphome==2026.8.2
 
 
