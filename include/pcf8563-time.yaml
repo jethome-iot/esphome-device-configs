@@ -1,4 +1,21 @@
+substitutions:
+  # Startup default. Empty -> nothing is emitted here and the build machine's detected
+  # timezone stands. Set it (`-s timezone UTC`, or per device) to pin one instead.
+  # POSIX TZ strings: https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
+  timezone: ""
+
 time:
+# HA first, and without `timezone`: the missing key is what enables
+# USE_HOMEASSISTANT_TIMEZONE and falls back to detect_tz(). Each platform emits its own
+# set_global_tz() and the last one wins, so ${timezone} below overrides it when set.
+  - platform: homeassistant
+    id: ha_time_source
+    update_interval: 15min
+    on_time_sync:
+      then:
+        # The timezone is applied after this fires, so only arm the capture here.
+        - lambda: 'id(ha_time_seen) = true;'
+
 # RTC PCF8563
   - platform: pcf8563
     id: pcf8563_time
@@ -17,28 +34,53 @@ time:
     on_time_sync:
       then:
         pcf8563.write_time:
-  - platform: homeassistant
-    id: ha_time_source
-    update_interval: 15min
-    on_time_sync:
+
+globals:
+  # Timezone from HA, kept across reboots so time is right when booting without it.
+  # 2026.x exposes no timezone string, so the parsed POSIX form is what gets stored.
+  - id: saved_tz
+    type: esphome::time::ParsedTimezone
+    restore_value: yes
+  # A zeroed ParsedTimezone is a valid UTC, so "never saved" needs its own flag.
+  - id: saved_tz_valid
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+  - id: ha_time_seen
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  # ${timezone} as compiled in, snapshotted at boot before anything is restored.
+  - id: compiled_tz
+    type: esphome::time::ParsedTimezone
+    restore_value: no
+
+interval:
+  - interval: 10s
+    then:
       - lambda: |-
-          id(sntp_time).set_timezone(id(ha_time_source).get_timezone());
-          id(pcf8563_time).set_timezone(id(ha_time_source).get_timezone());
-          id(timezone_string) = id(ha_time_source).get_timezone();
+          if (!id(ha_time_seen))
+            return;
+          const auto &tz = esphome::time::get_global_tz();
+          // Still the firmware default: HA sent no timezone of its own.
+          if (memcmp(&tz, &id(compiled_tz), sizeof(tz)) == 0)
+            return;
+          if (memcmp(&tz, &id(saved_tz), sizeof(tz)) != 0) {
+            id(saved_tz) = tz;
+            id(saved_tz_valid) = true;
+            ESP_LOGI("timezone", "Saved timezone from Home Assistant (offset %ld s, DST %s)",
+                     (long) tz.std_offset_seconds, YESNO(tz.has_dst()));
+          }
 
 script:
   - id: setup_time
     then:
       - logger.log: 'Setup time'
+      # Restore before reading the RTC, so local time is right without HA.
       - lambda: |-
-          id(sntp_time).set_timezone(id(timezone_string));
-          id(pcf8563_time).set_timezone(id(timezone_string));
+          id(compiled_tz) = esphome::time::get_global_tz();
+          if (id(saved_tz_valid)) {
+            esphome::time::set_global_tz(id(saved_tz));
+          }
       - pcf8563.read_time:
           id: pcf8563_time
-
-globals:
-  - id: timezone_string
-    type: std::string
-    restore_value: yes
-    initial_value: '"GMT"'
-    max_restore_data_length: 32

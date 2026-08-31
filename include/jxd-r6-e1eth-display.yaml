@@ -98,7 +98,7 @@ graphical_display_menu:
         text: !lambda |-
           return std::string(id(temperature_sensor).get_name());
         value_lambda: !lambda |-
-          return str_sprintf(": %2.1f°C", id(temperature_sensor).state);
+          return str_sprintf("%2.1f°C", id(temperature_sensor).state);
 
       ### Add more temperature sensors here like above ###
 

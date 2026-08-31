@@ -13,7 +13,9 @@ graphical_display_menu:
           text: !lambda |-
             std::string res;
             if (id(captive_portal_id).is_active()) {
-              res = id(wifi_id).wifi_soft_ap_ip().str();
+              // IPAddress::str() removed in 2026.8; str_to() takes a caller-owned buffer
+              char buf[esphome::network::IP_ADDRESS_BUFFER_SIZE];
+              res = id(wifi_id).wifi_soft_ap_ip().str_to(buf);
             }
             else {
               res = id(ip).state;
