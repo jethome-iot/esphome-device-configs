@@ -6,8 +6,7 @@
 
 #include <forward_list>
 
-namespace esphome {
-namespace display_menu_base {
+namespace esphome::display_menu_base {
 
 enum MenuMode {
   MENU_MODE_ROTARY,
@@ -24,10 +23,7 @@ class DisplayMenuComponent : public Component {
   void set_root_item(MenuItemMenu *item) { this->displayed_item_ = this->root_item_ = item; }
   void set_active(bool active) { this->active_ = active; }
   void set_mode(MenuMode mode) { this->mode_ = mode; }
-
-  /** Set whether the "right" input should be used to enter menu options.
-   * @param opt True to enable "right" input for menu entry, false to disable.
-   */
+  /// Whether "right" enters a submenu; when false only "enter" does.
   void set_right_for_menu_enter_opt(bool opt) { this->right_for_menu_enter_opt_ = opt; }
   void set_rows(uint8_t rows) { this->rows_ = rows; }
 
@@ -38,15 +34,13 @@ class DisplayMenuComponent : public Component {
   void left();
   void right();
   void enter();
+  /// Leave the current edit or submenu, without needing a "back" item.
   void back();
 
-  // Go to root of menu and show it
   void show_main();
-  // Reset menu to root item
+  /// Return to the root item without showing the menu.
   void reset_menu();
-  // Check that current item is root
   bool is_at_main() const { return this->displayed_item_ == this->root_item_; }
-  
   void show();
   void hide();
 
@@ -91,5 +85,4 @@ class DisplayMenuComponent : public Component {
   bool root_on_enter_called_{false};
 };
 
-}  // namespace display_menu_base
-}  // namespace esphome
+}  // namespace esphome::display_menu_base
