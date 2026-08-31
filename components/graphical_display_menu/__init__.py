@@ -17,8 +17,8 @@ from esphome.const import (
 )
 
 CONF_MENU_ITEM_VALUE = "menu_item_value"
-CONF_RESTORE_PAGE = "restore_page"
 CONF_ON_REDRAW = "on_redraw"
+CONF_RESTORE_PAGE = "restore_page"
 CONF_FILL_ROW = "fill_row"
 CONF_SHRINK_LABEL = "shrink_label"
 
@@ -75,7 +75,10 @@ async def to_code(config):
 
     menu_font = await cg.get_variable(config[CONF_FONT])
     cg.add(var.set_font(menu_font))
+
     cg.add(var.set_restore_page(config[CONF_RESTORE_PAGE]))
+    cg.add(var.set_fill_row(config[CONF_FILL_ROW]))
+    cg.add(var.set_shrink_label(config[CONF_SHRINK_LABEL]))
 
     if (menu_item_value_config := config.get(CONF_MENU_ITEM_VALUE, None)) is not None:
         if isinstance(menu_item_value_config, core.Lambda):
@@ -87,12 +90,6 @@ async def to_code(config):
             cg.add(var.set_menu_item_value(template_))
         else:
             cg.add(var.set_menu_item_value(menu_item_value_config))
-
-    if fill_row_config := config.get(CONF_FILL_ROW):
-        cg.add(var.set_fill_row(fill_row_config))
-
-    if shrink_label_config := config.get(CONF_SHRINK_LABEL):
-        cg.add(var.set_shrink_label(shrink_label_config))
 
     if foreground_color_config := config.get(CONF_FOREGROUND_COLOR):
         foreground_color = await cg.get_variable(foreground_color_config)
