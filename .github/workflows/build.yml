@@ -1,0 +1,71 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # ESPHome bakes a timezone into the firmware and falls back to the build
+  # machine's own when none is given, so pin the runner to keep builds identical.
+  TZ: UTC
+
+jobs:
+  discover:
+    name: Discover configs
+    runs-on: ubuntu-latest
+    outputs:
+      configs: ${{ steps.list.outputs.configs }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: List device configs
+        id: list
+        run: |
+          configs=$(find JXD E1 -maxdepth 1 -name '*.yaml' 2>/dev/null | sort |
+            jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "Found: $configs"
+          if [ "$configs" = "[]" ]; then
+            echo "No device configs found" >&2
+            exit 1
+          fi
+          echo "configs=$configs" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.config }}
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config: ${{ fromJson(needs.discover.outputs.configs) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install ESPHome
+        run: pip install -r requirements.txt
+
+      # The ESP-IDF toolchain is ~2 GB and identical across configs, so key the
+      # cache on the ESPHome pin rather than on the config being built.
+      - name: Cache toolchains
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/esphome
+          key: toolchains-${{ hashFiles('requirements.txt') }}
+          restore-keys: toolchains-
+
+      - name: Compile
+        run: esphome compile "${{ matrix.config }}"
