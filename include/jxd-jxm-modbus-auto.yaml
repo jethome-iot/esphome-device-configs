@@ -19,10 +19,12 @@
 #     One coil per switch in 'relays_group_id', sequential addresses
 #
 #   Function Code 0x02 (Read Discrete Inputs):
-#     0xA100+ - Digital Input states (OFF/ON) - Read-only
+#     0xA000+ - Digital Input states (OFF/ON) - Read-only
 #     One discrete input per binary sensor in 'digital_inputs_group_id', sequential
+#     Coils and discrete inputs live in two independent address spaces, so the
+#     relay coils and the digital inputs both start at 0xA000.
 #
-#   Function Code 0x03 (Read Holding Registers):
+#   Function Code 0x04 (Read Input Registers):
 #     0x0200 - Number of digital inputs (read-only)
 #     0x0201 - Number of relays/outputs (read-only)
 #
@@ -32,6 +34,9 @@
 #   Function Code 0x0F (Write Multiple Coils):
 #     Can write to any range of coils in the relay range
 #
+# Any other address answers with the courtesy default (0 / OFF) instead of a
+# Modbus exception, so scanning masters do not see errors.
+#
 # Benefits over manual configuration:
 #   - No need to manually specify each relay/input
 #   - Automatically adapts to number of entities in groups
@@ -40,12 +45,9 @@
 
 external_components:
   - source:
-      type: local 
+      type: local
       path: ../components
     components: [modbus_server_group]
-
-  - source: github://jethome-iot/esphome@dev-jethub
-    components: [modbus, modbus_controller]
 
 
 # Modbus component configuration
@@ -53,29 +55,23 @@ modbus:
   id: modbus_jxd
   uart_id: jxm_uart2
   # flow_control_pin: GPIO_XX  # Optional: RS485 direction control pin
-  send_wait_time: 200ms
   role: server  # Act as Modbus server (slave)
 
-# Modbus controller configuration
-modbus_controller:
-  - id: jxd_modbus_server
-    modbus_id: modbus_jxd
-    address: 0x01  # Modbus slave address
-    update_interval: 1s
-    server_courtesy_response:
-      enabled: true
-
-# Automatic group-based Modbus server configuration
+# Automatic group-based Modbus server configuration.
+# The component is a Modbus server device itself and attaches straight to the hub
+# above - no modbus_controller is involved (that one is a client-only component).
 modbus_server_group:
   id: modbus_server_group_config
-  modbus_controller_id: jxd_modbus_server
-  
+  modbus_id: modbus_jxd
+  address: 0x01  # Modbus slave address
+
+  courtesy_response:
+    enabled: true
+
   # Configure outputs (relays) as coils
   outputs_group: relays_group_id
   outputs_start_address: 0xA000
-  
+
   # Configure inputs (binary sensors) as discrete inputs
   inputs_group: digital_inputs_group_id
   inputs_start_address: 0xA000
-
-

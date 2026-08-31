@@ -1,181 +1,230 @@
 #include "modbus_server_group.h"
 #include "esphome/core/log.h"
-#include "esphome/core/application.h"
 
 namespace esphome {
 namespace modbus_server_group {
 
 static const char *const TAG = "modbus_server_group";
 
+/// Input register holding the number of discrete inputs.
+static constexpr uint16_t INPUTS_COUNT_ADDRESS = 0x0200;
+/// Input register holding the number of coils.
+static constexpr uint16_t OUTPUTS_COUNT_ADDRESS = 0x0201;
+
 void ModbusServerGroup::setup() {
   ESP_LOGCONFIG(TAG, "Setting up Modbus Server Group...");
 
-  if (this->modbus_controller_ == nullptr) {
-    ESP_LOGE(TAG, "Modbus controller not set!");
-    this->mark_failed();
-    return;
-  }
-
-  // Setup discrete inputs from inputs group
-  if (this->inputs_group_ != nullptr) {
-    this->setup_discrete_inputs_();
-  }
-
-  // Setup coils from outputs group
-  if (this->outputs_group_ != nullptr) {
-    this->setup_coils_();
-  }
-
-  // Setup count registers
-  this->setup_count_registers_();
-
-  ESP_LOGCONFIG(TAG, "Modbus Server Group setup complete");
-}
-
-void ModbusServerGroup::setup_discrete_inputs_() {
-  ESP_LOGD(TAG, "Setting up discrete inputs from group '%s'", this->inputs_group_->get_name().c_str());
-  
-  uint16_t address = this->inputs_start_address_;
-  this->inputs_count_ = 0;
-
 #ifdef USE_BINARY_SENSOR
-  for (EntityBase *entity : this->inputs_group_->items()) {
-    // Cast to binary sensor (safe because we checked the type)
-    auto *binary_sensor = static_cast<binary_sensor::BinarySensor *>(entity);
-    
-    // Create a discrete input for this binary sensor
-    auto *discrete_input = new modbus_controller::ServerDiscreteInput(address);
-    
-    // Set read lambda to return the binary sensor state
-    // Capture binary_sensor by value (pointer copy)
-    discrete_input->set_read_lambda([binary_sensor](uint16_t addr) -> bool {
-      return binary_sensor->state;
-    });
-    
-    this->modbus_controller_->add_server_discrete_input(discrete_input);
-    
-    ESP_LOGD(TAG, "  Added discrete input at 0x%04X for '%s'", 
-              address, entity->get_name().c_str());
-    
-    address++;
-    this->inputs_count_++;
+  if (this->inputs_group_ != nullptr) {
+    for (EntityBase *entity : this->inputs_group_->items()) {
+      this->discrete_inputs_.push_back(static_cast<binary_sensor::BinarySensor *>(entity));
+      ESP_LOGD(TAG, "  Added discrete input at 0x%04X for '%s'",
+               static_cast<uint16_t>(this->inputs_start_address_ + this->discrete_inputs_.size() - 1),
+               entity->get_name().c_str());
+    }
+    this->inputs_count_ = static_cast<uint16_t>(this->discrete_inputs_.size());
   }
 #endif
-
-  ESP_LOGCONFIG(TAG, "Configured %d discrete input(s) starting at 0x%04X", 
-                this->inputs_count_, this->inputs_start_address_);
-}
-
-void ModbusServerGroup::setup_coils_() {
-  ESP_LOGD(TAG, "Setting up coils from group '%s'", this->outputs_group_->get_name().c_str());
-  
-  uint16_t address = this->outputs_start_address_;
-  this->outputs_count_ = 0;
 
 #ifdef USE_SWITCH
-  for (EntityBase *entity : this->outputs_group_->items()) {
-    // Cast to switch (safe because we checked the type)
-    auto *switch_entity = static_cast<switch_::Switch *>(entity);
-    
-    // Create a coil for this switch
-    auto *coil = new modbus_controller::ServerCoil(address);
-    
-    // Set read lambda to return the switch state
-    // Capture switch_entity by value (pointer copy)
-    coil->set_read_lambda([switch_entity](uint16_t addr) -> bool {
-      return switch_entity->state;
-    });
-    
-    // Set write lambda to control the switch
-    // Capture switch_entity by value (pointer copy)
-    coil->set_write_lambda([switch_entity](uint16_t addr, bool value) -> bool {
-      if (value) {
-        switch_entity->turn_on();
-      } else {
-        switch_entity->turn_off();
-      }
-      return true;
-    });
-    
-    this->modbus_controller_->add_server_coil(coil);
-    
-    ESP_LOGD(TAG, "  Added coil at 0x%04X for '%s'", 
-              address, entity->get_name().c_str());
-    
-    address++;
-    this->outputs_count_++;
+  if (this->outputs_group_ != nullptr) {
+    for (EntityBase *entity : this->outputs_group_->items()) {
+      this->coils_.push_back(static_cast<switch_::Switch *>(entity));
+      ESP_LOGD(TAG, "  Added coil at 0x%04X for '%s'",
+               static_cast<uint16_t>(this->outputs_start_address_ + this->coils_.size() - 1),
+               entity->get_name().c_str());
+    }
+    this->outputs_count_ = static_cast<uint16_t>(this->coils_.size());
   }
 #endif
 
-  ESP_LOGCONFIG(TAG, "Configured %d coil(s) starting at 0x%04X", 
-                this->outputs_count_, this->outputs_start_address_);
+  ESP_LOGCONFIG(TAG, "Configured %u coil(s) at 0x%04X and %u discrete input(s) at 0x%04X", this->outputs_count_,
+                this->outputs_start_address_, this->inputs_count_, this->inputs_start_address_);
 }
 
-void ModbusServerGroup::setup_count_registers_() {
-  ESP_LOGD(TAG, "Setting up count registers at 0x0200 and 0x0201");
-  
-  // Register for inputs count at 0x0200
-  auto *inputs_count_register = new modbus_controller::ServerInputRegister(
-      0x0200, 
-      modbus_controller::SensorValueType::U_WORD, 
-      1
-  );
-  
-  // Capture inputs_count_ by reference through 'this'
-  inputs_count_register->set_read_lambda<uint16_t>(
-      [this](uint16_t addr) -> uint16_t {
-        return this->inputs_count_;
-      }
-  );
-  
-  this->modbus_controller_->add_server_input_register(inputs_count_register);
-  ESP_LOGD(TAG, "  Added input register at 0x0200 (inputs_count = %d)", this->inputs_count_);
-  
-  // Register for outputs count at 0x0201
-  auto *outputs_count_register = new modbus_controller::ServerInputRegister(
-      0x0201, 
-      modbus_controller::SensorValueType::U_WORD, 
-      1
-  );
-  
-  // Capture outputs_count_ by reference through 'this'
-  outputs_count_register->set_read_lambda<uint16_t>(
-      [this](uint16_t addr) -> uint16_t {
-        return this->outputs_count_;
-      }
-  );
-  
-  this->modbus_controller_->add_server_input_register(outputs_count_register);
-  ESP_LOGD(TAG, "  Added input register at 0x0201 (outputs_count = %d)", this->outputs_count_);
+int ModbusServerGroup::coil_index_(uint32_t address) const {
+#ifdef USE_SWITCH
+  if (address >= this->outputs_start_address_ &&
+      address < static_cast<uint32_t>(this->outputs_start_address_) + this->coils_.size()) {
+    return static_cast<int>(address - this->outputs_start_address_);
+  }
+#endif
+  return -1;
+}
+
+int ModbusServerGroup::discrete_input_index_(uint32_t address) const {
+#ifdef USE_BINARY_SENSOR
+  if (address >= this->inputs_start_address_ &&
+      address < static_cast<uint32_t>(this->inputs_start_address_) + this->discrete_inputs_.size()) {
+    return static_cast<int>(address - this->inputs_start_address_);
+  }
+#endif
+  return -1;
+}
+
+modbus::ResponseStatus ModbusServerGroup::on_read_coils(uint16_t start_address, modbus::MutablePackedBits bits) {
+  ESP_LOGV(TAG, "Read coils for device 0x%02X. Start address: 0x%04X. Count: %u.", this->address_, start_address,
+           bits.size());
+
+  for (uint16_t i = 0; i < bits.size(); i++) {
+    const uint32_t address = static_cast<uint32_t>(start_address) + i;
+    const int index = this->coil_index_(address);
+    if (index >= 0) {
+#ifdef USE_SWITCH
+      bits.set(i, this->coils_[index]->state);
+#endif
+      continue;
+    }
+    if (this->courtesy_response_.enabled && address <= this->courtesy_response_.coil_last_address) {
+      bits.set(i, this->courtesy_response_.coil_value);
+      continue;
+    }
+    ESP_LOGW(TAG, "No coil at 0x%04X and courtesy default not allowed. Sending exception response.",
+             static_cast<uint16_t>(address));
+    return modbus::ExceptionCode::ILLEGAL_DATA_ADDRESS;
+  }
+  return {};
+}
+
+modbus::ResponseStatus ModbusServerGroup::on_read_discrete_inputs(uint16_t start_address,
+                                                                  modbus::MutablePackedBits bits) {
+  ESP_LOGV(TAG, "Read discrete inputs for device 0x%02X. Start address: 0x%04X. Count: %u.", this->address_,
+           start_address, bits.size());
+
+  for (uint16_t i = 0; i < bits.size(); i++) {
+    const uint32_t address = static_cast<uint32_t>(start_address) + i;
+    const int index = this->discrete_input_index_(address);
+    if (index >= 0) {
+#ifdef USE_BINARY_SENSOR
+      bits.set(i, this->discrete_inputs_[index]->state);
+#endif
+      continue;
+    }
+    if (this->courtesy_response_.enabled && address <= this->courtesy_response_.discrete_input_last_address) {
+      bits.set(i, this->courtesy_response_.discrete_input_value);
+      continue;
+    }
+    ESP_LOGW(TAG, "No discrete input at 0x%04X and courtesy default not allowed. Sending exception response.",
+             static_cast<uint16_t>(address));
+    return modbus::ExceptionCode::ILLEGAL_DATA_ADDRESS;
+  }
+  return {};
+}
+
+modbus::ResponseStatus ModbusServerGroup::on_write_coils(uint16_t start_address, modbus::PackedBits bits) {
+  ESP_LOGV(TAG, "Write coils for device 0x%02X. Start address: 0x%04X. Count: %u.", this->address_, start_address,
+           bits.size());
+
+  // Pre-flight: every targeted coil must be mapped, so a rejected request never applies a partial write.
+  for (uint16_t i = 0; i < bits.size(); i++) {
+    const uint32_t address = static_cast<uint32_t>(start_address) + i;
+    if (this->coil_index_(address) < 0) {
+      // VERBOSE only: this handler also serves broadcasts, where not mapping an address is routine.
+      ESP_LOGV(TAG, "No writable coil at 0x%04X; write request rejected before applying any coil.",
+               static_cast<uint16_t>(address));
+      return modbus::ExceptionCode::ILLEGAL_DATA_ADDRESS;
+    }
+  }
+
+#ifdef USE_SWITCH
+  for (uint16_t i = 0; i < bits.size(); i++) {
+    const uint32_t address = static_cast<uint32_t>(start_address) + i;
+    switch_::Switch *sw = this->coils_[this->coil_index_(address)];
+    if (bits[i]) {
+      sw->turn_on();
+    } else {
+      sw->turn_off();
+    }
+  }
+#endif
+  return {};
+}
+
+modbus::ResponseStatus ModbusServerGroup::on_read_input_registers(uint16_t start_address, uint16_t number_of_registers,
+                                                                  modbus::RegisterValues &registers) {
+  ESP_LOGV(TAG, "Read input registers for device 0x%02X. Start address: 0x%04X. Count: %u.", this->address_,
+           start_address, number_of_registers);
+
+  const uint32_t end_address = static_cast<uint32_t>(start_address) + number_of_registers;
+  for (uint32_t address = start_address; address < end_address; address++) {
+    if (address == INPUTS_COUNT_ADDRESS) {
+      registers.push_back(this->inputs_count_);
+      continue;
+    }
+    if (address == OUTPUTS_COUNT_ADDRESS) {
+      registers.push_back(this->outputs_count_);
+      continue;
+    }
+    if (this->courtesy_response_.enabled && address <= this->courtesy_response_.register_last_address) {
+      registers.push_back(this->courtesy_response_.register_value);
+      continue;
+    }
+    ESP_LOGW(TAG, "No input register at 0x%04X and courtesy default not allowed. Sending exception response.",
+             static_cast<uint16_t>(address));
+    return modbus::ExceptionCode::ILLEGAL_DATA_ADDRESS;
+  }
+  return {};
+}
+
+modbus::ResponseStatus ModbusServerGroup::on_read_holding_registers(uint16_t start_address,
+                                                                    uint16_t number_of_registers,
+                                                                    modbus::RegisterValues &registers) {
+  // No holding registers are mapped: the entity counts live in the input register space (FC 0x04).
+  // Only the courtesy default can answer here, matching the JetHome fork's behaviour with an empty
+  // holding register table.
+  if (!this->courtesy_response_.enabled) {
+    return modbus::ExceptionCode::ILLEGAL_DATA_ADDRESS;
+  }
+
+  const uint32_t end_address = static_cast<uint32_t>(start_address) + number_of_registers;
+  for (uint32_t address = start_address; address < end_address; address++) {
+    if (address > this->courtesy_response_.register_last_address) {
+      ESP_LOGW(TAG, "No holding register at 0x%04X and courtesy default not allowed. Sending exception response.",
+               static_cast<uint16_t>(address));
+      return modbus::ExceptionCode::ILLEGAL_DATA_ADDRESS;
+    }
+    registers.push_back(this->courtesy_response_.register_value);
+  }
+  return {};
 }
 
 void ModbusServerGroup::dump_config() {
   ESP_LOGCONFIG(TAG, "Modbus Server Group:");
-  
+
   if (this->is_failed()) {
     ESP_LOGE(TAG, "  Setup failed!");
     return;
   }
-  
+
+  ESP_LOGCONFIG(TAG, "  Address: 0x%02X", this->address_);
+
   if (this->inputs_group_ != nullptr) {
-    ESP_LOGCONFIG(TAG, "  Discrete Inputs:");
-    ESP_LOGCONFIG(TAG, "    Group: %s", this->inputs_group_->get_name().c_str());
-    ESP_LOGCONFIG(TAG, "    Start Address: 0x%04X", this->inputs_start_address_);
-    ESP_LOGCONFIG(TAG, "    Count: %d", this->inputs_count_);
+    ESP_LOGCONFIG(TAG,
+                  "  Discrete Inputs:\n"
+                  "    Group: %s\n"
+                  "    Start Address: 0x%04X\n"
+                  "    Count: %u",
+                  this->inputs_group_->get_name().c_str(), this->inputs_start_address_, this->inputs_count_);
   }
-  
+
   if (this->outputs_group_ != nullptr) {
-    ESP_LOGCONFIG(TAG, "  Coils:");
-    ESP_LOGCONFIG(TAG, "    Group: %s", this->outputs_group_->get_name().c_str());
-    ESP_LOGCONFIG(TAG, "    Start Address: 0x%04X", this->outputs_start_address_);
-    ESP_LOGCONFIG(TAG, "    Count: %d", this->outputs_count_);
+    ESP_LOGCONFIG(TAG,
+                  "  Coils:\n"
+                  "    Group: %s\n"
+                  "    Start Address: 0x%04X\n"
+                  "    Count: %u",
+                  this->outputs_group_->get_name().c_str(), this->outputs_start_address_, this->outputs_count_);
   }
-  
-  ESP_LOGCONFIG(TAG, "  Count Registers:");
-  ESP_LOGCONFIG(TAG, "    0x0200 (inputs_count): %d", this->inputs_count_);
-  ESP_LOGCONFIG(TAG, "    0x0201 (outputs_count): %d", this->outputs_count_);
+
+  ESP_LOGCONFIG(TAG,
+                "  Input Registers:\n"
+                "    0x%04X (inputs_count): %u\n"
+                "    0x%04X (outputs_count): %u\n"
+                "  Courtesy Response:\n"
+                "    Enabled: %s",
+                INPUTS_COUNT_ADDRESS, this->inputs_count_, OUTPUTS_COUNT_ADDRESS, this->outputs_count_,
+                YESNO(this->courtesy_response_.enabled));
 }
 
 }  // namespace modbus_server_group
 }  // namespace esphome
-
