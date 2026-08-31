@@ -13,7 +13,9 @@ concurrency:
 env:
   # ESPHome bakes a timezone into the firmware and falls back to the build
   # machine's own when none is given, so pin the runner to keep builds identical.
-  TZ: UTC
+  # Must be the full IANA key: ESPHome 2025.10.5 detects a bare "UTC" but then
+  # fails to load tzdata for it.
+  TZ: Etc/UTC
 
 jobs:
   discover:
