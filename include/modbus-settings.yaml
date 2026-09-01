@@ -21,6 +21,6 @@ number:
       - lambda: |-
           uint8_t new_address = (uint8_t)x;
           ESP_LOGI("modbus_settings", "Setting Modbus address to 0x%02X", new_address);
-          id(jxd_modbus_server).set_address(new_address);
+          id(modbus_server_group_config).set_address(new_address);
           ESP_LOGI("modbus_settings", "Modbus address changed successfully");
 
