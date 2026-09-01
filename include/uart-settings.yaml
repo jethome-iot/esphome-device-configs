@@ -61,6 +61,8 @@ select:
           if (id(jxm_uart2).get_baud_rate() != new_baud_rate) {
             id(jxm_uart2).set_baud_rate(new_baud_rate);
             id(jxm_uart2).load_settings();
+            // Modbus caches its frame delays from the baud rate in setup() only.
+            id(modbus_jxd).setup();
             ESP_LOGI("uart_settings", "UART2 baud rate changed successfully");
           }
 
