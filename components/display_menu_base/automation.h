@@ -80,7 +80,7 @@ template<typename... Ts> class BackAction final : public Action<Ts...> {
  public:
   explicit BackAction(DisplayMenuComponent *menu) : menu_(menu) {}
 
-  void play(Ts... x) override { this->menu_->back(); }
+  void play(const Ts &...x) override { this->menu_->back(); }
 
  protected:
   DisplayMenuComponent *menu_;
