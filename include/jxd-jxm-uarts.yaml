@@ -8,14 +8,14 @@
 #     uart_settings: !include include/uart-settings.yaml
 #
 # Hardware:
-#   UART1 - Primary RS485 interface
-#   UART2 - Secondary RS485 interface (if needed)
+#   UART1 (GPIO33/34) - CPU module peripheral UART; no consumer in this firmware
+#   UART2 (GPIO32/39) - RS-485 connector JXM2; carries the Modbus RTU server
 #
-# Note: Baudrate is configurable at runtime via uart-settings.yaml
-#       Changes take effect immediately (no reboot required)
+# Note: baudrate is configurable at runtime via uart-settings.yaml; the values
+#       below are the power-on defaults used until the stored one is restored.
 
 uart:
-  # UART1 - Primary RS485 interface for Modbus
+  # UART1 - peripheral UART, unused here
   - id: jxm_uart1
     tx_pin: GPIO33
     rx_pin: GPIO34
@@ -24,7 +24,7 @@ uart:
     # data_bits: 8  # Default
     # parity: NONE  # Default
 
-  # UART2 - Secondary RS485 interface (optional)
+  # UART2 - RS-485 (JXM2), Modbus RTU server
   - id: jxm_uart2
     tx_pin: GPIO32
     rx_pin: GPIO39

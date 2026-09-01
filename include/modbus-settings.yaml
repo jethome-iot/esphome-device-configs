@@ -1,8 +1,8 @@
-# Modbus settings
-# This file defines configurable Modbus settings
-# Settings are stored in flash and persist across reboots
+# Runtime Modbus RTU server address.
+# Stored in flash and restored on boot.
+#
+# Depends on: jxd-jxm-modbus-auto.yaml
 
-# Modbus server address
 number:
   - platform: template
     id: modbus_address_number

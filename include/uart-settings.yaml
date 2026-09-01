@@ -1,13 +1,15 @@
-# UART baudrate settings
-# This file defines configurable baudrate settings for UART interfaces
-# Settings are stored in flash and persist across reboots
-# Changes take effect immediately without requiring a reboot
+# Runtime baudrate for the two UARTs.
+# Settings are stored in flash and restored on boot.
+#
+# jxm_uart2 is the RS-485 (JXM2) Modbus RTU link - see jxd-jxm-modbus-auto.yaml.
+# jxm_uart1 is the module's peripheral UART; nothing in this firmware uses it.
+#
+# Depends on: jxd-jxm-uarts.yaml, jxd-jxm-modbus-auto.yaml
 
-# UART1 baudrate select
 select:
   - platform: template
     id: uart1_baudrate_select
-    name: "UART1 Baudrate"
+    name: "Aux UART Baudrate (unused)"
     optimistic: true
     options:
       - "1200"
@@ -27,10 +29,9 @@ select:
           id: apply_uart1_baudrate
           baud: !lambda 'return stoi(x);'
 
-  # UART2 baudrate select
   - platform: template
     id: uart2_baudrate_select
-    name: "UART2 Baudrate"
+    name: "RS-485 Baudrate (Modbus)"
     optimistic: true
     options:
       - "1200"
@@ -62,7 +63,7 @@ script:
       - lambda: |-
           if (baud <= 0 || id(jxm_uart1).get_baud_rate() == (uint32_t) baud)
             return;
-          ESP_LOGI("uart_settings", "UART1: %u -> %u baud",
+          ESP_LOGI("uart_settings", "aux UART: %u -> %u baud",
                    (unsigned) id(jxm_uart1).get_baud_rate(), (unsigned) baud);
           id(jxm_uart1).flush();
           id(jxm_uart1).set_baud_rate((uint32_t) baud);
@@ -77,7 +78,7 @@ script:
       - lambda: |-
           if (baud <= 0 || id(jxm_uart2).get_baud_rate() == (uint32_t) baud)
             return;
-          ESP_LOGI("uart_settings", "UART2: %u -> %u baud",
+          ESP_LOGI("uart_settings", "RS-485 (Modbus): %u -> %u baud",
                    (unsigned) id(jxm_uart2).get_baud_rate(), (unsigned) baud);
           id(jxm_uart2).flush();
           id(jxm_uart2).set_baud_rate((uint32_t) baud);

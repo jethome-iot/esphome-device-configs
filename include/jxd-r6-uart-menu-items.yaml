@@ -1,4 +1,4 @@
-# UART settings menu items for graphical_display_menu
+# Serial settings menu items for graphical_display_menu
 # Include this file in packages to add UART configuration to the Settings menu
 # This extends the existing menu items defined in jxd-r6-e1eth-display.yaml
 
@@ -7,16 +7,18 @@ graphical_display_menu:
     - id: !extend menu_settings_id
       items:
         - type: menu
-          text: "UART"
+          text: "Serial"
           items:
             - type: label
-              text: "Baudrate (RS485)"
+              text: "Baudrate"
 
             - type: select
-              text: "UART1"
-              select: uart1_baudrate_select
-
-            - type: select
-              text: "UART2"
+              text: "Modbus"
               select: uart2_baudrate_select
 
+            - type: select
+              text: "Aux"
+              select: uart1_baudrate_select
+
+            - type: label
+              text: "Modbus: RS-485"

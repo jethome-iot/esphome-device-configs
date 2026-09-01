@@ -26,7 +26,7 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
 - **Temperature monitoring**: Onboard TMP102 sensor + Dallas DS18B20 OneWire support
 - **Connectivity**: LAN8720 Ethernet or WiFi (ESP32 built-in)
 - **Voltage monitoring**: Input voltage measurement
-- **RS485/Modbus**: 2x UART interfaces for Modbus RTU communication
+- **RS485/Modbus**: RS-485 port (connector JXM2) running the Modbus RTU server
 
 ### Software Features
 
@@ -220,8 +220,8 @@ Interactive menu for accessing temperatures, device info, and settings including
 - Temperature sensors display
 - Network information (IP, MAC address)
 - Display settings (auto-off timer)
-- UART settings (baudrate configuration for RS485 interfaces)
-- Modbus settings (server address configuration)
+- Serial settings (baudrate; the RS-485 port carries Modbus)
+- Modbus settings (server address)
 - WiFi configuration (WiFi version only - Reset WiFi credentials)
 - Factory reset
 - Device reboot
@@ -247,15 +247,20 @@ See [Components Documentation](doc/COMPONENTS.md) for detailed information.
 
 The device can act as a Modbus RTU server (slave) for integration with PLCs, SCADA systems, and other industrial automation equipment:
 
+- **Serial port**: UART2 on the RS-485 connector JXM2. The board's other UART (UART1,
+  the module's peripheral UART) is not used by this firmware.
 - **Slave Address**: Configurable via display menu (Settings → Modbus) or Home Assistant
   - Range: 1-247 (0x01-0xF7)
   - Default: 1 (0x01)
-  - **Changes take effect immediately** - no reboot required
-- **Baud Rate**: Configurable via display menu (Settings → UART) or Home Assistant
+  - Stored in flash memory (persists across reboots)
+  - **No reboot required** - applied about a second after the last change
+- **Baud Rate**: Configurable via display menu (Settings → Serial) or Home Assistant
   - Supported rates: 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200 baud
   - Default: 9600 baud
   - Stored in flash memory (persists across reboots)
-  - **Changes take effect immediately** - no reboot required
+  - **No reboot required** - applied about a second after the last change, and the Modbus
+    inter-frame timing is re-derived from the new rate so the server keeps answering
+  - Reconfiguring the port drops any Modbus transaction in flight; the master retries
 - **Coils** (0xA000+): Read/write relay states
 - **Discrete Inputs** (0xA000+): Read digital input states
 - **Holding Registers**: Device information and configuration

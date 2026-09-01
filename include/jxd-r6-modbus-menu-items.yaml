@@ -17,3 +17,5 @@ graphical_display_menu:
               number: modbus_address_number
               format: '%0.0f'
 
+            - type: label
+              text: "Port: RS-485"
