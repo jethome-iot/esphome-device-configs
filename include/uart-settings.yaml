@@ -23,16 +23,9 @@ select:
     entity_category: config
     icon: mdi:swap-horizontal
     on_value:
-      - lambda: |-
-          id(jxm_uart1).flush();
-          uint32_t new_baud_rate = stoi(x);
-          ESP_LOGI("uart_settings", "Changing UART1 baud rate from %i to %i", 
-                   id(jxm_uart1).get_baud_rate(), new_baud_rate);
-          if (id(jxm_uart1).get_baud_rate() != new_baud_rate) {
-            id(jxm_uart1).set_baud_rate(new_baud_rate);
-            id(jxm_uart1).load_settings();
-            ESP_LOGI("uart_settings", "UART1 baud rate changed successfully");
-          }
+      - script.execute:
+          id: apply_uart1_baudrate
+          baud: !lambda 'return stoi(x);'
 
   # UART2 baudrate select
   - platform: template
@@ -53,16 +46,41 @@ select:
     entity_category: config
     icon: mdi:swap-horizontal
     on_value:
-      - lambda: |-
-          id(jxm_uart2).flush();
-          uint32_t new_baud_rate = stoi(x);
-          ESP_LOGI("uart_settings", "Changing UART2 baud rate from %i to %i", 
-                   id(jxm_uart2).get_baud_rate(), new_baud_rate);
-          if (id(jxm_uart2).get_baud_rate() != new_baud_rate) {
-            id(jxm_uart2).set_baud_rate(new_baud_rate);
-            id(jxm_uart2).load_settings();
-            // Modbus caches its frame delays from the baud rate in setup() only.
-            id(modbus_jxd).setup();
-            ESP_LOGI("uart_settings", "UART2 baud rate changed successfully");
-          }
+      - script.execute:
+          id: apply_uart2_baudrate
+          baud: !lambda 'return stoi(x);'
 
+script:
+  # Every menu keypress commits the select, so debounce: reconfigure the port once,
+  # after the user stops scrolling.
+  - id: apply_uart1_baudrate
+    mode: restart
+    parameters:
+      baud: int
+    then:
+      - delay: 1s
+      - lambda: |-
+          if (baud <= 0 || id(jxm_uart1).get_baud_rate() == (uint32_t) baud)
+            return;
+          ESP_LOGI("uart_settings", "UART1: %u -> %u baud",
+                   (unsigned) id(jxm_uart1).get_baud_rate(), (unsigned) baud);
+          id(jxm_uart1).flush();
+          id(jxm_uart1).set_baud_rate((uint32_t) baud);
+          id(jxm_uart1).load_settings();
+
+  - id: apply_uart2_baudrate
+    mode: restart
+    parameters:
+      baud: int
+    then:
+      - delay: 1s
+      - lambda: |-
+          if (baud <= 0 || id(jxm_uart2).get_baud_rate() == (uint32_t) baud)
+            return;
+          ESP_LOGI("uart_settings", "UART2: %u -> %u baud",
+                   (unsigned) id(jxm_uart2).get_baud_rate(), (unsigned) baud);
+          id(jxm_uart2).flush();
+          id(jxm_uart2).set_baud_rate((uint32_t) baud);
+          id(jxm_uart2).load_settings();
+          // Modbus caches its frame delays from the baud rate in setup() only.
+          id(modbus_jxd).setup();

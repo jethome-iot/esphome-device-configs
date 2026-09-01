@@ -1,7 +1,6 @@
 # Modbus settings
 # This file defines configurable Modbus settings
 # Settings are stored in flash and persist across reboots
-# Changes take effect immediately without requiring a reboot
 
 # Modbus server address
 number:
@@ -18,9 +17,21 @@ number:
     icon: mdi:identifier
     mode: box
     on_value:
-      - lambda: |-
-          uint8_t new_address = (uint8_t)x;
-          ESP_LOGI("modbus_settings", "Setting Modbus address to 0x%02X", new_address);
-          id(modbus_server_group_config).set_address(new_address);
-          ESP_LOGI("modbus_settings", "Modbus address changed successfully");
+      - script.execute:
+          id: apply_modbus_address
+          address: !lambda 'return (int) x;'
 
+script:
+  # Every menu keypress commits the number, so debounce: without it the server would
+  # briefly answer on every address scrolled past.
+  - id: apply_modbus_address
+    mode: restart
+    parameters:
+      address: int
+    then:
+      - delay: 1s
+      - lambda: |-
+          if (address < 1 || address > 247 || (int) id(modbus_server_group_config).get_address() == address)
+            return;
+          ESP_LOGI("modbus_settings", "Modbus server address -> %d (0x%02X)", address, address);
+          id(modbus_server_group_config).set_address((uint8_t) address);
