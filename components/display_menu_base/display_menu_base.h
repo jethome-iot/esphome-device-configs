@@ -23,8 +23,10 @@ class DisplayMenuComponent : public Component {
   void set_root_item(MenuItemMenu *item) { this->displayed_item_ = this->root_item_ = item; }
   void set_active(bool active) { this->active_ = active; }
   void set_mode(MenuMode mode) { this->mode_ = mode; }
+  // JETHOME-BEGIN: right_for_menu_enter option setter
   /// Whether "right" enters a submenu; when false only "enter" does.
   void set_right_for_menu_enter_opt(bool opt) { this->right_for_menu_enter_opt_ = opt; }
+  // JETHOME-END
   void set_rows(uint8_t rows) { this->rows_ = rows; }
 
   float get_setup_priority() const override { return setup_priority::PROCESSOR; }
@@ -34,13 +36,17 @@ class DisplayMenuComponent : public Component {
   void left();
   void right();
   void enter();
+  // JETHOME-BEGIN: back() entry point declaration
   /// Leave the current edit or submenu, without needing a "back" item.
   void back();
+  // JETHOME-END
 
   void show_main();
+  // JETHOME-BEGIN: reset_menu() and is_at_main() declarations
   /// Return to the root item without showing the menu.
   void reset_menu();
   bool is_at_main() const { return this->displayed_item_ == this->root_item_; }
+  // JETHOME-END
   void show();
   void hide();
 
@@ -74,7 +80,7 @@ class DisplayMenuComponent : public Component {
   uint8_t rows_;
   bool active_;
   MenuMode mode_;
-  bool right_for_menu_enter_opt_{true};
+  bool right_for_menu_enter_opt_{true};  // JETHOME: right-enters-submenu flag
   MenuItemMenu *root_item_{nullptr};
 
   MenuItemMenu *displayed_item_{nullptr};

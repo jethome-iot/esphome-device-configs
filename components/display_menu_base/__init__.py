@@ -21,7 +21,7 @@ from esphome.const import (
     CONF_TEXT,
     CONF_TRIGGER_ID,
     CONF_TYPE,
-    CONF_VALUE,
+    CONF_VALUE,  # JETHOME: value item type
 )
 
 CODEOWNERS = ["@numo68"]
@@ -31,7 +31,7 @@ display_menu_base_ns = cg.esphome_ns.namespace("display_menu_base")
 
 CONF_ROTARY = "rotary"
 CONF_JOYSTICK = "joystick"
-CONF_RIGHT_FOR_MENU_ENTER = "right_for_menu_enter"
+CONF_RIGHT_FOR_MENU_ENTER = "right_for_menu_enter"  # JETHOME: option key
 CONF_LABEL = "label"
 CONF_MENU = "menu"
 CONF_BACK = "back"
@@ -56,7 +56,7 @@ MenuItemNumber = display_menu_base_ns.class_("MenuItemNumber")
 MenuItemSwitch = display_menu_base_ns.class_("MenuItemSwitch")
 MenuItemCommand = display_menu_base_ns.class_("MenuItemCommand")
 MenuItemCustom = display_menu_base_ns.class_("MenuItemCustom")
-MenuItemValue = display_menu_base_ns.class_("MenuItemValue")
+MenuItemValue = display_menu_base_ns.class_("MenuItemValue")  # JETHOME: value item class
 
 UpAction = display_menu_base_ns.class_("UpAction", automation.Action)
 DownAction = display_menu_base_ns.class_("DownAction", automation.Action)
@@ -65,7 +65,7 @@ RightAction = display_menu_base_ns.class_("RightAction", automation.Action)
 EnterAction = display_menu_base_ns.class_("EnterAction", automation.Action)
 ShowAction = display_menu_base_ns.class_("ShowAction", automation.Action)
 HideAction = display_menu_base_ns.class_("HideAction", automation.Action)
-BackAction = display_menu_base_ns.class_("BackAction", automation.Action)
+BackAction = display_menu_base_ns.class_("BackAction", automation.Action)  # JETHOME: back action
 ShowMainAction = display_menu_base_ns.class_("ShowMainAction", automation.Action)
 
 IsActiveCondition = display_menu_base_ns.class_(
@@ -83,7 +83,7 @@ MENU_ITEM_TYPES = {
     CONF_SWITCH: MenuItemType.MENU_ITEM_SWITCH,
     CONF_COMMAND: MenuItemType.MENU_ITEM_COMMAND,
     CONF_CUSTOM: MenuItemType.MENU_ITEM_CUSTOM,
-    CONF_VALUE: MenuItemType.MENU_ITEM_VALUE,
+    CONF_VALUE: MenuItemType.MENU_ITEM_VALUE,  # JETHOME: value item type
 }
 
 MENU_ITEMS_WITH_SPECIALIZED_CLASSES = (
@@ -93,7 +93,7 @@ MENU_ITEMS_WITH_SPECIALIZED_CLASSES = (
     CONF_SWITCH,
     CONF_COMMAND,
     CONF_CUSTOM,
-    CONF_VALUE,
+    CONF_VALUE,  # JETHOME: value item has its own class
 )
 
 MenuMode = display_menu_base_ns.enum("MenuMode")
@@ -263,12 +263,14 @@ MENU_ITEM_SCHEMA = cv.typed_schema(
                 ),
             }
         ),
+        # JETHOME-BEGIN: value menu item schema branch
         CONF_VALUE: MENU_ITEM_ENTER_LEAVE_VALUE_SCHEMA.extend(
             {
                 cv.GenerateID(CONF_ID): cv.declare_id(MenuItemValue),
                 cv.Optional(CONF_VALUE_LAMBDA): cv.returning_lambda,
             }
         ),
+        # JETHOME-END
     },
     default_type="label",
     lower=True,
@@ -279,7 +281,7 @@ DISPLAY_MENU_BASE_SCHEMA = cv.Schema(
         cv.Optional(CONF_ACTIVE, default=True): cv.boolean,
         cv.GenerateID(CONF_ROOT_ITEM_ID): cv.declare_id(MenuItemMenu),
         cv.Optional(CONF_MODE, default=CONF_ROTARY): cv.enum(MENU_MODES),
-        cv.Optional(CONF_RIGHT_FOR_MENU_ENTER, default=True): cv.boolean,
+        cv.Optional(CONF_RIGHT_FOR_MENU_ENTER, default=True): cv.boolean,  # JETHOME: right-enters-submenu option
         cv.Optional(CONF_ON_ENTER): automation.validate_automation(
             {
                 cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(
@@ -363,12 +365,14 @@ async def menu_hide_to_code(config, action_id, template_arg, args):
     return cg.new_Pvariable(action_id, template_arg, paren)
 
 
+# JETHOME-BEGIN: display_menu.back action registration
 @automation.register_action(
     "display_menu.back", BackAction, MENU_ACTION_SCHEMA, synchronous=True
 )
 async def menu_back_to_code(config, action_id, template_arg, args):
     paren = await cg.get_variable(config[CONF_ID])
     return cg.new_Pvariable(action_id, template_arg, paren)
+# JETHOME-END
 
 
 @automation.register_action(
@@ -456,7 +460,7 @@ async def display_menu_to_code(menu, config):
     root_item = cg.new_Pvariable(config[CONF_ROOT_ITEM_ID])
     cg.add(menu.set_root_item(root_item))
     cg.add(menu.set_mode(config[CONF_MODE]))
-    cg.add(menu.set_right_for_menu_enter_opt(config[CONF_RIGHT_FOR_MENU_ENTER]))
+    cg.add(menu.set_right_for_menu_enter_opt(config[CONF_RIGHT_FOR_MENU_ENTER]))  # JETHOME: option codegen
     for c in config[CONF_ITEMS]:
         await menu_item_to_code(menu, c, root_item)
     for conf in config.get(CONF_ON_ENTER, []):

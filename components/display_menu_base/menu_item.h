@@ -27,7 +27,7 @@ enum MenuItemType {
   MENU_ITEM_SWITCH,
   MENU_ITEM_COMMAND,
   MENU_ITEM_CUSTOM,
-  MENU_ITEM_VALUE,
+  MENU_ITEM_VALUE,  // JETHOME: read-only value item
 };
 
 /// @brief Returns a string representation of a menu item type suitable for logging
@@ -71,6 +71,7 @@ class MenuItem {
   CallbackManager<void()> on_value_callbacks_{};
 };
 
+// JETHOME-BEGIN: MenuItemValueBase value-lambda plumbing
 /// @brief Base for items that render a value produced by a lambda.
 class MenuItemValueBase : public MenuItem {
  public:
@@ -83,6 +84,7 @@ class MenuItemValueBase : public MenuItem {
  protected:
   optional<value_getter_t> value_getter_{};
 };
+// JETHOME-END
 
 class MenuItemMenu final : public MenuItem {
  public:
@@ -98,14 +100,16 @@ class MenuItemMenu final : public MenuItem {
   std::vector<MenuItem *> items_;
 };
 
-class MenuItemEditable : public MenuItemValueBase {
+class MenuItemEditable : public MenuItemValueBase {  // JETHOME: rebased onto MenuItemValueBase
  public:
-  explicit MenuItemEditable(MenuItemType t) : MenuItemValueBase(t) {}
+  explicit MenuItemEditable(MenuItemType t) : MenuItemValueBase(t) {}  // JETHOME: rebased base ctor
   void set_immediate_edit(bool val) { this->immediate_edit_ = val; }
   bool get_immediate_edit() const override { return this->immediate_edit_; }
+  // JETHOME: set_value_lambda removed here, now on MenuItemValueBase
 
  protected:
   bool immediate_edit_{false};
+  // JETHOME: value_getter_ removed here, now on MenuItemValueBase
 };
 
 #ifdef USE_SELECT
@@ -184,6 +188,8 @@ class MenuItemCustom final : public MenuItemEditable {
   template<typename F> void add_on_next_callback(F &&cb) { this->on_next_callbacks_.add(std::forward<F>(cb)); }
   template<typename F> void add_on_prev_callback(F &&cb) { this->on_prev_callbacks_.add(std::forward<F>(cb)); }
 
+  // JETHOME: has_value/get_value_text removed here, now on MenuItemValueBase
+
   bool select_next() override;
   bool select_prev() override;
 
@@ -195,10 +201,12 @@ class MenuItemCustom final : public MenuItemEditable {
   CallbackManager<void()> on_prev_callbacks_{};
 };
 
+// JETHOME-BEGIN: MenuItemValue read-only value item
 /// @brief Read-only item showing the result of its value lambda.
 class MenuItemValue final : public MenuItemValueBase {
  public:
   explicit MenuItemValue() : MenuItemValueBase(MENU_ITEM_VALUE) {}
 };
+// JETHOME-END
 
 }  // namespace esphome::display_menu_base

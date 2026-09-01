@@ -101,8 +101,10 @@ void DisplayMenuComponent::right() {
         }
         break;
       case MENU_ITEM_MENU:
+        // JETHOME-BEGIN: right-enters-submenu made optional
         if (this->right_for_menu_enter_opt_)
           changed = this->enter_menu_();
+        // JETHOME-END
         break;
       default:
         break;
@@ -113,6 +115,7 @@ void DisplayMenuComponent::right() {
   }
 }
 
+// JETHOME-BEGIN: back() leaves edit or submenu
 void DisplayMenuComponent::back() {
   if (this->check_healthy_and_active_()) {
     bool changed = false;
@@ -138,6 +141,7 @@ void DisplayMenuComponent::back() {
       this->draw_and_update();
   }
 }
+// JETHOME-END
 
 void DisplayMenuComponent::enter() {
   if (this->check_healthy_and_active_()) {
@@ -222,6 +226,7 @@ void DisplayMenuComponent::show_main() {
   this->on_after_show();
 }
 
+// JETHOME-BEGIN: reset_menu() returns to root item
 void DisplayMenuComponent::reset_menu() {
   bool disp_changed = false;
 
@@ -244,6 +249,7 @@ void DisplayMenuComponent::reset_menu() {
     this->displayed_item_->on_enter();
   }
 }
+// JETHOME-END
 
 void DisplayMenuComponent::show() {
   if (this->is_failed())
