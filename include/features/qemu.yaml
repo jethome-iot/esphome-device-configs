@@ -1,0 +1,48 @@
+# QEMU overlay for a REAL device config: `scripts/qemu.sh` layers it last over
+# the device YAML, so it overrides only what the emulator cannot do. Nothing
+# here duplicates device logic. See doc/QEMU.md.
+
+# QEMU burns no eFuse MAC, so the suffix is `-000000` on every emulated device —
+# noise that also costs 7 of the 31 hostname characters the `-qemu` rename needs.
+esphome:
+  name_add_mac_suffix: false
+
+# QEMU models no ESP32 EMAC, so the LAN8720 has nothing to drive. OPENETH is its
+# virtual OpenCores MAC (`-nic model=open_eth`) and takes no PHY keys at all.
+ethernet:
+  type: OPENETH
+  mdc_pin: !remove
+  mdio_pin: !remove
+  clk: !remove
+  phy_addr: !remove
+
+# No I2C controller behind the bus, so every address of a boot scan burns its
+# full timeout.
+i2c:
+  scan: false
+
+# ESPHome forwards every ESP-IDF message at DEBUG under the `esp-idf` tag, and
+# the device pins that tag to INFO — which hides the whole emulation diagnosis.
+logger:
+  logs:
+    esp-idf: DEBUG
+
+# QEMU's flash model hands the runtime driver garbage in QIO; DIO reads and
+# writes correctly.
+esp32:
+  flash_mode: dio
+
+# Fatal otherwise: with no ADC the conversion never completes and sample()
+# spins with interrupts off until the interrupt watchdog reboots the chip.
+sensor:
+  - id: !extend vin_meas
+    update_interval: never
+  - id: !extend poe_voltage
+    update_interval: never
+
+# Fatal otherwise: GPIO0 floats, reads as held through `inverted`, and held for
+# 10s it means factory reset — every boot wipes NVS and LittleFS.
+binary_sensor:
+  - id: !extend fn_button
+    platform: template
+    pin: !remove
