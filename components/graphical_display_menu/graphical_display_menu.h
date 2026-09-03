@@ -74,6 +74,7 @@ class GraphicalDisplayMenu final : public display_menu_base::DisplayMenuComponen
 
 #ifdef JETHOME_GDM_SHRINK_LABEL
   /** Cut characters out of the middle of the text, replacing them with '…', until it fits max_width.
+   * @param display the display being drawn to; `display_` is null in advanced drawing mode
    * @param str source string
    * @param max_width maximum width in pixels
    */
