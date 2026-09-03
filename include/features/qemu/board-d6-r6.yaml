@@ -1,0 +1,143 @@
+# QEMU overlay for the D6-R6 board: the relays and inputs hang off a PCA9554 on
+# I2C, which QEMU does not emulate. As `template` they keep every id, name and
+# automation and actually behave — a relay toggles over REST and holds.
+
+switch:
+  - id: !extend relay_1
+    platform: template
+    pin: !remove
+    optimistic: true
+  - id: !extend relay_2
+    platform: template
+    pin: !remove
+    optimistic: true
+  - id: !extend relay_3
+    platform: template
+    pin: !remove
+    optimistic: true
+  - id: !extend relay_4
+    platform: template
+    pin: !remove
+    optimistic: true
+  - id: !extend relay_5
+    platform: template
+    pin: !remove
+    optimistic: true
+  - id: !extend relay_6
+    platform: template
+    pin: !remove
+    optimistic: true
+
+  # A `template` input cannot change on its own, so one internal switch per input
+  # publishes onto it: POST /switch/Drive%20input%203/turn_on raises Input 3.
+  # Their ALWAYS_OFF restore also gives the inputs a boot state, which `template`
+  # otherwise never publishes.
+  - platform: template
+    id: drive_input_1
+    name: "Drive input 1"
+    internal: true
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - binary_sensor.template.publish:
+          id: input_1
+          state: true
+    turn_off_action:
+      - binary_sensor.template.publish:
+          id: input_1
+          state: false
+  - platform: template
+    id: drive_input_2
+    name: "Drive input 2"
+    internal: true
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - binary_sensor.template.publish:
+          id: input_2
+          state: true
+    turn_off_action:
+      - binary_sensor.template.publish:
+          id: input_2
+          state: false
+  - platform: template
+    id: drive_input_3
+    name: "Drive input 3"
+    internal: true
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - binary_sensor.template.publish:
+          id: input_3
+          state: true
+    turn_off_action:
+      - binary_sensor.template.publish:
+          id: input_3
+          state: false
+  - platform: template
+    id: drive_input_4
+    name: "Drive input 4"
+    internal: true
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - binary_sensor.template.publish:
+          id: input_4
+          state: true
+    turn_off_action:
+      - binary_sensor.template.publish:
+          id: input_4
+          state: false
+  - platform: template
+    id: drive_input_5
+    name: "Drive input 5"
+    internal: true
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - binary_sensor.template.publish:
+          id: input_5
+          state: true
+    turn_off_action:
+      - binary_sensor.template.publish:
+          id: input_5
+          state: false
+  - platform: template
+    id: drive_input_6
+    name: "Drive input 6"
+    internal: true
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - binary_sensor.template.publish:
+          id: input_6
+          state: true
+    turn_off_action:
+      - binary_sensor.template.publish:
+          id: input_6
+          state: false
+
+binary_sensor:
+  - id: !extend input_1
+    platform: template
+    pin: !remove
+  - id: !extend input_2
+    platform: template
+    pin: !remove
+  - id: !extend input_3
+    platform: template
+    pin: !remove
+  - id: !extend input_4
+    platform: template
+    pin: !remove
+  - id: !extend input_5
+    platform: template
+    pin: !remove
+  - id: !extend input_6
+    platform: template
+    pin: !remove
+
+# Nothing points at the expander any more, and left in place it is re-probed on
+# every read and floods the log.
+pca9554:
+  - id: !remove jxd_d6_r6_exp

@@ -161,6 +161,7 @@ binary_sensor:
 
   - platform: gpio
     name: "HOME"
+    id: home_button_id
     pin:
       pca9554: jxd_display_exp
       number: 13
@@ -179,6 +180,7 @@ binary_sensor:
 
   - platform: gpio
     name: "BACK"
+    id: back_button_id
     pin:
       pca9554: jxd_display_exp
       number: 14

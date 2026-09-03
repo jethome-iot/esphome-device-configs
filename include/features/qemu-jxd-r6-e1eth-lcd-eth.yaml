@@ -1,0 +1,6 @@
+# Per-device QEMU overlay, applied last by `scripts/qemu.sh`: the board and the
+# display panel this device carries.
+
+packages:
+  board: !include qemu/board-d6-r6.yaml
+  panel: !include qemu/panel-jxd-display.yaml
