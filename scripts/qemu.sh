@@ -73,30 +73,32 @@ CMD=${1:-help}
 [ $# -gt 0 ] && shift || true
 DEVICE=""
 
-# `--http-port` as the last argument would otherwise abort on an unbound $2 with
-# a raw bash error instead of a usable message.
+# The accepted value goes into OPT_VALUE rather than to stdout: `die` inside a
+# command substitution only kills the subshell, so the caller went on with an
+# empty value and every later check added its own message. `--http-port` as the
+# last argument would also abort on an unbound $2 with a raw bash error.
+OPT_VALUE=""
 opt_arg() {
-  [ $# -ge 2 ] && [ -n "${2:-}" ] || die "$1 needs a value"
-  printf '%s' "$2"
+  [ -n "${2:-}" ] || die "$1 needs a value"
+  OPT_VALUE=$2
 }
 opt_uint() {
-  local value; value=$(opt_arg "$1" "${2:-}")
-  case "$value" in ''|*[!0-9]*) die "$1 must be a whole number, got '$value'" ;; esac
-  printf '%s' "$value"
+  opt_arg "$@"
+  case "$OPT_VALUE" in ''|*[!0-9]*) die "$1 must be a whole number, got '$OPT_VALUE'" ;; esac
 }
 opt_port() {
-  local value; value=$(opt_uint "$1" "${2:-}")
-  { [ "$value" -ge 1 ] && [ "$value" -le 65535 ]; } || die "$1 must be a TCP port (1-65535), got '$value'"
-  printf '%s' "$value"
+  opt_uint "$@"
+  { [ "$OPT_VALUE" -ge 1 ] && [ "$OPT_VALUE" -le 65535 ]; } ||
+    die "$1 must be a TCP port (1-65535), got '$OPT_VALUE'"
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --http-port) HTTP_PORT=$(opt_port "$1" "${2:-}"); shift 2 ;;
-    --api-port)  API_PORT=$(opt_port "$1" "${2:-}");  shift 2 ;;
-    --ota-port)  OTA_PORT=$(opt_port "$1" "${2:-}");  shift 2 ;;
-    --wait-http) WAIT_HTTP=$(opt_uint "$1" "${2:-}"); shift 2 ;;
-    --psram)     PSRAM=$(opt_arg "$1" "${2:-}");      shift 2 ;;
+    --http-port) opt_port "$1" "${2:-}"; HTTP_PORT=$OPT_VALUE; shift 2 ;;
+    --api-port)  opt_port "$1" "${2:-}"; API_PORT=$OPT_VALUE;  shift 2 ;;
+    --ota-port)  opt_port "$1" "${2:-}"; OTA_PORT=$OPT_VALUE;  shift 2 ;;
+    --wait-http) opt_uint "$1" "${2:-}"; WAIT_HTTP=$OPT_VALUE; shift 2 ;;
+    --psram)     opt_arg  "$1" "${2:-}"; PSRAM=$OPT_VALUE;     shift 2 ;;
     --fresh)     FRESH=1;      shift ;;
     --no-build)  DO_BUILD=0;   shift ;;
     --no-wdt)    NO_WDT=1;     shift ;;
@@ -212,6 +214,8 @@ do_image() {
   if [ -f "$image" ] && [ "$FRESH" -eq 0 ] && [ "$image" -nt "$factory" ]; then
     return 0
   fi
+  # Without this, `set -e` kills the script on the sed below with a raw `sed:` message.
+  [ -f "$config" ] || die "no sdkconfig for $device at $config — run without --no-build"
   # No `| head -1`: sed would take SIGPIPE on a second match and pipefail would
   # turn that into a silent exit rather than the message below.
   flash_size=$(sed -n '/^CONFIG_ESPTOOLPY_FLASHSIZE="\(.*\)"$/{s//\1/p;q;}' "$config")
@@ -229,7 +233,11 @@ do_image() {
 # both miss running instances and, after PID reuse, signal something unrelated.
 qemu_pids_for() {
   local image=$1 pid cmdline
-  for pid in $(pgrep -x qemu-system-xtensa 2>/dev/null || pgrep -f 'qemu-system-xtensa .*if=mtd' 2>/dev/null || true); do
+  # Matched on `if=mtd` and not on the binary name: $QEMU_XTENSA may point at a
+  # binary called anything, and `pgrep -x` cannot see this one either — procps
+  # refuses a pattern longer than the 15-char comm. The exact `file=$image,`
+  # below is what narrows it to this device, and to this checkout.
+  for pid in $(pgrep -f 'if=mtd' 2>/dev/null || true); do
     # 2>/dev/null goes first: redirections are applied left to right, and it is
     # the *input* one that fails noisily when the process exits mid-scan.
     cmdline=$(tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline") || continue
@@ -271,6 +279,16 @@ check_ports_free() {
   done
 }
 
+# QEMU diagnoses a refused start ("Could not set up host forwarding rule") only in
+# its log, so hand the caller the end of it rather than just a path.
+check_alive() {
+  local pid=$1 logfile=$2
+  if ! kill -0 "$pid" 2>/dev/null; then
+    [ -s "$logfile" ] && tail -n 10 -- "$logfile" >&2
+    die "QEMU exited early — see $logfile"
+  fi
+}
+
 do_run() {
   local device=$1 image logfile args
   image=$(flash_image "$device")
@@ -298,10 +316,14 @@ do_run() {
     local pid=$!
     echo "$pid" > "$(build_dir "$device")/qemu.pid"
     info "    pid    $pid   (log: $logfile)"
+    # A port taken since check_ports_free kills QEMU within milliseconds, and it
+    # says so only in the log — exiting 0 here would tell CI a dead emulator ran.
+    sleep 1
+    check_alive "$pid" "$logfile"
     if [ "$WAIT_HTTP" -gt 0 ]; then
       local waited=0
       while [ "$waited" -lt "$WAIT_HTTP" ]; do
-        kill -0 "$pid" 2>/dev/null || die "QEMU exited early — see $logfile"
+        check_alive "$pid" "$logfile"
         # No -f: "up" is any answer at all, including an error status.
         if curl -sS -o /dev/null --max-time 2 "http://127.0.0.1:$HTTP_PORT/" 2>/dev/null; then
           info "==> web server answered after ${waited}s"
