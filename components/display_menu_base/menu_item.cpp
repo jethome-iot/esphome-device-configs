@@ -1,3 +1,4 @@
+#include "esphome/core/defines.h"  // JETHOME: feature flags, see display_menu_base/jethome_features.py
 #include "menu_item.h"
 
 #include <cstdio>
@@ -22,10 +23,10 @@ const LogString *menu_item_type_to_string(MenuItemType type) {
       return LOG_STR("MENU_ITEM_COMMAND");
     case MenuItemType::MENU_ITEM_CUSTOM:
       return LOG_STR("MENU_ITEM_CUSTOM");
-    // JETHOME-BEGIN: MENU_ITEM_VALUE log string case
+#ifdef JETHOME_MENU_ITEM_VALUE
     case MenuItemType::MENU_ITEM_VALUE:
       return LOG_STR("MENU_ITEM_VALUE");
-    // JETHOME-END
+#endif
     default:
       return LOG_STR("UNKNOWN");
   }
@@ -174,7 +175,11 @@ bool MenuItemSwitch::toggle_switch_() {
 }
 #endif  // USE_SWITCH
 
-std::string MenuItemValueBase::get_value_text() const {  // JETHOME: renamed from MenuItemCustom
+#ifdef JETHOME_MENU_ITEM_VALUE
+std::string MenuItemValueBase::get_value_text() const {
+#else
+std::string MenuItemCustom::get_value_text() const {
+#endif
   return (this->value_getter_.has_value()) ? this->value_getter_.value()(this) : "";
 }
 

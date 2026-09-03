@@ -6,6 +6,7 @@ from esphome.components.display_menu_base import (
     DisplayMenuComponent,
     display_menu_to_code,
 )
+from esphome.components.display_menu_base.jethome_features import FEATURES
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_BACKGROUND_COLOR,
@@ -18,11 +19,13 @@ from esphome.const import (
 
 CONF_MENU_ITEM_VALUE = "menu_item_value"
 CONF_ON_REDRAW = "on_redraw"
-# JETHOME-BEGIN: fill_row, restore_page, shrink_label constants
-CONF_RESTORE_PAGE = "restore_page"
-CONF_FILL_ROW = "fill_row"
-CONF_SHRINK_LABEL = "shrink_label"
-# JETHOME-END
+
+if FEATURES["JETHOME_GDM_RESTORE_PAGE"]:
+    CONF_RESTORE_PAGE = "restore_page"
+if FEATURES["JETHOME_GDM_FILL_ROW"]:
+    CONF_FILL_ROW = "fill_row"
+if FEATURES["JETHOME_GDM_SHRINK_LABEL"]:
+    CONF_SHRINK_LABEL = "shrink_label"
 
 graphical_display_menu_ns = cg.esphome_ns.namespace("graphical_display_menu")
 GraphicalDisplayMenu = graphical_display_menu_ns.class_(
@@ -50,11 +53,21 @@ CONFIG_SCHEMA = DISPLAY_MENU_BASE_SCHEMA.extend(
             cv.Optional(CONF_DISPLAY): cv.use_id(display.Display),
             cv.Required(CONF_FONT): cv.use_id(font.Font),
             cv.Optional(CONF_MENU_ITEM_VALUE): cv.templatable(cv.string),
-            # JETHOME-BEGIN: fill_row, restore_page, shrink_label keys
-            cv.Optional(CONF_RESTORE_PAGE, default=True): cv.boolean,
-            cv.Optional(CONF_FILL_ROW, default=False): cv.boolean,
-            cv.Optional(CONF_SHRINK_LABEL, default=True): cv.boolean,
-            # JETHOME-END
+            **(
+                {cv.Optional(CONF_RESTORE_PAGE, default=True): cv.boolean}
+                if FEATURES["JETHOME_GDM_RESTORE_PAGE"]
+                else {}
+            ),
+            **(
+                {cv.Optional(CONF_FILL_ROW, default=False): cv.boolean}
+                if FEATURES["JETHOME_GDM_FILL_ROW"]
+                else {}
+            ),
+            **(
+                {cv.Optional(CONF_SHRINK_LABEL, default=True): cv.boolean}
+                if FEATURES["JETHOME_GDM_SHRINK_LABEL"]
+                else {}
+            ),
             cv.Optional(CONF_FOREGROUND_COLOR): cv.use_id(color.ColorStruct),
             cv.Optional(CONF_BACKGROUND_COLOR): cv.use_id(color.ColorStruct),
             cv.Optional(CONF_ON_REDRAW): automation.validate_automation(
@@ -80,11 +93,12 @@ async def to_code(config):
     menu_font = await cg.get_variable(config[CONF_FONT])
     cg.add(var.set_font(menu_font))
 
-    # JETHOME-BEGIN: fill_row, restore_page, shrink_label codegen
-    cg.add(var.set_restore_page(config[CONF_RESTORE_PAGE]))
-    cg.add(var.set_fill_row(config[CONF_FILL_ROW]))
-    cg.add(var.set_shrink_label(config[CONF_SHRINK_LABEL]))
-    # JETHOME-END
+    if FEATURES["JETHOME_GDM_RESTORE_PAGE"]:
+        cg.add(var.set_restore_page(config[CONF_RESTORE_PAGE]))
+    if FEATURES["JETHOME_GDM_FILL_ROW"]:
+        cg.add(var.set_fill_row(config[CONF_FILL_ROW]))
+    if FEATURES["JETHOME_GDM_SHRINK_LABEL"]:
+        cg.add(var.set_shrink_label(config[CONF_SHRINK_LABEL]))
 
     if (menu_item_value_config := config.get(CONF_MENU_ITEM_VALUE, None)) is not None:
         if isinstance(menu_item_value_config, core.Lambda):
