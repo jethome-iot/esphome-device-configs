@@ -47,7 +47,7 @@ injected state before any automation saw it.
 |---|---|
 | `GET <prefix>` | the front panel page |
 | `GET <prefix>/info` | `{"width","height","keys":[…]}` |
-| `GET <prefix>/frame` | raw 1 bpp framebuffer, MSB first, row-major. `X-Frame-Id` counts renders; `?since=<id>` answers **204** while that frame is still current |
+| `GET <prefix>/frame` | raw 1 bpp framebuffer, MSB first, row-major, served from a snapshot of the last finished render. `X-Frame-Id` counts renders and always matches the bytes sent with it; `?since=<id>` answers **204** while that frame is still the newest |
 | `POST <prefix>/key/<name>` | inject a key. `?action=down` / `?action=up` hold and release it; without one the press releases itself after `hold_time`. Any other method gets 405 |
 
 Key names are limited to letters, digits, `_` and `-`, so the posted path is the
@@ -60,6 +60,20 @@ just as easy as the page:
 curl -s http://device/panel/frame -o frame.bin
 curl -s -X POST -d "" http://device/panel/key/enter   # an empty body: httpd wants Content-Length
 ```
+
+## Why a frame is a snapshot
+
+`update()` renders on the main loop; the HTTP handler runs on the httpd task
+ESP-IDF starts for the web server, not inside `loop()`. Serving the live
+framebuffer would let a response carry half of one frame and half of the next,
+and report an `X-Frame-Id` that belongs to neither.
+
+So the finished frame is copied into a second buffer at the end of `update()`,
+with its id, under a mutex, and `/frame` reads both back out under the same
+mutex. Diffing two frames therefore compares two renders that actually happened,
+which is the whole point of the endpoint. The lock is held only for a 1 KB
+`memcpy` on either side — the render itself is never inside it, so the HTTP task
+cannot stall the display.
 
 ## Why a press publishes a release first
 

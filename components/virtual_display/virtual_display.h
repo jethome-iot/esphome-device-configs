@@ -2,6 +2,7 @@
 
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
+#include "esphome/core/helpers.h"
 #include "esphome/components/display/display_buffer.h"
 #include "esphome/components/web_server_base/web_server_base.h"
 
@@ -28,9 +29,10 @@ namespace virtual_display {
  * Endpoints under `url_prefix`:
  *   GET  /            front panel page (canvas + on-screen keys)
  *   GET  /info        {"width","height","keys":[...]}
- *   GET  /frame       raw 1bpp framebuffer, MSB first, row-major.
- *                     `X-Frame-Id` counts renders; `?since=<id>` answers 204
- *                     while that frame is still current.
+ *   GET  /frame       raw 1bpp framebuffer, MSB first, row-major. Served from a
+ *                     snapshot taken at the end of a render, so the bytes and
+ *                     `X-Frame-Id` always describe the same frame; `?since=<id>`
+ *                     answers 204 while that frame is still the newest.
  *   POST /key/<name>  inject a key. `?action=down|up` holds or releases it,
  *                     the default press releases itself after `hold_time`.
  */
@@ -93,9 +95,15 @@ class VirtualDisplay : public display::DisplayBuffer, public AsyncWebHandler {
   uint16_t width_{128};
   uint16_t height_{64};
   uint32_t hold_time_{120};
+
+  // What /frame serves. update() runs on the main loop and the HTTP handler on
+  // the httpd task, so the finished frame is published as a snapshot: id and
+  // bytes are written and read together under the lock, never torn.
+  uint8_t *snapshot_{nullptr};
   // Bumped on every render so the page can poll without re-fetching a frame it
   // already has.
-  uint32_t frame_id_{0};
+  uint32_t snapshot_id_{0};
+  Mutex snapshot_lock_;
 
 #ifdef USE_BINARY_SENSOR
   std::vector<Key> keys_;

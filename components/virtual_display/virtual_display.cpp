@@ -130,12 +130,17 @@ async function loadInfo() {
 
 void VirtualDisplay::setup() {
   this->init_internal_(this->get_buffer_length_());
-  if (this->buffer_ == nullptr) {
+  RAMAllocator<uint8_t> allocator;
+  this->snapshot_ = allocator.allocate(this->get_buffer_length_());
+  if (this->buffer_ == nullptr || this->snapshot_ == nullptr) {
     ESP_LOGE(TAG, "Could not allocate a %ux%u framebuffer", this->width_, this->height_);
     this->mark_failed();
     return;
   }
   this->fill(Color::BLACK);
+  // Frame 0 is the blank screen: a client polling before the first render gets a
+  // real frame, not uninitialised heap.
+  memcpy(this->snapshot_, this->buffer_, this->get_buffer_length_());
   this->base_->init();
   this->base_->add_handler(this);
   ESP_LOGCONFIG(TAG, "Virtual display %ux%u served at %s", this->width_, this->height_, this->url_prefix_.c_str());
@@ -154,7 +159,11 @@ void VirtualDisplay::dump_config() {
 
 void VirtualDisplay::update() {
   this->do_update_();
-  this->frame_id_++;
+  // Bytes and id published as one unit, outside the render: the httpd task must
+  // never see an id that does not match the frame it is handed.
+  LockGuard guard(this->snapshot_lock_);
+  memcpy(this->snapshot_, this->buffer_, this->get_buffer_length_());
+  this->snapshot_id_++;
 }
 
 void VirtualDisplay::fill(Color color) {
@@ -224,27 +233,30 @@ void VirtualDisplay::handle_info_(AsyncWebServerRequest *request) {
 }
 
 void VirtualDisplay::handle_frame_(AsyncWebServerRequest *request) {
-  if (this->buffer_ == nullptr) {
+  if (this->snapshot_ == nullptr) {
     // Unreachable: setup() marks the component failed before registering this
     // handler when the allocation fails.
     request->send(404, "text/plain", "No framebuffer");
     return;
   }
-  const uint32_t frame_id = this->frame_id_;
-  bool unchanged = false;
-  if (request->hasParam("since")) {
-    auto since = parse_number<uint32_t>(request->arg("since"));
+  optional<uint32_t> since;
+  if (request->hasParam("since"))
+    since = parse_number<uint32_t>(request->arg("since"));
+
+  uint32_t frame_id;
+  bool unchanged;
+  std::string body;
+  {
+    // Copy only, never render or send: the main loop waits here at every update.
+    LockGuard guard(this->snapshot_lock_);
+    frame_id = this->snapshot_id_;
     unchanged = since.has_value() && *since == frame_id;
+    if (!unchanged)
+      body.assign(reinterpret_cast<const char *>(this->snapshot_), this->get_buffer_length_());
   }
-  AsyncWebServerResponse *response;
-  if (unchanged) {
-    response = request->beginResponse(204, nullptr);
-  } else {
-    // Copied out of the framebuffer rather than pointed at it: the response is
-    // sent after this returns, and rendering would be writing into it by then.
-    const std::string body(reinterpret_cast<const char *>(this->buffer_), this->get_buffer_length_());
-    response = request->beginResponse(200, "application/octet-stream", body);
-  }
+  AsyncWebServerResponse *response =
+      unchanged ? request->beginResponse(204, nullptr)
+                : request->beginResponse(200, "application/octet-stream", body);
   // httpd stores the pointer and reads it during send, so this has to outlive
   // the call below — no temporary.
   const std::string frame_header = to_string(frame_id);
