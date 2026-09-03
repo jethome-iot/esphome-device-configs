@@ -1,0 +1,95 @@
+# Runtime baudrate for the two UARTs.
+# Settings are stored in flash and restored on boot.
+#
+# jxm_uart2 is the RS-485 (JXM2) Modbus RTU link - see jxd-jxm-modbus-auto.yaml.
+# jxm_uart1 is the module's peripheral UART; nothing in this firmware uses it.
+#
+# Depends on: jxd-jxm-uarts.yaml, jxd-jxm-modbus-auto.yaml
+
+select:
+  - platform: template
+    id: uart1_baudrate_select
+    name: "Aux UART Baudrate (unused)"
+    optimistic: true
+    options:
+      - "1200"
+      - "2400"
+      - "4800"
+      - "9600"
+      - "19200"
+      - "38400"
+      - "57600"
+      - "115200"
+    initial_option: "9600"
+    restore_value: true
+    entity_category: config
+    icon: mdi:swap-horizontal
+    on_value:
+      - script.execute:
+          id: apply_uart1_baudrate
+          baud: !lambda 'return stoi(x);'
+
+  - platform: template
+    id: uart2_baudrate_select
+    name: "RS-485 Baudrate (Modbus)"
+    optimistic: true
+    options:
+      - "1200"
+      - "2400"
+      - "4800"
+      - "9600"
+      - "19200"
+      - "38400"
+      - "57600"
+      - "115200"
+    initial_option: "9600"
+    restore_value: true
+    entity_category: config
+    icon: mdi:swap-horizontal
+    on_value:
+      - script.execute:
+          id: apply_uart2_baudrate
+          baud: !lambda 'return stoi(x);'
+
+script:
+  # Every menu keypress commits the select, so a user change is applied once the scrolling
+  # stops. The boot restore fires during setup() and must not wait - apply it immediately.
+  - id: apply_uart1_baudrate
+    mode: restart
+    parameters:
+      baud: int
+    then:
+      - if:
+          condition:
+            lambda: 'return App.is_setup_complete();'
+          then:
+            - delay: 1s
+      - lambda: |-
+          if (baud <= 0 || id(jxm_uart1).get_baud_rate() == (uint32_t) baud)
+            return;
+          ESP_LOGI("uart_settings", "aux UART: %u -> %u baud",
+                   (unsigned) id(jxm_uart1).get_baud_rate(), (unsigned) baud);
+          id(jxm_uart1).flush();
+          id(jxm_uart1).set_baud_rate((uint32_t) baud);
+          id(jxm_uart1).load_settings();
+
+  - id: apply_uart2_baudrate
+    mode: restart
+    parameters:
+      baud: int
+    then:
+      - if:
+          condition:
+            lambda: 'return App.is_setup_complete();'
+          then:
+            - delay: 1s
+      - lambda: |-
+          if (baud <= 0 || id(jxm_uart2).get_baud_rate() == (uint32_t) baud)
+            return;
+          ESP_LOGI("uart_settings", "RS-485 (Modbus): %u -> %u baud",
+                   (unsigned) id(jxm_uart2).get_baud_rate(), (unsigned) baud);
+          id(jxm_uart2).flush();
+          id(jxm_uart2).set_baud_rate((uint32_t) baud);
+          id(jxm_uart2).load_settings();
+          // Modbus caches its frame delays from the baud rate in setup() only.
+          id(modbus_jxd).setup();

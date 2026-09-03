@@ -1,0 +1,21 @@
+# Modbus settings menu items for graphical_display_menu
+# Include this file in packages to add Modbus configuration to the Settings menu
+# This extends the existing menu items defined in jxd-r6-e1eth-display.yaml
+
+graphical_display_menu:
+  items:
+    - id: !extend menu_settings_id
+      items:
+        - type: menu
+          text: "Modbus"
+          items:
+            - type: label
+              text: "Server address"
+
+            - type: number
+              text: "Address"
+              number: modbus_address_number
+              format: '%0.0f'
+
+            - type: label
+              text: "Port: RS-485"

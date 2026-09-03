@@ -63,7 +63,7 @@ modbus:
 modbus_server_group:
   id: modbus_server_group_config
   modbus_id: modbus_jxd
-  address: 0x01  # Modbus slave address
+  address: 0x01  # Default slave address; changeable at runtime via modbus-settings.yaml
 
   courtesy_response:
     enabled: true

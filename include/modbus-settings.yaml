@@ -1,0 +1,43 @@
+# Runtime Modbus RTU server address.
+# Stored in flash and restored on boot.
+#
+# Depends on: jxd-jxm-modbus-auto.yaml
+
+number:
+  - platform: template
+    id: modbus_address_number
+    name: "Modbus Address"
+    optimistic: true
+    min_value: 1
+    max_value: 247
+    step: 1
+    initial_value: 1
+    restore_value: true
+    entity_category: config
+    icon: mdi:identifier
+    mode: box
+    on_value:
+      # A number_call only clamps to min/max, it never snaps to step - round like the menu does.
+      - script.execute:
+          id: apply_modbus_address
+          address: !lambda 'return (int) lroundf(x);'
+
+script:
+  # Every menu keypress commits the number, so a user change is applied once the scrolling
+  # stops. The boot restore fires during setup() and must not wait - otherwise the server
+  # answers on the default address until the delay expires.
+  - id: apply_modbus_address
+    mode: restart
+    parameters:
+      address: int
+    then:
+      - if:
+          condition:
+            lambda: 'return App.is_setup_complete();'
+          then:
+            - delay: 1s
+      - lambda: |-
+          if (address < 1 || address > 247 || (int) id(modbus_server_group_config).get_address() == address)
+            return;
+          ESP_LOGI("modbus_settings", "Modbus server address -> %d (0x%02X)", address, address);
+          id(modbus_server_group_config).set_address((uint8_t) address);

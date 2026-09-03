@@ -10,6 +10,8 @@ packages:
   main: !include ../include/jxd-r6-e1eth-base.yaml
   wifi: !include ../include/wifi.yaml
   wifi_menu: !include ../include/jxd-r6-wifi-menu-items.yaml
+  uart_menu: !include ../include/jxd-r6-uart-menu-items.yaml
+  modbus_menu: !include ../include/jxd-r6-modbus-menu-items.yaml
 
 esphome:
   name: ${name}
