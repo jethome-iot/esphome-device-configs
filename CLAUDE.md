@@ -64,7 +64,7 @@ without a browser:
 
 ```bash
 curl -s http://127.0.0.1:8080/panel/frame -o frame.bin      # 1024 B, 1bpp
-curl -sX POST http://127.0.0.1:8080/panel/key/enter
+curl -sX POST -d "" http://127.0.0.1:8080/panel/key/enter   # -d "" is required
 ```
 
 **Whenever you touch a device's web interface, REST API, display pages or menus, boot the
@@ -98,9 +98,10 @@ emulated either: only the `-eth` config is a viable target. Full picture: `doc/Q
   fallible — judge each comment on its merits.** Fix what you agree with, briefly say why for
   what you don't. Finish the triage before asking to merge.
 - **Wait for CI, and read what it says.** `.github/workflows/build.yml` matrix-compiles every
-  `JXD/*.yaml` and `E1/*.yaml` on the pinned ESPHome. Watch it (`gh pr checks <n> --watch`)
-  and act on failures — a red matrix leg is the config CI actually builds, not the one you
-  built locally. Note that adding a workflow does not retroactively run it on already-open
+  `JXD/*.yaml` on the pinned ESPHome (it also globs `E1/`, which no branch has yet). Watch it
+  with `gh pr checks <n> --watch` and act on failures — a red matrix leg is the config CI
+  actually builds, not the one you built locally. Note that adding a workflow does not
+  retroactively run it on already-open
   PRs; a stale branch needs a push before Build fires at all.
 - **Merge only when the user says so in that turn, and only on green CI.** Opening a PR is
   never implicit permission to merge it. Feature PRs into `master` are squash-merged.
@@ -121,8 +122,10 @@ every new line is written to this budget.
 
 ## Conventions
 
-- YAML 2-space indent, sequences indented; the rule set is `.yamllint`. The tree does not pass
-  it cleanly yet (trailing whitespace), so fix what you touch rather than the whole tree.
+- YAML 2-space indent, sequences indented; the rule set is `.yamllint`. `yamllint .` currently
+  reports 34 errors (trailing whitespace, missing final newlines, indentation) — and the
+  pre-commit hook lints whole **files**, not changed lines, so committing a change to one of
+  those files means cleaning that whole file first.
 - **Never let a formatter loose on `components/display_menu_base` or
   `components/graphical_display_menu`** — they are excluded from every `.pre-commit-config.yaml`
   hook on purpose. Reformatting them turns the upstream diff from "our additions" into thousands

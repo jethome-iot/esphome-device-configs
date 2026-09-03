@@ -96,8 +96,8 @@ Each override earns its place by being something QEMU physically cannot emulate:
 Components on unemulated buses that only mark themselves failed are **left in the config on
 purpose** — the emulated device then exposes the same entity set as the real one.
 
-Only the `-eth` config is emulable: the `-wifi` one starts the radio from `on_boot`, and
-Wi-Fi is not emulated.
+Only the `-eth` config is emulable. The `-wifi` one pulls in `wifi:`, which brings the radio up
+on its own, and Wi-Fi is not emulated — deleting its `on_boot` script changes nothing.
 
 ## `virtual_display` exists so the display is testable without hardware
 
@@ -115,10 +115,10 @@ and both percent-decode. Nothing here can rely on a raw, undecoded request targe
 
 ## CI compiles every config, it does not just validate them
 
-`.github/workflows/build.yml` discovers `JXD/*.yaml` and `E1/*.yaml` at run time and runs a
-full `esphome compile` per config in its own matrix job. `esphome config` is not enough: the
-ESPHome API breaks that actually bite here surface as C++ compile errors and pass validation
-cleanly (`dcc5cf4`).
+`.github/workflows/build.yml` discovers `JXD/*.yaml` and `E1/*.yaml` at run time (only `JXD/`
+exists today) and runs a full `esphome compile` per config in its own matrix job. `esphome
+config` is not enough: the ESPHome API breaks that actually bite here surface as C++ compile
+errors and pass validation cleanly (`dcc5cf4`).
 
 `TZ` is pinned to a full IANA key because ESPHome bakes a timezone into the firmware and
 falls back to the build machine's own when the config does not set one — and a bare `UTC` is
@@ -127,10 +127,15 @@ detected but then fails to load tzdata (`90a0500`).
 Toolchain cache is keyed on the ESPHome pin, not on the config: it is ~2 GB and identical
 across configs.
 
-## Timezone comes from Home Assistant, and Home Assistant is the last time platform
+## Home Assistant is the FIRST time platform, and the only one without `timezone:`
 
-Every time platform emits its own `set_global_tz()` at startup and the last one wins. With HA
-last, the build machine's detected timezone no longer silently overrides the configured one.
-Persistence across reboots is built on `get_global_tz()` / `set_global_tz()`, storing the
-parsed POSIX form rather than a string, because `RealTimeClock::get_timezone()` is gone
-(`6b76384`).
+Every time platform emits its own `set_global_tz()` at startup and the **last one wins**. A
+platform with no `timezone:` key is exactly the one that emits the *build machine's*
+`detect_tz()` value — the missing key is also what enables `USE_HOMEASSISTANT_TIMEZONE`. So the
+HA platform is the one carrying the builder's timezone, and it has to go **first**, ahead of
+the `pcf8563` and `sntp` platforms that carry `${timezone}`. Move it last and the runner's
+timezone is baked in while `-s timezone <TZ>` is silently discarded — the regression `6b76384`
+and `90a0500` fixed.
+
+Persistence across reboots is built on `get_global_tz()` / `set_global_tz()`, storing the parsed
+POSIX form rather than a string, because `RealTimeClock::get_timezone()` is gone.

@@ -2,9 +2,10 @@
 # See https://pre-commit.com for more information
 # See https://pre-commit.com/hooks.html for more hooks
 
-# The vendored menu components must stay byte-comparable to the upstream release they
-# track — see components/README.md. No formatter may touch them.
-exclude: &vendored ^components/(display_menu_base|graphical_display_menu)/
+# Top-level exclude: pre-commit filters the file list with this BEFORE any per-hook
+# files/exclude, so it holds for every hook below. The vendored menu components must stay
+# byte-comparable to the upstream release they track — see components/README.md.
+exclude: ^components/(display_menu_base|graphical_display_menu)/
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -12,16 +13,13 @@ repos:
     hooks:
       - id: ruff
         args: [--fix]
-        exclude: *vendored
       - id: ruff-format
-        exclude: *vendored
 
   - repo: https://github.com/asottile/pyupgrade
     rev: v3.20.0
     hooks:
       - id: pyupgrade
         args: [--py310-plus]
-        exclude: *vendored
 
   - repo: https://github.com/adrienverge/yamllint.git
     rev: v1.37.1
