@@ -17,9 +17,10 @@ number:
     icon: mdi:identifier
     mode: box
     on_value:
+      # A number_call only clamps to min/max, it never snaps to step - round like the menu does.
       - script.execute:
           id: apply_modbus_address
-          address: !lambda 'return (int) x;'
+          address: !lambda 'return (int) lroundf(x);'
 
 script:
   # Every menu keypress commits the number, so a user change is applied once the scrolling
