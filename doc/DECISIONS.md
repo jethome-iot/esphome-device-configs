@@ -32,9 +32,15 @@ pinned release as the base and re-applying JetHome features on top — rather th
 an old fork forward. That keeps the diff against upstream equal to the intentional additions
 and nothing else (`196f65a`).
 
-That property is only worth anything if it stays visible, hence the `JETHOME-BEGIN` /
-`JETHOME-END` markers and `components/README.md`. **A re-sync starts by diffing against the
-matching upstream tag**; if the markers have drifted, fix the markers before the code.
+That property is only worth anything if it is checkable, so every deviation is gated behind a
+`JETHOME_*` flag (`components/display_menu_base/jethome_features.py`, `#ifdef` in C++, the same
+dict gating the YAML surface) and upstream's original is restored under `#else` wherever a
+local change replaced code rather than adding to it.
+
+**The invariant: diff either component against the matching upstream tag and there are no
+deletions.** Comment markers were tried first and rejected — a marker asserts the boundary,
+a flag makes the compiler prove it. A re-sync starts from that diff; if it shows a deletion,
+fix the gating before touching the code (`components/README.md`).
 
 What is kept on top of upstream: `display_menu.back` / `back()`, `reset_menu()` /
 `is_at_main()`, `right_for_menu_enter`, the `value` menu item type, and

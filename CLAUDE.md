@@ -13,9 +13,11 @@ upstream ESPHome, pinned in `requirements.txt`, with no fork and no submodules.
 
 `components/display_menu_base` and `components/graphical_display_menu` are **modified
 copies of upstream components**, tracking the version in `requirements.txt`. Every local
-deviation is bracketed with `JETHOME-BEGIN`/`JETHOME-END` markers — keep them accurate,
-they are the only thing making the next upstream re-sync tractable
-(`components/README.md`).
+deviation sits behind a `JETHOME_*` feature flag declared in
+`components/display_menu_base/jethome_features.py` and gated with `#ifdef`, so the diff
+against the matching upstream tag contains **no deletions, only insertions**. Adding a
+deviation means adding a flag; that invariant is what makes the next re-sync mechanical
+instead of archaeological (`components/README.md`).
 
 ## Every task that changes files runs in its own worktree
 
