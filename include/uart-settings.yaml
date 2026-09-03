@@ -52,14 +52,18 @@ select:
           baud: !lambda 'return stoi(x);'
 
 script:
-  # Every menu keypress commits the select, so debounce: reconfigure the port once,
-  # after the user stops scrolling.
+  # Every menu keypress commits the select, so a user change is applied once the scrolling
+  # stops. The boot restore fires during setup() and must not wait - apply it immediately.
   - id: apply_uart1_baudrate
     mode: restart
     parameters:
       baud: int
     then:
-      - delay: 1s
+      - if:
+          condition:
+            lambda: 'return App.is_setup_complete();'
+          then:
+            - delay: 1s
       - lambda: |-
           if (baud <= 0 || id(jxm_uart1).get_baud_rate() == (uint32_t) baud)
             return;
@@ -74,7 +78,11 @@ script:
     parameters:
       baud: int
     then:
-      - delay: 1s
+      - if:
+          condition:
+            lambda: 'return App.is_setup_complete();'
+          then:
+            - delay: 1s
       - lambda: |-
           if (baud <= 0 || id(jxm_uart2).get_baud_rate() == (uint32_t) baud)
             return;

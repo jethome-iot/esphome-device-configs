@@ -22,14 +22,19 @@ number:
           address: !lambda 'return (int) x;'
 
 script:
-  # Every menu keypress commits the number, so debounce: without it the server would
-  # briefly answer on every address scrolled past.
+  # Every menu keypress commits the number, so a user change is applied once the scrolling
+  # stops. The boot restore fires during setup() and must not wait - otherwise the server
+  # answers on the default address until the delay expires.
   - id: apply_modbus_address
     mode: restart
     parameters:
       address: int
     then:
-      - delay: 1s
+      - if:
+          condition:
+            lambda: 'return App.is_setup_complete();'
+          then:
+            - delay: 1s
       - lambda: |-
           if (address < 1 || address > 247 || (int) id(modbus_server_group_config).get_address() == address)
             return;

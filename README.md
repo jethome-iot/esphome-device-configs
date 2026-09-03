@@ -252,12 +252,12 @@ The device can act as a Modbus RTU server (slave) for integration with PLCs, SCA
 - **Slave Address**: Configurable via display menu (Settings → Modbus) or Home Assistant
   - Range: 1-247 (0x01-0xF7)
   - Default: 1 (0x01)
-  - Stored in flash memory (persists across reboots)
+  - Stored in flash memory; restored and applied during boot, before the server answers
   - **No reboot required** - applied about a second after the last change
 - **Baud Rate**: Configurable via display menu (Settings → Serial) or Home Assistant
   - Supported rates: 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200 baud
   - Default: 9600 baud
-  - Stored in flash memory (persists across reboots)
+  - Stored in flash memory; restored and applied during boot, before the port is used
   - **No reboot required** - applied about a second after the last change, and the Modbus
     inter-frame timing is re-derived from the new rate so the server keeps answering
   - Reconfiguring the port drops any Modbus transaction in flight; the master retries
