@@ -30,8 +30,8 @@ ln -s <a venv matching requirements.txt> ~/dev/wt-esphome-device-configs/<slug>/
 `<type>` is `feature` / `fix` / `chore` / `docs` / `ci`. Then move the session into it
 (`EnterWorktree` with that path) so edits and subagents land there.
 
-**Check the venv before you build.** `.venv/` is gitignored, so a checkout's venv drifts
-from `requirements.txt` silently and you end up building a different ESPHome than CI does.
+**Check the venv before you build.** `.venv` is gitignored, so a checkout's venv drifts from
+`requirements.txt` silently and you end up building a different ESPHome than CI does.
 `./.venv/bin/esphome version` must equal the pin.
 
 **Removing the worktree is the user's call.** Commit, push, open the PR, report — and stop.
@@ -50,9 +50,12 @@ Any device config boots in QEMU with working networking — the real firmware, b
 real config, no hardware:
 
 ```bash
-ss -ltnp | grep -E ':(8080|6053|3232)'      # free? another worktree may hold them
-./scripts/qemu.sh run jxd-r6-e1eth-lcd-eth  # → http://127.0.0.1:8080
+ss -ltnp | grep -E ':(8080|6053|3232)'   # free? another worktree may hold them
+./scripts/qemu.sh run jxd-r6-e1eth-lcd-eth --daemon --wait-http 240
 ```
+
+Without `--daemon` the script `exec`s QEMU in the foreground and nothing after it ever runs;
+without `--wait-http` the next command races a multi-minute boot.
 
 Devices with the display board also serve a **front panel** at `/panel`: the 128×64 screen
 as a canvas plus the joystick as clickable keys, driving the same pages and
@@ -67,8 +70,9 @@ curl -sX POST http://127.0.0.1:8080/panel/key/enter
 **Whenever you touch a device's web interface, REST API, display pages or menus, boot the
 affected config, look at the running result, and shut the emulator down when you are done**
 (`./scripts/qemu.sh stop`; `list` shows what is still up). A `--daemon` instance outlives
-the session and keeps its three forwarded ports. A busy port makes `run` refuse and exit
-**0**, so a script that ignores the output happily talks to someone else's device.
+the session and keeps its three forwarded ports. On a busy port `run` refuses, prints to
+**stderr** and exits **1** — check the status, not the output, or you end up talking to
+whatever is already on 8080, i.e. another worktree's device.
 
 What the emulator cannot show is any value that comes off a chip — I²C, SPI and the ADC are
 not emulated, so board info, RTC and temperatures are absent rather than wrong. Wi-Fi is not
@@ -117,7 +121,12 @@ every new line is written to this budget.
 
 ## Conventions
 
-- YAML 2-space indent; `.yamllint` and `.pre-commit-config.yaml` are the authority.
+- YAML 2-space indent, sequences indented; the rule set is `.yamllint`. The tree does not pass
+  it cleanly yet (trailing whitespace), so fix what you touch rather than the whole tree.
+- **Never let a formatter loose on `components/display_menu_base` or
+  `components/graphical_display_menu`** — they are excluded from every `.pre-commit-config.yaml`
+  hook on purpose. Reformatting them turns the upstream diff from "our additions" into thousands
+  of lines and destroys the only thing that makes a re-sync tractable.
 - Never read or analyse generated output under `.esphome/build/` — gitignored artifacts.
 - Menu items contributed from several packages merge in `packages:` declaration order.
   Upstream `display_menu_base` has no ordering knobs (no `weight:`, no `position:`), so the

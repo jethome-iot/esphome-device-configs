@@ -81,9 +81,11 @@ Each override earns its place by being something QEMU physically cannot emulate:
   conversion never completes, so `ADCSensor::sample()` spins with interrupts off until the
   interrupt watchdog reboots the chip: a boot loop, not a failed component. The entities stay
   so the emulated device exposes the same set as the real one.
-- **`fn_button` as a `template` sensor** — it is on GPIO0, which floats in emulation and,
-  the pin being declared inverted, reads as held. Held for 10 s that means factory reset, so
-  an untouched emulated device wipes its own flash about fifteen seconds into every boot.
+- **`fn_button` as a `template` sensor** — it is on GPIO0, which floats in emulation and, the
+  pin being declared inverted, reads as permanently held. Nothing in this firmware acts on
+  that today (the only factory reset is a menu item), so the entity would merely be stuck on —
+  but the front panel injects `fn` as a key, and an injected state only survives if nothing
+  re-reads a pin every loop and overwrites it.
 - **DIO flash mode** — QEMU's flash model serves the ROM/bootloader path fine but hands the
   runtime driver garbage in QIO, which surfaces as filesystem corruption that never recovers.
 - **Relays, inputs and the joystick as `template`** — they hang off PCA9554 expanders on
@@ -107,9 +109,9 @@ untouched and render exactly as on hardware.
 It is a QEMU-only component in practice, but it is a normal ESPHome display platform with no
 QEMU dependency — nothing stops it being pointed at a real build for a screenshot.
 
-It uses `request->url_to(buf)` rather than the deprecated `request->url()`, which upstream
-removes in 2026.9.0. `url_to()` percent-decodes where `url()` did not; the key-name validator
-is stricter than that needs and stays correct either way.
+It uses `request->url_to(buf)` rather than the deprecated `request->url()`. The reason is the
+2026.9.0 removal, not a behaviour difference: at 2026.8.2 `url()` is a wrapper over `url_to()`
+and both percent-decode. Nothing here can rely on a raw, undecoded request target.
 
 ## CI compiles every config, it does not just validate them
 
