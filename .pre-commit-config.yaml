@@ -4,7 +4,7 @@
 
 # Top-level exclude: pre-commit filters the file list with this BEFORE any per-hook
 # files/exclude, so it holds for every hook below. The vendored menu components must stay
-# byte-comparable to the upstream release they track — see components/README.md.
+# byte-comparable to the upstream release they track — see doc/DECISIONS.md.
 exclude: ^components/(display_menu_base|graphical_display_menu)/
 
 repos:
