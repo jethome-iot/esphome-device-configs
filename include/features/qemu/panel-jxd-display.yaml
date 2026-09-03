@@ -25,12 +25,15 @@ display:
       enter: center_button_id
       home: home_button_id
       esc: back_button_id
-      # Held for 10s this one means factory reset — reachable here on purpose.
       fn: fn_button
 
 # A key press is injected with publish_state(), so nothing else may drive these
 # every loop; as `gpio` they would re-read the absent expander and overwrite it.
 binary_sensor:
+  # FN is on GPIO0, which floats and reads as permanently held through `inverted`.
+  - id: !extend fn_button
+    platform: template
+    pin: !remove
   - id: !extend up_button_id
     platform: template
     pin: !remove

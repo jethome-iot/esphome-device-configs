@@ -39,10 +39,3 @@ sensor:
     update_interval: never
   - id: !extend poe_voltage
     update_interval: never
-
-# Fatal otherwise: GPIO0 floats, reads as held through `inverted`, and held for
-# 10s it means factory reset — every boot wipes NVS and LittleFS.
-binary_sensor:
-  - id: !extend fn_button
-    platform: template
-    pin: !remove

@@ -84,7 +84,7 @@ rebuild on every switch.
 | `i2c: scan: false` | No I2C controller, so every address probe burns its full timeout — a boot scan is ~112 in a row. |
 | `esp32: flash_mode: dio` | QEMU's flash model serves the bootloader path fine but hands the runtime driver garbage in QIO, so LittleFS reports "Corrupted dir pair" and format never succeeds. |
 | `vin_meas` / `poe_voltage`: `update_interval: never` | **Fatal otherwise.** No ADC, and the conversion never completes: `ADCSensor::sample()` spins with interrupts off until the interrupt watchdog reboots the chip — a boot loop, not a failed component. The entities stay (`input_voltage` reads both) and just never sample, so the screen shows `VIN: nanV`. |
-| `fn_button` → `template` | **Fatal otherwise, and quietly.** FN is GPIO0, which floats and is declared inverted, so it reads as held — and held for 10 s it means factory reset. An untouched device would wipe NVS and LittleFS every fifteen seconds. |
+| `fn_button` → `template` | FN is GPIO0, which floats and is declared inverted, so it reads as permanently held. No automation is bound to it today, so that alone is only a stuck entity — but the front panel injects `fn` as a key, and a `gpio` sensor re-reads the pin every loop and overwrites the injected state before any automation sees it. |
 | `esphome: name_add_mac_suffix: false` | QEMU burns no eFuse MAC, so the suffix is `-000000` everywhere; it also costs 7 of the 31 hostname characters the `-qemu` rename needs. |
 | `logger: logs: esp-idf: DEBUG` | ESPHome forwards every ESP-IDF message at DEBUG under the `esp-idf` tag whatever its own severity, and the device pins that tag to INFO — hiding exactly the driver errors that explain an emulation problem. |
 
