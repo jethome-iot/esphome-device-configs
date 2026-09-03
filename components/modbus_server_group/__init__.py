@@ -53,27 +53,29 @@ COURTESY_RESPONSE_SCHEMA = cv.Schema(
         cv.Optional(CONF_REGISTER_VALUE, default=0): cv.hex_uint16_t,
         cv.Optional(CONF_COIL_LAST_ADDRESS, default=0xFFFF): cv.hex_uint16_t,
         cv.Optional(CONF_COIL_VALUE, default=False): cv.boolean,
-        cv.Optional(
-            CONF_DISCRETE_INPUT_LAST_ADDRESS, default=0xFFFF
-        ): cv.hex_uint16_t,
+        cv.Optional(CONF_DISCRETE_INPUT_LAST_ADDRESS, default=0xFFFF): cv.hex_uint16_t,
         cv.Optional(CONF_DISCRETE_INPUT_VALUE, default=False): cv.boolean,
     }
 )
 
-CONFIG_SCHEMA = cv.Schema(
-    {
-        cv.GenerateID(): cv.declare_id(ModbusServerGroup),
-        cv.Optional(CONF_COURTESY_RESPONSE): COURTESY_RESPONSE_SCHEMA,
-        cv.Optional(CONF_INPUTS_GROUP): cv.use_id(GroupClass),
-        cv.Optional(CONF_INPUTS_START_ADDRESS, default=0xA100): cv.hex_int_range(
-            min=0x0000, max=0xFFFF
-        ),
-        cv.Optional(CONF_OUTPUTS_GROUP): cv.use_id(GroupClass),
-        cv.Optional(CONF_OUTPUTS_START_ADDRESS, default=0xA000): cv.hex_int_range(
-            min=0x0000, max=0xFFFF
-        ),
-    }
-).extend(cv.COMPONENT_SCHEMA).extend(modbus.modbus_device_schema(0x01, role="server"))
+CONFIG_SCHEMA = (
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.declare_id(ModbusServerGroup),
+            cv.Optional(CONF_COURTESY_RESPONSE): COURTESY_RESPONSE_SCHEMA,
+            cv.Optional(CONF_INPUTS_GROUP): cv.use_id(GroupClass),
+            cv.Optional(CONF_INPUTS_START_ADDRESS, default=0xA100): cv.hex_int_range(
+                min=0x0000, max=0xFFFF
+            ),
+            cv.Optional(CONF_OUTPUTS_GROUP): cv.use_id(GroupClass),
+            cv.Optional(CONF_OUTPUTS_START_ADDRESS, default=0xA000): cv.hex_int_range(
+                min=0x0000, max=0xFFFF
+            ),
+        }
+    )
+    .extend(cv.COMPONENT_SCHEMA)
+    .extend(modbus.modbus_device_schema(0x01, role="server"))
+)
 
 
 def validate_at_least_one_group(config):
