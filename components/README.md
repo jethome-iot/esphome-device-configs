@@ -72,12 +72,24 @@ FEATURES = {
 }
 ```
 
-Then rebuild. Any YAML still using that feature fails validation with a normal ESPHome message
-(`[fill_row] is an invalid option for [graphical_display_menu]`, `Unknown value 'value', valid
-options are ...`, `Unable to find action with the name 'display_menu.back'`), not a traceback.
+Then rebuild. **How the loss shows up depends on how the config reaches the feature**, and only the
+first of these three is a clean stop:
 
-Note that `JXD/jxd-r6-e1eth-lcd-eth.yaml` uses every flag, so it only validates with all of them on.
-To exercise an off state, write a throwaway upstream-only menu config outside the repository.
+- **Through a config key or an action** — `fill_row`, `shrink_label`, `restore_page`,
+  `right_for_menu_enter`, `type: value`, `display_menu.back`. Validation fails with a normal ESPHome
+  message (`[fill_row] is an invalid option for [graphical_display_menu]`, `Unknown value 'value',
+  valid options are ...`, `Unable to find action with the name 'display_menu.back'`), not a traceback.
+- **Through a lambda** — `reset_menu()`, `is_at_main()`, `back()` are called from
+  `include/jxd-r6-e1eth-buttons.yaml`. Nothing validates a lambda body, so `esphome config` passes and
+  the build then dies in generated `src/main.cpp` with a raw g++ `has no member named 'reset_menu'`.
+  Turning `JETHOME_MENU_RESET` or `JETHOME_MENU_BACK` off means fixing those lambdas too.
+- **Silently** — `JETHOME_GDM_VALUE_FORMAT` has no config key at all. With it off the device
+  validates, compiles and flashes, and the menu simply renders upstream's `" (value)"` instead of
+  `": value"`. Only the screen tells you.
+
+`JXD/jxd-r6-e1eth-lcd-eth.yaml` exercises all eight flags, so it is the config to build with
+everything on. To exercise an off state, write a throwaway upstream-only menu config outside the
+repository.
 
 ## Re-diffing against upstream
 
