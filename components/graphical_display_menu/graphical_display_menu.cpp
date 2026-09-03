@@ -84,7 +84,8 @@ void GraphicalDisplayMenu::on_before_show() {
 }
 
 // JETHOME-BEGIN: shrink_text_to_width_ middle-ellipsis helper
-std::string GraphicalDisplayMenu::shrink_text_to_width_(const std::string &str, int max_width) {
+std::string GraphicalDisplayMenu::shrink_text_to_width_(display::Display *display, const std::string &str,
+                                                        int max_width) {
   static const char DOTS_STR[] = "…";
   const size_t str_size = str.size();
 
@@ -92,8 +93,7 @@ std::string GraphicalDisplayMenu::shrink_text_to_width_(const std::string &str, 
     return str;
 
   int x1, y1, width, height;
-  this->display_->get_text_bounds(0, 0, str.c_str(), this->font_, display::TextAlign::TOP_LEFT, &x1, &y1, &width,
-                                  &height);
+  display->get_text_bounds(0, 0, str.c_str(), this->font_, display::TextAlign::TOP_LEFT, &x1, &y1, &width, &height);
   if (width <= max_width)
     return str;
 
@@ -110,8 +110,8 @@ std::string GraphicalDisplayMenu::shrink_text_to_width_(const std::string &str, 
     strlcpy(buffer.get() + left_end, DOTS_STR, buffer_size - left_end);
     strlcat(buffer.get(), str.c_str() + right_start, buffer_size);
 
-    this->display_->get_text_bounds(0, 0, buffer.get(), this->font_, display::TextAlign::TOP_LEFT, &x1, &y1, &width,
-                                    &height);
+    display->get_text_bounds(0, 0, buffer.get(), this->font_, display::TextAlign::TOP_LEFT, &x1, &y1, &width,
+                             &height);
 
     if (shrink_left && left_end > 0) {
       left_end--;
@@ -299,7 +299,7 @@ inline void GraphicalDisplayMenu::draw_item_(display::Display *display, const di
                                &height);
       label_width -= width;
     }
-    label = this->shrink_text_to_width_(label, label_width);
+    label = this->shrink_text_to_width_(display, label, label_width);
   }
   label.append(value);
   // JETHOME-END

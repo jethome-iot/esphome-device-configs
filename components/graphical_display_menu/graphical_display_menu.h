@@ -72,7 +72,7 @@ class GraphicalDisplayMenu final : public display_menu_base::DisplayMenuComponen
    * @param str source string
    * @param max_width maximum width in pixels
    */
-  std::string shrink_text_to_width_(const std::string &str, int max_width);
+  std::string shrink_text_to_width_(display::Display *display, const std::string &str, int max_width);
   // JETHOME-END
 
   std::unique_ptr<display::DisplayPage> display_page_{nullptr};
