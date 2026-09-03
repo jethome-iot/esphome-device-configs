@@ -5,7 +5,11 @@
 #   Add to your device configuration:
 #   packages:
 #     jxd_jxm_uarts: !include include/jxd-jxm-uarts.yaml
+#     jxd_jxm_modbus: !include include/jxd-jxm-modbus-auto.yaml
 #     uart_settings: !include include/uart-settings.yaml
+#
+#   uart-settings.yaml re-derives the Modbus frame timing right after it changes the
+#   UART2 baud rate, so it needs the Modbus package too.
 #
 # Hardware:
 #   UART1 (GPIO33/34) - CPU module peripheral UART; no consumer in this firmware
