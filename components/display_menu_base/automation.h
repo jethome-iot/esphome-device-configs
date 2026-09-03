@@ -1,5 +1,6 @@
 #pragma once
 
+#include "esphome/core/defines.h"  // JETHOME: feature flags, see display_menu_base/jethome_features.py
 #include "esphome/core/automation.h"
 #include "display_menu_base.h"
 
@@ -75,15 +76,17 @@ template<typename... Ts> class HideAction final : public Action<Ts...> {
   DisplayMenuComponent *menu_;
 };
 
+#ifdef JETHOME_MENU_BACK
 template<typename... Ts> class BackAction final : public Action<Ts...> {
  public:
   explicit BackAction(DisplayMenuComponent *menu) : menu_(menu) {}
 
-  void play(Ts... x) override { this->menu_->back(); }
+  void play(const Ts &...x) override { this->menu_->back(); }
 
  protected:
   DisplayMenuComponent *menu_;
 };
+#endif  // JETHOME_MENU_BACK
 
 template<typename... Ts> class ShowMainAction final : public Action<Ts...> {
  public:

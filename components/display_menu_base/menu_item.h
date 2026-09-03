@@ -27,7 +27,9 @@ enum MenuItemType {
   MENU_ITEM_SWITCH,
   MENU_ITEM_COMMAND,
   MENU_ITEM_CUSTOM,
+#ifdef JETHOME_MENU_ITEM_VALUE
   MENU_ITEM_VALUE,
+#endif
 };
 
 /// @brief Returns a string representation of a menu item type suitable for logging
@@ -71,6 +73,7 @@ class MenuItem {
   CallbackManager<void()> on_value_callbacks_{};
 };
 
+#ifdef JETHOME_MENU_ITEM_VALUE
 /// @brief Base for items that render a value produced by a lambda.
 class MenuItemValueBase : public MenuItem {
  public:
@@ -83,6 +86,7 @@ class MenuItemValueBase : public MenuItem {
  protected:
   optional<value_getter_t> value_getter_{};
 };
+#endif
 
 class MenuItemMenu final : public MenuItem {
  public:
@@ -98,6 +102,9 @@ class MenuItemMenu final : public MenuItem {
   std::vector<MenuItem *> items_;
 };
 
+// JETHOME_MENU_ITEM_VALUE rebases this class onto MenuItemValueBase, which now owns
+// set_value_lambda()/value_getter_; the #else branch is upstream verbatim.
+#ifdef JETHOME_MENU_ITEM_VALUE
 class MenuItemEditable : public MenuItemValueBase {
  public:
   explicit MenuItemEditable(MenuItemType t) : MenuItemValueBase(t) {}
@@ -107,6 +114,19 @@ class MenuItemEditable : public MenuItemValueBase {
  protected:
   bool immediate_edit_{false};
 };
+#else
+class MenuItemEditable : public MenuItem {
+ public:
+  explicit MenuItemEditable(MenuItemType t) : MenuItem(t) {}
+  void set_immediate_edit(bool val) { this->immediate_edit_ = val; }
+  bool get_immediate_edit() const override { return this->immediate_edit_; }
+  void set_value_lambda(value_getter_t &&getter) { this->value_getter_ = getter; }
+
+ protected:
+  bool immediate_edit_{false};
+  optional<value_getter_t> value_getter_{};
+};
+#endif
 
 #ifdef USE_SELECT
 class MenuItemSelect final : public MenuItemEditable {
@@ -184,6 +204,12 @@ class MenuItemCustom final : public MenuItemEditable {
   template<typename F> void add_on_next_callback(F &&cb) { this->on_next_callbacks_.add(std::forward<F>(cb)); }
   template<typename F> void add_on_prev_callback(F &&cb) { this->on_prev_callbacks_.add(std::forward<F>(cb)); }
 
+#ifndef JETHOME_MENU_ITEM_VALUE
+  // With JETHOME_MENU_ITEM_VALUE on these live on MenuItemValueBase instead.
+  bool has_value() const override { return this->value_getter_.has_value(); }
+  std::string get_value_text() const override;
+#endif
+
   bool select_next() override;
   bool select_prev() override;
 
@@ -195,10 +221,12 @@ class MenuItemCustom final : public MenuItemEditable {
   CallbackManager<void()> on_prev_callbacks_{};
 };
 
+#ifdef JETHOME_MENU_ITEM_VALUE
 /// @brief Read-only item showing the result of its value lambda.
 class MenuItemValue final : public MenuItemValueBase {
  public:
   explicit MenuItemValue() : MenuItemValueBase(MENU_ITEM_VALUE) {}
 };
+#endif
 
 }  // namespace esphome::display_menu_base

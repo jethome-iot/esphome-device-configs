@@ -1,9 +1,12 @@
+#include "esphome/core/defines.h"  // JETHOME: feature flags, see display_menu_base/jethome_features.py
 #include "graphical_display_menu.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 #include <cstdlib>
+#ifdef JETHOME_GDM_SHRINK_LABEL
 #include <cstring>
+#endif
 #include "esphome/components/display/display.h"
 
 namespace esphome::graphical_display_menu {
@@ -18,6 +21,7 @@ void GraphicalDisplayMenu::setup() {
 
   if (!this->menu_item_value_.has_value()) {
     this->menu_item_value_ = [](const MenuItemValueArguments *it) {
+#ifdef JETHOME_GDM_VALUE_FORMAT
       std::string label;
       if (it->is_item_selected && it->is_menu_editing) {
         label.append(" >");
@@ -31,6 +35,18 @@ void GraphicalDisplayMenu::setup() {
         label.append(": ");
         label.append(it->item->get_value_text());
       }
+#else
+      std::string label = " ";
+      if (it->is_item_selected && it->is_menu_editing) {
+        label.append(">");
+        label.append(it->item->get_value_text());
+        label.append("<");
+      } else {
+        label.append("(");
+        label.append(it->item->get_value_text());
+        label.append(")");
+      }
+#endif
       return label;
     };
   }
@@ -65,9 +81,15 @@ void GraphicalDisplayMenu::set_font(display::BaseFont *font) { this->font_ = fon
 
 void GraphicalDisplayMenu::set_foreground_color(Color foreground_color) { this->foreground_color_ = foreground_color; }
 void GraphicalDisplayMenu::set_background_color(Color background_color) { this->background_color_ = background_color; }
+#ifdef JETHOME_GDM_FILL_ROW
 void GraphicalDisplayMenu::set_fill_row(bool val) { this->fill_row_ = val; }
+#endif
+#ifdef JETHOME_GDM_RESTORE_PAGE
 void GraphicalDisplayMenu::set_restore_page(bool val) { this->restore_page_ = val; }
+#endif
+#ifdef JETHOME_GDM_SHRINK_LABEL
 void GraphicalDisplayMenu::set_shrink_label(bool val) { this->shrink_label_ = val; }
+#endif
 
 void GraphicalDisplayMenu::on_before_show() {
   if (this->display_ != nullptr) {
@@ -79,7 +101,9 @@ void GraphicalDisplayMenu::on_before_show() {
   }
 }
 
-std::string GraphicalDisplayMenu::shrink_text_to_width_(const std::string &str, int max_width) {
+#ifdef JETHOME_GDM_SHRINK_LABEL
+std::string GraphicalDisplayMenu::shrink_text_to_width_(display::Display *display, const std::string &str,
+                                                        int max_width) {
   static const char DOTS_STR[] = "…";
   const size_t str_size = str.size();
 
@@ -87,8 +111,7 @@ std::string GraphicalDisplayMenu::shrink_text_to_width_(const std::string &str, 
     return str;
 
   int x1, y1, width, height;
-  this->display_->get_text_bounds(0, 0, str.c_str(), this->font_, display::TextAlign::TOP_LEFT, &x1, &y1, &width,
-                                  &height);
+  display->get_text_bounds(0, 0, str.c_str(), this->font_, display::TextAlign::TOP_LEFT, &x1, &y1, &width, &height);
   if (width <= max_width)
     return str;
 
@@ -105,8 +128,8 @@ std::string GraphicalDisplayMenu::shrink_text_to_width_(const std::string &str, 
     strlcpy(buffer.get() + left_end, DOTS_STR, buffer_size - left_end);
     strlcat(buffer.get(), str.c_str() + right_start, buffer_size);
 
-    this->display_->get_text_bounds(0, 0, buffer.get(), this->font_, display::TextAlign::TOP_LEFT, &x1, &y1, &width,
-                                    &height);
+    display->get_text_bounds(0, 0, buffer.get(), this->font_, display::TextAlign::TOP_LEFT, &x1, &y1, &width,
+                             &height);
 
     if (shrink_left && left_end > 0) {
       left_end--;
@@ -120,9 +143,14 @@ std::string GraphicalDisplayMenu::shrink_text_to_width_(const std::string &str, 
 
   return std::string(buffer.get());
 }
+#endif  // JETHOME_GDM_SHRINK_LABEL
 
 void GraphicalDisplayMenu::on_before_hide() {
+#ifdef JETHOME_GDM_RESTORE_PAGE
   if (this->restore_page_ && this->previous_display_page_ != nullptr) {
+#else
+  if (this->previous_display_page_ != nullptr) {
+#endif
     this->display_->show_page((display::DisplayPage *) this->previous_display_page_);
     this->display_->clear();
     this->update();
@@ -261,7 +289,11 @@ display::Rect GraphicalDisplayMenu::measure_item_(display::Display *display, con
   int height;
   display->get_text_bounds(0, 0, label.c_str(), this->font_, display::TextAlign::TOP_LEFT, &x1, &y1, &width, &height);
 
+#ifdef JETHOME_GDM_FILL_ROW
   dimensions.w = this->fill_row_ ? bounds->w : std::min((int16_t) width, bounds->w);
+#else
+  dimensions.w = std::min((int16_t) width, bounds->w);
+#endif
   dimensions.h = std::min((int16_t) height, bounds->h);
 
   return dimensions;
@@ -278,6 +310,9 @@ inline void GraphicalDisplayMenu::draw_item_(display::Display *display, const di
   display->filled_rectangle(bounds->x, bounds->y, background_width, bounds->h, background_color);
 
   std::string label = item->get_text();
+#ifdef JETHOME_GDM_SHRINK_LABEL
+  // The value has to be produced before the label so the label can be shrunk to whatever width the
+  // value leaves over; upstream simply appends it (see #else).
   std::string value;
   if (item->has_value()) {
     MenuItemValueArguments args(item, selected, this->editing_);
@@ -292,9 +327,15 @@ inline void GraphicalDisplayMenu::draw_item_(display::Display *display, const di
                                &height);
       label_width -= width;
     }
-    label = this->shrink_text_to_width_(label, label_width);
+    label = this->shrink_text_to_width_(display, label, label_width);
   }
   label.append(value);
+#else
+  if (item->has_value()) {
+    MenuItemValueArguments args(item, selected, this->editing_);
+    label.append(this->menu_item_value_.value(&args));
+  }
+#endif
 
   display->print(bounds->x, bounds->y, this->font_, foreground_color, display::TextAlign::TOP_LEFT, label.c_str(),
                  background_color);

@@ -1,3 +1,4 @@
+#include "esphome/core/defines.h"  // JETHOME: feature flags, see display_menu_base/jethome_features.py
 #include "display_menu_base.h"
 #include <algorithm>
 
@@ -101,8 +102,12 @@ void DisplayMenuComponent::right() {
         }
         break;
       case MENU_ITEM_MENU:
+#ifdef JETHOME_MENU_RIGHT_FOR_MENU_ENTER
         if (this->right_for_menu_enter_opt_)
           changed = this->enter_menu_();
+#else
+        changed = this->enter_menu_();
+#endif
         break;
       default:
         break;
@@ -113,6 +118,7 @@ void DisplayMenuComponent::right() {
   }
 }
 
+#ifdef JETHOME_MENU_BACK
 void DisplayMenuComponent::back() {
   if (this->check_healthy_and_active_()) {
     bool changed = false;
@@ -138,6 +144,7 @@ void DisplayMenuComponent::back() {
       this->draw_and_update();
   }
 }
+#endif  // JETHOME_MENU_BACK
 
 void DisplayMenuComponent::enter() {
   if (this->check_healthy_and_active_()) {
@@ -222,6 +229,7 @@ void DisplayMenuComponent::show_main() {
   this->on_after_show();
 }
 
+#ifdef JETHOME_MENU_RESET
 void DisplayMenuComponent::reset_menu() {
   bool disp_changed = false;
 
@@ -244,6 +252,7 @@ void DisplayMenuComponent::reset_menu() {
     this->displayed_item_->on_enter();
   }
 }
+#endif  // JETHOME_MENU_RESET
 
 void DisplayMenuComponent::show() {
   if (this->is_failed())
