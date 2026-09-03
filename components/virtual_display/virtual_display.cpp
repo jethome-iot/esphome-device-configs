@@ -3,6 +3,8 @@
 #include "esphome/core/log.h"
 #include "esphome/core/progmem.h"
 
+#include <esp_http_server.h>
+
 #include <cstring>
 
 namespace esphome {
@@ -60,8 +62,8 @@ async function poll() {
     const r = await fetch(`${BASE}frame?since=${since}`, {cache: 'no-store'});
     if (!r.ok) throw new Error(r.status);
     since = parseInt(r.headers.get('X-Frame-Id') || '0', 10);
-    const buf = new Uint8Array(await r.arrayBuffer());
-    if (buf.length) paint(buf);   // empty body: still the frame we already have
+    const buf = r.status === 204 ? null : new Uint8Array(await r.arrayBuffer());
+    if (buf && buf.length) paint(buf);   // 204: still the frame we already have
     misses = 0;
     statusEl.innerHTML = `frame <b>${since}</b> · ${W}×${H}`;
   } catch (e) {
@@ -234,17 +236,15 @@ void VirtualDisplay::handle_frame_(AsyncWebServerRequest *request) {
     auto since = parse_number<uint32_t>(request->arg("since"));
     unchanged = since.has_value() && *since == frame_id;
   }
-  // An unchanged frame answers 200 with an empty body rather than 204: the IDF
-  // response layer only has static status strings for 200/404/409 and hands
-  // httpd a pointer to a temporary for anything else, so a 204 would go out with
-  // a garbage status line.
-  std::string body;
-  if (!unchanged) {
+  AsyncWebServerResponse *response;
+  if (unchanged) {
+    response = request->beginResponse(204, nullptr);
+  } else {
     // Copied out of the framebuffer rather than pointed at it: the response is
     // sent after this returns, and rendering would be writing into it by then.
-    body.assign(reinterpret_cast<const char *>(this->buffer_), this->get_buffer_length_());
+    const std::string body(reinterpret_cast<const char *>(this->buffer_), this->get_buffer_length_());
+    response = request->beginResponse(200, "application/octet-stream", body);
   }
-  auto *response = request->beginResponse(200, "application/octet-stream", body);
   // httpd stores the pointer and reads it during send, so this has to outlive
   // the call below — no temporary.
   const std::string frame_header = to_string(frame_id);
@@ -259,13 +259,9 @@ void VirtualDisplay::press_key_(Key &key) {
   this->cancel_timeout(key.release_id);
   if (key.down)
     return;
-  // Publish the release first. A latching filter — `autorepeat`, which every
-  // JXD button carries — drops a press while it still believes the previous one
-  // is held, and on a device that never had a physical key nothing ever told it
-  // otherwise, so the first press after boot would be swallowed. This states the
-  // edge the way hardware does: released, then pressed. The extra release costs
-  // nothing when the key was already up, since publish_state() only de-dups
-  // *after* the filter chain has seen it.
+  // Publish the release first: `on_press` fires on a false->true edge, so a press
+  // onto a sensor something else left held would never re-fire. Free when the key
+  // was already up — publish_state() de-dups only after the filter chain.
   key.sensor->publish_state(false);
   key.sensor->publish_state(true);
   key.down = true;
@@ -284,7 +280,12 @@ void VirtualDisplay::handle_key_(AsyncWebServerRequest *request, const std::stri
     if (key.name != name)
       continue;
     if (request->method() != HTTP_POST) {
-      request->send(405, "application/json", "{\"error\":\"use POST\"}");
+      // 405 is not one of the codes the IDF layer maps to a status string and
+      // would go out as 500, so overwrite the line beginResponse() just set.
+      auto *response = request->beginResponse(405, "application/json", "{\"error\":\"use POST\"}");
+      httpd_resp_set_status(*request, "405 Method Not Allowed");
+      response->addHeader("Allow", "POST");
+      request->send(response);
       return;
     }
     const std::string action = request->hasParam("action") ? request->arg("action") : "";

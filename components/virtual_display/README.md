@@ -47,8 +47,8 @@ injected state before any automation saw it.
 |---|---|
 | `GET <prefix>` | the front panel page |
 | `GET <prefix>/info` | `{"width","height","keys":[…]}` |
-| `GET <prefix>/frame` | raw 1 bpp framebuffer, MSB first, row-major. `X-Frame-Id` counts renders; `?since=<id>` returns an **empty body** while that frame is still current |
-| `POST <prefix>/key/<name>` | inject a key. `?action=down` / `?action=up` hold and release it; without one the press releases itself after `hold_time` |
+| `GET <prefix>/frame` | raw 1 bpp framebuffer, MSB first, row-major. `X-Frame-Id` counts renders; `?since=<id>` answers **204** while that frame is still current |
+| `POST <prefix>/key/<name>` | inject a key. `?action=down` / `?action=up` hold and release it; without one the press releases itself after `hold_time`. Any other method gets 405 |
 
 Key names are limited to letters, digits, `_` and `-`, so the posted path is the
 name itself whatever the client encodes.
@@ -63,10 +63,12 @@ curl -s -X POST -d "" http://device/panel/key/enter   # an empty body: httpd wan
 
 ## Why a press publishes a release first
 
-Every injected press publishes `false` before `true`. A latching filter —
-`autorepeat`, which the JXD buttons carry — drops a press while it still believes
-the previous one is held, and on a device whose keys were never physically
-released nothing ever told it otherwise, so the first press after boot would
-vanish. Publishing the release first states the edge the way hardware does. It
-costs nothing when the key was already up: `publish_state()` de-dups only *after*
-the filter chain has seen the value.
+Every injected press publishes `false` before `true`. `on_press` fires on a
+false→true edge, and `publish_state(true)` on a sensor that is already `true` is
+dropped by the de-dup in `send_state_internal()` — so a press landing on a key
+something else left held would run no automation at all. Publishing the release
+first states the edge the way hardware does.
+
+It costs nothing when the key was already up: that de-dup sits *after* the filter
+chain, so the `false` still reaches any filters (a latching one — `autorepeat`,
+`delayed_on` — needs to see it) and stops before the callbacks.
