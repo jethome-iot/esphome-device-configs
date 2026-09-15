@@ -70,12 +70,13 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
 
 ## Coupled to upstream internals
 
-The BACK button (`display/buttons.yaml`) reaches `DisplayMenuComponent`'s protected `leave_menu_`
-and `finish_editing_` through pointer-to-member casts.
+- The BACK button (`display/buttons.yaml`) reaches `DisplayMenuComponent`'s protected
+  `leave_menu_` and `finish_editing_` through pointer-to-member casts.
+- `components/dallas_scan` creates entities at runtime: codegen reserves their places in the
+  entity tables (`CORE.register_platform_component`) and registers the device class and unit
+  strings, C++ then calls the four-argument `App.register_sensor` and
+  `web_server::WebServer::add_entity_config`. The menu rows are `MenuItem`s built by hand.
+- Upstream builds ESP-IDF with `CONFIG_VFS_SUPPORT_DIR` off, so `components/littlefs_storage`
+  calls `esp32.require_vfs_dir()` to keep `opendir`/`mkdir` from being stubs.
 
-`components/dallas_scan` creates entities at runtime: codegen reserves their places in the
-entity tables (`CORE.register_platform_component`) and registers the device class and unit
-strings, C++ then calls the four-argument `App.register_sensor` and
-`web_server::WebServer::add_entity_config`. The menu rows are `MenuItem`s built by hand.
-
-Re-check both on every ESPHome bump.
+Re-check each of these on every ESPHome bump.
