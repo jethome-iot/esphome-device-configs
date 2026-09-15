@@ -472,19 +472,21 @@ esphome:
         - lambda: "using namespace display_menu_base;\nauto *scan = id(temps);\nfor\
             \ (size_t slot = 0; slot < scan->max_sensors(); slot++) {\n  auto *sensor\
             \ = scan->sensor(slot);\n  if (sensor == nullptr)\n    continue;\n  const\
-            \ std::string name = sensor->get_name().c_str();\n\n  auto *row = new\
-            \ MenuItem(MENU_ITEM_LABEL);\n  row->set_text(name + \": --\");\n  sensor->add_on_state_callback([row,\
-            \ name](float value) {\n    row->set_text(std::isnan(value) ? name + \"\
-            : --\" : str_sprintf(\"%s: %.1f°C\", name.c_str(), value));\n  });\n \
-            \ id(temperatures_menu)->add_item(row);\n\n  auto *menu = new MenuItemMenu();\n\
-            \  menu->set_text(name);\n  auto *address = new MenuItem(MENU_ITEM_LABEL);\n\
-            \  address->set_text(str_sprintf(\"0x%016\" PRIx64, scan->address(slot)));\n\
-            \  menu->add_item(address);\n  auto *question = new MenuItem(MENU_ITEM_LABEL);\n\
-            \  question->set_text(\"Forget slot?\");\n  menu->add_item(question);\n\
-            \  auto *confirm = new MenuItemCommand();\n  confirm->set_text(\"Confirm\"\
-            );\n  confirm->add_on_value_callback([confirm, slot]() {\n    confirm->set_text(\"\
-            Confirm - OK\");\n    id(forget_temperatures)->execute(slot);\n  });\n\
-            \  menu->add_item(confirm);\n  id(temp_sensors_menu)->add_item(menu);\n\
+            \ std::string name = sensor->get_name().c_str();\n  auto format = [name](float\
+            \ value) {\n    return std::isnan(value) ? name + \": --\" : str_sprintf(\"\
+            %s: %.1f°C\", name.c_str(), value);\n  };\n\n  // The row shows the reading\
+            \ and opens the slot: reading, address, forget.\n  auto *menu = new MenuItemMenu();\n\
+            \  auto *reading = new MenuItem(MENU_ITEM_LABEL);\n  menu->set_text(format(NAN));\n\
+            \  reading->set_text(format(NAN));\n  sensor->add_on_state_callback([menu,\
+            \ reading, format](float value) {\n    menu->set_text(format(value));\n\
+            \    reading->set_text(format(value));\n  });\n  menu->add_item(reading);\n\
+            \  auto *address = new MenuItem(MENU_ITEM_LABEL);\n  address->set_text(str_sprintf(\"\
+            0x%016\" PRIx64, scan->address(slot)));\n  menu->add_item(address);\n\
+            \  auto *question = new MenuItem(MENU_ITEM_LABEL);\n  question->set_text(\"\
+            Forget slot?\");\n  menu->add_item(question);\n  auto *confirm = new MenuItemCommand();\n\
+            \  confirm->set_text(\"Confirm\");\n  confirm->add_on_value_callback([confirm,\
+            \ slot]() {\n    confirm->set_text(\"Confirm - OK\");\n    id(forget_temperatures)->execute(slot);\n\
+            \  });\n  menu->add_item(confirm);\n  id(temperatures_menu)->add_item(menu);\n\
             }"
     - priority: 600
       then:
@@ -1093,21 +1095,17 @@ graphical_display_menu:
               select: modbus_stop_bits
         - type: menu
           text: Temp sensors
-          id: temp_sensors_menu
           items:
-            - type: menu
-              text: All
-              items:
-                - type: label
-                  text: Forget all?
-                - type: command
-                  text: Confirm
-                  id: forget_temps_yes
-                  on_value:
-                    - lambda: id(forget_temps_yes)->set_text("Confirm - OK");
-                    - script.execute:
-                        id: forget_temperatures
-                        slot: -1
+            - type: label
+              text: Forget all?
+            - type: command
+              text: Confirm
+              id: forget_temps_yes
+              on_value:
+                - lambda: id(forget_temps_yes)->set_text("Confirm - OK");
+                - script.execute:
+                    id: forget_temperatures
+                    slot: -1
         - type: menu
           text: Factory reset
           items:

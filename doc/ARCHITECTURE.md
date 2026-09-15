@@ -23,7 +23,7 @@ boundaries; everything else is local to its file.
 - `display1` and `main_page` come from `display/display.yaml`; the other pages attach with
   `id: !extend display1`. `display_menu` (`display/menu.yaml`) exposes `info_submenu` and
   `menu_settings_id` as extension points that `menu-items-network.yaml` fills via `!extend`;
-  `temperatures_menu` and `temp_sensors_menu` get a `Temp<N>` row per bound slot at boot.
+  `temperatures_menu` gets a `Temp N` submenu per bound slot at boot.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
   and expanded inside the main-page lambda in `display/display.yaml`. Package substitutions share
   one namespace with the device config's.
@@ -41,7 +41,7 @@ boundaries; everything else is local to its file.
 | 800 | fill the `relays` / `inputs` vectors |
 | 700 | push the stored Modbus address, baud rate, parity and stop bits into `jxm_uart2` |
 | 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); restore the timezone and read the RTC (`setup_time`, called from the device config). `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
-| 500 | add the `Temp<N>` rows to the Temperatures and Temp sensors menus, one per bound slot |
+| 500 | add a `Temp N` submenu per bound slot to the Temperatures menu |
 | 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
 
 ## Settings
@@ -53,7 +53,7 @@ lambdas read them. Network mode applies live, Modbus settings on the next reboot
 
 The `dallas_scan` component (`components/dallas_scan`, id `temps` in `features/temperature.yaml`)
 owns the slots: a slot → ROM address table in flash and one `sensor::Sensor` per bound slot,
-`Temp1` … `Temp16`, created at setup rather than declared in YAML. `max_sensors` sizes the table
+`Temp 1` … `Temp 16`, created at setup rather than declared in YAML. `max_sensors` sizes the table
 and the entity slots codegen reserves; `addresses:` pins a slot. Adding slots touches
 `max_sensors`, `modbus-server.yaml`, the README and `TEMP_COUNT` in `scripts/modbus_probe.py`;
 see "More slots" in [ONEWIRE_WORKFLOW.md](ONEWIRE_WORKFLOW.md).

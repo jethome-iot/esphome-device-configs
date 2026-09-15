@@ -1,9 +1,10 @@
 """DS18B20 sensors created at boot, one per device on a 1-Wire bus; slot numbers stick in flash."""
 
 import esphome.codegen as cg
-from esphome.components import one_wire, web_server
+from esphome.components import one_wire, sensor, web_server
 import esphome.config_validation as cv
 from esphome.const import (
+    CONF_FILTERS,
     CONF_ID,
     CONF_RESOLUTION,
     CONF_WEB_SERVER,
@@ -11,7 +12,7 @@ from esphome.const import (
     DEVICE_CLASS_TEMPERATURE,
     UNIT_CELSIUS,
 )
-from esphome.core import CORE
+from esphome.core import CORE, ID
 from esphome.core.entity_helpers import (
     register_device_class,
     register_unit_of_measurement,
@@ -30,13 +31,34 @@ dallas_scan_ns = cg.esphome_ns.namespace("dallas_scan")
 DallasScan = dallas_scan_ns.class_("DallasScan", cg.PollingComponent)
 
 
-def _validate_addresses(config):
+def _fresh_ids(node):
+    """A copy of a validated config whose declared ids are new, unnamed ones."""
+    if isinstance(node, ID):
+        return (
+            ID(None, is_declaration=True, type=node.type)
+            if node.is_declaration
+            else node
+        )
+    if isinstance(node, dict):
+        return {key: _fresh_ids(value) for key, value in node.items()}
+    if isinstance(node, list):
+        return [_fresh_ids(value) for value in node]
+    return node
+
+
+def _validate(config):
     for slot in config[CONF_ADDRESSES]:
         if slot > config[CONF_MAX_SENSORS]:
             raise cv.Invalid(
                 f"Slot {slot} is above {CONF_MAX_SENSORS} ({config[CONF_MAX_SENSORS]})",
                 path=[CONF_ADDRESSES, slot],
             )
+    # A filter chain belongs to one sensor, so every slot gets its own copy; the
+    # id pass names the copies' ids after this.
+    if (filters := config.get(CONF_FILTERS)) is not None:
+        config[CONF_FILTERS] = [filters] + [
+            _fresh_ids(filters) for _ in range(config[CONF_MAX_SENSORS] - 1)
+        ]
     return config
 
 
@@ -52,11 +74,13 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_ADDRESSES, default={}): cv.Schema(
                 {cv.int_range(min=1, max=64): cv.hex_uint64_t}
             ),
+            # The usual sensor filters, the same chain on every sensor.
+            cv.Optional(CONF_FILTERS): sensor.validate_filters,
         }
     )
     .extend(web_server.WEBSERVER_SORTING_SCHEMA)
     .extend(cv.polling_component_schema("60s")),
-    _validate_addresses,
+    _validate,
 )
 
 
@@ -72,6 +96,8 @@ async def to_code(config):
     cg.add(var.set_preference_hash(fnv1_hash(config[CONF_ID].id)))
     for slot, address in config[CONF_ADDRESSES].items():
         cg.add(var.pin(slot - 1, address))
+    for slot, filters in enumerate(config.get(CONF_FILTERS) or []):
+        cg.add(var.set_filters(slot, await sensor.build_filters(filters)))
 
     # The sensors are created at runtime: reserve their entity slots and strings now.
     for _ in range(config[CONF_MAX_SENSORS]):

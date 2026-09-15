@@ -7,6 +7,7 @@
 #include "esphome/core/defines.h"
 #include "esphome/core/preferences.h"
 #include "esphome/components/one_wire/one_wire_bus.h"
+#include "esphome/components/sensor/filter.h"
 #include "esphome/components/sensor/sensor.h"
 #ifdef USE_WEBSERVER_SORTING
 #include "esphome/components/web_server/web_server.h"
@@ -19,13 +20,18 @@ namespace esphome::dallas_scan {
 class DallasScan : public PollingComponent {
  public:
   void set_one_wire_bus(one_wire::OneWireBus *bus) { this->bus_ = bus; }
-  void set_max_sensors(uint8_t count) { this->slots_.assign(count, 0); }
+  void set_max_sensors(uint8_t count) {
+    this->slots_.assign(count, 0);
+    this->filters_.resize(count);
+  }
   void set_name_prefix(const char *prefix) { this->name_prefix_ = prefix; }
   void set_resolution(uint8_t resolution) { this->resolution_ = resolution; }
   void set_entity_strings(uint8_t device_class_idx, uint8_t uom_idx);
   void set_preference_hash(uint32_t hash) { this->preference_hash_ = hash; }
   /// Pin a slot to a ROM address for good.
   void pin(uint8_t slot, uint64_t address) { this->pins_.emplace_back(slot, address); }
+  /// The filter chain of a slot's sensor, attached when the sensor is created.
+  void set_filters(size_t slot, std::vector<sensor::Filter *> filters) { this->filters_[slot] = std::move(filters); }
 #ifdef USE_WEBSERVER_SORTING
   void set_web_server_sorting(web_server::WebServer *server, uint64_t group, float weight);
 #endif
@@ -52,6 +58,7 @@ class DallasScan : public PollingComponent {
   sensor::Sensor *make_sensor_(size_t slot);
   void write_resolution_(uint64_t address);
   void read_slot_(size_t slot);
+  void update_status_();
   bool read_scratch_pad_(uint64_t address, uint8_t *scratch_pad);
   float to_celsius_(uint64_t address, const uint8_t *scratch_pad) const;
   void save_table_();
@@ -63,8 +70,10 @@ class DallasScan : public PollingComponent {
   uint32_t preference_hash_{0};
   std::vector<std::pair<uint8_t, uint64_t>> pins_;
   std::vector<uint64_t> slots_;            // slot -> ROM address, 0 = empty
+  std::vector<std::vector<sensor::Filter *>> filters_;  // slot -> filter chain
   std::vector<sensor::Sensor *> sensors_;  // slot -> sensor, nullptr = empty
   std::vector<sensor::Sensor *> bound_;    // sensors_ without the gaps
+  std::vector<bool> missing_;              // slot -> the sensor did not answer the last read
   ESPPreferenceObject pref_;
 #ifdef USE_WEBSERVER_SORTING
   web_server::WebServer *web_server_{nullptr};

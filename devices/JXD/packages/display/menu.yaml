@@ -68,7 +68,7 @@ graphical_display_menu:
           text: !lambda |-
             return id(input_6).state ? "Input 6: ON" : "Input 6: OFF";
 
-    # Temp<N> rows are added at boot, one per bound slot (esphome: on_boot below).
+    # A Temp N submenu per bound slot is added at boot (esphome: on_boot below).
     - type: menu
       text: "Temperatures"
       id: temperatures_menu
@@ -116,25 +116,20 @@ graphical_display_menu:
               text: "Stop bits"
               select: modbus_stop_bits
 
-        # Temp<N> entries are added at boot, one per bound slot (esphome: on_boot below).
         - type: menu
           text: "Temp sensors"
-          id: temp_sensors_menu
           items:
-            - type: menu
-              text: "All"
-              items:
-                - type: label
-                  text: "Forget all?"
+            - type: label
+              text: "Forget all?"
 
-                - type: command
-                  text: "Confirm"
-                  id: forget_temps_yes
-                  on_value:
-                    - lambda: 'id(forget_temps_yes)->set_text("Confirm - OK");'
-                    - script.execute:
-                        id: forget_temperatures
-                        slot: -1
+            - type: command
+              text: "Confirm"
+              id: forget_temps_yes
+              on_value:
+                - lambda: 'id(forget_temps_yes)->set_text("Confirm - OK");'
+                - script.execute:
+                    id: forget_temperatures
+                    slot: -1
 
         - type: menu
           text: "Factory reset"
@@ -170,16 +165,20 @@ esphome:
               if (sensor == nullptr)
                 continue;
               const std::string name = sensor->get_name().c_str();
+              auto format = [name](float value) {
+                return std::isnan(value) ? name + ": --" : str_sprintf("%s: %.1f°C", name.c_str(), value);
+              };
 
-              auto *row = new MenuItem(MENU_ITEM_LABEL);
-              row->set_text(name + ": --");
-              sensor->add_on_state_callback([row, name](float value) {
-                row->set_text(std::isnan(value) ? name + ": --" : str_sprintf("%s: %.1f°C", name.c_str(), value));
-              });
-              id(temperatures_menu)->add_item(row);
-
+              // The row shows the reading and opens the slot: reading, address, forget.
               auto *menu = new MenuItemMenu();
-              menu->set_text(name);
+              auto *reading = new MenuItem(MENU_ITEM_LABEL);
+              menu->set_text(format(NAN));
+              reading->set_text(format(NAN));
+              sensor->add_on_state_callback([menu, reading, format](float value) {
+                menu->set_text(format(value));
+                reading->set_text(format(value));
+              });
+              menu->add_item(reading);
               auto *address = new MenuItem(MENU_ITEM_LABEL);
               address->set_text(str_sprintf("0x%016" PRIx64, scan->address(slot)));
               menu->add_item(address);
@@ -193,5 +192,5 @@ esphome:
                 id(forget_temperatures)->execute(slot);
               });
               menu->add_item(confirm);
-              id(temp_sensors_menu)->add_item(menu);
+              id(temperatures_menu)->add_item(menu);
             }

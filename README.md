@@ -224,7 +224,7 @@ Current date and time from the hardware RTC.
 
 - **Relays** - toggle each of the 6 relays
 - **Inputs** - live state of the 6 digital inputs
-- **Temperatures** - temperature sensor readings
+- **Temperatures** - temperature sensor readings; a DS18B20 row opens its slot: the ROM address and a forget command
 - **Info** - network information (Ethernet and WiFi IP and MAC addresses, access point password)
 - **Settings** - display auto-off timer, Modbus settings, temperature slots, network mode, WiFi credential reset, factory reset, reboot
 

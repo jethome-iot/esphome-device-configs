@@ -1,4 +1,4 @@
-# One Temp<N> sensor per DS18B20 found at boot. A new sensor takes the lowest free
+# One Temp N sensor per DS18B20 found at boot. A new sensor takes the lowest free
 # slot in bus order and the slot then keeps its ROM address across reboots; an
 # addresses: entry pins a slot for good. Details: doc/ONEWIRE_WORKFLOW.md
 external_components:
