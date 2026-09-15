@@ -16,6 +16,7 @@ CONFIG = HERE / "config-host.yaml"
 FIXTURES = HERE / "fixtures-config"
 STORAGE = HERE / ".storage"
 SETTINGS_FILE = STORAGE / "config" / "test.json"
+BUILD_SRC = HERE / ".esphome" / "build" / "config-host" / "src"
 BINARY = (
     HERE / ".esphome" / "build" / "config-host" / ".pioenvs" / "config-host" / "program"
 )
@@ -121,6 +122,26 @@ def compile_config() -> None:
     )
 
 
+def check_component_budget() -> list[str]:
+    """App.components_ is a StaticVector sized by ESPHOME_COMPONENT_COUNT and push_back past
+    capacity drops silently, so registering more than the count leaves components un-set-up."""
+    main_cpp = (BUILD_SRC / "main.cpp").read_text()
+    defines = (BUILD_SRC / "esphome" / "core" / "defines.h").read_text()
+    match = re.search(r"#define ESPHOME_COMPONENT_COUNT (\d+)", defines)
+    if match is None:
+        return ["no ESPHOME_COMPONENT_COUNT in the generated defines.h"]
+    capacity = int(match.group(1))
+    registered = main_cpp.count("App.register_component_(")
+    print(f"  components: {registered} registered, capacity {capacity}")
+    if registered > capacity:
+        return [
+            f"budget: {registered} App.register_component_ calls exceed "
+            f"ESPHOME_COMPONENT_COUNT {capacity}; the last "
+            f"{registered - capacity} would be dropped"
+        ]
+    return []
+
+
 def run_binary() -> str:
     proc = subprocess.Popen(
         [str(BINARY)],
@@ -179,11 +200,16 @@ def check(name: str, case: dict, log: str) -> list[str]:
     if not (got.get("rest") or "").startswith(REST):
         fail(f"rest {got.get('rest')!r} expected to start with {REST!r}")
 
-    applied = re.findall(r"APPLY (.*)$", log, re.M)
+    ran = re.findall(r"APPLY RAN n=(\d+)$", log, re.M)
+    # One line per boot, whatever the fixture held: the apply component made it into
+    # App::components_ and setup() reached it.
+    if ran != [str(len(case["applied"]))]:
+        fail(f"apply ran {ran} expected {[str(len(case['applied']))]}")
+    applied = re.findall(r"APPLY (?!RAN)(.*)$", log, re.M)
     if applied != case["applied"]:
         fail(f"applied {applied} expected {case['applied']}")
     # The keeper loads at HARDWARE+5, the apply components run at HARDWARE+1.
-    if applied and log.index("APPLY") < log.index("Loaded test settings"):
+    if applied and log.index("APPLY RAN") < log.index("Loaded test settings"):
         fail("apply ran before the keeper loaded the file")
     # Two saves inside save_delay collapse into one write.
     writes = log.count("Saved test settings")
@@ -210,7 +236,7 @@ def main() -> int:
     if not BINARY.exists():
         print(f"binary not found: {BINARY}")
         return 1
-    failures: list[str] = []
+    failures: list[str] = check_component_budget()
     log_path = HERE / "last-config-run.log"
     logs: list[str] = []
     for name, case in CASES.items():

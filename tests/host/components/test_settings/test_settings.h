@@ -49,6 +49,13 @@ class TestSettingsJson : public config_json::SettingsBaseJsonTyped<TestSettingsJ
 
   const char *get_key() override { return NAME; }
 
+  // Proof the apply component reached setup(): logged even when there is nothing to apply, so a
+  // component silently dropped from App::components_ shows up as a missing line, not as silence.
+  void apply() override {
+    ESP_LOGI(TAG, "APPLY RAN n=%u", static_cast<unsigned>(this->records_.size()));
+    config_json::SettingsBaseJsonTyped<TestSettingsJson, TestRecord>::apply();
+  }
+
   TestRecord *update(const char *source_name, bool inverted, int level) {
     TestRecord *record = this->find_(source_name);
     if (record == nullptr) {

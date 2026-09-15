@@ -33,6 +33,7 @@ used: neither has to be configured, and an unconfigured one contributes no code 
 | `config_json_id`            | the single `config_json:` | The keeper that loads and saves the JSON types             |
 | `settings`                  | `[switch, binary_sensor]` | Which types to enable                                      |
 | `<type>_settings_id`        | generated                | Names the settings object so lambdas can address it        |
+| `<type>_apply_id`           | generated                | Names the component that applies that type at boot         |
 | `uart_list_id`              |                          | Required by `uart`                                         |
 | `time_ids`                  |                          | Required by `timezone`                                     |
 | `config_nvs_id`             |                          | Required by `auth`                                         |

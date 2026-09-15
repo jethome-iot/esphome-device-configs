@@ -9,7 +9,6 @@ import esphome.config_validation as cv
 import esphome.final_validate as fv
 from esphome.components import config_json, config_nvs, uart_list
 from esphome.components import time as time_component
-from esphome.core import ID
 
 CODEOWNERS = ["@jethome-iot"]
 DEPENDENCIES = ["config_json"]
@@ -27,6 +26,14 @@ CONF_UART_SETTINGS_ID = "uart_settings_id"
 CONF_TIMEZONE_SETTINGS_ID = "timezone_settings_id"
 CONF_MQTT_SETTINGS_ID = "mqtt_settings_id"
 CONF_AUTH_SETTINGS_ID = "auth_settings_id"
+# The apply components. Declared per type so ESPHOME_COMPONENT_COUNT covers them:
+# App.components_ is a StaticVector sized by that macro and drops silently when full.
+CONF_SWITCH_APPLY_ID = "switch_apply_id"
+CONF_BINARY_SENSOR_APPLY_ID = "binary_sensor_apply_id"
+CONF_UART_APPLY_ID = "uart_apply_id"
+CONF_TIMEZONE_APPLY_ID = "timezone_apply_id"
+CONF_MQTT_APPLY_ID = "mqtt_apply_id"
+CONF_AUTH_APPLY_ID = "auth_apply_id"
 
 SETTING_SWITCH = "switch"
 SETTING_BINARY_SENSOR = "binary_sensor"
@@ -65,6 +72,23 @@ MqttSettingsJson = jxd_config_ns.class_(
 )
 AuthSettingsNvs = jxd_config_ns.class_("AuthSettingsNvs", config_nvs.SettingsBaseNvs)
 
+SETTINGS_CLASSES = {
+    SETTING_SWITCH: (CONF_SWITCH_SETTINGS_ID, CONF_SWITCH_APPLY_ID, SwitchSettingsJson),
+    SETTING_BINARY_SENSOR: (
+        CONF_BINARY_SENSOR_SETTINGS_ID,
+        CONF_BINARY_SENSOR_APPLY_ID,
+        BinarySensorSettingsJson,
+    ),
+    SETTING_UART: (CONF_UART_SETTINGS_ID, CONF_UART_APPLY_ID, UartSettingsJson),
+    SETTING_TIMEZONE: (
+        CONF_TIMEZONE_SETTINGS_ID,
+        CONF_TIMEZONE_APPLY_ID,
+        TimezoneSettingsJson,
+    ),
+    SETTING_MQTT: (CONF_MQTT_SETTINGS_ID, CONF_MQTT_APPLY_ID, MqttSettingsJson),
+    SETTING_AUTH: (CONF_AUTH_SETTINGS_ID, CONF_AUTH_APPLY_ID, AuthSettingsNvs),
+}
+
 
 def _validate(config):
     enabled = config[CONF_SETTINGS]
@@ -80,6 +104,11 @@ def _validate(config):
         raise cv.Invalid(
             f"'{SETTING_AUTH}' in '{CONF_SETTINGS}' needs '{CONF_CONFIG_NVS_ID}'"
         )
+    # An id declared here reserves a slot in ESPHOME_COMPONENT_COUNT whether or not
+    # anything registers it, so a disabled type must not leave one behind.
+    for setting, (_, apply_key, _cls) in SETTINGS_CLASSES.items():
+        if setting not in enabled:
+            config.pop(apply_key, None)
     return config
 
 
@@ -106,6 +135,13 @@ CONFIG_SCHEMA = cv.All(
             cv.GenerateID(CONF_MQTT_SETTINGS_ID): cv.declare_id(MqttSettingsJson),
             cv.GenerateID(CONF_AUTH_SETTINGS_ID): cv.declare_id(AuthSettingsNvs),
         }
+    ).extend(
+        {
+            cv.GenerateID(apply_key): cv.declare_id(
+                SettingsApplyComponent.template(cls)
+            )
+            for _, apply_key, cls in SETTINGS_CLASSES.values()
+        }
     ),
     cv.only_on_esp32,
     _validate,
@@ -130,21 +166,13 @@ def _final_validate(config):
 FINAL_VALIDATE_SCHEMA = _final_validate
 
 
-async def _add_settings(keeper, name, settings_id):
-    cls = settings_id.type
-    # The apply component is a regular component, so it sorts by priority with the rest.
-    settings = cg.new_Pvariable(settings_id)
+async def _add_settings(keeper, config, name):
+    settings_key, apply_key, _cls = SETTINGS_CLASSES[name]
+    settings = cg.new_Pvariable(config[settings_key])
     cg.add(keeper.add_settings(settings))
-    apply = cg.new_Pvariable(
-        ID(
-            f"jxd_config_{name}_apply",
-            is_declaration=True,
-            type=SettingsApplyComponent.template(cls),
-        ),
-        settings,
-    )
-    # Not cg.register_component: that expects an ID declared in the schema.
-    cg.add(cg.App.register_component_(apply))
+    # A regular component, so App::setup() sorts it by APPLY_PRIORITY with the rest.
+    apply = cg.new_Pvariable(config[apply_key], settings)
+    await cg.register_component(apply, {})
     return settings
 
 
@@ -154,38 +182,30 @@ async def to_code(config):
 
     if SETTING_SWITCH in enabled:
         cg.add_define("JXD_CONFIG_SWITCH")
-        await _add_settings(
-            json_keeper, SETTING_SWITCH, config[CONF_SWITCH_SETTINGS_ID]
-        )
+        await _add_settings(json_keeper, config, SETTING_SWITCH)
 
     if SETTING_BINARY_SENSOR in enabled:
         cg.add_define("JXD_CONFIG_BINARY_SENSOR")
         # Inversion is a filter appended at run time; the chain only compiles with this.
         cg.add_define("USE_BINARY_SENSOR_FILTER")
-        await _add_settings(
-            json_keeper, SETTING_BINARY_SENSOR, config[CONF_BINARY_SENSOR_SETTINGS_ID]
-        )
+        await _add_settings(json_keeper, config, SETTING_BINARY_SENSOR)
 
     if SETTING_UART in enabled:
         cg.add_define("JXD_CONFIG_UART")
-        settings = await _add_settings(
-            json_keeper, SETTING_UART, config[CONF_UART_SETTINGS_ID]
-        )
+        settings = await _add_settings(json_keeper, config, SETTING_UART)
         cg.add(settings.set_uart_list(await cg.get_variable(config[CONF_UART_LIST_ID])))
 
     if SETTING_TIMEZONE in enabled:
         cg.add_define("JXD_CONFIG_TIMEZONE")
-        settings = await _add_settings(
-            json_keeper, SETTING_TIMEZONE, config[CONF_TIMEZONE_SETTINGS_ID]
-        )
+        settings = await _add_settings(json_keeper, config, SETTING_TIMEZONE)
         for time_id in config[CONF_TIME_IDS]:
             cg.add(settings.add_time_component(await cg.get_variable(time_id)))
 
     if SETTING_MQTT in enabled:
         cg.add_define("JXD_CONFIG_MQTT")
-        await _add_settings(json_keeper, SETTING_MQTT, config[CONF_MQTT_SETTINGS_ID])
+        await _add_settings(json_keeper, config, SETTING_MQTT)
 
     if SETTING_AUTH in enabled:
         cg.add_define("JXD_CONFIG_AUTH")
         nvs_keeper = await cg.get_variable(config[CONF_CONFIG_NVS_ID])
-        await _add_settings(nvs_keeper, SETTING_AUTH, config[CONF_AUTH_SETTINGS_ID])
+        await _add_settings(nvs_keeper, config, SETTING_AUTH)
