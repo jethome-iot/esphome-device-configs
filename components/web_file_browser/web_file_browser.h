@@ -79,9 +79,11 @@ class WebFileBrowser : public AsyncWebHandler, public Component {
   std::string get_base_path_() const;
   std::string resolve_path_(const std::string &path) const;
   bool is_valid_path_(const std::string &path) const;
-  bool delete_recursive_(const std::string &path);
+  // depth bounds the recursion: both run on the 4352-byte esp_http_server task
+  // stack, where a deep enough tree would smash it instead of failing the request.
+  bool delete_recursive_(const std::string &path, unsigned depth = 0);
   bool copy_file_(const std::string &src, const std::string &dst);
-  bool copy_recursive_(const std::string &src, const std::string &dst);
+  bool copy_recursive_(const std::string &src, const std::string &dst, unsigned depth = 0);
   // Closes the upload file and removes whatever was written of it.
   void discard_upload_();
   void send_json_error_(AsyncWebServerRequest *request, const std::string &message, int code = 400);

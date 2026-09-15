@@ -21,6 +21,13 @@ namespace web_file_browser {
 
 static const char *const TAG = "web_file_browser";
 
+// How deep delete/copy may recurse. Both run on the esp_http_server task, whose
+// stack stock sizes at 4352 bytes; at roughly 200 bytes a frame, plus whatever
+// readdir() puts there, a deeper tree would smash the stack instead of failing
+// the request. mkdir imposes no depth limit of its own, so the tree can be
+// deeper than this — say so rather than report a partial delete as success.
+static const unsigned MAX_RECURSION_DEPTH = 8;
+
 void WebFileBrowser::setup() {
   this->base_->init();
   this->base_->add_handler(this);
@@ -847,8 +854,13 @@ bool WebFileBrowser::is_valid_path_(const std::string &path) const {
   return true;
 }
 
-bool WebFileBrowser::delete_recursive_(const std::string &path) {
+bool WebFileBrowser::delete_recursive_(const std::string &path, unsigned depth) {
 #ifdef USE_ESP32
+  if (depth > MAX_RECURSION_DEPTH) {
+    ESP_LOGE(TAG, "Directory tree deeper than %u levels, refusing to delete '%s'", MAX_RECURSION_DEPTH, path.c_str());
+    return false;
+  }
+
   DIR *dir = opendir(path.c_str());
   if (!dir) {
     ESP_LOGE(TAG, "Failed to open directory for deletion: %s", path.c_str());
@@ -876,7 +888,7 @@ bool WebFileBrowser::delete_recursive_(const std::string &path) {
     if (stat(entry_path.c_str(), &st) == 0) {
       if (S_ISDIR(st.st_mode)) {
         // Recursively delete subdirectory
-        if (!this->delete_recursive_(entry_path)) {
+        if (!this->delete_recursive_(entry_path, depth + 1)) {
           ESP_LOGE(TAG, "Failed to delete subdirectory: %s", entry_path.c_str());
           success = false;
           break;
@@ -985,8 +997,13 @@ bool WebFileBrowser::copy_file_(const std::string &src, const std::string &dst) 
 #endif
 }
 
-bool WebFileBrowser::copy_recursive_(const std::string &src, const std::string &dst) {
+bool WebFileBrowser::copy_recursive_(const std::string &src, const std::string &dst, unsigned depth) {
 #ifdef USE_ESP32
+  if (depth > MAX_RECURSION_DEPTH) {
+    ESP_LOGE(TAG, "Directory tree deeper than %u levels, refusing to copy '%s'", MAX_RECURSION_DEPTH, src.c_str());
+    return false;
+  }
+
   if (mkdir(dst.c_str(), 0755) != 0) {
     ESP_LOGE(TAG, "Failed to create directory for copy: %s", dst.c_str());
     return false;
@@ -1024,7 +1041,7 @@ bool WebFileBrowser::copy_recursive_(const std::string &src, const std::string &
     }
 
     if (S_ISDIR(st.st_mode)) {
-      success = this->copy_recursive_(src_entry, dst_entry);
+      success = this->copy_recursive_(src_entry, dst_entry, depth + 1);
     } else {
       success = this->copy_file_(src_entry, dst_entry);
     }
@@ -1046,9 +1063,11 @@ bool WebFileBrowser::copy_recursive_(const std::string &src, const std::string &
   closedir(dir);
 
   // Roll the partial tree back: it is usually a full filesystem that stopped us,
-  // and a half-copied tree would also block the retry as "already exists".
+  // and a half-copied tree would also block the retry as "already exists". The
+  // rollback runs on top of the copy frames, so it continues this depth rather
+  // than restarting the budget at zero.
   if (!success) {
-    this->delete_recursive_(dst);
+    this->delete_recursive_(dst, depth);
   }
 
   return success;

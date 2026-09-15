@@ -61,7 +61,9 @@ Fields are read from the query string and from an urlencoded body alike. Every r
 missing path), `{"success": false, "error"}`.
 
 `read` and `download` stream in 4 KB chunks and never hold a file-sized buffer, so `read`'s
-1 MB ceiling is about the editor on the other end, not about the device's heap.
+1 MB ceiling is about the editor on the other end, not about the device's heap. `delete` and
+`copy` recurse at most eight directory levels — a deeper tree is an error, not a smashed web
+server stack.
 
 ```sh
 curl 'http://<device>/files/info'
