@@ -1,4 +1,5 @@
 #include "web_file_browser.h"
+#include "json_escape.h"
 #include "esphome/core/log.h"
 
 #include <cerrno>
@@ -403,6 +404,12 @@ void WebFileBrowser::handle_upload_request_(AsyncWebServerRequest *request) {
   this->send_json_success_(request, "Upload complete");
 }
 
+// GET /read?path=: the file streams out as the "content" string of the JSON
+// envelope, escaped a chunk at a time. Buffering it whole is not an option here:
+// AsyncResponseStream is a std::string, not a stream, so the file, its escaped
+// copy and the response would be live at once, in internal DRAM (the psram
+// component never sets CONFIG_SPIRAM_USE_MALLOC), and std::string's throwing
+// allocation would abort the firmware rather than fail the request.
 void WebFileBrowser::handle_read_request_(AsyncWebServerRequest *request) {
 #ifdef USE_ESP32
   if (!request->hasParam("path")) {
@@ -418,39 +425,88 @@ void WebFileBrowser::handle_read_request_(AsyncWebServerRequest *request) {
     return;
   }
 
-  FILE *file = fopen(full_path.c_str(), "r");
+  FILE *file = fopen(full_path.c_str(), "rb");
   if (!file) {
     this->send_json_error_(request, "Failed to open file", 404);
     return;
   }
 
-  // Get file size
+  // Not a memory bound any more — an editor that has to load the answer is the
+  // limit. Keep it in step with README.md.
+  static const long MAX_READ_SIZE = 1024 * 1024;
   fseek(file, 0, SEEK_END);
-  size_t file_size = ftell(file);
+  long file_size = ftell(file);
   fseek(file, 0, SEEK_SET);
-
-  // Limit file size for text reading (1MB max)
-  if (file_size > 1024 * 1024) {
+  if (file_size < 0) {
+    fclose(file);
+    this->send_json_error_(request, "Failed to read file");
+    return;
+  }
+  if (file_size > MAX_READ_SIZE) {
     fclose(file);
     this->send_json_error_(request, "File too large to edit");
     return;
   }
 
-  std::string content;
-  content.resize(file_size);
-  size_t read_size = fread(&content[0], 1, file_size, file);
-  fclose(file);
-
-  if (read_size != file_size) {
-    this->send_json_error_(request, "Failed to read file");
+  // One allocation for both halves: raw bytes in, escaped bytes out. Nothing
+  // else allocates for the rest of the response, whatever the file's size.
+  static const size_t READ_CHUNK = 4096;
+  static const size_t OUT_CHUNK = 4096;
+  // Exceptions are disabled in this build, so a throwing new would abort the
+  // whole firmware instead of failing the request. Allocated before any header
+  // is set, so a failure is still a clean error envelope.
+  auto buffer = std::unique_ptr<char[]>(new (std::nothrow) char[READ_CHUNK + OUT_CHUNK]);
+  if (buffer == nullptr) {
+    ESP_LOGE(TAG, "Out of memory reading '%s'", full_path.c_str());
+    fclose(file);
+    this->send_json_error_(request, "Out of memory", 500);
     return;
   }
+  char *in = buffer.get();
+  char *out = in + READ_CHUNK;
 
-  AsyncResponseStream *response = request->beginResponseStream("application/json");
-  response->print(R"({"success":true,"content":")");
-  response->print(this->json_escape_(content).c_str());
-  response->print("\"}");
-  request->send(response);
+  httpd_req_t *req = *request;
+  httpd_resp_set_type(req, "application/json");
+
+  auto send_chunk = [req](const char *data, size_t len) {
+    if (httpd_resp_send_chunk(req, data, len) != ESP_OK) {
+      ESP_LOGE(TAG, "Failed to send chunk");
+      return false;
+    }
+    return true;
+  };
+
+  static const char PREFIX[] = R"({"success":true,"content":")";
+  bool sent = send_chunk(PREFIX, sizeof(PREFIX) - 1);
+
+  size_t used = 0;
+  while (sent) {
+    size_t read_bytes = fread(in, 1, READ_CHUNK, file);
+    if (read_bytes == 0) {
+      // A read error leaves feof() clear and the position indeterminate, so
+      // looping on feof() alone would spin here forever.
+      if (ferror(file) != 0) {
+        ESP_LOGE(TAG, "Failed to read '%s'", full_path.c_str());
+      }
+      break;
+    }
+    sent = json_escape_chunk(in, read_bytes, out, OUT_CHUNK, used, send_chunk);
+    // Yield to prevent watchdog timeout on large files
+    vTaskDelay(1);
+  }
+
+  if (sent && used > 0) {
+    sent = send_chunk(out, used);
+  }
+  if (sent) {
+    send_chunk("\"}", 2);
+  }
+
+  // Ends the chunked response either way; a truncated body is all a client can
+  // be told once the first chunk has gone out.
+  httpd_resp_send_chunk(req, nullptr, 0);
+
+  fclose(file);
 #else
   this->send_json_error_(request, "Not supported on this platform");
 #endif
@@ -1028,40 +1084,9 @@ std::string WebFileBrowser::json_escape_(const std::string &str) const {
   std::string escaped;
   escaped.reserve(str.length());
 
+  char buf[JSON_ESCAPE_MAX];
   for (char c : str) {
-    switch (c) {
-      case '"':
-        escaped += "\\\"";
-        break;
-      case '\\':
-        escaped += "\\\\";
-        break;
-      case '\b':
-        escaped += "\\b";
-        break;
-      case '\f':
-        escaped += "\\f";
-        break;
-      case '\n':
-        escaped += "\\n";
-        break;
-      case '\r':
-        escaped += "\\r";
-        break;
-      case '\t':
-        escaped += "\\t";
-        break;
-      default:
-        if (c < 0x20) {
-          // Control characters
-          char buf[7];
-          snprintf(buf, sizeof(buf), "\\u%04x", c);
-          escaped += buf;
-        } else {
-          escaped += c;
-        }
-        break;
-    }
+    escaped.append(buf, json_escape_char(buf, c));
   }
 
   return escaped;

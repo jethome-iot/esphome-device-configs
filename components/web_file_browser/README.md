@@ -49,7 +49,7 @@ HTTP method below is the conventional one, not an enforced one.
 |---|---|---|
 | GET | `info` | `{"valid", "total", "used", "free", "filesystem"}` |
 | GET | `list?path=/` | `[{"name", "type": "file"\|"directory", "size", "mtime"}, ...]` |
-| GET | `read?path=` | `{"success", "content"}`, text files up to 1 MB |
+| GET | `read?path=` | `{"success", "content"}`, escaped and streamed; over 1 MB is refused |
 | POST | `write?path=` | Raw request body becomes the file (any `Content-Type` but form-encoded); an empty body creates an empty file |
 | POST | `upload?path=` | `multipart/form-data` with one file part; a zero-length part is an error, use `write` |
 | GET | `download?path=` | The file, streamed |
@@ -59,6 +59,9 @@ HTTP method below is the conventional one, not an enforced one.
 Fields are read from the query string and from an urlencoded body alike. Every route except
 `list`, `info` and `download` answers `{"success": true, "message"}` or, with a 400 (404 for a
 missing path), `{"success": false, "error"}`.
+
+`read` and `download` stream in 4 KB chunks and never hold a file-sized buffer, so `read`'s
+1 MB ceiling is about the editor on the other end, not about the device's heap.
 
 ```sh
 curl 'http://<device>/files/info'
