@@ -586,7 +586,7 @@ esphome:
   name_add_mac_suffix: true
   friendly_name: ${friendly_name}
   project:
-    name: JetHub.JXD R6-E1ETH-LCD
+    name: JetHome.JXD-R6-E1ETH-LCD
     version: ${version}
 select:
   - platform: template
