@@ -1,0 +1,210 @@
+# Ethernet and WiFi: "Network mode" runs one or both, Ethernet first; Ethernet
+# only out of the box.
+#
+# The main page's link icon. WiFi also stands for the fallback AP.
+substitutions:
+  link_icon: >-
+    id(ethernet_id).is_connected() ? id(icon_eth)
+    : id(wifi_id).is_connected() || id(wifi_id).is_ap_active() ? id(icon_wifi)
+    : (id(network_mode).active_index().value_or(0) == 2 ? id(icon_wifi_off) : id(icon_eth_off))
+
+image:
+  - platform: file
+    file: ${assets}/res/ethernet.svg
+    id: icon_eth
+    type: BINARY
+
+  - platform: file
+    file: ${assets}/res/ethernet-off.svg
+    id: icon_eth_off
+    type: BINARY
+
+  - platform: file
+    file: ${assets}/res/wifi.svg
+    id: icon_wifi
+    type: BINARY
+
+  - platform: file
+    file: ${assets}/res/wifi-off.svg
+    id: icon_wifi_off
+    type: BINARY
+
+network:
+  priority: [ethernet, wifi]
+
+ethernet:
+  id: ethernet_id
+  type: LAN8720
+  mdc_pin: GPIO23
+  mdio_pin: GPIO18
+  clk:
+    mode: CLK_OUT
+    pin: 17
+  phy_addr: 1
+  power_pin: GPIO15
+  on_connect:
+    - component.update: ip
+  on_disconnect:
+    - component.update: ip
+
+wifi:
+  id: wifi_id
+  # Started by apply_network_mode, so the Ethernet mode never raises the AP.
+  enable_on_boot: false
+  # A device on the cable with no WiFi credentials must not reboot.
+  reboot_timeout: 0s
+  # The fallback AP; its SSID and password come from the MAC, see set_wifi_ap.
+  ap:
+  on_connect:
+    - component.update: ip
+  on_disconnect:
+    - component.update: ip
+
+captive_portal:
+  id: captive_portal_id
+
+globals:
+  - id: network_mode_applied
+    type: bool
+    initial_value: 'false'
+
+  - id: ap_was_active
+    type: bool
+    initial_value: 'false'
+
+# The AP has no start/stop trigger; poll it for the main page address.
+interval:
+  - interval: 2s
+    then:
+      - lambda: |-
+          const bool ap = id(wifi_id).is_ap_active();
+          if (ap != id(ap_was_active)) {
+            id(ap_was_active) = ap;
+            id(ip).update();
+          }
+
+select:
+  - platform: template
+    name: "Network mode"
+    id: network_mode
+    web_server:
+      sorting_group_id: group_network
+      sorting_weight: 0
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_option: "Ethernet"
+    options:
+      - "Auto"
+      - "Ethernet"
+      - "WiFi"
+    on_value:
+      # The restored value fires before the interfaces exist; on_boot applies it.
+      - if:
+          condition:
+            lambda: 'return id(network_mode_applied);'
+          then:
+            - script.execute: apply_network_mode
+
+script:
+  # SSID: the device name as shown on the main page. Password: the last four
+  # bytes of the WiFi MAC, lowercase hex.
+  - id: set_wifi_ap
+    then:
+      - lambda: |-
+          uint8_t mac[6];
+          get_mac_address_raw(mac);
+          wifi::WiFiAP ap;
+          ap.set_ssid("${friendly_name}-" + str_snprintf("%02X%02X", 4, mac[4], mac[5]));
+          ap.set_password(str_snprintf("%02x%02x%02x%02x", 8, mac[2], mac[3], mac[4], mac[5]));
+          id(wifi_id).set_ap(ap);
+
+  - id: apply_network_mode
+    then:
+      - lambda: |-
+          // Option index: 0 Auto, 1 Ethernet, 2 WiFi.
+          const size_t mode = id(network_mode).active_index().value_or(0);
+          if (mode == 2) {
+            id(ethernet_id).disable();
+          } else {
+            id(ethernet_id).enable();
+          }
+          if (mode == 1) {
+            id(wifi_id).disable();
+          } else {
+            id(wifi_id).enable();
+          }
+      - component.update: ip
+
+  - id: reset_wifi
+    then:
+      - logger.log: 'Reset WiFi creds'
+      - lambda: |-
+          id(wifi_id).save_wifi_sta("", "");
+          App.safe_reboot();
+
+esphome:
+  on_boot:
+    # Before WiFi is set up.
+    - priority: 600
+      then:
+        - script.execute: set_wifi_ap
+
+    # Both interfaces are set up, WiFi still off; before anything waits for the network.
+    - priority: 200
+      then:
+        - script.execute: apply_network_mode
+        - globals.set:
+            id: network_mode_applied
+            value: 'true'
+
+text_sensor:
+  - platform: ethernet_info
+    ip_address:
+      name: "Ethernet IP"
+      web_server:
+        sorting_group_id: group_network
+        sorting_weight: 1
+      address_0:
+        id: ip_eth
+        on_value:
+          - component.update: ip
+    mac_address:
+      name: "Ethernet MAC"
+      web_server:
+        sorting_group_id: group_network
+        sorting_weight: 2
+      id: mac_eth
+
+  - platform: wifi_info
+    ip_address:
+      name: "WiFi IP"
+      web_server:
+        sorting_group_id: group_network
+        sorting_weight: 3
+      id: ip_wifi
+      on_value:
+        - component.update: ip
+    mac_address:
+      name: "WiFi MAC"
+      web_server:
+        sorting_group_id: group_network
+        sorting_weight: 4
+      id: mac_wifi
+
+  # The address of the interface carrying the traffic, or of the fallback AP,
+  # for the main page.
+  - platform: template
+    id: ip
+    internal: true
+    update_interval: never
+    lambda: |-
+      if (id(ethernet_id).is_connected())
+        return id(ip_eth).state;
+      if (id(wifi_id).is_connected())
+        return id(ip_wifi).state;
+      if (id(wifi_id).is_ap_active()) {
+        char buf[esphome::network::IP_ADDRESS_BUFFER_SIZE];
+        return std::string(id(wifi_id).wifi_soft_ap_ip().str_to(buf));
+      }
+      return std::string();

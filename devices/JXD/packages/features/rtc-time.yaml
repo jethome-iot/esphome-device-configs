@@ -1,0 +1,48 @@
+# Used until Home Assistant reports its own. IANA names and POSIX TZ strings
+# both work: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+substitutions:
+  timezone: UTC
+
+# Home Assistant's zone is global but RAM-only; keep it across reboots.
+globals:
+  - id: stored_timezone
+    type: esphome::time::ParsedTimezone
+    restore_value: true
+
+time:
+  # No timezone here: that is what makes Home Assistant send its own.
+  - platform: homeassistant
+    id: homeassistant_time
+    on_time_sync:
+      then:
+        - pcf8563.write_time:
+        - delay: 1s
+        - lambda: id(stored_timezone) = esphome::time::get_global_tz();
+
+  - platform: sntp
+    id: sntp_time
+    timezone: ${timezone}
+    servers:
+      - 0.pool.ntp.org
+      - 1.pool.ntp.org
+      - 2.pool.ntp.org
+    on_time_sync:
+      then:
+        pcf8563.write_time:
+
+  - platform: pcf8563
+    id: pcf8563_time
+    address: 0x51
+    timezone: ${timezone}
+    update_interval: 15min
+
+script:
+  - id: setup_time
+    then:
+      - lambda: |-
+          const auto &tz = id(stored_timezone);
+          if (tz.std_offset_seconds != 0 || tz.has_dst()) {
+            esphome::time::set_global_tz(tz);
+          }
+      - pcf8563.read_time:
+          id: pcf8563_time

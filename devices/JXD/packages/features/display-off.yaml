@@ -1,0 +1,39 @@
+globals:
+  - id: display_off_threshold_s
+    type: uint32_t
+
+  - id: display_off_s
+    type: uint32_t
+
+select:
+  - platform: template
+    id: display_off_timer_select
+    optimistic: true
+    internal: true
+    restore_value: true
+    initial_option: "5m"
+    options:
+      - "5m"
+      - "10m"
+      - "15m"
+      - "never"
+    on_value:
+      then:
+        - lambda: |-
+            const uint32_t MINUTES[] = {5, 10, 15, 0};
+            id(display_off_threshold_s) = MINUTES[i] * 60;
+            id(display_off_s) = 0;
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          if (id(display_off_threshold_s) == 0)
+            return;
+
+          if (id(display_off_s) >= id(display_off_threshold_s)) {
+            id(display_menu).hide();
+            id(display1).show_page(id(blank_page));
+          } else {
+            id(display_off_s)++;
+          }

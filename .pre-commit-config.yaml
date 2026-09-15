@@ -1,0 +1,56 @@
+---
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version.
+    rev: v0.11.10
+    hooks:
+      # Run the linter.
+      - id: ruff
+        args: [--fix]
+      # Run the formatter.
+      - id: ruff-format
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: no-commit-to-branch
+        args:
+          - --branch=master
+      # Generated files are the generators' business; the BDF fonts are upstream.
+      - id: end-of-file-fixer
+        exclude: ^(dist/|assets/)
+      - id: trailing-whitespace
+        exclude: ^(dist/|assets/)
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.20.0
+    hooks:
+      - id: pyupgrade
+        args: [--py310-plus]
+  - repo: https://github.com/adrienverge/yamllint.git
+    rev: v1.37.1
+    hooks:
+      - id: yamllint
+        # Generated output: the blank lines inside block scalars are ESPHome's
+        # dumper's doing, not ours.
+        exclude: ^dist/
+  - repo: local
+    hooks:
+      # Rewrites assets/res/, so a stale copy fails the commit until it is staged.
+      - id: build-icons
+        name: regenerate assets/res/
+        entry: python scripts/build-icons.py
+        language: python
+        pass_filenames: false
+        files: ^(assets/res/|scripts/build-icons\.py$)
+
+      # Rewrites dist/, so a stale copy fails the commit until it is staged.
+      # Keep the esphome pin in step with requirements.txt: a different version
+      # here would generate a different dist/ than CI does.
+      - id: build-dist
+        name: regenerate dist/
+        entry: python scripts/build-dist.py
+        language: python
+        additional_dependencies: [esphome==2026.8.2]
+        pass_filenames: false
+        files: ^(devices/|scripts/build-dist\.py)

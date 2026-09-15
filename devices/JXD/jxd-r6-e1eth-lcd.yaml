@@ -1,0 +1,54 @@
+# JXD-R6-E1ETH-LCD: DIN-rail controller, 6 relays, 6 inputs, OLED, Ethernet + WiFi.
+
+substitutions:
+  name: "jxd-r6-e1eth-lcd"
+  friendly_name: JXD-R6-E1ETH-LCD
+  version: 1.0.0
+  # Paths relative to this file.
+  assets: ../../assets
+  boards: packages/boards
+  display: packages/display
+  features: packages/features
+
+packages:
+  # Boards: platform and the chips on each PCB.
+  board: !include ${boards}/jxd-cpu-e1eth.yaml
+  relay_board: !include ${boards}/jxd-d6-r6-rev1.2.yaml
+
+  # Features: buses, sensors, services.
+  display_off: !include ${features}/display-off.yaml
+  i2c: !include ${features}/i2c.yaml
+  modbus: !include ${features}/modbus-server.yaml
+  network: !include ${features}/network.yaml
+  rtc_time: !include ${features}/rtc-time.yaml
+  temperature: !include ${features}/temperature.yaml
+  uarts: !include ${features}/uarts.yaml
+  vin_measure: !include ${features}/vin-measure.yaml
+
+  # Display: pages, menu and buttons.
+  blank_page: !include ${display}/blank-page.yaml
+  buttons: !include ${display}/buttons.yaml
+  display: !include ${display}/display.yaml
+  menu: !include ${display}/menu.yaml
+  menu_items: !include ${display}/menu-items-network.yaml
+  status_page: !include ${display}/status-page.yaml
+  time_page: !include ${display}/time-page.yaml
+
+esphome:
+  name: ${name}
+  name_add_mac_suffix: true
+  friendly_name: ${friendly_name}
+  project:
+    name: JetHub.JXD R6-E1ETH-LCD
+    version: ${version}
+  on_boot:
+    # Restores the stored timezone and reads the RTC once I2C is up.
+    - priority: 600
+      then:
+        - delay: 200ms
+        - script.execute: setup_time
+
+# The self-contained copy in dist/ that the ESPHome Builder imports.
+dashboard_import:
+  package_import_url: github://jethome-iot/esphome-device-configs/dist/jxd-r6-e1eth-lcd.yaml@master
+  import_full_config: true

@@ -1,0 +1,79 @@
+esp32:
+  board: esp32dev
+  flash_size: 16MB
+  watchdog_timeout: 60s
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_COMPILER_OPTIMIZATION_SPEED: y
+      CONFIG_D0WD_PSRAM_CLK_IO: "6"
+
+psram:
+  mode: quad
+  speed: 80MHz
+
+api:
+  id: api_server
+  encryption:
+  reboot_timeout: 0s
+
+ota:
+  - platform: esphome
+  - platform: web_server
+
+preferences:
+  flash_write_interval: 5s
+
+logger:
+  level: debug
+
+web_server:
+  port: 80
+  version: 3
+  local: true
+  sorting_groups:
+    - id: group_relays
+      name: "Relays"
+      sorting_weight: 10
+    - id: group_inputs
+      name: "Inputs"
+      sorting_weight: 20
+    - id: group_temperature
+      name: "Temperature"
+      sorting_weight: 30
+    - id: group_modbus
+      name: "Modbus"
+      sorting_weight: 40
+    - id: group_network
+      name: "Network"
+      sorting_weight: 50
+    - id: group_system
+      name: "System"
+      sorting_weight: 60
+
+sensor:
+  - platform: tmp102
+    name: "PCB Temp"
+    id: pcb_temp
+    web_server:
+      sorting_group_id: group_system
+      sorting_weight: 1
+    update_interval: 20s
+    entity_category: diagnostic
+
+switch:
+  - platform: gpio
+    name: "Red led"
+    id: red_led
+    web_server:
+      sorting_group_id: group_system
+      sorting_weight: 10
+    pin: GPIO2
+
+text_sensor:
+  - platform: uptime
+    name: Uptime
+    id: uptime_sensor
+    internal: true
+    format:
+      separator: " "

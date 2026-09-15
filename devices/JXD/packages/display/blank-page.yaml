@@ -1,0 +1,6 @@
+display:
+  - platform: ssd1306_i2c
+    id: !extend display1
+    pages:
+      - id: blank_page
+        lambda: return;

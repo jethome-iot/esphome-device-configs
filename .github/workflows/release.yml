@@ -1,0 +1,484 @@
+name: Release
+
+# Builds every firmware in firmwares.yaml and ships it. Full releases publish
+# to the `release` channel on fw.jethome.com; prereleases always go to
+# `nightly` while no beta channel exists, and manual runs default to `nightly`
+# too — the release channel is an explicit choice. Every built firmware lands
+# on the GitHub release as an asset; only the `upload: true` ones go to the
+# server.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Firmware channel to publish to'
+        type: choice
+        options:
+          - release
+          - nightly
+        # The safe default: nightly never moves the release channel's latest
+        # pointer, so releasing takes an explicit channel choice.
+        default: nightly
+      dry_run:
+        description: 'Build only: attach nothing, upload nothing'
+        type: boolean
+        default: true
+      update_latest:
+        description: 'Move the release channel latest pointer (release channel only)'
+        type: boolean
+        default: true
+
+run-name: >-
+  ${{ github.event_name == 'release' &&
+  format('Release {0}', github.event.release.tag_name) ||
+  format('Release dispatch ({0})', inputs.channel) }}
+
+concurrency:
+  # Version allocation and the latest pointer are per channel: two runs
+  # publishing to one channel must not interleave. Dry runs publish nothing
+  # and get their own group so they never queue behind a publisher.
+  group: >-
+    ${{ github.event_name == 'release' &&
+    (github.event.release.prerelease && 'release-nightly' || 'release-release') ||
+    format('release-{0}{1}', inputs.channel, inputs.dry_run && '-dryrun' || '') }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  # See build.yml: builds must not depend on the runner's timezone.
+  TZ: Etc/UTC
+
+jobs:
+  resolve:
+    name: Resolve version and matrix
+    runs-on: [self-hosted, ubuntu-latest]
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      channel: ${{ steps.resolve.outputs.channel }}
+      esphome: ${{ steps.resolve.outputs.esphome }}
+      update_latest: ${{ steps.resolve.outputs.update_latest }}
+      do_upload: ${{ steps.resolve.outputs.do_upload }}
+      create_release: ${{ steps.resolve.outputs.create_release }}
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      upload_matrix: ${{ steps.resolve.outputs.upload_matrix }}
+      has_uploads: ${{ steps.resolve.outputs.has_uploads }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          # Same key as the Build workflow's lint job: whoever runs first
+          # primes the cache for both.
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install the manifest tooling
+        run: pip install -r requirements-dev.txt
+
+      - name: Resolve
+        id: resolve
+        env:
+          # Inputs arrive through env: tag names may contain single quotes,
+          # and they must never reach this script as inline interpolation.
+          EVENT: ${{ github.event_name }}
+          TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+          IN_CHANNEL: ${{ inputs.channel }}
+          IN_DRY_RUN: ${{ inputs.dry_run }}
+          IN_UPDATE_LATEST: ${{ inputs.update_latest }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # Everything the repo builds with is decided by this pin; the
+          # firmware version is derived from it.
+          ESPHOME=$(sed -n 's/^esphome==\([0-9][0-9.]*\)$/\1/p' requirements.txt)
+          if [ -z "$ESPHOME" ]; then
+            echo "::error::cannot parse the esphome pin from requirements.txt"
+            exit 1
+          fi
+          ESPESC=$(printf '%s' "$ESPHOME" | sed 's/\./\\./g')
+
+          git fetch --quiet --force origin 'refs/tags/*:refs/tags/*'
+
+          if [ "$EVENT" = "release" ]; then
+            # The beta channel does not exist on the firmware server yet;
+            # prereleases land on nightly until it does.
+            if [ "$PRERELEASE" = "true" ]; then
+              CHANNEL=nightly
+            else
+              CHANNEL=release
+            fi
+            DO_UPLOAD=true
+            CREATE_RELEASE=false
+            if [ "$CHANNEL" = release ]; then UPDATE_LATEST=true; else UPDATE_LATEST=false; fi
+          else
+            CHANNEL=$IN_CHANNEL
+            DO_UPLOAD=true
+            if [ "$IN_DRY_RUN" = "true" ]; then DO_UPLOAD=false; fi
+            CREATE_RELEASE=$DO_UPLOAD
+            if [ "$CHANNEL" = release ]; then UPDATE_LATEST=$IN_UPDATE_LATEST; else UPDATE_LATEST=false; fi
+          fi
+
+          # Highest <n> among tags matching an anchored pattern, or the given
+          # default when nothing matches yet (grep exits 1 there — tolerated).
+          next_of() {
+            local glob pattern default found
+            glob=$1 pattern=$2 default=$3
+            found=$(git tag --list "$glob" |
+              { grep -E "$pattern" || true; } | sort -V | tail -1 | awk -F. '{print $NF}')
+            echo "${found:-$default}"
+          }
+
+          # Only a retry of this very run (re-run of the same workflow run
+          # bumps run_attempt) may reuse the version its earlier attempt
+          # allocated. The assets job records that version as an annotated
+          # tag whose message carries the run id — the only state needed,
+          # and one sibling runs from the same commit cannot confuse.
+          version_of_this_run() {
+            local t objtype
+            while read -r t; do
+              objtype=$(git cat-file -t "$t" 2>/dev/null || true)
+              if [ "$objtype" = "tag" ] &&
+                git cat-file tag "$t" 2>/dev/null | grep -qx "run ${RUN_ID}"; then
+                printf '%s' "$t"
+                return 0
+              fi
+            done < <(git tag --list "$1" | { grep -E "$2" || true; })
+            return 1
+          }
+
+          if [ "$CHANNEL" = release ]; then
+            # A human-made tag must be the bare esphome pin (the workflow picks
+            # the next subversion, starting at .0) or a full '<esphome>.<sub>'.
+            if [ -n "$TAG" ] && [ "$TAG" != "$ESPHOME" ]; then
+              if ! printf '%s' "$TAG" | grep -qE "^${ESPESC}\.[0-9]+$"; then
+                echo "::error::release tag '$TAG' must be '$ESPHOME' or '$ESPHOME.<sub>' — the esphome part has to match the requirements.txt pin"
+                exit 1
+              fi
+              VERSION="$TAG"
+            elif [ "$RUN_ATTEMPT" -gt 1 ] &&
+              VERSION=$(version_of_this_run "${ESPHOME}.*" "^${ESPESC}\.[0-9]+$"); then
+              : # a retry of this run: the previous attempt's version stands
+            else
+              LATEST=$(next_of "${ESPHOME}.*" "^${ESPESC}\.[0-9]+$" -1)
+              VERSION="${ESPHOME}.$((LATEST + 1))"
+            fi
+          else
+            # Nightly: <esphome>.<YYYYMMDD>.<attempt>, attempt auto-increments
+            # per date from the existing tags, starting at .1. The retry
+            # lookup is date-independent: a re-run after UTC midnight must
+            # complete the original publication.
+            DATE=$(date -u +%Y%m%d)
+            if [ "$RUN_ATTEMPT" -gt 1 ] &&
+              VERSION=$(version_of_this_run "${ESPHOME}.*" "^${ESPESC}\.[0-9]{8}\.[0-9]+$"); then
+              : # a retry of this run: the previous attempt's version stands
+            else
+              LATEST=$(next_of "${ESPHOME}.${DATE}.*" "^${ESPESC}\.${DATE}\.[0-9]+$" 0)
+              VERSION="${ESPHOME}.${DATE}.$((LATEST + 1))"
+            fi
+          fi
+
+          # Whether the latest pointer may move is decided in upload-fw,
+          # against the tags as they are when the upload actually runs — a
+          # re-run of failed jobs reuses these outputs without re-executing
+          # resolve, and a newer release may have published since.
+
+          # Reserve the allocated version immediately, annotated with the run
+          # id: a run that fails before assets would otherwise leave the
+          # number free for another run to publish from a different commit,
+          # and a retry of this run could never complete it. Dry runs publish
+          # nothing and must not burn a number.
+          if [ "$CREATE_RELEASE" = "true" ] || [ "$DO_UPLOAD" = "true" ]; then
+            if ! git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+              # Annotated tags need a committer identity; checkout does not
+              # configure one on a fresh runner.
+              git config user.name "github-actions[bot]"
+              git config user.email "github-actions[bot]@users.noreply.github.com"
+              git tag -a "$VERSION" -m "run ${RUN_ID}" HEAD
+              git push origin "refs/tags/$VERSION"
+            fi
+          fi
+
+          MATRIX=$(python scripts/firmware-matrix.py build)
+          UPLOAD_MATRIX=$(python scripts/firmware-matrix.py upload)
+          HAS_UPLOADS=$([ "$(echo "$UPLOAD_MATRIX" | jq '.include | length')" -gt 0 ] &&
+            echo true || echo false)
+
+          {
+            echo "version=$VERSION"
+            echo "channel=$CHANNEL"
+            echo "esphome=$ESPHOME"
+            echo "update_latest=$UPDATE_LATEST"
+            echo "do_upload=$DO_UPLOAD"
+            echo "create_release=$CREATE_RELEASE"
+            echo "matrix=$MATRIX"
+            echo "upload_matrix=$UPLOAD_MATRIX"
+            echo "has_uploads=$HAS_UPLOADS"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Release plan"
+            echo
+            echo "| firmware version | esphome | channel | upload to fw | create release |"
+            echo "|---|---|---|---|---|"
+            echo "| $VERSION | $ESPHOME | $CHANNEL | $DO_UPLOAD | $CREATE_RELEASE |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: resolve
+    runs-on: [self-hosted, ubuntu-latest]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.resolve.outputs.matrix) }}
+    env:
+      FW_VERSION: ${{ needs.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install ESPHome
+        run: pip install -r requirements.txt
+
+      - name: Cache toolchains
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/esphome
+          key: toolchains-${{ hashFiles('requirements.txt') }}
+          restore-keys: toolchains-
+
+      # The version reaches the firmware through its `version` substitution, so
+      # no config file is touched at build time.
+      - name: Compile
+        run: esphome -s version "$FW_VERSION" compile "${{ matrix.config }}"
+
+      - name: Stage firmware images
+        run: |
+          STEM="${{ matrix.name }}"
+          # ESPHome builds next to the config: devices/<family>/.esphome/.
+          SRC="$(dirname "${{ matrix.config }}")/.esphome/build/${STEM}/.pioenvs/${STEM}"
+          mkdir firmware
+          cp "${SRC}/firmware.factory.bin" "firmware/${STEM}-${FW_VERSION}-factory.bin"
+          cp "${SRC}/firmware.ota.bin" "firmware/${STEM}-${FW_VERSION}-ota.bin"
+          # md5, not sha256: the firmware server hands it to OTA updates as
+          # info.md5, a different hash fails every update.
+          for f in firmware/*.bin; do
+            md5sum "$f" | awk '{print $1}' > "${f}.md5"
+          done
+          ls -lh firmware
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.name }}
+          path: firmware/*
+          if-no-files-found: error
+          retention-days: 7
+
+  upload-fw:
+    name: Upload ${{ matrix.name }}
+    # After assets: the GitHub release and its version tag exist before
+    # anything reaches the firmware server, so a failed asset upload never
+    # leaves a half-published release behind.
+    needs: [resolve, assets]
+    if: >-
+      needs.resolve.outputs.do_upload == 'true' &&
+      needs.resolve.outputs.has_uploads == 'true'
+    runs-on: [self-hosted, ubuntu-latest]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.resolve.outputs.upload_matrix) }}
+    env:
+      FW_VERSION: ${{ needs.resolve.outputs.version }}
+      FW_CHANNEL: ${{ needs.resolve.outputs.channel }}
+    steps:
+      - name: Require the upload credentials
+        env:
+          FWSITE: ${{ secrets.FWSITE }}
+          FWUPLOAD: ${{ secrets.FWUPLOAD }}
+        run: |
+          # Without FWSITE the action falls back to its own default host, the
+          # test server — fail rather than publish there silently. Without
+          # FWUPLOAD the failure would only surface mid-upload, after the
+          # action's curl retries.
+          if [ -z "$FWSITE" ]; then
+            echo "::error::FWSITE secret is not set — refusing to guess the firmware server"
+            exit 1
+          fi
+          if [ -z "$FWUPLOAD" ]; then
+            echo "::error::FWUPLOAD secret is not set"
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware-${{ matrix.name }}
+          path: firmware
+
+      - name: Upload the OTA image
+        uses: jethome-iot/actions/firmware-upload@99eaf1ffe7fad4972731e9489257f7811395963e
+        with:
+          url: ${{ secrets.FWSITE }}
+          fullslug: JetHome.jxd.firmware.esphome.${{ matrix.device }}.${{ env.FW_CHANNEL }}
+          image_type: esp.ota
+          firmware_file: firmware/${{ matrix.name }}-${{ env.FW_VERSION }}-ota.bin
+          hashpgp_file: firmware/${{ matrix.name }}-${{ env.FW_VERSION }}-ota.bin.md5
+          version: ${{ env.FW_VERSION }}
+          force_overwrite: 'true'
+          generatefirmwareslot: 'true'
+          update_latest: 'false'
+          supported_devices: ${{ matrix.device }}
+          FWUPLOAD: ${{ secrets.FWUPLOAD }}
+
+      # The factory call carries update_latest: within the action, the slot
+      # step applies that flag before it uploads anything, so the OTA image —
+      # the one the fleet fetches — has to be up first.
+      # Decided here, not in resolve: re-running failed jobs reuses the
+      # original resolve outputs, and a newer version may have published
+      # since — the pointer must be checked against the tags as they are when
+      # the upload actually runs. Full versions are compared across esphome
+      # pins. Tag-exists is a conservative proxy for published: a tag whose
+      # own upload failed also suppresses the pointer — the safe direction,
+      # a possible missed forward move is announced by the warning.
+      - name: Decide the latest pointer against current tags
+        id: pointer
+        if: env.FW_CHANNEL == 'release'
+        env:
+          FW_VERSION: ${{ env.FW_VERSION }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # grep -vF drops the peeled ^{} duplicate refs; a fixed string —
+          # an escaped-brace sed address is an invalid interval for GNU sed.
+          MAXTAG=$(git ls-remote --tags "https://github.com/$REPO" 'refs/tags/*' |
+            sed 's|.*refs/tags/||' |
+            { grep -vF '{}$' || true; } |
+            { grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1)
+          if [ -n "$MAXTAG" ] && [ "$FW_VERSION" != "$MAXTAG" ] &&
+            [ "$(printf '%s\n%s\n' "$FW_VERSION" "$MAXTAG" | sort -V | head -n1)" = "$FW_VERSION" ]; then
+            echo "::warning::version $FW_VERSION is superseded by $MAXTAG — publishing without moving the latest pointer"
+            echo "update_latest=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "update_latest=${{ needs.resolve.outputs.update_latest }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload the factory image
+        uses: jethome-iot/actions/firmware-upload@99eaf1ffe7fad4972731e9489257f7811395963e
+        with:
+          url: ${{ secrets.FWSITE }}
+          fullslug: JetHome.jxd.firmware.esphome.${{ matrix.device }}.${{ env.FW_CHANNEL }}
+          image_type: esp.bin
+          firmware_file: firmware/${{ matrix.name }}-${{ env.FW_VERSION }}-factory.bin
+          hashpgp_file: firmware/${{ matrix.name }}-${{ env.FW_VERSION }}-factory.bin.md5
+          version: ${{ env.FW_VERSION }}
+          force_overwrite: 'true'
+          generatefirmwareslot: 'true'
+          update_latest: ${{ steps.pointer.outputs.update_latest || needs.resolve.outputs.update_latest }}
+          supported_devices: ${{ matrix.device }}
+          FWUPLOAD: ${{ secrets.FWUPLOAD }}
+
+  assets:
+    name: Publish release assets
+    needs: [resolve, build]
+    if: >-
+      needs.resolve.outputs.create_release == 'true' ||
+      github.event_name == 'release'
+    runs-on: [self-hosted, ubuntu-latest]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FW_VERSION: ${{ needs.resolve.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: firmware-*
+          merge-multiple: true
+          path: firmware
+
+      - name: Attach assets to the release
+        env:
+          EVENT: ${{ github.event_name }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          CHANNEL: ${{ needs.resolve.outputs.channel }}
+          ESPHOME: ${{ needs.resolve.outputs.esphome }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # Record the allocated version as an annotated tag carrying the run
+          # id in its message: the state a retry of this run reads back in
+          # resolve, and the reason sibling runs from the same commit cannot
+          # hijack each other's versions. Idempotent: an existing tag at
+          # another commit is a collision, at this commit it is re-pointed at
+          # a fresh annotated object.
+          record_version_tag() {
+            local existing tagobj
+            existing=$(gh api "repos/$REPO/git/ref/tags/$VERSION" \
+              --jq '.object.sha + " " + .object.type' 2>/dev/null || true)
+            if [ -n "$existing" ]; then
+              # An annotated tag reports its own object here, not the commit
+              # — peel it before comparing.
+              if [ "${existing#* }" = "tag" ]; then
+                existing=$(gh api "repos/$REPO/git/tags/${existing% *}" \
+                  --jq '.object.sha' 2>/dev/null || true)
+              else
+                existing=${existing% *}
+              fi
+            fi
+            if [ -n "$existing" ] && [ "$existing" != "$SHA" ]; then
+              echo "::error::version tag $VERSION exists at another commit ($existing) — refusing to reuse"
+              exit 1
+            fi
+            tagobj=$(gh api -X POST "repos/$REPO/git/tags" \
+              -f tag="$VERSION" -f message="run ${RUN_ID}" \
+              -f object="$SHA" -f type="commit" --jq '.sha')
+            if [ -n "$existing" ]; then
+              gh api -X PATCH "repos/$REPO/git/refs/tags/$VERSION" \
+                -f sha="$tagobj" -F force=true >/dev/null
+            else
+              gh api -X POST "repos/$REPO/git/refs" \
+                -f ref="refs/tags/$VERSION" -f sha="$tagobj" >/dev/null
+            fi
+          }
+
+          if [ "$EVENT" = "release" ]; then
+            TAG=$EVENT_TAG
+            gh release upload "$TAG" firmware/* --repo "$REPO" --clobber
+            # The firmware version allocated for this run is normally never
+            # the tag a human chose; without recording it, the next
+            # allocation picks the same number again and overwrites the
+            # server images. The dispatch path records its tag too —
+            # gh release create leaves it lightweight.
+            if [ "$VERSION" != "$TAG" ]; then
+              record_version_tag
+            fi
+          else
+            TAG=$VERSION
+            # Claim the version before anything can fail around it: the
+            # annotated tag is what a retry resolves to, and gh release
+            # create happily reuses a tag that already exists.
+            record_version_tag
+            NOTES="ESPHome $ESPHOME firmware $FW_VERSION, built from $SHA."
+            PRERELEASE_FLAG=""
+            if [ "$CHANNEL" = "nightly" ]; then PRERELEASE_FLAG="--prerelease"; fi
+            gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 || \
+              gh release create "$TAG" --repo "$REPO" --target "$SHA" \
+                --title "$TAG" --notes "$NOTES" $PRERELEASE_FLAG
+            gh release upload "$TAG" firmware/* --repo "$REPO" --clobber
+          fi
+          echo "Attached $(find firmware -maxdepth 1 -type f | wc -l) files to release $TAG" >> "$GITHUB_STEP_SUMMARY"

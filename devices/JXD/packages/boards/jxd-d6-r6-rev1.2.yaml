@@ -1,0 +1,173 @@
+pca9554:
+  - id: jxd_d6_r6_exp
+    pin_count: 16
+    address: 0x22
+
+one_wire:
+  - platform: ds2484
+    id: one_wire_bus
+    address: 0x18
+    active_pullup: true
+
+switch:
+  - platform: gpio
+    name: "Relay 1"
+    id: relay_1
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 1
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 0
+      mode:
+        output: true
+
+  - platform: gpio
+    name: "Relay 2"
+    id: relay_2
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 2
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 1
+      mode:
+        output: true
+
+  - platform: gpio
+    name: "Relay 3"
+    id: relay_3
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 3
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 2
+      mode:
+        output: true
+
+  - platform: gpio
+    name: "Relay 4"
+    id: relay_4
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 4
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 3
+      mode:
+        output: true
+
+  - platform: gpio
+    name: "Relay 5"
+    id: relay_5
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 5
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 4
+      mode:
+        output: true
+
+  - platform: gpio
+    name: "Relay 6"
+    id: relay_6
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 6
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 5
+      mode:
+        output: true
+
+binary_sensor:
+  - platform: gpio
+    name: "Input 1"
+    id: input_1
+    web_server:
+      sorting_group_id: group_inputs
+      sorting_weight: 1
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 8
+      mode:
+        input: true
+
+  - platform: gpio
+    name: "Input 2"
+    id: input_2
+    web_server:
+      sorting_group_id: group_inputs
+      sorting_weight: 2
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 9
+      mode:
+        input: true
+
+  - platform: gpio
+    name: "Input 3"
+    id: input_3
+    web_server:
+      sorting_group_id: group_inputs
+      sorting_weight: 3
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 10
+      mode:
+        input: true
+
+  - platform: gpio
+    name: "Input 4"
+    id: input_4
+    web_server:
+      sorting_group_id: group_inputs
+      sorting_weight: 4
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 11
+      mode:
+        input: true
+
+  - platform: gpio
+    name: "Input 5"
+    id: input_5
+    web_server:
+      sorting_group_id: group_inputs
+      sorting_weight: 5
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 12
+      mode:
+        input: true
+
+  - platform: gpio
+    name: "Input 6"
+    id: input_6
+    web_server:
+      sorting_group_id: group_inputs
+      sorting_weight: 6
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 13
+      mode:
+        input: true
+
+globals:
+  - id: relays
+    type: std::vector<switch_::Switch *>
+
+  - id: inputs
+    type: std::vector<binary_sensor::BinarySensor *>
+
+esphome:
+  on_boot:
+    - priority: 800
+      then:
+        - lambda: |-
+            id(relays) = {id(relay_1), id(relay_2), id(relay_3),
+                          id(relay_4), id(relay_5), id(relay_6)};
+            id(inputs) = {id(input_1), id(input_2), id(input_3),
+                          id(input_4), id(input_5), id(input_6)};

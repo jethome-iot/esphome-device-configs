@@ -1,0 +1,86 @@
+globals:
+  # Relay highlighted on the status page; LEFT/RIGHT move it, CENTER toggles the relay.
+  - id: status_relay_sel
+    type: int
+    initial_value: '0'
+
+  # First temperature row shown; UP/DOWN move it.
+  - id: status_temp_scroll
+    type: int
+    initial_value: '0'
+
+display:
+  - platform: ssd1306_i2c
+    id: !extend display1
+    pages:
+      - id: status_page
+        lambda: |-
+          const auto black = Color(0, 0, 0);
+          const int radius = 4;
+          const int x_spacing = 15;
+          const int x_start = 5;
+
+          it.print(0, 0, id(f5x7), "Relays");
+          int x = x_start;
+          for (size_t i = 0; i < id(relays).size(); i++) {
+            if (id(relays)[i]->state) {
+              it.filled_circle(x, 15, radius);
+            } else {
+              it.circle(x, 15, radius);
+            }
+            if ((int) i == id(status_relay_sel)) {
+              it.filled_rectangle(x - 3, 21, 7, 9);
+              it.printf(x - 2, 22, id(f5x7), black, "%d", (int) i + 1);
+            } else {
+              it.printf(x - 2, 22, id(f5x7), "%d", (int) i + 1);
+            }
+            x += x_spacing;
+          }
+
+          it.print(0, 32, id(f5x7), "Inputs");
+          x = x_start;
+          int num = 1;
+          for (auto *input : id(inputs)) {
+            if (input->state) {
+              it.filled_circle(x, 47, radius);
+            } else {
+              it.circle(x, 47, radius);
+            }
+            it.printf(x - 2, 54, id(f5x7), "%d", num++);
+            x += x_spacing;
+          }
+
+          // Bound slots only, three rows; UP/DOWN scroll.
+          const int rows = 3;
+          auto &slots = id(dallas_slots);
+          const size_t count = std::min(id(temperatures).size(), std::size(slots));
+          int bound = 0;
+          for (size_t i = 0; i < count; i++)
+            bound += slots[i] != 0;
+          int &scroll = id(status_temp_scroll);
+          scroll = std::clamp(scroll, 0, std::max(bound - rows, 0));
+
+          it.print(92, 0, id(f5x7), "Temp");
+          if (scroll > 0)
+            it.filled_triangle(117, 6, 121, 6, 119, 2);
+          if (scroll + rows < bound)
+            it.filled_triangle(123, 2, 127, 2, 125, 6);
+
+          int y = 11;
+          int skip = scroll;
+          int shown = 0;
+          for (size_t i = 0; i < count; i++) {
+            if (slots[i] == 0 || skip-- > 0)
+              continue;
+            if (shown++ == rows)
+              break;
+            auto *sensor = id(temperatures)[i];
+            it.printf(92, y, id(f5x7), "%.7s", sensor->get_name().c_str());
+            y += 8;
+            if (std::isnan(sensor->state)) {
+              it.print(92, y, id(f5x7), "--.-");
+            } else {
+              it.printf(92, y, id(f5x7), "%.1f", sensor->state);
+            }
+            y += 11;
+          }

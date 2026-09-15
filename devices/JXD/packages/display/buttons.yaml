@@ -1,0 +1,177 @@
+pca9554:
+  - id: jxd_display_exp
+    pin_count: 16
+    address: 0x24
+
+binary_sensor:
+  - platform: gpio
+    name: "UP"
+    id: up_button_id
+    internal: true
+    pin:
+      pca9554: jxd_display_exp
+      number: 8
+      mode:
+        input: true
+    on_press:
+      - lambda: |-
+          if (id(display_menu).is_active()) {
+            id(display_menu).up();
+          } else if (id(display1).get_active_page() == id(status_page)) {
+            id(status_temp_scroll)--;
+            id(display1).update();
+          }
+      - script.execute: check_blank_page
+
+  - platform: gpio
+    name: "DOWN"
+    id: down_button_id
+    internal: true
+    pin:
+      pca9554: jxd_display_exp
+      number: 9
+      mode:
+        input: true
+    on_press:
+      - lambda: |-
+          if (id(display_menu).is_active()) {
+            id(display_menu).down();
+          } else if (id(display1).get_active_page() == id(status_page)) {
+            id(status_temp_scroll)++;
+            id(display1).update();
+          }
+      - script.execute: check_blank_page
+
+  - platform: gpio
+    name: "LEFT"
+    id: left_button_id
+    internal: true
+    pin:
+      pca9554: jxd_display_exp
+      number: 10
+      mode:
+        input: true
+    on_press:
+      - lambda: |-
+          auto *page = id(display1).get_active_page();
+          if (id(display_menu).is_active()) {
+            id(display_menu).left();
+          } else if (page == id(main_page) || page == id(blank_page)) {
+            id(status_relay_sel) = 0;
+            id(status_temp_scroll) = 0;
+            id(display1).show_page(id(status_page));
+          } else if (page == id(status_page) && !id(relays).empty()) {
+            int n = id(relays).size();
+            id(status_relay_sel) = (id(status_relay_sel) + n - 1) % n;
+            id(display1).update();
+          }
+      - script.execute: check_blank_page
+
+  - platform: gpio
+    name: "RIGHT"
+    id: right_button_id
+    internal: true
+    pin:
+      pca9554: jxd_display_exp
+      number: 11
+      mode:
+        input: true
+    on_press:
+      - lambda: |-
+          auto *page = id(display1).get_active_page();
+          if (id(display_menu).is_active()) {
+            id(display_menu).right();
+          } else if (page == id(main_page) || page == id(blank_page)) {
+            id(display1).show_page(id(time_page));
+          } else if (page == id(status_page) && !id(relays).empty()) {
+            int n = id(relays).size();
+            id(status_relay_sel) = (id(status_relay_sel) + 1) % n;
+            id(display1).update();
+          }
+      - script.execute: check_blank_page
+
+  - platform: gpio
+    name: "CENTER"
+    id: center_button_id
+    internal: true
+    pin:
+      pca9554: jxd_display_exp
+      number: 12
+      mode:
+        input: true
+    on_press:
+      - lambda: |-
+          auto *page = id(display1).get_active_page();
+          if (id(display_menu).is_active()) {
+            id(display_menu).enter();
+          } else if (page == id(main_page)) {
+            id(display_menu).show_main();
+          } else if (page == id(status_page)) {
+            int sel = id(status_relay_sel);
+            if (sel >= 0 && sel < (int) id(relays).size()) {
+              id(relays)[sel]->toggle();
+              id(display1).update();
+            }
+          }
+      - script.execute: check_blank_page
+
+  - platform: gpio
+    name: "HOME"
+    internal: true
+    pin:
+      pca9554: jxd_display_exp
+      number: 13
+      mode:
+        input: true
+    on_press:
+      - lambda: |-
+          if (id(display1).get_active_page() != id(main_page)) {
+            id(display_menu).hide();
+            id(display1).show_page(id(main_page));
+          }
+      - script.execute: check_blank_page
+
+  - platform: gpio
+    name: "BACK"
+    internal: true
+    pin:
+      pca9554: jxd_display_exp
+      number: 14
+      mode:
+        input: true
+    on_press:
+      - lambda: |-
+          // leave_menu_() is protected upstream; reached via pointer-to-member.
+          struct MenuBack : public display_menu_base::DisplayMenuComponent {
+            using Menu = display_menu_base::DisplayMenuComponent;
+
+            static bool step_back(Menu *menu) {
+              auto editing = static_cast<bool Menu::*>(&MenuBack::editing_);
+              auto finish_editing = static_cast<void (Menu::*)()>(&MenuBack::finish_editing_);
+              auto leave_menu = static_cast<bool (Menu::*)()>(&MenuBack::leave_menu_);
+              auto redraw = static_cast<void (Menu::*)()>(&MenuBack::draw_and_update);
+
+              if (menu->*editing) {
+                (menu->*finish_editing)();
+              } else if (!(menu->*leave_menu)()) {
+                return false;
+              }
+              (menu->*redraw)();
+              return true;
+            }
+          };
+
+          auto *page = id(display1).get_active_page();
+          if (id(display_menu).is_active()) {
+            if (!MenuBack::step_back(id(display_menu))) {
+              id(display_menu).hide();
+              id(display1).show_page(id(main_page));
+            }
+          } else if (page == id(blank_page)) {
+            id(display_off_s) = 0;
+            id(display1).show_page(id(main_page));
+          } else if (page == id(main_page)) {
+            id(display1).show_page(id(blank_page));
+          } else {
+            id(display1).show_page(id(main_page));
+          }

@@ -1,0 +1,13 @@
+# The firmwares this repository builds. The single source of truth for CI
+# (.github/workflows/build.yml) and releases (.github/workflows/release.yml).
+#
+# config - device config path, relative to the repository root.
+# device - slug level in the fw.jethome.com hierarchy
+#          (JetHome.jxd.firmware.esphome.<device>.<channel>).
+# upload - copy the ota and factory images to fw.jethome.com during a release.
+#          Binaries of upload: false firmwares still ship as GitHub release
+#          assets.
+firmwares:
+  - config: devices/JXD/jxd-r6-e1eth-lcd.yaml
+    device: jxd-r6-e1eth-lcd
+    upload: true

@@ -1,0 +1,205 @@
+name: ESPHome release check
+
+# Weekly: a new upstream ESPHome release is compared against the pin in
+# requirements.txt. On a new version, every firmware is compiled with it and
+# an issue reports the result — the go/no-go for merging the dependabot bump
+# PR that arrives separately.
+
+on:
+  schedule:
+    # Mondays 06:23 UTC, off the top of the hour like CI etiquette suggests.
+    - cron: '23 6 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: esphome-release-check
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  # See build.yml: builds must not depend on the runner's timezone.
+  TZ: Etc/UTC
+
+jobs:
+  check:
+    name: Check for a new ESPHome release
+    runs-on: [self-hosted, ubuntu-latest]
+    outputs:
+      latest: ${{ steps.check.outputs.latest }}
+      known: ${{ steps.check.outputs.known }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Compare the pin with the latest upstream release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          LATEST=$(gh api repos/esphome/esphome/releases/latest --jq .tag_name)
+          # A strict regex, not a glob: the tag flows into shell commands
+          # downstream, and glob `*` would pass shell metacharacters through.
+          if ! printf '%s' "$LATEST" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::unexpected esphome release tag: $LATEST"
+            exit 1
+          fi
+
+          PIN=$(sed -n 's/^esphome==\([0-9][0-9.]*\)$/\1/p' requirements.txt)
+          if [ -z "$PIN" ]; then
+            echo "::error::cannot parse the esphome pin from requirements.txt"
+            exit 1
+          fi
+
+          KNOWN=true
+          [ "$LATEST" = "$PIN" ] || KNOWN=false
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "known=$KNOWN" >> "$GITHUB_OUTPUT"
+
+          if [ "$KNOWN" = true ]; then VERDICT='up to date'; else VERDICT='new release found'; fi
+          echo "esphome pin: \`$PIN\`, upstream latest: \`$LATEST\` — $VERDICT" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+  build-matrix:
+    name: Generate build matrix
+    needs: check
+    if: needs.check.outputs.known == 'false'
+    runs-on: [self-hosted, ubuntu-latest]
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Same key as the build job below: whoever runs first primes the cache
+      # for both.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install the manifest tooling
+        run: pip install -r requirements-dev.txt
+
+      - name: Generate matrix
+        id: matrix
+        run: |
+          set -o pipefail
+          matrix=$(python scripts/firmware-matrix.py build)
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build with esphome ${{ needs.check.outputs.latest }}
+    needs: [check, build-matrix]
+    if: needs.check.outputs.known == 'false'
+    runs-on: [self-hosted, ubuntu-latest]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install the manifest tooling
+        run: pip install -r requirements-dev.txt
+
+      - name: Install the new ESPHome
+        # The candidate version, not the pinned one: this build answers
+        # whether the pin can be bumped. It arrives through env — upstream
+        # data never reaches this script as inline interpolation.
+        env:
+          ESPHOME_CANDIDATE: ${{ needs.check.outputs.latest }}
+        run: pip install "esphome==$ESPHOME_CANDIDATE"
+
+      # The exact key makes repeat runs against the same candidate a hit; the
+      # prefix fallback seeds a new candidate from the most recent toolchains
+      # entry (a prior candidate's or the Build workflow's), and platformio
+      # downloads only the gaps. This workflow only runs from the default
+      # branch (schedule, dispatch), so saves land in the shared scope.
+      - name: Cache toolchains
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/esphome
+          key: toolchains-${{ needs.check.outputs.latest }}
+          restore-keys: toolchains-
+
+      - name: Compile
+        id: compile
+        run: |
+          if esphome compile "${{ matrix.config }}"; then
+            result=pass
+          else
+            result=FAIL
+          fi
+          # Record the result before propagating the failure: the issue job
+          # needs every row, failed firmwares included, and reports
+          # needs.build.result as the overall verdict.
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          echo "${{ matrix.config }},$result" > "check-result-${{ matrix.name }}.csv"
+          [ "$result" = pass ] || exit 1
+
+      - uses: actions/upload-artifact@v4
+        # The issue job needs every result, and must see failures too.
+        if: ${{ !cancelled() }}
+        with:
+          name: check-result-${{ matrix.name }}
+          path: "check-result-${{ matrix.name }}.csv"
+          if-no-files-found: error
+          retention-days: 1
+
+  issue:
+    name: Report the release
+    needs: [check, build]
+    if: >-
+      ${{ !cancelled() && needs.check.outputs.known == 'false' &&
+      needs.build.result != 'skipped' }}
+    runs-on: [self-hosted, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: check-result-*
+          merge-multiple: true
+          path: results
+
+      - name: Create the release issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ needs.check.outputs.latest }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "ESPHome [$LATEST](https://github.com/esphome/esphome/releases/tag/$LATEST) \
+              is out; \`requirements.txt\` still pins the older version."
+            echo
+            echo "Overall test build: **$BUILD_RESULT**."
+            echo
+            echo "| firmware | build with $LATEST |"
+            echo "|---|---|"
+            sort results/check-result*.csv | while IFS=, read -r config result; do
+              echo "| $config | $result |"
+            done
+            echo
+            echo "Next step: merge the dependabot PR bumping \`esphome==$LATEST\` \
+              — it is build-tested by the regular Build workflow like any PR."
+          } > issue.md
+
+          TITLE="ESPHome $LATEST released — build status"
+          if gh issue list --state open --search "$TITLE in:title" --repo "$GITHUB_REPOSITORY" | grep -q .; then
+            echo "::warning::an open issue for $LATEST already exists, not duplicating it"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "$TITLE" --body-file issue.md
+          fi

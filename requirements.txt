@@ -1,0 +1,3 @@
+# ESPHome and dependencies
+# Pin to specific version for reproducibility
+esphome==2026.8.2

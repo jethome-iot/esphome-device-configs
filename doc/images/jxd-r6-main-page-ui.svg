@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="768" height="384" viewBox="0 0 128 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="128" height="64" fill="#000000"/>
+
+  <!-- Main page - 4 rows of information, vertically centered -->
+
+  <!-- Row 1: Device name with MAC -->
+  <text x="2" y="10" font-family="monospace" font-size="10" fill="#FFFFFF">JXD-R6E1ETH-LCD-E918</text>
+
+  <!-- Row 2: IP address -->
+  <text x="2" y="25" font-family="monospace" font-size="10" fill="#FFFFFF">IP: 192.168.1.100</text>
+
+  <!-- Row 3: Uptime -->
+  <text x="2" y="40" font-family="monospace" font-size="10" fill="#FFFFFF">UP: 2d 5h 30m</text>
+
+  <!-- Row 4: Input voltage -->
+  <text x="2" y="55" font-family="monospace" font-size="10" fill="#FFFFFF">VIN: 12.3V</text>
+
+  <!-- Status icons, bottom right: link (res/ethernet.svg) and Home Assistant (res/ha.svg) -->
+  <g fill="#FFFFFF">
+    <g transform="translate(88 45)">
+      <path d="M1 1h13v1h-13zM1 2h1v1h-1zM3 2h1v1h-1zM5 2h1v1h-1zM7 2h1v1h-1zM9 2h1v1h-1zM11 2h1v1h-1zM13 2h1v1h-1zM1 3h1v1h-1zM3 3h1v1h-1zM5 3h1v1h-1zM7 3h1v1h-1zM9 3h1v1h-1zM11 3h1v1h-1zM13 3h1v1h-1zM1 4h1v1h-1zM3 4h1v1h-1zM5 4h1v1h-1zM7 4h1v1h-1zM9 4h1v1h-1zM11 4h1v1h-1zM13 4h1v1h-1zM1 5h1v1h-1zM13 5h1v1h-1zM1 6h1v1h-1zM13 6h1v1h-1zM1 7h1v1h-1zM13 7h1v1h-1zM1 8h1v1h-1zM13 8h1v1h-1zM1 9h1v1h-1zM13 9h1v1h-1zM1 10h13v1h-13zM6 11h3v1h-3zM6 12h3v1h-3zM6 13h3v1h-3zM6 14h3v1h-3z"/>
+    </g>
+    <g transform="translate(109 45)">
+      <path d="M7 1h2v1h-2zM6 2h1v1h-1zM9 2h1v1h-1zM5 3h1v1h-1zM10 3h1v1h-1zM4 4h1v1h-1zM11 4h1v1h-1zM3 5h1v1h-1zM12 5h1v1h-1zM2 6h1v1h-1zM13 6h1v1h-1zM1 7h1v1h-1zM7 7h2v1h-2zM14 7h1v1h-1zM1 8h1v1h-1zM7 8h2v1h-2zM14 8h1v1h-1zM1 9h1v1h-1zM14 9h1v1h-1zM1 10h1v1h-1zM4 10h2v1h-2zM10 10h2v1h-2zM14 10h1v1h-1zM1 11h1v1h-1zM4 11h2v1h-2zM10 11h2v1h-2zM14 11h1v1h-1zM1 12h1v1h-1zM14 12h1v1h-1zM1 13h1v1h-1zM14 13h1v1h-1zM1 14h14v1h-14z"/>
+    </g>
+  </g>
+</svg>

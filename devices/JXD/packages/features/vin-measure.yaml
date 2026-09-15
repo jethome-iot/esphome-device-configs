@@ -1,0 +1,49 @@
+sensor:
+  - platform: adc
+    name: "VIN voltage"
+    id: vin_meas
+    pin: GPIO35
+    attenuation: 2.5dB
+    accuracy_decimals: 2
+    entity_category: diagnostic
+    internal: true
+    update_interval: 100ms
+    filters:
+      - multiply: 32.0
+      - median:
+          window_size: 20
+          send_every: 20
+          send_first_at: 10
+      - clamp:
+          min_value: 0
+      - lambda: |-
+          if (x <= 2.8) return 0;
+          return x;
+
+  - platform: adc
+    name: "PoE voltage"
+    id: poe_voltage
+    pin: GPIO37
+    attenuation: 2.5dB
+    accuracy_decimals: 2
+    entity_category: diagnostic
+    internal: true
+    update_interval: 100ms
+    filters:
+      - multiply: 32.0
+      - median:
+          window_size: 20
+          send_every: 20
+          send_first_at: 10
+      - clamp:
+          min_value: 0
+      - lambda: |-
+          if (x <= 2.8) return 0;
+          return x;
+
+  - platform: template
+    id: input_voltage
+    internal: true
+    update_interval: 1s
+    lambda: |-
+      return std::max(id(vin_meas).state, id(poe_voltage).state);

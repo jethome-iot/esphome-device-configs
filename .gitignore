@@ -1,0 +1,25 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+.ruff_cache/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+.env
+env/
+venv/
+
+# Build directory
+.esphome
+
+# ESPHome drops a starter .gitignore next to any config it generates code for,
+# so a compile leaves one behind next to the device configs, and in dist/.
+/dist/.gitignore
+/devices/*/.gitignore
+
+# Credentials
+secrets.yaml
+
+# vscode
+.vscode/*

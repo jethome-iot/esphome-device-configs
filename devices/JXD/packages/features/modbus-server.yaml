@@ -1,0 +1,230 @@
+# RS485 bus on jxm_uart2 (pins: packages/features/uarts.yaml). Address, baud rate,
+# parity and stop bits are settings kept in flash and applied at boot.
+modbus:
+  - id: modbus_bus
+    uart_id: jxm_uart2
+    role: server
+
+number:
+  - platform: template
+    name: "Modbus address"
+    id: modbus_address
+    web_server:
+      sorting_group_id: group_modbus
+      sorting_weight: 1
+    entity_category: config
+    mode: box
+    optimistic: true
+    restore_value: true
+    initial_value: 1
+    min_value: 1
+    max_value: 247
+    step: 1
+
+select:
+  - platform: template
+    name: "Modbus baud rate"
+    id: modbus_baud_rate
+    web_server:
+      sorting_group_id: group_modbus
+      sorting_weight: 2
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_option: "9600"
+    options:
+      - "1200"
+      - "2400"
+      - "4800"
+      - "9600"
+      - "19200"
+      - "38400"
+      - "57600"
+      - "115200"
+
+  # Order matches uart::UARTParityOptions.
+  - platform: template
+    name: "Modbus parity"
+    id: modbus_parity
+    web_server:
+      sorting_group_id: group_modbus
+      sorting_weight: 3
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options:
+      - "None"
+      - "Even"
+      - "Odd"
+
+  - platform: template
+    name: "Modbus stop bits"
+    id: modbus_stop_bits
+    web_server:
+      sorting_group_id: group_modbus
+      sorting_weight: 4
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_option: "1"
+    options:
+      - "1"
+      - "2"
+
+esphome:
+  on_boot:
+    - priority: 700
+      then:
+        - lambda: |-
+            id(modbus_server1).set_address((uint8_t) id(modbus_address).state);
+            auto *bus = id(jxm_uart2);
+            bus->set_baud_rate(parse_number<uint32_t>(id(modbus_baud_rate).current_option().c_str()).value_or(9600));
+            bus->set_stop_bits(parse_number<uint8_t>(id(modbus_stop_bits).current_option().c_str()).value_or(1));
+            bus->set_parity((uart::UARTParityOptions) id(modbus_parity).active_index().value_or(0));
+            bus->load_settings(false);
+
+# FC 0x01 and FC 0x02 read one shared bit table, so a bit counts as a coil or
+# as a discrete input only by having a write_lambda or not:
+#
+#   0x0000-0x0005  relays 1-6, read/write
+#   0x0010-0x0015  inputs 1-6, read only
+#
+# FC 0x03 and FC 0x04 likewise read one register table:
+#
+#   0x0000-0x0007  temperature slots 1-8, signed, 0.1 °C; 0x8000 = no reading
+#
+# Anything else answers 0 (courtesy_response) instead of an exception.
+modbus_server:
+  - id: modbus_server1
+    modbus_id: modbus_bus
+    address: 0x01
+    courtesy_response:
+      enabled: true
+    registers:
+      - address: 0x0000
+        value_type: S_WORD
+        read_lambda: |-
+          float t = id(temp_1).state;
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
+
+      - address: 0x0001
+        value_type: S_WORD
+        read_lambda: |-
+          float t = id(temp_2).state;
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
+
+      - address: 0x0002
+        value_type: S_WORD
+        read_lambda: |-
+          float t = id(temp_3).state;
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
+
+      - address: 0x0003
+        value_type: S_WORD
+        read_lambda: |-
+          float t = id(temp_4).state;
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
+
+      - address: 0x0004
+        value_type: S_WORD
+        read_lambda: |-
+          float t = id(temp_5).state;
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
+
+      - address: 0x0005
+        value_type: S_WORD
+        read_lambda: |-
+          float t = id(temp_6).state;
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
+
+      - address: 0x0006
+        value_type: S_WORD
+        read_lambda: |-
+          float t = id(temp_7).state;
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
+
+      - address: 0x0007
+        value_type: S_WORD
+        read_lambda: |-
+          float t = id(temp_8).state;
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
+
+    bits:
+      - address: 0x0000
+        read_lambda: 'return id(relay_1).state;'
+        write_lambda: |-
+          if (x) {
+            id(relay_1).turn_on();
+          } else {
+            id(relay_1).turn_off();
+          }
+          return true;
+
+      - address: 0x0001
+        read_lambda: 'return id(relay_2).state;'
+        write_lambda: |-
+          if (x) {
+            id(relay_2).turn_on();
+          } else {
+            id(relay_2).turn_off();
+          }
+          return true;
+
+      - address: 0x0002
+        read_lambda: 'return id(relay_3).state;'
+        write_lambda: |-
+          if (x) {
+            id(relay_3).turn_on();
+          } else {
+            id(relay_3).turn_off();
+          }
+          return true;
+
+      - address: 0x0003
+        read_lambda: 'return id(relay_4).state;'
+        write_lambda: |-
+          if (x) {
+            id(relay_4).turn_on();
+          } else {
+            id(relay_4).turn_off();
+          }
+          return true;
+
+      - address: 0x0004
+        read_lambda: 'return id(relay_5).state;'
+        write_lambda: |-
+          if (x) {
+            id(relay_5).turn_on();
+          } else {
+            id(relay_5).turn_off();
+          }
+          return true;
+
+      - address: 0x0005
+        read_lambda: 'return id(relay_6).state;'
+        write_lambda: |-
+          if (x) {
+            id(relay_6).turn_on();
+          } else {
+            id(relay_6).turn_off();
+          }
+          return true;
+
+      - address: 0x0010
+        read_lambda: 'return id(input_1).state;'
+
+      - address: 0x0011
+        read_lambda: 'return id(input_2).state;'
+
+      - address: 0x0012
+        read_lambda: 'return id(input_3).state;'
+
+      - address: 0x0013
+        read_lambda: 'return id(input_4).state;'
+
+      - address: 0x0014
+        read_lambda: 'return id(input_5).state;'
+
+      - address: 0x0015
+        read_lambda: 'return id(input_6).state;'

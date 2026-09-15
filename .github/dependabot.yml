@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # Actions referenced by .github/workflows (checkout, setup-python, cache).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  # requirements.txt (esphome pin) and requirements-dev.txt (pre-commit).
+  # An esphome bump PR is build-tested by the Build workflow like any other PR.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
