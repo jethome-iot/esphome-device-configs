@@ -73,7 +73,7 @@ reaches upstream internals, see [ARCHITECTURE.md](ARCHITECTURE.md).
 `dev` is the default branch: pull requests target it, and Build runs on every push to it.
 `master` is the release branch — `dashboard_import` and the asset URLs in `dist/` point at
 `@master`, so it moves only when `dev` is merged into it for a release. The
-`no-commit-to-branch` hook keeps commits off both.
+`no-commit-to-branch` hook keeps commits off `master`.
 
 ## Style
 
