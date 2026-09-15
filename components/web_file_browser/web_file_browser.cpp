@@ -77,7 +77,7 @@ void WebFileBrowser::handleRequest(AsyncWebServerRequest *request) {
 }
 
 void WebFileBrowser::handleUpload(AsyncWebServerRequest *request, const std::string &filename, size_t index,
-                                     uint8_t *data, size_t len, bool final) {
+                                  uint8_t *data, size_t len, bool final) {
   if (!this->storage_->is_mounted()) {
     return;
   }
@@ -182,8 +182,7 @@ void WebFileBrowser::handleUpload(AsyncWebServerRequest *request, const std::str
 // Only /write carries a raw body; every other POST is form-encoded and lands in
 // the request parameters. The chunks go straight into the file: a text edit can
 // be up to 1 MB and buffering it would not fit next to the rest of the heap.
-void WebFileBrowser::handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index,
-                                size_t total) {
+void WebFileBrowser::handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
 #ifdef USE_ESP32
   if (!this->url_(request).starts_with(this->url_prefix_ + "/write"))
     return;

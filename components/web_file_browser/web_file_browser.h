@@ -20,8 +20,7 @@ namespace web_file_browser {
 // dashboard's Files screen is its client; the TS contract lives in client/.
 class WebFileBrowser : public AsyncWebHandler, public Component {
  public:
-  WebFileBrowser(web_server_base::WebServerBase *base,
-                    filesystem_storage_abstract::FilesystemStorageAbstract *storage)
+  WebFileBrowser(web_server_base::WebServerBase *base, filesystem_storage_abstract::FilesystemStorageAbstract *storage)
       : base_(base), storage_(storage) {}
 
   void setup() override;
