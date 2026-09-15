@@ -180,7 +180,8 @@ esphome:
               });
               menu->add_item(reading);
               auto *address = new MenuItem(MENU_ITEM_LABEL);
-              address->set_text(str_sprintf("0x%016" PRIx64, scan->address(slot)));
+              const uint64_t rom = scan->address(slot);
+              address->set_text(rom ? str_sprintf("0x%016" PRIx64, rom) : std::string("no address"));
               menu->add_item(address);
               auto *question = new MenuItem(MENU_ITEM_LABEL);
               question->set_text("Forget slot?");

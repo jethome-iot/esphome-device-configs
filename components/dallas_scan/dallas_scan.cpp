@@ -54,6 +54,11 @@ void DallasScan::setup() {
   this->missing_.assign(this->slots_.size(), false);
   const auto &devices = this->bus_->get_devices();
   for (size_t slot = 0; slot < this->slots_.size(); slot++) {
+    if (auto *given = this->given_[slot]; given != nullptr) {
+      this->sensors_[slot] = given;
+      this->bound_.push_back(given);
+      continue;
+    }
     const uint64_t address = this->slots_[slot];
     if (address == 0)
       continue;
@@ -73,6 +78,11 @@ void DallasScan::setup() {
 void DallasScan::bind_devices_() {
   const auto before = this->slots_;
   const auto begin = this->slots_.begin(), end = this->slots_.end();
+  // A slot served by a YAML sensor holds its pinned address, if any, and nothing else.
+  for (size_t slot = 0; slot < this->slots_.size(); slot++) {
+    if (this->given_[slot] != nullptr)
+      this->slots_[slot] = 0;
+  }
   // A pinned address owns its slot; the stored table follows.
   for (const auto &[slot, address] : this->pins_) {
     if (slot >= this->slots_.size())
@@ -87,13 +97,15 @@ void DallasScan::bind_devices_() {
     }
     if (std::find(begin, end, address) != end)
       continue;
-    auto slot = std::find(begin, end, (uint64_t) 0);
-    if (slot == end) {
+    size_t slot = 0;
+    while (slot < this->slots_.size() && (this->slots_[slot] != 0 || this->given_[slot] != nullptr))
+      slot++;
+    if (slot == this->slots_.size()) {
       ESP_LOGW(TAG, "No free slot for 0x%016" PRIx64, address);
       continue;
     }
-    *slot = address;
-    ESP_LOGI(TAG, "0x%016" PRIx64 " takes slot %u", address, (unsigned) (slot - begin) + 1);
+    this->slots_[slot] = address;
+    ESP_LOGI(TAG, "0x%016" PRIx64 " takes slot %u", address, (unsigned) slot + 1);
   }
   if (this->slots_ != before)
     this->save_table_();
@@ -149,7 +161,8 @@ void DallasScan::update() {
 }
 
 void DallasScan::read_slot_(size_t slot) {
-  while (slot < this->slots_.size() && this->sensors_[slot] == nullptr)
+  // Slots served by YAML sensors are theirs to read.
+  while (slot < this->slots_.size() && (this->sensors_[slot] == nullptr || this->given_[slot] != nullptr))
     slot++;
   if (slot >= this->slots_.size()) {
     this->update_status_();
@@ -241,9 +254,14 @@ void DallasScan::dump_config() {
                 (unsigned) this->slots_.size(), this->resolution_);
   LOG_UPDATE_INTERVAL(this);
   for (size_t slot = 0; slot < this->slots_.size(); slot++) {
-    if (this->slots_[slot] == 0)
+    auto *sensor = this->sensors_[slot];
+    if (sensor == nullptr)
       continue;
-    ESP_LOGCONFIG(TAG, "  %s: 0x%016" PRIx64 " (%s)", this->sensors_[slot]->get_name().c_str(), this->slots_[slot],
+    if (this->given_[slot] != nullptr) {
+      ESP_LOGCONFIG(TAG, "  %s: YAML sensor in slot %u", sensor->get_name().c_str(), (unsigned) slot + 1);
+      continue;
+    }
+    ESP_LOGCONFIG(TAG, "  %s: 0x%016" PRIx64 " (%s)", sensor->get_name().c_str(), this->slots_[slot],
                   LOG_STR_ARG(this->bus_->get_model_str(this->slots_[slot] & 0xff)));
   }
 }

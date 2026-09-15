@@ -22,6 +22,7 @@ class DallasScan : public PollingComponent {
   void set_one_wire_bus(one_wire::OneWireBus *bus) { this->bus_ = bus; }
   void set_max_sensors(uint8_t count) {
     this->slots_.assign(count, 0);
+    this->given_.assign(count, nullptr);
     this->filters_.resize(count);
   }
   void set_name_prefix(const char *prefix) { this->name_prefix_ = prefix; }
@@ -30,6 +31,8 @@ class DallasScan : public PollingComponent {
   void set_preference_hash(uint32_t hash) { this->preference_hash_ = hash; }
   /// Pin a slot to a ROM address for good.
   void pin(uint8_t slot, uint64_t address) { this->pins_.emplace_back(slot, address); }
+  /// A YAML sensor serves the slot: it reads its device itself, the component only lists it.
+  void set_sensor(size_t slot, sensor::Sensor *sensor) { this->given_[slot] = sensor; }
   /// The filter chain of a slot's sensor, attached when the sensor is created.
   void set_filters(size_t slot, std::vector<sensor::Filter *> filters) { this->filters_[slot] = std::move(filters); }
 #ifdef USE_WEBSERVER_SORTING
@@ -71,6 +74,7 @@ class DallasScan : public PollingComponent {
   std::vector<std::pair<uint8_t, uint64_t>> pins_;
   std::vector<uint64_t> slots_;            // slot -> ROM address, 0 = empty
   std::vector<std::vector<sensor::Filter *>> filters_;  // slot -> filter chain
+  std::vector<sensor::Sensor *> given_;    // slot -> YAML sensor serving it, nullptr = none
   std::vector<sensor::Sensor *> sensors_;  // slot -> sensor, nullptr = empty
   std::vector<sensor::Sensor *> bound_;    // sensors_ without the gaps
   std::vector<bool> missing_;              // slot -> the sensor did not answer the last read

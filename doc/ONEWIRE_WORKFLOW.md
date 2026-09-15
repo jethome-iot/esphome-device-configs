@@ -27,15 +27,36 @@ log lists them too (`ds2484: Found devices`).
 
 ## Pinning
 
-Add the slot to `addresses:` in `devices/JXD/packages/features/temperature.yaml`:
+Add the slot to `slots:` in `devices/JXD/packages/features/temperature.yaml`:
 
 ```yaml
 dallas_scan:
-  addresses:
+  slots:
     2: 0xeb01227905460228
 ```
 
 A pinned slot always holds that sensor; forgetting it has no effect.
+
+## Your own sensor in a slot
+
+A slot can be served by a sensor declared in YAML, with its own name, id and filters; it then
+shows up in the menu, on the status page and over Modbus like the others:
+
+```yaml
+sensor:
+  - platform: dallas_temp
+    id: boiler
+    name: "Boiler"
+    address: 0x8a0122791699dd28
+    filters:
+      - filter_out: 85.0
+
+dallas_scan:
+  slots:
+    4:
+      address: 0x8a0122791699dd28
+      sensor: boiler
+```
 
 ## Forgetting
 
@@ -49,21 +70,6 @@ Raise `max_sensors` in `devices/JXD/packages/features/temperature.yaml` and add 
 `devices/JXD/packages/features/modbus-server.yaml`, the README line and `TEMP_COUNT` in
 `scripts/modbus_probe.py`. Changing `max_sensors` empties the table once.
 
-## The `dallas_scan` component
+## The component
 
-`components/dallas_scan` does the scanning; the sensors are not in the YAML. The 85.0 °C
-power-on value is dropped before the filters see a reading.
-
-| Option            | Default | Meaning                                                        |
-| ----------------- | ------- | -------------------------------------------------------------- |
-| `one_wire_id`     |         | The bus to scan                                                |
-| `max_sensors`     | `8`     | Slots, and the size of the table in flash                      |
-| `name_prefix`     | `Temp`  | Sensor names are the prefix, a space and the slot number       |
-| `resolution`      | `12`    | Bits, 9-12, written to the sensors at boot                     |
-| `addresses`       |         | Slot number → ROM address, pins the slot                       |
-| `filters`         |         | The usual sensor filters, the same chain on every sensor       |
-| `update_interval` | `60s`   | One conversion for the whole bus, then one read per loop pass  |
-| `web_server`      |         | `sorting_group_id` and `sorting_weight`; slot N gets weight + N - 1 |
-
-From lambdas: `id(temps)->sensors()` (bound slots in order), `sensor(slot)`,
-`temperature(slot)`, `address(slot)`, `max_sensors()`, `forget(slot)` (`-1` = all, reboots).
+Options, behavior and the lambda API: [components/dallas_scan/README.md](../components/dallas_scan/README.md).

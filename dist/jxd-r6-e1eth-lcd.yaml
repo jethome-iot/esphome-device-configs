@@ -480,8 +480,9 @@ esphome:
             \  reading->set_text(format(NAN));\n  sensor->add_on_state_callback([menu,\
             \ reading, format](float value) {\n    menu->set_text(format(value));\n\
             \    reading->set_text(format(value));\n  });\n  menu->add_item(reading);\n\
-            \  auto *address = new MenuItem(MENU_ITEM_LABEL);\n  address->set_text(str_sprintf(\"\
-            0x%016\" PRIx64, scan->address(slot)));\n  menu->add_item(address);\n\
+            \  auto *address = new MenuItem(MENU_ITEM_LABEL);\n  const uint64_t rom\
+            \ = scan->address(slot);\n  address->set_text(rom ? str_sprintf(\"0x%016\"\
+            \ PRIx64, rom) : std::string(\"no address\"));\n  menu->add_item(address);\n\
             \  auto *question = new MenuItem(MENU_ITEM_LABEL);\n  question->set_text(\"\
             Forget slot?\");\n  menu->add_item(question);\n  auto *confirm = new MenuItemCommand();\n\
             \  confirm->set_text(\"Confirm\");\n  confirm->add_on_value_callback([confirm,\
