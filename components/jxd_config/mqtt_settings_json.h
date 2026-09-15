@@ -44,8 +44,8 @@ class MqttSettingsJson : public config_json::SettingsBaseJson {
     this->client_id_ = root["client_id"] | std::string("");
     this->topic_prefix_ = root["topic_prefix"] | std::string("");
     this->discovery_ = root["discovery"] | true;
-    ESP_LOGI(TAG, "Loaded MQTT settings: enabled=%s broker=%s port=%u", YESNO(this->enabled_),
-             this->broker_.c_str(), this->port_);
+    ESP_LOGI(TAG, "Loaded MQTT settings: enabled=%s broker=%s port=%u", YESNO(this->enabled_), this->broker_.c_str(),
+             this->port_);
     return true;
   }
 

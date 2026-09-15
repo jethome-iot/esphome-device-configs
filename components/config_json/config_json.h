@@ -19,7 +19,9 @@ class ConfigJsonKeeper : public config_base::ConfigKeeperBase<ConfigJsonKeeper, 
   void dump_config() override;
 
   void set_config_dir(const std::string &dir) { this->config_dir_ = dir; }
-  void set_storage(filesystem_storage_abstract::FilesystemStorageAbstract *storage) { this->storage_backend_ = storage; }
+  void set_storage(filesystem_storage_abstract::FilesystemStorageAbstract *storage) {
+    this->storage_backend_ = storage;
+  }
   const std::string &get_config_dir() const { return this->config_dir_; }
 
   const char *get_timeout_name() const { return "config_save"; }
