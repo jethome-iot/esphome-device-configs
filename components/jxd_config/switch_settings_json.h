@@ -53,7 +53,7 @@ inline switch_::SwitchRestoreMode parse_restore_mode(const char *name) {
   return switch_::SWITCH_RESTORE_DEFAULT_OFF;
 }
 
-// What the dashboard form and the display menu offer, in this order.
+// What the display menu offers, in this order; write_settings_meta reuses it.
 struct StartModeOption {
   switch_::SwitchRestoreMode mode;
   const char *label;
@@ -442,7 +442,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     if (bindings::global_bindings_manager != nullptr) {
       bindings::BindingMode mode = bindings::BindingMode::NONE;
       if (!bindings::parse_binding_mode(record->binding_mode.c_str(), mode)) {
-        // Only a hand-edited file gets here; the REST path rejects the write.
+        // Only a hand-edited file gets here; update_record rejects the write.
         ESP_LOGW(TAG, "Unknown binding mode '%s' for '%s', leaving it unbound", record->binding_mode.c_str(),
                  record->source_name());
       }

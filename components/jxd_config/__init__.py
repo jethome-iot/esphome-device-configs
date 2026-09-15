@@ -1,7 +1,8 @@
 """Settings kept by config_json (files) and config_nvs, applied at boot and editable at run time.
 
 switch, binary_sensor, uart, timezone and mqtt live in JSON; auth in NVS. Each type is opt-in via
-`settings:`; the dashboard edits switch/binary_sensor records over /api/device/entity-settings.
+`settings:`. Here the display menu is the only editor; the REST endpoint the record hooks were
+written for is not part of this repository.
 """
 
 import esphome.codegen as cg
