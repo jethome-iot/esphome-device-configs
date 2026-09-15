@@ -246,16 +246,17 @@ void WebFileBrowser::handle_list_request_(AsyncWebServerRequest *request) {
     return;
   }
 
-  AsyncResponseStream *response = request->beginResponseStream("application/json");
-  response->print("[");
+  // Built whole before anything is sent. AsyncResponseStream buffers into a
+  // std::string and only reaches the wire at request->send(), so a readdir()
+  // failure can still be answered as an error envelope — and must be: a short
+  // array is valid JSON and the client cannot tell it from a complete listing.
+  std::string json = "[";
 
   bool first = true;
   struct dirent *entry;
 
-  // Same readdir() caveat as the recursive helpers, but the response is already
-  // streaming by the time a read could fail, so this cannot become an error
-  // envelope — the array would just end short. Log it at least, so a truncated
-  // listing is not silent on the device side too.
+  // Same readdir() caveat as the recursive helpers: nullptr means both
+  // end-of-directory and read error, and only errno tells them apart.
   errno = 0;
   while ((entry = readdir(dir)) != nullptr) {
     // Skip . and ..
@@ -265,7 +266,7 @@ void WebFileBrowser::handle_list_request_(AsyncWebServerRequest *request) {
     }
 
     if (!first) {
-      response->print(",");
+      json += ",";
     }
     first = false;
 
@@ -281,23 +282,29 @@ void WebFileBrowser::handle_list_request_(AsyncWebServerRequest *request) {
       mtime = st.st_mtime;
     }
 
-    response->print("{");
-    response->printf(R"("name":"%s",)", this->json_escape_(entry->d_name).c_str());
-    response->printf(R"("type":"%s",)", is_dir ? "directory" : "file");
-    response->printf("\"size\":%zu,", size);
-    response->printf("\"mtime\":%lld", static_cast<long long>(mtime));
-    response->print("}");
+    // Room for the widest size_t and time_t the format can produce.
+    char meta[128];
+    snprintf(meta, sizeof(meta), R"(","type":"%s","size":%zu,"mtime":%lld})", is_dir ? "directory" : "file", size,
+             static_cast<long long>(mtime));
+    json += R"({"name":")";
+    json += this->json_escape_(entry->d_name);
+    json += meta;
     errno = 0;
   }
 
-  if (errno != 0) {
-    ESP_LOGE(TAG, "Failed to read directory '%s': errno=%d (%s) — listing is truncated", full_path.c_str(), errno,
-             strerror(errno));
+  int read_errno = errno;
+  closedir(dir);
+
+  if (read_errno != 0) {
+    ESP_LOGE(TAG, "Failed to read directory '%s': errno=%d (%s)", full_path.c_str(), read_errno, strerror(read_errno));
+    this->send_json_error_(request, "Failed to read directory");
+    return;
   }
 
-  response->print("]");
-  closedir(dir);
-  request->send(response);
+  json += "]";
+  // No embedded NUL to lose to strlen: json_escape_ turns control bytes into
+  // \u00XX and a directory entry cannot carry one anyway.
+  request->send(200, "application/json", json.c_str());
 #else
   this->send_json_error_(request, "Not supported on this platform");
 #endif
