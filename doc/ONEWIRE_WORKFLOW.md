@@ -27,9 +27,10 @@ log lists them too (`ds2484: Found devices`).
 
 ## Your own sensors
 
-Sensors declared in YAML, with their own names, ids and filters, take the first slots in the
-order listed in `devices/JXD/packages/features/temperature.yaml`; the scan fills the slots
-after them. They show up in the menu, on the status page and over Modbus like the others:
+To fix a slot, or to have a sensor with your own name, id and filters, declare it in YAML and
+list it in `sensors:` in `devices/JXD/packages/features/temperature.yaml`: its position in the
+list is its slot, so its menu row, status page row and Modbus register. Listed sensors take
+the first slots, in that order; the scan fills the slots after them.
 
 ```yaml
 sensor:

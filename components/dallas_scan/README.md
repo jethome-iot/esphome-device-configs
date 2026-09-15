@@ -48,9 +48,11 @@ An unplugged device keeps its slot and reads `NaN`; the log notes it once when i
 answering and once when it is back. A reading of exactly 85.0 °C, the power-on value, is
 dropped before the filters.
 
-`sensors:` hands the first slots to sensors declared in YAML, in the order listed; the scan
-fills the slots after them. Any sensor can be listed, not only a 1-Wire one, up to
-`max_sensors` of them:
+To fix a slot, or to give a device a sensor of your own with its name, id, filters and
+automations, declare the sensor in YAML and list it in `sensors:`: its position in the list is
+its slot, and the scan fills the slots after the listed ones. Listed sensors always come
+first, so a slot cannot be fixed behind an automatic one. Any sensor can be listed, not only a
+1-Wire one, up to `max_sensors` of them:
 
 ```yaml
 sensor:
