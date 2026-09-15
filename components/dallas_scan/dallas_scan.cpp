@@ -78,12 +78,12 @@ void DallasScan::setup() {
 void DallasScan::bind_devices_() {
   const auto before = this->slots_;
   const auto begin = this->slots_.begin(), end = this->slots_.end();
-  // A slot served by a YAML sensor holds its pinned address, if any, and nothing else.
+  // A slot taken by a YAML sensor holds that sensor's address, if any, and nothing else.
   for (size_t slot = 0; slot < this->slots_.size(); slot++) {
     if (this->given_[slot] != nullptr)
       this->slots_[slot] = 0;
   }
-  // A pinned address owns its slot; the stored table follows.
+  // A listed sensor's address owns its slot; the stored table follows.
   for (const auto &[slot, address] : this->pins_) {
     if (slot >= this->slots_.size())
       continue;
@@ -239,7 +239,7 @@ void DallasScan::forget(int slot) {
     changed = true;
   }
   if (!changed) {
-    ESP_LOGW(TAG, "Nothing to forget: the slot is pinned or empty");
+    ESP_LOGW(TAG, "Nothing to forget: the slot is empty or taken by a YAML sensor");
     return;
   }
   this->save_table_();

@@ -28,7 +28,6 @@ AUTO_LOAD = ["sensor"]
 
 CONF_MAX_SENSORS = "max_sensors"
 CONF_NAME_PREFIX = "name_prefix"
-CONF_ADDRESSES = "addresses"
 
 dallas_scan_ns = cg.esphome_ns.namespace("dallas_scan")
 DallasScan = dallas_scan_ns.class_("DallasScan", cg.PollingComponent)
@@ -56,16 +55,6 @@ def _validate(config):
             f"{listed} sensors listed, {CONF_MAX_SENSORS} is {config[CONF_MAX_SENSORS]}",
             path=[CONF_SENSORS],
         )
-    for slot in config[CONF_ADDRESSES]:
-        if slot > config[CONF_MAX_SENSORS]:
-            raise cv.Invalid(
-                f"Slot {slot} is above {CONF_MAX_SENSORS} ({config[CONF_MAX_SENSORS]})",
-                path=[CONF_ADDRESSES, slot],
-            )
-        if slot <= listed:
-            raise cv.Invalid(
-                f"Slot {slot} is taken by {CONF_SENSORS}", path=[CONF_ADDRESSES, slot]
-            )
     # A filter chain belongs to one sensor, so every slot gets its own copy; the
     # id pass names the copies' ids after this.
     if (filters := config.get(CONF_FILTERS)) is not None:
@@ -86,10 +75,6 @@ CONFIG_SCHEMA = cv.All(
             # YAML sensors that take the first slots, in this order.
             cv.Optional(CONF_SENSORS, default=[]): cv.ensure_list(
                 cv.use_id(sensor.Sensor)
-            ),
-            # Slot number -> ROM address; the slot is pinned to that device.
-            cv.Optional(CONF_ADDRESSES, default={}): cv.Schema(
-                {cv.int_range(min=1, max=64): cv.hex_uint64_t}
             ),
             # The usual sensor filters, the same chain on every sensor.
             cv.Optional(CONF_FILTERS): sensor.validate_filters,
@@ -148,11 +133,10 @@ async def to_code(config):
     cg.add(var.set_preference_hash(fnv1_hash(config[CONF_ID].id)))
     for slot, sensor_id in enumerate(config[CONF_SENSORS]):
         cg.add(var.set_sensor(slot, await cg.get_variable(sensor_id)))
+        # Its device keeps this slot, so the scan does not hand it another one.
         address = _one_wire_address(_sensor_entry(CORE.config, sensor_id))
         if address is not None:
             cg.add(var.pin(slot, address))
-    for slot, address in config[CONF_ADDRESSES].items():
-        cg.add(var.pin(slot - 1, address))
     for slot, filters in enumerate(config.get(CONF_FILTERS) or []):
         cg.add(var.set_filters(slot, await sensor.build_filters(filters)))
 

@@ -25,23 +25,11 @@ To choose the order, connect the sensors one at a time, rebooting after each.
 **Temperatures → Temp N** shows the slot's ROM address, e.g. `0xeb01227905460228`. The boot
 log lists them too (`ds2484: Found devices`).
 
-## Pinning
-
-Add the slot to `addresses:` in `devices/JXD/packages/features/temperature.yaml`:
-
-```yaml
-dallas_scan:
-  addresses:
-    2: 0xeb01227905460228
-```
-
-A pinned slot always holds that sensor; its menu entry shows the address but no forget.
-
 ## Your own sensors
 
 Sensors declared in YAML, with their own names, ids and filters, take the first slots in the
-order listed; the scan fills the slots after them. They show up in the menu, on the status
-page and over Modbus like the others:
+order listed in `devices/JXD/packages/features/temperature.yaml`; the scan fills the slots
+after them. They show up in the menu, on the status page and over Modbus like the others:
 
 ```yaml
 sensor:
@@ -56,13 +44,14 @@ dallas_scan:
   sensors: [boiler]
 ```
 
-A 1-Wire sensor in the list needs an `address:`, which pins it to its slot.
+A 1-Wire sensor in the list needs an `address:`; its device keeps that slot. The menu entry of
+a listed sensor shows the address but has no forget.
 
 ## Forgetting
 
 **Temperatures → Temp N → Confirm** clears the slot and reboots; the sensor in it, or a new
 one, takes the lowest free slot again. **Settings → Temp sensors → Confirm** clears every
-slot but the pinned ones, so sensors are numbered again in bus order. Factory reset clears
+slot but the listed ones, so sensors are numbered again in bus order. Factory reset clears
 them too.
 
 ## More slots
