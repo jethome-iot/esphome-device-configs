@@ -50,7 +50,7 @@ display:
             x += x_spacing;
           }
 
-          // Slots up to the last bound one, three rows; UP/DOWN scroll.
+          // Slots up to the last bound one, three rows, a freed slot reads --.-; UP/DOWN scroll.
           const int rows = 3;
           auto *scan = id(temps);
           const int used = scan->used_slots();
@@ -67,13 +67,11 @@ display:
           for (int slot = scroll; slot < std::min(scroll + rows, used); slot++) {
             it.printf(92, y, id(f5x7), "%.7s", scan->slot_name(slot).c_str());
             y += 8;
-            auto *sensor = scan->sensor(slot);
-            if (sensor == nullptr) {
-              it.print(92, y, id(f5x7), "free");
-            } else if (std::isnan(sensor->state)) {
+            const float value = scan->temperature(slot);
+            if (std::isnan(value)) {
               it.print(92, y, id(f5x7), "--.-");
             } else {
-              it.printf(92, y, id(f5x7), "%.1f", sensor->state);
+              it.printf(92, y, id(f5x7), "%.1f", value);
             }
             y += 11;
           }

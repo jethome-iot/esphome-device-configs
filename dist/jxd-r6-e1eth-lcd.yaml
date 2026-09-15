@@ -471,15 +471,16 @@ esphome:
       then:
         - lambda: "using namespace display_menu_base;\nauto *scan = id(temps);\nfor\
             \ (size_t slot = 0; slot < scan->used_slots(); slot++) {\n  const std::string\
-            \ name = scan->slot_name(slot);\n  auto *sensor = scan->sensor(slot);\n\
-            \  if (sensor == nullptr) {  // freed slot between sensors: keep its row\n\
-            \    auto *free_slot = new MenuItem(MENU_ITEM_LABEL);\n    free_slot->set_text(name\
-            \ + \": free\");\n    id(temperatures_menu)->add_item(free_slot);\n  \
-            \  continue;\n  }\n  auto format = [name](float value) {\n    return std::isnan(value)\
-            \ ? name + \": --\" : str_sprintf(\"%s: %.1f°C\", name.c_str(), value);\n\
-            \  };\n\n  // The row shows the reading and opens the slot: reading, address,\
-            \ and\n  // forget where it changes anything.\n  auto *menu = new MenuItemMenu();\n\
-            \  auto *reading = new MenuItem(MENU_ITEM_LABEL);\n  menu->set_text(format(NAN));\n\
+            \ name = scan->slot_name(slot);\n  auto format = [name](float value) {\n\
+            \    return std::isnan(value) ? name + \": --\" : str_sprintf(\"%s: %.1f°C\"\
+            , name.c_str(), value);\n  };\n\n  // The row shows the reading and opens\
+            \ the slot: reading, address, and\n  // forget where it changes anything.\
+            \ A freed slot between sensors keeps\n  // its row and only says that\
+            \ it is free.\n  auto *menu = new MenuItemMenu();\n  menu->set_text(format(NAN));\n\
+            \  auto *sensor = scan->sensor(slot);\n  if (sensor == nullptr) {\n  \
+            \  auto *note = new MenuItem(MENU_ITEM_LABEL);\n    note->set_text(\"\
+            Free slot\");\n    menu->add_item(note);\n    id(temperatures_menu)->add_item(menu);\n\
+            \    continue;\n  }\n  auto *reading = new MenuItem(MENU_ITEM_LABEL);\n\
             \  reading->set_text(format(NAN));\n  sensor->add_on_state_callback([menu,\
             \ reading, format](float value) {\n    menu->set_text(format(value));\n\
             \    reading->set_text(format(value));\n  });\n  menu->add_item(reading);\n\
@@ -971,18 +972,17 @@ display:
           \ (auto *input : id(inputs)) {\n  if (input->state) {\n    it.filled_circle(x,\
           \ 47, radius);\n  } else {\n    it.circle(x, 47, radius);\n  }\n  it.printf(x\
           \ - 2, 54, id(f5x7), \"%d\", num++);\n  x += x_spacing;\n}\n\n// Slots up\
-          \ to the last bound one, three rows; UP/DOWN scroll.\nconst int rows = 3;\n\
-          auto *scan = id(temps);\nconst int used = scan->used_slots();\nint &scroll\
-          \ = id(status_temp_scroll);\nscroll = std::clamp(scroll, 0, std::max(used\
+          \ to the last bound one, three rows, a freed slot reads --.-; UP/DOWN scroll.\n\
+          const int rows = 3;\nauto *scan = id(temps);\nconst int used = scan->used_slots();\n\
+          int &scroll = id(status_temp_scroll);\nscroll = std::clamp(scroll, 0, std::max(used\
           \ - rows, 0));\n\nit.print(92, 0, id(f5x7), \"Temp\");\nif (scroll > 0)\n\
           \  it.filled_triangle(117, 6, 121, 6, 119, 2);\nif (scroll + rows < used)\n\
           \  it.filled_triangle(123, 2, 127, 2, 125, 6);\n\nint y = 11;\nfor (int\
           \ slot = scroll; slot < std::min(scroll + rows, used); slot++) {\n  it.printf(92,\
-          \ y, id(f5x7), \"%.7s\", scan->slot_name(slot).c_str());\n  y += 8;\n  auto\
-          \ *sensor = scan->sensor(slot);\n  if (sensor == nullptr) {\n    it.print(92,\
-          \ y, id(f5x7), \"free\");\n  } else if (std::isnan(sensor->state)) {\n \
+          \ y, id(f5x7), \"%.7s\", scan->slot_name(slot).c_str());\n  y += 8;\n  const\
+          \ float value = scan->temperature(slot);\n  if (std::isnan(value)) {\n \
           \   it.print(92, y, id(f5x7), \"--.-\");\n  } else {\n    it.printf(92,\
-          \ y, id(f5x7), \"%.1f\", sensor->state);\n  }\n  y += 11;\n}"
+          \ y, id(f5x7), \"%.1f\", value);\n  }\n  y += 11;\n}"
   - platform: ssd1306_i2c
     id: !extend 'display1'
     pages:

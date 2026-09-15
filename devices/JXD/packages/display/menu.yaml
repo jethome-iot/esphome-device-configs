@@ -68,8 +68,8 @@ graphical_display_menu:
           text: !lambda |-
             return id(input_6).state ? "Input 6: ON" : "Input 6: OFF";
 
-    # A Temp N row per slot up to the last bound one is added at boot (esphome:
-    # on_boot below): a submenu for a bound slot, a label for a free one.
+    # A Temp N submenu per slot up to the last bound one is added at boot (esphome:
+    # on_boot below); a freed slot's just says so.
     - type: menu
       text: "Temperatures"
       id: temperatures_menu
@@ -163,22 +163,24 @@ esphome:
             auto *scan = id(temps);
             for (size_t slot = 0; slot < scan->used_slots(); slot++) {
               const std::string name = scan->slot_name(slot);
-              auto *sensor = scan->sensor(slot);
-              if (sensor == nullptr) {  // freed slot between sensors: keep its row
-                auto *free_slot = new MenuItem(MENU_ITEM_LABEL);
-                free_slot->set_text(name + ": free");
-                id(temperatures_menu)->add_item(free_slot);
-                continue;
-              }
               auto format = [name](float value) {
                 return std::isnan(value) ? name + ": --" : str_sprintf("%s: %.1f°C", name.c_str(), value);
               };
 
               // The row shows the reading and opens the slot: reading, address, and
-              // forget where it changes anything.
+              // forget where it changes anything. A freed slot between sensors keeps
+              // its row and only says that it is free.
               auto *menu = new MenuItemMenu();
-              auto *reading = new MenuItem(MENU_ITEM_LABEL);
               menu->set_text(format(NAN));
+              auto *sensor = scan->sensor(slot);
+              if (sensor == nullptr) {
+                auto *note = new MenuItem(MENU_ITEM_LABEL);
+                note->set_text("Free slot");
+                menu->add_item(note);
+                id(temperatures_menu)->add_item(menu);
+                continue;
+              }
+              auto *reading = new MenuItem(MENU_ITEM_LABEL);
               reading->set_text(format(NAN));
               sensor->add_on_state_callback([menu, reading, format](float value) {
                 menu->set_text(format(value));

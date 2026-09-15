@@ -52,7 +52,7 @@ a listed sensor shows the address but has no forget.
 
 **Temperatures → Temp N → Confirm** clears the slot and reboots; the sensor in it, or a new
 one, takes the lowest free slot again. The other slots keep their numbers, and a freed slot
-before them stays in the menu and on the status page as `Temp N: free`.
+before them keeps its `Temp N` row reading `--`; its menu entry says `Free slot`.
 **Settings → Temp sensors → Confirm** clears every slot but the listed ones, so sensors are
 numbered again in bus order. Factory reset clears them too.
 
