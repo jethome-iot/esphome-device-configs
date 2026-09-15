@@ -59,6 +59,8 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
 
+    # Directory functions are libc stubs unless the VFS is built with them.
+    esp32.require_vfs_dir()
     esp32.add_idf_component(name="joltwallet/littlefs", ref=LITTLEFS_COMPONENT_VERSION)
     esp32.add_partition(
         config[CONF_PARTITION_LABEL], "data", "littlefs", config[CONF_PARTITION_SIZE]
