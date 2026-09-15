@@ -6,6 +6,7 @@ substitutions:
   version: 1.0.0
   # Paths relative to this file.
   assets: ../../assets
+  components: ../../components
   boards: packages/boards
   display: packages/display
   features: packages/features
@@ -21,6 +22,7 @@ packages:
   modbus: !include ${features}/modbus-server.yaml
   network: !include ${features}/network.yaml
   rtc_time: !include ${features}/rtc-time.yaml
+  storage: !include ${features}/storage.yaml
   temperature: !include ${features}/temperature.yaml
   uarts: !include ${features}/uarts.yaml
   vin_measure: !include ${features}/vin-measure.yaml

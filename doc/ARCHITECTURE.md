@@ -4,8 +4,9 @@ How a device config and its packages form one firmware. The tree itself is in th
 "Repository Layout".
 
 A device config (`devices/<family>/<device>.yaml`) holds substitutions and a `packages:` list,
-nothing else. The path substitutions (`assets`, `boards`, `features`, `display`) are relative to
-that file; packages use them as `!include ${features}/…` and `${assets}/fonts/…`.
+nothing else. The path substitutions (`assets`, `components`, `boards`, `features`, `display`) are
+relative to that file; packages use them as `!include ${features}/…`, `${assets}/fonts/…` and
+`source: ${components}`.
 
 ESPHome merges every package into one config, so ids, globals, substitutions and
 `esphome.on_boot` entries from different files form one program. The contracts below cross file
@@ -25,6 +26,8 @@ boundaries; everything else is local to its file.
   one namespace with the device config's.
 - `display_off_s` (`features/display-off.yaml`) is reset by the `check_blank_page` script
   (`display/display.yaml`), which every button handler runs last.
+- `user_storage` (`features/storage.yaml`) is the LittleFS partition mounted at `/littlefs`; code
+  that keeps files checks `id(user_storage).is_mounted()` and writes below `get_base_path()`.
 
 ## Boot order
 

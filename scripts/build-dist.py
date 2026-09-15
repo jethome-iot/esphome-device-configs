@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Build the self-contained configs that dashboard_import serves, into dist/.
 
-Merges each device config's packages and rewrites local asset paths to raw URLs,
-so the single file the ESPHome Builder downloads stands on its own.
+Merges each device config's packages and rewrites local asset paths to raw URLs
+and local external_components sources to github:// ones, so the single file the
+ESPHome Builder downloads stands on its own.
 
 Usage:
     scripts/build-dist.py            # regenerate dist/
@@ -118,6 +119,32 @@ def rewrite_assets(
     elif isinstance(node, list):
         for item in node:
             rewrite_assets(item, raw_base, base, substitutions, rewritten)
+
+
+def rewrite_external_components(
+    config: dict[str, Any],
+    git_file: GitFile,
+    base: Path,
+    substitutions: dict[str, Any],
+    rewritten: list[str],
+) -> None:
+    """Point local external_components sources at the same repository ref on GitHub."""
+    for item in config.get("external_components") or []:
+        if not isinstance(item, dict):
+            continue
+        source = item.get("source")
+        if isinstance(source, dict):
+            source = (
+                source.get("path") if source.get("type", "local") == "local" else None
+            )
+        if not isinstance(source, str):
+            continue
+        if (path := _repo_dir(_expand(source, substitutions), base)) is None:
+            continue
+        item["source"] = (
+            f"github://{git_file.owner}/{git_file.repo}/{path}@{git_file.ref}"
+        )
+        rewritten.append(path)
 
 
 def drop_path_substitutions(config: dict[str, Any], base: Path) -> None:
@@ -281,6 +308,9 @@ def render(source: Path) -> tuple[Path, str] | None:
     substitutions = config.get("substitutions") or {}
     rewritten: list[str] = []
     rewrite_assets(config, raw_base, source.parent, substitutions, rewritten)
+    rewrite_external_components(
+        config, git_file, source.parent, substitutions, rewritten
+    )
     drop_path_substitutions(config, source.parent)
 
     if leftover := find_local_paths(config, source.parent, substitutions):

@@ -35,6 +35,7 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
 - **Home Assistant Integration**: Native ESPHome API with automatic entity discovery and OTA updates
 - **Display Control**: Interactive OLED menu with status, time, relay control, input monitoring, and settings
 - **Dallas Temperature Sensors**: eight DS18B20 slots, filled automatically and kept across reboots ([details](doc/ONEWIRE_WORKFLOW.md))
+- **User Storage**: a 4 MB LittleFS partition mounted at `/littlefs`, kept across OTA updates
 
 ## Repository Layout
 
@@ -44,12 +45,14 @@ devices/JXD/
   packages/                 # boards, features, display
 assets/
   fonts/  res/
+components/                 # external components
 ```
 
-Each device config sets `assets: ../../assets`, `boards: packages/boards`,
-`features: packages/features` and `display: packages/display`, all relative to the device
-config: it lists its packages as `!include ${features}/…`, and the packages reference
-fonts and icons as `${assets}/fonts/…`.
+Each device config sets `assets: ../../assets`, `components: ../../components`,
+`boards: packages/boards`, `features: packages/features` and `display: packages/display`, all
+relative to the device config: it lists its packages as `!include ${features}/…`, and the
+packages reference fonts and icons as `${assets}/fonts/…` and external components as
+`source: ${components}`.
 
 The device configs are thin: they set substitutions and list the packages that make up
 the device. Those packages live under the family's `packages/`, split by role:
@@ -57,13 +60,14 @@ the device. Those packages live under the family's `packages/`, split by role:
 | Directory            | Contents |
 | -------------------- | -------- |
 | `packages/boards/`   | Platform and the chips sitting on each board — `jxd-cpu-e1eth.yaml` (ESP32, api/ota/logger/web_server, TMP102, LED) and `jxd-d6-r6-rev1.2.yaml` (PCA9554 expander, 6 relays, 6 inputs, DS2484 1-Wire bridge) |
-| `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network` |
+| `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network` |
 | `packages/display/`  | Display, pages, menu and buttons — `display.yaml`, `menu.yaml`, `buttons.yaml`, `menu-items-network.yaml` |
 
 Tooling stays at the repository root:
 
 | Directory  | Contents |
 | ---------- | -------- |
+| `components/` | External components: `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) and its `filesystem_storage_abstract` base |
 | `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `setup.sh` / `setup.bat` |
 | `dist/`    | Generated self-contained configs the ESPHome Builder imports |
 | `doc/`     | Guides, plus the README's UI mockups in `doc/images/` |
@@ -171,7 +175,8 @@ For the first flash, connect via USB:
 esphome run devices/JXD/jxd-r6-e1eth-lcd.yaml
 ```
 
-Subsequent updates can be done over-the-air (OTA):
+Subsequent updates can be done over-the-air (OTA). A change to the partition table (for
+example, the size of the storage partition) needs a USB flash: OTA keeps the table it finds.
 
 ```bash
 esphome run devices/JXD/jxd-r6-e1eth-lcd.yaml --device <IP_ADDRESS>

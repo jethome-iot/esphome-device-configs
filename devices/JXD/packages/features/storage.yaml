@@ -1,0 +1,11 @@
+# A LittleFS partition for data that must survive OTA updates. Changing the
+# partition table needs a USB flash: OTA keeps the table it finds.
+external_components:
+  - source: ${components}
+    components: [filesystem_storage_abstract, littlefs_storage]
+
+littlefs_storage:
+  id: user_storage
+  partition_label: littlefs
+  partition_size: 4MB
+  base_path: /littlefs

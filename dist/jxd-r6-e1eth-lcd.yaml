@@ -914,6 +914,16 @@ time:
     address: 81
     timezone: ${timezone}
     update_interval: 15min
+external_components:
+  - source: github://jethome-iot/esphome-device-configs/components@master
+    components:
+      - filesystem_storage_abstract
+      - littlefs_storage
+littlefs_storage:
+  id: user_storage
+  partition_label: littlefs
+  partition_size: 4MB
+  base_path: /littlefs
 uart:
   - id: jxm_uart1
     tx_pin: GPIO33
