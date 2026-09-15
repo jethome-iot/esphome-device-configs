@@ -119,9 +119,9 @@ void DallasScan::bind_devices_() {
 
 sensor::Sensor *DallasScan::make_sensor_(size_t slot) {
   // The entity refers to its name rather than copying it, so both live until reboot.
-  auto *sensor = new sensor::Sensor();  // NOLINT(cppcoreguidelines-owning-memory)
+  auto *sensor = new sensor::Sensor();             // NOLINT(cppcoreguidelines-owning-memory)
   const std::string text = this->slot_name(slot);  // still empty here, so "<prefix> N"
-  auto *name = new char[text.size() + 1];  // NOLINT(cppcoreguidelines-owning-memory)
+  auto *name = new char[text.size() + 1];          // NOLINT(cppcoreguidelines-owning-memory)
   memcpy(name, text.c_str(), text.size() + 1);
   sensor->set_accuracy_decimals(1);
   sensor->set_state_class(sensor::STATE_CLASS_MEASUREMENT);

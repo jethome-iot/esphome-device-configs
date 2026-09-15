@@ -93,8 +93,8 @@ class DallasScan : public PollingComponent {
   uint32_t entity_fields_{0};
   uint32_t preference_hash_{0};
   std::vector<std::pair<size_t, uint64_t>> pins_;
-  std::vector<uint64_t> slots_;            // slot -> ROM address, 0 = empty
-  std::vector<bool> pinned_;               // slot -> taken by sensors:
+  std::vector<uint64_t> slots_;  // slot -> ROM address, 0 = empty
+  std::vector<bool> pinned_;     // slot -> taken by sensors:
 #ifdef USE_SENSOR_FILTER
   std::vector<std::vector<sensor::Filter *>> filters_;  // slot -> filter chain
 #endif
