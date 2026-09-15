@@ -17,7 +17,8 @@ external_components:
 web_server:
   port: 80
 ota:
-  - platform: web_server        # multipart uploads exist only with this platform
+  - platform: web_server        # multipart uploads exist only with this platform;
+                                # the component fails the config without it
 
 littlefs_storage:
   id: user_storage

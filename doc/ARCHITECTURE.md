@@ -84,6 +84,6 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   `esp_http_server` through `AsyncWebServerRequest`'s `httpd_req_t *` conversion, `/upload` takes the
   multipart reader's two `handleUpload()` calls at index 0 as the start of a transfer, and that
   multipart branch exists at all only because `ota: - platform: web_server` defines
-  `USE_WEBSERVER_OTA`.
+  `USE_WEBSERVER_OTA` — which a final-validate check in the component insists on.
 
 Re-check each of these on every ESPHome bump.
