@@ -95,7 +95,7 @@ struct ActionConfig {
     } switch_action;
 
     struct {
-      uint32_t delay_ms;  // the scheduler's own unit; caps the delay at ~49.7 days
+      uint32_t delay_ms;  // the scheduler's own unit, one below its never-run sentinel: ~49.7 days
     } delay;
   } params;
 

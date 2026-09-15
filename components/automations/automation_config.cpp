@@ -1,5 +1,6 @@
 #include "automation_config.h"
 #include <algorithm>
+#include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
 #include "entity_lookup.h"
 #include "esphome/core/log.h"
@@ -8,8 +9,11 @@ namespace esphome::automations {
 
 static const char *const TAG = "automations";
 
-// Past this a delay in seconds no longer fits the scheduler's uint32 of milliseconds.
-static constexpr uint32_t MAX_DELAY_S = UINT32_MAX / 1000;
+// UINT32_MAX is the scheduler's SCHEDULER_DONT_RUN sentinel: set_timeout with it cancels the
+// pending item instead of scheduling one, which would strand the run forever. Stay one below.
+static constexpr uint32_t MAX_DELAY_MS = SCHEDULER_DONT_RUN - 1;
+// Past this a delay in seconds no longer fits MAX_DELAY_MS.
+static constexpr uint32_t MAX_DELAY_S = MAX_DELAY_MS / 1000;
 
 // Safe integer parsing without exceptions - returns true if parsing succeeded
 static bool safe_parse_uint8(const std::string &str, uint8_t &out) {
@@ -476,10 +480,10 @@ bool ActionConfig::deserialize(const JsonObject &obj) {
       // only delay_ms; the seconds are clamped because they used to be multiplied
       // into a uint32 that silently wrapped past ~49.7 days.
       if (obj["delay_ms"].is<uint32_t>()) {
-        params.delay.delay_ms = obj["delay_ms"].as<uint32_t>();
+        params.delay.delay_ms = std::min(obj["delay_ms"].as<uint32_t>(), MAX_DELAY_MS);
       } else {
         uint32_t seconds = obj["delay_s"].as<uint32_t>();
-        params.delay.delay_ms = seconds > MAX_DELAY_S ? UINT32_MAX : seconds * 1000;
+        params.delay.delay_ms = seconds > MAX_DELAY_S ? MAX_DELAY_MS : seconds * 1000;
       }
       break;
     default:
@@ -531,7 +535,8 @@ bool AutomationConfig::deserialize(const JsonObject &obj) {
 
   id = obj["id"] | 0u;  // Optional: old files won't have it, default to 0 (unassigned)
   name = obj["name"].as<std::string>();
-  enabled = obj["enabled"].as<bool>();
+  // Absent reads false in ArduinoJson; a rule is worth writing only if it should run.
+  enabled = obj["enabled"].isNull() ? true : obj["enabled"].as<bool>();
   mode = obj["mode"].isNull() ? AutomationMode::SINGLE
                               : EnumUtils::string_to_automation_mode(obj["mode"].as<std::string>());
 

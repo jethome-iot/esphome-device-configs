@@ -1,1 +1,1 @@
-{"id":2,"name":"Click","enabled":true,"mode":"single","triggers":[{"source":"input","type":"click","object_id":"in_1"}],"actions":[{"source":"switch","type":"toggle","object_id":"relay_2"}]}
+{"id":2,"name":"Click","mode":"single","triggers":[{"source":"input","type":"click","object_id":"in_1"}],"actions":[{"source":"switch","type":"toggle","object_id":"relay_2"}]}

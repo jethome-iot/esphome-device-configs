@@ -61,6 +61,9 @@ EXPECTED_RESTART = {
 
 # id, name and enabled of every rule the second pass loads, in id order. Rule 10
 # was disabled through the API in the first pass; rule 12 came from zzz.json.
+# Rule 2 comes from a fixture with no "enabled" key: absent means enabled.
+# Rule 15 is the orphan, restamped every boot because its file is never rewritten,
+# and still enabled because the first pass could not persist disabling it.
 EXPECTED_RULES = [
     "RULE id=1 name=Input press enabled=1",
     "RULE id=2 name=Click enabled=1",
@@ -75,12 +78,17 @@ EXPECTED_RULES = [
     "RULE id=11 name=Parallel enabled=1",
     "RULE id=12 name=Cron Step enabled=1",
     "RULE id=13 name=Composite enabled=1",
-    "RULE id=14 name=Orphan enabled=1",
+    "RULE id=14 name=Long Delay enabled=1",
+    "RULE id=15 name=Orphan enabled=1",
 ]
 
 # Files that never parse, so the loader leaves them alone.
 UNREADABLE = ["badcron.json", "broken.json"]
-# Every rule ends up in the file its name maps to: zzz.json becomes cron_step.json.
+# The rule whose input does not exist. It loads, so it is listed and reset_all deletes it,
+# but nothing may ever write it back: the file is the only record of the object id.
+ORPHANED = "orphan.json"
+# Every rule ends up in the file its name maps to: zzz.json becomes cron_step.json and
+# longdelay.json becomes long_delay.json.
 LOADED_FILES = [
     "boot.json",
     "click.json",
@@ -92,7 +100,8 @@ LOADED_FILES = [
     "follow.json",
     "hot.json",
     "input_press.json",
-    "orphan.json",
+    "long_delay.json",
+    ORPHANED,
     "parallel.json",
     "retrigger.json",
     "tick.json",
@@ -111,6 +120,10 @@ REQUIRED_ERRORS = [
     r"Trigger: binary sensor 0x[0-9A-F]{8} not found",
     r"Automation 'Orphan': trigger cannot be built",
 ]
+
+# The scheduler reads UINT32_MAX as "never run" (SCHEDULER_DONT_RUN), so a delay must stop
+# one below it. longdelay.json asks for 5000000 s.
+MAX_DELAY_MS = 4294967294
 
 
 def prepare_storage() -> None:
@@ -198,7 +211,12 @@ def check_first_pass(log: str) -> list[str]:
 
     if not re.search(r"ADD id=[1-9]\d* taken=1", log):
         failures.append("ADD: no id assigned or duplicate name not detected")
-    for step in ("UPDATE ok=1", "REMOVE ok=1", "DISABLE ok=1"):
+    for step in (
+        "UPDATE ok=1",
+        "REMOVE ok=1",
+        "DISABLE ok=1 persisted=1",
+        "ok=1 persisted=0",  # DISABLE_ORPHAN: applied, deliberately not written back
+    ):
         if step not in log:
             failures.append(f"{step} missing")
     for name, least in (("Tick", 2), ("Cron Step", 2)):
@@ -220,7 +238,7 @@ def check_first_pass(log: str) -> list[str]:
         failures.append(f"storage files {files} expected {expected_files}")
     for name in LOADED_FILES:
         path = RULES / name
-        if not path.exists():
+        if not path.exists() or name == ORPHANED:
             continue
         data = json.loads(path.read_text())
         if data.get("id", 0) == 0:
@@ -251,6 +269,27 @@ def check_stored_rules() -> list[str]:
     for name in UNREADABLE:
         if (RULES / name).read_bytes() != (HERE / "fixtures" / name).read_bytes():
             failures.append(f"{name}: a file that failed to load was rewritten")
+
+    # The orphan was restamped and disabled through the API, both of which normally rewrite
+    # the file. Serialising it would replace "no_such_input" with "", so it must be untouched.
+    if (RULES / ORPHANED).read_bytes() != (HERE / "fixtures" / ORPHANED).read_bytes():
+        failures.append(f"{ORPHANED}: a rule with a missing entity was rewritten")
+
+    # A delay of 5000000 s clamps to one below the scheduler's never-run sentinel.
+    long_delay = RULES / "long_delay.json"
+    if not long_delay.exists():
+        failures.append("long_delay.json: the rule in longdelay.json was not moved")
+    else:
+        actions = json.loads(long_delay.read_text())["actions"]
+        delay = actions[0].get("delay_ms")
+        if delay != MAX_DELAY_MS:
+            failures.append(
+                f"long_delay.json: delay_ms {delay} expected {MAX_DELAY_MS}"
+            )
+
+    # The fixture carries no "enabled" key, and the loader must not add one behind its back.
+    if "enabled" in json.loads((RULES / "click.json").read_text()):
+        failures.append("click.json: the fixture must keep omitting 'enabled'")
     return failures
 
 

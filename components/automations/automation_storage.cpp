@@ -227,6 +227,12 @@ void AutomationStorage::check_time_() {
 // --- Mutators: any task in, loop task does the work ---
 
 bool AutomationStorage::run_on_loop_(std::function<bool()> &&job) {
+  // The scheduler drops deferred items of a failed component, so a cross-task call would
+  // block for LOOP_JOB_TIMEOUT_MS and an inline one would edit state that never reaches flash.
+  if (this->is_failed()) {
+    ESP_LOGE(TAG, "Automation storage is not available");
+    return false;
+  }
 #ifdef USE_ESP32
   if (this->loop_task_ != nullptr && xTaskGetCurrentTaskHandle() != this->loop_task_) {
     struct LoopJob {
@@ -272,8 +278,13 @@ bool AutomationStorage::remove_automation(uint32_t id) {
   return this->run_on_loop_([this, id]() { return this->remove_automation_(id); });
 }
 
-bool AutomationStorage::set_enable_automation(uint32_t id, bool enable) {
-  return this->run_on_loop_([this, id, enable]() { return this->set_enable_automation_(id, enable); });
+bool AutomationStorage::set_enable_automation(uint32_t id, bool enable, bool *persisted) {
+  auto written = std::make_shared<bool>(false);
+  const bool ok = this->run_on_loop_(
+      [this, id, enable, written]() { return this->set_enable_automation_(id, enable, written.get()); });
+  if (persisted != nullptr)
+    *persisted = ok && *written;
+  return ok;
 }
 
 void AutomationStorage::reset_all() {
@@ -373,7 +384,7 @@ bool AutomationStorage::remove_automation_(uint32_t id) {
   return true;
 }
 
-bool AutomationStorage::set_enable_automation_(uint32_t id, bool enable) {
+bool AutomationStorage::set_enable_automation_(uint32_t id, bool enable, bool *persisted) {
   int found = this->find_automation_index_by_id_(id);
   if (found < 0) {
     ESP_LOGW(TAG, "Automation id=%u not found", static_cast<unsigned>(id));
@@ -383,10 +394,18 @@ bool AutomationStorage::set_enable_automation_(uint32_t id, bool enable) {
   if (this->automations_[index] != nullptr)
     this->automations_[index]->set_enabled(enable);
   AutomationConfig *config = this->config_storage_.get_config(static_cast<uint8_t>(index));
+  // The write can fail on its own: the rule is live either way, but the caller has to be able
+  // to say whether the change survives a reboot.
+  bool written = false;
   if (config != nullptr) {
     config->enabled = enable;
-    this->save_automation_to_file_(*config);
+    written = this->save_automation_to_file_(*config);
   }
+  if (persisted != nullptr)
+    *persisted = written;
+  if (!written)
+    ESP_LOGW(TAG, "Automation id=%u %s, but the change was not saved", static_cast<unsigned>(id),
+             enable ? "enabled" : "disabled");
   return true;
 }
 
@@ -521,8 +540,71 @@ bool AutomationStorage::load_automation_from_file_(const std::string &filepath) 
   return true;
 }
 
+// serialize() rebuilds every object_id from the live entity, so a reference that does not
+// resolve would be written back as "". The file is the only record of it: keep it as it is.
+static bool entity_missing(const ConditionConfig &condition) {
+  switch (condition.type) {
+    case ConditionType::INPUT:
+      return find_binary_sensor(condition.sensor_id) == nullptr;
+    case ConditionType::TEMPERATURE:
+      return find_sensor(condition.sensor_id) == nullptr;
+    case ConditionType::AND:
+    case ConditionType::OR:
+    case ConditionType::XOR:
+      for (const auto &sub : condition.sub_conditions) {
+        if (entity_missing(sub))
+          return true;
+      }
+      return false;
+    default:
+      return false;
+  }
+}
+
+static bool entity_missing(const ActionConfig &action) {
+  return action.source == SourceAction::SWITCH && find_switch(action.params.switch_action.switch_id) == nullptr;
+}
+
+static bool entity_missing(const AutomationConfig &config) {
+  for (const auto &trigger : config.triggers) {
+    switch (trigger.source) {
+      case SourceTrigger::INPUT:
+        if (find_binary_sensor(trigger.params.input.input_id) == nullptr)
+          return true;
+        break;
+      case SourceTrigger::SWITCH:
+        if (find_switch(trigger.params.switch_trigger.switch_id) == nullptr)
+          return true;
+        break;
+      case SourceTrigger::TEMPERATURE:
+        if (find_sensor(trigger.params.temperature.sensor_id) == nullptr)
+          return true;
+        break;
+      default:
+        break;
+    }
+  }
+  if (config.condition.is_valid() && entity_missing(config.condition))
+    return true;
+  for (const auto &action : config.actions) {
+    if (entity_missing(action))
+      return true;
+  }
+  for (const auto &action : config.else_actions) {
+    if (entity_missing(action))
+      return true;
+  }
+  return false;
+}
+
 bool AutomationStorage::save_automation_to_file_(const AutomationConfig &config) {
   std::string filepath = this->get_filepath_for_name_(config.name);
+
+  if (entity_missing(config)) {
+    ESP_LOGW(TAG, "Not writing '%s': an entity it names is missing and the reference would be lost",
+             config.name.c_str());
+    return false;
+  }
 
   JsonDocument doc;
   JsonObject obj = doc.to<JsonObject>();

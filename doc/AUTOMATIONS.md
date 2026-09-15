@@ -25,7 +25,8 @@ Rules are `/littlefs/automations/<name>.json` on the LittleFS partition from
 name. OTA updates keep the files.
 
 Entities are named by object id, so renaming a relay, an input or a temperature sensor leaves
-the rules that used it unbuilt — the boot log says which, and the files are kept.
+the rules that used it unbuilt — the boot log says which, and their files are kept exactly as
+written until the entity is back.
 
 ## Testing without hardware
 

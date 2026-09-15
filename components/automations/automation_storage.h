@@ -33,7 +33,9 @@ class AutomationStorage : public Component {
   uint32_t add_automation(const AutomationConfig &config);
   bool update_automation(uint32_t id, const AutomationConfig &new_config);
   bool remove_automation(uint32_t id);
-  bool set_enable_automation(uint32_t id, bool enable);
+  /// False when no rule carries that id. `persisted` reports whether the change also reached
+  /// flash: it can fail on its own, leaving the rule live but back as it was after a reboot.
+  bool set_enable_automation(uint32_t id, bool enable, bool *persisted = nullptr);
   void reset_all();
   /// Names collide by sanitized filename; `exclude_id` never blocks itself.
   bool is_name_taken(const std::string &name, uint32_t exclude_id = 0) const;
@@ -64,7 +66,7 @@ class AutomationStorage : public Component {
   uint32_t add_automation_(const AutomationConfig &config);
   bool update_automation_(uint32_t id, const AutomationConfig &new_config);
   bool remove_automation_(uint32_t id);
-  bool set_enable_automation_(uint32_t id, bool enable);
+  bool set_enable_automation_(uint32_t id, bool enable, bool *persisted);
   void reset_all_();
   bool run_on_loop_(std::function<bool()> &&job);
 

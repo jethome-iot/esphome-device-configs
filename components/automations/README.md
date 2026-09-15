@@ -34,8 +34,8 @@ automations:
   "name": "Porch light",
   "enabled": true,
   "mode": "single",
-  "triggers": [{"source": "input", "type": "click", "object_id": "in_1"}],
-  "condition": {"type": "input", "object_id": "in_3", "state": "true"},
+  "triggers": [{"source": "input", "type": "click", "object_id": "input_1"}],
+  "condition": {"type": "input", "object_id": "input_3", "state": "true"},
   "actions": [
     {"source": "switch", "type": "turn_on", "object_id": "relay_1"},
     {"source": "delay", "delay_ms": 5000},
@@ -76,13 +76,18 @@ Every entity reference is the `fnv1_hash` of an object id, resolved once at boot
 an entity that is not there stays on disk but is not built — the log says why and `dump_config`
 marks it `(not built)`. Renaming an entity orphans the rules that used it.
 
+Such a file is never rewritten, not even to restamp its `id` or move it to its own name: a file
+holds the object ids, memory holds only their hashes, so a rewrite would blank the names. Put
+the entity back and the next boot repairs the file as usual.
+
 ## From lambdas
 
 `esphome::global_automation_storage` is the component. The mutators may be called from any task;
 they run on the loop task and block the caller.
 
 - `add_automation(config)`: the assigned id, `0` on failure
-- `update_automation(id, config)`, `remove_automation(id)`, `set_enable_automation(id, enable)`
+- `update_automation(id, config)`, `remove_automation(id)`
+- `set_enable_automation(id, enable, persisted = nullptr)`: `persisted` says whether it reached flash
 - `reset_all()`: remove every rule and its file
 - `is_name_taken(name, exclude_id = 0)`: names collide by file name
 - `configs()`: the loaded `AutomationConfig`s, including the ones that did not build

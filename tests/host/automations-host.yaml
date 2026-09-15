@@ -344,8 +344,19 @@ script:
           state: false
       - delay: 240ms
       - lambda: |-
-          bool ok = esphome::global_automation_storage->set_enable_automation(10, false);
-          ESP_LOGI("test", "DISABLE ok=%d", ok);
+          bool persisted = false;
+          bool ok = esphome::global_automation_storage->set_enable_automation(10, false, &persisted);
+          ESP_LOGI("test", "DISABLE ok=%d persisted=%d", ok, persisted);
+          // Same call on the rule whose input is missing: it takes effect but must not be
+          // written back, because serialising it would blank the object id it names.
+          uint32_t orphan = 0;
+          for (const auto &config : esphome::global_automation_storage->configs().get_all_configs()) {
+            if (config.name == "Orphan")
+              orphan = config.id;
+          }
+          persisted = true;
+          ok = esphome::global_automation_storage->set_enable_automation(orphan, false, &persisted);
+          ESP_LOGI("test", "DISABLE_ORPHAN id=%u ok=%d persisted=%d", orphan, ok, persisted);
       - delay: 900ms
       - script.execute:
           id: check
