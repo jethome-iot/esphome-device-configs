@@ -72,6 +72,12 @@ void DallasScan::setup() {
     }
     this->write_resolution_(address);
   }
+  // One wait for the whole bus: a DS18S20 ignores the resolution and takes the full 750 ms.
+  this->conversion_ms_ = CONVERSION_MS[this->resolution_ - 9];
+  for (size_t slot = 0; slot < this->slots_.size(); slot++) {
+    if (this->given_[slot] == nullptr && (this->slots_[slot] & 0xff) == FAMILY_DS18S20 && this->slots_[slot] != 0)
+      this->conversion_ms_ = CONVERSION_MS[3];
+  }
   this->update_status_();
 }
 
@@ -119,8 +125,10 @@ sensor::Sensor *DallasScan::make_sensor_(size_t slot) {
   snprintf(name, len, "%s %u", this->name_prefix_, (unsigned) slot + 1);
   sensor->set_accuracy_decimals(1);
   sensor->set_state_class(sensor::STATE_CLASS_MEASUREMENT);
+#ifdef USE_SENSOR_FILTER
   for (auto *filter : this->filters_[slot])
     sensor->add_filter(filter);
+#endif
   const size_t count = App.get_sensors().size();
   App.register_sensor(sensor, name, 0, this->entity_fields_);  // hash 0: derived from the name, as codegen does
   if (App.get_sensors().size() == count)
@@ -157,7 +165,7 @@ void DallasScan::update() {
   // One conversion for the whole bus; the scratch pads are read one per loop pass.
   if (this->bus_->skip())
     this->bus_->write8(CMD_START_CONVERSION);
-  this->set_timeout("read", CONVERSION_MS[this->resolution_ - 9], [this] { this->read_slot_(0); });
+  this->set_timeout("read", this->conversion_ms_, [this] { this->read_slot_(0); });
 }
 
 void DallasScan::read_slot_(size_t slot) {

@@ -36,7 +36,7 @@ dallas_scan:
 | `sensors`         |         | YAML sensors that take the first slots, in this order, see below             |
 | `filters`         |         | The usual sensor filters, the same chain on every sensor the component creates |
 | `update_interval` | `60s`   | One conversion for the whole bus, then one scratch pad read per loop pass    |
-| `web_server`      |         | `sorting_group_id` and `sorting_weight` of the sensors the component creates; slot N gets weight + N - 1 |
+| `web_server`      |         | `sorting_group_id` and `sorting_weight`; slot N gets weight + N - 1. Listed sensors get them too unless they have a `web_server:` block of their own |
 
 ## Slots
 

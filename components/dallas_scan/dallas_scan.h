@@ -7,8 +7,10 @@
 #include "esphome/core/defines.h"
 #include "esphome/core/preferences.h"
 #include "esphome/components/one_wire/one_wire_bus.h"
-#include "esphome/components/sensor/filter.h"
 #include "esphome/components/sensor/sensor.h"
+#ifdef USE_SENSOR_FILTER
+#include "esphome/components/sensor/filter.h"
+#endif
 #ifdef USE_WEBSERVER_SORTING
 #include "esphome/components/web_server/web_server.h"
 #endif
@@ -24,14 +26,16 @@ class DallasScan : public PollingComponent {
     this->slots_.assign(count, 0);
     this->given_.assign(count, nullptr);
     this->pinned_.assign(count, false);
+#ifdef USE_SENSOR_FILTER
     this->filters_.resize(count);
+#endif
   }
   void set_name_prefix(const char *prefix) { this->name_prefix_ = prefix; }
   void set_resolution(uint8_t resolution) { this->resolution_ = resolution; }
   void set_entity_strings(uint8_t device_class_idx, uint8_t uom_idx);
   void set_preference_hash(uint32_t hash) { this->preference_hash_ = hash; }
   /// The address of a listed 1-Wire sensor: that device keeps the slot.
-  void pin(uint8_t slot, uint64_t address) {
+  void pin(size_t slot, uint64_t address) {
     this->pins_.emplace_back(slot, address);
     this->pinned_[slot] = true;
   }
@@ -40,8 +44,10 @@ class DallasScan : public PollingComponent {
     this->given_[slot] = sensor;
     this->pinned_[slot] = true;
   }
+#ifdef USE_SENSOR_FILTER
   /// The filter chain of a slot's sensor, attached when the sensor is created.
   void set_filters(size_t slot, std::vector<sensor::Filter *> filters) { this->filters_[slot] = std::move(filters); }
+#endif
 #ifdef USE_WEBSERVER_SORTING
   void set_web_server_sorting(web_server::WebServer *server, uint64_t group, float weight);
 #endif
@@ -78,12 +84,15 @@ class DallasScan : public PollingComponent {
   one_wire::OneWireBus *bus_{nullptr};
   const char *name_prefix_{"Temp"};
   uint8_t resolution_{12};
+  uint16_t conversion_ms_{750};
   uint32_t entity_fields_{0};
   uint32_t preference_hash_{0};
-  std::vector<std::pair<uint8_t, uint64_t>> pins_;
+  std::vector<std::pair<size_t, uint64_t>> pins_;
   std::vector<uint64_t> slots_;            // slot -> ROM address, 0 = empty
   std::vector<bool> pinned_;               // slot -> taken by sensors:
+#ifdef USE_SENSOR_FILTER
   std::vector<std::vector<sensor::Filter *>> filters_;  // slot -> filter chain
+#endif
   std::vector<sensor::Sensor *> given_;    // slot -> YAML sensor from sensors:, nullptr = none
   std::vector<sensor::Sensor *> sensors_;  // slot -> sensor, nullptr = empty
   std::vector<sensor::Sensor *> bound_;    // sensors_ without the gaps

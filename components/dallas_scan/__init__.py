@@ -49,18 +49,24 @@ def _fresh_ids(node):
 
 
 def _validate(config):
-    listed = len(config[CONF_SENSORS])
+    sensors = config[CONF_SENSORS]
+    listed = len(sensors)
     if listed > config[CONF_MAX_SENSORS]:
         raise cv.Invalid(
             f"{listed} sensors listed, {CONF_MAX_SENSORS} is {config[CONF_MAX_SENSORS]}",
             path=[CONF_SENSORS],
         )
-    # A filter chain belongs to one sensor, so every slot gets its own copy; the
-    # id pass names the copies' ids after this.
-    if (filters := config.get(CONF_FILTERS)) is not None:
-        config[CONF_FILTERS] = [filters] + [
-            _fresh_ids(filters) for _ in range(config[CONF_MAX_SENSORS] - 1)
-        ]
+    if len({sensor_id.id for sensor_id in sensors}) != listed:
+        raise cv.Invalid("A sensor is listed twice", path=[CONF_SENSORS])
+    # A filter chain belongs to one sensor, so every slot the component fills gets
+    # its own copy; the id pass names the copies' ids after this.
+    if filters := config.get(CONF_FILTERS):
+        automatic = config[CONF_MAX_SENSORS] - listed
+        config[CONF_FILTERS] = (
+            [filters] + [_fresh_ids(filters) for _ in range(automatic - 1)]
+            if automatic
+            else []
+        )
     return config
 
 
@@ -131,17 +137,22 @@ async def to_code(config):
     cg.add(var.set_name_prefix(config[CONF_NAME_PREFIX]))
     cg.add(var.set_resolution(config[CONF_RESOLUTION]))
     cg.add(var.set_preference_hash(fnv1_hash(config[CONF_ID].id)))
-    for slot, sensor_id in enumerate(config[CONF_SENSORS]):
-        cg.add(var.set_sensor(slot, await cg.get_variable(sensor_id)))
+    listed = [await cg.get_variable(sensor_id) for sensor_id in config[CONF_SENSORS]]
+    for slot, (sensor_id, listed_sensor) in enumerate(
+        zip(config[CONF_SENSORS], listed)
+    ):
+        cg.add(var.set_sensor(slot, listed_sensor))
         # Its device keeps this slot, so the scan does not hand it another one.
         address = _one_wire_address(_sensor_entry(CORE.config, sensor_id))
         if address is not None:
             cg.add(var.pin(slot, address))
-    for slot, filters in enumerate(config.get(CONF_FILTERS) or []):
-        cg.add(var.set_filters(slot, await sensor.build_filters(filters)))
+    if filters := config.get(CONF_FILTERS):
+        cg.add_define("USE_SENSOR_FILTER")
+        for slot, chain in enumerate(filters, start=len(listed)):
+            cg.add(var.set_filters(slot, await sensor.build_filters(chain)))
 
     # The sensors are created at runtime: reserve their entity slots and strings now.
-    for _ in range(config[CONF_MAX_SENSORS]):
+    for _ in range(config[CONF_MAX_SENSORS] - len(listed)):
         CORE.register_platform_component("sensor", var)
     cg.add_define("USE_ENTITY_DEVICE_CLASS")
     cg.add_define("USE_ENTITY_UNIT_OF_MEASUREMENT")
@@ -153,13 +164,17 @@ async def to_code(config):
     )
 
     # Same group hash as web_server.add_entity_config() computes for YAML entities.
-    if (sorting := config.get(CONF_WEB_SERVER)) is not None:
+    if sorting := config.get(CONF_WEB_SERVER):
         server = await cg.get_variable(sorting[CONF_WEB_SERVER_ID])
+        group = hash(sorting.get(web_server.CONF_SORTING_GROUP_ID))
+        weight = sorting.get(web_server.CONF_SORTING_WEIGHT, 50)
         cg.add_define("USE_WEBSERVER_SORTING")
-        cg.add(
-            var.set_web_server_sorting(
-                server,
-                hash(sorting.get(web_server.CONF_SORTING_GROUP_ID)),
-                sorting.get(web_server.CONF_SORTING_WEIGHT, 50),
-            )
-        )
+        cg.add(var.set_web_server_sorting(server, group, weight))
+        # Listed sensors join the group too, unless they sort themselves.
+        for slot, (sensor_id, listed_sensor) in enumerate(
+            zip(config[CONF_SENSORS], listed)
+        ):
+            entry = _sensor_entry(CORE.config, sensor_id)
+            if entry is not None and entry.get(CONF_WEB_SERVER):
+                continue
+            cg.add(server.add_entity_config(listed_sensor, weight + slot, group))
