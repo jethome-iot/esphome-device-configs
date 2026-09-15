@@ -205,6 +205,12 @@ static std::vector<uint8_t> deserialize_cron_field(const std::string &field, uin
 
 TriggerConfig::TriggerConfig() : source(SourceTrigger::NONE) { memset(&params, 0, sizeof(params)); }
 
+std::string TriggerConfig::cron_string() const {
+  return serialize_cron_field(cron_seconds, 0, 60) + " " + serialize_cron_field(cron_minutes, 0, 59) + " " +
+         serialize_cron_field(cron_hours, 0, 23) + " " + serialize_cron_field(cron_days_of_month, 1, 31) + " " +
+         serialize_cron_field(cron_months, 1, 12) + " " + serialize_cron_field(cron_days_of_week, 1, 7);
+}
+
 void TriggerConfig::serialize(JsonObject &obj) const {
   obj["source"] = EnumUtils::source_trigger_to_string(source);
 
@@ -228,24 +234,12 @@ void TriggerConfig::serialize(JsonObject &obj) const {
       obj["type"] = EnumUtils::switch_trigger_type_to_string(params.switch_trigger.type);
       obj["object_id"] = switch_object_id(params.switch_trigger.switch_id);
       break;
-    case SourceTrigger::CRON: {
-      // Serialize as space-separated cron string: "seconds minutes hours days_of_month months days_of_week"
-      std::string cron_str;
-      cron_str += serialize_cron_field(cron_seconds, 0, 60);
-      cron_str += " ";
-      cron_str += serialize_cron_field(cron_minutes, 0, 59);
-      cron_str += " ";
-      cron_str += serialize_cron_field(cron_hours, 0, 23);
-      cron_str += " ";
-      cron_str += serialize_cron_field(cron_days_of_month, 1, 31);
-      cron_str += " ";
-      cron_str += serialize_cron_field(cron_months, 1, 12);
-      cron_str += " ";
-      cron_str += serialize_cron_field(cron_days_of_week, 1, 7);
-      obj["cron"] = cron_str;
+    case SourceTrigger::CRON:
+      obj["cron"] = cron_string();
+      // The engine reads the expression, not the preset; the preset is the editor's own note
+      // about which form it presented, and is round-tripped untouched.
       obj["cron_preset"] = EnumUtils::cron_preset_to_string(cron_preset);
       break;
-    }
     case SourceTrigger::STARTUP:
     default:
       // Startup carries no extra parameters.

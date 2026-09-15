@@ -1,5 +1,6 @@
 #pragma once
 #include <ArduinoJson.h>
+#include <string>
 #include <vector>
 #include "enums.h"
 
@@ -38,6 +39,9 @@ struct TriggerConfig {
   std::vector<uint8_t> cron_months;
   std::vector<uint8_t> cron_days_of_week;
   CronPreset cron_preset = CronPreset::DAILY;
+
+  /// The six cron fields as one string, the form the file stores.
+  std::string cron_string() const;
 
   TriggerConfig();
   ~TriggerConfig() = default;

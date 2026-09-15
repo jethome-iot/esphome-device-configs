@@ -90,6 +90,7 @@ static bool compile_condition(const ConditionConfig &config, CompiledCondition &
           out.max = config.max_threshold;
           return true;
         default:
+          ESP_LOGE(TAG, "Condition: temperature needs a 'temperature_type' of below, above or range");
           return false;
       }
     case ConditionType::AND:

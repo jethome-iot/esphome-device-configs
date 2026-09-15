@@ -1,0 +1,1 @@
+{"id":15,"name":"Bad Cond","enabled":true,"mode":"single","triggers":[{"source":"input","type":"press","object_id":"in_8"}],"condition":{"type":"temperature","object_id":"temp_2","threshold":25},"actions":[{"source":"switch","type":"toggle","object_id":"relay_1"}]}

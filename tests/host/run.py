@@ -62,7 +62,7 @@ EXPECTED_RESTART = {
 # id, name and enabled of every rule the second pass loads, in id order. Rule 10
 # was disabled through the API in the first pass; rule 12 came from zzz.json.
 # Rule 2 comes from a fixture with no "enabled" key: absent means enabled.
-# Rule 15 is the orphan, restamped every boot because its file is never rewritten,
+# Rule 16 is the orphan, restamped every boot because its file is never rewritten,
 # and still enabled because the first pass could not persist disabling it.
 EXPECTED_RULES = [
     "RULE id=1 name=Input press enabled=1",
@@ -79,7 +79,8 @@ EXPECTED_RULES = [
     "RULE id=12 name=Cron Step enabled=1",
     "RULE id=13 name=Composite enabled=1",
     "RULE id=14 name=Long Delay enabled=1",
-    "RULE id=15 name=Orphan enabled=1",
+    "RULE id=15 name=Bad Cond enabled=1",
+    "RULE id=16 name=Orphan enabled=1",
 ]
 
 # Files that never parse, so the loader leaves them alone.
@@ -90,6 +91,7 @@ ORPHANED = "orphan.json"
 # Every rule ends up in the file its name maps to: zzz.json becomes cron_step.json and
 # longdelay.json becomes long_delay.json.
 LOADED_FILES = [
+    "bad_cond.json",
     "boot.json",
     "click.json",
     "composite.json",
@@ -119,6 +121,9 @@ REQUIRED_ERRORS = [
     # orphan.json names an input that does not exist
     r"Trigger: binary sensor 0x[0-9A-F]{8} not found",
     r"Automation 'Orphan': trigger cannot be built",
+    # bad_cond.json has a temperature condition with no temperature_type
+    r"Condition: temperature needs a 'temperature_type'",
+    r"Automation 'Bad Cond': condition cannot be built",
 ]
 
 # The scheduler reads UINT32_MAX as "never run" (SCHEDULER_DONT_RUN), so a delay must stop
