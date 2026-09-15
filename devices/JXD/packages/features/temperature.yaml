@@ -1,6 +1,7 @@
 # One Temp N sensor per DS18B20 found at boot. A new sensor takes the lowest free
-# slot in bus order and the slot then keeps its ROM address across reboots; slots:
-# pins a slot or hands it to a YAML sensor. Details: doc/ONEWIRE_WORKFLOW.md
+# slot in bus order and the slot then keeps its ROM address across reboots; sensors:
+# lists YAML sensors for the first slots, addresses: pins the rest. Details:
+# doc/ONEWIRE_WORKFLOW.md
 external_components:
   - source: ${components}
     components: [dallas_scan]

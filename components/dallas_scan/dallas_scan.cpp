@@ -231,9 +231,16 @@ float DallasScan::temperature(size_t slot) const {
 }
 
 void DallasScan::forget(int slot) {
+  bool changed = false;
   for (size_t i = 0; i < this->slots_.size(); i++) {
-    if (slot < 0 || (size_t) slot == i)
-      this->slots_[i] = 0;
+    if ((slot >= 0 && (size_t) slot != i) || this->pinned_[i] || this->slots_[i] == 0)
+      continue;
+    this->slots_[i] = 0;
+    changed = true;
+  }
+  if (!changed) {
+    ESP_LOGW(TAG, "Nothing to forget: the slot is pinned or empty");
+    return;
   }
   this->save_table_();
   global_preferences->sync();

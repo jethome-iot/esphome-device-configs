@@ -23,6 +23,7 @@ class DallasScan : public PollingComponent {
   void set_max_sensors(uint8_t count) {
     this->slots_.assign(count, 0);
     this->given_.assign(count, nullptr);
+    this->pinned_.assign(count, false);
     this->filters_.resize(count);
   }
   void set_name_prefix(const char *prefix) { this->name_prefix_ = prefix; }
@@ -30,9 +31,15 @@ class DallasScan : public PollingComponent {
   void set_entity_strings(uint8_t device_class_idx, uint8_t uom_idx);
   void set_preference_hash(uint32_t hash) { this->preference_hash_ = hash; }
   /// Pin a slot to a ROM address for good.
-  void pin(uint8_t slot, uint64_t address) { this->pins_.emplace_back(slot, address); }
-  /// A YAML sensor serves the slot: it reads its device itself, the component only lists it.
-  void set_sensor(size_t slot, sensor::Sensor *sensor) { this->given_[slot] = sensor; }
+  void pin(uint8_t slot, uint64_t address) {
+    this->pins_.emplace_back(slot, address);
+    this->pinned_[slot] = true;
+  }
+  /// A YAML sensor from sensors: takes the slot; it reads its device itself, the component only lists it.
+  void set_sensor(size_t slot, sensor::Sensor *sensor) {
+    this->given_[slot] = sensor;
+    this->pinned_[slot] = true;
+  }
   /// The filter chain of a slot's sensor, attached when the sensor is created.
   void set_filters(size_t slot, std::vector<sensor::Filter *> filters) { this->filters_[slot] = std::move(filters); }
 #ifdef USE_WEBSERVER_SORTING
@@ -53,7 +60,9 @@ class DallasScan : public PollingComponent {
   float temperature(size_t slot) const;
   /// Sensors of the bound slots, in slot order.
   const std::vector<sensor::Sensor *> &sensors() const { return this->bound_; }
-  /// Empty a slot (every slot for -1), then reboot to scan the bus again.
+  /// Fixed by the config (a pinned address or a YAML sensor): forget leaves it alone.
+  bool pinned(size_t slot) const { return slot < this->pinned_.size() && this->pinned_[slot]; }
+  /// Empty a slot (every slot for -1), then reboot to scan the bus again. Pinned slots stay.
   void forget(int slot);
 
  protected:
@@ -73,8 +82,9 @@ class DallasScan : public PollingComponent {
   uint32_t preference_hash_{0};
   std::vector<std::pair<uint8_t, uint64_t>> pins_;
   std::vector<uint64_t> slots_;            // slot -> ROM address, 0 = empty
+  std::vector<bool> pinned_;               // slot -> fixed by the config
   std::vector<std::vector<sensor::Filter *>> filters_;  // slot -> filter chain
-  std::vector<sensor::Sensor *> given_;    // slot -> YAML sensor serving it, nullptr = none
+  std::vector<sensor::Sensor *> given_;    // slot -> YAML sensor from sensors:, nullptr = none
   std::vector<sensor::Sensor *> sensors_;  // slot -> sensor, nullptr = empty
   std::vector<sensor::Sensor *> bound_;    // sensors_ without the gaps
   std::vector<bool> missing_;              // slot -> the sensor did not answer the last read

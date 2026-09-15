@@ -54,8 +54,8 @@ lambdas read them. Network mode applies live, Modbus settings on the next reboot
 The `dallas_scan` component (`components/dallas_scan`, id `temps` in `features/temperature.yaml`)
 owns the slots: a slot → ROM address table in flash and one `sensor::Sensor` per bound slot,
 `Temp 1` … `Temp 16`, created at setup rather than declared in YAML. `max_sensors` sizes the table
-and the entity slots codegen reserves; `slots:` pins a slot to an address or hands it to a YAML
-sensor. Adding slots touches
+and the entity slots codegen reserves; `sensors:` hands the first slots to YAML sensors and
+`addresses:` pins the rest. Adding slots touches
 `max_sensors`, `modbus-server.yaml`, the README and `TEMP_COUNT` in `scripts/modbus_probe.py`;
 see "More slots" in [ONEWIRE_WORKFLOW.md](ONEWIRE_WORKFLOW.md).
 

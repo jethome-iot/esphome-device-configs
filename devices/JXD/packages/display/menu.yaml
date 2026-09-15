@@ -169,7 +169,8 @@ esphome:
                 return std::isnan(value) ? name + ": --" : str_sprintf("%s: %.1f°C", name.c_str(), value);
               };
 
-              // The row shows the reading and opens the slot: reading, address, forget.
+              // The row shows the reading and opens the slot: reading, address, and
+              // forget where it changes anything.
               auto *menu = new MenuItemMenu();
               auto *reading = new MenuItem(MENU_ITEM_LABEL);
               menu->set_text(format(NAN));
@@ -179,19 +180,22 @@ esphome:
                 reading->set_text(format(value));
               });
               menu->add_item(reading);
-              auto *address = new MenuItem(MENU_ITEM_LABEL);
-              const uint64_t rom = scan->address(slot);
-              address->set_text(rom ? str_sprintf("0x%016" PRIx64, rom) : std::string("no address"));
-              menu->add_item(address);
-              auto *question = new MenuItem(MENU_ITEM_LABEL);
-              question->set_text("Forget slot?");
-              menu->add_item(question);
-              auto *confirm = new MenuItemCommand();
-              confirm->set_text("Confirm");
-              confirm->add_on_value_callback([confirm, slot]() {
-                confirm->set_text("Confirm - OK");
-                id(forget_temperatures)->execute(slot);
-              });
-              menu->add_item(confirm);
+              if (const uint64_t rom = scan->address(slot); rom != 0) {
+                auto *address = new MenuItem(MENU_ITEM_LABEL);
+                address->set_text(str_sprintf("0x%016" PRIx64, rom));
+                menu->add_item(address);
+              }
+              if (!scan->pinned(slot)) {
+                auto *question = new MenuItem(MENU_ITEM_LABEL);
+                question->set_text("Forget slot?");
+                menu->add_item(question);
+                auto *confirm = new MenuItemCommand();
+                confirm->set_text("Confirm");
+                confirm->add_on_value_callback([confirm, slot]() {
+                  confirm->set_text("Confirm - OK");
+                  id(forget_temperatures)->execute(slot);
+                });
+                menu->add_item(confirm);
+              }
               id(temperatures_menu)->add_item(menu);
             }

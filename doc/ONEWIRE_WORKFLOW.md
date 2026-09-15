@@ -27,20 +27,21 @@ log lists them too (`ds2484: Found devices`).
 
 ## Pinning
 
-Add the slot to `slots:` in `devices/JXD/packages/features/temperature.yaml`:
+Add the slot to `addresses:` in `devices/JXD/packages/features/temperature.yaml`:
 
 ```yaml
 dallas_scan:
-  slots:
+  addresses:
     2: 0xeb01227905460228
 ```
 
-A pinned slot always holds that sensor; forgetting it has no effect.
+A pinned slot always holds that sensor; its menu entry shows the address but no forget.
 
-## Your own sensor in a slot
+## Your own sensors
 
-A slot can be served by a sensor declared in YAML, with its own name, id and filters; it then
-shows up in the menu, on the status page and over Modbus like the others:
+Sensors declared in YAML, with their own names, ids and filters, take the first slots in the
+order listed; the scan fills the slots after them. They show up in the menu, on the status
+page and over Modbus like the others:
 
 ```yaml
 sensor:
@@ -52,17 +53,17 @@ sensor:
       - filter_out: 85.0
 
 dallas_scan:
-  slots:
-    4:
-      address: 0x8a0122791699dd28
-      sensor: boiler
+  sensors: [boiler]
 ```
+
+A 1-Wire sensor in the list needs an `address:`, which pins it to its slot.
 
 ## Forgetting
 
 **Temperatures → Temp N → Confirm** clears the slot and reboots; the sensor in it, or a new
 one, takes the lowest free slot again. **Settings → Temp sensors → Confirm** clears every
-slot, so sensors are numbered again in bus order. Factory reset clears them too.
+slot but the pinned ones, so sensors are numbered again in bus order. Factory reset clears
+them too.
 
 ## More slots
 

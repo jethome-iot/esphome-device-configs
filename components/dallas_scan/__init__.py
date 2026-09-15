@@ -8,13 +8,14 @@ from esphome.const import (
     CONF_FILTERS,
     CONF_ID,
     CONF_RESOLUTION,
-    CONF_SENSOR,
+    CONF_SENSORS,
     CONF_WEB_SERVER,
     CONF_WEB_SERVER_ID,
     DEVICE_CLASS_TEMPERATURE,
     UNIT_CELSIUS,
 )
 from esphome.core import CORE, ID
+import esphome.final_validate as fv
 from esphome.core.entity_helpers import (
     register_device_class,
     register_unit_of_measurement,
@@ -27,27 +28,10 @@ AUTO_LOAD = ["sensor"]
 
 CONF_MAX_SENSORS = "max_sensors"
 CONF_NAME_PREFIX = "name_prefix"
-CONF_SLOTS = "slots"
+CONF_ADDRESSES = "addresses"
 
 dallas_scan_ns = cg.esphome_ns.namespace("dallas_scan")
 DallasScan = dallas_scan_ns.class_("DallasScan", cg.PollingComponent)
-
-SLOT_SCHEMA = cv.Schema(
-    {
-        cv.Optional(CONF_ADDRESS): cv.hex_uint64_t,
-        cv.Optional(CONF_SENSOR): cv.use_id(sensor.Sensor),
-    }
-)
-
-
-def _slot(value):
-    """A ROM address pinned to the slot, or a mapping with it and/or a YAML sensor."""
-    if not isinstance(value, dict):
-        value = {CONF_ADDRESS: value}
-    value = SLOT_SCHEMA(value)
-    if not value:
-        raise cv.Invalid(f"A slot needs an {CONF_ADDRESS} or a {CONF_SENSOR}")
-    return value
 
 
 def _fresh_ids(node):
@@ -66,11 +50,21 @@ def _fresh_ids(node):
 
 
 def _validate(config):
-    for slot in config[CONF_SLOTS]:
+    listed = len(config[CONF_SENSORS])
+    if listed > config[CONF_MAX_SENSORS]:
+        raise cv.Invalid(
+            f"{listed} sensors listed, {CONF_MAX_SENSORS} is {config[CONF_MAX_SENSORS]}",
+            path=[CONF_SENSORS],
+        )
+    for slot in config[CONF_ADDRESSES]:
         if slot > config[CONF_MAX_SENSORS]:
             raise cv.Invalid(
                 f"Slot {slot} is above {CONF_MAX_SENSORS} ({config[CONF_MAX_SENSORS]})",
-                path=[CONF_SLOTS, slot],
+                path=[CONF_ADDRESSES, slot],
+            )
+        if slot <= listed:
+            raise cv.Invalid(
+                f"Slot {slot} is taken by {CONF_SENSORS}", path=[CONF_ADDRESSES, slot]
             )
     # A filter chain belongs to one sensor, so every slot gets its own copy; the
     # id pass names the copies' ids after this.
@@ -89,9 +83,13 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_MAX_SENSORS, default=8): cv.int_range(min=1, max=64),
             cv.Optional(CONF_NAME_PREFIX, default="Temp"): cv.string_strict,
             cv.Optional(CONF_RESOLUTION, default=12): cv.int_range(min=9, max=12),
-            # Slot number -> the address pinned to it and/or the YAML sensor serving it.
-            cv.Optional(CONF_SLOTS, default={}): cv.Schema(
-                {cv.int_range(min=1, max=64): _slot}
+            # YAML sensors that take the first slots, in this order.
+            cv.Optional(CONF_SENSORS, default=[]): cv.ensure_list(
+                cv.use_id(sensor.Sensor)
+            ),
+            # Slot number -> ROM address; the slot is pinned to that device.
+            cv.Optional(CONF_ADDRESSES, default={}): cv.Schema(
+                {cv.int_range(min=1, max=64): cv.hex_uint64_t}
             ),
             # The usual sensor filters, the same chain on every sensor.
             cv.Optional(CONF_FILTERS): sensor.validate_filters,
@@ -101,6 +99,41 @@ CONFIG_SCHEMA = cv.All(
     .extend(cv.polling_component_schema("60s")),
     _validate,
 )
+
+
+def _sensor_entry(full_config, sensor_id):
+    """The sensor: entry a listed id refers to."""
+    for entry in full_config.get("sensor") or []:
+        if (entry_id := entry.get(CONF_ID)) is not None and entry_id.id == sensor_id.id:
+            return entry
+    return None
+
+
+def _one_wire_address(entry):
+    """The address: of a 1-Wire sensor entry, None for other sensors."""
+    if entry is None or one_wire.CONF_ONE_WIRE_ID not in entry:
+        return None
+    return entry.get(CONF_ADDRESS)
+
+
+def _final_validate(config):
+    # A listed 1-Wire sensor pins its address to its slot; without one the scan
+    # would hand the same device a slot of its own.
+    full_config = fv.full_config.get()
+    for index, sensor_id in enumerate(config[CONF_SENSORS]):
+        entry = _sensor_entry(full_config, sensor_id)
+        if entry is None or one_wire.CONF_ONE_WIRE_ID not in entry:
+            continue
+        if CONF_ADDRESS not in entry:
+            raise cv.Invalid(
+                f"{sensor_id.id} is a 1-Wire sensor: give it an {CONF_ADDRESS} "
+                f"instead of an index to list it in {CONF_SENSORS}",
+                path=[CONF_SENSORS, index],
+            )
+    return config
+
+
+FINAL_VALIDATE_SCHEMA = _final_validate
 
 
 async def to_code(config):
@@ -113,11 +146,13 @@ async def to_code(config):
     cg.add(var.set_name_prefix(config[CONF_NAME_PREFIX]))
     cg.add(var.set_resolution(config[CONF_RESOLUTION]))
     cg.add(var.set_preference_hash(fnv1_hash(config[CONF_ID].id)))
-    for slot, conf in config[CONF_SLOTS].items():
-        if (address := conf.get(CONF_ADDRESS)) is not None:
-            cg.add(var.pin(slot - 1, address))
-        if (sensor_id := conf.get(CONF_SENSOR)) is not None:
-            cg.add(var.set_sensor(slot - 1, await cg.get_variable(sensor_id)))
+    for slot, sensor_id in enumerate(config[CONF_SENSORS]):
+        cg.add(var.set_sensor(slot, await cg.get_variable(sensor_id)))
+        address = _one_wire_address(_sensor_entry(CORE.config, sensor_id))
+        if address is not None:
+            cg.add(var.pin(slot, address))
+    for slot, address in config[CONF_ADDRESSES].items():
+        cg.add(var.pin(slot - 1, address))
     for slot, filters in enumerate(config.get(CONF_FILTERS) or []):
         cg.add(var.set_filters(slot, await sensor.build_filters(filters)))
 

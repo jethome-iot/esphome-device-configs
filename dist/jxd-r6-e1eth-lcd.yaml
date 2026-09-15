@@ -475,19 +475,20 @@ esphome:
             \ std::string name = sensor->get_name().c_str();\n  auto format = [name](float\
             \ value) {\n    return std::isnan(value) ? name + \": --\" : str_sprintf(\"\
             %s: %.1f°C\", name.c_str(), value);\n  };\n\n  // The row shows the reading\
-            \ and opens the slot: reading, address, forget.\n  auto *menu = new MenuItemMenu();\n\
-            \  auto *reading = new MenuItem(MENU_ITEM_LABEL);\n  menu->set_text(format(NAN));\n\
-            \  reading->set_text(format(NAN));\n  sensor->add_on_state_callback([menu,\
-            \ reading, format](float value) {\n    menu->set_text(format(value));\n\
-            \    reading->set_text(format(value));\n  });\n  menu->add_item(reading);\n\
-            \  auto *address = new MenuItem(MENU_ITEM_LABEL);\n  const uint64_t rom\
-            \ = scan->address(slot);\n  address->set_text(rom ? str_sprintf(\"0x%016\"\
-            \ PRIx64, rom) : std::string(\"no address\"));\n  menu->add_item(address);\n\
-            \  auto *question = new MenuItem(MENU_ITEM_LABEL);\n  question->set_text(\"\
-            Forget slot?\");\n  menu->add_item(question);\n  auto *confirm = new MenuItemCommand();\n\
-            \  confirm->set_text(\"Confirm\");\n  confirm->add_on_value_callback([confirm,\
-            \ slot]() {\n    confirm->set_text(\"Confirm - OK\");\n    id(forget_temperatures)->execute(slot);\n\
-            \  });\n  menu->add_item(confirm);\n  id(temperatures_menu)->add_item(menu);\n\
+            \ and opens the slot: reading, address, and\n  // forget where it changes\
+            \ anything.\n  auto *menu = new MenuItemMenu();\n  auto *reading = new\
+            \ MenuItem(MENU_ITEM_LABEL);\n  menu->set_text(format(NAN));\n  reading->set_text(format(NAN));\n\
+            \  sensor->add_on_state_callback([menu, reading, format](float value)\
+            \ {\n    menu->set_text(format(value));\n    reading->set_text(format(value));\n\
+            \  });\n  menu->add_item(reading);\n  if (const uint64_t rom = scan->address(slot);\
+            \ rom != 0) {\n    auto *address = new MenuItem(MENU_ITEM_LABEL);\n  \
+            \  address->set_text(str_sprintf(\"0x%016\" PRIx64, rom));\n    menu->add_item(address);\n\
+            \  }\n  if (!scan->pinned(slot)) {\n    auto *question = new MenuItem(MENU_ITEM_LABEL);\n\
+            \    question->set_text(\"Forget slot?\");\n    menu->add_item(question);\n\
+            \    auto *confirm = new MenuItemCommand();\n    confirm->set_text(\"\
+            Confirm\");\n    confirm->add_on_value_callback([confirm, slot]() {\n\
+            \      confirm->set_text(\"Confirm - OK\");\n      id(forget_temperatures)->execute(slot);\n\
+            \    });\n    menu->add_item(confirm);\n  }\n  id(temperatures_menu)->add_item(menu);\n\
             }"
     - priority: 600
       then:
