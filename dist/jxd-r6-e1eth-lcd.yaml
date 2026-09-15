@@ -470,24 +470,26 @@ esphome:
     - priority: 500
       then:
         - lambda: "using namespace display_menu_base;\nauto *scan = id(temps);\nfor\
-            \ (size_t slot = 0; slot < scan->max_sensors(); slot++) {\n  auto *sensor\
-            \ = scan->sensor(slot);\n  if (sensor == nullptr)\n    continue;\n  const\
-            \ std::string name = sensor->get_name().c_str();\n  auto format = [name](float\
-            \ value) {\n    return std::isnan(value) ? name + \": --\" : str_sprintf(\"\
-            %s: %.1f°C\", name.c_str(), value);\n  };\n\n  // The row shows the reading\
-            \ and opens the slot: reading, address, and\n  // forget where it changes\
-            \ anything.\n  auto *menu = new MenuItemMenu();\n  auto *reading = new\
-            \ MenuItem(MENU_ITEM_LABEL);\n  menu->set_text(format(NAN));\n  reading->set_text(format(NAN));\n\
-            \  sensor->add_on_state_callback([menu, reading, format](float value)\
-            \ {\n    menu->set_text(format(value));\n    reading->set_text(format(value));\n\
-            \  });\n  menu->add_item(reading);\n  if (const uint64_t rom = scan->address(slot);\
-            \ rom != 0) {\n    auto *address = new MenuItem(MENU_ITEM_LABEL);\n  \
-            \  address->set_text(str_sprintf(\"0x%016\" PRIx64, rom));\n    menu->add_item(address);\n\
-            \  }\n  if (!scan->pinned(slot)) {\n    auto *question = new MenuItem(MENU_ITEM_LABEL);\n\
-            \    question->set_text(\"Forget slot?\");\n    menu->add_item(question);\n\
-            \    auto *confirm = new MenuItemCommand();\n    confirm->set_text(\"\
-            Confirm\");\n    confirm->add_on_value_callback([confirm, slot]() {\n\
-            \      confirm->set_text(\"Confirm - OK\");\n      id(forget_temperatures)->execute(slot);\n\
+            \ (size_t slot = 0; slot < scan->used_slots(); slot++) {\n  const std::string\
+            \ name = scan->slot_name(slot);\n  auto *sensor = scan->sensor(slot);\n\
+            \  if (sensor == nullptr) {  // freed slot between sensors: keep its row\n\
+            \    auto *free_slot = new MenuItem(MENU_ITEM_LABEL);\n    free_slot->set_text(name\
+            \ + \": free\");\n    id(temperatures_menu)->add_item(free_slot);\n  \
+            \  continue;\n  }\n  auto format = [name](float value) {\n    return std::isnan(value)\
+            \ ? name + \": --\" : str_sprintf(\"%s: %.1f°C\", name.c_str(), value);\n\
+            \  };\n\n  // The row shows the reading and opens the slot: reading, address,\
+            \ and\n  // forget where it changes anything.\n  auto *menu = new MenuItemMenu();\n\
+            \  auto *reading = new MenuItem(MENU_ITEM_LABEL);\n  menu->set_text(format(NAN));\n\
+            \  reading->set_text(format(NAN));\n  sensor->add_on_state_callback([menu,\
+            \ reading, format](float value) {\n    menu->set_text(format(value));\n\
+            \    reading->set_text(format(value));\n  });\n  menu->add_item(reading);\n\
+            \  if (const uint64_t rom = scan->address(slot); rom != 0) {\n    auto\
+            \ *address = new MenuItem(MENU_ITEM_LABEL);\n    address->set_text(str_sprintf(\"\
+            0x%016\" PRIx64, rom));\n    menu->add_item(address);\n  }\n  if (!scan->pinned(slot))\
+            \ {\n    auto *question = new MenuItem(MENU_ITEM_LABEL);\n    question->set_text(\"\
+            Forget slot?\");\n    menu->add_item(question);\n    auto *confirm = new\
+            \ MenuItemCommand();\n    confirm->set_text(\"Confirm\");\n    confirm->add_on_value_callback([confirm,\
+            \ slot]() {\n      confirm->set_text(\"Confirm - OK\");\n      id(forget_temperatures)->execute(slot);\n\
             \    });\n    menu->add_item(confirm);\n  }\n  id(temperatures_menu)->add_item(menu);\n\
             }"
     - priority: 600
@@ -968,18 +970,19 @@ display:
           it.print(0, 32, id(f5x7), \"Inputs\");\nx = x_start;\nint num = 1;\nfor\
           \ (auto *input : id(inputs)) {\n  if (input->state) {\n    it.filled_circle(x,\
           \ 47, radius);\n  } else {\n    it.circle(x, 47, radius);\n  }\n  it.printf(x\
-          \ - 2, 54, id(f5x7), \"%d\", num++);\n  x += x_spacing;\n}\n\n// Bound slots\
-          \ only, three rows; UP/DOWN scroll.\nconst int rows = 3;\nconst auto &sensors\
-          \ = id(temps)->sensors();\nconst int bound = sensors.size();\nint &scroll\
-          \ = id(status_temp_scroll);\nscroll = std::clamp(scroll, 0, std::max(bound\
+          \ - 2, 54, id(f5x7), \"%d\", num++);\n  x += x_spacing;\n}\n\n// Slots up\
+          \ to the last bound one, three rows; UP/DOWN scroll.\nconst int rows = 3;\n\
+          auto *scan = id(temps);\nconst int used = scan->used_slots();\nint &scroll\
+          \ = id(status_temp_scroll);\nscroll = std::clamp(scroll, 0, std::max(used\
           \ - rows, 0));\n\nit.print(92, 0, id(f5x7), \"Temp\");\nif (scroll > 0)\n\
-          \  it.filled_triangle(117, 6, 121, 6, 119, 2);\nif (scroll + rows < bound)\n\
+          \  it.filled_triangle(117, 6, 121, 6, 119, 2);\nif (scroll + rows < used)\n\
           \  it.filled_triangle(123, 2, 127, 2, 125, 6);\n\nint y = 11;\nfor (int\
-          \ i = scroll; i < std::min(scroll + rows, bound); i++) {\n  auto *sensor\
-          \ = sensors[i];\n  it.printf(92, y, id(f5x7), \"%.7s\", sensor->get_name().c_str());\n\
-          \  y += 8;\n  if (std::isnan(sensor->state)) {\n    it.print(92, y, id(f5x7),\
-          \ \"--.-\");\n  } else {\n    it.printf(92, y, id(f5x7), \"%.1f\", sensor->state);\n\
-          \  }\n  y += 11;\n}"
+          \ slot = scroll; slot < std::min(scroll + rows, used); slot++) {\n  it.printf(92,\
+          \ y, id(f5x7), \"%.7s\", scan->slot_name(slot).c_str());\n  y += 8;\n  auto\
+          \ *sensor = scan->sensor(slot);\n  if (sensor == nullptr) {\n    it.print(92,\
+          \ y, id(f5x7), \"free\");\n  } else if (std::isnan(sensor->state)) {\n \
+          \   it.print(92, y, id(f5x7), \"--.-\");\n  } else {\n    it.printf(92,\
+          \ y, id(f5x7), \"%.1f\", sensor->state);\n  }\n  y += 11;\n}"
   - platform: ssd1306_i2c
     id: !extend 'display1'
     pages:

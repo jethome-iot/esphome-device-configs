@@ -85,6 +85,9 @@ when no slot changes. A factory reset (`global_preferences->reset()`) clears the
 Slots are 0-based here.
 
 - `sensors()`: the bound slots' sensors, in slot order
+- `used_slots()`: slots up to the last bound one, free slots between them included, so a
+  freed slot keeps its row
+- `slot_name(slot)`: the sensor's name, `<prefix> N` for an empty slot
 - `sensor(slot)`, `temperature(slot)`, `address(slot)`: `nullptr`, `NaN` and `0` when the slot
   is empty; the address is `0` for a listed sensor that is not a 1-Wire device
 - `pinned(slot)`: taken by `sensors:`, so it has no forget entry in a menu

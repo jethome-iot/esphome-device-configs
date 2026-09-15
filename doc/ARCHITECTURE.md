@@ -18,12 +18,14 @@ boundaries; everything else is local to its file.
   `boards/jxd-cpu-e1eth.yaml`; every visible entity names one.
 - `relays`, `inputs` (`boards/jxd-d6-r6-rev1.2.yaml`) are `globals` that the status page, buttons
   and menu iterate over. `temps` (`features/temperature.yaml`) is the `dallas_scan` component; the
-  status page, the menu and the Modbus map read the temperatures through it (`sensors()`,
-  `sensor(slot)`, `temperature(slot)`), and `forget_temperatures` (a script) clears slots.
+  status page, the menu and the Modbus map read the temperatures through it (`used_slots()`,
+  `slot_name(slot)`, `sensor(slot)`, `temperature(slot)`), and `forget_temperatures` (a script)
+  clears slots.
 - `display1` and `main_page` come from `display/display.yaml`; the other pages attach with
   `id: !extend display1`. `display_menu` (`display/menu.yaml`) exposes `info_submenu` and
   `menu_settings_id` as extension points that `menu-items-network.yaml` fills via `!extend`;
-  `temperatures_menu` gets a `Temp N` submenu per bound slot at boot.
+  `temperatures_menu` gets a `Temp N` row per slot up to the last bound one at boot: a submenu
+  for a bound slot, a label for a free one.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
   and expanded inside the main-page lambda in `display/display.yaml`. Package substitutions share
   one namespace with the device config's.

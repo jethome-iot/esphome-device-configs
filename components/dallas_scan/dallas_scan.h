@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -66,6 +67,10 @@ class DallasScan : public PollingComponent {
   float temperature(size_t slot) const;
   /// Sensors of the bound slots, in slot order.
   const std::vector<sensor::Sensor *> &sensors() const { return this->bound_; }
+  /// Slots up to the last bound one, so a free slot between bound ones is not skipped.
+  size_t used_slots() const;
+  /// The slot's sensor name, "<prefix> N" when the slot is empty.
+  std::string slot_name(size_t slot) const;
   /// Taken by a sensor from sensors:, so forget leaves it alone.
   bool pinned(size_t slot) const { return slot < this->pinned_.size() && this->pinned_[slot]; }
   /// Empty a slot (every slot for -1), then reboot to scan the bus again. Listed slots stay.

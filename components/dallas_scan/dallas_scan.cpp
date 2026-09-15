@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cinttypes>
 #include <cmath>
-#include <cstdio>
 #include <cstring>
 
 #include "esphome/core/application.h"
@@ -120,9 +119,9 @@ void DallasScan::bind_devices_() {
 sensor::Sensor *DallasScan::make_sensor_(size_t slot) {
   // The entity refers to its name rather than copying it, so both live until reboot.
   auto *sensor = new sensor::Sensor();  // NOLINT(cppcoreguidelines-owning-memory)
-  const size_t len = strlen(this->name_prefix_) + 5;
-  auto *name = new char[len];  // NOLINT(cppcoreguidelines-owning-memory)
-  snprintf(name, len, "%s %u", this->name_prefix_, (unsigned) slot + 1);
+  const std::string text = this->slot_name(slot);  // still empty here, so "<prefix> N"
+  auto *name = new char[text.size() + 1];  // NOLINT(cppcoreguidelines-owning-memory)
+  memcpy(name, text.c_str(), text.size() + 1);
   sensor->set_accuracy_decimals(1);
   sensor->set_state_class(sensor::STATE_CLASS_MEASUREMENT);
 #ifdef USE_SENSOR_FILTER
@@ -231,6 +230,21 @@ float DallasScan::to_celsius_(uint64_t address, const uint8_t *scratch_pad) cons
   }
   raw &= ~((1 << (12 - this->resolution_)) - 1);  // undefined low bits below the resolution
   return raw / 16.0f;
+}
+
+size_t DallasScan::used_slots() const {
+  size_t used = 0;
+  for (size_t slot = 0; slot < this->sensors_.size(); slot++) {
+    if (this->sensors_[slot] != nullptr)
+      used = slot + 1;
+  }
+  return used;
+}
+
+std::string DallasScan::slot_name(size_t slot) const {
+  if (auto *sensor = this->sensor(slot); sensor != nullptr)
+    return sensor->get_name().c_str();
+  return str_sprintf("%s %u", this->name_prefix_, (unsigned) slot + 1);
 }
 
 float DallasScan::temperature(size_t slot) const {

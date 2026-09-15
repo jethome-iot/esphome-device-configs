@@ -68,7 +68,8 @@ graphical_display_menu:
           text: !lambda |-
             return id(input_6).state ? "Input 6: ON" : "Input 6: OFF";
 
-    # A Temp N submenu per bound slot is added at boot (esphome: on_boot below).
+    # A Temp N row per slot up to the last bound one is added at boot (esphome:
+    # on_boot below): a submenu for a bound slot, a label for a free one.
     - type: menu
       text: "Temperatures"
       id: temperatures_menu
@@ -160,11 +161,15 @@ esphome:
         - lambda: |-
             using namespace display_menu_base;
             auto *scan = id(temps);
-            for (size_t slot = 0; slot < scan->max_sensors(); slot++) {
+            for (size_t slot = 0; slot < scan->used_slots(); slot++) {
+              const std::string name = scan->slot_name(slot);
               auto *sensor = scan->sensor(slot);
-              if (sensor == nullptr)
+              if (sensor == nullptr) {  // freed slot between sensors: keep its row
+                auto *free_slot = new MenuItem(MENU_ITEM_LABEL);
+                free_slot->set_text(name + ": free");
+                id(temperatures_menu)->add_item(free_slot);
                 continue;
-              const std::string name = sensor->get_name().c_str();
+              }
               auto format = [name](float value) {
                 return std::isnan(value) ? name + ": --" : str_sprintf("%s: %.1f°C", name.c_str(), value);
               };
