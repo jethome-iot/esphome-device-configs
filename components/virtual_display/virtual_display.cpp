@@ -269,8 +269,7 @@ void VirtualDisplay::handle_frame_(AsyncWebServerRequest *request) {
       body.assign(reinterpret_cast<const char *>(this->snapshot_), this->get_buffer_length_());
   }
   AsyncWebServerResponse *response =
-      unchanged ? request->beginResponse(204, nullptr)
-                : request->beginResponse(200, "application/octet-stream", body);
+      unchanged ? request->beginResponse(204, nullptr) : request->beginResponse(200, "application/octet-stream", body);
   // httpd stores the pointer and reads it during send, so this has to outlive
   // the call below — no temporary.
   const std::string frame_header = to_string(frame_id);
