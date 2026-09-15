@@ -137,7 +137,8 @@ static bool compile_trigger(AutomationStorage *engine, const TriggerConfig &conf
       out.sw = find_switch(config.params.switch_trigger.switch_id);
       out.switch_type = config.params.switch_trigger.type;
       if (out.sw == nullptr)
-        ESP_LOGE(TAG, "Trigger: switch 0x%08X not found", static_cast<unsigned>(config.params.switch_trigger.switch_id));
+        ESP_LOGE(TAG, "Trigger: switch 0x%08X not found",
+                 static_cast<unsigned>(config.params.switch_trigger.switch_id));
       return out.sw != nullptr && out.switch_type != TypesSwitchTrigger::NONE;
     case SourceTrigger::TEMPERATURE:
       out.sensor = find_sensor(config.params.temperature.sensor_id);

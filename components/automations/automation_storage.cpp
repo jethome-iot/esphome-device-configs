@@ -107,9 +107,8 @@ void AutomationStorage::setup() {
       this->subscribe_(*automation);
     this->automations_.push_back(std::move(automation));
   }
-  ESP_LOGD(TAG, "Loaded %u automations from '%s' (next_id: %u)",
-           static_cast<unsigned>(this->config_storage_.size()), folder_path.c_str(),
-           static_cast<unsigned>(this->next_id_));
+  ESP_LOGD(TAG, "Loaded %u automations from '%s' (next_id: %u)", static_cast<unsigned>(this->config_storage_.size()),
+           folder_path.c_str(), static_cast<unsigned>(this->next_id_));
 
   if (this->rtc_ != nullptr) {
     this->set_interval(1000, [this]() { this->check_time_(); });
@@ -154,16 +153,14 @@ void AutomationStorage::subscribe_(const RuntimeAutomation &automation) {
 #ifdef USE_SWITCH
       case SourceTrigger::SWITCH:
         ensure_subscription(this->switch_subs_, this, trigger.sw, [](Subscription<switch_::Switch> *sub) {
-          sub->entity->add_on_state_callback(
-              [sub](bool state) { sub->engine->dispatch_switch_(sub->entity, state); });
+          sub->entity->add_on_state_callback([sub](bool state) { sub->engine->dispatch_switch_(sub->entity, state); });
         });
         break;
 #endif
 #ifdef USE_SENSOR
       case SourceTrigger::TEMPERATURE:
         ensure_subscription(this->sensor_subs_, this, trigger.sensor, [](Subscription<sensor::Sensor> *sub) {
-          sub->entity->add_on_state_callback(
-              [sub](float value) { sub->engine->dispatch_sensor_(sub->entity, value); });
+          sub->entity->add_on_state_callback([sub](float value) { sub->engine->dispatch_sensor_(sub->entity, value); });
         });
         break;
 #endif
@@ -326,8 +323,8 @@ bool AutomationStorage::update_automation_(uint32_t id, const AutomationConfig &
   auto index = static_cast<size_t>(found);
 
   if (this->is_name_taken(new_config.name, id)) {
-    ESP_LOGE(TAG, "Refusing to rename automation id=%u to '%s': that name is already in use",
-             static_cast<unsigned>(id), new_config.name.c_str());
+    ESP_LOGE(TAG, "Refusing to rename automation id=%u to '%s': that name is already in use", static_cast<unsigned>(id),
+             new_config.name.c_str());
     return false;
   }
 
