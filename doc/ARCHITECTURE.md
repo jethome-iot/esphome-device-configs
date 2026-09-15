@@ -41,6 +41,10 @@ boundaries; everything else is local to its file.
   reachable from the network. The `automations` component (`features/automations.yaml`) keeps its
   rules there and takes its clock from `pcf8563_time`; `web_automation_editor`
   (`features/automation-editor.yaml`) edits those rules under `/automation-editor/api`.
+- `config_json_keeper` (`features/entity-settings.yaml`) owns the settings files on that
+  partition; `switch_settings` and `binary_sensor_settings` are the settings objects the menu's
+  Relay N and Input N rows call. Those two ids are set explicitly: a generated id cannot be named
+  from a lambda.
 
 ## Boot order
 
@@ -57,11 +61,19 @@ boundaries; everything else is local to its file.
 
 `littlefs_storage` mounts at 810, so the rule files are readable by the time `automations` loads
 them.
+Entity settings ride on `setup_priority` instead, ahead of every `on_boot` block: the
+`config_json` keeper loads the files at `HARDWARE + 5`, and one apply component per settings type
+pushes the values into the entities at `HARDWARE + 1`, before the switches and binary sensors set
+themselves up. See [ENTITY_SETTINGS.md](ENTITY_SETTINGS.md).
 
 ## Settings
 
 Template `select` / `number` entities with `optimistic: true` and `restore_value: true`; boot
 lambdas read them. Network mode applies live, Modbus settings on the next reboot.
+
+Per-relay and per-input settings are a separate mechanism — JSON files on the user storage
+partition rather than preferences — because there is one record per entity and they are meant to
+be readable and editable on the partition. See [ENTITY_SETTINGS.md](ENTITY_SETTINGS.md).
 
 ## Temperature slots
 
@@ -106,5 +118,11 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   outside its marker comments and puts the generated setup code into `original_setup()`, which
   is never called. `App` sizes its entity lists from the YAML and drops a registration past
   that, so each `tests/components/<name>/test.yaml` declares at least what its cases register.
+- `components/jxd_config` force-defines `USE_BINARY_SENSOR_FILTER` so the filter chain compiles
+  without YAML filters, appends a `binary_sensor::Filter` at run time, and keys every stored
+  record on `fnv1_hash(object_id) == EntityBase::get_object_id_hash()`, an equality upstream does
+  not promise.
+- `components/config_base` schedules its debounced save with a named string timeout and flushes
+  from `on_shutdown()`.
 
 Re-check each of these on every ESPHome bump.

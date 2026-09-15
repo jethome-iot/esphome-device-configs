@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "extra": "an unknown top-level key is ignored",
+  "records": [
+    {"source_name": "sw_a", "inverted": true, "level": 7, "bogus": "an unknown record key is ignored"},
+    {"source_name": "ghost", "inverted": true, "level": 1},
+    {"source_name": "sw_b", "inverted": false, "level": 2}
+  ]
+}

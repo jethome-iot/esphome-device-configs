@@ -1,0 +1,91 @@
+substitutions:
+  storage_path: .storage
+
+esphome:
+  name: config-host
+  on_boot:
+    priority: -100
+    then:
+      - script.execute: scenario
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../components
+    components: [filesystem_storage_abstract, config_base, config_json]
+  - source: components
+    components: [dir_storage, test_settings]
+
+dir_storage:
+  id: test_storage
+  path: ${storage_path}
+
+config_json:
+  id: keeper
+  storage: test_storage
+  config_dir: config
+  save_delay: 300ms
+
+test_settings:
+  id: settings
+  config_json_id: keeper
+
+switch:
+  - platform: template
+    id: sw_a
+    name: "Sw A"
+    optimistic: true
+  - platform: template
+    id: sw_b
+    name: "Sw B"
+    optimistic: true
+
+script:
+  - id: scenario
+    then:
+      # What the boot load left behind.
+      - lambda: |-
+          ESP_LOGI("test", "CHECK load %s bytes=%ld",
+                   id(settings)->report().c_str(),
+                   test_settings::settings_file_size(id(test_storage), "config", "test"));
+
+      # Nothing is dirty after a load, so this must write nothing: a corrupt file
+      # is neither repaired nor clobbered.
+      - lambda: 'id(keeper)->save_immediate();'
+      - lambda: 'id(keeper)->save("nope");'
+      - delay: 100ms
+      - lambda: |-
+          ESP_LOGI("test", "CHECK clean bytes=%ld",
+                   test_settings::settings_file_size(id(test_storage), "config", "test"));
+
+      # Two edits inside save_delay collapse into one write.
+      - lambda: |-
+          id(settings)->update("sw_b", true, 42);
+          id(keeper)->save();
+          id(settings)->update("sw_a", false, 7);
+          id(keeper)->save();
+          ESP_LOGI("test", "CHECK pending p=%d", id(keeper)->is_save_pending());
+      - delay: 600ms
+      - lambda: |-
+          ESP_LOGI("test", "CHECK saved p=%d bytes=%ld", id(keeper)->is_save_pending(),
+                   test_settings::settings_file_size(id(test_storage), "config", "test"));
+
+      # Read the file we just wrote back into a fresh state.
+      - lambda: |-
+          bool ok = id(settings)->load_from_file(id(test_storage), "config");
+          ESP_LOGI("test", "CHECK reload ok=%d %s", ok, id(settings)->report().c_str());
+
+      # The REST-shaped edit: an unknown entity is refused, a known one lands.
+      - lambda: |-
+          JsonDocument doc;
+          deserializeJson(doc, R"({"source_name":"ghost","settings":{"inverted":true,"level":5}})");
+          bool bad = id(settings)->update_record(doc.as<JsonObject>()) != nullptr;
+          JsonDocument doc2;
+          deserializeJson(doc2, R"({"source_name":"sw_a","settings":{"inverted":true,"level":5}})");
+          bool ok = id(settings)->update_record(doc2.as<JsonObject>()) != nullptr;
+          ESP_LOGI("test", "CHECK rest bad=%d ok=%d %s", bad, ok, id(settings)->report().c_str());
+
+      - lambda: 'ESP_LOGI("test", "DONE");'

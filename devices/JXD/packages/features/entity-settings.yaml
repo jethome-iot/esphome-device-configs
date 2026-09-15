@@ -1,0 +1,16 @@
+# Per-relay and per-input settings kept as JSON files on the LittleFS partition
+# (storage.yaml) and edited from the display menu. Details: doc/ENTITY_SETTINGS.md
+external_components:
+  - source: ${components}
+    components: [config_base, config_json, config_nvs, uart_list, jxd_config]
+
+config_json:
+  id: config_json_keeper
+  storage: user_storage
+
+jxd_config:
+  settings: [switch, binary_sensor]
+  # Addressed from the display menu (packages/display/menu.yaml); without these the
+  # ids are generated and no lambda can name them.
+  switch_settings_id: switch_settings
+  binary_sensor_settings_id: binary_sensor_settings

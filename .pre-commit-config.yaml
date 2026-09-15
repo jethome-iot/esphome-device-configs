@@ -18,11 +18,12 @@ repos:
       - id: no-commit-to-branch
         args:
           - --branch=master
-      # Generated files are the generators' business; the BDF fonts are upstream.
+      # Generated files are the generators' business, the BDF fonts are upstream,
+      # and the host-test fixtures are deliberately malformed down to the byte.
       - id: end-of-file-fixer
-        exclude: ^(dist/|assets/)
+        exclude: ^(dist/|assets/|tests/host/fixtures)
       - id: trailing-whitespace
-        exclude: ^(dist/|assets/)
+        exclude: ^(dist/|assets/|tests/host/fixtures)
   - repo: https://github.com/asottile/pyupgrade
     rev: v3.20.0
     hooks:

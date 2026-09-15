@@ -11,62 +11,254 @@ graphical_display_menu:
     - type: menu
       text: "Relays"
       items:
-        - type: switch
-          text: "Relay 1"
-          switch: relay_1
-          immediate_edit: true
+        - type: menu
+          text: !lambda 'return id(relay_1).state ? "Relay 1 (On)" : "Relay 1 (Off)";'
+          items:
+            - type: switch
+              text: "State"
+              switch: relay_1
+              immediate_edit: true
 
-        - type: switch
-          text: "Relay 2"
-          switch: relay_2
-          immediate_edit: true
+            - type: custom
+              text: "Inverted"
+              immediate_edit: true
+              value_lambda: 'return id(switch_settings).inverted_label(id(relay_1));'
+              on_next:
+                - lambda: 'id(switch_settings).toggle_inverted(id(relay_1));'
+              on_prev:
+                - lambda: 'id(switch_settings).toggle_inverted(id(relay_1));'
 
-        - type: switch
-          text: "Relay 3"
-          switch: relay_3
-          immediate_edit: true
+            - type: custom
+              text: "Start mode"
+              immediate_edit: true
+              value_lambda: 'return id(switch_settings).restore_mode_label(id(relay_1));'
+              on_next:
+                - lambda: 'id(switch_settings).cycle_restore_mode(id(relay_1), 1);'
+              on_prev:
+                - lambda: 'id(switch_settings).cycle_restore_mode(id(relay_1), -1);'
 
-        - type: switch
-          text: "Relay 4"
-          switch: relay_4
-          immediate_edit: true
+        - type: menu
+          text: !lambda 'return id(relay_2).state ? "Relay 2 (On)" : "Relay 2 (Off)";'
+          items:
+            - type: switch
+              text: "State"
+              switch: relay_2
+              immediate_edit: true
 
-        - type: switch
-          text: "Relay 5"
-          switch: relay_5
-          immediate_edit: true
+            - type: custom
+              text: "Inverted"
+              immediate_edit: true
+              value_lambda: 'return id(switch_settings).inverted_label(id(relay_2));'
+              on_next:
+                - lambda: 'id(switch_settings).toggle_inverted(id(relay_2));'
+              on_prev:
+                - lambda: 'id(switch_settings).toggle_inverted(id(relay_2));'
 
-        - type: switch
-          text: "Relay 6"
-          switch: relay_6
-          immediate_edit: true
+            - type: custom
+              text: "Start mode"
+              immediate_edit: true
+              value_lambda: 'return id(switch_settings).restore_mode_label(id(relay_2));'
+              on_next:
+                - lambda: 'id(switch_settings).cycle_restore_mode(id(relay_2), 1);'
+              on_prev:
+                - lambda: 'id(switch_settings).cycle_restore_mode(id(relay_2), -1);'
+
+        - type: menu
+          text: !lambda 'return id(relay_3).state ? "Relay 3 (On)" : "Relay 3 (Off)";'
+          items:
+            - type: switch
+              text: "State"
+              switch: relay_3
+              immediate_edit: true
+
+            - type: custom
+              text: "Inverted"
+              immediate_edit: true
+              value_lambda: 'return id(switch_settings).inverted_label(id(relay_3));'
+              on_next:
+                - lambda: 'id(switch_settings).toggle_inverted(id(relay_3));'
+              on_prev:
+                - lambda: 'id(switch_settings).toggle_inverted(id(relay_3));'
+
+            - type: custom
+              text: "Start mode"
+              immediate_edit: true
+              value_lambda: 'return id(switch_settings).restore_mode_label(id(relay_3));'
+              on_next:
+                - lambda: 'id(switch_settings).cycle_restore_mode(id(relay_3), 1);'
+              on_prev:
+                - lambda: 'id(switch_settings).cycle_restore_mode(id(relay_3), -1);'
+
+        - type: menu
+          text: !lambda 'return id(relay_4).state ? "Relay 4 (On)" : "Relay 4 (Off)";'
+          items:
+            - type: switch
+              text: "State"
+              switch: relay_4
+              immediate_edit: true
+
+            - type: custom
+              text: "Inverted"
+              immediate_edit: true
+              value_lambda: 'return id(switch_settings).inverted_label(id(relay_4));'
+              on_next:
+                - lambda: 'id(switch_settings).toggle_inverted(id(relay_4));'
+              on_prev:
+                - lambda: 'id(switch_settings).toggle_inverted(id(relay_4));'
+
+            - type: custom
+              text: "Start mode"
+              immediate_edit: true
+              value_lambda: 'return id(switch_settings).restore_mode_label(id(relay_4));'
+              on_next:
+                - lambda: 'id(switch_settings).cycle_restore_mode(id(relay_4), 1);'
+              on_prev:
+                - lambda: 'id(switch_settings).cycle_restore_mode(id(relay_4), -1);'
+
+        - type: menu
+          text: !lambda 'return id(relay_5).state ? "Relay 5 (On)" : "Relay 5 (Off)";'
+          items:
+            - type: switch
+              text: "State"
+              switch: relay_5
+              immediate_edit: true
+
+            - type: custom
+              text: "Inverted"
+              immediate_edit: true
+              value_lambda: 'return id(switch_settings).inverted_label(id(relay_5));'
+              on_next:
+                - lambda: 'id(switch_settings).toggle_inverted(id(relay_5));'
+              on_prev:
+                - lambda: 'id(switch_settings).toggle_inverted(id(relay_5));'
+
+            - type: custom
+              text: "Start mode"
+              immediate_edit: true
+              value_lambda: 'return id(switch_settings).restore_mode_label(id(relay_5));'
+              on_next:
+                - lambda: 'id(switch_settings).cycle_restore_mode(id(relay_5), 1);'
+              on_prev:
+                - lambda: 'id(switch_settings).cycle_restore_mode(id(relay_5), -1);'
+
+        - type: menu
+          text: !lambda 'return id(relay_6).state ? "Relay 6 (On)" : "Relay 6 (Off)";'
+          items:
+            - type: switch
+              text: "State"
+              switch: relay_6
+              immediate_edit: true
+
+            - type: custom
+              text: "Inverted"
+              immediate_edit: true
+              value_lambda: 'return id(switch_settings).inverted_label(id(relay_6));'
+              on_next:
+                - lambda: 'id(switch_settings).toggle_inverted(id(relay_6));'
+              on_prev:
+                - lambda: 'id(switch_settings).toggle_inverted(id(relay_6));'
+
+            - type: custom
+              text: "Start mode"
+              immediate_edit: true
+              value_lambda: 'return id(switch_settings).restore_mode_label(id(relay_6));'
+              on_next:
+                - lambda: 'id(switch_settings).cycle_restore_mode(id(relay_6), 1);'
+              on_prev:
+                - lambda: 'id(switch_settings).cycle_restore_mode(id(relay_6), -1);'
 
     - type: menu
       text: "Inputs"
       items:
-        - type: label
-          text: !lambda |-
-            return id(input_1).state ? "Input 1: ON" : "Input 1: OFF";
+        - type: menu
+          text: !lambda 'return id(input_1).state ? "Input 1 (On)" : "Input 1 (Off)";'
+          items:
+            - type: label
+              text: !lambda 'return id(input_1).state ? "State (On)" : "State (Off)";'
 
-        - type: label
-          text: !lambda |-
-            return id(input_2).state ? "Input 2: ON" : "Input 2: OFF";
+            - type: custom
+              text: "Inverted"
+              immediate_edit: true
+              value_lambda: 'return id(binary_sensor_settings).inverted_label(id(input_1));'
+              on_next:
+                - lambda: 'id(binary_sensor_settings).toggle_inverted(id(input_1));'
+              on_prev:
+                - lambda: 'id(binary_sensor_settings).toggle_inverted(id(input_1));'
 
-        - type: label
-          text: !lambda |-
-            return id(input_3).state ? "Input 3: ON" : "Input 3: OFF";
+        - type: menu
+          text: !lambda 'return id(input_2).state ? "Input 2 (On)" : "Input 2 (Off)";'
+          items:
+            - type: label
+              text: !lambda 'return id(input_2).state ? "State (On)" : "State (Off)";'
 
-        - type: label
-          text: !lambda |-
-            return id(input_4).state ? "Input 4: ON" : "Input 4: OFF";
+            - type: custom
+              text: "Inverted"
+              immediate_edit: true
+              value_lambda: 'return id(binary_sensor_settings).inverted_label(id(input_2));'
+              on_next:
+                - lambda: 'id(binary_sensor_settings).toggle_inverted(id(input_2));'
+              on_prev:
+                - lambda: 'id(binary_sensor_settings).toggle_inverted(id(input_2));'
 
-        - type: label
-          text: !lambda |-
-            return id(input_5).state ? "Input 5: ON" : "Input 5: OFF";
+        - type: menu
+          text: !lambda 'return id(input_3).state ? "Input 3 (On)" : "Input 3 (Off)";'
+          items:
+            - type: label
+              text: !lambda 'return id(input_3).state ? "State (On)" : "State (Off)";'
 
-        - type: label
-          text: !lambda |-
-            return id(input_6).state ? "Input 6: ON" : "Input 6: OFF";
+            - type: custom
+              text: "Inverted"
+              immediate_edit: true
+              value_lambda: 'return id(binary_sensor_settings).inverted_label(id(input_3));'
+              on_next:
+                - lambda: 'id(binary_sensor_settings).toggle_inverted(id(input_3));'
+              on_prev:
+                - lambda: 'id(binary_sensor_settings).toggle_inverted(id(input_3));'
+
+        - type: menu
+          text: !lambda 'return id(input_4).state ? "Input 4 (On)" : "Input 4 (Off)";'
+          items:
+            - type: label
+              text: !lambda 'return id(input_4).state ? "State (On)" : "State (Off)";'
+
+            - type: custom
+              text: "Inverted"
+              immediate_edit: true
+              value_lambda: 'return id(binary_sensor_settings).inverted_label(id(input_4));'
+              on_next:
+                - lambda: 'id(binary_sensor_settings).toggle_inverted(id(input_4));'
+              on_prev:
+                - lambda: 'id(binary_sensor_settings).toggle_inverted(id(input_4));'
+
+        - type: menu
+          text: !lambda 'return id(input_5).state ? "Input 5 (On)" : "Input 5 (Off)";'
+          items:
+            - type: label
+              text: !lambda 'return id(input_5).state ? "State (On)" : "State (Off)";'
+
+            - type: custom
+              text: "Inverted"
+              immediate_edit: true
+              value_lambda: 'return id(binary_sensor_settings).inverted_label(id(input_5));'
+              on_next:
+                - lambda: 'id(binary_sensor_settings).toggle_inverted(id(input_5));'
+              on_prev:
+                - lambda: 'id(binary_sensor_settings).toggle_inverted(id(input_5));'
+
+        - type: menu
+          text: !lambda 'return id(input_6).state ? "Input 6 (On)" : "Input 6 (Off)";'
+          items:
+            - type: label
+              text: !lambda 'return id(input_6).state ? "State (On)" : "State (Off)";'
+
+            - type: custom
+              text: "Inverted"
+              immediate_edit: true
+              value_lambda: 'return id(binary_sensor_settings).inverted_label(id(input_6));'
+              on_next:
+                - lambda: 'id(binary_sensor_settings).toggle_inverted(id(input_6));'
+              on_prev:
+                - lambda: 'id(binary_sensor_settings).toggle_inverted(id(input_6));'
 
     # A Temp N submenu per slot up to the last bound one is added at boot (esphome:
     # on_boot below); a freed slot's submenu only says Free slot.
