@@ -1,0 +1,1 @@
+{"id":11,"name":"Parallel","enabled":true,"mode":"parallel","triggers":[{"source":"input","type":"press","object_id":"in_7"}],"actions":[{"source":"delay","delay_ms":700},{"source":"switch","type":"toggle","object_id":"relay_17"}]}

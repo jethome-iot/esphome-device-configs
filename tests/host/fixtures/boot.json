@@ -1,0 +1,1 @@
+{"id":6,"name":"Boot","enabled":true,"mode":"single","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_11"}]}

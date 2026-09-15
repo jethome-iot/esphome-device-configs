@@ -1,0 +1,9 @@
+# Rules the user edits at run time, stored as JSON files on the LittleFS partition.
+# Details: doc/AUTOMATIONS.md
+external_components:
+  - source: ${components}
+    components: [automations]
+
+automations:
+  storage: user_storage
+  time_id: pcf8563_time

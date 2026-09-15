@@ -36,6 +36,9 @@ boundaries; everything else is local to its file.
   `web_file_browser` (`features/web-file-browser.yaml`) serves the same mount over HTTP under
   `/files`, on the `web_server` port and with its credentials, so anything written there is also
   reachable from the network.
+  that keeps files checks `id(user_storage).is_mounted()` and writes below `get_base_path()`. The
+  `automations` component (`features/automations.yaml`) keeps its rules there and takes its clock
+  from `pcf8563_time`.
 
 ## Boot order
 
@@ -46,8 +49,12 @@ boundaries; everything else is local to its file.
 | 800 | fill the `relays` / `inputs` vectors |
 | 700 | push the stored Modbus address, baud rate, parity and stop bits into `jxm_uart2` |
 | 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); restore the timezone and read the RTC (`setup_time`, called from the device config). `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
+| 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created |
 | 500 | add a `Temp N` submenu per bound slot to the Temperatures menu |
 | 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
+
+`littlefs_storage` mounts at 810, so the rule files are readable by the time `automations` loads
+them.
 
 ## Settings
 
@@ -90,5 +97,8 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   `DisplayBuffer`'s protected `init_internal_` / `do_update_` and serves its endpoints as a
   `web_server_base` handler, setting the 405 status line through ESP-IDF's
   `httpd_resp_set_status` because the IDF response layer maps no such code.
+- `components/automations` names entities by `fnv1_hash` of their object id and walks
+  `App.get_binary_sensors()` / `get_sensors()` / `get_switches()` itself, so the hash and
+  `EntityBase::get_object_id_to` are part of the on-disk rule format.
 
 Re-check each of these on every ESPHome bump.

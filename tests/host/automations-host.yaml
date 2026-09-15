@@ -1,0 +1,474 @@
+substitutions:
+  storage_path: .storage
+
+esphome:
+  name: automations-host
+  on_boot:
+    priority: -100
+    then:
+      # run.py starts the binary twice against one storage folder; the second
+      # pass checks what the first one left behind.
+      - if:
+          condition:
+            lambda: |-
+              const char *phase = getenv("HOST_TEST_PHASE");
+              return phase != nullptr && phase[0] == '2';
+          then:
+            - script.execute: after_restart
+          else:
+            - script.execute: scenario
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../components
+    components: [filesystem_storage_abstract, automations]
+  - source: components
+    components: [dir_storage]
+
+time:
+  - platform: host
+    id: host_time
+    timezone: UTC
+
+dir_storage:
+  id: test_storage
+  path: ${storage_path}
+
+automations:
+  storage: test_storage
+  time_id: host_time
+
+globals:
+  - id: dynamic_id
+    type: uint32_t
+    initial_value: "0"
+
+binary_sensor:
+  - platform: template
+    id: in1
+    name: "In 1"
+  - platform: template
+    id: in2
+    name: "In 2"
+  - platform: template
+    id: in3
+    name: "In 3"
+  - platform: template
+    id: in4
+    name: "In 4"
+  - platform: template
+    id: in5
+    name: "In 5"
+  - platform: template
+    id: in6
+    name: "In 6"
+  - platform: template
+    id: in7
+    name: "In 7"
+  - platform: template
+    id: in8
+    name: "In 8"
+
+sensor:
+  - platform: template
+    id: temp
+    name: "Temp"
+  - platform: template
+    id: temp2
+    name: "Temp 2"
+
+switch:
+  - platform: template
+    id: relay1
+    name: "Relay 1"
+    optimistic: true
+  - platform: template
+    id: relay2
+    name: "Relay 2"
+    optimistic: true
+  - platform: template
+    id: relay3
+    name: "Relay 3"
+    optimistic: true
+  - platform: template
+    id: relay4
+    name: "Relay 4"
+    optimistic: true
+  - platform: template
+    id: relay5
+    name: "Relay 5"
+    optimistic: true
+  - platform: template
+    id: relay6
+    name: "Relay 6"
+    optimistic: true
+  - platform: template
+    id: relay7
+    name: "Relay 7"
+    optimistic: true
+  - platform: template
+    id: relay8
+    name: "Relay 8"
+    optimistic: true
+  - platform: template
+    id: relay9
+    name: "Relay 9"
+    optimistic: true
+  - platform: template
+    id: relay10
+    name: "Relay 10"
+    optimistic: true
+  - platform: template
+    id: relay11
+    name: "Relay 11"
+    optimistic: true
+  - platform: template
+    id: relay12
+    name: "Relay 12"
+    optimistic: true
+  - platform: template
+    id: relay13
+    name: "Relay 13"
+    optimistic: true
+  - platform: template
+    id: relay14
+    name: "Relay 14"
+    optimistic: true
+  - platform: template
+    id: relay15
+    name: "Relay 15"
+    optimistic: true
+  - platform: template
+    id: relay16
+    name: "Relay 16"
+    optimistic: true
+  - platform: template
+    id: relay17
+    name: "Relay 17"
+    optimistic: true
+  - platform: template
+    id: relay18
+    name: "Relay 18"
+    optimistic: true
+  - platform: template
+    id: relay19
+    name: "Relay 19"
+    optimistic: true
+  - platform: template
+    id: relay20
+    name: "Relay 20"
+    optimistic: true
+
+script:
+  - id: check
+    parameters:
+      label: string
+    then:
+      - lambda: |-
+          ESP_LOGI("test",
+                   "CHECK %s r1=%d r2=%d r3=%d r4=%d r5=%d r6=%d r7=%d r8=%d r9=%d r10=%d "
+                   "r11=%d r12=%d r13=%d r14=%d r15=%d r16=%d r17=%d r18=%d r19=%d r20=%d",
+                   label.c_str(), id(relay1).state, id(relay2).state, id(relay3).state, id(relay4).state,
+                   id(relay5).state, id(relay6).state, id(relay7).state, id(relay8).state, id(relay9).state,
+                   id(relay10).state, id(relay11).state, id(relay12).state, id(relay13).state, id(relay14).state,
+                   id(relay15).state, id(relay16).state, id(relay17).state, id(relay18).state, id(relay19).state,
+                   id(relay20).state);
+
+  # Inputs need an initial state: the very first published state raises no callbacks.
+  - id: arm_inputs
+    then:
+      - binary_sensor.template.publish:
+          id: in1
+          state: false
+      - binary_sensor.template.publish:
+          id: in2
+          state: false
+      - binary_sensor.template.publish:
+          id: in3
+          state: false
+      - binary_sensor.template.publish:
+          id: in4
+          state: false
+      - binary_sensor.template.publish:
+          id: in5
+          state: false
+      - binary_sensor.template.publish:
+          id: in6
+          state: false
+      - binary_sensor.template.publish:
+          id: in7
+          state: false
+      - binary_sensor.template.publish:
+          id: in8
+          state: false
+
+  - id: scenario
+    then:
+      - script.execute: arm_inputs
+      # In range for the composite condition until the else branch is wanted.
+      - sensor.template.publish:
+          id: temp2
+          state: 15.0
+      - delay: 300ms
+      - script.execute:
+          id: check
+          label: boot
+      # press + click on In 1
+      - binary_sensor.template.publish:
+          id: in1
+          state: true
+      - delay: 300ms
+      - binary_sensor.template.publish:
+          id: in1
+          state: false
+      - delay: 100ms
+      - script.execute:
+          id: check
+          label: input
+      # temperature edge: above 25 once, no retrigger until it drops back
+      - sensor.template.publish:
+          id: temp
+          state: 30.0
+      - delay: 100ms
+      - sensor.template.publish:
+          id: temp
+          state: 31.0
+      - delay: 100ms
+      - script.execute:
+          id: check
+          label: hot
+      - delay: 800ms
+      - script.execute:
+          id: check
+          label: cooled
+      # follow: relay 5 mirrors relay 4, relay 6 mirrors it inverted
+      - switch.turn_on: relay4
+      - delay: 100ms
+      - script.execute:
+          id: check
+          label: follow_on
+      - switch.turn_off: relay4
+      - delay: 100ms
+      - script.execute:
+          id: check
+          label: follow_off
+      # condition on In 3 picks the then/else branch
+      - binary_sensor.template.publish:
+          id: in3
+          state: false
+      - binary_sensor.template.publish:
+          id: in2
+          state: true
+      - delay: 100ms
+      - binary_sensor.template.publish:
+          id: in2
+          state: false
+      - script.execute:
+          id: check
+          label: cond_else
+      - binary_sensor.template.publish:
+          id: in3
+          state: true
+      - binary_sensor.template.publish:
+          id: in2
+          state: true
+      - delay: 100ms
+      - binary_sensor.template.publish:
+          id: in2
+          state: false
+      - script.execute:
+          id: check
+          label: cond_then
+      # "and" of an input and a temperature range, both branches
+      - binary_sensor.template.publish:
+          id: in8
+          state: true
+      - delay: 100ms
+      - binary_sensor.template.publish:
+          id: in8
+          state: false
+      - script.execute:
+          id: check
+          label: cond_and_then
+      - switch.turn_off: relay19
+      - sensor.template.publish:
+          id: temp2
+          state: 30.0
+      - delay: 100ms
+      - binary_sensor.template.publish:
+          id: in8
+          state: true
+      - delay: 100ms
+      - binary_sensor.template.publish:
+          id: in8
+          state: false
+      - script.execute:
+          id: check
+          label: cond_and_else
+      # restart mode: the second press cancels the first run's pending delay, so
+      # relay 14 is toggled once and not twice
+      - binary_sensor.template.publish:
+          id: in5
+          state: true
+      - delay: 60ms
+      - binary_sensor.template.publish:
+          id: in5
+          state: false
+      - delay: 340ms
+      - binary_sensor.template.publish:
+          id: in5
+          state: true
+      - delay: 60ms
+      - binary_sensor.template.publish:
+          id: in5
+          state: false
+      - delay: 540ms
+      - script.execute:
+          id: check
+          label: retrigger_mid
+      - delay: 450ms
+      - script.execute:
+          id: check
+          label: retrigger_done
+      # disabling a running rule drops its pending delay
+      - binary_sensor.template.publish:
+          id: in6
+          state: true
+      - delay: 60ms
+      - binary_sensor.template.publish:
+          id: in6
+          state: false
+      - delay: 240ms
+      - lambda: |-
+          bool ok = esphome::global_automation_storage->set_enable_automation(10, false);
+          ESP_LOGI("test", "DISABLE ok=%d", ok);
+      - delay: 900ms
+      - script.execute:
+          id: check
+          label: disable_mid
+      # parallel mode: two overlapping runs, so relay 17 is toggled twice
+      - binary_sensor.template.publish:
+          id: in7
+          state: true
+      - delay: 60ms
+      - binary_sensor.template.publish:
+          id: in7
+          state: false
+      - delay: 340ms
+      - binary_sensor.template.publish:
+          id: in7
+          state: true
+      - delay: 60ms
+      - binary_sensor.template.publish:
+          id: in7
+          state: false
+      - delay: 540ms
+      - script.execute:
+          id: check
+          label: parallel_mid
+      - delay: 450ms
+      - script.execute:
+          id: check
+          label: parallel_done
+      # runtime editing through the engine API
+      - lambda: |-
+          JsonDocument doc;
+          deserializeJson(doc, R"({"name":"Dynamic","enabled":true,"mode":"single",
+            "triggers":[{"source":"input","type":"press","object_id":"in_4"}],
+            "actions":[{"source":"switch","type":"turn_on","object_id":"relay_9"}]})");
+          esphome::automations::AutomationConfig cfg;
+          cfg.deserialize(doc.as<JsonObject>());
+          id(dynamic_id) = esphome::global_automation_storage->add_automation(cfg);
+          ESP_LOGI("test", "ADD id=%u taken=%d", id(dynamic_id), esphome::global_automation_storage->is_name_taken("dynamic"));
+      - binary_sensor.template.publish:
+          id: in4
+          state: true
+      - delay: 100ms
+      - binary_sensor.template.publish:
+          id: in4
+          state: false
+      - script.execute:
+          id: check
+          label: dyn_add
+      - lambda: |-
+          JsonDocument doc;
+          deserializeJson(doc, R"({"name":"Dynamic","enabled":true,"mode":"single",
+            "triggers":[{"source":"input","type":"press","object_id":"in_4"}],
+            "actions":[{"source":"switch","type":"turn_on","object_id":"relay_10"}]})");
+          esphome::automations::AutomationConfig cfg;
+          cfg.deserialize(doc.as<JsonObject>());
+          bool ok = esphome::global_automation_storage->update_automation(id(dynamic_id), cfg);
+          ESP_LOGI("test", "UPDATE ok=%d", ok);
+      - binary_sensor.template.publish:
+          id: in4
+          state: true
+      - delay: 100ms
+      - binary_sensor.template.publish:
+          id: in4
+          state: false
+      - switch.turn_off: relay9
+      - script.execute:
+          id: check
+          label: dyn_update
+      - lambda: |-
+          bool ok = esphome::global_automation_storage->remove_automation(id(dynamic_id));
+          ESP_LOGI("test", "REMOVE ok=%d", ok);
+      - switch.turn_off: relay10
+      - binary_sensor.template.publish:
+          id: in4
+          state: true
+      - delay: 100ms
+      - binary_sensor.template.publish:
+          id: in4
+          state: false
+      - script.execute:
+          id: check
+          label: dyn_remove
+      - delay: 1500ms
+      - script.execute:
+          id: check
+          label: final
+      - lambda: |-
+          ESP_LOGI("test", "DONE");
+
+  # Second pass over the folder the first one left: what was stored comes back,
+  # and reset_all clears exactly the rules the engine knows about.
+  - id: after_restart
+    then:
+      - script.execute: arm_inputs
+      - delay: 300ms
+      - lambda: |-
+          for (const auto &config : esphome::global_automation_storage->configs().get_all_configs()) {
+            ESP_LOGI("test", "RULE id=%u name=%s enabled=%d", static_cast<unsigned>(config.id), config.name.c_str(),
+                     config.enabled);
+          }
+      - binary_sensor.template.publish:
+          id: in1
+          state: true
+      - delay: 60ms
+      - binary_sensor.template.publish:
+          id: in1
+          state: false
+      # Disabled before the restart, so nothing happens here.
+      - binary_sensor.template.publish:
+          id: in6
+          state: true
+      - delay: 60ms
+      - binary_sensor.template.publish:
+          id: in6
+          state: false
+      - delay: 300ms
+      - script.execute:
+          id: check
+          label: reboot
+      - lambda: |-
+          esphome::global_automation_storage->reset_all();
+          ESP_LOGI("test", "RESET left=%u",
+                   static_cast<unsigned>(esphome::global_automation_storage->configs().size()));
+      - delay: 300ms
+      - lambda: |-
+          ESP_LOGI("test", "DONE");

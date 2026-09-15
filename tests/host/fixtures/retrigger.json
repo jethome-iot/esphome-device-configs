@@ -1,0 +1,1 @@
+{"id":9,"name":"Retrigger","enabled":true,"mode":"restart","triggers":[{"source":"input","type":"press","object_id":"in_5"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_13"},{"source":"delay","delay_ms":800},{"source":"switch","type":"toggle","object_id":"relay_14"}]}

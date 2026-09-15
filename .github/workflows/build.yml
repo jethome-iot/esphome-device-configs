@@ -102,6 +102,26 @@ jobs:
       - name: Compile
         run: esphome compile "${{ matrix.config }}"
 
+  host-test:
+    name: Host test
+    runs-on: [self-hosted, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install ESPHome
+        run: pip install -r requirements.txt
+
+      # Builds for the host platform with the system compiler: no ESP-IDF
+      # toolchain, nothing big enough to be worth caching.
+      - name: Run the automations engine on the host
+        run: python tests/host/run.py
+
   dist:
     name: Check dist/ is current
     runs-on: [self-hosted, ubuntu-latest]

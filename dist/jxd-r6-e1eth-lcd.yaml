@@ -505,6 +505,32 @@ esphome:
   project:
     name: JetHome.JXD-R6-E1ETH-LCD
     version: ${version}
+external_components:
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - automations
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - filesystem_storage_abstract
+      - littlefs_storage
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - dallas_scan
+automations:
+  storage: user_storage
+  time_id: pcf8563_time
 select:
   - platform: template
     id: display_off_timer_select

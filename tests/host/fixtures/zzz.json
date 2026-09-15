@@ -1,0 +1,1 @@
+{"id":12,"name":"Cron Step","enabled":true,"mode":"single","triggers":[{"source":"cron","cron":"*/2 * * * * *","cron_preset":"custom"}],"actions":[{"source":"switch","type":"toggle","object_id":"relay_18"}]}

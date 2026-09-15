@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ESPHome configurations for JetHome JXD devices. A device is a thin YAML under `devices/` that
 lists packages; the logic is C++ lambdas inside those packages and the external components
-under `components/`; `scripts/` holds the Python tooling. ESPHome is pinned to 2026.8.2. There
-is no test suite: CI compiles every firmware in `firmwares.yaml`, checks the generated files and
-runs the pre-commit hooks.
+under `components/`; `scripts/` holds the Python tooling. ESPHome is pinned to 2026.8.2. CI
+compiles every firmware in `firmwares.yaml`, runs the host test in `tests/host/`, checks the
+generated files and runs the pre-commit hooks.
 
 ## Where to look
 
@@ -19,6 +19,7 @@ runs the pre-commit hooks.
 | run a device config in the emulator, or touch the QEMU overlays | [doc/QEMU.md](doc/QEMU.md) |
 | change how Dallas sensors get their slots | [doc/ONEWIRE_WORKFLOW.md](doc/ONEWIRE_WORKFLOW.md) |
 | use or change the HTTP file API over the user partition | [components/web_file_browser/README.md](components/web_file_browser/README.md) |
+| touch the `automations` engine, its rule format or the host test | [doc/AUTOMATIONS.md](doc/AUTOMATIONS.md) |
 | change WiFi provisioning | [doc/WIFI_SETUP.md](doc/WIFI_SETUP.md) |
 
 The tree itself is in the README, "Repository Layout".

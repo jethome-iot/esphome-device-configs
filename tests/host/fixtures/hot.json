@@ -1,0 +1,1 @@
+{"id":3,"name":"Hot","enabled":true,"mode":"restart","triggers":[{"source":"temperature","type":"above","object_id":"temp","threshold":25}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_3"},{"source":"delay","delay_ms":700},{"source":"switch","type":"turn_off","object_id":"relay_3"}]}
