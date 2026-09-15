@@ -72,9 +72,17 @@ async function poll() {
   setTimeout(poll, POLL_MS);
 }
 
-async function key(name, action) {
+// One request in flight per key: a fast tap's `up` can otherwise overtake its
+// `down` on another connection and leave the key held. Chained per key, so
+// different keys still overlap; the catch keeps a failure from stalling a chain.
+const queues = new Map();
+function key(name, action) {
   const q = action ? `?action=${action}` : '';
-  try { await fetch(`${BASE}key/${encodeURIComponent(name)}${q}`, {method: 'POST'}); } catch (e) {}
+  const next = (queues.get(name) || Promise.resolve())
+    .then(() => fetch(`${BASE}key/${encodeURIComponent(name)}${q}`, {method: 'POST'}))
+    .catch(() => {});
+  queues.set(name, next);
+  return next;
 }
 
 // Arrows/Enter/Escape map onto same-named keys when the device declares them,
