@@ -19,6 +19,9 @@ venv/
 /dist/.gitignore
 /devices/*/.gitignore
 
+# scripts/qemu.sh writes the emulator wrapper next to the device config.
+/devices/*/*.qemu.yaml
+
 # Credentials
 secrets.yaml
 

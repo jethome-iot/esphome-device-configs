@@ -41,11 +41,17 @@ MANIFEST_NAME = "firmwares.yaml"
 
 
 def device_configs() -> list[Path]:
-    """Every device config: devices/<family>/<device>.yaml."""
+    """Every device config: devices/<family>/<device>.yaml.
+
+    `*.qemu.yaml` is the throwaway wrapper scripts/qemu.sh writes next to a
+    device config, not a device of its own.
+    """
     return sorted(
         path
         for path in REPO_ROOT.glob("devices/*/*.yaml")
-        if not path.name.startswith(".") and path.name != "secrets.yaml"
+        if not path.name.startswith(".")
+        and path.name != "secrets.yaml"
+        and not path.name.endswith(".qemu.yaml")
     )
 
 
