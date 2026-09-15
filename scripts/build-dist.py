@@ -2,8 +2,8 @@
 """Build the self-contained configs that dashboard_import serves, into dist/.
 
 Merges each device config's packages and rewrites local asset paths to raw URLs
-and local external_components sources to github:// ones, so the single file the
-ESPHome Builder downloads stands on its own.
+and local external_components sources to git ones, so the single file the ESPHome
+Builder downloads stands on its own.
 
 Usage:
     scripts/build-dist.py            # regenerate dist/
@@ -128,7 +128,10 @@ def rewrite_external_components(
     substitutions: dict[str, Any],
     rewritten: list[str],
 ) -> None:
-    """Point local external_components sources at the same repository ref on GitHub."""
+    """Point local external_components sources at the same repository ref on GitHub.
+
+    The long git form: the github:// shorthand takes no path inside the repository.
+    """
     for item in config.get("external_components") or []:
         if not isinstance(item, dict):
             continue
@@ -141,9 +144,12 @@ def rewrite_external_components(
             continue
         if (path := _repo_dir(_expand(source, substitutions), base)) is None:
             continue
-        item["source"] = (
-            f"github://{git_file.owner}/{git_file.repo}/{path}@{git_file.ref}"
-        )
+        item["source"] = {
+            "type": "git",
+            "url": git_file.git_url,
+            "ref": git_file.ref,
+            "path": path,
+        }
         rewritten.append(path)
 
 
@@ -321,7 +327,7 @@ def render(source: Path) -> tuple[Path, str] | None:
             f"  Add the key to ASSET_KEYS if it names an asset, or inline the value."
         )
 
-    print(f"  {source.name}: {len(rewritten)} asset(s) -> {raw_base}")
+    print(f"  {source.name}: {len(rewritten)} path(s) -> {raw_base}")
 
     body = yaml_util.dump(harden_scalars(config))
     verify_import_roundtrip(source, body)

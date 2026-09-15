@@ -55,86 +55,6 @@ sensor:
       sorting_weight: 1
     update_interval: 20s
     entity_category: diagnostic
-  - platform: dallas_temp
-    name: Temp1
-    id: temp_1
-    web_server:
-      sorting_group_id: group_temperature
-      sorting_weight: 1
-    index: 0
-    update_interval: 20s
-    filters:
-      - filter_out: 85.0
-  - platform: dallas_temp
-    name: Temp2
-    id: temp_2
-    web_server:
-      sorting_group_id: group_temperature
-      sorting_weight: 2
-    index: 1
-    update_interval: 20s
-    filters:
-      - filter_out: 85.0
-  - platform: dallas_temp
-    name: Temp3
-    id: temp_3
-    web_server:
-      sorting_group_id: group_temperature
-      sorting_weight: 3
-    index: 2
-    update_interval: 20s
-    filters:
-      - filter_out: 85.0
-  - platform: dallas_temp
-    name: Temp4
-    id: temp_4
-    web_server:
-      sorting_group_id: group_temperature
-      sorting_weight: 4
-    index: 3
-    update_interval: 20s
-    filters:
-      - filter_out: 85.0
-  - platform: dallas_temp
-    name: Temp5
-    id: temp_5
-    web_server:
-      sorting_group_id: group_temperature
-      sorting_weight: 5
-    index: 4
-    update_interval: 20s
-    filters:
-      - filter_out: 85.0
-  - platform: dallas_temp
-    name: Temp6
-    id: temp_6
-    web_server:
-      sorting_group_id: group_temperature
-      sorting_weight: 6
-    index: 5
-    update_interval: 20s
-    filters:
-      - filter_out: 85.0
-  - platform: dallas_temp
-    name: Temp7
-    id: temp_7
-    web_server:
-      sorting_group_id: group_temperature
-      sorting_weight: 7
-    index: 6
-    update_interval: 20s
-    filters:
-      - filter_out: 85.0
-  - platform: dallas_temp
-    name: Temp8
-    id: temp_8
-    web_server:
-      sorting_group_id: group_temperature
-      sorting_weight: 8
-    index: 7
-    update_interval: 20s
-    filters:
-      - filter_out: 85.0
   - platform: adc
     name: VIN voltage
     id: vin_meas
@@ -512,11 +432,6 @@ globals:
   - id: stored_timezone
     type: esphome::time::ParsedTimezone
     restore_value: true
-  - id: temperatures
-    type: std::vector<sensor::Sensor *>
-  - id: dallas_slots
-    type: uint64_t[8]
-    restore_value: true
   - id: status_relay_sel
     type: int
     initial_value: '0'
@@ -552,32 +467,25 @@ esphome:
         - globals.set:
             id: network_mode_applied
             value: 'true'
-    - priority: 800
+    - priority: 500
       then:
-        - lambda: id(temperatures) = {id(temp_1), id(temp_2), id(temp_3), id(temp_4),
-            id(temp_5), id(temp_6), id(temp_7), id(temp_8)};
-    - priority: 700
-      then:
-        - lambda: "auto &slots = id(dallas_slots);\nauto *end = std::end(slots);\n\
-            dallas_temp::DallasTemperatureSensor *sensors[] = {id(temp_1), id(temp_2),\
-            \ id(temp_3), id(temp_4), id(temp_5), id(temp_6), id(temp_7), id(temp_8)};\n\
-            // A YAML address pins its slot; the stored table follows it.\nfor (size_t\
-            \ i = 0; i < std::size(slots); i++) {\n  uint64_t pinned = std::strtoull(sensors[i]->get_address_name().c_str(),\
-            \ nullptr, 16);\n  if (pinned == 0)\n    continue;\n  std::replace(std::begin(slots),\
-            \ end, pinned, (uint64_t) 0);\n  slots[i] = pinned;\n}\n// The scan finds\
-            \ every 1-Wire device; only these families read back\n// as a DS18B20\
-            \ scratchpad.\nconst uint8_t families[] = {0x10, 0x22, 0x28, 0x3b, 0x42};\n\
-            auto *families_end = std::end(families);\nfor (uint64_t address : id(one_wire_bus).get_devices())\
-            \ {\n  if (std::find(std::begin(families), families_end, address & 0xff)\
-            \ == families_end) {\n    ESP_LOGW(\"temperature\", \"Not a temperature\
-            \ sensor, skipping 0x%016\" PRIx64, address);\n    continue;\n  }\n  if\
-            \ (std::find(std::begin(slots), end, address) != end)\n    continue;\n\
-            \  auto *slot = std::find(std::begin(slots), end, 0);\n  if (slot == end)\
-            \ {\n    ESP_LOGW(\"temperature\", \"No free slot for 0x%016\" PRIx64,\
-            \ address);\n    continue;\n  }\n  *slot = address;\n}\nfor (size_t i\
-            \ = 0; i < std::size(slots); i++) {\n  if (slots[i] != 0) {\n    sensors[i]->set_address(slots[i]);\n\
-            \  } else {\n    sensors[i]->set_index(std::size(slots));  // out of range\
-            \ on purpose: an empty slot takes no device\n  }\n}"
+        - lambda: "using namespace display_menu_base;\nauto *scan = id(temps);\nfor\
+            \ (size_t slot = 0; slot < scan->max_sensors(); slot++) {\n  auto *sensor\
+            \ = scan->sensor(slot);\n  if (sensor == nullptr)\n    continue;\n  const\
+            \ std::string name = sensor->get_name().c_str();\n\n  auto *row = new\
+            \ MenuItem(MENU_ITEM_LABEL);\n  row->set_text(name + \": --\");\n  sensor->add_on_state_callback([row,\
+            \ name](float value) {\n    row->set_text(std::isnan(value) ? name + \"\
+            : --\" : str_sprintf(\"%s: %.1f°C\", name.c_str(), value));\n  });\n \
+            \ id(temperatures_menu)->add_item(row);\n\n  auto *menu = new MenuItemMenu();\n\
+            \  menu->set_text(name);\n  auto *address = new MenuItem(MENU_ITEM_LABEL);\n\
+            \  address->set_text(str_sprintf(\"0x%016\" PRIx64, scan->address(slot)));\n\
+            \  menu->add_item(address);\n  auto *question = new MenuItem(MENU_ITEM_LABEL);\n\
+            \  question->set_text(\"Forget slot?\");\n  menu->add_item(question);\n\
+            \  auto *confirm = new MenuItemCommand();\n  confirm->set_text(\"Confirm\"\
+            );\n  confirm->add_on_value_callback([confirm, slot]() {\n    confirm->set_text(\"\
+            Confirm - OK\");\n    id(forget_temperatures)->execute(slot);\n  });\n\
+            \  menu->add_item(confirm);\n  id(temp_sensors_menu)->add_item(menu);\n\
+            }"
     - priority: 600
       then:
         - delay: 200ms
@@ -717,42 +625,82 @@ modbus_server:
     registers:
       - address: 0
         value_type: S_WORD
-        read_lambda: 'float t = id(temp_1).state;
+        read_lambda: 'float t = id(temps)->temperature(0);
 
           return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
       - address: 1
         value_type: S_WORD
-        read_lambda: 'float t = id(temp_2).state;
+        read_lambda: 'float t = id(temps)->temperature(1);
 
           return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
       - address: 2
         value_type: S_WORD
-        read_lambda: 'float t = id(temp_3).state;
+        read_lambda: 'float t = id(temps)->temperature(2);
 
           return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
       - address: 3
         value_type: S_WORD
-        read_lambda: 'float t = id(temp_4).state;
+        read_lambda: 'float t = id(temps)->temperature(3);
 
           return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
       - address: 4
         value_type: S_WORD
-        read_lambda: 'float t = id(temp_5).state;
+        read_lambda: 'float t = id(temps)->temperature(4);
 
           return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
       - address: 5
         value_type: S_WORD
-        read_lambda: 'float t = id(temp_6).state;
+        read_lambda: 'float t = id(temps)->temperature(5);
 
           return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
       - address: 6
         value_type: S_WORD
-        read_lambda: 'float t = id(temp_7).state;
+        read_lambda: 'float t = id(temps)->temperature(6);
 
           return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
       - address: 7
         value_type: S_WORD
-        read_lambda: 'float t = id(temp_8).state;
+        read_lambda: 'float t = id(temps)->temperature(7);
+
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+      - address: 8
+        value_type: S_WORD
+        read_lambda: 'float t = id(temps)->temperature(8);
+
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+      - address: 9
+        value_type: S_WORD
+        read_lambda: 'float t = id(temps)->temperature(9);
+
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+      - address: 10
+        value_type: S_WORD
+        read_lambda: 'float t = id(temps)->temperature(10);
+
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+      - address: 11
+        value_type: S_WORD
+        read_lambda: 'float t = id(temps)->temperature(11);
+
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+      - address: 12
+        value_type: S_WORD
+        read_lambda: 'float t = id(temps)->temperature(12);
+
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+      - address: 13
+        value_type: S_WORD
+        read_lambda: 'float t = id(temps)->temperature(13);
+
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+      - address: 14
+        value_type: S_WORD
+        read_lambda: 'float t = id(temps)->temperature(14);
+
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+      - address: 15
+        value_type: S_WORD
+        read_lambda: 'float t = id(temps)->temperature(15);
 
           return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
     bits:
@@ -884,9 +832,8 @@ script:
     parameters:
       slot: int
     then:
-      - lambda: "auto &slots = id(dallas_slots);\nfor (size_t i = 0; i < std::size(slots);\
-          \ i++) {\n  if (slot < 0 || (size_t) slot == i)\n    slots[i] = 0;\n}\n\
-          App.safe_reboot();"
+      - delay: 1s
+      - lambda: id(temps)->forget(slot);
   - id: check_blank_page
     then:
       - lambda: "id(display_off_s) = 0;\nif (id(display1).get_active_page() == id(blank_page))\
@@ -915,15 +862,34 @@ time:
     timezone: ${timezone}
     update_interval: 15min
 external_components:
-  - source: github://jethome-iot/esphome-device-configs/components@master
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
     components:
       - filesystem_storage_abstract
       - littlefs_storage
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - dallas_scan
 littlefs_storage:
   id: user_storage
   partition_label: littlefs
   partition_size: 4MB
   base_path: /littlefs
+dallas_scan:
+  id: temps
+  one_wire_id: one_wire_bus
+  max_sensors: 16
+  update_interval: 20s
+  web_server:
+    sorting_group_id: group_temperature
+    sorting_weight: 1
 uart:
   - id: jxm_uart1
     tx_pin: GPIO33
@@ -999,18 +965,15 @@ display:
           \ (auto *input : id(inputs)) {\n  if (input->state) {\n    it.filled_circle(x,\
           \ 47, radius);\n  } else {\n    it.circle(x, 47, radius);\n  }\n  it.printf(x\
           \ - 2, 54, id(f5x7), \"%d\", num++);\n  x += x_spacing;\n}\n\n// Bound slots\
-          \ only, three rows; UP/DOWN scroll.\nconst int rows = 3;\nauto &slots =\
-          \ id(dallas_slots);\nconst size_t count = std::min(id(temperatures).size(),\
-          \ std::size(slots));\nint bound = 0;\nfor (size_t i = 0; i < count; i++)\n\
-          \  bound += slots[i] != 0;\nint &scroll = id(status_temp_scroll);\nscroll\
-          \ = std::clamp(scroll, 0, std::max(bound - rows, 0));\n\nit.print(92, 0,\
-          \ id(f5x7), \"Temp\");\nif (scroll > 0)\n  it.filled_triangle(117, 6, 121,\
-          \ 6, 119, 2);\nif (scroll + rows < bound)\n  it.filled_triangle(123, 2,\
-          \ 127, 2, 125, 6);\n\nint y = 11;\nint skip = scroll;\nint shown = 0;\n\
-          for (size_t i = 0; i < count; i++) {\n  if (slots[i] == 0 || skip-- > 0)\n\
-          \    continue;\n  if (shown++ == rows)\n    break;\n  auto *sensor = id(temperatures)[i];\n\
-          \  it.printf(92, y, id(f5x7), \"%.7s\", sensor->get_name().c_str());\n \
-          \ y += 8;\n  if (std::isnan(sensor->state)) {\n    it.print(92, y, id(f5x7),\
+          \ only, three rows; UP/DOWN scroll.\nconst int rows = 3;\nconst auto &sensors\
+          \ = id(temps)->sensors();\nconst int bound = sensors.size();\nint &scroll\
+          \ = id(status_temp_scroll);\nscroll = std::clamp(scroll, 0, std::max(bound\
+          \ - rows, 0));\n\nit.print(92, 0, id(f5x7), \"Temp\");\nif (scroll > 0)\n\
+          \  it.filled_triangle(117, 6, 121, 6, 119, 2);\nif (scroll + rows < bound)\n\
+          \  it.filled_triangle(123, 2, 127, 2, 125, 6);\n\nint y = 11;\nfor (int\
+          \ i = scroll; i < std::min(scroll + rows, bound); i++) {\n  auto *sensor\
+          \ = sensors[i];\n  it.printf(92, y, id(f5x7), \"%.7s\", sensor->get_name().c_str());\n\
+          \  y += 8;\n  if (std::isnan(sensor->state)) {\n    it.print(92, y, id(f5x7),\
           \ \"--.-\");\n  } else {\n    it.printf(92, y, id(f5x7), \"%.1f\", sensor->state);\n\
           \  }\n  y += 11;\n}"
   - platform: ssd1306_i2c
@@ -1091,58 +1054,11 @@ graphical_display_menu:
             return id(input_6).state ? "Input 6: ON" : "Input 6: OFF";
     - type: menu
       text: Temperatures
+      id: temperatures_menu
       items:
         - type: label
           text: !lambda |-
             auto *s = id(pcb_temp);
-            if (std::isnan(s->state))
-              return str_sprintf("%s: --", s->get_name().c_str());
-            return str_sprintf("%s: %.1f°C", s->get_name().c_str(), s->state);
-        - type: label
-          text: !lambda |-
-            auto *s = id(temp_1);
-            if (std::isnan(s->state))
-              return str_sprintf("%s: --", s->get_name().c_str());
-            return str_sprintf("%s: %.1f°C", s->get_name().c_str(), s->state);
-        - type: label
-          text: !lambda |-
-            auto *s = id(temp_2);
-            if (std::isnan(s->state))
-              return str_sprintf("%s: --", s->get_name().c_str());
-            return str_sprintf("%s: %.1f°C", s->get_name().c_str(), s->state);
-        - type: label
-          text: !lambda |-
-            auto *s = id(temp_3);
-            if (std::isnan(s->state))
-              return str_sprintf("%s: --", s->get_name().c_str());
-            return str_sprintf("%s: %.1f°C", s->get_name().c_str(), s->state);
-        - type: label
-          text: !lambda |-
-            auto *s = id(temp_4);
-            if (std::isnan(s->state))
-              return str_sprintf("%s: --", s->get_name().c_str());
-            return str_sprintf("%s: %.1f°C", s->get_name().c_str(), s->state);
-        - type: label
-          text: !lambda |-
-            auto *s = id(temp_5);
-            if (std::isnan(s->state))
-              return str_sprintf("%s: --", s->get_name().c_str());
-            return str_sprintf("%s: %.1f°C", s->get_name().c_str(), s->state);
-        - type: label
-          text: !lambda |-
-            auto *s = id(temp_6);
-            if (std::isnan(s->state))
-              return str_sprintf("%s: --", s->get_name().c_str());
-            return str_sprintf("%s: %.1f°C", s->get_name().c_str(), s->state);
-        - type: label
-          text: !lambda |-
-            auto *s = id(temp_7);
-            if (std::isnan(s->state))
-              return str_sprintf("%s: --", s->get_name().c_str());
-            return str_sprintf("%s: %.1f°C", s->get_name().c_str(), s->state);
-        - type: label
-          text: !lambda |-
-            auto *s = id(temp_8);
             if (std::isnan(s->state))
               return str_sprintf("%s: --", s->get_name().c_str());
             return str_sprintf("%s: %.1f°C", s->get_name().c_str(), s->state);
@@ -1177,6 +1093,7 @@ graphical_display_menu:
               select: modbus_stop_bits
         - type: menu
           text: Temp sensors
+          id: temp_sensors_menu
           items:
             - type: menu
               text: All
@@ -1188,154 +1105,9 @@ graphical_display_menu:
                   id: forget_temps_yes
                   on_value:
                     - lambda: id(forget_temps_yes)->set_text("Confirm - OK");
-                    - delay: 1s
                     - script.execute:
                         id: forget_temperatures
                         slot: -1
-            - type: menu
-              text: Temp1
-              items:
-                - type: label
-                  text: !lambda |-
-                    uint64_t a = id(dallas_slots)[0];
-                    return a ? str_sprintf("0x%016" PRIx64, a) : std::string("empty");
-                - type: label
-                  text: Forget slot?
-                - type: command
-                  text: Confirm
-                  id: forget_temp1_yes
-                  on_value:
-                    - lambda: id(forget_temp1_yes)->set_text("Confirm - OK");
-                    - delay: 1s
-                    - script.execute:
-                        id: forget_temperatures
-                        slot: 0
-            - type: menu
-              text: Temp2
-              items:
-                - type: label
-                  text: !lambda |-
-                    uint64_t a = id(dallas_slots)[1];
-                    return a ? str_sprintf("0x%016" PRIx64, a) : std::string("empty");
-                - type: label
-                  text: Forget slot?
-                - type: command
-                  text: Confirm
-                  id: forget_temp2_yes
-                  on_value:
-                    - lambda: id(forget_temp2_yes)->set_text("Confirm - OK");
-                    - delay: 1s
-                    - script.execute:
-                        id: forget_temperatures
-                        slot: 1
-            - type: menu
-              text: Temp3
-              items:
-                - type: label
-                  text: !lambda |-
-                    uint64_t a = id(dallas_slots)[2];
-                    return a ? str_sprintf("0x%016" PRIx64, a) : std::string("empty");
-                - type: label
-                  text: Forget slot?
-                - type: command
-                  text: Confirm
-                  id: forget_temp3_yes
-                  on_value:
-                    - lambda: id(forget_temp3_yes)->set_text("Confirm - OK");
-                    - delay: 1s
-                    - script.execute:
-                        id: forget_temperatures
-                        slot: 2
-            - type: menu
-              text: Temp4
-              items:
-                - type: label
-                  text: !lambda |-
-                    uint64_t a = id(dallas_slots)[3];
-                    return a ? str_sprintf("0x%016" PRIx64, a) : std::string("empty");
-                - type: label
-                  text: Forget slot?
-                - type: command
-                  text: Confirm
-                  id: forget_temp4_yes
-                  on_value:
-                    - lambda: id(forget_temp4_yes)->set_text("Confirm - OK");
-                    - delay: 1s
-                    - script.execute:
-                        id: forget_temperatures
-                        slot: 3
-            - type: menu
-              text: Temp5
-              items:
-                - type: label
-                  text: !lambda |-
-                    uint64_t a = id(dallas_slots)[4];
-                    return a ? str_sprintf("0x%016" PRIx64, a) : std::string("empty");
-                - type: label
-                  text: Forget slot?
-                - type: command
-                  text: Confirm
-                  id: forget_temp5_yes
-                  on_value:
-                    - lambda: id(forget_temp5_yes)->set_text("Confirm - OK");
-                    - delay: 1s
-                    - script.execute:
-                        id: forget_temperatures
-                        slot: 4
-            - type: menu
-              text: Temp6
-              items:
-                - type: label
-                  text: !lambda |-
-                    uint64_t a = id(dallas_slots)[5];
-                    return a ? str_sprintf("0x%016" PRIx64, a) : std::string("empty");
-                - type: label
-                  text: Forget slot?
-                - type: command
-                  text: Confirm
-                  id: forget_temp6_yes
-                  on_value:
-                    - lambda: id(forget_temp6_yes)->set_text("Confirm - OK");
-                    - delay: 1s
-                    - script.execute:
-                        id: forget_temperatures
-                        slot: 5
-            - type: menu
-              text: Temp7
-              items:
-                - type: label
-                  text: !lambda |-
-                    uint64_t a = id(dallas_slots)[6];
-                    return a ? str_sprintf("0x%016" PRIx64, a) : std::string("empty");
-                - type: label
-                  text: Forget slot?
-                - type: command
-                  text: Confirm
-                  id: forget_temp7_yes
-                  on_value:
-                    - lambda: id(forget_temp7_yes)->set_text("Confirm - OK");
-                    - delay: 1s
-                    - script.execute:
-                        id: forget_temperatures
-                        slot: 6
-            - type: menu
-              text: Temp8
-              items:
-                - type: label
-                  text: !lambda |-
-                    uint64_t a = id(dallas_slots)[7];
-                    return a ? str_sprintf("0x%016" PRIx64, a) : std::string("empty");
-                - type: label
-                  text: Forget slot?
-                - type: command
-                  text: Confirm
-                  id: forget_temp8_yes
-                  on_value:
-                    - lambda: id(forget_temp8_yes)->set_text("Confirm - OK");
-                    - delay: 1s
-                    - script.execute:
-                        id: forget_temperatures
-                        slot: 7
         - type: menu
           text: Factory reset
           items:

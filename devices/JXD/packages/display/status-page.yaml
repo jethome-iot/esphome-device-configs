@@ -52,11 +52,8 @@ display:
 
           // Bound slots only, three rows; UP/DOWN scroll.
           const int rows = 3;
-          auto &slots = id(dallas_slots);
-          const size_t count = std::min(id(temperatures).size(), std::size(slots));
-          int bound = 0;
-          for (size_t i = 0; i < count; i++)
-            bound += slots[i] != 0;
+          const auto &sensors = id(temps)->sensors();
+          const int bound = sensors.size();
           int &scroll = id(status_temp_scroll);
           scroll = std::clamp(scroll, 0, std::max(bound - rows, 0));
 
@@ -67,14 +64,8 @@ display:
             it.filled_triangle(123, 2, 127, 2, 125, 6);
 
           int y = 11;
-          int skip = scroll;
-          int shown = 0;
-          for (size_t i = 0; i < count; i++) {
-            if (slots[i] == 0 || skip-- > 0)
-              continue;
-            if (shown++ == rows)
-              break;
-            auto *sensor = id(temperatures)[i];
+          for (int i = scroll; i < std::min(scroll + rows, bound); i++) {
+            auto *sensor = sensors[i];
             it.printf(92, y, id(f5x7), "%.7s", sensor->get_name().c_str());
             y += 8;
             if (std::isnan(sensor->state)) {

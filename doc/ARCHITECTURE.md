@@ -16,11 +16,14 @@ boundaries; everything else is local to its file.
 
 - `web_server.sorting_groups` (`group_relays` … `group_system`) are declared in
   `boards/jxd-cpu-e1eth.yaml`; every visible entity names one.
-- `relays`, `inputs` (`boards/jxd-d6-r6-rev1.2.yaml`) and `temperatures`, `dallas_slots`
-  (`features/temperature.yaml`) are `globals` that the status page, buttons and menu iterate over.
+- `relays`, `inputs` (`boards/jxd-d6-r6-rev1.2.yaml`) are `globals` that the status page, buttons
+  and menu iterate over. `temps` (`features/temperature.yaml`) is the `dallas_scan` component; the
+  status page, the menu and the Modbus map read the temperatures through it (`sensors()`,
+  `sensor(slot)`, `temperature(slot)`), and `forget_temperatures` (a script) clears slots.
 - `display1` and `main_page` come from `display/display.yaml`; the other pages attach with
   `id: !extend display1`. `display_menu` (`display/menu.yaml`) exposes `info_submenu` and
-  `menu_settings_id` as extension points that `menu-items-network.yaml` fills via `!extend`.
+  `menu_settings_id` as extension points that `menu-items-network.yaml` fills via `!extend`;
+  `temperatures_menu` and `temp_sensors_menu` get a `Temp<N>` row per bound slot at boot.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
   and expanded inside the main-page lambda in `display/display.yaml`. Package substitutions share
   one namespace with the device config's.
@@ -35,9 +38,10 @@ boundaries; everything else is local to its file.
 
 | Priority | What runs |
 | --- | --- |
-| 800 | fill the `relays` / `inputs` / `temperatures` vectors |
-| 700 | assign Dallas slots (after the 1-Wire scan at 999, before sensors resolve addresses at 600); push the stored Modbus address, baud rate, parity and stop bits into `jxm_uart2` |
-| 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); restore the timezone and read the RTC (`setup_time`, called from the device config) |
+| 800 | fill the `relays` / `inputs` vectors |
+| 700 | push the stored Modbus address, baud rate, parity and stop bits into `jxm_uart2` |
+| 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); restore the timezone and read the RTC (`setup_time`, called from the device config). `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
+| 500 | add the `Temp<N>` rows to the Temperatures and Temp sensors menus, one per bound slot |
 | 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
 
 ## Settings
@@ -47,11 +51,12 @@ lambdas read them. Network mode applies live, Modbus settings on the next reboot
 
 ## Temperature slots
 
-Eight `dallas_temp` sensors addressed by `index:`; `dallas_slots` (a restored `uint64_t[8]`) maps
-slot → ROM address, and the priority-700 hook rewrites each sensor's address (an empty slot gets
-an out-of-range index on purpose). A YAML `address:` pins a slot. Adding a slot touches
-`temperature.yaml`, `menu.yaml`, `modbus-server.yaml`, the README and `TEMP_COUNT` in
-`scripts/modbus_probe.py`; see "More slots" in [ONEWIRE_WORKFLOW.md](ONEWIRE_WORKFLOW.md).
+The `dallas_scan` component (`components/dallas_scan`, id `temps` in `features/temperature.yaml`)
+owns the slots: a slot → ROM address table in flash and one `sensor::Sensor` per bound slot,
+`Temp1` … `Temp16`, created at setup rather than declared in YAML. `max_sensors` sizes the table
+and the entity slots codegen reserves; `addresses:` pins a slot. Adding slots touches
+`max_sensors`, `modbus-server.yaml`, the README and `TEMP_COUNT` in `scripts/modbus_probe.py`;
+see "More slots" in [ONEWIRE_WORKFLOW.md](ONEWIRE_WORKFLOW.md).
 
 ## Modbus
 
@@ -63,4 +68,11 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
 ## Coupled to upstream internals
 
 The BACK button (`display/buttons.yaml`) reaches `DisplayMenuComponent`'s protected `leave_menu_`
-and `finish_editing_` through pointer-to-member casts. Re-check it on every ESPHome bump.
+and `finish_editing_` through pointer-to-member casts.
+
+`components/dallas_scan` creates entities at runtime: codegen reserves their places in the
+entity tables (`CORE.register_platform_component`) and registers the device class and unit
+strings, C++ then calls the four-argument `App.register_sensor` and
+`web_server::WebServer::add_entity_config`. The menu rows are `MenuItem`s built by hand.
+
+Re-check both on every ESPHome bump.
