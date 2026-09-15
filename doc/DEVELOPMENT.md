@@ -70,8 +70,10 @@ reaches upstream internals, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Branches
 
-CI triggers, the `no-commit-to-branch` hook and `dashboard_import` all name `master` as the
-default branch.
+`dev` is the default branch: pull requests target it, and Build runs on every push to it.
+`master` is the release branch — `dashboard_import` and the asset URLs in `dist/` point at
+`@master`, so it moves only when `dev` is merged into it for a release. The
+`no-commit-to-branch` hook keeps commits off both.
 
 ## Style
 
