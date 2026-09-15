@@ -24,8 +24,10 @@ class WebFileBrowser : public AsyncWebHandler, public Component {
       : base_(base), storage_(storage) {}
 
   void setup() override;
+  void dump_config() override;
   float get_setup_priority() const override {
-    // After WiFi (before web_server component)
+    // After WiFi. Nothing orders this against web_server: WIFI - 1.0f is exactly
+    // web_server's own priority, so the two fall to registration order.
     return setup_priority::WIFI - 1.0f;
   }
 

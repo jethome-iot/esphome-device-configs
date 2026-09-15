@@ -1,7 +1,9 @@
 #include "web_file_browser.h"
 #include "esphome/core/log.h"
-#include "esphome/core/application.h"
 
+#include <cerrno>
+#include <cstdio>
+#include <cstring>
 #include <memory>
 #include <new>
 
@@ -19,13 +21,15 @@ namespace web_file_browser {
 static const char *const TAG = "web_file_browser";
 
 void WebFileBrowser::setup() {
-  ESP_LOGCONFIG(TAG, "Setting up Web File Browser...");
+  this->base_->init();
+  this->base_->add_handler(this);
+}
+
+void WebFileBrowser::dump_config() {
+  ESP_LOGCONFIG(TAG, "Web File Browser:");
   ESP_LOGCONFIG(TAG, "  Filesystem type: %s", this->storage_->get_filesystem_type());
   ESP_LOGCONFIG(TAG, "  Mount path: %s", this->storage_->get_base_path().c_str());
   ESP_LOGCONFIG(TAG, "  API: %s/*", this->url_prefix_.c_str());
-  this->base_->init();
-  this->base_->add_handler(this);
-  ESP_LOGCONFIG(TAG, "Web File Browser setup complete");
 }
 
 std::string WebFileBrowser::url_(AsyncWebServerRequest *request) const {
