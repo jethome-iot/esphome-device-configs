@@ -101,6 +101,7 @@ class DallasScan : public PollingComponent {
   std::vector<sensor::Sensor *> given_;    // slot -> YAML sensor from sensors:, nullptr = none
   std::vector<sensor::Sensor *> sensors_;  // slot -> sensor, nullptr = empty
   std::vector<sensor::Sensor *> bound_;    // sensors_ without the gaps
+  size_t automatic_{0};                    // slots the component reads itself
   std::vector<bool> missing_;              // slot -> the sensor did not answer the last read
   ESPPreferenceObject pref_;
 #ifdef USE_WEBSERVER_SORTING

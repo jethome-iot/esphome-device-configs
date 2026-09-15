@@ -64,6 +64,7 @@ void DallasScan::setup() {
     auto *sensor = this->make_sensor_(slot);
     this->sensors_[slot] = sensor;
     this->bound_.push_back(sensor);
+    this->automatic_++;
     if (std::find(devices.begin(), devices.end(), address) == devices.end()) {
       ESP_LOGW(TAG, "%s: 0x%016" PRIx64 " is not on the bus", sensor->get_name().c_str(), address);
       this->missing_[slot] = true;
@@ -159,7 +160,7 @@ void DallasScan::write_resolution_(uint64_t address) {
 }
 
 void DallasScan::update() {
-  if (this->bound_.empty())
+  if (this->automatic_ == 0)  // listed sensors read their devices themselves
     return;
   // One conversion for the whole bus; the scratch pads are read one per loop pass.
   if (this->bus_->skip())
@@ -226,6 +227,7 @@ float DallasScan::to_celsius_(uint64_t address, const uint8_t *scratch_pad) cons
   if ((address & 0xff) == FAMILY_DS18S20) {
     if (scratch_pad[7] == 0)
       return NAN;
+    // The shift is the datasheet's TEMP_READ: bit 0 dropped, a floor for negative values too.
     return (raw >> 1) + (scratch_pad[7] - scratch_pad[6]) / float(scratch_pad[7]) - 0.25f;
   }
   raw &= ~((1 << (12 - this->resolution_)) - 1);  // undefined low bits below the resolution

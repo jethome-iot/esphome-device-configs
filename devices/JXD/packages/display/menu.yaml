@@ -69,7 +69,7 @@ graphical_display_menu:
             return id(input_6).state ? "Input 6: ON" : "Input 6: OFF";
 
     # A Temp N submenu per slot up to the last bound one is added at boot (esphome:
-    # on_boot below); a freed slot's just says so.
+    # on_boot below); a freed slot's submenu only says Free slot.
     - type: menu
       text: "Temperatures"
       id: temperatures_menu
@@ -171,7 +171,7 @@ esphome:
               // forget where it changes anything. A freed slot between sensors keeps
               // its row and only says that it is free.
               auto *menu = new MenuItemMenu();
-              menu->set_text(format(NAN));
+              menu->set_text(format(scan->temperature(slot)));  // a listed sensor may have a state already
               auto *sensor = scan->sensor(slot);
               if (sensor == nullptr) {
                 auto *note = new MenuItem(MENU_ITEM_LABEL);
@@ -181,7 +181,7 @@ esphome:
                 continue;
               }
               auto *reading = new MenuItem(MENU_ITEM_LABEL);
-              reading->set_text(format(NAN));
+              reading->set_text(format(sensor->state));
               sensor->add_on_state_callback([menu, reading, format](float value) {
                 menu->set_text(format(value));
                 reading->set_text(format(value));

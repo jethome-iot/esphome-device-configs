@@ -25,7 +25,7 @@ boundaries; everything else is local to its file.
   `id: !extend display1`. `display_menu` (`display/menu.yaml`) exposes `info_submenu` and
   `menu_settings_id` as extension points that `menu-items-network.yaml` fills via `!extend`;
   `temperatures_menu` gets a `Temp N` submenu per slot up to the last bound one at boot; a
-  freed slot's only says `Free slot`.
+  freed slot's submenu only says `Free slot`.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
   and expanded inside the main-page lambda in `display/display.yaml`. Package substitutions share
   one namespace with the device config's.

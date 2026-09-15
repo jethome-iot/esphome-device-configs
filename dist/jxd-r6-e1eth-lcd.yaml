@@ -476,12 +476,12 @@ esphome:
             , name.c_str(), value);\n  };\n\n  // The row shows the reading and opens\
             \ the slot: reading, address, and\n  // forget where it changes anything.\
             \ A freed slot between sensors keeps\n  // its row and only says that\
-            \ it is free.\n  auto *menu = new MenuItemMenu();\n  menu->set_text(format(NAN));\n\
-            \  auto *sensor = scan->sensor(slot);\n  if (sensor == nullptr) {\n  \
-            \  auto *note = new MenuItem(MENU_ITEM_LABEL);\n    note->set_text(\"\
-            Free slot\");\n    menu->add_item(note);\n    id(temperatures_menu)->add_item(menu);\n\
+            \ it is free.\n  auto *menu = new MenuItemMenu();\n  menu->set_text(format(scan->temperature(slot)));\
+            \  // a listed sensor may have a state already\n  auto *sensor = scan->sensor(slot);\n\
+            \  if (sensor == nullptr) {\n    auto *note = new MenuItem(MENU_ITEM_LABEL);\n\
+            \    note->set_text(\"Free slot\");\n    menu->add_item(note);\n    id(temperatures_menu)->add_item(menu);\n\
             \    continue;\n  }\n  auto *reading = new MenuItem(MENU_ITEM_LABEL);\n\
-            \  reading->set_text(format(NAN));\n  sensor->add_on_state_callback([menu,\
+            \  reading->set_text(format(sensor->state));\n  sensor->add_on_state_callback([menu,\
             \ reading, format](float value) {\n    menu->set_text(format(value));\n\
             \    reading->set_text(format(value));\n  });\n  menu->add_item(reading);\n\
             \  if (const uint64_t rom = scan->address(slot); rom != 0) {\n    auto\
