@@ -25,7 +25,7 @@ python scripts/build-dist.py  [--check]    # regenerate / verify dist/ (imports 
 python scripts/build-icons.py [--check]    # regenerate / verify assets/res/
 python scripts/firmware-matrix.py build    # CI matrix from firmwares.yaml; also validates the file
 
-pre-commit run --all-files                 # ruff --fix, ruff-format, pyupgrade --py310-plus, yamllint, build-icons, build-dist
+pre-commit run --all-files                 # ruff --fix, ruff-format, pyupgrade --py310-plus, yamllint, clang-format, build-icons, build-dist
 SKIP=build-dist pre-commit run --all-files # what the CI lint job runs
 
 .venv/bin/python scripts/modbus_probe.py --port /dev/ttyUSB2 probe   # walk the Modbus map over RS485
@@ -68,6 +68,9 @@ The pin appears in these files; Dependabot bumps only the first:
 After a bump, re-check every entry under "Coupled to upstream internals" in
 [ARCHITECTURE.md](ARCHITECTURE.md): that list is the one that grows, this one would go stale.
 
+Also re-sync `.clang-format` and the `mirrors-clang-format` rev in `.pre-commit-config.yaml` with
+upstream's: a bump can change either the style config or the version it formats with.
+
 ## Branches
 
 `dev` is the default branch: pull requests target it, and Build runs on every push to it.
@@ -81,5 +84,8 @@ After a bump, re-check every entry under "Coupled to upstream internals" in
   line-length limit.
 - Python: ruff defaults plus `ruff format`, `pyupgrade --py310-plus`; standalone scripts, no
   `pyproject.toml`.
+- C++: clang-format over `components/`, using upstream ESPHome's `.clang-format` verbatim so the
+  components read like the components they live next to. pre-commit reformats in place; to run it by
+  hand, `pre-commit run clang-format --all-files`.
 - Comments say why in a line or two; the longer story goes in the commit message. README and
   `doc/` state behavior and usage, not mechanism.
