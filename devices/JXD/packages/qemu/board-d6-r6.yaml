@@ -30,6 +30,8 @@ switch:
 
   # A `template` input cannot change on its own, so one internal switch per input
   # publishes onto it: POST /switch/Drive%20input%203/turn_on raises Input 3.
+  # `internal:` costs them the entity list and its SSE stream, not the command —
+  # web_server matches a POST by name and never looks at the flag.
   # Their ALWAYS_OFF restore also gives the inputs a boot state, which `template`
   # otherwise never publishes.
   - platform: template

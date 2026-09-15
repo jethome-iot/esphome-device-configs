@@ -14,6 +14,9 @@ external_components:
       path: components
     components: [virtual_display]
 
+# The panel is served by the device's own web server.
+web_server:
+
 display:
   - platform: virtual_display
     id: display1

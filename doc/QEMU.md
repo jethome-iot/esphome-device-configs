@@ -93,7 +93,7 @@ device by `packages/qemu/qemu-<device>.yaml`:
 
 | Overlay | |
 |---|---|
-| `board-d6-r6.yaml` | The six relays and six inputs become `template`, keeping every id, name and automation — a relay then toggles over REST and holds. A `template` input cannot change on its own, so six `internal:` switches publish onto them. With nothing left pointing at the expander it is removed too, which is where most of the log noise went. |
+| `board-d6-r6.yaml` | The six relays and six inputs become `template`, keeping every id, name and automation — a relay then toggles over REST and holds. A `template` input cannot change on its own, so six `internal:` switches publish onto them — unlisted, still drivable by name. With nothing left pointing at the expander it is removed too, which is where most of the log noise went. |
 | `panel-jxd-display.yaml` | The panel becomes a [`virtual_display`](../components/virtual_display/README.md) and the joystick becomes `template` sensors the front panel publishes into. |
 
 The panel overlay patches the joystick sensors by id, so every button in
@@ -110,6 +110,10 @@ curl -s   'http://127.0.0.1:8080/switch/Relay%201'                     # {"id":"
 curl -sX POST -d "" 'http://127.0.0.1:8080/switch/Relay%201/turn_on'
 curl -sX POST -d "" 'http://127.0.0.1:8080/switch/Drive%20input%203/turn_on'   # raises Input 3
 ```
+
+The `Drive input N` switches are deliberately `internal:`, so they are absent from the entity
+list and from the `/events` stream — but a command still reaches them, because the web server
+matches a request by name and the internal flag only gates listing and state pushes.
 
 ## The front panel
 

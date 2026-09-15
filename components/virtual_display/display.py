@@ -41,6 +41,13 @@ def _validate_key_name(value):
     return value
 
 
+# None of these survive the trip to canHandle(): url_to() cuts the path at '?',
+# a client never sends the '#' fragment at all, and url_decode() turns '+' into a
+# space and '%XX' into its byte before the compare. A prefix carrying one would
+# validate and then match nothing.
+_URL_PREFIX_REJECTED = "?#+%"
+
+
 def _validate_url_prefix(value):
     value = cv.string_strict(value)
     if not value.startswith("/"):
@@ -49,6 +56,13 @@ def _validate_url_prefix(value):
         # A trailing slash would make the sub-paths (/info, /frame, /key/...)
         # unreachable, and the component would look dead but for its page.
         raise cv.Invalid("url_prefix must not be '/' or end with '/'")
+    found = [c for c in _URL_PREFIX_REJECTED if c in value]
+    if found:
+        raise cv.Invalid(
+            f"url_prefix {value!r} must not contain {' or '.join(repr(c) for c in found)}: "
+            "the handler compares a path that has already lost its query and fragment "
+            "and been percent-decoded, so nothing would ever match"
+        )
     return value
 
 
