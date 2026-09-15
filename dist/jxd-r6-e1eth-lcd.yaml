@@ -877,6 +877,7 @@ external_components:
     components:
       - filesystem_storage_abstract
       - littlefs_storage
+      - web_file_browser
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -889,6 +890,8 @@ littlefs_storage:
   partition_label: littlefs
   partition_size: 4MB
   base_path: /littlefs
+web_file_browser:
+  storage_id: user_storage
 dallas_scan:
   id: temps
   one_wire_id: one_wire_bus
