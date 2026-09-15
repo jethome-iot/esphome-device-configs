@@ -1,0 +1,53 @@
+# QEMU overlay for the JXD display board: QEMU puts neither the SH1106 nor the
+# joystick expander on I2C, so the screen would stay blank and no key would ever
+# fire. Pages, fonts, menus and every `on_press` are untouched.
+
+external_components:
+  - source: ${components}
+    components: [virtual_display]
+
+# Same 128x64 mono buffer, served over HTTP at /panel instead of pushed to a chip.
+display:
+  - id: !extend display1
+    platform: virtual_display
+    model: !remove
+    address: !remove
+    width: 128
+    height: 64
+    url_prefix: /panel
+    keys:
+      up: up_button_id
+      down: down_button_id
+      left: left_button_id
+      right: right_button_id
+      enter: center_button_id
+      home: home_button_id
+      esc: back_button_id
+
+# A key press is injected with publish_state(), so nothing else may drive these
+# every loop; as `gpio` they would re-read the absent expander and overwrite it.
+binary_sensor:
+  - id: !extend up_button_id
+    platform: template
+    pin: !remove
+  - id: !extend down_button_id
+    platform: template
+    pin: !remove
+  - id: !extend left_button_id
+    platform: template
+    pin: !remove
+  - id: !extend right_button_id
+    platform: template
+    pin: !remove
+  - id: !extend center_button_id
+    platform: template
+    pin: !remove
+  - id: !extend home_button_id
+    platform: template
+    pin: !remove
+  - id: !extend back_button_id
+    platform: template
+    pin: !remove
+
+pca9554:
+  - id: !remove jxd_display_exp
