@@ -127,10 +127,6 @@ class AutomationConfigStorage {
   std::vector<AutomationConfig> configs_;
 
  public:
-  bool load_from_json(const char *json_str, size_t max_buffer_size);
-  bool load_from_json(const JsonArray &array);
-  size_t save_to_json(char *json_str, size_t max_buffer_size);
-
   void add_config(const AutomationConfig &config);
   AutomationConfig *get_config(uint8_t index);
   void update_config(uint8_t index, AutomationConfig *);
@@ -140,7 +136,6 @@ class AutomationConfigStorage {
   void clear() { configs_.clear(); }
 
   size_t size() const { return configs_.size(); }
-  bool empty() const { return configs_.empty(); }
 };
 
 }  // namespace esphome::automations

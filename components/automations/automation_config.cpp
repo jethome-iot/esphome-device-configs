@@ -2,7 +2,6 @@
 #include <algorithm>
 #include "esphome/core/helpers.h"
 #include "entity_lookup.h"
-#include "esphome/components/json/json_util.h"
 #include "esphome/core/log.h"
 
 namespace esphome::automations {
@@ -602,54 +601,6 @@ bool AutomationConfig::deserialize(const JsonObject &obj) {
   }
 
   return true;
-}
-
-bool AutomationConfigStorage::load_from_json(const char *json_str, size_t max_buffer_size) {
-  if (max_buffer_size > 16384) {
-    ESP_LOGE(TAG, "Buffer size %u exceeds maximum 16384", static_cast<unsigned>(max_buffer_size));
-    return false;
-  }
-  JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, json_str);
-
-  if (error) {
-    return false;
-  }
-
-  return load_from_json(doc.as<JsonArray>());
-}
-
-bool AutomationConfigStorage::load_from_json(const JsonArray &array) {
-  configs_.clear();
-
-  for (const auto &item : array) {
-    AutomationConfig config;
-    if (config.deserialize(item.as<JsonObject>())) {
-      configs_.push_back(config);
-    }
-  }
-
-  return true;
-}
-
-size_t AutomationConfigStorage::save_to_json(char *json_str, size_t max_buffer_size) {
-  JsonDocument doc;
-  JsonArray array = doc.to<JsonArray>();
-
-  for (const auto &config : configs_) {
-    JsonObject obj = array.add<JsonObject>();
-    config.serialize(obj);
-  }
-
-  size_t json_size = measureJson(doc);
-  if (json_size > max_buffer_size - 1) {
-    ESP_LOGE(TAG, "Buffer size is small. Json Doc size is %u", static_cast<unsigned>(json_size));
-    return 0;
-  }
-
-  serializeJson(doc, (void *) json_str, max_buffer_size);
-
-  return json_size;
 }
 
 void AutomationConfigStorage::add_config(const AutomationConfig &config) { configs_.push_back(config); }

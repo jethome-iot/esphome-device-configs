@@ -1,13 +1,12 @@
 #pragma once
 #include <stdint.h>
-#include <stddef.h>
 #include <string>
 
 namespace esphome::automations {
 
 enum class AutomationMode : uint8_t { SINGLE = 0, RESTART = 1, PARALLEL = 2 };
 
-enum class SourceTrigger : uint8_t { NONE = 0, INPUT, TEMPERATURE, CRON, STARTUP, SWITCH, MAX_TRIGGER_TYPES };
+enum class SourceTrigger : uint8_t { NONE = 0, INPUT, TEMPERATURE, CRON, STARTUP, SWITCH };
 
 enum class TypesInputTrigger : uint8_t {
   NONE,
@@ -31,7 +30,7 @@ enum class TypesSwitchTrigger : uint8_t {
   STATE_CHANGE,
 };
 
-enum class SourceAction : uint8_t { NONE = 0, DELAY, SWITCH, MAX_ACTION_TYPES };
+enum class SourceAction : uint8_t { NONE = 0, DELAY, SWITCH };
 
 enum class TypeSwitchAction : uint8_t {
   NONE,
@@ -41,7 +40,7 @@ enum class TypeSwitchAction : uint8_t {
   FOLLOW,
 };
 
-enum class ConditionType : uint8_t { NONE = 0, AND, OR, XOR, INPUT, TEMPERATURE, MAX_CONDITION_TYPES };
+enum class ConditionType : uint8_t { NONE = 0, AND, OR, XOR, INPUT, TEMPERATURE };
 
 enum class InputConditionState : uint8_t {
   FALSE = 0,
@@ -56,10 +55,6 @@ enum class TypesTemperatureCondition : uint8_t {
 };
 
 enum class CronPreset : uint8_t { DAILY = 0, HOURLY, EVERY_N_MINUTES, WEEKLY, MONTHLY, CUSTOM };
-
-constexpr size_t MAX_TRIGGER_TYPES = static_cast<size_t>(SourceTrigger::MAX_TRIGGER_TYPES);
-constexpr size_t MAX_ACTION_TYPES = static_cast<size_t>(SourceAction::MAX_ACTION_TYPES);
-constexpr size_t MAX_CONDITION_TYPES = static_cast<size_t>(ConditionType::MAX_CONDITION_TYPES);
 
 namespace EnumUtils {
 // SourceTrigger
@@ -105,12 +100,6 @@ CronPreset string_to_cron_preset(const std::string &str);
 // AutomationMode
 const char *automation_mode_to_string(AutomationMode mode);
 AutomationMode string_to_automation_mode(const std::string &str);
-
-constexpr size_t trigger_to_index(SourceTrigger source) { return static_cast<size_t>(source); }
-
-constexpr size_t action_to_index(SourceAction source) { return static_cast<size_t>(source); }
-
-constexpr size_t condition_to_index(ConditionType type) { return static_cast<size_t>(type); }
 }  // namespace EnumUtils
 
 }  // namespace esphome::automations
