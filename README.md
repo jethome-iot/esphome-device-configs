@@ -35,7 +35,7 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
 - **Home Assistant Integration**: Native ESPHome API with automatic entity discovery and OTA updates
 - **Display Control**: Interactive OLED menu with status, time, relay control, input monitoring, and settings
 - **Dallas Temperature Sensors**: a sensor per DS18B20 found at boot, numbered once and kept across reboots ([details](doc/ONEWIRE_WORKFLOW.md))
-- **User Storage**: a 4 MB LittleFS partition mounted at `/littlefs`, kept across OTA updates
+- **User Storage**: a 4 MB LittleFS partition mounted at `/littlefs`, kept across OTA updates, served over HTTP as a JSON file API under `/files` ([details](components/web_file_browser/README.md))
 
 ## Repository Layout
 
@@ -67,7 +67,7 @@ Shared code and tooling stay at the repository root:
 
 | Directory  | Contents |
 | ---------- | -------- |
-| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) and its `filesystem_storage_abstract` base |
+| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, and `web_file_browser` (the file API over that partition) |
 | `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `setup.sh` / `setup.bat` |
 | `dist/`    | Generated self-contained configs the ESPHome Builder imports |
 | `doc/`     | Guides, plus the README's UI mockups in `doc/images/` |
