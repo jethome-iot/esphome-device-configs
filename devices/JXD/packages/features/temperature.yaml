@@ -1,163 +1,24 @@
-# Eight DS18B20 slots. A new sensor takes the lowest free slot in bus order and the
-# slot then keeps its ROM address across reboots; an explicit address: pins a slot
-# for good. Details: doc/ONEWIRE_WORKFLOW.md
-#
-# 85.0 is the DS18B20 power-on value.
-sensor:
-  - platform: dallas_temp
-    name: "Temp1"
-    id: temp_1
-    web_server:
-      sorting_group_id: group_temperature
-      sorting_weight: 1
-    index: 0
-    update_interval: 20s
-    filters:
-      - filter_out: 85.0
+# One Temp N sensor per DS18B20 found at boot. A new sensor takes the lowest free
+# slot in bus order and the slot then keeps its ROM address across reboots; sensors:
+# lists YAML sensors for the first slots. Details: doc/ONEWIRE_WORKFLOW.md
+external_components:
+  - source: ${components}
+    components: [dallas_scan]
 
-  - platform: dallas_temp
-    name: "Temp2"
-    id: temp_2
-    web_server:
-      sorting_group_id: group_temperature
-      sorting_weight: 2
-    index: 1
-    update_interval: 20s
-    filters:
-      - filter_out: 85.0
-
-  - platform: dallas_temp
-    name: "Temp3"
-    id: temp_3
-    web_server:
-      sorting_group_id: group_temperature
-      sorting_weight: 3
-    index: 2
-    update_interval: 20s
-    filters:
-      - filter_out: 85.0
-
-  - platform: dallas_temp
-    name: "Temp4"
-    id: temp_4
-    web_server:
-      sorting_group_id: group_temperature
-      sorting_weight: 4
-    index: 3
-    update_interval: 20s
-    filters:
-      - filter_out: 85.0
-
-  - platform: dallas_temp
-    name: "Temp5"
-    id: temp_5
-    web_server:
-      sorting_group_id: group_temperature
-      sorting_weight: 5
-    index: 4
-    update_interval: 20s
-    filters:
-      - filter_out: 85.0
-
-  - platform: dallas_temp
-    name: "Temp6"
-    id: temp_6
-    web_server:
-      sorting_group_id: group_temperature
-      sorting_weight: 6
-    index: 5
-    update_interval: 20s
-    filters:
-      - filter_out: 85.0
-
-  - platform: dallas_temp
-    name: "Temp7"
-    id: temp_7
-    web_server:
-      sorting_group_id: group_temperature
-      sorting_weight: 7
-    index: 6
-    update_interval: 20s
-    filters:
-      - filter_out: 85.0
-
-  - platform: dallas_temp
-    name: "Temp8"
-    id: temp_8
-    web_server:
-      sorting_group_id: group_temperature
-      sorting_weight: 8
-    index: 7
-    update_interval: 20s
-    filters:
-      - filter_out: 85.0
-
-globals:
-  - id: temperatures
-    type: std::vector<sensor::Sensor *>
-
-  - id: dallas_slots
-    type: uint64_t[8]
-    restore_value: true
+dallas_scan:
+  id: temps
+  one_wire_id: one_wire_bus
+  max_sensors: 16
+  update_interval: 20s
+  web_server:
+    sorting_group_id: group_temperature
+    sorting_weight: 1
 
 script:
-  # slot: 0-7, or -1 for all
+  # slot: 0-based, or -1 for all
   - id: forget_temperatures
     parameters:
       slot: int
     then:
-      - lambda: |-
-          auto &slots = id(dallas_slots);
-          for (size_t i = 0; i < std::size(slots); i++) {
-            if (slot < 0 || (size_t) slot == i)
-              slots[i] = 0;
-          }
-          App.safe_reboot();
-
-esphome:
-  on_boot:
-    - priority: 800
-      then:
-        - lambda: |-
-            id(temperatures) = {id(temp_1), id(temp_2), id(temp_3), id(temp_4), id(temp_5), id(temp_6), id(temp_7), id(temp_8)};
-
-    # After the bus scan (999), before the sensors pick an address (600).
-    - priority: 700
-      then:
-        - lambda: |-
-            auto &slots = id(dallas_slots);
-            auto *end = std::end(slots);
-            dallas_temp::DallasTemperatureSensor *sensors[] = {id(temp_1), id(temp_2), id(temp_3), id(temp_4), id(temp_5), id(temp_6), id(temp_7), id(temp_8)};
-            // A YAML address pins its slot; the stored table follows it.
-            for (size_t i = 0; i < std::size(slots); i++) {
-              uint64_t pinned = std::strtoull(sensors[i]->get_address_name().c_str(), nullptr, 16);
-              if (pinned == 0)
-                continue;
-              std::replace(std::begin(slots), end, pinned, (uint64_t) 0);
-              slots[i] = pinned;
-            }
-            // The scan finds every 1-Wire device; only these families read back
-            // as a DS18B20 scratchpad.
-            const uint8_t families[] = {0x10, 0x22, 0x28, 0x3b, 0x42};
-            auto *families_end = std::end(families);
-            for (uint64_t address : id(one_wire_bus).get_devices()) {
-              if (std::find(std::begin(families), families_end, address & 0xff) == families_end) {
-                ESP_LOGW("temperature", "Not a temperature sensor, skipping 0x%016" PRIx64, address);
-                continue;
-              }
-              if (std::find(std::begin(slots), end, address) != end)
-                continue;
-              auto *slot = std::find(std::begin(slots), end, 0);
-              if (slot == end) {
-                ESP_LOGW("temperature", "No free slot for 0x%016" PRIx64, address);
-                continue;
-              }
-              *slot = address;
-            }
-            for (size_t i = 0; i < std::size(slots); i++) {
-              if (slots[i] != 0) {
-                sensors[i]->set_address(slots[i]);
-              } else {
-                sensors[i]->set_index(std::size(slots));  // out of range on purpose: an empty slot takes no device
-              }
-            }
+      - delay: 1s
+      - lambda: 'id(temps)->forget(slot);'

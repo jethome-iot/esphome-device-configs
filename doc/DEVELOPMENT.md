@@ -65,8 +65,8 @@ The pin appears in these files; Dependabot bumps only the first:
 - `scripts/setup.sh`, `scripts/setup.bat` — the Python-range messages
 - `doc/DEVELOPMENT.md` (Environment) and `CLAUDE.md` — the stated version
 
-After a bump, re-check the BACK button handler in `devices/JXD/packages/display/buttons.yaml`: it
-reaches upstream internals, see [ARCHITECTURE.md](ARCHITECTURE.md).
+After a bump, re-check the BACK button handler in `devices/JXD/packages/display/buttons.yaml` and
+`components/dallas_scan`: both reach upstream internals, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Branches
 

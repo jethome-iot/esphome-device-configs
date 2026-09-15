@@ -50,37 +50,28 @@ display:
             x += x_spacing;
           }
 
-          // Bound slots only, three rows; UP/DOWN scroll.
+          // Slots up to the last bound one, three rows, a freed slot reads --.-; UP/DOWN scroll.
           const int rows = 3;
-          auto &slots = id(dallas_slots);
-          const size_t count = std::min(id(temperatures).size(), std::size(slots));
-          int bound = 0;
-          for (size_t i = 0; i < count; i++)
-            bound += slots[i] != 0;
+          auto *scan = id(temps);
+          const int used = scan->used_slots();
           int &scroll = id(status_temp_scroll);
-          scroll = std::clamp(scroll, 0, std::max(bound - rows, 0));
+          scroll = std::clamp(scroll, 0, std::max(used - rows, 0));
 
           it.print(92, 0, id(f5x7), "Temp");
           if (scroll > 0)
             it.filled_triangle(117, 6, 121, 6, 119, 2);
-          if (scroll + rows < bound)
+          if (scroll + rows < used)
             it.filled_triangle(123, 2, 127, 2, 125, 6);
 
           int y = 11;
-          int skip = scroll;
-          int shown = 0;
-          for (size_t i = 0; i < count; i++) {
-            if (slots[i] == 0 || skip-- > 0)
-              continue;
-            if (shown++ == rows)
-              break;
-            auto *sensor = id(temperatures)[i];
-            it.printf(92, y, id(f5x7), "%.7s", sensor->get_name().c_str());
+          for (int slot = scroll; slot < std::min(scroll + rows, used); slot++) {
+            it.printf(92, y, id(f5x7), "%.7s", scan->slot_name(slot).c_str());
             y += 8;
-            if (std::isnan(sensor->state)) {
+            const float value = scan->temperature(slot);
+            if (std::isnan(value)) {
               it.print(92, y, id(f5x7), "--.-");
             } else {
-              it.printf(92, y, id(f5x7), "%.1f", sensor->state);
+              it.printf(92, y, id(f5x7), "%.1f", value);
             }
             y += 11;
           }

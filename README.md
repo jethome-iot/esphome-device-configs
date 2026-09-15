@@ -23,7 +23,7 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
 - **6 Digital inputs** via PCA9554 I/O expander
 - **OLED Display**: SSD1306/SH1106 128x64 pixels with interactive menu
 - **RTC**: PCF8563 hardware real-time clock with battery backup
-- **Temperature monitoring**: Onboard TMP102 sensor + up to eight Dallas DS18B20 over a DS2484 I²C-to-1-Wire bridge
+- **Temperature monitoring**: Onboard TMP102 sensor + up to sixteen Dallas DS18B20 over a DS2484 I²C-to-1-Wire bridge
 - **Connectivity**: LAN8720 Ethernet and WiFi (ESP32 built-in)
 - **Voltage monitoring**: Input voltage measurement
 - **RS485/Modbus**: 2x UART interfaces for Modbus RTU communication and for add-on and custom expansion modules
@@ -34,7 +34,7 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
 - **Modbus RTU Server**: Acts as Modbus slave, mapping relays to coils, digital inputs to discrete inputs and temperatures to holding registers
 - **Home Assistant Integration**: Native ESPHome API with automatic entity discovery and OTA updates
 - **Display Control**: Interactive OLED menu with status, time, relay control, input monitoring, and settings
-- **Dallas Temperature Sensors**: eight DS18B20 slots, filled automatically and kept across reboots ([details](doc/ONEWIRE_WORKFLOW.md))
+- **Dallas Temperature Sensors**: a sensor per DS18B20 found at boot, numbered once and kept across reboots ([details](doc/ONEWIRE_WORKFLOW.md))
 - **User Storage**: a 4 MB LittleFS partition mounted at `/littlefs`, kept across OTA updates
 
 ## Repository Layout
@@ -63,11 +63,11 @@ the device. Those packages live under the family's `packages/`, split by role:
 | `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network` |
 | `packages/display/`  | Display, pages, menu and buttons — `display.yaml`, `menu.yaml`, `buttons.yaml`, `menu-items-network.yaml` |
 
-Tooling stays at the repository root:
+Shared code and tooling stay at the repository root:
 
 | Directory  | Contents |
 | ---------- | -------- |
-| `components/` | External components: `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) and its `filesystem_storage_abstract` base |
+| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) and its `filesystem_storage_abstract` base |
 | `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `setup.sh` / `setup.bat` |
 | `dist/`    | Generated self-contained configs the ESPHome Builder imports |
 | `doc/`     | Guides, plus the README's UI mockups in `doc/images/` |
@@ -224,7 +224,7 @@ Current date and time from the hardware RTC.
 
 - **Relays** - toggle each of the 6 relays
 - **Inputs** - live state of the 6 digital inputs
-- **Temperatures** - temperature sensor readings
+- **Temperatures** - temperature sensor readings; a DS18B20 row opens its slot: the ROM address and a forget command
 - **Info** - network information (Ethernet and WiFi IP and MAC addresses, access point password)
 - **Settings** - display auto-off timer, Modbus settings, temperature slots, network mode, WiFi credential reset, factory reset, reboot
 
@@ -263,7 +263,7 @@ The device can act as a Modbus RTU server (slave) for integration with PLCs, SCA
 - **Serial**: 9600 8N1 by default
 - **Coils** `0x0000`-`0x0005` (FC 0x01/0x05/0x0F): read/write relay 1-6
 - **Discrete Inputs** `0x0010`-`0x0015` (FC 0x02): read digital input 1-6
-- **Holding Registers** `0x0000`-`0x0007` (FC 0x03/0x04): temperature 1-8, signed, 0.1 °C; `0x8000` = no reading
+- **Holding Registers** `0x0000`-`0x000F` (FC 0x03/0x04): temperature 1-16, signed, 0.1 °C; `0x8000` = no reading
 - **Other registers**: a courtesy response answers `0` instead of an exception
 
 Address, baud rate, parity and stop bits are set in **Settings → Modbus** or through the
