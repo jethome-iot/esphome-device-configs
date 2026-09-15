@@ -67,7 +67,7 @@ jobs:
       upload_matrix: ${{ steps.resolve.outputs.upload_matrix }}
       has_uploads: ${{ steps.resolve.outputs.has_uploads }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
         with:
@@ -241,7 +241,7 @@ jobs:
     env:
       FW_VERSION: ${{ needs.resolve.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
         with:
