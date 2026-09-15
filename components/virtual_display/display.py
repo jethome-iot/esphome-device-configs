@@ -1,7 +1,7 @@
 """A display with no bus behind it, served over HTTP as a front panel page.
 
-Swap it in for the physical driver where the bus does not exist — under QEMU,
-which emulates no I2C controller — and the pages, fonts and menus render
+Swap it in for the physical driver where the panel does not exist — under QEMU,
+whose I2C bus carries only its own TMP105 — and the pages, fonts and menus render
 unchanged, because they are written against the generic display API.
 """
 

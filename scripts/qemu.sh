@@ -16,7 +16,8 @@
 # Usage:
 #   scripts/qemu.sh run <device> [options]     build (unless --no-build), then boot in QEMU
 #   scripts/qemu.sh build <device> [options]   compile the QEMU flavour only
-#   scripts/qemu.sh image <device> [options]   (re)create the padded flash image only
+#   scripts/qemu.sh image <device> [options]   (re)create the padded flash image only;
+#                                              refuses while that device is running
 #   scripts/qemu.sh list                       device configs, marking the running ones
 #   scripts/qemu.sh stop [<device>]            stop instances, keep flash state and build
 #   scripts/qemu.sh clean [<device>]           stop instances, drop wrappers and images
@@ -36,8 +37,8 @@
 #   --no-build         skip `esphome compile`, use whatever was built last
 #   --no-wdt           disable the emulated Timer Group watchdogs
 #   --daemon           run QEMU in the background; log to the build dir
-#   --wait-http <sec>  with --daemon: poll the web server until it answers,
-#                      exit non-zero if it does not come up in time
+#   --wait-http <sec>  with --daemon: poll the web server until it answers; on a
+#                      timeout, stop the instance again and exit non-zero
 #
 # Prerequisite: Espressif's QEMU fork (upstream qemu-system-xtensa has no `esp32`
 # machine). Install with:
@@ -275,6 +276,17 @@ stop_previous() {
   rm -f "$(build_dir "$device")/qemu.pid"
 }
 
+# `run` stops the old instance before rewriting its image; the standalone `image`
+# command has no such mandate, so it refuses rather than killing an emulator the
+# caller never asked it to touch — and the live instance would write its own
+# state back over the fresh file anyway.
+refuse_if_running() {
+  local device=$1 pids
+  pids=$(qemu_pids_for "$(flash_image "$device")")
+  [ -z "$pids" ] ||
+    die "$device is running (pid ${pids//$'\n'/, }) and holds its flash image — stop it first: scripts/qemu.sh stop $device"
+}
+
 # QEMU refuses to start at all if one forwarded port is taken — usually another
 # emulated device still running — and says so only in its log. Name the port here
 # instead, where the caller is looking.
@@ -345,6 +357,9 @@ do_run() {
         fi
         sleep 2; waited=$((waited + 2))
       done
+      # Leaving it up would hold the three forwarded ports and the flash image,
+      # so the next run clashes and CI leaks a process for the rest of the job.
+      stop_previous "$device"
       die "web server did not come up within ${WAIT_HTTP}s — see $logfile"
     fi
   else
@@ -436,7 +451,8 @@ case "$CMD" in
   build)
     DEVICE=$(resolve_device "$DEVICE"); activate_env; do_build "$DEVICE" ;;
   image)
-    DEVICE=$(resolve_device "$DEVICE"); activate_env; do_image "$DEVICE" ;;
+    DEVICE=$(resolve_device "$DEVICE"); activate_env
+    refuse_if_running "$DEVICE"; do_image "$DEVICE" ;;
   run)
     DEVICE=$(resolve_device "$DEVICE"); activate_env
     # Everything that can refuse to proceed runs before anything is touched, and

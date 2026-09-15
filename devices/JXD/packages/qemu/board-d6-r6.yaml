@@ -1,5 +1,5 @@
 # QEMU overlay for the D6-R6 board: the relays and inputs hang off a PCA9554,
-# and QEMU puts nothing on I2C. As `template` they keep every id, name and
+# and QEMU puts no expander on I2C. As `template` they keep every id, name and
 # automation and actually behave — a relay toggles over REST and holds.
 
 switch:

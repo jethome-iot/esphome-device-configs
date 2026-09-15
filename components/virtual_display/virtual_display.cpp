@@ -116,14 +116,20 @@ async function loadInfo() {
       b.addEventListener(ev, () => key(name, 'up'));
     box.appendChild(b);
   }
+  // Losing focus or hiding the tab swallows the keyup, and the device would see
+  // the button held forever — so track what is down and let it go ourselves.
+  const held = new Set();
+  const releaseAll = () => { for (const k of held) key(k, 'up'); held.clear(); };
   addEventListener('keydown', e => {
     const k = KEYMAP[e.key];
-    if (k && declared.has(k) && !e.repeat) { e.preventDefault(); key(k, 'down'); }
+    if (k && declared.has(k) && !e.repeat) { e.preventDefault(); held.add(k); key(k, 'down'); }
   });
   addEventListener('keyup', e => {
     const k = KEYMAP[e.key];
-    if (k && declared.has(k)) { e.preventDefault(); key(k, 'up'); }
+    if (k && declared.has(k)) { e.preventDefault(); held.delete(k); key(k, 'up'); }
   });
+  addEventListener('blur', releaseAll);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
   poll();
 })();
 </script></body></html>)=====";

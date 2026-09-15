@@ -24,7 +24,8 @@ namespace virtual_display {
  * render here exactly as they do on the physical panel — the driver is only the
  * thing that pushes the finished buffer somewhere. This one pushes it to a
  * browser, which is what makes a display-carrying device testable under QEMU
- * (no I2C controller is emulated there, so the real SSD1306/SH1106 is dead).
+ * (its I2C bus carries only QEMU's own TMP105, so an SSD1306/SH1106 driver
+ * talks to nothing).
  *
  * Endpoints under `url_prefix`:
  *   GET  /            front panel page (canvas + on-screen keys)

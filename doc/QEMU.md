@@ -54,9 +54,11 @@ trio — a clash is caught before QEMU starts and names the port:
 
 A `--daemon` instance outlives the session that started it, and it is not idle scenery: it
 keeps its ports and keeps writing back into its flash image. The next `run` of the *same*
-device clears it away; anything else just sees ports taken. `stop` leaves the build and the
-flash alone, so the device comes back with its saved state via `run --no-build`; `clean` throws
-the flash away too.
+device clears it away, and a `--wait-http` timeout stops the instance it just started rather
+than leaving it holding the ports; `image` refuses outright instead of rewriting a flash file
+the live instance would write back over. Anything else just sees ports taken. `stop` leaves the
+build and the flash alone, so the device comes back with its saved state via `run --no-build`;
+`clean` throws the flash away too.
 
 ## How a real config gets into QEMU
 
