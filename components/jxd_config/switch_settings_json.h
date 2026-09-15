@@ -65,6 +65,7 @@ inline constexpr StartModeOption START_MODE_OPTIONS[] = {
     {switch_::SWITCH_RESTORE_DEFAULT_OFF, "Last"},
 };
 
+#ifdef JXD_CONFIG_BINDINGS
 struct BindingModeOption {
   const char *value;
   const char *label;
@@ -75,6 +76,7 @@ inline constexpr BindingModeOption BINDING_MODE_OPTIONS[] = {
     {"toggle", "Toggle"},
     {"follow", "Follow"},
 };
+#endif
 
 // Wraps around; from a value the list does not hold, next lands on the first and prev on the last.
 inline size_t step_option(int index, int step, size_t count) {
@@ -251,6 +253,9 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     this->commit_(record);
   }
 
+  // Guarded like every other binding surface: without the bindings component apply_record_ ignores
+  // what these write, and binding_input_label needs the binary_sensor entity table to exist.
+#ifdef JXD_CONFIG_BINDINGS
   std::string binding_input_label(switch_::Switch *sw) {
     const std::string input = this->effective_(sw).binding_input;
     if (input.empty())
@@ -295,6 +300,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     record->binding_mode = BINDING_MODE_OPTIONS[step_option(index, step, std::size(BINDING_MODE_OPTIONS))].value;
     this->commit_(record);
   }
+#endif
 
   void write_settings_meta(JsonObject obj) override {
     JsonObject start_field = obj["restore_mode"].to<JsonObject>();

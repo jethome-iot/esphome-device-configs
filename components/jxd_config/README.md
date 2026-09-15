@@ -56,7 +56,7 @@ Modbus server, which pushes its own settings at priority 700, `mqtt` needs an `m
 and `auth` a `web_server: auth:` block — this firmware has neither.
 
 `binding_input` and `binding_mode` round-trip as plain strings; they do nothing without the
-`bindings` component.
+`bindings` component, and the lambdas that edit them are compiled out with it.
 
 ## Naming the settings objects
 
@@ -72,8 +72,8 @@ fails at link.
 
 - `inverted_label(sw)`, `toggle_inverted(sw)`
 - `restore_mode_label(sw)`, `cycle_restore_mode(sw, ±1)`
-- `binding_input_label(sw)`, `cycle_binding_input(sw, ±1)`
-- `binding_mode_label(sw)`, `cycle_binding_mode(sw, ±1)`
+- `binding_input_label(sw)`, `cycle_binding_input(sw, ±1)`, `binding_mode_label(sw)`,
+  `cycle_binding_mode(sw, ±1)` — only with the `bindings` component
 
 `binary_sensor` settings, given a `binary_sensor::BinarySensor *`:
 
