@@ -30,5 +30,7 @@ so `${name}` and `${friendly_name}` stay symbolic for the Builder to rename. It:
      import_full_config: true
    ```
 
+   `@master` on purpose: users import from the release branch, not from `dev`.
+
 3. An entry in `firmwares.yaml`: `config`, the `device` slug on fw.jethome.com, `upload`.
 4. `python scripts/build-dist.py`, then commit `dist/`.

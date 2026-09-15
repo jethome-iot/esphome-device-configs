@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [master]
+    branches: [dev, master]
   pull_request:
   workflow_dispatch:
 
@@ -74,12 +74,13 @@ jobs:
 
       # The ESP-IDF toolchain is ~2 GB and identical across configs, so key the
       # cache on the ESPHome pin rather than on the config being built.
-      # Only master writes: saves from PRs and from workflow_dispatches off
-      # master are branch-scoped — invisible to other runs while burning the
-      # shared 10 GB quota, and on an esphome bump every matrix job would
-      # upload its own multi-GB archive for nothing.
+      # Only dev writes: a cache saved off the default branch is visible to
+      # every run, while saves from PRs and from other branches are
+      # branch-scoped — invisible elsewhere while burning the shared 10 GB
+      # quota, and on an esphome bump every matrix job would upload its own
+      # multi-GB archive for nothing.
       - name: Restore toolchain cache
-        if: github.ref != 'refs/heads/master'
+        if: github.ref != 'refs/heads/dev'
         uses: actions/cache/restore@v6
         with:
           path: |
@@ -89,7 +90,7 @@ jobs:
           restore-keys: toolchains-
 
       - name: Cache toolchains
-        if: github.ref == 'refs/heads/master'
+        if: github.ref == 'refs/heads/dev'
         uses: actions/cache@v6
         with:
           path: |

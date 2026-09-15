@@ -283,9 +283,10 @@ whole map over RS485 for a quick check:
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit issues or pull requests. Start with
-[Development](doc/DEVELOPMENT.md) for the setup and checks, [Architecture](doc/ARCHITECTURE.md)
-for how the packages fit together, and [dist/ and new devices](doc/DIST.md) to add a device.
+Contributions are welcome! Please feel free to submit issues or pull requests against `dev`
+(`master` is the release branch). Start with [Development](doc/DEVELOPMENT.md) for the setup and
+checks, [Architecture](doc/ARCHITECTURE.md) for how the packages fit together, and
+[dist/ and new devices](doc/DIST.md) to add a device.
 
 ## License
 

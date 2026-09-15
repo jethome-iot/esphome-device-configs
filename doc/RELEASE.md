@@ -6,7 +6,7 @@ How firmware gets built, versioned and published, and what runs where.
 
 | Workflow | When | What it does |
 | --- | --- | --- |
-| Build (`build.yml`) | push to `master`, every PR, manual | Discovers firmwares in `firmwares.yaml`, compiles each with the pinned ESPHome, verifies `dist/` is current, runs lint |
+| Build (`build.yml`) | push to `dev` or `master`, every PR, manual | Discovers firmwares in `firmwares.yaml`, compiles each with the pinned ESPHome, verifies `dist/` is current, runs lint |
 | Release (`release.yml`) | a release is published (incl. prerelease), manual dispatch | Compiles every firmware, attaches binaries to the GitHub release, uploads the `upload: true` ones to fw.jethome.com |
 | ESPHome release check (`esphome-release-check.yml`) | weekly, manual | On a new upstream ESPHome release: compiles every firmware with it and opens an issue with the results — the go/no-go for the dependabot bump |
 | Dependabot | weekly | PRs bumping workflow actions and the pinned files in `requirements.txt` / `requirements-dev.txt`; an esphome bump PR is build-tested by Build |
@@ -50,7 +50,9 @@ at build time.
 
 1. Make sure `requirements.txt` pins the esphome version you want to ship
    (dependabot opens the bump PR, Build CI test-builds it — just merge).
-2. Go to **Actions → Release → Run workflow**:
+2. Merge `dev` into `master`: released firmware, `dashboard_import` and the
+   asset URLs in `dist/` all come from `master`.
+3. Go to **Actions → Release → Run workflow**:
    - first with `dry_run` on: builds everything, uploads artifacts, touches
      nothing;
    - then with `dry_run` off and `channel: release` (the dispatch default is
@@ -58,7 +60,7 @@ at build time.
      pointer): the workflow computes the version, creates the GitHub release,
      attaches all binaries, and uploads the `upload: true` firmwares to the
      server.
-3. Alternatively, create the release on GitHub yourself. A full release tag
+4. Alternatively, create the release on GitHub yourself. A full release tag
    must be `<esphome>` (workflow picks the next subversion) or
    `<esphome>.<sub>` — the esphome part must match the `requirements.txt`
    pin, otherwise the run fails.

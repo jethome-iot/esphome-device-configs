@@ -16,6 +16,7 @@ repos:
     hooks:
       - id: no-commit-to-branch
         args:
+          - --branch=dev
           - --branch=master
       # Generated files are the generators' business; the BDF fonts are upstream.
       - id: end-of-file-fixer
