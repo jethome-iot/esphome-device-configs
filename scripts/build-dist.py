@@ -203,7 +203,8 @@ def harden_scalars(node: Any) -> Any:
     if isinstance(node, list):
         return [harden_scalars(value) for value in node]
     if isinstance(node, str) and not isinstance(node, BlockStr):
-        if needs_block_style(str(node)):
+        # A multi-line value is only readable as a block: quoted, its line breaks fold.
+        if "\n" in node or needs_block_style(str(node)):
             return BlockStr(node)
     return node
 
