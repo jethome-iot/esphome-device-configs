@@ -117,11 +117,14 @@ async function loadInfo() {
   for (const name of info.keys) {
     const b = document.createElement('button');
     b.textContent = name;
-    b.addEventListener('pointerdown', e => { e.preventDefault(); key(name, 'down'); });
-    // pointercancel too: a touch taken over by scrolling or the OS fires neither
-    // pointerup nor pointerleave, and the key would stay held.
+    // Released only by a pointer that went down on this button: pointerleave
+    // also fires on a plain hover, which would let go of a key held elsewhere.
+    const down = new Set();
+    b.addEventListener('pointerdown', e => { e.preventDefault(); down.add(e.pointerId); key(name, 'down'); });
+    // pointerleave covers a pointer dragged off while held; pointercancel a touch
+    // the OS took over, which fires neither pointerup nor pointerleave.
     for (const ev of ['pointerup', 'pointerleave', 'pointercancel'])
-      b.addEventListener(ev, () => key(name, 'up'));
+      b.addEventListener(ev, e => { if (down.delete(e.pointerId)) key(name, 'up'); });
     box.appendChild(b);
   }
   // Losing focus or hiding the tab swallows the keyup, and the device would see
