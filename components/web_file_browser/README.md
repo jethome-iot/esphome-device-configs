@@ -76,16 +76,10 @@ the connection (`download`), so an incomplete answer cannot pass for a complete 
 anything is removed, not a smashed web server stack.
 
 ```sh
-curl 'http://<device>/files/info'
 curl 'http://<device>/files/list?path=/'
 curl -X POST 'http://<device>/files/write?path=/notes.txt' -H 'Content-Type: text/plain' --data-binary 'hello'
-curl 'http://<device>/files/read?path=/notes.txt'
-curl -X POST 'http://<device>/files/upload?path=/backup.json' -F file=@backup.json
-curl -OJ 'http://<device>/files/download?path=/backup.json'
-curl -X POST 'http://<device>/files/mkdir' -d 'path=/logs'
-curl -X POST 'http://<device>/files/copy' -d 'old_path=/notes.txt&new_path=/logs/notes.txt'
+curl -X POST 'http://<device>/files/upload?path=/notes.bin' -F file=@notes.bin
 curl -X POST 'http://<device>/files/rename' -d 'old_path=/notes.txt&new_path=/readme.txt'
-curl -X POST 'http://<device>/files/delete' -d 'path=/logs'
 ```
 
 `write` needs an explicit `Content-Type`: `curl` sends `application/x-www-form-urlencoded` by
