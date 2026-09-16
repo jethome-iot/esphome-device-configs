@@ -552,6 +552,24 @@ TEST_F(Storage, RulesCannotBeEditedFromInsideTheirOwnAction) {
   EXPECT_TRUE(engine->remove_automation(1));
 }
 
+TEST_F(Storage, RefusesARuleThatWouldNotFitItsFile) {
+  boot();
+  // Each action is about 60 bytes on disk; 400 of them pass the 16 KiB the loader takes.
+  std::string json = R"({"name":"Huge","triggers":[{"source":"startup"}],"actions":[)";
+  for (int i = 0; i < 400; i++)
+    json += (i ? "," : "") + std::string(R"({"source":"switch","type":"toggle","object_id":"relay_1"})");
+  json += "]}";
+  EXPECT_EQ(engine->add_automation(rule(json.c_str())), 0u);
+  EXPECT_TRUE(log().has(log().errors, "does not fit a 16384 byte file"));
+  EXPECT_TRUE(files().empty());
+  const uint32_t id = engine->add_automation(rule(R"({"name":"Small","triggers":[{"source":"startup"}]})"));
+  ASSERT_NE(id, 0u);
+  AutomationConfig huge = rule(json.c_str());
+  huge.name = "Small";
+  EXPECT_FALSE(engine->update_automation(id, huge));
+  EXPECT_EQ(engine->configs().get_all_configs()[0].actions.size(), 0u);
+}
+
 TEST_F(Storage, StopsAt255Rules) {
   boot();
   for (int i = 1; i <= 255; i++)

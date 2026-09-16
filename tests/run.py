@@ -16,9 +16,31 @@ def binary_for(config: Path) -> Path:
     return config.parent / ".esphome" / "build" / name / ".pioenvs" / name / "program"
 
 
+def run_python_tests(component: Path) -> bool:
+    """Schema and validator tests next to the cases, if the suite has any."""
+    if not any(component.glob("test_*.py")):
+        return True
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            str(component),
+            "-p",
+            "test_*.py",
+        ],
+        cwd=HERE.parent,
+    )
+    return proc.returncode == 0
+
+
 def run_component(component: Path, gtest_args: list[str]) -> bool:
     config = component / "test.yaml"
     print(f"=== {component.name}", flush=True)
+    if not run_python_tests(component):
+        return False
     subprocess.run(
         [sys.executable, "-m", "esphome", "compile", config.name],
         check=True,

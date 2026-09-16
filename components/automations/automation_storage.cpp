@@ -29,6 +29,8 @@ static const char *const TAG = "automations";
 static const uint32_t MAX_AUTOMATIONS = 255;
 // LittleFS refuses names longer than CONFIG_LITTLEFS_OBJ_NAME_LEN (64).
 static const size_t MAX_FILENAME_BYTES = 48;
+// The loader refuses anything larger, so nothing larger may ever be written.
+static const size_t MAX_FILE_BYTES = 16384;
 // A cron tick further away than this from the previous one is a clock jump, not elapsed time.
 static const time_t MAX_TIMESTAMP_DRIFT = 900;
 static const uint32_t LOOP_JOB_TIMEOUT_MS = 5000;
@@ -334,6 +336,11 @@ uint32_t AutomationStorage::add_automation_(const AutomationConfig &config) {
     ESP_LOGE(TAG, "Refusing to add '%s': a file the loader refused has that name", config.name.c_str());
     return 0;
   }
+  if (!this->fits_a_file_(config)) {
+    ESP_LOGE(TAG, "Refusing to add '%s': it does not fit a %u byte file", config.name.c_str(),
+             static_cast<unsigned>(MAX_FILE_BYTES));
+    return 0;
+  }
 
   AutomationConfig cfg = config;
   cfg.id = this->allocate_id_();
@@ -380,6 +387,11 @@ bool AutomationStorage::update_automation_(uint32_t id, const AutomationConfig &
   if (renaming && file_exists(this->get_filepath_for_name_(cfg.name))) {
     ESP_LOGE(TAG, "Refusing to rename automation id=%u to '%s': a file the loader refused has that name",
              static_cast<unsigned>(id), cfg.name.c_str());
+    return false;
+  }
+  if (!this->fits_a_file_(cfg)) {
+    ESP_LOGE(TAG, "Refusing to update automation id=%u: it does not fit a %u byte file", static_cast<unsigned>(id),
+             static_cast<unsigned>(MAX_FILE_BYTES));
     return false;
   }
 
@@ -549,7 +561,7 @@ bool AutomationStorage::load_automation_from_file_(const std::string &filepath) 
   fseek(file, 0, SEEK_END);
   int64_t file_size = ftell(file);
   fseek(file, 0, SEEK_SET);
-  if (file_size <= 0 || file_size > 16384) {
+  if (file_size <= 0 || file_size > static_cast<int64_t>(MAX_FILE_BYTES)) {
     ESP_LOGW(TAG, "Invalid file size: %" PRId64 " bytes for %s", file_size, filepath.c_str());
     fclose(file);
     return false;
@@ -640,6 +652,13 @@ static bool entity_missing(const AutomationConfig &config) {
   return false;
 }
 
+bool AutomationStorage::fits_a_file_(const AutomationConfig &config) const {
+  JsonDocument doc;
+  JsonObject obj = doc.to<JsonObject>();
+  config.serialize(obj);
+  return measureJson(doc) <= MAX_FILE_BYTES;
+}
+
 bool AutomationStorage::save_automation_to_file_(const AutomationConfig &config) {
   const std::string filepath =
       config.file.empty() ? this->get_filepath_for_name_(config.name) : this->get_folder_path_() + "/" + config.file;
@@ -654,8 +673,9 @@ bool AutomationStorage::save_automation_to_file_(const AutomationConfig &config)
   JsonObject obj = doc.to<JsonObject>();
   config.serialize(obj);
   size_t json_size = measureJson(doc);
-  if (json_size == 0) {
-    ESP_LOGE(TAG, "Failed to serialize automation: %s", config.name.c_str());
+  if (json_size == 0 || json_size > MAX_FILE_BYTES) {
+    ESP_LOGE(TAG, "Failed to serialize automation '%s': %u bytes", config.name.c_str(),
+             static_cast<unsigned>(json_size));
     return false;
   }
   std::unique_ptr<char[]> json_buffer(new char[json_size + 1]);

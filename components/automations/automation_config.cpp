@@ -36,6 +36,14 @@ static bool read_float(const JsonObject &obj, const char *key, float &out) {
   return true;
 }
 
+// A range nothing can be inside would never fire and never be noticed.
+static bool ordered_range(float min, float max) {
+  if (min <= max)
+    return true;
+  ESP_LOGE(TAG, "min_threshold %g is above max_threshold %g", min, max);
+  return false;
+}
+
 // A word the engine does not know reads back as a default, and the next save would write that
 // default over what the file says: refuse the rule instead and leave the file alone.
 template<typename E>
@@ -268,7 +276,8 @@ bool TriggerConfig::deserialize(const JsonObject &obj) {
           return false;
       } else if (params.temperature.type == TypesTemperatureTrigger::RANGE) {
         if (!read_float(obj, "min_threshold", params.temperature.min_threshold) ||
-            !read_float(obj, "max_threshold", params.temperature.max_threshold))
+            !read_float(obj, "max_threshold", params.temperature.max_threshold) ||
+            !ordered_range(params.temperature.min_threshold, params.temperature.max_threshold))
           return false;
       }
       break;
@@ -431,7 +440,8 @@ bool ConditionConfig::deserialize(const JsonObject &obj) {
         if (!read_float(obj, "threshold", threshold))
           return false;
       } else if (temperature_type == TypesTemperatureCondition::RANGE) {
-        if (!read_float(obj, "min_threshold", min_threshold) || !read_float(obj, "max_threshold", max_threshold))
+        if (!read_float(obj, "min_threshold", min_threshold) || !read_float(obj, "max_threshold", max_threshold) ||
+            !ordered_range(min_threshold, max_threshold))
           return false;
       }
       break;
@@ -485,8 +495,9 @@ bool ActionConfig::deserialize(const JsonObject &obj) {
       // delay_s is what every file written before this stored. Read either, write only
       // delay_ms; both clamp, because either used to reach the scheduler as a wrapped uint32.
       const bool in_ms = !obj["delay_ms"].isNull();
-      if (!in_ms && obj["delay_s"].isNull()) {
-        ESP_LOGE(TAG, "Missing delay_ms");
+      const char *key = in_ms ? "delay_ms" : "delay_s";
+      if (obj[key].isNull() || !obj[key].is<double>()) {
+        ESP_LOGE(TAG, "Missing %s", key);
         return false;
       }
       const double ms = in_ms ? obj["delay_ms"].as<double>() : obj["delay_s"].as<double>() * 1000;

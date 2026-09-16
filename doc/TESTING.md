@@ -24,6 +24,7 @@ tests/
     automations/
       test.yaml             # host config: the component under test, its entities, the harness
       cases/                # the tests; common.h holds what they share
+      test_schema.py        # the component's YAML schema, run with unittest by run.py
 ```
 
 ## Adding a suite for a new component
@@ -33,7 +34,8 @@ tests/
    `external_components` and component sections with the component under test and whatever it
    needs, and declare at least the entities the cases will register.
 2. `tests/components/<name>/cases/`: the tests, in `esphome::<name>::testing`, as upstream's.
-3. Nothing else: `run.py` and CI pick the directory up.
+3. `tests/components/<name>/test_*.py` for the schema: what a bad config is refused with.
+4. Nothing else: `run.py` and CI pick the directory up.
 
 ## What the automations suite covers
 

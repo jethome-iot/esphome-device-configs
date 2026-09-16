@@ -89,6 +89,7 @@ class AutomationStorage : public Component {
   uint32_t allocate_id_();
   bool ensure_directory_exists_(const std::string &path);
   bool load_automation_from_file_(const std::string &filepath);
+  bool fits_a_file_(const AutomationConfig &config) const;
   bool save_automation_to_file_(const AutomationConfig &config);
   bool delete_file_(const std::string &filename);
   std::vector<bool> resolve_duplicates_();
