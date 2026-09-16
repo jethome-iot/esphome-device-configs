@@ -2,9 +2,13 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <chrono>
 #include <fstream>
 #include <memory>
 #include <sstream>
+#include <thread>
+#include "esphome/core/application.h"
+#include "esphome/core/hal.h"
 
 namespace esphome::config_json::testing {
 
@@ -24,6 +28,9 @@ class Storage : public ::testing::Test {
   }
 
   void TearDown() override {
+    // A timer left behind would fire into this fixture's settings from a later test.
+    for (ConfigJsonKeeper *k : this->keepers)
+      k->cancel_pending_save();
     chmod(this->dir().c_str(), 0755);
     for (const std::string &name : this->files())
       remove((this->dir() + "/" + name).c_str());
@@ -39,8 +46,16 @@ class Storage : public ::testing::Test {
     ConfigJsonKeeper &k = *all.back();
     k.set_storage(&this->backend);
     k.set_config_dir("config");
-    k.set_save_delay(300);
+    k.set_save_delay(400);
+    this->keepers.push_back(&k);
     return k;
+  }
+
+  // Lets the wall clock advance and runs what the scheduler has due: the only way a timeout
+  // fires in this harness.
+  static void pass(uint32_t ms) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+    App.scheduler.call(millis());
   }
 
   void boot() {
@@ -90,6 +105,7 @@ class Storage : public ::testing::Test {
 
   FakeStorage backend;
   ConfigJsonKeeper *keeper{nullptr};
+  std::vector<ConfigJsonKeeper *> keepers;
   TestSettings settings;
   TestSettings second;
 };
@@ -167,16 +183,18 @@ TEST_F(Storage, LeavesADamagedFileAloneAndStartsFromDefaults) {
   }
 }
 
-TEST_F(Storage, DebouncesEditsAndWritesThroughATemporaryFile) {
+TEST_F(Storage, ASecondEditRestartsTheDelayAndOneWriteFollows) {
   boot();
   settings.update("sw_b", true, 42);
   keeper->save();
+  pass(200);
   settings.update("sw_a", false, 7);
-  keeper->save();
+  keeper->save();  // the 400 ms start over
+  pass(200);       // the first timer would have fired by now
   EXPECT_TRUE(keeper->is_save_pending());
-  EXPECT_EQ(size(), -1);  // nothing until the delay has passed
+  EXPECT_EQ(size(), -1);
 
-  keeper->save_immediate();
+  pass(300);  // past the second one
   EXPECT_FALSE(keeper->is_save_pending());
   EXPECT_FALSE(settings.is_dirty());
   EXPECT_EQ(files(), (std::vector<std::string>{"test.json"}));  // the .tmp is gone
@@ -184,6 +202,20 @@ TEST_F(Storage, DebouncesEditsAndWritesThroughATemporaryFile) {
                     R"({"source_name":"sw_a","inverted":false,"level":7}]})");
 
   EXPECT_EQ(reboot().report(), "sw_b=1/42 sw_a=0/7");
+}
+
+TEST_F(Storage, SaveImmediateWritesNowAndDropsThePendingTimer) {
+  boot();
+  settings.update("sw_a", true, 1);
+  keeper->save();
+  keeper->save_immediate();
+  EXPECT_FALSE(keeper->is_save_pending());
+  EXPECT_GT(size(), 0);
+  const long written = size();
+  settings.update("sw_a", false, 2);  // dirty again, but nothing scheduled
+  pass(500);
+  EXPECT_EQ(size(), written);
+  EXPECT_TRUE(settings.is_dirty());
 }
 
 TEST_F(Storage, ASaveByKeyOnlyWritesThatType) {

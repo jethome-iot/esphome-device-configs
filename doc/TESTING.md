@@ -54,8 +54,10 @@ tests/
   entity in the cases needs a matching declaration in the YAML.
 - A component that subscribed to an entity has to outlive the process: the entity keeps a
   callback into it. Keep such objects alive across tests instead of destroying them.
-- Nothing runs the scheduler, so a `set_timeout`, `set_interval` or `defer` never fires. A
-  component gives the tests a seam instead: a virtual they override, or a step they call.
+- Nothing runs the scheduler, so a `set_timeout`, `set_interval` or `defer` never fires unless a
+  test calls `App.scheduler.call(millis())` itself after letting the clock advance, as the
+  config_json debounce test does. Otherwise a component gives the tests a seam instead: a virtual
+  they override, or a step they call.
 - Logger listeners exist only when the YAML asks for them: `test.yaml` carries
   `-DUSE_LOG_LISTENERS -DESPHOME_LOG_MAX_LISTENERS=1` so a suite can read what was logged.
 - An I2C component validates on the host only with an `i2c:` bus that names a `device:`;
