@@ -40,7 +40,8 @@ jxd_config:
 | `binary_sensor` | object_id  | `inverted` | A filter appended to the end of the sensor's chain; a flip re-emits the last raw level, so it shows without waiting for an edge. |
 
 `binding_input` and `binding_mode` round-trip as plain strings; they do nothing without the
-`bindings` component, and the lambdas that edit them are compiled out with it.
+[`bindings`](../bindings/README.md) component, and the lambdas that edit them are compiled out
+with it.
 
 ## Naming the settings objects
 

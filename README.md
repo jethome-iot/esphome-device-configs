@@ -39,8 +39,9 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
 - **Runs without hardware**: the real config boots in Espressif's QEMU, screen and joystick included ([details](doc/QEMU.md))
 - **Runtime Automations**: rules stored on that partition as JSON, loaded at boot and editable without a recompile, over HTTP under `/automation-editor/api` ([details](doc/AUTOMATIONS.md))
 - **Board identity**: the model, hardware revision, board version, serial number and factory signature the factory wrote into the CPU board's EEPROM, read at boot for the log and the serial row of the **Info** menu ([details](components/jethome_board_info/README.md))
-- **Per-entity settings**: each relay's inversion and start mode and each input's inversion, set
-  from the display menu and kept on that partition ([details](doc/ENTITY_SETTINGS.md))
+- **Per-entity settings**: each relay's inversion, start mode and the input bound to it, and each
+  input's inversion, set from the display menu and kept on that partition
+  ([details](doc/ENTITY_SETTINGS.md))
 
 ## Repository Layout
 
@@ -74,7 +75,7 @@ Shared code and tooling stay at the repository root:
 
 | Directory  | Contents |
 | ---------- | -------- |
-| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), and `jxd_config` (the per-entity settings) with the `config_base` / `config_json` it is built on |
+| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), `jxd_config` (the per-entity settings) with the `config_base` / `config_json` it is built on, and `bindings` (an input driving a relay) |
 | `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `device-files.py` (the `web_file_browser` API from a terminal), `qemu.sh`, `setup.sh` / `setup.bat` |
 | `dist/`    | Generated self-contained configs the ESPHome Builder imports |
 | `doc/`     | Guides, plus the README's UI mockups in `doc/images/` |
@@ -230,7 +231,7 @@ Current date and time from the hardware RTC.
 
 <img src="doc/images/jxd-r6-menu-ui.svg" width="400" alt="Menu">
 
-- **Relays** - a submenu per relay: toggle it, and set its inversion and start mode
+- **Relays** - a submenu per relay: toggle it, and set its inversion, start mode and bound input
 - **Inputs** - a submenu per input: live state and inversion
 - **Temperatures** - temperature sensor readings; a DS18B20 row opens its slot: the ROM address and a forget command
 - **Info** - network information (Ethernet and WiFi IP and MAC addresses, access point password), then the serial number from the CPU board's EEPROM (`--` when it holds none)

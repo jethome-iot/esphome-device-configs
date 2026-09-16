@@ -1,8 +1,9 @@
 # Per-relay and per-input settings kept as JSON files on the LittleFS partition
-# (storage.yaml) and edited from the display menu. Details: doc/ENTITY_SETTINGS.md
+# (storage.yaml) and edited from the display menu, including the input-to-relay
+# bindings. Details: doc/ENTITY_SETTINGS.md
 external_components:
   - source: ${components}
-    components: [config_base, config_json, jxd_config]
+    components: [config_base, config_json, jxd_config, bindings]
 
 config_json:
   id: config_json_keeper
@@ -14,3 +15,7 @@ jxd_config:
   # ids are generated and no lambda can name them.
   switch_settings_id: switch_settings
   binary_sensor_settings_id: binary_sensor_settings
+
+# An input driving a relay directly (toggle or follow); which one is a field of the
+# relay's settings record above.
+bindings:

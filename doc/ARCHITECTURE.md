@@ -64,7 +64,8 @@ them.
 Entity settings ride on `setup_priority` instead, ahead of every `on_boot` block: the
 `config_json` keeper loads the files at `HARDWARE + 5`, and one apply component per settings type
 pushes the values into the entities at `HARDWARE + 1`, before the switches and binary sensors set
-themselves up. See [ENTITY_SETTINGS.md](ENTITY_SETTINGS.md).
+themselves up. `bindings` sets up at `DATA`, after every entity, and drives the `Follow` relays
+once there; until then input changes are ignored. See [ENTITY_SETTINGS.md](ENTITY_SETTINGS.md).
 
 ## Settings
 
@@ -124,5 +125,7 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   not promise.
 - `components/config_base` schedules its debounced save with a named string timeout and flushes
   from `on_shutdown()`.
+- `components/bindings` subscribes once per input with `add_full_state_callback` and never
+  unsubscribes: upstream has no callback removal, so rebinding goes through its own table.
 
 Re-check each of these on every ESPHome bump.
