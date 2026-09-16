@@ -67,6 +67,11 @@ bool SettingsBaseJson::save_to_file(filesystem_storage_abstract::FilesystemStora
   JsonObject root = doc.to<JsonObject>();
   root["version"] = SETTINGS_FILE_VERSION;
   this->write_json(root, SETTINGS_FILE_VERSION);
+  // Out of memory while building: serializeJson() would still emit a truncated document.
+  if (doc.overflowed()) {
+    ESP_LOGE(TAG, "Out of memory building %s settings; not saved", this->get_key());
+    return false;
+  }
   std::string json_data;
   serializeJson(doc, json_data);
   // What load_from_file() would refuse must not replace a file it accepts; the type stays dirty.
