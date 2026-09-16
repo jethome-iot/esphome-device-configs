@@ -31,7 +31,7 @@ written until the entity is back.
 
 ## Over HTTP
 
-`features/rest-api.yaml` serves the rules on the web server port: `list`, `get`, `save`,
+`features/automation-editor.yaml` serves the rules on the web server port: `list`, `get`, `save`,
 `delete`, `export`, plus `entities` and `schema` for an editor's menus. A backup is one `GET
 .../export`; a restore is that file's rules sent back one by one through `save`, each without
 its `id`, so they are created rather than looked up.

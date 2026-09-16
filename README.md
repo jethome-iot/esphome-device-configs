@@ -63,7 +63,7 @@ the device. Those packages live under the family's `packages/`, split by role:
 | Directory            | Contents |
 | -------------------- | -------- |
 | `packages/boards/`   | Platform and the chips sitting on each board — `jxd-cpu-e1eth.yaml` (ESP32, api/ota/logger/web_server, TMP102, LED) and `jxd-d6-r6-rev1.2.yaml` (PCA9554 expander, 6 relays, 6 inputs, DS2484 1-Wire bridge) |
-| `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network`, `automations`, `rest-api` (the file and automation APIs) |
+| `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network`, `web-file-browser`, `automations`, `automation-editor` |
 | `packages/display/`  | Display, pages, menu and buttons — `display.yaml`, `menu.yaml`, `buttons.yaml`, `menu-items-network.yaml` |
 | `packages/qemu/`     | Overlays that `scripts/qemu.sh` layers over the real config to run it in the emulator — never part of a firmware build |
 

@@ -512,6 +512,13 @@ external_components:
       ref: master
       path: components
     components:
+      - web_automation_editor
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
       - automations
   - source:
       type: git
@@ -535,7 +542,7 @@ external_components:
       path: components
     components:
       - web_file_browser
-      - web_automation_editor
+web_automation_editor: null
 automations:
   storage: user_storage
   time_id: pcf8563_time
@@ -930,7 +937,6 @@ uart:
     stop_bits: 1
 web_file_browser:
   storage_id: user_storage
-web_automation_editor: null
 display:
   - platform: ssd1306_i2c
     id: !extend 'display1'

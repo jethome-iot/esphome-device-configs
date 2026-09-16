@@ -33,11 +33,11 @@ boundaries; everything else is local to its file.
   (`display/display.yaml`), which every button handler runs last.
 - `user_storage` (`features/storage.yaml`) is the LittleFS partition mounted at `/littlefs`; code
   that keeps files checks `id(user_storage).is_mounted()` and writes below `get_base_path()`.
-  `web_file_browser` (`features/rest-api.yaml`) serves the same mount over HTTP under
+  `web_file_browser` (`features/web-file-browser.yaml`) serves the same mount over HTTP under
   `/files`, on the `web_server` port and with its credentials, so anything written there is also
   reachable from the network. The `automations` component (`features/automations.yaml`) keeps its
-  rules there and takes its clock from `pcf8563_time`; `web_automation_editor` (same package as
-  the file API) edits those rules under `/automation-editor/api`.
+  rules there and takes its clock from `pcf8563_time`; `web_automation_editor`
+  (`features/automation-editor.yaml`) edits those rules under `/automation-editor/api`.
 
 ## Boot order
 
