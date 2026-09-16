@@ -360,7 +360,11 @@ def cmd_get(dev: Device, args: argparse.Namespace, cwd: str) -> None:
 
 def cmd_put(dev: Device, args: argparse.Namespace, cwd: str) -> None:
     local = Path(args.local)
-    remote = remote_path(args.remote or local.name, cwd)
+    # "." and ".." have no name of their own; the absolute path does.
+    name = Path(os.path.abspath(local)).name
+    if not args.remote and not name:
+        raise DeviceError(f"{local}: give the remote path explicitly")
+    remote = remote_path(args.remote or name, cwd)
     if local.is_dir():
         if not args.recursive:
             raise DeviceError(f"{local}: is a directory (use -r)")
@@ -368,7 +372,7 @@ def cmd_put(dev: Device, args: argparse.Namespace, cwd: str) -> None:
         return
     entry = dev.stat(remote)
     if entry and entry["type"] == "directory":
-        remote = posixpath.join(remote, local.name)
+        remote = posixpath.join(remote, name)
     dev.upload(remote, local.read_bytes())
 
 
