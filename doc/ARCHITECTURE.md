@@ -100,5 +100,9 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
 - `components/automations` names entities by `fnv1_hash` of their object id and walks
   `App.get_binary_sensors()` / `get_sensors()` / `get_switches()` itself, so the hash and
   `EntityBase::get_object_id_to` are part of the on-disk rule format.
+- `tests/unit/main.cpp` is upstream's `tests/components/main.cpp`: the writer keeps what is
+  outside its marker comments and puts the generated setup code into `original_setup()`, which
+  is never called. `App` sizes its entity lists from the YAML and drops a registration past
+  that, so `tests/unit/automations-unit.yaml` declares at least what `cases/common.h` registers.
 
 Re-check each of these on every ESPHome bump.

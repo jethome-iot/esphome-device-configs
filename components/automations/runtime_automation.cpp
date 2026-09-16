@@ -61,7 +61,7 @@ bool CompiledCondition::check() const {
   }
 }
 
-static bool compile_condition(const ConditionConfig &config, CompiledCondition &out) {
+bool compile_condition(const ConditionConfig &config, CompiledCondition &out) {
   out.type = config.type;
   switch (config.type) {
     case ConditionType::INPUT:
@@ -125,7 +125,7 @@ bool CompiledTrigger::cron_matches(const ESPTime &time) const {
          this->days_of_month[time.day_of_month] && this->months[time.month] && this->days_of_week[time.day_of_week];
 }
 
-static bool compile_trigger(AutomationStorage *engine, const TriggerConfig &config, CompiledTrigger &out) {
+bool compile_trigger(AutomationStorage *engine, const TriggerConfig &config, CompiledTrigger &out) {
   out.source = config.source;
   switch (config.source) {
     case SourceTrigger::INPUT:
@@ -171,7 +171,7 @@ static bool compile_trigger(AutomationStorage *engine, const TriggerConfig &conf
 
 // --- Actions ---
 
-static bool compile_action(const ActionConfig &config, CompiledAction &out) {
+bool compile_action(const ActionConfig &config, CompiledAction &out) {
   out.source = config.source;
   switch (config.source) {
     case SourceAction::SWITCH:

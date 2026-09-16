@@ -20,11 +20,13 @@ venv/
 /dist/.gitignore
 /devices/*/.gitignore
 /tests/host/.gitignore
+/tests/unit/.gitignore
 
 # Host test run artifacts: the emulated filesystem, the host preferences and the
 # captured logs.
 /tests/host/.storage/
 /tests/host/.prefs/
+/tests/unit/.prefs/
 /tests/host/last-run-*.log
 
 # scripts/qemu.sh writes the emulator wrapper next to the device config.

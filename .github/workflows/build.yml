@@ -122,6 +122,9 @@ jobs:
       - name: Run the automations engine on the host
         run: python tests/host/run.py
 
+      - name: Run the automations unit tests
+        run: python tests/unit/run.py
+
   dist:
     name: Check dist/ is current
     runs-on: [self-hosted, ubuntu-latest]

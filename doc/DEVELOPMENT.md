@@ -25,6 +25,7 @@ python scripts/build-dist.py  [--check]    # regenerate / verify dist/ (imports 
 python scripts/build-icons.py [--check]    # regenerate / verify assets/res/
 python scripts/firmware-matrix.py build    # CI matrix from firmwares.yaml; also validates the file
 python tests/host/run.py                   # build the automations engine for the host and run it
+python tests/unit/run.py                   # build the automations unit tests for the host and run them
 
 pre-commit run --all-files                 # ruff --fix, ruff-format, pyupgrade --py310-plus, yamllint, clang-format, build-icons, build-dist
 SKIP=build-dist pre-commit run --all-files # what the CI lint job runs
@@ -43,16 +44,18 @@ the firmware.
 
 ## Before pushing
 
-The Build workflow is these four; run them locally:
+The Build workflow is these five; run them locally:
 
 1. `esphome compile` for every config in `firmwares.yaml`
 2. `python tests/host/run.py`
-3. `python scripts/build-dist.py --check`
-4. `pre-commit run --all-files`
+3. `python tests/unit/run.py`
+4. `python scripts/build-dist.py --check`
+5. `pre-commit run --all-files`
 
-`tests/host/` is the only test suite: it builds `components/automations` for the ESPHome `host`
-platform and runs it against the rule files in `tests/host/fixtures/`. It needs no ESP toolchain
-and takes about a minute. Behavior and usage: [AUTOMATIONS.md](AUTOMATIONS.md).
+Both suites build `components/automations` for the ESPHome `host` platform, so neither needs an
+ESP toolchain. `tests/host/` runs the engine against the rule files in `tests/host/fixtures/`
+and takes about a minute. `tests/unit/` is a Google Test binary over the engine's classes and
+takes seconds once googletest is built. Behavior and usage: [AUTOMATIONS.md](AUTOMATIONS.md).
 
 ## Generated files
 

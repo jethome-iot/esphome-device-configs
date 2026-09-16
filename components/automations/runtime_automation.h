@@ -57,6 +57,12 @@ struct CompiledTrigger {
   bool cron_matches(const ESPTime &time) const;
 };
 
+// Resolve one config item against the registered entities. Free functions so the unit tests
+// can build and inspect them without a rule around them.
+bool compile_trigger(AutomationStorage *engine, const TriggerConfig &config, CompiledTrigger &out);
+bool compile_condition(const ConditionConfig &config, CompiledCondition &out);
+bool compile_action(const ActionConfig &config, CompiledAction &out);
+
 // One rule, built from its config: matches events, gates by mode, runs the action list.
 class RuntimeAutomation {
  public:
