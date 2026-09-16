@@ -814,8 +814,9 @@ void AutomationStorage::print_trigger_info_(const TriggerConfig &trigger, int in
                     trigger.params.temperature.min_threshold, trigger.params.temperature.max_threshold);
       break;
     case SourceTrigger::CRON:
-      ESP_LOGCONFIG(TAG, "%sTrigger: cron '%s' (%s)", pad.c_str(), trigger.cron_string().c_str(),
-                    EnumUtils::cron_preset_to_string(trigger.cron_preset));
+      ESP_LOGCONFIG(
+          TAG, "%sTrigger: cron '%s' (%s)", pad.c_str(), trigger.cron_string().c_str(),
+          trigger.cron_preset.has_value() ? EnumUtils::cron_preset_to_string(*trigger.cron_preset) : "no preset");
       break;
     case SourceTrigger::STARTUP:
       ESP_LOGCONFIG(TAG, "%sTrigger: startup", pad.c_str());

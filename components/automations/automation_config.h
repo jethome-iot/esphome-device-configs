@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include "enums.h"
+#include "esphome/core/optional.h"
 
 namespace esphome::automations {
 
@@ -38,7 +39,7 @@ struct TriggerConfig {
   std::vector<uint8_t> cron_days_of_month;
   std::vector<uint8_t> cron_months;
   std::vector<uint8_t> cron_days_of_week;
-  CronPreset cron_preset = CronPreset::DAILY;
+  optional<CronPreset> cron_preset;  // the editor's note about the form it presented, if any
 
   /// The six cron fields as one string, the form the file stores.
   std::string cron_string() const;
@@ -75,17 +76,7 @@ struct ConditionConfig {
 
   void serialize(JsonObject &obj) const;
   bool deserialize(const JsonObject &obj);
-  bool is_valid() const {
-    if (type == ConditionType::NONE)
-      return false;
-    // A group with no children is degenerate; treat it as "no condition" so the
-    // automation runs its actions directly rather than being rejected. A
-    // non-empty group whose entities are missing still fails later, in the
-    // factory (which returns null and aborts the save).
-    if (type == ConditionType::AND || type == ConditionType::OR || type == ConditionType::XOR)
-      return !sub_conditions.empty();
-    return true;
-  }
+  bool is_valid() const { return type != ConditionType::NONE; }
 };
 
 struct ActionConfig {

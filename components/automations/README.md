@@ -11,7 +11,18 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [automations]
+    components: [filesystem_storage_abstract, littlefs_storage, automations]
+
+i2c:
+  sda: 5
+  scl: 4
+
+time:
+  - platform: pcf8563
+    id: pcf8563_time
+
+littlefs_storage:
+  id: user_storage
 
 automations:
   storage: user_storage
@@ -54,6 +65,7 @@ one, picks `actions` or `else_actions`.
 | `actions[].source`  | `switch` (`turn_on`, `turn_off`, `toggle`, `follow` with `invert`), `delay` with `delay_ms` |
 | `mode`              | `single` ignores a trigger while the rule runs, `restart` starts over, `parallel` runs up to 8 copies |
 | `enabled`           | `true` when absent; a disabled rule is loaded and listed but never fires |
+| `cron_preset`       | The editor's own note about the form it offered: `daily`, `hourly`, `every_n_minutes`, `weekly`, `monthly`, `custom`. The engine never reads it, and writes it back only when the file had one |
 
 A `click` is a press between 200 and 1000 ms. A temperature trigger fires on the crossing and
 arms again when the value goes back. `follow` drives its target from the state the trigger
@@ -68,8 +80,12 @@ on disk, so two rules cannot share one.
 
 The folder is meant to be writable by hand, so what it holds is repaired at boot: a rule in a
 file named after something else is moved to its own file, a missing or repeated `id` is
-restamped, and a second rule claiming a taken name becomes `<name> 2`. A file that is empty,
-larger than 16 KiB or not valid JSON is skipped and left where it is.
+restamped, and a second rule claiming a taken name becomes `<name> 2`.
+
+A file that is empty, larger than 16 KiB, not valid JSON, or that spells any of the words above
+in a way the engine does not know is refused whole and left exactly as it is: the log names the
+word and the file. Nothing is loaded from it, so a rule with one typo never runs half of what it
+says — and a repair never writes the engine's guess over what its author wrote.
 
 ## Missing entities
 

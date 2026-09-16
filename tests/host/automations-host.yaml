@@ -162,6 +162,10 @@ switch:
     id: relay20
     name: "Relay 20"
     optimistic: true
+  - platform: template
+    id: relay21
+    name: "Relay 21"
+    optimistic: true
 
 script:
   - id: check
@@ -171,12 +175,12 @@ script:
       - lambda: |-
           ESP_LOGI("test",
                    "CHECK %s r1=%d r2=%d r3=%d r4=%d r5=%d r6=%d r7=%d r8=%d r9=%d r10=%d "
-                   "r11=%d r12=%d r13=%d r14=%d r15=%d r16=%d r17=%d r18=%d r19=%d r20=%d",
+                   "r11=%d r12=%d r13=%d r14=%d r15=%d r16=%d r17=%d r18=%d r19=%d r20=%d r21=%d",
                    label.c_str(), id(relay1).state, id(relay2).state, id(relay3).state, id(relay4).state,
                    id(relay5).state, id(relay6).state, id(relay7).state, id(relay8).state, id(relay9).state,
                    id(relay10).state, id(relay11).state, id(relay12).state, id(relay13).state, id(relay14).state,
                    id(relay15).state, id(relay16).state, id(relay17).state, id(relay18).state, id(relay19).state,
-                   id(relay20).state);
+                   id(relay20).state, id(relay21).state);
 
   # Inputs need an initial state: the very first published state raises no callbacks.
   - id: arm_inputs
@@ -377,7 +381,7 @@ script:
       - binary_sensor.template.publish:
           id: in7
           state: false
-      - delay: 540ms
+      - delay: 440ms
       - script.execute:
           id: check
           label: parallel_mid
@@ -425,6 +429,17 @@ script:
       - script.execute:
           id: check
           label: dyn_update
+      - lambda: |-
+          // A condition no file can carry any more: the engine must still refuse it here.
+          JsonDocument doc;
+          deserializeJson(doc, R"({"name":"Bad Cond","enabled":true,"mode":"single",
+            "triggers":[{"source":"input","type":"press","object_id":"in_4"}],
+            "actions":[{"source":"switch","type":"toggle","object_id":"relay_1"}]})");
+          esphome::automations::AutomationConfig cfg;
+          cfg.deserialize(doc.as<JsonObject>());
+          cfg.condition.type = esphome::automations::ConditionType::TEMPERATURE;
+          cfg.condition.sensor_id = esphome::fnv1_hash(std::string("temp_2"));
+          ESP_LOGI("test", "ADD_BAD id=%u", esphome::global_automation_storage->add_automation(cfg));
       - lambda: |-
           bool ok = esphome::global_automation_storage->remove_automation(id(dynamic_id));
           ESP_LOGI("test", "REMOVE ok=%d", ok);

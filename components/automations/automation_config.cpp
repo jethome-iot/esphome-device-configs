@@ -12,8 +12,6 @@ static const char *const TAG = "automations";
 // UINT32_MAX is the scheduler's SCHEDULER_DONT_RUN sentinel: set_timeout with it cancels the
 // pending item instead of scheduling one, which would strand the run forever. Stay one below.
 static constexpr uint32_t MAX_DELAY_MS = SCHEDULER_DONT_RUN - 1;
-// Past this a delay in seconds no longer fits MAX_DELAY_MS.
-static constexpr uint32_t MAX_DELAY_S = MAX_DELAY_MS / 1000;
 
 // Safe integer parsing without exceptions - returns true if parsing succeeded
 static bool safe_parse_uint8(const std::string &str, uint8_t &out) {
@@ -26,6 +24,19 @@ static bool safe_parse_uint8(const std::string &str, uint8_t &out) {
   }
   out = static_cast<uint8_t>(val);
   return true;
+}
+
+// A word the engine does not know reads back as a default, and the next save would write that
+// default over what the file says: refuse the rule instead and leave the file alone.
+template<typename E>
+static bool parse_enum(const JsonObject &obj, const char *key, E (*from_string)(const std::string &),
+                       const char *(*to_string)(E), E &out) {
+  const std::string text = obj[key].as<std::string>();
+  out = from_string(text);
+  if (text != "none" && text == to_string(out))
+    return true;
+  ESP_LOGE(TAG, "Unknown %s '%s'", key, text.c_str());
+  return false;
 }
 
 // Helper function to serialize a vector of uint8_t to cron field string
@@ -237,8 +248,9 @@ void TriggerConfig::serialize(JsonObject &obj) const {
     case SourceTrigger::CRON:
       obj["cron"] = cron_string();
       // The engine reads the expression, not the preset; the preset is the editor's own note
-      // about which form it presented, and is round-tripped untouched.
-      obj["cron_preset"] = EnumUtils::cron_preset_to_string(cron_preset);
+      // about which form it presented, so it is kept when there is one and never invented.
+      if (cron_preset.has_value())
+        obj["cron_preset"] = EnumUtils::cron_preset_to_string(*cron_preset);
       break;
     case SourceTrigger::STARTUP:
     default:
@@ -251,17 +263,22 @@ bool TriggerConfig::deserialize(const JsonObject &obj) {
   if (obj["source"].isNull())
     return false;
 
-  source = EnumUtils::string_to_source_trigger(obj["source"].as<std::string>());
+  if (!parse_enum(obj, "source", EnumUtils::string_to_source_trigger, EnumUtils::source_trigger_to_string, source))
+    return false;
 
   switch (source) {
     case SourceTrigger::INPUT: {
-      params.input.type = EnumUtils::string_to_input_trigger_type(obj["type"].as<std::string>());
+      if (!parse_enum(obj, "type", EnumUtils::string_to_input_trigger_type, EnumUtils::input_trigger_type_to_string,
+                      params.input.type))
+        return false;
       std::string object_id = obj["object_id"].as<std::string>();
       params.input.input_id = fnv1_hash(object_id);
       break;
     }
     case SourceTrigger::TEMPERATURE: {
-      params.temperature.type = EnumUtils::string_to_temperature_trigger_type(obj["type"].as<std::string>());
+      if (!parse_enum(obj, "type", EnumUtils::string_to_temperature_trigger_type,
+                      EnumUtils::temperature_trigger_type_to_string, params.temperature.type))
+        return false;
       std::string object_id = obj["object_id"].as<std::string>();
       params.temperature.sensor_id = fnv1_hash(object_id);
 
@@ -275,7 +292,9 @@ bool TriggerConfig::deserialize(const JsonObject &obj) {
       break;
     }
     case SourceTrigger::SWITCH: {
-      params.switch_trigger.type = EnumUtils::string_to_switch_trigger_type(obj["type"].as<std::string>());
+      if (!parse_enum(obj, "type", EnumUtils::string_to_switch_trigger_type, EnumUtils::switch_trigger_type_to_string,
+                      params.switch_trigger.type))
+        return false;
       std::string object_id = obj["object_id"].as<std::string>();
       params.switch_trigger.switch_id = fnv1_hash(object_id);
       break;
@@ -311,23 +330,19 @@ bool TriggerConfig::deserialize(const JsonObject &obj) {
       cron_months = deserialize_cron_field(fields[4], 1, 12);
       cron_days_of_week = deserialize_cron_field(fields[5], 1, 7);
 
-      // Reject a cron whose any field matched no in-range value. Such a field
-      // leaves its bitset all-zero (the trigger never fires) yet re-serialises as
-      // "*" (serialize_cron_field of an empty vector), so accepting it would
-      // persist a rule that silently never runs and comes back looking like it
-      // runs constantly. Every valid field yields at least one value ("*" fills
-      // the whole range), so an empty vector here always means bad input.
+      // A field that matched nothing never fires yet comes back as "*", which reads like
+      // "always": refuse the rule rather than store that.
       if (cron_seconds.empty() || cron_minutes.empty() || cron_hours.empty() || cron_days_of_month.empty() ||
           cron_months.empty() || cron_days_of_week.empty()) {
         ESP_LOGE(TAG, "Invalid cron '%s': a field matches no value (would never fire)", cron_str.c_str());
         return false;
       }
 
-      // Load preset if available, default to Daily for old configs
       if (!obj["cron_preset"].isNull()) {
-        cron_preset = EnumUtils::string_to_cron_preset(obj["cron_preset"].as<std::string>());
-      } else {
-        cron_preset = CronPreset::DAILY;  // Default for old configs
+        CronPreset preset;
+        if (!parse_enum(obj, "cron_preset", EnumUtils::string_to_cron_preset, EnumUtils::cron_preset_to_string, preset))
+          return false;
+        cron_preset = preset;
       }
       break;
     }
@@ -388,7 +403,8 @@ bool ConditionConfig::deserialize(const JsonObject &obj) {
   if (obj["type"].isNull())
     return false;
 
-  type = EnumUtils::string_to_condition_type(obj["type"].as<std::string>());
+  if (!parse_enum(obj, "type", EnumUtils::string_to_condition_type, EnumUtils::condition_type_to_string, type))
+    return false;
 
   switch (type) {
     case ConditionType::AND:
@@ -398,25 +414,32 @@ bool ConditionConfig::deserialize(const JsonObject &obj) {
         JsonArray sub_array = obj["conditions"].as<JsonArray>();
         for (const auto &sub_obj : sub_array) {
           ConditionConfig sub_condition;
-          if (sub_condition.deserialize(sub_obj.as<JsonObject>())) {
-            sub_conditions.push_back(sub_condition);
-          }
+          if (!sub_condition.deserialize(sub_obj.as<JsonObject>()))
+            return false;
+          sub_conditions.push_back(sub_condition);
         }
+      }
+      // Fail closed: a group that lost its members would quietly stop gating anything.
+      if (sub_conditions.empty()) {
+        ESP_LOGE(TAG, "Condition '%s' has no members", EnumUtils::condition_type_to_string(type));
+        return false;
       }
       break;
     }
     case ConditionType::INPUT: {
       std::string object_id = obj["object_id"].as<std::string>();
       sensor_id = fnv1_hash(object_id);
-      if (!obj["state"].isNull()) {
-        state = EnumUtils::string_to_input_condition_state(obj["state"].as<std::string>());
-      }
+      if (!obj["state"].isNull() && !parse_enum(obj, "state", EnumUtils::string_to_input_condition_state,
+                                                EnumUtils::input_condition_state_to_string, state))
+        return false;
       break;
     }
     case ConditionType::TEMPERATURE: {
       std::string object_id = obj["object_id"].as<std::string>();
       sensor_id = fnv1_hash(object_id);
-      temperature_type = EnumUtils::string_to_temperature_condition_type(obj["temperature_type"].as<std::string>());
+      if (!parse_enum(obj, "temperature_type", EnumUtils::string_to_temperature_condition_type,
+                      EnumUtils::temperature_condition_type_to_string, temperature_type))
+        return false;
 
       if (temperature_type == TypesTemperatureCondition::BELOW ||
           temperature_type == TypesTemperatureCondition::ABOVE) {
@@ -459,27 +482,28 @@ bool ActionConfig::deserialize(const JsonObject &obj) {
   if (obj["source"].isNull())
     return false;
 
-  source = EnumUtils::string_to_source_action(obj["source"].as<std::string>());
+  if (!parse_enum(obj, "source", EnumUtils::string_to_source_action, EnumUtils::source_action_to_string, source))
+    return false;
 
   switch (source) {
     case SourceAction::SWITCH: {
-      params.switch_action.type = EnumUtils::string_to_switch_action_type(obj["type"].as<std::string>());
+      if (!parse_enum(obj, "type", EnumUtils::string_to_switch_action_type, EnumUtils::switch_action_type_to_string,
+                      params.switch_action.type))
+        return false;
       std::string object_id = obj["object_id"].as<std::string>();
       params.switch_action.switch_id = fnv1_hash(object_id);
       params.switch_action.invert = obj["invert"].as<bool>();  // absent reads false
       break;
     }
-    case SourceAction::DELAY:
-      // delay_s is what every file written before this stored. Read either, write
-      // only delay_ms; the seconds are clamped because they used to be multiplied
-      // into a uint32 that silently wrapped past ~49.7 days.
-      if (obj["delay_ms"].is<uint32_t>()) {
-        params.delay.delay_ms = std::min(obj["delay_ms"].as<uint32_t>(), MAX_DELAY_MS);
-      } else {
-        uint32_t seconds = obj["delay_s"].as<uint32_t>();
-        params.delay.delay_ms = seconds > MAX_DELAY_S ? MAX_DELAY_MS : seconds * 1000;
-      }
+    case SourceAction::DELAY: {
+      // delay_s is what every file written before this stored. Read either, write only
+      // delay_ms; both clamp, because either used to reach the scheduler as a wrapped uint32.
+      const bool in_ms = !obj["delay_ms"].isNull();
+      const double ms = in_ms ? obj["delay_ms"].as<double>() : obj["delay_s"].as<double>() * 1000;
+      const double limit = MAX_DELAY_MS;
+      params.delay.delay_ms = static_cast<uint32_t>(ms > 0 ? std::min(ms, limit) : 0.0);
       break;
+    }
     default:
       break;
   }
@@ -531,8 +555,9 @@ bool AutomationConfig::deserialize(const JsonObject &obj) {
   name = obj["name"].as<std::string>();
   // Absent reads false in ArduinoJson; a rule is worth writing only if it should run.
   enabled = obj["enabled"].isNull() ? true : obj["enabled"].as<bool>();
-  mode = obj["mode"].isNull() ? AutomationMode::SINGLE
-                              : EnumUtils::string_to_automation_mode(obj["mode"].as<std::string>());
+  if (!obj["mode"].isNull() &&
+      !parse_enum(obj, "mode", EnumUtils::string_to_automation_mode, EnumUtils::automation_mode_to_string, mode))
+    return false;
 
   // Support both old format (single "trigger") and new format ("triggers" array)
   if (!obj["triggers"].isNull()) {
@@ -561,10 +586,8 @@ bool AutomationConfig::deserialize(const JsonObject &obj) {
     return false;
   }
 
-  // A condition is OPTIONAL (may be absent), but a condition that IS present must
-  // parse. deserialize only fails on a condition object with no "type", which is
-  // malformed — accepting it silently would drop the gate and, worse, discard
-  // else_actions (the factory attaches them only inside the IfAction branch).
+  // A condition may be absent, but one that is present must parse: a rule built without the
+  // gate it was written with would run its actions unconditionally.
   if (!obj["condition"].isNull()) {
     if (!condition.deserialize(obj["condition"].as<JsonObject>())) {
       ESP_LOGE(TAG, "Failed to load the 'condition' (present but malformed)");

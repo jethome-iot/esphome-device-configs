@@ -105,6 +105,8 @@ jobs:
   host-test:
     name: Host test
     runs-on: [self-hosted, ubuntu-latest]
+    # The run itself is a minute; a stalled engine would otherwise hold the runner for hours.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 

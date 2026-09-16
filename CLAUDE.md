@@ -31,5 +31,12 @@ The tree itself is in the README, "Repository Layout".
   Never edit them by hand; regenerate and commit them with the change that made them stale.
 - Don't read `dist/`: it is only the flattened copy of `devices/`, so everything in it is in
   the sources. Work from those.
+- A component under `components/` ships with tests wherever its code allows it, and there is
+  always something. A schema or a validator is testable from any component, ESP-IDF-bound or
+  not: assert that a bad config is refused with the right message, not only that a good one
+  passes. Everything else goes under `tests/`, built for ESPHome's host platform; which suite
+  a case belongs in is in [doc/TESTING.md](doc/TESTING.md). Only code that exists solely on
+  ESP-IDF (`web_server_base`, NVS, LittleFS) is out of reach there; say so in the pull request
+  instead of leaving the gap unexplained.
 - Comments say why in a line or two; the longer story goes in the commit message. README and
   `doc/` state behavior and usage, not mechanism.
