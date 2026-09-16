@@ -2,8 +2,8 @@
 """Command-line file manager for the web_file_browser HTTP API.
 
 Inspects and edits a device's LittleFS user partition without a browser: list,
-tree, cat, get/put (recursive with -r), write, rm, mkdir, mv, cp, edit and an
-interactive shell. Standard library only.
+tree, cat, get/put (recursive with -r), write, rm, mkdir, mv, cp, edit, a
+backup/restore pair and an interactive shell. Standard library only.
 
     scripts/device-files.py --host 192.168.1.50 ls -l /
     DEVICE_HOST=192.168.1.50 scripts/device-files.py put -r ./www /www
@@ -17,6 +17,7 @@ import cmd
 from collections.abc import Iterator
 from datetime import datetime
 import http.client
+import io
 import json
 import mimetypes
 import os
@@ -25,6 +26,7 @@ import posixpath
 import shlex
 import subprocess
 import sys
+import tarfile
 import tempfile
 from urllib.parse import quote, urlencode
 import uuid
@@ -429,6 +431,58 @@ def cmd_edit(dev: Device, args: argparse.Namespace, cwd: str) -> None:
         dev.write(path, edited)
 
 
+def cmd_backup(dev: Device, args: argparse.Namespace, cwd: str) -> None:
+    root = remote_path(args.path, cwd)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    archive = Path(args.archive or f"{dev.host}-{stamp}.tar.gz")
+    files = 0
+    with tarfile.open(archive, "w:gz") as tar:
+        for directory, entries in dev.walk(root):
+            rel = posixpath.relpath(directory, root)
+            for e in entries:
+                info = tarfile.TarInfo(
+                    posixpath.normpath(posixpath.join(rel, e["name"]))
+                )
+                info.mtime = e["mtime"] or int(datetime.now().timestamp())
+                if e["type"] == "directory":
+                    info.type, info.mode = tarfile.DIRTYPE, 0o755
+                    tar.addfile(info)
+                    continue
+                data = dev.download(posixpath.join(directory, e["name"]))
+                info.size, info.mode = len(data), 0o644
+                tar.addfile(info, io.BytesIO(data))
+                files += 1
+    print(f"{archive}: {files} files")
+
+
+def cmd_restore(dev: Device, args: argparse.Namespace, cwd: str) -> None:
+    root = remote_path(args.path, cwd)
+    if args.clean:
+        for e in dev.list(root):
+            dev.delete(posixpath.join(root, e["name"]))
+    source = Path(args.archive)
+    if source.is_dir():
+        push_tree(dev, source, root)
+        return
+    dev.ensure_dir(root)
+    made = {root}
+    with tarfile.open(source) as tar:
+        # Name order puts a directory before what it contains.
+        for member in sorted(tar.getmembers(), key=lambda m: m.name):
+            dest = remote_path(posixpath.join(root, member.name))
+            # A "../" in someone else's archive must not reach past the restore root.
+            if dest != root and not dest.startswith(root.rstrip("/") + "/"):
+                raise DeviceError(f"{member.name}: outside {root}")
+            parent = dest if member.isdir() else posixpath.dirname(dest)
+            if parent not in made:
+                dev.ensure_dir(parent)
+                made.add(parent)
+            if member.isfile():
+                data = tar.extractfile(member)
+                dev.upload(dest, data.read() if data else b"")
+                print(dest)
+
+
 def cmd_shell(dev: Device, args: argparse.Namespace, cwd: str) -> None:
     Shell(dev, build_commands(shell=True)).cmdloop()
 
@@ -534,7 +588,7 @@ class Shell(cmd.Cmd):
 
 # --- Argument parsing --------------------------------------------------------
 
-COMMANDS = "info ls tree cat get put write rm mkdir mv cp edit".split()
+COMMANDS = "info ls tree cat get put write rm mkdir mv cp edit backup restore".split()
 
 
 def flag(p: argparse.ArgumentParser, name: str, dest: str, help_: str) -> None:
@@ -624,6 +678,21 @@ def build_commands(shell: bool) -> argparse.ArgumentParser:
     p = sub.add_parser("edit", help="edit a file in $EDITOR (default vi)")
     p.add_argument("path")
     p.set_defaults(func=cmd_edit)
+
+    p = sub.add_parser("backup", help="save a subtree as a .tar.gz")
+    p.add_argument("archive", nargs="?", help="default: <host>-<timestamp>.tar.gz")
+    p.add_argument(
+        "--path", default=".", help="subtree to save (default: the current directory)"
+    )
+    p.set_defaults(func=cmd_backup)
+
+    p = sub.add_parser("restore", help="put a backup archive or directory back")
+    p.add_argument("archive")
+    p.add_argument(
+        "--path", default=".", help="where to restore (default: the current directory)"
+    )
+    flag(p, "--clean", "clean", "delete everything under --path first")
+    p.set_defaults(func=cmd_restore)
 
     if shell:
         for name, p in sub.choices.items():
