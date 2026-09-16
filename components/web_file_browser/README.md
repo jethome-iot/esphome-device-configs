@@ -62,11 +62,11 @@ each answers the one method below: anything else is `405` with an `Allow` header
 | POST | `rename`, `copy` | Fields `old_path`, `new_path`; both refuse an existing destination, copy is recursive and refuses its own subtree |
 
 Fields are read from an urlencoded body first and from the query string second, and `+` decodes
-to a space. `list` and `info` answer bare JSON and `download` the file; every other success is
-`{"success": true, "message"}`, and every failure `{"success": false, "error"}` with a 400 — 404
-when the path to read, download, delete, rename or copy does not exist, 405 with an `Allow`
-header for the wrong method. The same contract, machine-readable: [openapi.yaml](openapi.yaml)
-(OpenAPI 3.1).
+to a space. `list` and `info` answer bare JSON, `read` `{"success": true, "content"}` and
+`download` the file; every other success is `{"success": true, "message"}`, and every failure
+`{"success": false, "error"}` with a 400 — 404 when the path to read, download, delete, rename or
+copy does not exist, 405 with an `Allow` header for the wrong method. The same contract,
+machine-readable: [openapi.yaml](openapi.yaml) (OpenAPI 3.1).
 
 `list`, `read` and `download` stream through a fixed 4 KB buffer and never hold a
 response-sized one, so `read`'s 1 MB ceiling is about the editor on the other end, not about the
