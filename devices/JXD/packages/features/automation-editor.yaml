@@ -1,0 +1,7 @@
+# The automation rules over HTTP: the JSON API under /automation-editor/api that
+# the dashboard's editor and curl use. Details: components/web_automation_editor/README.md
+external_components:
+  - source: ${components}
+    components: [web_automation_editor]
+
+web_automation_editor:

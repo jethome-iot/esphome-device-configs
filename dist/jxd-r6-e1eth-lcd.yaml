@@ -36,6 +36,13 @@ external_components:
       ref: master
       path: components
     components:
+      - web_automation_editor
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
       - automations
   - source:
       type: git
@@ -628,6 +635,7 @@ esphome:
   project:
     name: JetHome.JXD-R6-E1ETH-LCD
     version: ${version}
+web_automation_editor: null
 automations:
   storage: user_storage
   time_id: pcf8563_time

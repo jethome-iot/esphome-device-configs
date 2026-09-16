@@ -17,6 +17,7 @@ packages:
   relay_board: !include ${boards}/jxd-d6-r6-rev1.2.yaml
 
   # Features: buses, sensors, services.
+  automation_editor: !include ${features}/automation-editor.yaml
   automations: !include ${features}/automations.yaml
   display_off: !include ${features}/display-off.yaml
   i2c: !include ${features}/i2c.yaml
