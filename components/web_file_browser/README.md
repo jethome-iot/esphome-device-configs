@@ -53,17 +53,20 @@ each answers the one method below: anything else is `405` with an `Allow` header
 | Method | Path | |
 |---|---|---|
 | GET | `info` | `{"valid", "total", "used", "free", "filesystem"}` |
-| GET | `list?path=/` | `[{"name", "type": "file"\|"directory", "size", "mtime"}, ...]` |
+| GET | `list?path=/` | `[{"name", "type": "file"\|"directory", "size", "mtime"}, ...]`; `mtime` is the last write in seconds since the epoch, 0 where the filesystem keeps none (every directory) |
 | GET | `read?path=` | `{"success", "content"}`, escaped and streamed; over 1 MB is refused |
 | POST | `write?path=` | Raw request body becomes the file; an empty body creates an empty file, a form-encoded or multipart one is refused |
 | POST | `upload?path=` | `multipart/form-data` with one file part; a zero-length part is an error, use `write` |
-| GET | `download?path=` | The file, streamed |
+| GET | `download?path=` | The file, streamed, with a `Content-Disposition` filename |
 | POST | `delete`, `mkdir` | Field `path`; delete is recursive but refuses the mount root, mkdir is idempotent and not recursive |
-| POST | `rename`, `copy` | Fields `old_path`, `new_path`; copy is recursive |
+| POST | `rename`, `copy` | Fields `old_path`, `new_path`; both refuse an existing destination, copy is recursive and refuses its own subtree |
 
-Fields are read from the query string and from an urlencoded body alike. Every route except
-`list`, `info` and `download` answers `{"success": true, "message"}` or, with a 400 (404 for a
-missing path), `{"success": false, "error"}`.
+Fields are read from an urlencoded body first and from the query string second, and `+` decodes
+to a space. `list` and `info` answer bare JSON and `download` the file; every other success is
+`{"success": true, "message"}`, and every failure `{"success": false, "error"}` with a 400 — 404
+when the path to read, download, delete, rename or copy does not exist, 405 with an `Allow`
+header for the wrong method. The same contract, machine-readable: [openapi.yaml](openapi.yaml)
+(OpenAPI 3.1).
 
 `list`, `read` and `download` stream through a fixed 4 KB buffer and never hold a
 response-sized one, so `read`'s 1 MB ceiling is about the editor on the other end, not about the
