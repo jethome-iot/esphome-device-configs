@@ -48,7 +48,8 @@ the preferences, not these files.
 
 ## Configuration
 
-`devices/JXD/packages/features/entity-settings.yaml`. The components are documented in
+`devices/JXD/packages/features/entity-settings.yaml`; the JSON store itself is configured in
+`storage.yaml` next to the partition. The components are documented in
 [components/config_json](../components/config_json/README.md) and
 [components/entity_config](../components/entity_config/README.md) and
 [components/bindings](../components/bindings/README.md).

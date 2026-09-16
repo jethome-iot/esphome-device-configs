@@ -1,12 +1,8 @@
-# Per-relay and per-input settings kept as JSON files on the LittleFS partition
-# (storage.yaml) and edited from the display menu. Details: doc/ENTITY_SETTINGS.md
+# Per-relay and per-input settings, kept by the config_json store (storage.yaml) and
+# edited from the display menu. Details: doc/ENTITY_SETTINGS.md
 external_components:
   - source: ${components}
-    components: [config_base, config_json, entity_config, bindings]
-
-config_json:
-  id: config_json_keeper
-  storage: user_storage
+    components: [entity_config, bindings]
 
 entity_config:
   settings: [switch, binary_sensor]

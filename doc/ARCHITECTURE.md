@@ -41,10 +41,11 @@ boundaries; everything else is local to its file.
   reachable from the network. The `automations` component (`features/automations.yaml`) keeps its
   rules there and takes its clock from `pcf8563_time`; `web_automation_editor`
   (`features/automation-editor.yaml`) edits those rules under `/automation-editor/api`.
-- `config_json_keeper` (`features/entity-settings.yaml`) owns the settings files on that
-  partition; `switch_settings` and `binary_sensor_settings` are the settings objects the menu's
-  Relay N and Input N rows call. Those two ids are set explicitly: a generated id cannot be named
-  from a lambda.
+- `config_json_keeper` (`features/storage.yaml`) owns the JSON settings files on that partition
+  for any component that registers a settings type with it.
+- `switch_settings` and `binary_sensor_settings` (`features/entity-settings.yaml`) are the
+  settings objects the menu's Relay N and Input N rows call. Those two ids are set explicitly: a
+  generated id cannot be named from a lambda.
 
 ## Boot order
 
