@@ -189,6 +189,8 @@ def needs_block_style(value: str) -> bool:
 
 
 def _represent_block(dumper: Any, value: BlockStr) -> Any:
+    if yaml_util.is_secret(value):
+        return dumper.represent_secret(value)
     return dumper.represent_scalar("tag:yaml.org,2002:str", str(value), style="|")
 
 

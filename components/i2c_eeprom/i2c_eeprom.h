@@ -1,0 +1,43 @@
+#pragma once
+#include <cstddef>
+#include <cstdint>
+#include "esphome/components/i2c/i2c.h"
+#include "esphome/core/automation.h"
+#include "esphome/core/component.h"
+
+namespace esphome::i2c_eeprom {
+
+class I2CEeprom : public Component, public i2c::I2CDevice {
+ public:
+  void setup() override;
+  void dump_config() override;
+  float get_setup_priority() const override { return setup_priority::DATA; }
+
+  // The chip answers a read: the only probe an EEPROM has.
+  bool is_connected();
+
+  bool put(uint16_t memaddr, const uint8_t *value, size_t size);
+  bool put(uint16_t memaddr, uint8_t value) { return this->put(memaddr, &value, 1); }
+  bool get(uint16_t memaddr, uint8_t *value, size_t size = 1);
+
+  // Bytes. Parts above 16 Kbit take a two-byte memory address; 4 to 16 Kbit parts select
+  // their upper blocks through the device address, which is not driven, so only the first
+  // 256 bytes of those are reached.
+  void set_size(uint32_t size) {
+    this->size_ = size;
+    this->two_byte_address_ = size > 2048;
+  }
+  uint32_t get_size() const { return this->size_; }
+
+  Trigger<> *get_setup_trigger() { return &this->setup_trigger_; }
+
+ protected:
+  size_t address_bytes_(uint16_t memaddr, uint8_t *out) const;
+  bool in_range_(uint16_t memaddr, size_t size) const;
+
+  uint32_t size_{0};
+  bool two_byte_address_{false};
+  Trigger<> setup_trigger_;
+};
+
+}  // namespace esphome::i2c_eeprom

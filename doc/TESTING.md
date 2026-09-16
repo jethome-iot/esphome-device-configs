@@ -25,6 +25,8 @@ tests/
       test.yaml             # host config: the component under test, its entities, the harness
       cases/                # the tests; common.h holds what they share
       test_schema.py        # the component's YAML schema, run with unittest by run.py
+    i2c_eeprom/             # the same layout, one suite per component
+    jethome_board_info/
 ```
 
 ## Adding a suite for a new component
@@ -65,6 +67,21 @@ Its `cases/common.h` provides:
   the config, `boot()` / `reboot()`, `write()` / `read()` / `files()`, and `log()` with every
   error and warning logged since the test began.
 
+## What the jethome_board_info suite covers
+
+- `test_crc32.cpp`, `test_header.cpp`, `test_record.cpp`, `test_walk.cpp`, `test_fields.cpp`:
+  the JEEFS parser in `jeefs_parse.h` against the format's published vectors, embedded in
+  `cases/jeefs_vectors.h` next to builders that assemble headers, file chains and records.
+- `test_component.cpp`: the component over an EEPROM image behind a fake `i2c::I2CBus`: a v4
+  board with its `device.id`, a v3 board, the headers it refuses, a bus that dies half way, and
+  which signature bytes it hands out.
+
+## What the i2c_eeprom suite covers
+
+`test_eeprom.cpp`: how a memory address is framed for each part size, what a write carries,
+the ranges it refuses, what a chip that does not answer does to `get`, `put` and `setup`, and
+the `on_setup` trigger.
+
 ## Rules every suite lives by
 
 - Nothing declared in `test.yaml` is set up: the harness `main.cpp` runs the tests instead of
@@ -79,3 +96,5 @@ Its `cases/common.h` provides:
   seams are `schedule_delay()`, `tick()` and calling `on_startup()` yourself.
 - Logger listeners exist only when the YAML asks for them: `test.yaml` carries
   `-DUSE_LOG_LISTENERS -DESPHOME_LOG_MAX_LISTENERS=1` so a suite can read what was logged.
+- An I2C component validates on the host only with an `i2c:` bus that names a `device:`;
+  nothing opens it. The suite drives the component over a fake `i2c::I2CBus` of its own.
