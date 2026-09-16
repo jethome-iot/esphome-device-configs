@@ -45,3 +45,4 @@ python tests/unit/run.py [--gtest_filter='Runtime.*']
 Builds the engine into a Google Test binary the same way and runs `tests/unit/cases/`: the JSON
 and cron parsers, and rules driven by hand, with every delay held back until the test fires it.
 Nothing declared in the YAML is set up; the tests register their own entities in `App`.
+Which suite a case belongs in and how to add one: [TESTING.md](TESTING.md).

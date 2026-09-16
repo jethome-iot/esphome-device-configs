@@ -52,10 +52,8 @@ The Build workflow is these five; run them locally:
 4. `python scripts/build-dist.py --check`
 5. `pre-commit run --all-files`
 
-Both suites build `components/automations` for the ESPHome `host` platform, so neither needs an
-ESP toolchain. `tests/host/` runs the engine against the rule files in `tests/host/fixtures/`
-and takes about a minute. `tests/unit/` is a Google Test binary over the engine's classes and
-takes seconds once googletest is built. Behavior and usage: [AUTOMATIONS.md](AUTOMATIONS.md).
+Neither suite needs an ESP toolchain. Which one a case belongs in, and how to add it:
+[TESTING.md](TESTING.md).
 
 ## Generated files
 
