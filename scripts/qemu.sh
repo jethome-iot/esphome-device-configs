@@ -110,6 +110,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 case "$PSRAM" in 2M|4M|none) ;; *) die "--psram must be 2M, 4M or none, got '$PSRAM'" ;; esac
+# Silently ignored, `run` would exec QEMU in the foreground and a CI job would hang.
+[ "$WAIT_HTTP" -gt 0 ] && [ "$DAEMON" -eq 0 ] && die "--wait-http only applies with --daemon"
 
 # --- helpers -----------------------------------------------------------------
 
