@@ -55,7 +55,7 @@ each answers the one method below: anything else is `405` with an `Allow` header
 | GET | `info` | `{"valid", "total", "used", "free", "filesystem"}` |
 | GET | `list?path=/` | `[{"name", "type": "file"\|"directory", "size", "mtime"}, ...]` |
 | GET | `read?path=` | `{"success", "content"}`, escaped and streamed; over 1 MB is refused |
-| POST | `write?path=` | Raw request body becomes the file (any `Content-Type` but form-encoded); an empty body creates an empty file |
+| POST | `write?path=` | Raw request body becomes the file; an empty body creates an empty file, a form-encoded or multipart one is refused |
 | POST | `upload?path=` | `multipart/form-data` with one file part; a zero-length part is an error, use `write` |
 | GET | `download?path=` | The file, streamed |
 | POST | `delete`, `mkdir` | Field `path`; delete is recursive but refuses the mount root, mkdir is idempotent and not recursive |
@@ -86,7 +86,7 @@ curl -X POST 'http://<device>/files/delete' -d 'path=/logs'
 ```
 
 `write` needs an explicit `Content-Type`: `curl` sends `application/x-www-form-urlencoded` by
-default, the server then parses the body as form fields, and the file comes out empty.
+default, which the server parses as form fields and refuses rather than write an empty file.
 
 ## client/
 

@@ -224,7 +224,8 @@ void WebFileBrowser::handleUpload(AsyncWebServerRequest *request, const std::str
 
 // Only /write carries a raw body; every other POST is form-encoded and lands in
 // the request parameters. The chunks go straight into the file: a text edit can
-// be up to 1 MB and buffering it would not fit next to the rest of the heap.
+// be up to 1 MB and buffering it would not fit next to the rest of the heap. No
+// method check: web_server_idf reaches handleBody from its POST handler alone.
 void WebFileBrowser::handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
 #ifdef USE_ESP32
   const Route *route = route_for(this->url_(request), this->url_prefix_);
@@ -661,6 +662,13 @@ void WebFileBrowser::handle_write_request_(AsyncWebServerRequest *request) {
   }
   if (!error.empty()) {
     this->send_json_error_(request, error);
+    return;
+  }
+  // A body that never reached handleBody went through the form or multipart
+  // parser instead — curl's default Content-Type does that. Creating an empty
+  // file here would truncate the one the caller meant to overwrite.
+  if (!seen && request->contentLength() > 0) {
+    this->send_json_error_(request, "write takes a raw body, not form-encoded or multipart");
     return;
   }
   if (!seen) {
