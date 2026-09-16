@@ -11,18 +11,13 @@ set themselves up.
 | --- | --- | --- | --- |
 | Relay | `Inverted` | `No`, `Yes` | Swaps the physical output: the app's On drives the pin low |
 | Relay | `Start mode` | `Off`, `On`, `Last` | What the relay does at power-up |
-| Relay | `Bind to` | `None`, `Input 1` … `Input 6` | The input that drives this relay directly |
-| Relay | `Binding` | `Disabled`, `Toggle`, `Follow` | `Toggle` flips the relay on each press of the input; `Follow` makes the relay copy the input |
-| Input | `Inverted` | `No`, `Yes` | A closed contact is reported as Off |
+| Relay | `Bind to` | `None`, `Input 1` … `Input 6` | The input that drives this relay directly; needs a `Binding` other than `Disabled` |
+| Relay | `Binding` | `Disabled`, `Toggle`, `Follow` | `Toggle` flips the relay on each press of the input; `Follow` makes the relay copy the input, at boot too, so it wins over `Start mode` |
+| Input | `Inverted` | `No`, `Yes` | A closed contact is reported as Off; bindings see the input after this |
 
-`Start mode: Last` starts saving the relay's state from the next boot: the switch decides whether
-to keep a stored state when it sets itself up, one boot before the new mode is in place.
-
-A binding needs both fields: an input under `Binding: Disabled` is remembered but inactive. Each
-relay has at most one binding; one input may drive any number of relays. `Follow` is applied
-once at boot after every entity is up, so it wins over `Start mode`. Bindings react to the
-input as reported, after its `Inverted` setting. Details in
-[components/bindings](../components/bindings/README.md).
+`Start mode: Last` takes effect from the boot after next: the relay decides whether to keep a
+stored state when it sets itself up, before a mode changed at run time can be stored. The
+binding rules are in [components/bindings](../components/bindings/README.md).
 
 ## Display menu
 
@@ -41,10 +36,9 @@ keyed by its object_id:
                             "binding_input": "input_1", "binding_mode": "toggle"}]}
 ```
 
-They can be edited by hand on the partition. A record naming an entity this firmware does not
-have is logged and skipped; a file that is missing or unreadable leaves the entities at their
-compiled defaults and is left alone rather than rewritten. A factory reset from the menu clears
-the preferences, not these files.
+They can be edited by hand on the partition; the format and what happens to a damaged file are
+in [components/config_json](../components/config_json/README.md). A factory reset from the menu
+clears the preferences, not these files.
 
 ## Configuration
 

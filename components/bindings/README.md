@@ -40,11 +40,6 @@ From the display menu: **Relays → Relay N → Bind to** picks the input, **Bin
 In the record, `binding_input` is the input's object_id; an empty string or mode `none`
 unbinds. A stored input that this build lacks is kept and logged, not dropped.
 
-```json
-{"source_name": "relay_1", "restore_mode": "ALWAYS_OFF", "inverted": false,
- "binding_input": "input_1", "binding_mode": "toggle"}
-```
-
 ## From lambdas
 
 `set_binding(output_key, input_key, mode)` and `remove_binding(output_key)` on
