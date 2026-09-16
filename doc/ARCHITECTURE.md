@@ -78,5 +78,9 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   `web_server::WebServer::add_entity_config`. The menu rows are `MenuItem`s built by hand.
 - Upstream builds ESP-IDF with `CONFIG_VFS_SUPPORT_DIR` off, so `components/littlefs_storage`
   calls `esp32.require_vfs_dir()` to keep `opendir`/`mkdir` from being stubs.
+- `components/virtual_display` (emulator only, see [QEMU.md](QEMU.md)) renders through
+  `DisplayBuffer`'s protected `init_internal_` / `do_update_` and serves its endpoints as a
+  `web_server_base` handler, setting the 405 status line through ESP-IDF's
+  `httpd_resp_set_status` because the IDF response layer maps no such code.
 
 Re-check each of these on every ESPHome bump.
