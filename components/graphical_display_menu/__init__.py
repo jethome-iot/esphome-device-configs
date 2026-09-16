@@ -18,6 +18,8 @@ from esphome.const import (
 
 CONF_MENU_ITEM_VALUE = "menu_item_value"
 CONF_ON_REDRAW = "on_redraw"
+# JetHome: fill_row
+CONF_FILL_ROW = "fill_row"
 
 graphical_display_menu_ns = cg.esphome_ns.namespace("graphical_display_menu")
 GraphicalDisplayMenu = graphical_display_menu_ns.class_(
@@ -45,6 +47,8 @@ CONFIG_SCHEMA = DISPLAY_MENU_BASE_SCHEMA.extend(
             cv.Optional(CONF_DISPLAY): cv.use_id(display.Display),
             cv.Required(CONF_FONT): cv.use_id(font.Font),
             cv.Optional(CONF_MENU_ITEM_VALUE): cv.templatable(cv.string),
+            # JetHome: fill_row
+            cv.Optional(CONF_FILL_ROW, default=False): cv.boolean,
             cv.Optional(CONF_FOREGROUND_COLOR): cv.use_id(color.ColorStruct),
             cv.Optional(CONF_BACKGROUND_COLOR): cv.use_id(color.ColorStruct),
             cv.Optional(CONF_ON_REDRAW): automation.validate_automation(
@@ -69,6 +73,8 @@ async def to_code(config):
 
     menu_font = await cg.get_variable(config[CONF_FONT])
     cg.add(var.set_font(menu_font))
+    # JetHome: fill_row
+    cg.add(var.set_fill_row(config[CONF_FILL_ROW]))
 
     if (menu_item_value_config := config.get(CONF_MENU_ITEM_VALUE, None)) is not None:
         if isinstance(menu_item_value_config, core.Lambda):

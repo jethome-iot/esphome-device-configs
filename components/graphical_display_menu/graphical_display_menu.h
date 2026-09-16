@@ -43,6 +43,7 @@ class GraphicalDisplayMenu final : public display_menu_base::DisplayMenuComponen
   template<typename V> void set_menu_item_value(V menu_item_value) { this->menu_item_value_ = menu_item_value; }
   void set_foreground_color(Color foreground_color);
   void set_background_color(Color background_color);
+  void set_fill_row(bool fill_row);  // JetHome: fill_row
 
   template<typename F> void add_on_redraw_callback(F &&cb) { this->on_redraw_callbacks_.add(std::forward<F>(cb)); }
 
@@ -69,6 +70,7 @@ class GraphicalDisplayMenu final : public display_menu_base::DisplayMenuComponen
   TemplatableValue<std::string, const MenuItemValueArguments *> menu_item_value_;
   Color foreground_color_{COLOR_ON};
   Color background_color_{COLOR_OFF};
+  bool fill_row_{false};  // JetHome: fill_row
 
   CallbackManager<void()> on_redraw_callbacks_{};
 };

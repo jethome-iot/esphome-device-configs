@@ -61,6 +61,7 @@ void GraphicalDisplayMenu::set_font(display::BaseFont *font) { this->font_ = fon
 
 void GraphicalDisplayMenu::set_foreground_color(Color foreground_color) { this->foreground_color_ = foreground_color; }
 void GraphicalDisplayMenu::set_background_color(Color background_color) { this->background_color_ = background_color; }
+void GraphicalDisplayMenu::set_fill_row(bool fill_row) { this->fill_row_ = fill_row; }  // JetHome: fill_row
 
 void GraphicalDisplayMenu::on_before_show() {
   if (this->display_ != nullptr) {
@@ -212,7 +213,8 @@ display::Rect GraphicalDisplayMenu::measure_item_(display::Display *display, con
   int height;
   display->get_text_bounds(0, 0, label.c_str(), this->font_, display::TextAlign::TOP_LEFT, &x1, &y1, &width, &height);
 
-  dimensions.w = std::min((int16_t) width, bounds->w);
+  // JetHome (fill_row): measured at the full width, so the highlight spans the row, not the text.
+  dimensions.w = this->fill_row_ ? bounds->w : std::min((int16_t) width, bounds->w);
   dimensions.h = std::min((int16_t) height, bounds->h);
 
   return dimensions;

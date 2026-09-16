@@ -23,6 +23,9 @@ class DisplayMenuComponent : public Component {
   void set_root_item(MenuItemMenu *item) { this->displayed_item_ = this->root_item_ = item; }
   void set_active(bool active) { this->active_ = active; }
   void set_mode(MenuMode mode) { this->mode_ = mode; }
+  /// JetHome (right_for_menu_enter): whether the "right" input enters a submenu, or only "enter" does.
+  /// The _opt suffix is the fork's spelling, kept so a rebased fork drops in without a rename.
+  void set_right_for_menu_enter_opt(bool opt) { this->right_for_menu_enter_opt_ = opt; }
   void set_rows(uint8_t rows) { this->rows_ = rows; }
 
   float get_setup_priority() const override { return setup_priority::PROCESSOR; }
@@ -32,6 +35,7 @@ class DisplayMenuComponent : public Component {
   void left();
   void right();
   void enter();
+  bool back();  // JetHome: back action
 
   void show_main();
   void show();
@@ -40,6 +44,7 @@ class DisplayMenuComponent : public Component {
   void draw();
 
   bool is_active() const { return this->active_; }
+  bool is_at_main() const { return this->displayed_item_ == this->root_item_; }  // JetHome: back action
 
  protected:
   void reset_();
@@ -67,6 +72,7 @@ class DisplayMenuComponent : public Component {
   uint8_t rows_;
   bool active_;
   MenuMode mode_;
+  bool right_for_menu_enter_opt_{true};  // JetHome: right_for_menu_enter
   MenuItemMenu *root_item_{nullptr};
 
   MenuItemMenu *displayed_item_{nullptr};

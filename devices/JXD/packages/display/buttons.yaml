@@ -143,29 +143,10 @@ binary_sensor:
         input: true
     on_press:
       - lambda: |-
-          // leave_menu_() is protected upstream; reached via pointer-to-member.
-          struct MenuBack : public display_menu_base::DisplayMenuComponent {
-            using Menu = display_menu_base::DisplayMenuComponent;
-
-            static bool step_back(Menu *menu) {
-              auto editing = static_cast<bool Menu::*>(&MenuBack::editing_);
-              auto finish_editing = static_cast<void (Menu::*)()>(&MenuBack::finish_editing_);
-              auto leave_menu = static_cast<bool (Menu::*)()>(&MenuBack::leave_menu_);
-              auto redraw = static_cast<void (Menu::*)()>(&MenuBack::draw_and_update);
-
-              if (menu->*editing) {
-                (menu->*finish_editing)();
-              } else if (!(menu->*leave_menu)()) {
-                return false;
-              }
-              (menu->*redraw)();
-              return true;
-            }
-          };
-
+          // back() is false only at the root with nothing being edited: close the menu then.
           auto *page = id(display1).get_active_page();
           if (id(display_menu).is_active()) {
-            if (!MenuBack::step_back(id(display_menu))) {
+            if (!id(display_menu).back()) {
               id(display_menu).hide();
               id(display1).show_page(id(main_page));
             }

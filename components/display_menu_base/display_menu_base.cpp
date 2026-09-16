@@ -101,7 +101,8 @@ void DisplayMenuComponent::right() {
         }
         break;
       case MENU_ITEM_MENU:
-        changed = this->enter_menu_();
+        if (this->right_for_menu_enter_opt_)  // JetHome: right_for_menu_enter
+          changed = this->enter_menu_();
         break;
       default:
         break;
@@ -158,6 +159,35 @@ void DisplayMenuComponent::enter() {
     if (changed)
       this->draw_and_update();
   }
+}
+
+// JetHome: back action
+bool DisplayMenuComponent::back() {
+  bool changed = false;
+
+  if (this->check_healthy_and_active_()) {
+    switch (this->get_selected_item_()->get_type()) {
+      case MENU_ITEM_SELECT:
+      case MENU_ITEM_SWITCH:
+      case MENU_ITEM_NUMBER:
+      case MENU_ITEM_CUSTOM:
+        if (this->editing_) {
+          this->finish_editing_();
+          changed = true;
+        } else {
+          changed = this->leave_menu_();
+        }
+        break;
+      default:
+        changed = this->leave_menu_();
+        break;
+    }
+
+    if (changed)
+      this->draw_and_update();
+  }
+
+  return changed;
 }
 
 void DisplayMenuComponent::draw() {

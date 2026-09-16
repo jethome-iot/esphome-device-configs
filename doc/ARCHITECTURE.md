@@ -102,8 +102,11 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
 
 ## Coupled to upstream internals
 
-- The BACK button (`display/buttons.yaml`) reaches `DisplayMenuComponent`'s protected
-  `leave_menu_` and `finish_editing_` through pointer-to-member casts.
+- `components/display_menu_base` and `components/graphical_display_menu` are copies of
+  upstream's, carrying `right_for_menu_enter`, the `display_menu.back` action and `fill_row`;
+  naming them in `external_components` shadows the built-in ones. Every changed hunk is marked
+  `JetHome:` and `scripts/vendored-diff.py` prints the whole patch against the pinned ESPHome.
+  Dropping the two names from `external_components` builds the upstream components instead.
 - `components/dallas_scan` creates entities at runtime: codegen reserves their places in the
   entity tables (`CORE.register_platform_component`) and registers the device class and unit
   strings, C++ then calls the four-argument `App.register_sensor` and

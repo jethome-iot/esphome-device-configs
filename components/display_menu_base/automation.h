@@ -75,6 +75,17 @@ template<typename... Ts> class HideAction final : public Action<Ts...> {
   DisplayMenuComponent *menu_;
 };
 
+// JetHome: back action
+template<typename... Ts> class BackAction final : public Action<Ts...> {
+ public:
+  explicit BackAction(DisplayMenuComponent *menu) : menu_(menu) {}
+
+  void play(const Ts &...x) override { this->menu_->back(); }
+
+ protected:
+  DisplayMenuComponent *menu_;
+};
+
 template<typename... Ts> class ShowMainAction final : public Action<Ts...> {
  public:
   explicit ShowMainAction(DisplayMenuComponent *menu) : menu_(menu) {}

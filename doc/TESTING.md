@@ -21,6 +21,7 @@ tests/
     environment.cpp         # constructs App, which that setup would have done
     components/
       dir_storage           # test-only storage backend: a directory on the host
+      display_menu_host     # test-only key that pulls display_menu_base into a host build
       web_server_base       # stand-in for upstream's, so HTTP handlers run on the host
   components/
     automations/
@@ -29,6 +30,7 @@ tests/
       test_schema.py        # the component's YAML schema, run with unittest by run.py
     bindings/               # the same layout, one suite per component
     config_json/
+    display_menu_base/
     entity_config/
     i2c_eeprom/
     jethome_board_info/

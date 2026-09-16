@@ -1,9 +1,17 @@
+external_components:
+  - source: ${components}
+    components: [display_menu_base, graphical_display_menu]
+
 graphical_display_menu:
   id: display_menu
   display: display1
   font: f7x14_mod2
   mode: joystick
   active: false
+  # The highlight spans the row, and RIGHT no longer opens a submenu: it is the
+  # value key, ENTER is the one that descends.
+  fill_row: true
+  right_for_menu_enter: false
   on_redraw:
     then:
       - component.update: display1
