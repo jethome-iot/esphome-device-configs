@@ -75,9 +75,8 @@ Shared code and tooling stay at the repository root:
 | `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition) and `virtual_display` (the emulator's front panel) |
 | `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `device-files.py` (the `web_file_browser` API from a terminal), `qemu.sh`, `setup.sh` / `setup.bat` |
 | `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) and its `filesystem_storage_abstract` base, `virtual_display` (the emulator's front panel) |
+| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) and its `filesystem_storage_abstract` base, `virtual_display` (the emulator's front panel) |
 | `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `qemu.sh`, `setup.sh` / `setup.bat` |
-| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) and its `filesystem_storage_abstract` base |
-| `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `setup.sh` / `setup.bat` |
 | `dist/`    | Generated self-contained configs the ESPHome Builder imports |
 | `doc/`     | Guides, plus the README's UI mockups in `doc/images/` |
 | `tests/`   | `tests/unit/` builds the `automations` engine into a Google Test binary for the ESPHome `host` platform and runs it: `python tests/unit/run.py` |

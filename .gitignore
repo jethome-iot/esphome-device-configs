@@ -23,6 +23,7 @@ venv/
 
 # Unit test run artifacts: the directories the storage tests use and the host
 # preferences.
+/tests/unit/.storage/
 /tests/unit/.prefs/
 
 # scripts/qemu.sh writes the emulator wrapper next to the device config.
@@ -33,4 +34,3 @@ secrets.yaml
 
 # vscode
 .vscode/*
-/tests/unit/.storage/
