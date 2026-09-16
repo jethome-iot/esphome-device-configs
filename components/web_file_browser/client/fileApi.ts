@@ -1,15 +1,8 @@
-// TypeScript client for the web_file_browser HTTP API. Lives with the backend
-// component that owns the /files/* routes; the dashboard injects its base URL
-// and fetch wrapper through createFileBrowserApi().
-//
-// Backend quirks encoded here:
-//  - every route answers one method only (405 otherwise), the one used below;
-//  - getParam() reads both the query string AND the urlencoded POST body, so the
-//    form-encoded bodies below are equivalent to query params;
-//  - /write expects the RAW request body (not urlencoded, not JSON);
-//  - /upload reports a failed on-device write as {"success":false,"error":...};
-//    older firmware answered a bare 200 with no body no matter what, so an empty
-//    or non-JSON body on a 2xx is still taken as success.
+// TypeScript client for the web_file_browser HTTP API, kept with the component
+// that owns the routes; a dashboard injects its base URL and fetch wrapper
+// through createFileBrowserApi(). Every route answers one method (405
+// otherwise), form fields and query params are interchangeable on the device,
+// and /write takes the raw body.
 import type { FileEntry, StorageInfo, FileApiResponse } from './types'
 
 export type { FileEntry, StorageInfo, FileApiResponse } from './types'
@@ -85,12 +78,9 @@ export interface FileBrowserApi {
 }
 
 /**
- * Directories and byte total implied by a set of relative upload paths.
- *
- * Pure and DOM-free so both frontends share it; the browser-specific traversal
- * (webkitGetAsEntry / webkitRelativePath) stays in the apps. `folders` is deduped
- * and ordered parents-before-children, relative to the upload destination, so a
- * caller can iterate it straight into ensureDir()/mkdir().
+ * Directories and byte total implied by a set of relative upload paths. Pure and
+ * DOM-free so every frontend shares it; `folders` is deduped and ordered
+ * parents-before-children so a caller can feed it straight into mkdir().
  */
 export function planUpload(items: UploadItem[]): UploadPlan {
   const folders: string[] = []
@@ -122,10 +112,9 @@ function parseEnvelope(body: string): FileApiResponse | null {
   }
 }
 
-// The device reports every failure as the envelope AND a non-2xx status (400, or
-// 404 for a missing path), so the body has to be read before the status is judged
-// — otherwise the reason is discarded and the user gets a bare status code.
-// Returns the parsed body; null for an empty or non-JSON one.
+// Body before status: the device sends the error envelope with its 400/404, and
+// judging the status first would throw the reason away. null for an empty or
+// non-JSON body.
 async function readJson(res: Response, failMsg: string): Promise<unknown> {
   const data = parseEnvelope(await res.text())
   if (data !== null && !Array.isArray(data) && data.success === false) {
@@ -199,10 +188,8 @@ export function createFileBrowserApi(options: FileBrowserApiOptions): FileBrowse
         try {
           await api.mkdir(current)
         } catch (error) {
-          // Older firmware errors on an existing directory instead of being
-          // idempotent, and the parents normally DO exist — so an intermediate
-          // level may fail; a real problem shows up on the last level or on the
-          // upload that follows.
+          // Older firmware errors on an existing directory, and the parents
+          // normally do exist; a real problem shows up on the last level.
           if (i === parts.length - 1) throw error
         }
       }

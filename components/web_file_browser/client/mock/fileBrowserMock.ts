@@ -1,54 +1,16 @@
-// In-process mock for the web_file_browser HTTP API — the dev/QA/test double for
-// the contract in ../fileApi.ts + ../types.ts. Lives WITH the SDK so the mock,
-// the types and the client stay one unit and cannot drift apart; it replaces two
-// hand-rolled copies (the dashboard's and the standalone UI's vite.config.ts)
-// that had already drifted apart.
+// In-process mock of the web_file_browser HTTP API, the dev-server and unit-test
+// double for the contract in ../fileApi.ts and ../types.ts. Dependency-free:
+// seed data, a stateful dispatcher and a fetch adapter; dev-server glue lives
+// with each consumer (README, "client/").
 //
-// This file is the transport-agnostic CORE and stays dependency-free (client/ has
-// no package.json / node_modules): seed data + a stateful dispatcher + a fetch
-// adapter. The Vite dev-server glue is env-specific, so it lives in each
-// consumer's vite.config.ts and just wraps createFileBrowserMockStore():
+// File content is a BINARY STRING — one char per byte, charCodeAt() in 0..255 —
+// so `content.length` is the byte count and a PNG survives the round trip. A
+// transport hands handle() the body decoded as latin1, never utf8, and writes
+// rawDownload()'s bytes verbatim. Text crossing the API is UTF-8 on the wire.
 //
-//   const files = createFileBrowserMockStore({ apiBase: prefix })
-//   // Downloads are RAW bytes; handle() does NOT claim them, so try this first.
-//   if (path.startsWith(`${prefix}/download`)) {
-//     const bytes = files.rawDownload(path, search)
-//     if (bytes) { res.end(Buffer.from(bytes)) } else { send 404 }
-//     return
-//   }
-//   // Stall uploads so the progress bar and the cancel path are exercised.
-//   if (path.startsWith(`${prefix}/upload`)) await sleep(files.uploadDelayMs)
-//   const r = files.handle(method, path, search, binaryBody)
-//   if (r) sendJson(r.status, r.body); else sendJson(404, { success: false, error: 'Not Found' })
-//
-// ==== BINARY CONTRACT — every transport MUST match this ======================
-// File content lives in the store as a BINARY STRING: one JS char per byte, each
-// charCodeAt() in 0..255 (latin1). Nothing above 0xFF ever enters it, so
-// `content.length` IS the byte count and no TextEncoder sits in the data path.
-// A transport therefore has to:
-//
-//   1. BODY IN — decode the raw request bytes as latin1 and pass THAT to
-//      handle():  Buffer.concat(chunks).toString('latin1').
-//      Never 'utf8', and never `data += chunk` — that is a utf8 decode which
-//      also breaks when a multi-byte sequence straddles two chunks. A 145 B PNG
-//      arrived as 185 B and previewed broken until this was fixed.
-//   2. JSON OUT — JSON.stringify(result.body), written as UTF-8 (node's default
-//      for res.end(string)) with Content-Type: application/json. Endpoints that
-//      hand back text (/read) decode to real text here, so UTF-8 is correct.
-//   3. BYTES OUT — rawDownload() returns a Uint8Array of the exact stored bytes.
-//      Write it verbatim (res.end(Buffer.from(bytes))) as
-//      application/octet-stream. Never re-encode it, never .toString() it.
-//
-// Text crossing the API (seeds, /read, /write) is UTF-8: seeds are encoded on
-// the way in and /read decodes on the way out, so `used` and the listing sizes
-// are the TRUE byte counts for multi-byte text too — '°C' lists as 3 bytes, not
-// 2 chars.
-// ============================================================================
-//
-// Behaviour mirrors web_file_browser.cpp: routes dispatch on the URL path and
-// answer one method each (405 otherwise), getParam() reads the query string AND
-// an urlencoded POST body, /write takes the RAW body, /list and /info answer bare
-// objects, and everything else answers the {success,error|message} envelope.
+// Behaviour mirrors web_file_browser.cpp: exact route names, one method each
+// (405 otherwise), getParam() reads the query string and an urlencoded POST body,
+// /write takes the raw body, /list and /info answer bare objects.
 import type { FileEntry, StorageInfo, FileApiResponse } from '../types'
 
 // --- Constants ---------------------------------------------------------------
@@ -59,9 +21,8 @@ import type { FileEntry, StorageInfo, FileApiResponse } from '../types'
 export const SEED_MTIME = 1_700_000_000
 
 /**
- * An upload whose destination path contains this marker fails with the error
- * envelope, so the honest-status path (the backend used to answer 200 on a failed
- * on-device write) is exercisable from the UI: upload a file named `fail-me.txt`.
+ * An upload whose destination contains this marker fails with the error envelope,
+ * so the UI's failed-upload path is reachable: upload a file named `fail-me.txt`.
  */
 export const UPLOAD_FAIL_MARKER = 'fail-me'
 
@@ -69,9 +30,8 @@ const DEFAULT_TOTAL_BYTES = 4 * 1024 * 1024
 const DEFAULT_UPLOAD_DELAY_MS = 500
 
 /**
- * Baseline usage added to the seeded content's byte count. A mounted device's
- * filesystem is never empty, and without it the usage bar would be a hairline the
- * eye cannot check; `used` still tracks every write, upload and delete.
+ * Added to the seeded byte count: a real filesystem is never empty, and a hairline
+ * usage bar cannot be checked by eye. `used` still tracks every mutation.
  */
 const BASE_USED_BYTES = 1024 * 1024
 
@@ -79,8 +39,7 @@ const ENCODER = new TextEncoder()
 const DECODER = new TextDecoder()
 
 // --- Bytes <-> binary string -------------------------------------------------
-// The store's currency. Kept here rather than in the transports so both consumers
-// convert identically; see the BINARY CONTRACT above.
+// The store's currency, converted here so every consumer converts identically.
 
 /** Raw bytes as a binary string (one char per byte). Chunked: spread has a limit. */
 function bytesToBinary(bytes: Uint8Array): string {
@@ -109,9 +68,8 @@ function binaryToText(binary: string): string {
 
 // --- Seed --------------------------------------------------------------------
 /**
- * Seed filesystem, in creation order (readdir on the device returns creation
- * order, and `/list` preserves it). `content: null` marks a directory.
- * Typed content doubles as canonical example payloads for the editor view.
+ * Seed filesystem in creation order — what readdir() on the device returns and
+ * `/list` preserves. `content: null` marks a directory.
  */
 export const seedTree: ReadonlyArray<{ path: string; content: string | null }> = [
   { path: '/config', content: null },
@@ -160,9 +118,8 @@ export interface MockResult {
 
 export interface FileBrowserMockStore {
   /**
-   * Dispatch one API call. pathname is the FULL path incl. apiBase; returns null
-   * if not ours. `body` is the request body as a BINARY STRING (latin1, one char
-   * per byte) — see the BINARY CONTRACT at the top of this file.
+   * Dispatch one API call; null when the path is not ours. `pathname` includes
+   * apiBase and `body` is the request body as a binary string (latin1).
    */
   handle(method: string, pathname: string, search: URLSearchParams, body: string): MockResult | null
   /** Raw bytes for GET <apiBase>/download; null when the path is not a download or not found. */
@@ -190,11 +147,9 @@ interface MockNode {
 }
 
 // --- Path helpers ------------------------------------------------------------
-// Rebuild from segments, dropping empty ones (duplicate or trailing separators)
-// and "." ones — matching resolve_path_() in the C++ exactly, because /copy's
-// subtree guard compares paths as strings and a shape the mock canonicalises
-// differently is a bypass the dev server cannot reproduce. ".." is kept: it is
-// what makes a path invalid, so collapsing it would defeat isValidPath.
+// Rebuild from segments, dropping empty and "." ones, exactly like resolve_path_()
+// in the C++: /copy's subtree guard compares paths as strings. ".." stays, so
+// that isValidPath can still reject it.
 function normalize(path: string): string {
   const segments = path.split('/').filter((s) => s !== '' && s !== '.')
   return segments.length > 0 ? '/' + segments.join('/') : '/'
@@ -216,14 +171,9 @@ function nameOf(path: string): string {
 
 // --- Multipart ---------------------------------------------------------------
 /**
- * Pull the first file part out of a multipart/form-data body. The device streams
- * the part's bytes straight to fopen/fwrite, so the mock must land the REAL name
- * and the REAL content — a placeholder would make folder upload untestable.
- * Returns null for a body that is not multipart (then the caller treats the whole
- * body as the content).
- *
- * Body and content are binary strings; the delimiters and headers are ASCII, so
- * the same slicing works for a PNG as for a text file.
+ * The first file part of a multipart/form-data body, real name and real bytes —
+ * the device streams exactly those to fopen/fwrite, so a folder upload must land
+ * its real tree. null when the body is not multipart.
  */
 function parseMultipartFile(body: string): { filename: string; content: string } | null {
   if (!body.startsWith('--')) return null
@@ -329,10 +279,9 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
   }
 
   /**
-   * getParam() semantics: the device reads a parameter from the query string AND
-   * from an urlencoded POST body, so form fields and query params are
-   * interchangeable; the query wins. /write is the exception — its body is the
-   * raw file content — and /upload's body is multipart, not urlencoded.
+   * getParam() on the device reads the query string and an urlencoded POST body
+   * alike, the query winning. /write's body is the file and /upload's is
+   * multipart, so neither is a parameter source.
    */
   function readParams(endpoint: string, search: URLSearchParams, body: string): URLSearchParams {
     const params = new URLSearchParams(search)
@@ -399,9 +348,8 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
     if (!isValidPath(oldPath)) return err('Invalid source path')
     if (!isValidPath(newPath)) return err('Invalid destination path')
     if (!fs.has(oldPath)) return err('Source not found', 404)
-    // Checked BEFORE the destination-exists guard: old_path == new_path satisfies
-    // both, and copy-into-itself is the more useful diagnosis. Without this guard
-    // a recursive copy walks the tree it is growing.
+    // Before the destination-exists guard: old_path == new_path trips both, and
+    // copy-into-itself is the more useful diagnosis.
     if (newPath === oldPath || newPath.startsWith(childPrefix(oldPath))) return err('Cannot copy into itself')
     if (fs.has(newPath)) return err('Destination already exists')
     if (!isDir(parentOf(newPath))) return err('Failed to copy')
@@ -515,7 +463,7 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
 
   function rawDownload(pathname: string, search: URLSearchParams): Uint8Array | null {
     const endpoint = endpointOf(pathname)
-    if (endpoint === null || !endpoint.startsWith('/download')) return null
+    if (endpoint !== '/download') return null
     const raw = search.get('path')
     if (raw === null) return null
     const node = fs.get(normalize(raw))
@@ -533,14 +481,9 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
 
 // --- Transport: fetch adapter (programmatic / unit tests) --------------------
 /**
- * A fetch implementation backed by `store` — inject into createFileBrowserApi()
- * to exercise the SDK with no server:
- *   const store = createFileBrowserMockStore()
- *   const api = createFileBrowserApi({ base: '/files', fetchImpl: createMockFetch(store) })
- *
- * It answers immediately: `uploadDelayMs` is for the dev-server transport (the
- * progress/cancel path runs over XHR, which never reaches a FetchImpl anyway), so
- * stalling here would only make tests sleep.
+ * A fetch backed by `store`, for createFileBrowserApi({ fetchImpl }) with no
+ * server. Answers at once: `uploadDelayMs` is for the dev-server transport, and
+ * the progress path runs over XHR, which never reaches a FetchImpl anyway.
  */
 export function createMockFetch(store: FileBrowserMockStore): (url: string, init?: RequestInit) => Promise<Response> {
   return async (url, init) => {
@@ -570,12 +513,9 @@ export function createMockFetch(store: FileBrowserMockStore): (url: string, init
 }
 
 /**
- * Body of an outgoing request as a BINARY STRING — the store's currency, so a
- * File in a FormData round-trips byte for byte. FormData/Blob go through Response
- * so this file needs no DOM types (`as never` keeps BodyInit out of a node-only
- * build) and the store sees the same multipart bytes a browser would send; a
- * plain string body is UTF-8 encoded first, exactly as fetch() would put it on
- * the wire.
+ * Request body as a binary string. FormData and Blob go through Response, so
+ * the store sees the multipart bytes a browser would send without this file
+ * needing DOM types; a string body is UTF-8 encoded first, as fetch() does.
  */
 async function bodyToBinary(body: unknown): Promise<string> {
   if (body === undefined || body === null) return ''

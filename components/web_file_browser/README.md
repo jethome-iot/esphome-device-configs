@@ -95,3 +95,9 @@ types, and `client/mock/fileBrowserMock.ts` a dependency-free in-memory implemen
 same routes for a dev server or unit tests. They are the contract a browser client codes
 against and they live here so they change with the C++ that they mirror. Nothing in this
 repository builds or type-checks them yet.
+
+The mock keeps file bytes as binary strings, one character per byte, so a transport around it
+hands `handle()` the request body decoded as latin1 — never utf8 — and writes what
+`rawDownload()` returns verbatim. `createMockFetch()` does both; a dev server does the same by
+hand and answers `GET <prefix>/download` from `rawDownload()` before calling `handle()`, which
+does not claim it.
