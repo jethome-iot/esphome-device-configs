@@ -49,11 +49,10 @@ tests/
   The YAML only pulls the sources in and sets the `USE_*` defines.
 - `App` sizes its entity lists from the YAML and silently drops a registration past that. A new
   entity in the cases needs a matching declaration in the YAML.
-- An engine that subscribed to an entity has to outlive the process: the entity keeps a callback
-  into it. The `Storage` fixture keeps its engines for that reason; a test that only needs a
-  rule uses `build_rule()`, which never subscribes.
-- Nothing runs the scheduler, so a `set_timeout`, `set_interval` or `defer` never fires. The
-  seams are `schedule_delay()`, `tick()` and calling `on_startup()` yourself.
+- A component that subscribed to an entity has to outlive the process: the entity keeps a
+  callback into it. Keep such objects alive across tests instead of destroying them.
+- Nothing runs the scheduler, so a `set_timeout`, `set_interval` or `defer` never fires. A
+  component gives the tests a seam instead: a virtual they override, or a step they call.
 - Logger listeners exist only when the YAML asks for them: `test.yaml` carries
   `-DUSE_LOG_LISTENERS -DESPHOME_LOG_MAX_LISTENERS=1` so a suite can read what was logged.
 - An I2C component validates on the host only with an `i2c:` bus that names a `device:`;
