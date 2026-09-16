@@ -349,6 +349,35 @@ TEST_F(Storage, RulesRunThroughTheEntityCallback) {
   EXPECT_TRUE(e.relay1.state);
 }
 
+TEST_F(Storage, AnAnnouncedLevelIsNotAPress) {
+  write("input_press.json", PRESS_RELAY_1);
+  write(
+      "click.json",
+      R"({"id":2,"name":"Click","triggers":[{"source":"input","type":"click","object_id":"in_1"}],"actions":[{"source":"switch","type":"toggle","object_id":"relay_2"}]})");
+  boot();
+
+  // An inversion flip re-emits the input's state: no press, and no click half-way through.
+  engine->expect_level(&e.in1);
+  e.in1.publish_state(true);
+  EXPECT_EQ(e.relay1.writes, 0);
+  engine->ms = 100;
+  e.in1.publish_state(false);
+  EXPECT_EQ(e.relay2.writes, 0);
+
+  // The mark is spent: the next real edge is a press again.
+  e.in1.publish_state(true);
+  EXPECT_EQ(e.relay1.writes, 1);
+
+  // An input no rule subscribed to takes no mark.
+  engine->expect_level(&e.in2);
+  EXPECT_TRUE(
+      engine->add_automation(rule(
+          R"({"name":"In 2","triggers":[{"source":"input","type":"press","object_id":"in_2"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_2"}]})")) !=
+      0u);
+  e.in2.publish_state(true);
+  EXPECT_EQ(e.relay2.writes, 1);
+}
+
 TEST_F(Storage, TheApiEditsRulesAndTheirFiles) {
   boot();
   const uint32_t id = engine->add_automation(rule(

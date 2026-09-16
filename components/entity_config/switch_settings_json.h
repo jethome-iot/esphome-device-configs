@@ -142,14 +142,16 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
 
 #ifdef ENTITY_CONFIG_BINDINGS
   // Only the binding half, so a read-modify-write of restore_mode/inverted cannot reset it.
+  // The mode as a name, so an unknown one from a hand-edited file passes through an update of
+  // the input alone; apply_record_() warns about it and leaves the switch unbound.
   SwitchSettingsRecord *make_binding_record(switch_::Switch *switch_obj, const std::string &binding_input,
-                                            bindings::BindingMode binding_mode) {
+                                            const std::string &binding_mode) {
     if (switch_obj == nullptr)
       return nullptr;
     // Stored as chosen: a named input under mode none is inactive, not cleared.
     auto *record = this->find_or_create_(object_id_of(*switch_obj));
     record->binding_input = binding_input;
-    record->binding_mode = bindings::binding_mode_to_string(binding_mode);
+    record->binding_mode = binding_mode;
     this->mark_dirty();
     return record;
   }
@@ -195,13 +197,13 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     std::string binding_mode_name = has_mode_key ? std::string(mode_value.as<const char *>())
                                                  : (have_current ? current.binding_mode : std::string("none"));
 
-    bindings::BindingMode binding_mode = bindings::BindingMode::NONE;
     if (has_binding_keys) {
       // Only what changed is validated: a stored binding may name an entity this build lacks,
       // and echoing it back must not block edits to the rest of the record.
       const bool input_changed = !have_current || current.binding_input != binding_input;
       const bool mode_changed = !have_current || current.binding_mode != binding_mode_name;
-      if (!bindings::parse_binding_mode(binding_mode_name.c_str(), binding_mode) && mode_changed)
+      bindings::BindingMode parsed = bindings::BindingMode::NONE;
+      if (mode_changed && !bindings::parse_binding_mode(binding_mode_name.c_str(), parsed))
         return nullptr;
       if (input_changed && !binding_input.empty() && find_binary_sensor(fnv1_hash(binding_input)) == nullptr)
         return nullptr;
@@ -211,7 +213,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     auto *record = this->make_record(sw, restore_mode, inverted);
 #ifdef ENTITY_CONFIG_BINDINGS
     if (record != nullptr && has_binding_keys)
-      record = this->make_binding_record(sw, binding_input, binding_mode);
+      record = this->make_binding_record(sw, binding_input, binding_mode_name);
 #endif
     return record;
   }

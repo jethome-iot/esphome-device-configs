@@ -18,13 +18,22 @@ config_json_ns = cg.esphome_ns.namespace("config_json")
 ConfigJsonKeeper = config_json_ns.class_("ConfigJsonKeeper", cg.Component)
 SettingsBaseJson = config_json_ns.class_("SettingsBaseJson")
 
+
+def folder_name(value):
+    # One folder below the storage: a path would put the files, and the mkdir, elsewhere.
+    value = cv.string_strict(value)
+    if not value or "/" in value or "\\" in value or value in (".", ".."):
+        raise cv.Invalid("config_dir must be a single folder name")
+    return value
+
+
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(ConfigJsonKeeper),
         cv.Required(CONF_STORAGE): cv.use_id(
             filesystem_storage_abstract.FilesystemStorageAbstract
         ),
-        cv.Optional(CONF_CONFIG_DIR, default="config"): cv.string,
+        cv.Optional(CONF_CONFIG_DIR, default="config"): folder_name,
         cv.Optional(
             CONF_SAVE_DELAY, default="10s"
         ): cv.positive_time_period_milliseconds,

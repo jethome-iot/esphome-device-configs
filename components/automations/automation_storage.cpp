@@ -167,8 +167,11 @@ void AutomationStorage::subscribe_(const RuntimeAutomation &automation) {
       case SourceTrigger::INPUT:
         ensure_subscription(this->binary_sensor_subs_, this, trigger.binary_sensor,
                             [](Subscription<binary_sensor::BinarySensor> *sub) {
-                              sub->entity->add_on_state_callback(
-                                  [sub](bool state) { sub->engine->dispatch_binary_sensor_(sub->entity, state); });
+                              sub->entity->add_on_state_callback([sub](bool state) {
+                                const bool level = sub->level_only;
+                                sub->level_only = false;
+                                sub->engine->dispatch_binary_sensor_(sub->entity, state, level);
+                              });
                             });
         break;
 #endif
@@ -192,9 +195,16 @@ void AutomationStorage::subscribe_(const RuntimeAutomation &automation) {
   }
 }
 
-void AutomationStorage::dispatch_binary_sensor_(binary_sensor::BinarySensor *entity, bool state) {
+void AutomationStorage::expect_level(binary_sensor::BinarySensor *entity) {
+  for (const auto &sub : this->binary_sensor_subs_) {
+    if (sub->entity == entity)
+      sub->level_only = true;
+  }
+}
+
+void AutomationStorage::dispatch_binary_sensor_(binary_sensor::BinarySensor *entity, bool state, bool level) {
   for_each_rule(this->dispatching_, this->automations_,
-                [=](RuntimeAutomation &rule) { rule.on_binary_sensor(entity, state); });
+                [=](RuntimeAutomation &rule) { rule.on_binary_sensor(entity, state, level); });
 }
 
 void AutomationStorage::dispatch_switch_(switch_::Switch *entity, bool state) {

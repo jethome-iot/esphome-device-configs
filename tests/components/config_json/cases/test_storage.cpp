@@ -122,6 +122,16 @@ TEST_F(Storage, LoadsTheRecordsAndDropsOnlyTheBadOne) {
   EXPECT_EQ(settings.applied, (std::vector<std::string>{"sw_a", "sw_b"}));
 }
 
+TEST_F(Storage, TheLastOfTwoRecordsForOneEntityWins) {
+  write(R"({"version":1,"records":[{"source_name":"sw_a","level":1},{"source_name":"sw_b","level":2},)"
+        R"({"source_name":"sw_a","inverted":true,"level":3}]})");
+  boot();
+  EXPECT_EQ(settings.report(), "sw_a=1/3 sw_b=0/2");  // in the first one's place
+  EXPECT_TRUE(log().has(log().warnings, "Duplicate record for 'sw_a'"));
+  settings.apply();
+  EXPECT_EQ(settings.applied, (std::vector<std::string>{"sw_a", "sw_b"}));
+}
+
 TEST_F(Storage, LeavesADamagedFileAloneAndStartsFromDefaults) {
   struct Case {
     const char *name;

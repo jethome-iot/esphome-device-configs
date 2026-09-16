@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 import esphome.config_validation as cv
+import esphome.final_validate as fv
 from esphome import loader
 from esphome.const import KEY_CORE, KEY_TARGET_PLATFORM, PLATFORM_HOST
 from esphome.core import CORE
@@ -38,6 +39,29 @@ class Settings(unittest.TestCase):
     def test_an_unknown_type_is_refused(self):
         with self.assertRaisesRegex(cv.Invalid, "Unknown value 'uart'"):
             entity_config.CONFIG_SCHEMA({"settings": ["uart"]})
+
+
+class FinalValidate(unittest.TestCase):
+    def validate(self, settings, full_config):
+        token = fv.full_config.set(full_config)
+        try:
+            return entity_config.FINAL_VALIDATE_SCHEMA({"settings": settings})
+        finally:
+            fv.full_config.reset(token)
+
+    def test_an_enabled_type_needs_its_section(self):
+        self.validate(["switch", "binary_sensor"], {"switch": [], "binary_sensor": []})
+        with self.assertRaisesRegex(
+            cv.Invalid, "'switch' in 'settings' needs a 'switch:' section"
+        ):
+            self.validate(["switch", "binary_sensor"], {"binary_sensor": []})
+        with self.assertRaisesRegex(
+            cv.Invalid, "'binary_sensor' in 'settings' needs a 'binary_sensor:' section"
+        ):
+            self.validate(["switch", "binary_sensor"], {"switch": []})
+
+    def test_a_disabled_type_needs_nothing(self):
+        self.validate(["switch"], {"switch": []})
 
 
 if __name__ == "__main__":

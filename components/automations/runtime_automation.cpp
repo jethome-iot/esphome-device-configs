@@ -247,10 +247,15 @@ void RuntimeAutomation::stop() {
   this->runs_.clear();
 }
 
-void RuntimeAutomation::on_binary_sensor(binary_sensor::BinarySensor *entity, bool state) {
+void RuntimeAutomation::on_binary_sensor(binary_sensor::BinarySensor *entity, bool state, bool level) {
   for (auto &trigger : this->triggers_) {
     if (trigger.source != SourceTrigger::INPUT || trigger.binary_sensor != entity)
       continue;
+    if (level) {
+      // No edge to act on; a click in progress is over, its release will not come.
+      trigger.pressed = false;
+      continue;
+    }
     switch (trigger.input_type) {
       case TypesInputTrigger::PRESS:
         if (state)

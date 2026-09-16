@@ -77,7 +77,7 @@ class RuntimeAutomation {
   bool is_running() const { return !this->runs_.empty(); }
   void stop();
 
-  void on_binary_sensor(binary_sensor::BinarySensor *entity, bool state);
+  void on_binary_sensor(binary_sensor::BinarySensor *entity, bool state, bool level = false);
   void on_switch(switch_::Switch *entity, bool state);
   void on_sensor(sensor::Sensor *entity, float value);
   void on_time(const ESPTime &time);

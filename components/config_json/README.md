@@ -32,7 +32,7 @@ has to be named in `components:` or the auto-load fails.
 | Option       | Default  | Meaning                                                      |
 | ------------ | -------- | ------------------------------------------------------------ |
 | `storage`    |          | A `filesystem_storage_abstract` mount, such as `littlefs_storage` |
-| `config_dir` | `config` | Directory below the mount's base path, created at setup      |
+| `config_dir` | `config` | One folder below the mount's base path, created at setup     |
 | `save_delay` | `10s`    | Debounce: edits inside this window end in one write          |
 
 ## Files
@@ -40,7 +40,8 @@ has to be named in `components:` or the auto-load fails.
 One `<config_dir>/<key>.json` per settings type, `{"version": 1, "records": [...]}`, where the
 key is the type's own (`switch`, `binary_sensor`). They are plain files and can be edited on the
 partition. Unknown keys, in the document and in a record, are ignored; a record the type rejects
-is logged and dropped, the rest of the file still loads.
+is logged and dropped, the rest of the file still loads; of two records for the same entity the
+later one wins, with a warning.
 
 A file that is missing, empty, larger than 64 KiB or not parseable leaves the type at its
 compiled defaults and is left on disk untouched — nothing is dirty, so the boot writes nothing

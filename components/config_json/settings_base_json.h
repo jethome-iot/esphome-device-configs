@@ -57,11 +57,20 @@ template<typename Derived, typename TRecord> class SettingsBaseJsonTyped : publi
     JsonArray array = root["records"];
     for (JsonObject obj : array) {
       TRecord *record = new TRecord();  // NOLINT(cppcoreguidelines-owning-memory)
-      if (record->from_json(obj, version)) {
-        this->records_.push_back(record);
-      } else {
+      if (!record->from_json(obj, version)) {
         ESP_LOGW(Derived::TAG, "Failed to parse record");
         delete record;  // NOLINT(cppcoreguidelines-owning-memory)
+        continue;
+      }
+      // One record per entity: a later duplicate replaces the earlier one in place, so what
+      // apply() ends on and what an edit finds are the same record.
+      TRecord **slot = this->find_slot_(record->source_name());
+      if (slot != nullptr) {
+        ESP_LOGW(Derived::TAG, "Duplicate record for '%s', keeping the last one", record->source_name());
+        delete *slot;  // NOLINT(cppcoreguidelines-owning-memory)
+        *slot = record;
+      } else {
+        this->records_.push_back(record);
       }
     }
     ESP_LOGI(Derived::TAG, "Loaded %u records", static_cast<unsigned>(this->records_.size()));
@@ -110,6 +119,14 @@ template<typename Derived, typename TRecord> class SettingsBaseJsonTyped : publi
 
   static bool source_name_eq(const char *a, const char *b) { return std::strcmp(a, b) == 0; }
   static bool source_name_eq(const std::string &a, const char *b) { return a == b; }
+
+  TRecord **find_slot_(const char *source_name) {
+    for (auto &record : this->records_) {
+      if (record != nullptr && source_name_eq(record->source_name(), source_name))
+        return &record;
+    }
+    return nullptr;
+  }
 
   std::vector<TRecord *> records_;
 };

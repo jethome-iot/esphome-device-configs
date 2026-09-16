@@ -18,6 +18,9 @@
 #ifdef ENTITY_CONFIG_BINDINGS
 #include "esphome/components/bindings/bindings.h"
 #endif
+#ifdef USE_AUTOMATIONS
+#include "esphome/components/automations/automation_storage.h"
+#endif
 
 namespace esphome::entity_config {
 
@@ -179,10 +182,15 @@ class BinarySensorSettingsJson
       return;
     }
     auto *filter = this->filter_for_(sensor);
-#ifdef ENTITY_CONFIG_BINDINGS
     // The re-emitted state is the same contact seen the other way round, not an edge.
-    if (bindings::global_bindings_manager != nullptr && filter->has_raw() && filter->is_inverted() != record->inverted)
+    const bool reemits = filter->has_raw() && filter->is_inverted() != record->inverted;
+#ifdef ENTITY_CONFIG_BINDINGS
+    if (reemits && bindings::global_bindings_manager != nullptr)
       bindings::global_bindings_manager->expect_level(record->key());
+#endif
+#ifdef USE_AUTOMATIONS
+    if (reemits && esphome::global_automation_storage != nullptr)
+      esphome::global_automation_storage->expect_level(sensor);
 #endif
     filter->set_inverted(record->inverted);
     ESP_LOGD(TAG, "Applied settings to binary_sensor '%s'", record->source_name());

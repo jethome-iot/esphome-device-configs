@@ -66,8 +66,14 @@ class AutomationStorage : public Component {
   template<typename E> struct Subscription {
     AutomationStorage *engine;
     E *entity;
+    // The next state is a level, not an edge (expect_level()).
+    bool level_only{false};
   };
-  void dispatch_binary_sensor_(binary_sensor::BinarySensor *entity, bool state);
+  // The next state from this input is a level, not an edge: a flipped inversion re-emits the
+  // sensor's state, which conditions may read but press, release, change and click must not act
+  // on. Only an input a rule subscribed to takes the mark.
+  void expect_level(binary_sensor::BinarySensor *entity);
+  void dispatch_binary_sensor_(binary_sensor::BinarySensor *entity, bool state, bool level = false);
   void dispatch_switch_(switch_::Switch *entity, bool state);
   void dispatch_sensor_(sensor::Sensor *entity, float value);
 
