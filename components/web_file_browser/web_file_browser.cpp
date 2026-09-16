@@ -477,6 +477,7 @@ void WebFileBrowser::handle_download_request_(AsyncWebServerRequest *request) {
   std::string disposition = content_disposition(filename);
   httpd_resp_set_hdr(req, "Content-Disposition", disposition.c_str());
 
+  bool complete = true;
   while (true) {
     size_t read_bytes = fread(buffer.get(), 1, CHUNK_SIZE, file);
     if (read_bytes == 0) {
@@ -484,6 +485,7 @@ void WebFileBrowser::handle_download_request_(AsyncWebServerRequest *request) {
       // looping on feof() alone would spin here forever.
       if (ferror(file) != 0) {
         ESP_LOGE(TAG, "Failed to read '%s' while downloading", full_path.c_str());
+        complete = false;
       }
       break;
     }
@@ -495,8 +497,14 @@ void WebFileBrowser::handle_download_request_(AsyncWebServerRequest *request) {
     vTaskDelay(1);
   }
 
-  // Send empty chunk to signal end
-  httpd_resp_send_chunk(req, nullptr, 0);
+  if (complete) {
+    httpd_resp_send_chunk(req, nullptr, 0);
+  } else {
+    // A raw stream has no envelope to fail: leaving the chunked body unterminated
+    // and dropping the connection is the one way to keep a short file from
+    // arriving as a complete one.
+    httpd_sess_trigger_close(req->handle, httpd_req_to_sockfd(req));
+  }
 
   fclose(file);
 #else
