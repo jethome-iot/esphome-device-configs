@@ -607,9 +607,12 @@ void WebFileBrowser::handle_read_request_(AsyncWebServerRequest *request) {
     size_t read_bytes = fread(in, 1, READ_CHUNK, file);
     if (read_bytes == 0) {
       // A read error leaves feof() clear and the position indeterminate, so
-      // looping on feof() alone would spin here forever.
+      // looping on feof() alone would spin here forever. It also ends the body
+      // without its closing quote: an envelope that parses would hand the editor
+      // a short file to save back.
       if (ferror(file) != 0) {
         ESP_LOGE(TAG, "Failed to read '%s'", full_path.c_str());
+        sent = false;
       }
       break;
     }
@@ -625,8 +628,8 @@ void WebFileBrowser::handle_read_request_(AsyncWebServerRequest *request) {
     send_chunk("\"}", 2);
   }
 
-  // Ends the chunked response either way; a truncated body is all a client can
-  // be told once the first chunk has gone out.
+  // Ends the chunked response either way; an unparseable body is all a client
+  // can be told once the first chunk has gone out.
   httpd_resp_send_chunk(req, nullptr, 0);
 
   fclose(file);
