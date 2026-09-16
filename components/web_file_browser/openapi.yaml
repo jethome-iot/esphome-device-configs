@@ -195,7 +195,15 @@ paths:
         filename is a fallback. A zero-length part is an error (`No file
         received`) — use `/write` for an empty file.
       parameters:
-        - $ref: "#/components/parameters/PathQueryRequired"
+        - name: path
+          in: query
+          required: false
+          description: >-
+            Destination including the filename, relative to the mount; defaults to
+            the part's own filename. `..` is rejected.
+          schema:
+            type: string
+          example: /config/notes.json
       requestBody:
         required: true
         content:
@@ -224,6 +232,8 @@ paths:
         Recursive for a directory, but refuses the mount root and a tree deeper
         than eight levels (checked before anything is removed). Fields may also be
         passed in the query string.
+      parameters:
+        - $ref: "#/components/parameters/PathQuery"
       requestBody:
         $ref: "#/components/requestBodies/PathForm"
       responses:
@@ -244,6 +254,8 @@ paths:
       description: >-
         An existing directory is a success. Not recursive: create each parent
         level first. Fields may also be passed in the query string.
+      parameters:
+        - $ref: "#/components/parameters/PathQuery"
       requestBody:
         $ref: "#/components/requestBodies/PathForm"
       responses:
@@ -260,6 +272,9 @@ paths:
       operationId: renamePath
       summary: Rename or move a file or directory.
       description: Fields may also be passed in the query string.
+      parameters:
+        - $ref: "#/components/parameters/OldPathQuery"
+        - $ref: "#/components/parameters/NewPathQuery"
       requestBody:
         $ref: "#/components/requestBodies/OldNewForm"
       responses:
@@ -280,6 +295,9 @@ paths:
       description: >-
         Refuses to copy a path into its own subtree. Recursion is bounded at
         eight levels. Fields may also be passed in the query string.
+      parameters:
+        - $ref: "#/components/parameters/OldPathQuery"
+        - $ref: "#/components/parameters/NewPathQuery"
       requestBody:
         $ref: "#/components/requestBodies/OldNewForm"
       responses:
@@ -310,10 +328,38 @@ components:
       schema:
         type: string
       example: /notes.txt
+    PathQuery:
+      name: path
+      in: query
+      required: false
+      description: >-
+        The `path` form field passed in the query string instead; the body wins
+        when both carry it.
+      schema:
+        type: string
+    OldPathQuery:
+      name: old_path
+      in: query
+      required: false
+      description: >-
+        The `old_path` form field passed in the query string instead; the body
+        wins when both carry it.
+      schema:
+        type: string
+    NewPathQuery:
+      name: new_path
+      in: query
+      required: false
+      description: >-
+        The `new_path` form field passed in the query string instead; the body
+        wins when both carry it.
+      schema:
+        type: string
 
   requestBodies:
     PathForm:
-      required: true
+      description: The field as an urlencoded form; it may come from the query string instead.
+      required: false
       content:
         application/x-www-form-urlencoded:
           schema:
@@ -326,7 +372,8 @@ components:
           example:
             path: /logs
     OldNewForm:
-      required: true
+      description: The fields as an urlencoded form; each may come from the query string instead.
+      required: false
       content:
         application/x-www-form-urlencoded:
           schema:
