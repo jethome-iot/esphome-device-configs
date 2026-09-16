@@ -9,8 +9,8 @@
 // rawDownload()'s bytes verbatim. Text crossing the API is UTF-8 on the wire.
 //
 // Behaviour mirrors web_file_browser.cpp: exact route names, one method each
-// (405 otherwise), getParam() reads the query string and an urlencoded POST body,
-// /write takes the raw body, /list and /info answer bare objects.
+// (405 otherwise), getParam() reads an urlencoded POST body first and the query
+// string second, /write takes the raw body, /list and /info answer bare objects.
 import type { FileEntry, StorageInfo, FileApiResponse } from '../types'
 
 // --- Constants ---------------------------------------------------------------
@@ -119,9 +119,11 @@ export interface MockResult {
 export interface FileBrowserMockStore {
   /**
    * Dispatch one API call; null when the path is not ours. `pathname` includes
-   * apiBase and `body` is the request body as a binary string (latin1).
+   * apiBase, `body` is the request body as a binary string (latin1) and
+   * `contentType` its Content-Type, which /write needs to refuse a form-encoded
+   * or multipart body the way the device does.
    */
-  handle(method: string, pathname: string, search: URLSearchParams, body: string): MockResult | null
+  handle(method: string, pathname: string, search: URLSearchParams, body: string, contentType?: string): MockResult | null
   /** Raw bytes for GET <apiBase>/download; null when the path is not a download or not found. */
   rawDownload(pathname: string, search: URLSearchParams): Uint8Array | null
   /** Milliseconds a caller should stall before answering, so the progress UI is exercised. */
@@ -247,6 +249,20 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
     return out
   }
 
+  /** The device recurses at most this deep into a tree it deletes or copies. */
+  const MAX_DEPTH = 8
+
+  /** Whether a directory sits more than MAX_DEPTH levels below `path`. */
+  function tooDeep(path: string): boolean {
+    const prefix = childPrefix(path)
+    for (const [p, node] of fs) {
+      if (node.type === 'directory' && p.startsWith(prefix) && p.slice(prefix.length).split('/').length > MAX_DEPTH) {
+        return true
+      }
+    }
+    return false
+  }
+
   function usedBytes(): number {
     let used = BASE_USED_BYTES
     for (const node of fs.values()) used += sizeOf(node)
@@ -281,15 +297,15 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
   }
 
   /**
-   * getParam() on the device reads the query string and an urlencoded POST body
-   * alike, the query winning. /write's body is the file and /upload's is
+   * getParam() on the device searches an urlencoded POST body before the query
+   * string, so a body field wins. /write's body is the file and /upload's is
    * multipart, so neither is a parameter source.
    */
   function readParams(endpoint: string, search: URLSearchParams, body: string): URLSearchParams {
     const params = new URLSearchParams(search)
     if (!body || endpoint === '/write' || endpoint === '/upload') return params
     try {
-      for (const [k, v] of new URLSearchParams(body)) if (!params.has(k)) params.append(k, v)
+      for (const [k, v] of new URLSearchParams(body)) params.set(k, v)
     } catch {
       /* not urlencoded — nothing to merge */
     }
@@ -355,6 +371,8 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
     if (newPath === oldPath || newPath.startsWith(childPrefix(oldPath))) return err('Cannot copy into itself')
     if (fs.has(newPath)) return err('Destination already exists')
     if (!isDir(parentOf(newPath))) return err('Failed to copy')
+    // The device gives up past MAX_DEPTH and rolls the partial copy back.
+    if (isDir(oldPath) && tooDeep(oldPath)) return err('Failed to copy')
     copyTree(oldPath, newPath)
     return ok('Copied successfully')
   }
@@ -377,7 +395,13 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
     return ok('Renamed successfully')
   }
 
-  function handle(method: string, pathname: string, search: URLSearchParams, body: string): MockResult | null {
+  function handle(
+    method: string,
+    pathname: string,
+    search: URLSearchParams,
+    body: string,
+    contentType?: string
+  ): MockResult | null {
     const endpoint = endpointOf(pathname)
     if (endpoint === null) return null
     // Exact names and one method each, as on the device — otherwise the dev
@@ -429,6 +453,11 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
     if (endpoint === '/write') {
       if (path === null) return err('Missing path parameter')
       if (!isValidPath(path)) return err('Invalid path')
+      // On the device such a body goes to the form or multipart parser and never
+      // reaches the file, so it is refused rather than written as an empty file.
+      if (body && /x-www-form-urlencoded|multipart\/form-data/i.test(contentType ?? '')) {
+        return err('write takes a raw body, not form-encoded or multipart')
+      }
       if (isDir(path) || !isDir(parentOf(path))) return err('Failed to open file for writing')
       // The RAW body is the content — never urlencoded, never JSON. It arrives
       // already byte-per-char, so it is stored verbatim.
@@ -442,6 +471,8 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
       // An empty path normalises to the mount root; the device refuses to empty it.
       if (path === '/') return err('Cannot delete the mount root')
       if (!fs.has(path)) return err('File not found', 404)
+      // Measured before anything is removed, as on the device.
+      if (isDir(path) && tooDeep(path)) return err('Directory tree too deep to delete')
       deleteTree(path)
       return ok('Deleted successfully')
     }
@@ -505,7 +536,13 @@ export function createMockFetch(store: FileBrowserMockStore): (url: string, init
       })
     }
 
-    const result = store.handle(method, u.pathname, u.searchParams, await bodyToBinary(init?.body))
+    // fetch() would label a FormData body multipart on the wire; a string body
+    // carries whatever Content-Type the caller set.
+    const contentType =
+      typeof FormData !== 'undefined' && init?.body instanceof FormData
+        ? 'multipart/form-data'
+        : new Headers(init?.headers ?? {}).get('content-type') ?? undefined
+    const result = store.handle(method, u.pathname, u.searchParams, await bodyToBinary(init?.body), contentType)
     const { status, body } = result ?? { status: 404, body: { success: false, error: 'Not Found' } }
     return new Response(JSON.stringify(body), {
       status,
