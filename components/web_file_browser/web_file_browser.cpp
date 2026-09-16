@@ -2,6 +2,7 @@
 #include "json_escape.h"
 #include "esphome/core/log.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -299,11 +300,46 @@ void WebFileBrowser::handle_list_request_(AsyncWebServerRequest *request) {
     return;
   }
 
-  // Built whole before anything is sent. AsyncResponseStream buffers into a
-  // std::string and only reaches the wire at request->send(), so a readdir()
-  // failure can still be answered as an error envelope — and must be: a short
-  // array is valid JSON and the client cannot tell it from a complete listing.
-  std::string json = "[";
+  // Fixed buffer, not a string that grows per entry: the partition holds far more
+  // empty files than the heap holds JSON, and a failed allocation aborts the
+  // firmware rather than the request. Allocated before any header is set.
+  static const size_t OUT_CHUNK = 4096;
+  auto buffer = std::unique_ptr<char[]>(new (std::nothrow) char[OUT_CHUNK + 1]);
+  if (buffer == nullptr) {
+    ESP_LOGE(TAG, "Out of memory listing '%s'", full_path.c_str());
+    closedir(dir);
+    this->send_json_error_(request, "Out of memory", 500);
+    return;
+  }
+  char *out = buffer.get();
+
+  httpd_req_t *req = *request;
+  httpd_resp_set_type(req, "application/json");
+
+  size_t used = 0;
+  bool sent = true;
+  // Nothing reaches the wire until the buffer first overflows, so every listing
+  // that fits in it can still be answered with the error envelope.
+  bool streamed = false;
+
+  auto put = [&](const char *data, size_t len) {
+    while (sent && len > 0) {
+      size_t room = std::min(OUT_CHUNK - used, len);
+      memcpy(out + used, data, room);
+      used += room;
+      data += room;
+      len -= room;
+      if (used == OUT_CHUNK) {
+        sent = httpd_resp_send_chunk(req, out, used) == ESP_OK;
+        streamed = true;
+        used = 0;
+        // Yield to prevent watchdog timeout on large directories
+        vTaskDelay(1);
+      }
+    }
+  };
+
+  put("[", 1);
 
   bool first = true;
   struct dirent *entry;
@@ -311,7 +347,7 @@ void WebFileBrowser::handle_list_request_(AsyncWebServerRequest *request) {
   // Same readdir() caveat as the recursive helpers: nullptr means both
   // end-of-directory and read error, and only errno tells them apart.
   errno = 0;
-  while ((entry = readdir(dir)) != nullptr) {
+  while (sent && (entry = readdir(dir)) != nullptr) {
     // Skip . and ..
     if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
       errno = 0;
@@ -319,7 +355,7 @@ void WebFileBrowser::handle_list_request_(AsyncWebServerRequest *request) {
     }
 
     if (!first) {
-      json += ",";
+      put(",", 1);
     }
     first = false;
 
@@ -339,25 +375,50 @@ void WebFileBrowser::handle_list_request_(AsyncWebServerRequest *request) {
     char meta[128];
     snprintf(meta, sizeof(meta), R"(","type":"%s","size":%zu,"mtime":%lld})", is_dir ? "directory" : "file", size,
              static_cast<long long>(mtime));
-    json += R"({"name":")";
-    json += this->json_escape_(entry->d_name);
-    json += meta;
+    static const char NAME[] = R"({"name":")";
+    put(NAME, sizeof(NAME) - 1);
+    char esc[JSON_ESCAPE_MAX];
+    for (const char *c = entry->d_name; *c != '\0'; c++) {
+      put(esc, json_escape_char(esc, *c));
+    }
+    put(meta, strlen(meta));
+    // Last in the body: put() sends, and a socket call of its own sets errno.
     errno = 0;
   }
 
   int read_errno = errno;
   closedir(dir);
 
-  if (read_errno != 0) {
-    ESP_LOGE(TAG, "Failed to read directory '%s': errno=%d (%s)", full_path.c_str(), read_errno, strerror(read_errno));
-    this->send_json_error_(request, "Failed to read directory");
+  if (!sent) {
+    httpd_resp_send_chunk(req, nullptr, 0);
     return;
   }
 
-  json += "]";
-  // No embedded NUL to lose to strlen: json_escape_ turns control bytes into
-  // \u00XX and a directory entry cannot carry one anyway.
-  request->send(200, "application/json", json.c_str());
+  if (read_errno != 0) {
+    ESP_LOGE(TAG, "Failed to read directory '%s': errno=%d (%s)", full_path.c_str(), read_errno, strerror(read_errno));
+    if (!streamed) {
+      this->send_json_error_(request, "Failed to read directory");
+      return;
+    }
+    // Once a chunk has gone out the envelope cannot be retracted, so the array is
+    // left unclosed: an unparseable body beats a short listing that parses.
+    httpd_resp_send_chunk(req, nullptr, 0);
+    return;
+  }
+
+  put("]", 1);
+
+  if (!streamed) {
+    // No embedded NUL to lose to strlen: json_escape_char turns control bytes
+    // into \u00XX and a directory entry cannot carry one anyway.
+    out[used] = '\0';
+    request->send(200, "application/json", out);
+    return;
+  }
+  if (used > 0) {
+    httpd_resp_send_chunk(req, out, used);
+  }
+  httpd_resp_send_chunk(req, nullptr, 0);
 #else
   this->send_json_error_(request, "Not supported on this platform");
 #endif

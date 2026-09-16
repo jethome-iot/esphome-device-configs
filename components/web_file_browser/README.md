@@ -61,10 +61,12 @@ Fields are read from the query string and from an urlencoded body alike. Every r
 `list`, `info` and `download` answers `{"success": true, "message"}` or, with a 400 (404 for a
 missing path), `{"success": false, "error"}`.
 
-`read` and `download` stream in 4 KB chunks and never hold a file-sized buffer, so `read`'s
-1 MB ceiling is about the editor on the other end, not about the device's heap. `delete` and
-`copy` recurse at most eight directory levels — a deeper tree is an error, not a smashed web
-server stack.
+`list`, `read` and `download` stream through a fixed 4 KB buffer and never hold a
+response-sized one, so `read`'s 1 MB ceiling is about the editor on the other end, not about the
+device's heap. A listing too big for that buffer goes out in chunks, and a directory that fails
+to read partway through one ends the response with the array unclosed — an incomplete listing
+cannot be mistaken for a complete short one. `delete` and `copy` recurse at most eight directory
+levels — a deeper tree is an error, not a smashed web server stack.
 
 ```sh
 curl 'http://<device>/files/info'
