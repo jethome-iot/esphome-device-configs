@@ -355,6 +355,10 @@ void WebFileBrowser::handle_list_request_(AsyncWebServerRequest *request) {
       is_dir = S_ISDIR(st.st_mode);
       size = st.st_size;
       mtime = st.st_mtime;
+    } else {
+      // Listed anyway, as a file of unknown size: readdir() just said the name
+      // exists, and the name is what keeps a client from writing over it.
+      ESP_LOGW(TAG, "Failed to stat '%s': errno=%d (%s)", entry_path.c_str(), errno, strerror(errno));
     }
 
     // Room for the widest size_t and time_t the format can produce.
