@@ -1,0 +1,36 @@
+# Google Test binary for components/i2c_eeprom, built through esphome compile by
+# tests/run.py. Nothing declared here is set up: the tests drive the component
+# over a fake bus themselves. The i2c: block only lets the component validate on
+# the host; the device is never opened.
+esphome:
+  name: i2c-eeprom-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../../components
+    components: [i2c_eeprom]
+
+i2c:
+  - id: bus
+    device: /dev/i2c-0
+
+i2c_eeprom:
+  - id: eeprom
+    size: 64KB
+    address: 0x54

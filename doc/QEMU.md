@@ -144,6 +144,7 @@ I2C, so the SH1106 and the joystick expander have nothing to talk to.
 | The display and its keys, via `/panel` | ADC (`vin_meas`, `poe_voltage` — never sampled) |
 | Relays and inputs — state flips over REST and holds | 1-Wire: the bus reads as held low, the DS2484 scan finds nothing and no `Temp N` entity is created |
 | `PCB Temp` — QEMU's own TMP105 at `0x48`, a constant 25 °C | Wi-Fi and BT; Modbus sees an emulated UART with nothing on it |
+| | `jethome_board_info`: no EEPROM at `0x54`, so `i2c_eeprom` fails at setup and Info → Device info reads `--` throughout. QEMU does model one (`-device at24c-eeprom,bus=i2c0,address=0x54,rom-size=8192,drive=<id>`, `i2c0` being the bus the firmware drives); `scripts/qemu.sh` does not attach it |
 | Ethernet on 10.0.2.15, native API on 6053, OTA, outbound HTTPS | |
 | NVS and `preferences`; flash state survives restarts | |
 
