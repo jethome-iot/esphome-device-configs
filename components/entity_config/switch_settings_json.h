@@ -454,13 +454,19 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
       return;
     }
 
-    // Persistence switched on at run time starts saving from the next boot: the switch only
-    // creates its preference when it boots in a RESTORE_* mode.
     sw->set_restore_mode(record->restore_mode);
     sw->set_inverted(record->inverted);
-    // At boot the switch's own setup() drives the pin; later it has to be re-driven so a
-    // flipped `inverted` shows on the hardware.
     if (this->live_) {
+      // The switch makes its preference in setup() only, so a RESTORE_* mode chosen now would
+      // save nothing until the next boot: make it for the switch and store the state ourselves
+      // (publish_state() skips the save when the state does not change).
+      if (record->restore_mode & switch_::RESTORE_MODE_PERSISTENT_MASK) {
+        sw->get_initial_state();
+        auto pref = sw->make_entity_preference<bool>();
+        pref.save(&sw->state);
+      }
+      // At boot the switch's own setup() drives the pin; later it has to be re-driven so a
+      // flipped `inverted` shows on the hardware.
       if (sw->state) {
         sw->turn_on();
       } else {

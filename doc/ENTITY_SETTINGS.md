@@ -15,9 +15,7 @@ set themselves up.
 | Relay | `Binding` | `Disabled`, `Toggle`, `Follow` | `Toggle` flips the relay on each press of the input; `Follow` makes the relay copy the input, at boot too, so it wins over `Start mode` |
 | Input | `Inverted` | `No`, `Yes` | A closed contact is reported as Off; bindings see the input after this |
 
-`Start mode: Last` takes effect from the boot after next: the relay decides whether to keep a
-stored state when it sets itself up, before a mode changed at run time can be stored. The
-binding rules are in [components/bindings](../components/bindings/README.md).
+The binding rules are in [components/bindings](../components/bindings/README.md).
 
 ## Display menu
 
