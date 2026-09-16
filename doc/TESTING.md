@@ -27,7 +27,10 @@ tests/
       test.yaml             # host config: the component under test, its entities, the harness
       cases/                # the tests; common.h holds what they share
       test_schema.py        # the component's YAML schema, run with unittest by run.py
-    i2c_eeprom/             # the same layout, one suite per component
+    bindings/               # the same layout, one suite per component
+    config_json/
+    entity_config/
+    i2c_eeprom/
     jethome_board_info/
     web_automation_editor/
 ```

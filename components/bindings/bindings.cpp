@@ -110,7 +110,8 @@ void BindingsManager::set_binding(uint32_t output_key, uint32_t input_key, Bindi
   }
 
   this->ensure_listener_(sensor, input_key);
-  if (mode == BindingMode::FOLLOW && sensor->has_state())
+  // Before setup() the level is a boot level, and setup() drives those once.
+  if (this->ready_ && mode == BindingMode::FOLLOW && sensor->has_state())
     this->drive_output_(output_key, sensor->state);
 }
 

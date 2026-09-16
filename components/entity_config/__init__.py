@@ -8,6 +8,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 import esphome.final_validate as fv
 from esphome.components import config_json
+from esphome.const import PLATFORM_ESP32, PLATFORM_HOST
 
 CODEOWNERS = ["@jethome-iot"]
 DEPENDENCIES = ["config_json"]
@@ -78,7 +79,7 @@ CONFIG_SCHEMA = cv.All(
             for _, apply_key, cls in SETTINGS_CLASSES.values()
         }
     ),
-    cv.only_on_esp32,
+    cv.only_on([PLATFORM_ESP32, PLATFORM_HOST]),  # host: the test suite
     _validate,
 )
 

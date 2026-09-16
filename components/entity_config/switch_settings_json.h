@@ -454,6 +454,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
       return;
     }
 
+    const bool flipped = sw->is_inverted() != record->inverted;
     sw->set_restore_mode(record->restore_mode);
     sw->set_inverted(record->inverted);
     if (this->live_) {
@@ -467,10 +468,12 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
       }
       // At boot the switch's own setup() drives the pin; later it has to be re-driven so a
       // flipped `inverted` shows on the hardware.
-      if (sw->state) {
-        sw->turn_on();
-      } else {
-        sw->turn_off();
+      if (flipped) {
+        if (sw->state) {
+          sw->turn_on();
+        } else {
+          sw->turn_off();
+        }
       }
     }
 
