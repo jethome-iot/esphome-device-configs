@@ -88,6 +88,7 @@ class RuntimeAutomation {
  protected:
   struct Run {
     uint8_t seq;
+    uint32_t token;  // unique for the rule's life: a run restarted from inside its own action is a new one
     size_t cursor{0};
     const std::vector<CompiledAction> *branch;
     bool has_state{false};
@@ -97,9 +98,9 @@ class RuntimeAutomation {
   RuntimeAutomation(AutomationStorage *engine, const AutomationConfig &config);
 
   void fire_(bool has_state, bool state);
-  void step_(uint8_t seq);
-  Run *find_run_(uint8_t seq);
-  void finish_run_(uint8_t seq);
+  void step_(uint32_t token);
+  Run *find_run_(uint32_t token);
+  void finish_run_(uint32_t token);
   uint8_t free_seq_() const;
   uint32_t timer_id_(uint8_t seq) const { return (this->id_ << 4) | seq; }
   void play_switch_(const CompiledAction &action, const Run &run);
@@ -114,6 +115,10 @@ class RuntimeAutomation {
   std::vector<CompiledAction> then_;
   std::vector<CompiledAction> else_;
   std::vector<std::unique_ptr<Run>> runs_;
+  uint32_t next_token_{0};
 };
+
+// Timer ids carry the run sequence in their low 4 bits, so a rule id has to fit the rest.
+static constexpr uint32_t MAX_RULE_ID = (1u << 28) - 1;
 
 }  // namespace esphome::automations

@@ -228,6 +228,45 @@ TEST_F(Runtime, DestroyingARuleCancelsItsDelay) {
 
 namespace esphome::automations::testing {
 
+TEST_F(Runtime, RestartFromInsideItsOwnActionStartsOver) {
+  auto rule = build_rule(
+      engine,
+      R"({"name":"Self","mode":"restart","triggers":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"},{"source":"delay","delay_ms":500},
+                 {"source":"switch","type":"turn_on","object_id":"relay_2"}]})");
+  ASSERT_NE(rule, nullptr);
+  // Turning relay 1 on is the rule's own trigger, as a subscription would deliver it.
+  e.relay1.on_change = [&]() { rule->on_switch(&e.relay1, true); };
+  rule->on_switch(&e.relay1, true);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay2.writes, 0);  // the restarted run is still in its delay
+  ASSERT_EQ(engine.delays.size(), 1u);
+  EXPECT_TRUE(rule->is_running());
+  engine.fire_next();
+  EXPECT_EQ(e.relay2.writes, 1);
+  EXPECT_FALSE(rule->is_running());
+}
+
+TEST_F(Runtime, ConditionThresholdsReadLikeTheTriggers) {
+  ConditionConfig above_config, range_config;
+  ASSERT_TRUE(
+      load(R"({"type":"temperature","object_id":"temp","temperature_type":"above","threshold":25})", above_config));
+  ASSERT_TRUE(load(
+      R"({"type":"temperature","object_id":"temp","temperature_type":"range","min_threshold":10,"max_threshold":20})",
+      range_config));
+  CompiledCondition above, range;
+  ASSERT_TRUE(compile_condition(above_config, above));
+  ASSERT_TRUE(compile_condition(range_config, range));
+  e.temp.state = 25;
+  EXPECT_FALSE(above.check());
+  e.temp.state = 25.5;
+  EXPECT_TRUE(above.check());
+  e.temp.state = 20;
+  EXPECT_TRUE(range.check());
+  e.temp.state = 20.5;
+  EXPECT_FALSE(range.check());
+}
+
 TEST_F(Runtime, ClickIsAPressBetween200And1000Ms) {
   auto rule = build_rule(engine, R"({"name":"Click","triggers":[{"source":"input","type":"click","object_id":"in_1"}],
       "actions":[{"source":"switch","type":"toggle","object_id":"relay_1"}]})");

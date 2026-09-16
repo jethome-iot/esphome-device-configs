@@ -112,6 +112,7 @@ struct AutomationConfig {
   ConditionConfig condition;            // Optional condition - check type != None
   std::vector<ActionConfig> actions;
   std::vector<ActionConfig> else_actions;  // Actions to execute when condition is false
+  std::string file;                        // the file the rule sits in, set by the storage; not part of the format
 
   void serialize(JsonObject &obj) const;
   bool deserialize(const JsonObject &obj);

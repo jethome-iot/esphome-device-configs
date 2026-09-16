@@ -21,6 +21,7 @@ namespace automations {
 
 // Loads the rules from <storage>/<folder>/*.json, runs them, and edits them at run time.
 // The mutators may be called from any task: they execute on the loop task and block the caller.
+// From inside a rule's own action they refuse, the rule being driven would go away under it.
 class AutomationStorage : public Component {
  public:
   AutomationStorage();
@@ -83,9 +84,9 @@ class AutomationStorage : public Component {
   bool ensure_directory_exists_(const std::string &path);
   bool load_automation_from_file_(const std::string &filepath);
   bool save_automation_to_file_(const AutomationConfig &config);
-  bool delete_automation_file_(const std::string &name);
+  bool delete_file_(const std::string &filename);
   std::vector<bool> resolve_duplicates_();
-  void normalize_filenames_(const std::vector<std::string> &filenames, const std::vector<bool> &changed);
+  void normalize_filenames_(const std::vector<bool> &changed);
   int find_automation_index_by_id_(uint32_t id);
 
   void print_trigger_info_(const TriggerConfig &trigger, int indent);
@@ -99,6 +100,8 @@ class AutomationStorage : public Component {
   time::RealTimeClock *rtc_{nullptr};
   optional<ESPTime> last_check_;
   void *loop_task_{nullptr};
+  // Above zero while a rule is being driven: an edit then would pull the rule from under it.
+  uint8_t dispatching_{0};
 
   // One subscription per entity, kept for the life of the device.
   std::vector<std::unique_ptr<Subscription<binary_sensor::BinarySensor>>> binary_sensor_subs_;

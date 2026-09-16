@@ -11,8 +11,9 @@ API; the file format and the API are in
 - **Triggers** (any of them fires the rule): input press / release / click / state change,
   switch turn on / off / state change, temperature above / below / in range (fires on the
   crossing, once), cron (six fields, seconds first), startup.
-- **Condition** (optional): input is on/off, temperature above / below / in range, and
-  `and` / `or` / `xor` groups of those, nested. When false, the `else` actions run.
+- **Condition** (optional): input is on/off, temperature above / below / in range (`above` and
+  `below` are strict, a range includes both ends), and `and` / `or` / `xor` groups of those,
+  nested. When false, the `else` actions run.
 - **Actions**: switch turn on / off / toggle / follow (copies the state the trigger
   carried, optionally inverted), delay.
 - **Mode**: `single` ignores a trigger while the rule is running, `restart` starts over,

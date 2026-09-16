@@ -17,15 +17,20 @@
 
 namespace esphome::automations::testing {
 
-// Remembers every write; the state follows it like an optimistic template switch.
+// Remembers every write; the state follows it like an optimistic template switch. on_change
+// runs when the state actually changes, where a YAML on_turn_on would.
 class FakeSwitch : public switch_::Switch {
  public:
   int writes{0};
+  std::function<void()> on_change;
 
  protected:
   void write_state(bool state) override {
+    const bool changed = state != this->state;
     this->writes++;
     this->publish_state(state);
+    if (changed && this->on_change)
+      this->on_change();
   }
 };
 
@@ -120,6 +125,7 @@ inline void reset_entities() {
   e.in2.publish_state(false);
   e.temp.state = NAN;
   for (FakeSwitch *sw : {&e.relay1, &e.relay2}) {
+    sw->on_change = nullptr;
     sw->publish_state(false);
     sw->writes = 0;
   }

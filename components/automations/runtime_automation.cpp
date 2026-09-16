@@ -28,10 +28,11 @@ bool CompiledCondition::check() const {
       const float value = this->sensor->state;
       if (std::isnan(value))
         return false;
+      // Same reading as the triggers: above and below are strict, a range includes its ends.
       if (std::isnan(this->min))
-        return value <= this->max;
+        return value < this->max;
       if (std::isnan(this->max))
-        return value >= this->min;
+        return value > this->min;
       return this->min <= value && value <= this->max;
 #else
       return false;
@@ -356,30 +357,33 @@ void RuntimeAutomation::fire_(bool has_state, bool state) {
   ESP_LOGD(TAG, "Automation '%s' is triggered", this->name_.c_str());
   auto run = std::make_unique<Run>();
   run->seq = this->free_seq_();
+  run->token = ++this->next_token_;
   run->has_state = has_state;
   run->state = state;
   run->branch = &this->then_;
   if (this->condition_ != nullptr && !this->condition_->check())
     run->branch = &this->else_;
-  const uint8_t seq = run->seq;
+  const uint32_t token = run->token;
   this->runs_.push_back(std::move(run));
-  this->step_(seq);
+  this->step_(token);
 }
 
-void RuntimeAutomation::step_(uint8_t seq) {
-  Run *run = this->find_run_(seq);
+void RuntimeAutomation::step_(uint32_t token) {
+  Run *run = this->find_run_(token);
   while (run != nullptr && run->cursor < run->branch->size()) {
     const CompiledAction &action = (*run->branch)[run->cursor++];
     if (action.source == SourceAction::DELAY) {
-      this->engine_->schedule_delay(this->timer_id_(seq), action.delay_ms, [this, seq]() { this->step_(seq); });
+      this->engine_->schedule_delay(this->timer_id_(run->seq), action.delay_ms,
+                                    [this, token]() { this->step_(token); });
       return;
     }
     this->play_switch_(action, *run);
-    // The switch callback may have restarted or stopped this automation.
-    run = this->find_run_(seq);
+    // The switch callback may have restarted or stopped this automation: then this run is gone
+    // and whatever replaced it is already being stepped.
+    run = this->find_run_(token);
   }
   if (run != nullptr)
-    this->finish_run_(seq);
+    this->finish_run_(token);
 }
 
 void RuntimeAutomation::play_switch_(const CompiledAction &action, const Run &run) {
@@ -411,17 +415,17 @@ void RuntimeAutomation::play_switch_(const CompiledAction &action, const Run &ru
 #endif
 }
 
-RuntimeAutomation::Run *RuntimeAutomation::find_run_(uint8_t seq) {
+RuntimeAutomation::Run *RuntimeAutomation::find_run_(uint32_t token) {
   for (const auto &run : this->runs_) {
-    if (run->seq == seq)
+    if (run->token == token)
       return run.get();
   }
   return nullptr;
 }
 
-void RuntimeAutomation::finish_run_(uint8_t seq) {
+void RuntimeAutomation::finish_run_(uint32_t token) {
   for (auto it = this->runs_.begin(); it != this->runs_.end(); ++it) {
-    if ((*it)->seq == seq) {
+    if ((*it)->token == token) {
       this->runs_.erase(it);
       return;
     }

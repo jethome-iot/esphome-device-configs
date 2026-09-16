@@ -56,6 +56,11 @@ static std::string truncate_utf8(const std::string &text, size_t limit) {
   return text.substr(0, cut);
 }
 
+static bool file_exists(const std::string &path) {
+  struct stat st;
+  return stat(path.c_str(), &st) == 0;
+}
+
 AutomationStorage::AutomationStorage() { global_automation_storage = this; }
 
 uint32_t AutomationStorage::now_ms() const { return millis(); }
@@ -63,6 +68,17 @@ uint32_t AutomationStorage::now_ms() const { return millis(); }
 ESPTime AutomationStorage::clock_now_() { return this->rtc_->now(); }
 
 // --- Setup and runtime ---
+
+// Drives every built rule, and marks the engine as dispatching for as long as it does.
+template<typename F>
+static void for_each_rule(uint8_t &depth, std::vector<std::unique_ptr<RuntimeAutomation>> &rules, F call) {
+  depth++;
+  for (size_t i = 0; i < rules.size(); i++) {
+    if (rules[i] != nullptr)
+      call(*rules[i]);
+  }
+  depth--;
+}
 
 void AutomationStorage::setup() {
 #ifdef USE_ESP32
@@ -81,8 +97,6 @@ void AutomationStorage::setup() {
     return;
   }
 
-  // The file each loaded config came from, index-aligned with config_storage_.
-  std::vector<std::string> loaded_files;
   DIR *dir = opendir(folder_path.c_str());
   if (dir != nullptr) {
     struct dirent *entry;
@@ -97,13 +111,12 @@ void AutomationStorage::setup() {
       }
       // setup() runs before the loop feeds the watchdog.
       App.feed_wdt();
-      if (this->load_automation_from_file_(folder_path + "/" + filename))
-        loaded_files.push_back(filename);
+      this->load_automation_from_file_(folder_path + "/" + filename);
     }
     closedir(dir);
   }
 
-  this->normalize_filenames_(loaded_files, this->resolve_duplicates_());
+  this->normalize_filenames_(this->resolve_duplicates_());
   this->config_storage_.sort_by_id();
 
   for (const auto &config : this->config_storage_.get_all_configs()) {
@@ -122,10 +135,7 @@ void AutomationStorage::setup() {
   }
   // Startup triggers fire once every component has finished setting up.
   this->defer([this]() {
-    for (const auto &automation : this->automations_) {
-      if (automation != nullptr)
-        automation->on_startup();
-    }
+    for_each_rule(this->dispatching_, this->automations_, [](RuntimeAutomation &rule) { rule.on_startup(); });
   });
 }
 
@@ -176,24 +186,18 @@ void AutomationStorage::subscribe_(const RuntimeAutomation &automation) {
 }
 
 void AutomationStorage::dispatch_binary_sensor_(binary_sensor::BinarySensor *entity, bool state) {
-  for (size_t i = 0; i < this->automations_.size(); i++) {
-    if (this->automations_[i] != nullptr)
-      this->automations_[i]->on_binary_sensor(entity, state);
-  }
+  for_each_rule(this->dispatching_, this->automations_,
+                [=](RuntimeAutomation &rule) { rule.on_binary_sensor(entity, state); });
 }
 
 void AutomationStorage::dispatch_switch_(switch_::Switch *entity, bool state) {
-  for (size_t i = 0; i < this->automations_.size(); i++) {
-    if (this->automations_[i] != nullptr)
-      this->automations_[i]->on_switch(entity, state);
-  }
+  for_each_rule(this->dispatching_, this->automations_,
+                [=](RuntimeAutomation &rule) { rule.on_switch(entity, state); });
 }
 
 void AutomationStorage::dispatch_sensor_(sensor::Sensor *entity, float value) {
-  for (size_t i = 0; i < this->automations_.size(); i++) {
-    if (this->automations_[i] != nullptr)
-      this->automations_[i]->on_sensor(entity, value);
-  }
+  for_each_rule(this->dispatching_, this->automations_,
+                [=](RuntimeAutomation &rule) { rule.on_sensor(entity, value); });
 }
 
 // Same catch-up and clock-jump handling as the core cron trigger, for all rules at once.
@@ -202,10 +206,7 @@ void AutomationStorage::check_time_() {
   if (!now.is_valid())
     return;
   auto fire = [this](const ESPTime &time) {
-    for (size_t i = 0; i < this->automations_.size(); i++) {
-      if (this->automations_[i] != nullptr)
-        this->automations_[i]->on_time(time);
-    }
+    for_each_rule(this->dispatching_, this->automations_, [&time](RuntimeAutomation &rule) { rule.on_time(time); });
   };
   if (this->last_check_.has_value()) {
     ESPTime &last = *this->last_check_;
@@ -243,23 +244,32 @@ bool AutomationStorage::run_on_loop_(std::function<bool()> &&job) {
     struct LoopJob {
       std::function<bool()> fn;
       std::atomic<bool> done{false};
+      std::atomic<bool> abandoned{false};
       bool result{false};
     };
     auto shared = std::make_shared<LoopJob>();
     shared->fn = std::move(job);
     this->defer([shared]() {
+      // The caller has reported failure by now: doing the edit anyway would contradict it.
+      if (shared->abandoned)
+        return;
       shared->result = shared->fn();
       shared->done = true;
     });
     for (uint32_t waited = 0; !shared->done && waited < LOOP_JOB_TIMEOUT_MS; waited += 2)
       vTaskDelay(pdMS_TO_TICKS(2));
     if (!shared->done) {
+      shared->abandoned = true;
       ESP_LOGE(TAG, "Loop task did not run the request in time");
       return false;
     }
     return shared->result;
   }
 #endif
+  if (this->dispatching_ > 0) {
+    ESP_LOGE(TAG, "Rules cannot be edited from inside a rule's own action");
+    return false;
+  }
   return job();
 }
 
@@ -305,14 +315,20 @@ uint32_t AutomationStorage::add_automation_(const AutomationConfig &config) {
              static_cast<unsigned>(MAX_AUTOMATIONS));
     return 0;
   }
-  // The name decides the file, so a name in use would replace that file.
+  // The name decides the file, so a name in use would replace that file. A file nothing loaded
+  // is one the loader refused, and it is kept for its author.
   if (this->is_name_taken(config.name)) {
     ESP_LOGE(TAG, "Refusing to add '%s': that name is already in use", config.name.c_str());
+    return 0;
+  }
+  if (file_exists(this->get_filepath_for_name_(config.name))) {
+    ESP_LOGE(TAG, "Refusing to add '%s': a file the loader refused has that name", config.name.c_str());
     return 0;
   }
 
   AutomationConfig cfg = config;
   cfg.id = this->allocate_id_();
+  cfg.file = this->sanitize_filename_(cfg.name) + ".json";
 
   auto automation = RuntimeAutomation::build(this, cfg);
   if (automation == nullptr) {
@@ -346,7 +362,17 @@ bool AutomationStorage::update_automation_(uint32_t id, const AutomationConfig &
 
   AutomationConfig cfg = new_config;
   cfg.id = id;
-  const std::string old_name = this->config_storage_.get_all_configs()[index].name;
+  const AutomationConfig &current = this->config_storage_.get_all_configs()[index];
+  const std::string old_file = current.file;
+  // A rule keeps its file unless its name changes: the file may not be the canonical one when
+  // that name was taken by a file the loader refused.
+  const bool renaming = this->sanitize_filename_(current.name) != this->sanitize_filename_(cfg.name);
+  cfg.file = renaming ? this->sanitize_filename_(cfg.name) + ".json" : old_file;
+  if (renaming && file_exists(this->get_filepath_for_name_(cfg.name))) {
+    ESP_LOGE(TAG, "Refusing to rename automation id=%u to '%s': a file the loader refused has that name",
+             static_cast<unsigned>(id), cfg.name.c_str());
+    return false;
+  }
 
   auto automation = RuntimeAutomation::build(this, cfg);
   if (automation == nullptr) {
@@ -361,13 +387,8 @@ bool AutomationStorage::update_automation_(uint32_t id, const AutomationConfig &
   // Write the new file before dropping the old one.
   if (!this->save_automation_to_file_(cfg)) {
     ESP_LOGW(TAG, "Automation '%s' id=%u updated but not saved", cfg.name.c_str(), static_cast<unsigned>(id));
-  } else if (this->sanitize_filename_(old_name) != this->sanitize_filename_(cfg.name)) {
-    // The old name can belong to another automation whose file was hand-renamed.
-    if (this->is_name_taken(old_name, id)) {
-      ESP_LOGW(TAG, "Not deleting '%s': it belongs to another automation", old_name.c_str());
-    } else {
-      this->delete_automation_file_(old_name);
-    }
+  } else if (renaming) {
+    this->delete_file_(old_file);
   }
   ESP_LOGD(TAG, "Updated automation '%s' id=%u", cfg.name.c_str(), static_cast<unsigned>(id));
   return true;
@@ -380,11 +401,13 @@ bool AutomationStorage::remove_automation_(uint32_t id) {
     return false;
   }
   auto index = static_cast<size_t>(found);
-  const std::string name = this->config_storage_.get_all_configs()[index].name;
+  const AutomationConfig &config = this->config_storage_.get_all_configs()[index];
+  const std::string name = config.name;
+  const std::string file = config.file;
 
   this->automations_.erase(this->automations_.begin() + found);
   this->config_storage_.remove_config(static_cast<uint8_t>(index));
-  this->delete_automation_file_(name);
+  this->delete_file_(file);
   ESP_LOGD(TAG, "Removed automation '%s' id=%u", name.c_str(), static_cast<unsigned>(id));
   return true;
 }
@@ -417,7 +440,7 @@ bool AutomationStorage::set_enable_automation_(uint32_t id, bool enable, bool *p
 void AutomationStorage::reset_all_() {
   this->automations_.clear();
   for (const auto &config : this->config_storage_.get_all_configs())
-    this->delete_automation_file_(config.name);
+    this->delete_file_(config.file);
   this->config_storage_.clear();
   this->next_id_ = 1;
   ESP_LOGD(TAG, "All automations removed");
@@ -540,6 +563,7 @@ bool AutomationStorage::load_automation_from_file_(const std::string &filepath) 
     ESP_LOGE(TAG, "Failed to deserialize automation from %s", filepath.c_str());
     return false;
   }
+  config.file = filepath.substr(filepath.rfind('/') + 1);
   this->config_storage_.add_config(config);
   ESP_LOGD(TAG, "Loaded automation '%s' from %s", config.name.c_str(), filepath.c_str());
   return true;
@@ -603,7 +627,8 @@ static bool entity_missing(const AutomationConfig &config) {
 }
 
 bool AutomationStorage::save_automation_to_file_(const AutomationConfig &config) {
-  std::string filepath = this->get_filepath_for_name_(config.name);
+  const std::string filepath =
+      config.file.empty() ? this->get_filepath_for_name_(config.name) : this->get_folder_path_() + "/" + config.file;
 
   if (entity_missing(config)) {
     ESP_LOGW(TAG, "Not writing '%s': an entity it names is missing and the reference would be lost",
@@ -622,15 +647,19 @@ bool AutomationStorage::save_automation_to_file_(const AutomationConfig &config)
   std::unique_ptr<char[]> json_buffer(new char[json_size + 1]);
   serializeJson(doc, json_buffer.get(), json_size + 1);
 
-  FILE *file = fopen(filepath.c_str(), "w");
+  // Written beside the target and renamed over it: a write that fails or loses power leaves
+  // the old file whole. The close is where a full filesystem shows up.
+  const std::string tmp = filepath + ".tmp";
+  FILE *file = fopen(tmp.c_str(), "w");
   if (file == nullptr) {
-    ESP_LOGE(TAG, "Failed to open '%s' for writing", filepath.c_str());
+    ESP_LOGE(TAG, "Failed to open '%s' for writing", tmp.c_str());
     return false;
   }
-  size_t written = fwrite(json_buffer.get(), 1, json_size, file);
-  fclose(file);
-  if (written != json_size) {
-    ESP_LOGE(TAG, "Failed to write complete data to '%s'", filepath.c_str());
+  const size_t written = fwrite(json_buffer.get(), 1, json_size, file);
+  const bool closed = fclose(file) == 0;
+  if (written != json_size || !closed || rename(tmp.c_str(), filepath.c_str()) != 0) {
+    ESP_LOGE(TAG, "Failed to write '%s'", filepath.c_str());
+    remove(tmp.c_str());
     return false;
   }
   ESP_LOGD(TAG, "Saved automation '%s' to '%s' (%u bytes)", config.name.c_str(), filepath.c_str(),
@@ -638,8 +667,8 @@ bool AutomationStorage::save_automation_to_file_(const AutomationConfig &config)
   return true;
 }
 
-bool AutomationStorage::delete_automation_file_(const std::string &name) {
-  std::string filepath = this->get_filepath_for_name_(name);
+bool AutomationStorage::delete_file_(const std::string &filename) {
+  const std::string filepath = this->get_folder_path_() + "/" + filename;
   if (remove(filepath.c_str()) == 0) {
     ESP_LOGD(TAG, "Deleted automation file: %s", filepath.c_str());
     return true;
@@ -656,7 +685,7 @@ std::vector<bool> AutomationStorage::resolve_duplicates_() {
   uint32_t max_id = 0;
   for (size_t i = 0; i < this->config_storage_.size(); i++) {
     AutomationConfig *cfg = this->config_storage_.get_config(static_cast<uint8_t>(i));
-    if (cfg != nullptr && cfg->id > max_id)
+    if (cfg != nullptr && cfg->id > max_id && cfg->id <= MAX_RULE_ID)
       max_id = cfg->id;
   }
   this->next_id_ = max_id + 1;
@@ -667,7 +696,7 @@ std::vector<bool> AutomationStorage::resolve_duplicates_() {
     AutomationConfig *cfg = this->config_storage_.get_config(static_cast<uint8_t>(i));
     if (cfg == nullptr)
       continue;
-    if (cfg->id == 0 || std::find(seen.begin(), seen.end(), cfg->id) != seen.end()) {
+    if (cfg->id == 0 || cfg->id > MAX_RULE_ID || std::find(seen.begin(), seen.end(), cfg->id) != seen.end()) {
       uint32_t fresh = this->allocate_id_();
       ESP_LOGD(TAG, "Automation '%s': id %u -> %u", cfg->name.c_str(), static_cast<unsigned>(cfg->id),
                static_cast<unsigned>(fresh));
@@ -702,18 +731,21 @@ std::vector<bool> AutomationStorage::resolve_duplicates_() {
 
 // Put each config in the file its name maps to. Two rounds so a config squatting on another's
 // canonical filename vacates before the owner writes there.
-void AutomationStorage::normalize_filenames_(const std::vector<std::string> &filenames,
-                                             const std::vector<bool> &changed) {
-  size_t count = std::min(filenames.size(), static_cast<size_t>(this->config_storage_.size()));
+void AutomationStorage::normalize_filenames_(const std::vector<bool> &changed) {
+  const size_t count = this->config_storage_.size();
   if (count == 0)
     return;
 
   std::vector<std::string> canonical;
-  canonical.reserve(this->config_storage_.size());
-  for (const auto &config : this->config_storage_.get_all_configs())
+  std::vector<std::string> loaded;
+  canonical.reserve(count);
+  loaded.reserve(count);
+  for (const auto &config : this->config_storage_.get_all_configs()) {
     canonical.push_back(this->sanitize_filename_(config.name) + ".json");
+    loaded.push_back(config.file);
+  }
 
-  std::string folder_path = this->get_folder_path_();
+  const std::string folder_path = this->get_folder_path_();
   std::vector<std::string> occupied;
 
   for (int round = 0; round < 2; round++) {
@@ -722,12 +754,13 @@ void AutomationStorage::normalize_filenames_(const std::vector<std::string> &fil
       if (cfg == nullptr)
         continue;
 
-      bool moved = filenames[i] != canonical[i];
-      bool restamped = i < changed.size() && changed[i];
+      const std::string from = cfg->file;
+      const bool moved = from != canonical[i];
+      const bool restamped = i < changed.size() && changed[i];
       if (!moved && !restamped)
         continue;
 
-      bool vacating = moved && std::find(canonical.begin(), canonical.end(), filenames[i]) != canonical.end();
+      const bool vacating = moved && std::find(canonical.begin(), canonical.end(), from) != canonical.end();
       if (vacating != (round == 0))
         continue;
 
@@ -735,22 +768,31 @@ void AutomationStorage::normalize_filenames_(const std::vector<std::string> &fil
         ESP_LOGW(TAG, "Not writing '%s': another automation is still stored there", canonical[i].c_str());
         continue;
       }
+      // A target nothing loaded from is a file the loader refused: it stays, the rule stays put.
+      if (moved && std::find(loaded.begin(), loaded.end(), canonical[i]) == loaded.end() &&
+          file_exists(folder_path + "/" + canonical[i])) {
+        ESP_LOGW(TAG, "Not writing '%s': a file the loader refused is there; leaving '%s' in place",
+                 canonical[i].c_str(), from.c_str());
+        continue;
+      }
 
       App.feed_wdt();
+      cfg->file = canonical[i];
       if (!this->save_automation_to_file_(*cfg)) {
-        ESP_LOGW(TAG, "Could not write '%s'; leaving '%s' in place", canonical[i].c_str(), filenames[i].c_str());
+        cfg->file = from;
+        ESP_LOGW(TAG, "Could not write '%s'; leaving '%s' in place", canonical[i].c_str(), from.c_str());
         if (moved)
-          occupied.push_back(filenames[i]);
+          occupied.push_back(from);
         continue;
       }
 
       if (!moved)
         continue;
-      ESP_LOGD(TAG, "Renamed automation file for '%s': %s -> %s", cfg->name.c_str(), filenames[i].c_str(),
+      ESP_LOGD(TAG, "Renamed automation file for '%s': %s -> %s", cfg->name.c_str(), from.c_str(),
                canonical[i].c_str());
       if (vacating)
         continue;
-      std::string filepath = folder_path + "/" + filenames[i];
+      const std::string filepath = folder_path + "/" + from;
       if (remove(filepath.c_str()) != 0) {
         // Blank it: loaded again it would be renamed to a fresh copy every boot.
         ESP_LOGW(TAG, "Failed to delete stale automation file: %s", filepath.c_str());

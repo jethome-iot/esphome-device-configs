@@ -68,7 +68,8 @@ one, picks `actions` or `else_actions`.
 | `cron_preset`       | The editor's own note about the form it offered: `daily`, `hourly`, `every_n_minutes`, `weekly`, `monthly`, `custom`. The engine never reads it, and writes it back only when the file had one |
 
 A `click` is a press between 200 and 1000 ms. A temperature trigger fires on the crossing and
-arms again when the value goes back. `follow` drives its target from the state the trigger
+arms again when the value goes back. `above` and `below` are strict, a range includes both ends,
+for triggers and conditions alike. `follow` drives its target from the state the trigger
 carried. `cron` is six fields, seconds first — `"*/2 * * * * *"`, `"0 30 6,18 1 * *"` — with
 `*`, `*/N`, `X-Y`, `X-Y/N` and lists; a field that matches nothing is rejected.
 
@@ -100,7 +101,8 @@ the entity back and the next boot repairs the file as usual.
 ## From lambdas
 
 `esphome::global_automation_storage` is the component. The mutators may be called from any task;
-they run on the loop task and block the caller.
+they run on the loop task and block the caller. From inside a rule's own action (a switch
+callback, say) they refuse and return false.
 
 - `add_automation(config)`: the assigned id, `0` on failure
 - `update_automation(id, config)`, `remove_automation(id)`

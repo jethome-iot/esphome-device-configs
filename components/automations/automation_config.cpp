@@ -31,6 +31,10 @@ static bool safe_parse_uint8(const std::string &str, uint8_t &out) {
 template<typename E>
 static bool parse_enum(const JsonObject &obj, const char *key, E (*from_string)(const std::string &),
                        const char *(*to_string)(E), E &out) {
+  if (obj[key].isNull()) {
+    ESP_LOGE(TAG, "Missing %s", key);
+    return false;
+  }
   const std::string text = obj[key].as<std::string>();
   out = from_string(text);
   if (text != "none" && text == to_string(out))

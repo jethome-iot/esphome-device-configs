@@ -98,7 +98,8 @@ class Storage : public ::testing::Test {
   void TearDown() override {
     for (FakeEngine *e : this->engines)
       e->forget();
-    for (const std::string &name : this->files())
+    chmod(this->rules().c_str(), 0755);
+    for (const std::string &name : this->files(true))
       remove((this->rules() + "/" + name).c_str());
     rmdir(this->rules().c_str());
     rmdir(this->backend.path.c_str());
@@ -134,14 +135,17 @@ class Storage : public ::testing::Test {
     text << in.rdbuf();
     return text.str();
   }
-  std::vector<std::string> files() const {
+  // The rule files, or with `all` everything in the folder.
+  std::vector<std::string> files(bool all = false) const {
     std::vector<std::string> names;
     DIR *dir = opendir(this->rules().c_str());
     if (dir == nullptr)
       return names;
     while (struct dirent *entry = readdir(dir)) {
       std::string name = entry->d_name;
-      if (name.size() > 5 && name.substr(name.size() - 5) == ".json")
+      if (name == "." || name == "..")
+        continue;
+      if (all || (name.size() > 5 && name.substr(name.size() - 5) == ".json"))
         names.push_back(name);
     }
     closedir(dir);
@@ -262,7 +266,7 @@ TEST_F(Storage, LoadsTheFolderAndRepairsIt) {
   EXPECT_TRUE(log().has(log().errors, "Unknown type 'pres'"));
   EXPECT_TRUE(log().has(log().errors, "Unknown type 'tugle'"));
   EXPECT_TRUE(log().has(log().errors, "Unknown type 'tempratur'"));
-  EXPECT_TRUE(log().has(log().errors, "Unknown temperature_type 'null'"));
+  EXPECT_TRUE(log().has(log().errors, "Missing temperature_type"));
   EXPECT_TRUE(log().has(log().errors, "Condition 'and' has no members"));
   EXPECT_TRUE(log().has(log().errors, "Invalid cron '99 * * * * *'"));
   EXPECT_TRUE(log().has(log().errors, "JSON parse error in"));
@@ -321,7 +325,6 @@ TEST_F(Storage, NamesCollideByTheFileTheyMapTo) {
 
 TEST_F(Storage, FilenamesAreSanitized) {
   boot();
-  const std::string cyrillic(60, '\0');
   std::string thirty;
   for (int i = 0; i < 30; i++)
     thirty += "ф";  // two bytes each
@@ -342,7 +345,6 @@ TEST_F(Storage, FilenamesAreSanitized) {
 TEST_F(Storage, RulesRunThroughTheEntityCallback) {
   write("input_press.json", PRESS_RELAY_1);
   boot();
-  e.in1.publish_state(false);  // the first state an input publishes raises no callback
   e.in1.publish_state(true);
   EXPECT_TRUE(e.relay1.state);
 }
@@ -440,6 +442,81 @@ TEST_F(Storage, ASecondBootReadsBackTheFolder) {
   engine->reset_all();
   EXPECT_EQ(engine->configs().size(), 0u);
   EXPECT_TRUE(files().empty());
+}
+
+TEST_F(Storage, ARefusedFileIsNeverWrittenOver) {
+  const char *refused =
+      R"({"name":"Porch","triggers":[{"source":"input","type":"pres","object_id":"in_1"}],"actions":[]})";
+  write("porch.json", refused);
+  write("x.json", R"({"id":1,"name":"Porch","triggers":[{"source":"startup"}]})");
+  boot();
+  EXPECT_EQ(engine->configs().size(), 1u);
+  EXPECT_EQ(read("porch.json"), refused);
+  EXPECT_NE(read("x.json").find(R"("name":"Porch")"), std::string::npos);
+  EXPECT_TRUE(log().has(log().warnings, "Not writing 'porch.json': a file the loader refused is there"));
+
+  // The API is held to the same rule, for a new name and for a rename.
+  EXPECT_TRUE(engine->remove_automation(1));
+  EXPECT_EQ(engine->add_automation(rule(R"({"name":"porch","triggers":[{"source":"startup"}]})")), 0u);
+  EXPECT_TRUE(log().has(log().errors, "Refusing to add 'porch': a file the loader refused has that name"));
+  const uint32_t other = engine->add_automation(rule(R"({"name":"Other","triggers":[{"source":"startup"}]})"));
+  ASSERT_NE(other, 0u);
+  EXPECT_FALSE(engine->update_automation(other, rule(R"({"name":"Porch","triggers":[{"source":"startup"}]})")));
+  EXPECT_EQ(read("porch.json"), refused);
+  EXPECT_EQ(files(), (std::vector<std::string>{"other.json", "porch.json"}));
+}
+
+TEST_F(Storage, SavesLeaveNoHalfWrittenFile) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(R"({"name":"Whole","triggers":[{"source":"startup"}]})")), 0u);
+  EXPECT_EQ(files(true), (std::vector<std::string>{"whole.json"}));
+}
+
+TEST_F(Storage, AnUnwritableFolderKeepsTheRuleLiveButUnsaved) {
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root writes anywhere";
+  boot();
+  chmod(rules().c_str(), 0500);
+  const uint32_t id = engine->add_automation(rule(
+      R"({"name":"Volatile","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})"));
+  ASSERT_NE(id, 0u);
+  EXPECT_TRUE(log().has(log().warnings, "created but not saved"));
+  press(e.in1);
+  EXPECT_TRUE(e.relay1.state);
+  chmod(rules().c_str(), 0755);
+  EXPECT_TRUE(files(true).empty());
+  reboot();
+  EXPECT_EQ(engine->configs().size(), 0u);
+}
+
+TEST_F(Storage, AnIdTooLargeForATimerIsRestamped) {
+  write("big.json", R"({"id":300000000,"name":"Big","triggers":[{"source":"startup"}]})");
+  boot();
+  EXPECT_EQ(id_of("Big"), 1u);
+  EXPECT_NE(read("big.json").find(R"("id":1,)"), std::string::npos);
+}
+
+TEST_F(Storage, StartupRulesFireOnceTheEngineIsUp) {
+  write(
+      "boot.json",
+      R"({"id":1,"name":"Boot","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})");
+  boot();
+  engine->rule(0)->on_startup();  // what setup() defers until every component is up
+  EXPECT_TRUE(e.relay1.state);
+}
+
+TEST_F(Storage, RulesCannotBeEditedFromInsideTheirOwnAction) {
+  write("input_press.json", PRESS_RELAY_1);
+  boot();
+  bool removed = true;
+  e.relay1.on_change = [&]() { removed = engine->remove_automation(1); };
+  press(e.in1);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_FALSE(removed);
+  EXPECT_EQ(engine->configs().size(), 1u);
+  EXPECT_TRUE(log().has(log().errors, "Rules cannot be edited from inside a rule's own action"));
+  // Free again once the dispatch has returned.
+  EXPECT_TRUE(engine->remove_automation(1));
 }
 
 TEST_F(Storage, StopsAt255Rules) {
