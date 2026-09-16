@@ -132,6 +132,13 @@ void WebFileBrowser::handleUpload(AsyncWebServerRequest *request, const std::str
     return;
   }
 
+  // canHandle() claims the whole prefix, so the reader offers us the parts of a
+  // multipart POST to any route; only /upload may open a file for them.
+  const Route *route = route_for(this->url_(request), this->url_prefix_);
+  if (route == nullptr || route->id != RouteId::UPLOAD) {
+    return;
+  }
+
   this->upload_seen_ = true;
 
   // The multipart reader announces a new file with an empty chunk and then
@@ -234,7 +241,8 @@ void WebFileBrowser::handleUpload(AsyncWebServerRequest *request, const std::str
 // be up to 1 MB and buffering it would not fit next to the rest of the heap.
 void WebFileBrowser::handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
 #ifdef USE_ESP32
-  if (!this->url_(request).starts_with(this->url_prefix_ + "/write"))
+  const Route *route = route_for(this->url_(request), this->url_prefix_);
+  if (route == nullptr || route->id != RouteId::WRITE)
     return;
   if (index == 0) {
     this->write_seen_ = true;
