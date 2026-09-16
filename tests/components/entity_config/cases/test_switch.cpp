@@ -17,12 +17,15 @@ TEST(SwitchRecord, RoundTripsThroughJsonAndDefaultsTheRest) {
   EXPECT_EQ(dump(record), R"({"source_name":"relay_1","restore_mode":"ALWAYS_ON","inverted":true,)"
                           R"("binding_input":"input_2","binding_mode":"follow"})");
 
+  // A field left out, or named wrongly, is marked so apply() takes the compiled value.
   SwitchSettingsRecord sparse;
   EXPECT_TRUE(load(R"({"source_name":"relay_2","restore_mode":"NO_SUCH_MODE"})", sparse));
-  EXPECT_EQ(sparse.restore_mode, switch_::SWITCH_RESTORE_DEFAULT_OFF);
-  EXPECT_FALSE(sparse.inverted);
+  EXPECT_FALSE(sparse.has_restore_mode);
+  EXPECT_FALSE(sparse.has_inverted);
   EXPECT_EQ(sparse.binding_input, "");
   EXPECT_EQ(sparse.binding_mode, "none");
+  EXPECT_TRUE(record.has_restore_mode);
+  EXPECT_TRUE(record.has_inverted);
 
   SwitchSettingsRecord nameless;
   EXPECT_FALSE(load(R"({"restore_mode":"ALWAYS_ON"})", nameless));
@@ -30,10 +33,15 @@ TEST(SwitchRecord, RoundTripsThroughJsonAndDefaultsTheRest) {
 }
 
 TEST(RestoreModeNames, EveryModeHasANameAndBack) {
-  for (const auto &entry : RESTORE_MODE_NAMES)
-    EXPECT_EQ(parse_restore_mode(restore_mode_to_string(entry.mode)), entry.mode);
-  EXPECT_EQ(parse_restore_mode(nullptr), switch_::SWITCH_RESTORE_DEFAULT_OFF);
-  EXPECT_EQ(parse_restore_mode("bogus"), switch_::SWITCH_RESTORE_DEFAULT_OFF);
+  for (const auto &entry : RESTORE_MODE_NAMES) {
+    switch_::SwitchRestoreMode mode = switch_::SWITCH_RESTORE_DISABLED;
+    EXPECT_TRUE(parse_restore_mode(restore_mode_to_string(entry.mode), mode));
+    EXPECT_EQ(mode, entry.mode);
+  }
+  switch_::SwitchRestoreMode mode = switch_::SWITCH_ALWAYS_ON;
+  EXPECT_FALSE(parse_restore_mode(nullptr, mode));
+  EXPECT_FALSE(parse_restore_mode("bogus", mode));
+  EXPECT_EQ(mode, switch_::SWITCH_ALWAYS_ON);  // untouched
 }
 
 class SwitchSettings : public ::testing::Test {
@@ -77,6 +85,25 @@ TEST_F(SwitchSettings, AppliesTheStoredRecordsAtBootWithoutDrivingThePins) {
   EXPECT_EQ(e.relay2.restore_mode, switch_::SWITCH_RESTORE_DEFAULT_OFF);
   EXPECT_TRUE(LogCapture::instance().has("Switch not found for source_name 'no_such_relay'"));
   EXPECT_FALSE(settings.is_dirty());
+}
+
+TEST_F(SwitchSettings, ASparseRecordKeepsTheCompiledValuesAndTakesThemOver) {
+  // A hand-written record that only binds: start mode and inversion stay as compiled.
+  e.relay2.restore_mode = switch_::SWITCH_ALWAYS_ON;
+  e.relay2.set_inverted(true);
+  auto *record = stored(R"({"source_name":"relay_2","binding_input":"input_1","binding_mode":"toggle"})");
+  auto *odd = stored(R"({"source_name":"relay_1","restore_mode":"SOMETIMES"})");
+  settings.apply();
+  EXPECT_EQ(e.relay2.restore_mode, switch_::SWITCH_ALWAYS_ON);
+  EXPECT_TRUE(e.relay2.is_inverted());
+  EXPECT_EQ(record->restore_mode, switch_::SWITCH_ALWAYS_ON);  // filled in, so the file says it too
+  EXPECT_TRUE(record->inverted);
+  EXPECT_TRUE(record->has_restore_mode);
+  EXPECT_EQ(e.relay1.restore_mode, switch_::SWITCH_RESTORE_DEFAULT_OFF);
+  EXPECT_EQ(odd->restore_mode, switch_::SWITCH_RESTORE_DEFAULT_OFF);
+  EXPECT_TRUE(LogCapture::instance().has("Unknown restore_mode 'SOMETIMES'"));
+  EXPECT_EQ(dump(*record), R"({"source_name":"relay_2","restore_mode":"ALWAYS_ON","inverted":true,)"
+                           R"("binding_input":"input_1","binding_mode":"toggle"})");
 }
 
 TEST_F(SwitchSettings, DescribesEveryFieldAsAListOfOptions) {

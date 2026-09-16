@@ -43,14 +43,17 @@ inline const char *restore_mode_to_string(switch_::SwitchRestoreMode mode) {
   return "RESTORE_DEFAULT_OFF";
 }
 
-inline switch_::SwitchRestoreMode parse_restore_mode(const char *name) {
-  if (name != nullptr) {
-    for (const auto &entry : RESTORE_MODE_NAMES) {
-      if (strcmp(entry.name, name) == 0)
-        return entry.mode;
+// False on an unknown name, leaving `mode` untouched.
+inline bool parse_restore_mode(const char *name, switch_::SwitchRestoreMode &mode) {
+  if (name == nullptr)
+    return false;
+  for (const auto &entry : RESTORE_MODE_NAMES) {
+    if (strcmp(entry.name, name) == 0) {
+      mode = entry.mode;
+      return true;
     }
   }
-  return switch_::SWITCH_RESTORE_DEFAULT_OFF;
+  return false;
 }
 
 // What the display menu offers, in this order; write_settings_meta reuses it.
@@ -85,6 +88,10 @@ struct SwitchSettingsRecord {
   // Plain strings, so a build without the bindings component round-trips them.
   std::string binding_input;
   std::string binding_mode{"none"};
+  // False for a field the file left out (or named wrongly): the switch keeps its compiled value,
+  // which apply fills in here so the record is complete from then on.
+  bool has_restore_mode = true;
+  bool has_inverted = true;
 
   const char *source_name() const { return this->source_name_.c_str(); }
   uint32_t key() const { return fnv1_hash(this->source_name_); }
@@ -104,7 +111,13 @@ struct SwitchSettingsRecord {
     if (src_name == nullptr)
       return false;
     this->source_name_ = src_name;
-    this->restore_mode = parse_restore_mode(obj["restore_mode"] | "RESTORE_DEFAULT_OFF");
+    this->has_restore_mode =
+        obj["restore_mode"].is<const char *>() && parse_restore_mode(obj["restore_mode"], this->restore_mode);
+    if (obj["restore_mode"].is<const char *>() && !this->has_restore_mode) {
+      ESP_LOGW("entity_config.switch", "Unknown restore_mode '%s' for '%s', keeping the compiled one",
+               obj["restore_mode"].as<const char *>(), src_name);
+    }
+    this->has_inverted = obj["inverted"].is<bool>();
     this->inverted = obj["inverted"] | false;
     this->binding_input = obj["binding_input"] | "";
     this->binding_mode = obj["binding_mode"] | "none";
@@ -177,8 +190,11 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
       return nullptr;
 
     JsonObject settings = obj["settings"];
-    const bool inverted = settings["inverted"] | false;
-    const auto restore_mode = parse_restore_mode(settings["restore_mode"] | "ALWAYS_OFF");
+    const SwitchSettingsRecord effective = this->effective_(sw);
+    const bool inverted = settings["inverted"] | effective.inverted;
+    auto restore_mode = effective.restore_mode;
+    if (!settings["restore_mode"].isNull() && !parse_restore_mode(settings["restore_mode"] | "", restore_mode))
+      return nullptr;
 
 #ifdef ENTITY_CONFIG_BINDINGS
     // Each key is independently optional; absent means "leave that half alone".
@@ -456,6 +472,15 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
       return;
     }
 
+    // A field the file left out means the compiled value; the record takes it over.
+    if (!record->has_restore_mode) {
+      record->restore_mode = sw->restore_mode;
+      record->has_restore_mode = true;
+    }
+    if (!record->has_inverted) {
+      record->inverted = sw->is_inverted();
+      record->has_inverted = true;
+    }
     const bool flipped = sw->is_inverted() != record->inverted;
     sw->set_restore_mode(record->restore_mode);
     sw->set_inverted(record->inverted);

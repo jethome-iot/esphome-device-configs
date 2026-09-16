@@ -36,7 +36,7 @@ entity_config:
 
 | Type            | Record key | Fields | Applied |
 | --------------- | ---------- | ------ | ------- |
-| `switch`        | object_id  | `restore_mode`, `inverted`, `binding_input`, `binding_mode` | At `HARDWARE + 1`, before the switch's own setup. A `RESTORE_*` mode chosen at run time stores the current state at once, since the switch itself makes its preference only in setup. |
+| `switch`        | object_id  | `restore_mode`, `inverted`, `binding_input`, `binding_mode`; a field a record leaves out, or names wrongly, keeps the switch's compiled value | At `HARDWARE + 1`, before the switch's own setup. A `RESTORE_*` mode chosen at run time stores the current state at once, since the switch itself makes its preference only in setup. |
 | `binary_sensor` | object_id  | `inverted` | A filter appended to the end of the sensor's chain; a flip re-emits the last raw level, so it shows without waiting for an edge. |
 
 `binding_input` and `binding_mode` round-trip as plain strings; they do nothing without the
