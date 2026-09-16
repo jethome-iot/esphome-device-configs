@@ -85,6 +85,8 @@ class WebFileBrowser : public AsyncWebHandler, public Component {
   bool is_valid_path_(const std::string &path) const;
   // depth bounds the recursion: both run on the 4352-byte esp_http_server task
   // stack, where a deep enough tree would smash it instead of failing the request.
+  // tree_too_deep_ applies the same bound without deleting, ahead of a delete.
+  bool tree_too_deep_(const std::string &path, unsigned depth = 0) const;
   bool delete_recursive_(const std::string &path, unsigned depth = 0);
   bool copy_file_(const std::string &src, const std::string &dst);
   bool copy_recursive_(const std::string &src, const std::string &dst, unsigned depth = 0);

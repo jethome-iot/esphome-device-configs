@@ -23,8 +23,9 @@ namespace web_file_browser {
 static const char *const TAG = "web_file_browser";
 
 // How deep delete/copy may recurse. Both run on the 4352-byte esp_http_server
-// task stack, where a deeper tree would smash it instead of failing the request;
-// mkdir has no such limit, so a deeper tree is an error, not a partial delete.
+// task stack, where a deeper tree would smash it instead of failing the request.
+// mkdir has no such limit, so delete measures the tree first: an error, not a
+// partial delete.
 static const unsigned MAX_RECURSION_DEPTH = 8;
 
 void WebFileBrowser::setup() {
@@ -719,6 +720,10 @@ void WebFileBrowser::handle_delete_request_(AsyncWebServerRequest *request) {
   // Use recursive deletion for directories, simple remove for files
   bool success;
   if (S_ISDIR(st.st_mode)) {
+    if (this->tree_too_deep_(full_path)) {
+      this->send_json_error_(request, "Directory tree too deep to delete");
+      return;
+    }
     success = this->delete_recursive_(full_path);
   } else {
     int result = remove(full_path.c_str());
@@ -975,6 +980,39 @@ bool WebFileBrowser::is_valid_path_(const std::string &path) const {
   }
 
   return true;
+}
+
+// Read-only walk under delete_recursive_'s depth rule, run before it removes
+// anything: a tree it would refuse partway has to be refused whole.
+bool WebFileBrowser::tree_too_deep_(const std::string &path, unsigned depth) const {
+#ifdef USE_ESP32
+  if (depth > MAX_RECURSION_DEPTH) {
+    return true;
+  }
+
+  DIR *dir = opendir(path.c_str());
+  if (dir == nullptr) {
+    return false;  // delete_recursive_ reports the failure itself
+  }
+
+  bool too_deep = false;
+  struct dirent *entry;
+  while (!too_deep && (entry = readdir(dir)) != nullptr) {
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+      continue;
+    }
+    std::string entry_path = path + "/" + entry->d_name;
+    struct stat st;
+    if (stat(entry_path.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+      too_deep = this->tree_too_deep_(entry_path, depth + 1);
+    }
+  }
+
+  closedir(dir);
+  return too_deep;
+#else
+  return false;
+#endif
 }
 
 bool WebFileBrowser::delete_recursive_(const std::string &path, unsigned depth) {

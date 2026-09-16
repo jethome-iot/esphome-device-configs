@@ -67,10 +67,10 @@ missing path), `{"success": false, "error"}`.
 
 `list`, `read` and `download` stream through a fixed 4 KB buffer and never hold a
 response-sized one, so `read`'s 1 MB ceiling is about the editor on the other end, not about the
-device's heap. A listing too big for that buffer goes out in chunks, and a directory that fails
-to read partway through one ends the response with the array unclosed — an incomplete listing
-cannot be mistaken for a complete short one. `delete` and `copy` recurse at most eight directory
-levels — a deeper tree is an error, not a smashed web server stack.
+device's heap. A read that fails partway leaves the JSON unterminated (`list`, `read`) or drops
+the connection (`download`), so an incomplete answer cannot pass for a complete short one.
+`delete` and `copy` recurse at most eight directory levels — a deeper tree is an error before
+anything is removed, not a smashed web server stack.
 
 ```sh
 curl 'http://<device>/files/info'
