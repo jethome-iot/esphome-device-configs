@@ -1,1 +1,0 @@
-{"name":"Orphan","enabled":true,"mode":"single","triggers":[{"source":"input","type":"press","object_id":"no_such_input"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]}

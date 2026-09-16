@@ -1,7 +1,6 @@
 #include "runtime_automation.h"
 #include <cmath>
 #include "automation_storage.h"
-#include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
 namespace esphome::automations {
@@ -266,10 +265,10 @@ void RuntimeAutomation::on_binary_sensor(binary_sensor::BinarySensor *entity, bo
       case TypesInputTrigger::CLICK:
         if (state) {
           trigger.pressed = true;
-          trigger.press_start = millis();
+          trigger.press_start = this->engine_->now_ms();
         } else if (trigger.pressed) {
           trigger.pressed = false;
-          const uint32_t length = millis() - trigger.press_start;
+          const uint32_t length = this->engine_->now_ms() - trigger.press_start;
           if (length >= CLICK_MIN_MS && length <= CLICK_MAX_MS)
             this->fire_(false, false);
         }

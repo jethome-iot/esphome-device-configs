@@ -31,18 +31,10 @@ written until the entity is back.
 ## Testing without hardware
 
 ```bash
-python tests/host/run.py
+python tests/unit/run.py [--gtest_filter='Storage.*']
 ```
 
-Builds the engine for the host platform, runs it twice against the rules in
-`tests/host/fixtures/` — the second pass over what the first one stored — and checks the log
-and the files. The storage is a directory, `tests/host/.storage/`.
-
-```bash
-python tests/unit/run.py [--gtest_filter='Runtime.*']
-```
-
-Builds the engine into a Google Test binary the same way and runs `tests/unit/cases/`: the JSON
-and cron parsers, and rules driven by hand, with every delay held back until the test fires it.
-Nothing declared in the YAML is set up; the tests register their own entities in `App`.
-Which suite a case belongs in and how to add one: [TESTING.md](TESTING.md).
+Builds the engine for the host platform into a Google Test binary and runs `tests/unit/cases/`:
+the JSON and cron parsers, rules driven by hand with every delay held back until the test fires
+it, the cron tick against a clock the test moves, and the whole component over a directory that
+stands in for the flash. How to add a case: [TESTING.md](TESTING.md).

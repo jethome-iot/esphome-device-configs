@@ -49,11 +49,12 @@ class AutomationStorage : public Component {
   }
 
   bool has_rtc() const { return this->rtc_ != nullptr; }
-  // Virtual so the unit tests can hold a delay and fire it themselves.
+  // Virtual so the unit tests can hold a delay, fire it themselves and move the clock.
   virtual void schedule_delay(uint32_t id, uint32_t delay_ms, std::function<void()> &&f) {
     this->set_timeout(id, delay_ms, std::move(f));
   }
   virtual void cancel_delay(uint32_t id) { this->cancel_timeout(id); }
+  virtual uint32_t now_ms() const;
 
   template<typename E> struct Subscription {
     AutomationStorage *engine;
@@ -73,6 +74,7 @@ class AutomationStorage : public Component {
 
   void subscribe_(const RuntimeAutomation &automation);
   void check_time_();
+  virtual ESPTime clock_now_();
 
   std::string sanitize_filename_(const std::string &name) const;
   std::string get_folder_path_() const;

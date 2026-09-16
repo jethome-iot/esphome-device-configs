@@ -111,5 +111,5 @@ they run on the loop task and block the caller.
 
 ## Testing
 
-`python tests/host/run.py` builds the engine for the ESPHome `host` platform and runs it against
-the rules in `tests/host/fixtures/`, with a directory standing in for the flash.
+`python tests/unit/run.py` builds the engine for the ESPHome `host` platform into a Google Test
+binary and runs it, with a directory standing in for the flash. See [doc/TESTING.md](../../doc/TESTING.md).

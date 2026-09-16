@@ -48,8 +48,7 @@ devices/JXD/
 assets/
   fonts/  res/
 components/                 # external components
-tests/host/                 # the automations engine, built and run on the host
-tests/unit/                 # Google Test binary over the engine, built the same way
+tests/unit/                 # Google Test binary over the automations engine, built for the host
 ```
 
 Each device config sets `assets: ../../assets`, `components: ../../components`,
@@ -81,7 +80,7 @@ Shared code and tooling stay at the repository root:
 | `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `setup.sh` / `setup.bat` |
 | `dist/`    | Generated self-contained configs the ESPHome Builder imports |
 | `doc/`     | Guides, plus the README's UI mockups in `doc/images/` |
-| `tests/`   | `tests/host/` builds the `automations` engine for the ESPHome `host` platform and runs it: `python tests/host/run.py`. `tests/unit/` builds it into a Google Test binary: `python tests/unit/run.py` |
+| `tests/`   | `tests/unit/` builds the `automations` engine into a Google Test binary for the ESPHome `host` platform and runs it: `python tests/unit/run.py` |
 
 The BDF display fonts in `assets/fonts/` come from [IT-Studio-Rech/bdf-fonts](https://github.com/IT-Studio-Rech/bdf-fonts).
 

@@ -225,3 +225,42 @@ TEST_F(Runtime, DestroyingARuleCancelsItsDelay) {
 }
 
 }  // namespace esphome::automations::testing
+
+namespace esphome::automations::testing {
+
+TEST_F(Runtime, ClickIsAPressBetween200And1000Ms) {
+  auto rule = build_rule(engine, R"({"name":"Click","triggers":[{"source":"input","type":"click","object_id":"in_1"}],
+      "actions":[{"source":"switch","type":"toggle","object_id":"relay_1"}]})");
+  ASSERT_NE(rule, nullptr);
+  auto press_for = [&](uint32_t start, uint32_t length) {
+    engine.ms = start;
+    rule->on_binary_sensor(&e.in1, true);
+    engine.ms = start + length;
+    rule->on_binary_sensor(&e.in1, false);
+  };
+  press_for(0, 199);
+  EXPECT_EQ(e.relay1.writes, 0);
+  press_for(1000, 200);
+  EXPECT_EQ(e.relay1.writes, 1);
+  press_for(2000, 1000);
+  EXPECT_EQ(e.relay1.writes, 2);
+  press_for(4000, 1001);
+  EXPECT_EQ(e.relay1.writes, 2);
+  // A release with no press before it is not a click.
+  engine.ms = 6000;
+  rule->on_binary_sensor(&e.in1, false);
+  EXPECT_EQ(e.relay1.writes, 2);
+}
+
+TEST_F(Runtime, ClickSurvivesTheMillisWrap) {
+  auto rule = build_rule(engine, R"({"name":"Click","triggers":[{"source":"input","type":"click","object_id":"in_1"}],
+      "actions":[{"source":"switch","type":"toggle","object_id":"relay_1"}]})");
+  ASSERT_NE(rule, nullptr);
+  engine.ms = UINT32_MAX - 100;
+  rule->on_binary_sensor(&e.in1, true);
+  engine.ms = 200;
+  rule->on_binary_sensor(&e.in1, false);
+  EXPECT_EQ(e.relay1.writes, 1);
+}
+
+}  // namespace esphome::automations::testing

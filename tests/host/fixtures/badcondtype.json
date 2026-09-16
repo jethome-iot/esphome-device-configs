@@ -1,1 +1,0 @@
-{"name":"Bad Cond Type","enabled":true,"mode":"single","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"condition":{"type":"inupt","object_id":"in_3","state":"true"},"actions":[{"source":"switch","type":"turn_on","object_id":"relay_21"}]}

@@ -16,18 +16,14 @@ venv/
 
 # ESPHome drops a starter .gitignore next to any config it generates code for,
 # so a compile leaves one behind next to the device configs, in dist/, and next
-# to the host test config.
+# to the unit test config.
 /dist/.gitignore
 /devices/*/.gitignore
-/tests/host/.gitignore
 /tests/unit/.gitignore
 
-# Host test run artifacts: the emulated filesystem, the host preferences and the
-# captured logs.
-/tests/host/.storage/
-/tests/host/.prefs/
+# Unit test run artifacts: the directories the storage tests use and the host
+# preferences.
 /tests/unit/.prefs/
-/tests/host/last-run-*.log
 
 # scripts/qemu.sh writes the emulator wrapper next to the device config.
 /devices/*/*.qemu.yaml
@@ -37,3 +33,4 @@ secrets.yaml
 
 # vscode
 .vscode/*
+/tests/unit/.storage/

@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include "esphome/components/time/real_time_clock.h"
 #include "esphome/core/application.h"
+#include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
 #ifdef USE_ESP32
@@ -56,6 +57,10 @@ static std::string truncate_utf8(const std::string &text, size_t limit) {
 }
 
 AutomationStorage::AutomationStorage() { global_automation_storage = this; }
+
+uint32_t AutomationStorage::now_ms() const { return millis(); }
+
+ESPTime AutomationStorage::clock_now_() { return this->rtc_->now(); }
 
 // --- Setup and runtime ---
 
@@ -193,7 +198,7 @@ void AutomationStorage::dispatch_sensor_(sensor::Sensor *entity, float value) {
 
 // Same catch-up and clock-jump handling as the core cron trigger, for all rules at once.
 void AutomationStorage::check_time_() {
-  ESPTime now = this->rtc_->now();
+  ESPTime now = this->clock_now_();
   if (!now.is_valid())
     return;
   auto fire = [this](const ESPTime &time) {

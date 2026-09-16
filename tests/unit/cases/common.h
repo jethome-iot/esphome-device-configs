@@ -35,7 +35,9 @@ class FakeClock : public time::RealTimeClock {
   void update() override {}
 };
 
-// Holds the delays instead of handing them to the scheduler, so a test fires them itself.
+// Holds the delays instead of handing them to the scheduler, so a test fires them itself, and
+// takes its clocks from the test: `ms` for click timing, `now` (epoch seconds, 0 = not set) for
+// cron.
 class FakeEngine : public AutomationStorage {
  public:
   struct Delay {
@@ -44,6 +46,22 @@ class FakeEngine : public AutomationStorage {
     std::function<void()> f;
   };
   std::vector<Delay> delays;
+  uint32_t ms{0};
+  time_t now{0};
+
+  uint32_t now_ms() const override { return this->ms; }
+  // One cron tick, as the engine's one-second interval would run it.
+  void tick() { this->check_time_(); }
+  // A rule that runs inside this engine without going through the storage.
+  void adopt(std::unique_ptr<RuntimeAutomation> rule) { this->automations_.push_back(std::move(rule)); }
+  RuntimeAutomation *rule(size_t index) {
+    return index < this->automations_.size() ? this->automations_[index].get() : nullptr;
+  }
+  // Drops the rules without touching the files, for an engine a test is done with.
+  void forget() {
+    this->automations_.clear();
+    this->config_storage_.clear();
+  }
 
   void schedule_delay(uint32_t id, uint32_t delay_ms, std::function<void()> &&f) override {
     this->delays.push_back({id, delay_ms, std::move(f)});
@@ -68,6 +86,7 @@ class FakeEngine : public AutomationStorage {
   void with_clock() { this->set_time_source(&this->clock_); }
 
  protected:
+  ESPTime clock_now_() override { return this->now == 0 ? ESPTime{} : ESPTime::from_epoch_utc(this->now); }
   FakeClock clock_;
 };
 

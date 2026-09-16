@@ -1,1 +1,0 @@
-{"name":"Bad Type","enabled":true,"mode":"single","triggers":[{"source":"input","type":"pres","object_id":"in_1"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_21"}]}

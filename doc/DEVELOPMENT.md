@@ -24,7 +24,6 @@ esphome -s version 2026.8.2.0 -s timezone Europe/Berlin compile <config>   # sub
 python scripts/build-dist.py  [--check]    # regenerate / verify dist/ (imports esphome: use the venv)
 python scripts/build-icons.py [--check]    # regenerate / verify assets/res/
 python scripts/firmware-matrix.py build    # CI matrix from firmwares.yaml; also validates the file
-python tests/host/run.py                   # build the automations engine for the host and run it
 python tests/unit/run.py                   # build the automations unit tests for the host and run them
 
 pre-commit run --all-files                 # ruff --fix, ruff-format, pyupgrade --py310-plus, yamllint, clang-format, build-icons, build-dist
@@ -44,16 +43,14 @@ the firmware.
 
 ## Before pushing
 
-The Build workflow is these five; run them locally:
+The Build workflow is these four; run them locally:
 
 1. `esphome compile` for every config in `firmwares.yaml`
-2. `python tests/host/run.py`
-3. `python tests/unit/run.py`
-4. `python scripts/build-dist.py --check`
-5. `pre-commit run --all-files`
+2. `python tests/unit/run.py`
+3. `python scripts/build-dist.py --check`
+4. `pre-commit run --all-files`
 
-Neither suite needs an ESP toolchain. Which one a case belongs in, and how to add it:
-[TESTING.md](TESTING.md).
+The unit tests need no ESP toolchain. What they cover and how to add one: [TESTING.md](TESTING.md).
 
 ## Generated files
 

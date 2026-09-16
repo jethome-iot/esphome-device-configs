@@ -1,1 +1,0 @@
-{"id":7,"name":"Tick","enabled":true,"mode":"single","triggers":[{"source":"cron","cron":"* * * * * *"}],"actions":[{"source":"switch","type":"toggle","object_id":"relay_12"}]}

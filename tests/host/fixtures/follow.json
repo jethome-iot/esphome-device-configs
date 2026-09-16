@@ -1,1 +1,0 @@
-{"id":4,"name":"Follow","enabled":true,"mode":"single","triggers":[{"source":"switch","type":"state_change","object_id":"relay_4"}],"actions":[{"source":"switch","type":"follow","object_id":"relay_5","invert":false},{"source":"switch","type":"follow","object_id":"relay_6","invert":true}]}

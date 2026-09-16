@@ -1,1 +1,0 @@
-{"name":"Bad Action","enabled":true,"mode":"single","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"actions":[{"source":"switch","type":"tugle","object_id":"relay_21"}]}

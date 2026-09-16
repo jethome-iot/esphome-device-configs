@@ -15,6 +15,10 @@ esphome:
       - -fsanitize=address
       - -fsanitize=undefined
       - -fno-omit-frame-pointer
+      # The logger keeps listeners only when a component asks for them in
+      # codegen; the tests read the errors and warnings through one.
+      - -DUSE_LOG_LISTENERS
+      - -DESPHOME_LOG_MAX_LISTENERS=1
 
 host:
 
@@ -24,7 +28,7 @@ logger:
 external_components:
   - source: ../../components
     components: [filesystem_storage_abstract, automations]
-  - source: ../host/components
+  - source: components
     components: [dir_storage]
 
 time:

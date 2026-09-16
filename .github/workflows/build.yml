@@ -102,10 +102,10 @@ jobs:
       - name: Compile
         run: esphome compile "${{ matrix.config }}"
 
-  host-test:
-    name: Host test
+  unit-test:
+    name: Unit tests
     runs-on: [self-hosted, ubuntu-latest]
-    # The run itself is a minute; a stalled engine would otherwise hold the runner for hours.
+    # The run itself is seconds; a stalled engine would otherwise hold the runner for hours.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -121,9 +121,6 @@ jobs:
 
       # Builds for the host platform with the system compiler: no ESP-IDF
       # toolchain, nothing big enough to be worth caching.
-      - name: Run the automations engine on the host
-        run: python tests/host/run.py
-
       - name: Run the automations unit tests
         run: python tests/unit/run.py
 
