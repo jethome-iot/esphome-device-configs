@@ -379,6 +379,7 @@ binary_sensor:
       - script.execute: check_blank_page
   - platform: gpio
     name: HOME
+    id: home_button_id
     internal: true
     pin:
       pca9554: jxd_display_exp
@@ -391,6 +392,7 @@ binary_sensor:
       - script.execute: check_blank_page
   - platform: gpio
     name: BACK
+    id: back_button_id
     internal: true
     pin:
       pca9554: jxd_display_exp
