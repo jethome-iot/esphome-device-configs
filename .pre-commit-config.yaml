@@ -43,7 +43,7 @@ repos:
     hooks:
       - id: clang-format
         types_or: [c, c++]
-        files: ^components/
+        files: ^(components|tests)/
         # Generated gzip payload, thousands of lines of byte array.
         exclude: ^components/web_device_dashboard/web_device_dashboard_data\.cpp$
   - repo: local
