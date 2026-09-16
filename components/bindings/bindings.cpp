@@ -95,6 +95,8 @@ void BindingsManager::set_binding(uint32_t output_key, uint32_t input_key, Bindi
   auto *binding = this->find_binding_(output_key);
   if (binding == nullptr) {
     this->bindings_.push_back(Binding{output_key, input_key, mode});
+  } else if (binding->input_key == input_key && binding->mode == mode) {
+    return;  // the same binding again, as every edit of the switch's record sends: nothing to drive
   } else {
     binding->input_key = input_key;
     binding->mode = mode;

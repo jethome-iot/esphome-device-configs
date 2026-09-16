@@ -50,6 +50,18 @@ TEST_F(Bindings, FollowMirrorsTheInput) {
   EXPECT_EQ(e.relay1.writes, 3);
 }
 
+TEST_F(Bindings, TheSameBindingAgainDrivesNothing) {
+  manager->setup();
+  e.in1.publish_state(true);
+  manager->set_binding(RELAY_1, IN_1, BindingMode::FOLLOW);
+  EXPECT_EQ(e.relay1.writes, 1);
+  manager->set_binding(RELAY_1, IN_1, BindingMode::FOLLOW);  // every edit of the relay's record repeats it
+  EXPECT_EQ(e.relay1.writes, 1);
+  manager->set_binding(RELAY_1, IN_2, BindingMode::FOLLOW);  // a changed one drives again
+  EXPECT_EQ(e.relay1.writes, 2);
+  EXPECT_FALSE(e.relay1.state);
+}
+
 TEST_F(Bindings, OneInputMayDriveSeveralOutputsAndAnOutputHasOneBinding) {
   manager->setup();
   manager->set_binding(RELAY_1, IN_1, BindingMode::TOGGLE);

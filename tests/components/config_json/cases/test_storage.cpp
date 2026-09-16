@@ -247,6 +247,20 @@ TEST_F(Storage, ShutdownFlushesATypeWhoseSaveFailed) {
   EXPECT_EQ(reboot().report(), "sw_a=1/1");
 }
 
+TEST_F(Storage, ATypeTooLargeForTheLoaderIsNotWritten) {
+  write(VALID);
+  boot();
+  const long before = size();
+  // ~90 bytes a record: 800 of them pass the 64 KiB the loader accepts.
+  for (int i = 0; i < 800; i++)
+    settings.update("record_with_a_long_name_to_fill_the_file_" + std::to_string(i), true, i);
+  keeper->save_immediate();
+  EXPECT_TRUE(log().has(log().errors, "over the 65536 byte limit"));
+  EXPECT_TRUE(settings.is_dirty());
+  EXPECT_EQ(size(), before);  // the last good file stays
+  EXPECT_EQ(files(), (std::vector<std::string>{"test.json"}));
+}
+
 TEST_F(Storage, ResetAllClearsTheRecordsAndWritesAtOnce) {
   write(VALID);
   boot();

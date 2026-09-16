@@ -69,6 +69,12 @@ bool SettingsBaseJson::save_to_file(filesystem_storage_abstract::FilesystemStora
   this->write_json(root, SETTINGS_FILE_VERSION);
   std::string json_data;
   serializeJson(doc, json_data);
+  // What load_from_file() would refuse must not replace a file it accepts; the type stays dirty.
+  if (json_data.length() > static_cast<size_t>(MAX_FILE_BYTES)) {
+    ESP_LOGE(TAG, "%s settings are %u bytes, over the %ld byte limit; not saved", this->get_key(),
+             static_cast<unsigned>(json_data.length()), MAX_FILE_BYTES);
+    return false;
+  }
 
   // Into a sibling file first, so a power cut mid-write leaves the last good copy in place.
   const std::string tmp_path = full_path + ".tmp";
