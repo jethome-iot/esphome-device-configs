@@ -27,9 +27,11 @@ input as reported, after its `Inverted` setting. Details in
 ## Display menu
 
 **Relays → Relay N** holds `State`, `Inverted`, `Start mode`, `Bind to` and `Binding`;
-**Inputs → Input N** holds the
-live state and `Inverted`. LEFT and RIGHT step through the choices; each step applies at once and
-is written to the partition a few seconds later.
+**Inputs → Input N** holds the live state and `Inverted`. The first row of **Relays** and
+**Inputs** lists what is on. CENTER opens a setting, LEFT and RIGHT step through its choices,
+CENTER or BACK closes it; each step applies at once and is written to the partition a few
+seconds later. The submenus are built at boot from the board's relay and input lists, one per
+entity.
 
 ## Files
 

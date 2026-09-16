@@ -231,8 +231,8 @@ Current date and time from the hardware RTC.
 
 <img src="doc/images/jxd-r6-menu-ui.svg" width="400" alt="Menu">
 
-- **Relays** - a submenu per relay: toggle it, and set its inversion, start mode and bound input
-- **Inputs** - a submenu per input: live state and inversion
+- **Relays** - which relays are on, then a submenu per relay: toggle it, and set its inversion, start mode and bound input
+- **Inputs** - which inputs are on, then a submenu per input: live state and inversion
 - **Temperatures** - temperature sensor readings; a DS18B20 row opens its slot: the ROM address and a forget command
 - **Info** - network information (Ethernet and WiFi IP and MAC addresses, access point password), then the serial number from the CPU board's EEPROM (`--` when it holds none)
 - **Settings** - display auto-off timer, Modbus settings, temperature slots, network mode, WiFi credential reset, factory reset, reboot
