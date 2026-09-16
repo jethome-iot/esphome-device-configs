@@ -106,11 +106,9 @@ device.
 
 ```sh
 scripts/device-files.py --host 192.168.1.50 ls -l /config
-scripts/device-files.py --host 192.168.1.50 put -r ./www /www
-scripts/device-files.py --host 192.168.1.50 backup                    # 192.168.1.50-<stamp>.tar.gz
-scripts/device-files.py --host 192.168.1.50 restore jxd.tar.gz --clean
+scripts/device-files.py --host 192.168.1.50 get -r / ./backup      # backup
+scripts/device-files.py --host 192.168.1.50 put -r ./backup /      # restore
 DEVICE_HOST=192.168.1.50 scripts/device-files.py shell
 ```
 
-Also `info`, `tree`, `cat`, `get`, `write`, `rm`, `mkdir -p`, `mv`, `cp` and `edit`; a directory
-needs `-r`, and `restore` deletes what the archive lacks only with `--clean`.
+Also `info`, `tree`, `cat`, `write`, `rm`, `mkdir -p`, `mv`, `cp` and `edit`; a directory needs `-r`.
