@@ -101,3 +101,24 @@ hands `handle()` the request body decoded as latin1 — never utf8 — and write
 `rawDownload()` returns verbatim. `createMockFetch()` does both; a dev server does the same by
 hand and answers `GET <prefix>/download` from `rawDownload()` before calling `handle()`, which
 does not claim it.
+
+## scripts/device-files.py
+
+The same routes from a terminal, standard library only. `--host` (or `DEVICE_HOST`) names
+the device; `--port`, `--prefix` and `--timeout` follow the config.
+
+```sh
+scripts/device-files.py --host 192.168.1.50 info
+scripts/device-files.py --host 192.168.1.50 ls -l /config
+scripts/device-files.py --host 192.168.1.50 cat /logs/system.log
+scripts/device-files.py --host 192.168.1.50 put backup.json /backup/backup.json
+scripts/device-files.py --host 192.168.1.50 put -r ./www /www
+scripts/device-files.py --host 192.168.1.50 get -r /config ./config-backup
+scripts/device-files.py --host 192.168.1.50 edit /settings.json
+DEVICE_HOST=192.168.1.50 scripts/device-files.py shell
+```
+
+Also `tree`, `write`, `rm`, `mkdir -p`, `mv` and `cp`; `shell` keeps a current directory and
+completes remote names. A directory needs `-r` for `get`, `put` and `rm`, and `put -r`
+creates each level with `mkdir` before uploading. Files go through `upload`; an empty file,
+`write` and `edit` go through `write`. A refused request is one line on stderr and exit code 1.

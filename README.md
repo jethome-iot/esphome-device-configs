@@ -68,7 +68,7 @@ Shared code and tooling stay at the repository root:
 | Directory  | Contents |
 | ---------- | -------- |
 | `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, and `web_file_browser` (the file API over that partition) |
-| `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `setup.sh` / `setup.bat` |
+| `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `device-files.py` (the `web_file_browser` API from a terminal), `setup.sh` / `setup.bat` |
 | `dist/`    | Generated self-contained configs the ESPHome Builder imports |
 | `doc/`     | Guides, plus the README's UI mockups in `doc/images/` |
 
