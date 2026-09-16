@@ -1,0 +1,14 @@
+# Info → Serial: the device serial from the CPU board EEPROM; -- when it holds none.
+graphical_display_menu:
+  items:
+    - id: !extend info_submenu
+      items:
+        - type: label
+          text: "Serial:"
+
+        - type: label
+          text: !lambda |-
+            // A v4 board without device.id has only its board serial.
+            auto *board = id(board_info);
+            const auto &serial = board->get_device_serial().empty() ? board->get_board_serial() : board->get_device_serial();
+            return serial.empty() ? std::string(" --") : " " + serial;

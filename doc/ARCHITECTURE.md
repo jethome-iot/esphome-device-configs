@@ -22,13 +22,11 @@ boundaries; everything else is local to its file.
   `slot_name(slot)`, `sensor(slot)`, `temperature(slot)`), and `forget_temperatures` (a script)
   clears slots.
 - `board_info` (`boards/jxd-cpu-e1eth.yaml`) is the `jethome_board_info` component over the
-  CPU board's EEPROM `eeprom_cpu`; `display/menu-device-info.yaml` reads it for the Device
-  info submenu.
+  CPU board's EEPROM `eeprom_cpu`; `display/menu-serial.yaml` reads it for the Serial row.
 - `display1` and `main_page` come from `display/display.yaml`; the other pages attach with
   `id: !extend display1`. `display_menu` (`display/menu.yaml`) exposes `info_submenu` and
-  `menu_settings_id` as extension points that `menu-device-info.yaml` and
-  `menu-items-network.yaml` fill via `!extend`, their rows in the device config's package
-  order;
+  `menu_settings_id` as extension points that `menu-items-network.yaml` and
+  `menu-serial.yaml` fill via `!extend`, their rows in the device config's package order;
   `temperatures_menu` gets a `Temp N` submenu per slot up to the last bound one at boot; a
   freed slot's submenu only says `Free slot`.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
