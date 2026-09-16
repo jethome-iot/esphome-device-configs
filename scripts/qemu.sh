@@ -327,7 +327,7 @@ do_run() {
   info "    flash  $image"
   if [ "$DAEMON" -eq 1 ]; then
     nohup "$QEMU_BIN" "${args[@]}" >"$logfile" 2>&1 &
-    local pid=$!
+    local pid=$! start=$SECONDS
     echo "$pid" > "$(build_dir "$device")/qemu.pid"
     info "    pid    $pid   (log: $logfile)"
     # A port taken since check_ports_free kills QEMU within milliseconds, and it
@@ -335,15 +335,16 @@ do_run() {
     sleep 1
     check_alive "$pid" "$logfile"
     if [ "$WAIT_HTTP" -gt 0 ]; then
-      local waited=0
-      while [ "$waited" -lt "$WAIT_HTTP" ]; do
+      # Wall clock, not a sleep count: until the guest's IP stack is up, slirp
+      # accepts and never answers, so every probe costs its whole --max-time too.
+      while [ $((SECONDS - start)) -lt "$WAIT_HTTP" ]; do
         check_alive "$pid" "$logfile"
         # No -f: "up" is any answer at all, including an error status.
         if curl -sS -o /dev/null --max-time 2 "http://127.0.0.1:$HTTP_PORT/" 2>/dev/null; then
-          info "==> web server answered after ${waited}s"
+          info "==> web server answered after $((SECONDS - start))s"
           return 0
         fi
-        sleep 2; waited=$((waited + 2))
+        sleep 2
       done
       # Leaving it up would hold the three forwarded ports and the flash image,
       # so the next run clashes and CI leaks a process for the rest of the job.
