@@ -2,7 +2,7 @@
 
 Keeps settings types as JSON files on a `filesystem_storage_abstract` mount, one file per type,
 loaded at boot and written back a few seconds after a change. A settings type is a C++ class —
-`components/jxd_config` supplies the ones this firmware uses.
+`components/entity_config` supplies the ones this firmware uses.
 
 ```yaml
 external_components:
@@ -51,7 +51,7 @@ atomic: a power cut mid-save truncates the file, which reads back as defaults on
 
 The keeper sets up at `HARDWARE + 5` and loads every file. Each type then declares an
 `APPLY_PRIORITY` at which its values are pushed into the entities — `HARDWARE + 1` for the types
-in `jxd_config`, i.e. after the load and before the entities set themselves up.
+in `entity_config`, i.e. after the load and before the entities set themselves up.
 
 ## From lambdas
 

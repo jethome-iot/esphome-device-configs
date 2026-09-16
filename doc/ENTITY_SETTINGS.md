@@ -52,5 +52,5 @@ the preferences, not these files.
 
 `devices/JXD/packages/features/entity-settings.yaml`. The components are documented in
 [components/config_json](../components/config_json/README.md) and
-[components/jxd_config](../components/jxd_config/README.md) and
+[components/entity_config](../components/entity_config/README.md) and
 [components/bindings](../components/bindings/README.md).

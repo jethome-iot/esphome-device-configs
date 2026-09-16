@@ -1,4 +1,4 @@
-# jxd_config
+# entity_config
 
 Settings types for the relays and inputs of a JXD controller, stored by
 [`config_json`](../config_json/README.md) and applied at boot before the entities set themselves
@@ -11,13 +11,13 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [config_base, config_json, jxd_config]
+    components: [config_base, config_json, entity_config]
 
 config_json:
   id: config_json_keeper
   storage: user_storage
 
-jxd_config:
+entity_config:
   settings: [switch, binary_sensor]
   switch_settings_id: switch_settings
   binary_sensor_settings_id: binary_sensor_settings

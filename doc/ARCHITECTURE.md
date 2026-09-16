@@ -119,7 +119,7 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   outside its marker comments and puts the generated setup code into `original_setup()`, which
   is never called. `App` sizes its entity lists from the YAML and drops a registration past
   that, so each `tests/components/<name>/test.yaml` declares at least what its cases register.
-- `components/jxd_config` force-defines `USE_BINARY_SENSOR_FILTER` so the filter chain compiles
+- `components/entity_config` force-defines `USE_BINARY_SENSOR_FILTER` so the filter chain compiles
   without YAML filters, appends a `binary_sensor::Filter` at run time, and keys every stored
   record on `fnv1_hash(object_id) == EntityBase::get_object_id_hash()`, an equality upstream does
   not promise.

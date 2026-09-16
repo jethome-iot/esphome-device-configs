@@ -1,7 +1,7 @@
 # bindings
 
 An input drives an output, with no automation in between. A binding is two fields on the
-per-switch record that [`jxd_config`](../jxd_config/README.md) keeps (`binding_input`,
+per-switch record that [`entity_config`](../entity_config/README.md) keeps (`binding_input`,
 `binding_mode`), so it shares that record's file and its display menu rows.
 
 ```yaml
@@ -11,7 +11,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [config_base, config_json, jxd_config, bindings]
+    components: [config_base, config_json, entity_config, bindings]
 
 bindings:
 ```
@@ -48,5 +48,5 @@ unbinds. A stored input that this build lacks is kept and logged, not dropped.
 ## From lambdas
 
 `set_binding(output_key, input_key, mode)` and `remove_binding(output_key)` on
-`bindings::global_bindings_manager`, keyed by `fnv1_hash(object_id)`. `jxd_config` calls them
+`bindings::global_bindings_manager`, keyed by `fnv1_hash(object_id)`. `entity_config` calls them
 when a record is applied; there is no need to call them by hand.

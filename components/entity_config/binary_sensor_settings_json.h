@@ -1,7 +1,7 @@
 #pragma once
 
 #include "esphome/core/defines.h"
-#ifdef JXD_CONFIG_BINARY_SENSOR
+#ifdef ENTITY_CONFIG_BINARY_SENSOR
 
 #include <cstring>
 #include <string>
@@ -16,7 +16,7 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
-namespace esphome::jxd_config {
+namespace esphome::entity_config {
 
 // Last filter in the sensor's chain; flipping it re-emits the last raw level, so the change
 // shows without waiting for an edge.
@@ -77,7 +77,7 @@ class BinarySensorSettingsJson
   friend class config_json::SettingsBaseJsonTyped<BinarySensorSettingsJson, BinarySensorSettingsRecord>;
 
  public:
-  static constexpr const char *TAG = "jxd_config.binary_sensor";
+  static constexpr const char *TAG = "entity_config.binary_sensor";
   static constexpr const char *NAME = "binary_sensor";
 
   const char *get_key() override { return NAME; }
@@ -183,6 +183,6 @@ class BinarySensorSettingsJson
   std::vector<std::pair<binary_sensor::BinarySensor *, RuntimeInvertFilter *>> filters_;
 };
 
-}  // namespace esphome::jxd_config
+}  // namespace esphome::entity_config
 
-#endif  // JXD_CONFIG_BINARY_SENSOR
+#endif  // ENTITY_CONFIG_BINARY_SENSOR

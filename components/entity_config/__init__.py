@@ -30,11 +30,11 @@ SETTINGS_TYPES = [SETTING_SWITCH, SETTING_BINARY_SENSOR]
 config_base_ns = cg.esphome_ns.namespace("config_base")
 SettingsApplyComponent = config_base_ns.class_("SettingsApplyComponent", cg.Component)
 
-jxd_config_ns = cg.esphome_ns.namespace("jxd_config")
-SwitchSettingsJson = jxd_config_ns.class_(
+entity_config_ns = cg.esphome_ns.namespace("entity_config")
+SwitchSettingsJson = entity_config_ns.class_(
     "SwitchSettingsJson", config_json.SettingsBaseJson
 )
-BinarySensorSettingsJson = jxd_config_ns.class_(
+BinarySensorSettingsJson = entity_config_ns.class_(
     "BinarySensorSettingsJson", config_json.SettingsBaseJson
 )
 
@@ -111,11 +111,11 @@ async def to_code(config):
     enabled = config[CONF_SETTINGS]
 
     if SETTING_SWITCH in enabled:
-        cg.add_define("JXD_CONFIG_SWITCH")
+        cg.add_define("ENTITY_CONFIG_SWITCH")
         await _add_settings(json_keeper, config, SETTING_SWITCH)
 
     if SETTING_BINARY_SENSOR in enabled:
-        cg.add_define("JXD_CONFIG_BINARY_SENSOR")
+        cg.add_define("ENTITY_CONFIG_BINARY_SENSOR")
         # Inversion is a filter appended at run time; the chain only compiles with this.
         cg.add_define("USE_BINARY_SENSOR_FILTER")
         await _add_settings(json_keeper, config, SETTING_BINARY_SENSOR)

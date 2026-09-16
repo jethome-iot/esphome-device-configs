@@ -1,4 +1,4 @@
-"""A binary_sensor drives a switch (toggle or follow); bindings are stored per switch by jxd_config."""
+"""A binary_sensor drives a switch (toggle or follow); bindings are stored per switch by entity_config."""
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
@@ -25,7 +25,7 @@ FINAL_VALIDATE_SCHEMA = _final_validate
 
 
 async def to_code(config):
-    # Guards the binding fields in jxd_config's per-switch settings.
-    cg.add_define("JXD_CONFIG_BINDINGS")
+    # Guards the binding fields in entity_config's per-switch settings.
+    cg.add_define("ENTITY_CONFIG_BINDINGS")
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)

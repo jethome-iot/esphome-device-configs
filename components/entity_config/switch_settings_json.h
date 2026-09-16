@@ -1,7 +1,7 @@
 #pragma once
 
 #include "esphome/core/defines.h"
-#ifdef JXD_CONFIG_SWITCH
+#ifdef ENTITY_CONFIG_SWITCH
 
 #include <cstring>
 #include <iterator>
@@ -14,11 +14,11 @@
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
-#ifdef JXD_CONFIG_BINDINGS
+#ifdef ENTITY_CONFIG_BINDINGS
 #include "esphome/components/bindings/bindings.h"
 #endif
 
-namespace esphome::jxd_config {
+namespace esphome::entity_config {
 
 struct RestoreModeName {
   switch_::SwitchRestoreMode mode;
@@ -65,7 +65,7 @@ inline constexpr StartModeOption START_MODE_OPTIONS[] = {
     {switch_::SWITCH_RESTORE_DEFAULT_OFF, "Last"},
 };
 
-#ifdef JXD_CONFIG_BINDINGS
+#ifdef ENTITY_CONFIG_BINDINGS
 struct BindingModeOption {
   const char *value;
   const char *label;
@@ -124,7 +124,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
   friend class config_json::SettingsBaseJsonTyped<SwitchSettingsJson, SwitchSettingsRecord>;
 
  public:
-  static constexpr const char *TAG = "jxd_config.switch";
+  static constexpr const char *TAG = "entity_config.switch";
   static constexpr const char *NAME = "switch";
 
   const char *get_key() override { return NAME; }
@@ -148,7 +148,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     return record;
   }
 
-#ifdef JXD_CONFIG_BINDINGS
+#ifdef ENTITY_CONFIG_BINDINGS
   // Only the binding half, so a read-modify-write of restore_mode/inverted cannot reset it.
   SwitchSettingsRecord *make_binding_record(switch_::Switch *switch_obj, const std::string &binding_input,
                                             bindings::BindingMode binding_mode) {
@@ -186,7 +186,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     const bool inverted = settings["inverted"] | false;
     const auto restore_mode = parse_restore_mode(settings["restore_mode"] | "ALWAYS_OFF");
 
-#ifdef JXD_CONFIG_BINDINGS
+#ifdef ENTITY_CONFIG_BINDINGS
     // Each key is independently optional; absent means "leave that half alone".
     auto input_value = settings["binding_input"];
     auto mode_value = settings["binding_mode"];
@@ -217,7 +217,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
 #endif
 
     auto *record = this->make_record(sw, restore_mode, inverted);
-#ifdef JXD_CONFIG_BINDINGS
+#ifdef ENTITY_CONFIG_BINDINGS
     if (record != nullptr && has_binding_keys)
       record = this->make_binding_record(sw, binding_input, binding_mode);
 #endif
@@ -255,7 +255,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
 
   // Guarded like every other binding surface: without the bindings component apply_record_ ignores
   // what these write, and binding_input_label needs the binary_sensor entity table to exist.
-#ifdef JXD_CONFIG_BINDINGS
+#ifdef ENTITY_CONFIG_BINDINGS
   std::string binding_input_label(switch_::Switch *sw) {
     const std::string input = this->effective_(sw).binding_input;
     if (input.empty())
@@ -313,7 +313,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     for (const auto &option : START_MODE_OPTIONS)
       add_option_(options, restore_mode_to_string(option.mode), option.label);
 
-#ifdef JXD_CONFIG_BINDINGS
+#ifdef ENTITY_CONFIG_BINDINGS
     // With no bindable input both fields would offer a single choice each.
     if (has_bindable_input_()) {
       JsonObject input_field = obj["binding_input"].to<JsonObject>();
@@ -357,7 +357,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     opt["label"] = label;
   }
 
-#ifdef JXD_CONFIG_BINDINGS
+#ifdef ENTITY_CONFIG_BINDINGS
   static bool has_bindable_input_() {
     for (auto *sensor : App.get_binary_sensors()) {
       if (sensor != nullptr && !sensor->is_internal())
@@ -438,7 +438,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
       }
     }
 
-#ifdef JXD_CONFIG_BINDINGS
+#ifdef ENTITY_CONFIG_BINDINGS
     if (bindings::global_bindings_manager != nullptr) {
       bindings::BindingMode mode = bindings::BindingMode::NONE;
       if (!bindings::parse_binding_mode(record->binding_mode.c_str(), mode)) {
@@ -457,6 +457,6 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
   bool live_{false};
 };
 
-}  // namespace esphome::jxd_config
+}  // namespace esphome::entity_config
 
-#endif  // JXD_CONFIG_SWITCH
+#endif  // ENTITY_CONFIG_SWITCH

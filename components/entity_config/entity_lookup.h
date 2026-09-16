@@ -11,7 +11,7 @@
 #include "esphome/components/switch/switch.h"
 #endif
 
-namespace esphome::jxd_config {
+namespace esphome::entity_config {
 
 inline std::string object_id_of(const EntityBase &entity) {
   char buf[OBJECT_ID_MAX_LEN];
@@ -39,4 +39,4 @@ inline binary_sensor::BinarySensor *find_binary_sensor(uint32_t key) {
 }
 #endif
 
-}  // namespace esphome::jxd_config
+}  // namespace esphome::entity_config
