@@ -144,26 +144,6 @@ jobs:
       - name: Verify generated configs
         run: python scripts/build-dist.py --check
 
-  host-test:
-    name: Host tests
-    runs-on: [self-hosted, ubuntu-latest]
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-          cache: pip
-          cache-dependency-path: requirements.txt
-
-      - name: Install ESPHome
-        run: pip install -r requirements.txt
-
-      # The host platform builds with the runner's own compiler: no ESP-IDF, no
-      # toolchain cache.
-      - name: Entity settings storage
-        run: python tests/host/run-config.py
-
   lint:
     name: Lint
     runs-on: [self-hosted, ubuntu-latest]

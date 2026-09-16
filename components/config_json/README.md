@@ -59,8 +59,3 @@ in `jxd_config`, i.e. after the load and before the entities set themselves up.
 - `save_immediate()`, `save_immediate("<key>")`: write now
 - `is_save_pending()`, `cancel_pending_save()`
 - `reset_all()`: clear every type and write at once
-
-## Tests
-
-`tests/host/run-config.py` builds `tests/host/config-host.yaml` for the `host` platform and runs
-it once per fixture in `tests/host/fixtures-config/`.

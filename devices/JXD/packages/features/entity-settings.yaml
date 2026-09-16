@@ -2,7 +2,7 @@
 # (storage.yaml) and edited from the display menu. Details: doc/ENTITY_SETTINGS.md
 external_components:
   - source: ${components}
-    components: [config_base, config_json, config_nvs, uart_list, jxd_config]
+    components: [config_base, config_json, jxd_config]
 
 config_json:
   id: config_json_keeper
