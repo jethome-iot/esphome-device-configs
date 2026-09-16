@@ -217,16 +217,11 @@ export function createFileBrowserApi(options: FileBrowserApiOptions): FileBrowse
     },
 
     async uniqueName(destDir, name) {
-      let taken: Set<string>
-      let clashIsDir = false
-      try {
-        const entries = await api.list(destDir)
-        taken = new Set(entries.map((entry) => entry.name))
-        clashIsDir = entries.some((entry) => entry.name === name && entry.type === 'directory')
-      } catch {
-        // Unlistable destination is not our error to report — the write will.
-        return name
-      }
+      // A failed listing must propagate: /upload and /write both truncate, so
+      // falling back to `name` would silently overwrite whatever is already there.
+      const entries = await api.list(destDir)
+      const taken = new Set(entries.map((entry) => entry.name))
+      const clashIsDir = entries.some((entry) => entry.name === name && entry.type === 'directory')
       if (!taken.has(name)) return name
       // Split on the LAST dot, and never on a leading one: "a.txt" -> "a (1).txt",
       // "archive.tar.gz" -> "archive.tar (1).gz", ".gitignore" -> ".gitignore (1)".
