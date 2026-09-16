@@ -424,6 +424,30 @@ void WebFileBrowser::handle_list_request_(AsyncWebServerRequest *request) {
 #endif
 }
 
+// The name comes off a writable filesystem: a quote would end the quoted string
+// early, and esp_http_server drops any header value holding CR or LF. So the real
+// name goes out percent-encoded (RFC 6266), with a scrubbed ASCII copy beside it.
+static std::string content_disposition(const std::string &filename) {
+  static const char HEX[] = "0123456789ABCDEF";
+  std::string ascii;
+  std::string encoded;
+  for (char c : filename) {
+    uint8_t byte = static_cast<uint8_t>(c);
+    bool unreserved = (byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') || (byte >= '0' && byte <= '9') ||
+                      byte == '-' || byte == '.' || byte == '_' || byte == '~';
+    if (unreserved) {
+      ascii += c;
+      encoded += c;
+    } else {
+      ascii += '_';
+      encoded += '%';
+      encoded += HEX[byte >> 4];
+      encoded += HEX[byte & 0x0F];
+    }
+  }
+  return "attachment; filename=\"" + ascii + "\"; filename*=UTF-8''" + encoded;
+}
+
 void WebFileBrowser::handle_download_request_(AsyncWebServerRequest *request) {
 #ifdef USE_ESP32
   if (!request->hasParam("path")) {
@@ -445,9 +469,8 @@ void WebFileBrowser::handle_download_request_(AsyncWebServerRequest *request) {
     return;
   }
 
-  // Extract filename from path
-  size_t last_slash = path.find_last_of('/');
-  std::string filename = (last_slash != std::string::npos) ? path.substr(last_slash + 1) : path;
+  // From the resolved path, so a trailing slash on the request cannot leave it empty.
+  std::string filename = full_path.substr(full_path.find_last_of('/') + 1);
 
   // Send file in chunks. Allocated before any header is set, so a failure can
   // still be answered as an error instead of half a response.
@@ -467,7 +490,7 @@ void WebFileBrowser::handle_download_request_(AsyncWebServerRequest *request) {
 
   // Set headers
   httpd_resp_set_type(req, "application/octet-stream");
-  std::string disposition = "attachment; filename=\"" + filename + "\"";
+  std::string disposition = content_disposition(filename);
   httpd_resp_set_hdr(req, "Content-Disposition", disposition.c_str());
 
   while (true) {
