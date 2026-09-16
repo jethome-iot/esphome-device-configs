@@ -31,17 +31,10 @@ written until the entity is back.
 
 ## Over HTTP
 
-`features/automation-editor.yaml` serves the rules on the web server port: `list`, `get`, `save`,
-`delete`, `export`, plus `entities` and `schema` for an editor's menus. A backup is one `GET
-.../export`; a restore is that file's rules sent back one by one through `save`, each without
-its `id`, so they are created rather than looked up.
-
-```bash
-curl 'http://<device>/automation-editor/api/list'
-curl -X POST 'http://<device>/automation-editor/api/save' -H 'Content-Type: application/json' \
-  --data-binary @porch-light.json
-curl -X POST 'http://<device>/automation-editor/api/delete?id=3' -d ''
-```
+`features/automation-editor.yaml` serves the rules on the web server port under
+`/automation-editor/api`: the routes and their contract are in
+[components/web_automation_editor/openapi.yaml](../components/web_automation_editor/openapi.yaml),
+the usage in [its README](../components/web_automation_editor/README.md).
 
 ## Testing without hardware
 
