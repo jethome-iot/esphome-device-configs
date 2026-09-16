@@ -711,6 +711,13 @@ void WebFileBrowser::handle_delete_request_(AsyncWebServerRequest *request) {
     return;
   }
 
+  // The mount point cannot be removed, and an empty path parameter resolves
+  // straight to it — emptying the partition is not something to do by accident.
+  if (full_path == this->get_base_path_()) {
+    this->send_json_error_(request, "Cannot delete the mount root");
+    return;
+  }
+
   // Check if path exists
   struct stat st;
   if (stat(full_path.c_str(), &st) != 0) {

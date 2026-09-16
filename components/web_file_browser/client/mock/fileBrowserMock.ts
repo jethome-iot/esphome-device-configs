@@ -306,8 +306,6 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
     for (const p of [...fs.keys()]) {
       if (p === path || p.startsWith(prefix)) fs.delete(p)
     }
-    // The mount point itself survives a recursive wipe of the root.
-    if (path === '/') fs.set('/', { type: 'directory', content: '', mtime: tick() })
   }
 
   function moveTree(from: string, to: string): void {
@@ -491,6 +489,8 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
     if (endpoint.startsWith('/delete')) {
       if (path === null) return err('Missing path parameter')
       if (!isValidPath(path)) return err('Invalid path')
+      // An empty path normalises to the mount root; the device refuses to empty it.
+      if (path === '/') return err('Cannot delete the mount root')
       if (!fs.has(path)) return err('File not found', 404)
       deleteTree(path)
       return ok('Deleted successfully')

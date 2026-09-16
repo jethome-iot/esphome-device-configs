@@ -54,7 +54,7 @@ answers the one method below: anything else is `405` with an `Allow` header.
 | POST | `write?path=` | Raw request body becomes the file (any `Content-Type` but form-encoded); an empty body creates an empty file |
 | POST | `upload?path=` | `multipart/form-data` with one file part; a zero-length part is an error, use `write` |
 | GET | `download?path=` | The file, streamed |
-| POST | `delete`, `mkdir` | Field `path`; delete is recursive, mkdir is idempotent and not recursive |
+| POST | `delete`, `mkdir` | Field `path`; delete is recursive but refuses the mount root, mkdir is idempotent and not recursive |
 | POST | `rename`, `copy` | Fields `old_path`, `new_path`; copy is recursive |
 
 Fields are read from the query string and from an urlencoded body alike. Every route except
