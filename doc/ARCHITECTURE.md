@@ -41,7 +41,8 @@ boundaries; everything else is local to its file.
   `web_file_browser` (`features/web-file-browser.yaml`) serves the same mount over HTTP under
   `/files`, on the `web_server` port and with its credentials, so anything written there is also
   reachable from the network. The `automations` component (`features/automations.yaml`) keeps its
-  rules there and takes its clock from `pcf8563_time`.
+  rules there and takes its clock from `pcf8563_time`; `web_automation_editor`
+  (`features/automation-editor.yaml`) edits those rules under `/automation-editor/api`.
 
 ## Boot order
 
