@@ -5,6 +5,7 @@
 #include "esphome/core/log.h"
 #include "esphome/components/web_server_base/web_server_base.h"
 #include "esphome/components/filesystem_storage_abstract/filesystem_storage_abstract.h"
+#include "routes.h"
 #include <string>
 
 #ifdef USE_ESP32
@@ -76,6 +77,9 @@ class WebFileBrowser : public AsyncWebHandler, public Component {
 
   // Helper methods
   std::string url_(AsyncWebServerRequest *request) const;
+  // Answers 405 itself when the method is wrong, so a false return is a finished
+  // request.
+  bool check_method_(AsyncWebServerRequest *request, const Route &route);
   std::string get_base_path_() const;
   std::string resolve_path_(const std::string &path) const;
   bool is_valid_path_(const std::string &path) const;

@@ -3,7 +3,7 @@
 // and fetch wrapper through createFileBrowserApi().
 //
 // Backend quirks encoded here:
-//  - routes dispatch on URL path only — HTTP method is not enforced;
+//  - every route answers one method only (405 otherwise), the one used below;
 //  - getParam() reads both the query string AND the urlencoded POST body, so the
 //    form-encoded bodies below are equivalent to query params;
 //  - /write expects the RAW request body (not urlencoded, not JSON);

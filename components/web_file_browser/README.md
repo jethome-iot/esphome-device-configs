@@ -43,8 +43,8 @@ readable and writable by anything on the network.
 
 ## REST
 
-Paths are relative to the mount, and `..` is rejected. Routes match on the URL path alone: the
-HTTP method below is the conventional one, not an enforced one.
+Paths are relative to the mount, and `..` is rejected. Routes match on the URL path, and each
+answers the one method below: anything else is `405` with an `Allow` header.
 
 | Method | Path | |
 |---|---|---|

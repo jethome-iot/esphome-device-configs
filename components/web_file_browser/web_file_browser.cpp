@@ -61,31 +61,69 @@ void WebFileBrowser::handleRequest(AsyncWebServerRequest *request) {
 
   ESP_LOGD(TAG, "Handling request: %s", url.c_str());
 
-  std::string prefix = this->url_prefix_ + "/";
-
-  if (url == prefix + "info") {
-    this->handle_info_request_(request);
-  } else if (url.starts_with(prefix + "list")) {
-    this->handle_list_request_(request);
-  } else if (url.starts_with(prefix + "download")) {
-    this->handle_download_request_(request);
-  } else if (url.starts_with(prefix + "upload")) {
-    this->handle_upload_request_(request);
-  } else if (url.starts_with(prefix + "read")) {
-    this->handle_read_request_(request);
-  } else if (url.starts_with(prefix + "write")) {
-    this->handle_write_request_(request);
-  } else if (url.starts_with(prefix + "delete")) {
-    this->handle_delete_request_(request);
-  } else if (url.starts_with(prefix + "mkdir")) {
-    this->handle_mkdir_request_(request);
-  } else if (url.starts_with(prefix + "rename")) {
-    this->handle_rename_request_(request);
-  } else if (url.starts_with(prefix + "copy")) {
-    this->handle_copy_request_(request);
-  } else {
+  const Route *route = route_for(url, this->url_prefix_);
+  if (route == nullptr) {
     request->send(404, "text/plain", "Not Found");
+    return;
   }
+  if (!this->check_method_(request, *route)) {
+    return;
+  }
+
+  switch (route->id) {
+    case RouteId::INFO:
+      this->handle_info_request_(request);
+      break;
+    case RouteId::LIST:
+      this->handle_list_request_(request);
+      break;
+    case RouteId::READ:
+      this->handle_read_request_(request);
+      break;
+    case RouteId::DOWNLOAD:
+      this->handle_download_request_(request);
+      break;
+    case RouteId::WRITE:
+      this->handle_write_request_(request);
+      break;
+    case RouteId::UPLOAD:
+      this->handle_upload_request_(request);
+      break;
+    case RouteId::DELETE:
+      this->handle_delete_request_(request);
+      break;
+    case RouteId::MKDIR:
+      this->handle_mkdir_request_(request);
+      break;
+    case RouteId::RENAME:
+      this->handle_rename_request_(request);
+      break;
+    case RouteId::COPY:
+      this->handle_copy_request_(request);
+      break;
+  }
+}
+
+bool WebFileBrowser::check_method_(AsyncWebServerRequest *request, const Route &route) {
+  if (request->method() == (route.mutating ? HTTP_POST : HTTP_GET)) {
+    return true;
+  }
+  const char *allow = route.mutating ? "POST" : "GET";
+  ESP_LOGW(TAG, "Refusing %s on a %s-only route", route.name, allow);
+#ifdef USE_ESP32
+  // By hand because AsyncWebServerRequest::send() turns every status it does not
+  // know into a 500, and because httpd_resp_set_hdr() keeps the pointer it is
+  // given rather than a copy.
+  httpd_req_t *req = *request;
+  httpd_resp_set_status(req, "405 Method Not Allowed");
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Allow", allow);
+  static const char BODY[] = R"({"success":false,"error":"Method not allowed"})";
+  httpd_resp_send(req, BODY, sizeof(BODY) - 1);
+#else
+  this->send_json_error_(request, "Method not allowed", 405);
+#endif
+  return false;
 }
 
 void WebFileBrowser::handleUpload(AsyncWebServerRequest *request, const std::string &filename, size_t index,

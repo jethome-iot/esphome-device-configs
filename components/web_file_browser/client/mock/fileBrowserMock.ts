@@ -45,8 +45,8 @@
 // 2 chars.
 // ============================================================================
 //
-// Behaviour mirrors web_file_browser.cpp: routes dispatch on the URL path
-// ONLY (the HTTP method is not enforced), getParam() reads the query string AND
+// Behaviour mirrors web_file_browser.cpp: routes dispatch on the URL path and
+// answer one method each (405 otherwise), getParam() reads the query string AND
 // an urlencoded POST body, /write takes the RAW body, /list and /info answer bare
 // objects, and everything else answers the {success,error|message} envelope.
 import type { FileEntry, StorageInfo, FileApiResponse } from '../types'
@@ -357,6 +357,20 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
   /** The device rejects any path containing '..' — a substring check, not a segment one. */
   const isValidPath = (path: string) => !path.includes('..')
 
+  /** The one method each route answers — routes.h on the device, same order. */
+  const ROUTE_METHOD: ReadonlyArray<readonly [string, 'GET' | 'POST']> = [
+    ['info', 'GET'],
+    ['list', 'GET'],
+    ['read', 'GET'],
+    ['download', 'GET'],
+    ['write', 'POST'],
+    ['upload', 'POST'],
+    ['delete', 'POST'],
+    ['mkdir', 'POST'],
+    ['rename', 'POST'],
+    ['copy', 'POST']
+  ]
+
   function handleUpload(params: URLSearchParams, body: string): MockResult {
     const part = parseMultipartFile(body)
     const content = part ? part.content : body
@@ -415,9 +429,13 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
     return ok('Renamed successfully')
   }
 
-  function handle(_method: string, pathname: string, search: URLSearchParams, body: string): MockResult | null {
+  function handle(method: string, pathname: string, search: URLSearchParams, body: string): MockResult | null {
     const endpoint = endpointOf(pathname)
     if (endpoint === null) return null
+    // Mutating routes are POST-only on the device, so a GET must fail here too —
+    // otherwise the dev server accepts what the firmware answers with a 405.
+    const route = ROUTE_METHOD.find(([name]) => endpoint.startsWith(`/${name}`))
+    if (route && method.toUpperCase() !== route[1]) return err('Method not allowed', 405)
     const params = readParams(endpoint, search, body)
     const raw = params.get('path')
     const path = raw === null ? null : normalize(raw)
