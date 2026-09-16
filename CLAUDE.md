@@ -19,7 +19,6 @@ generated files and runs the pre-commit hooks.
 | run a device config in the emulator, or touch the QEMU overlays | [doc/QEMU.md](doc/QEMU.md) |
 | change how Dallas sensors get their slots | [doc/ONEWIRE_WORKFLOW.md](doc/ONEWIRE_WORKFLOW.md) |
 | use or change the HTTP file API over the user partition | [components/web_file_browser/README.md](components/web_file_browser/README.md) |
-| touch the `automations` engine, its rule format or the host test | [doc/AUTOMATIONS.md](doc/AUTOMATIONS.md) |
 | touch the `automations` engine or its rule format | [doc/AUTOMATIONS.md](doc/AUTOMATIONS.md) |
 | add a test, or wonder which suite a case belongs in | [doc/TESTING.md](doc/TESTING.md) |
 | change WiFi provisioning | [doc/WIFI_SETUP.md](doc/WIFI_SETUP.md) |
