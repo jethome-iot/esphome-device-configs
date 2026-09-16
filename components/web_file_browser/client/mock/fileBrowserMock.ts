@@ -336,7 +336,7 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
    */
   function readParams(endpoint: string, search: URLSearchParams, body: string): URLSearchParams {
     const params = new URLSearchParams(search)
-    if (!body || endpoint.startsWith('/write') || endpoint.startsWith('/upload')) return params
+    if (!body || endpoint === '/write' || endpoint === '/upload') return params
     try {
       for (const [k, v] of new URLSearchParams(body)) if (!params.has(k)) params.append(k, v)
     } catch {
@@ -430,10 +430,11 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
   function handle(method: string, pathname: string, search: URLSearchParams, body: string): MockResult | null {
     const endpoint = endpointOf(pathname)
     if (endpoint === null) return null
-    // Mutating routes are POST-only on the device, so a GET must fail here too —
-    // otherwise the dev server accepts what the firmware answers with a 405.
-    const route = ROUTE_METHOD.find(([name]) => endpoint.startsWith(`/${name}`))
-    if (route && method.toUpperCase() !== route[1]) return err('Method not allowed', 405)
+    // Exact names and one method each, as on the device — otherwise the dev
+    // server accepts what the firmware answers with a 404 or 405.
+    const route = ROUTE_METHOD.find(([name]) => endpoint === `/${name}`)
+    if (!route) return null
+    if (method.toUpperCase() !== route[1]) return err('Method not allowed', 405)
     const params = readParams(endpoint, search, body)
     const raw = params.get('path')
     const path = raw === null ? null : normalize(raw)
@@ -450,8 +451,7 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
       return { status: 200, body: info }
     }
 
-    // The backend matches with starts_with, so trailing junk hits the same route.
-    if (endpoint.startsWith('/list')) {
+    if (endpoint === '/list') {
       const dir = path ?? '/'
       if (!isValidPath(dir)) return err('Invalid path')
       if (!isDir(dir)) return err('Failed to open directory')
@@ -459,14 +459,14 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
       return { status: 200, body: list(dir) }
     }
 
-    if (endpoint.startsWith('/download')) {
+    if (endpoint === '/download') {
       // Raw bytes are not a MockResult; the transport must call rawDownload().
       return null
     }
 
-    if (endpoint.startsWith('/upload')) return handleUpload(params, body)
+    if (endpoint === '/upload') return handleUpload(params, body)
 
-    if (endpoint.startsWith('/read')) {
+    if (endpoint === '/read') {
       if (path === null) return err('Missing path parameter')
       if (!isValidPath(path)) return err('Invalid path')
       const node = fs.get(path)
@@ -476,7 +476,7 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
       return { status: 200, body: { success: true, content: binaryToText(node.content) } satisfies FileApiResponse }
     }
 
-    if (endpoint.startsWith('/write')) {
+    if (endpoint === '/write') {
       if (path === null) return err('Missing path parameter')
       if (!isValidPath(path)) return err('Invalid path')
       if (isDir(path) || !isDir(parentOf(path))) return err('Failed to open file for writing')
@@ -486,7 +486,7 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
       return ok('File written successfully')
     }
 
-    if (endpoint.startsWith('/delete')) {
+    if (endpoint === '/delete') {
       if (path === null) return err('Missing path parameter')
       if (!isValidPath(path)) return err('Invalid path')
       // An empty path normalises to the mount root; the device refuses to empty it.
@@ -496,7 +496,7 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
       return ok('Deleted successfully')
     }
 
-    if (endpoint.startsWith('/mkdir')) {
+    if (endpoint === '/mkdir') {
       if (path === null) return err('Missing path parameter')
       if (!isValidPath(path)) return err('Invalid path')
       // Idempotent: recursive folder upload walks the chain level by level and
@@ -507,8 +507,8 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
       return ok('Directory created successfully')
     }
 
-    if (endpoint.startsWith('/copy')) return handleCopy(params)
-    if (endpoint.startsWith('/rename')) return handleRename(params)
+    if (endpoint === '/copy') return handleCopy(params)
+    if (endpoint === '/rename') return handleRename(params)
 
     return null
   }
@@ -547,7 +547,8 @@ export function createMockFetch(store: FileBrowserMockStore): (url: string, init
     const u = new URL(url, 'http://localhost')
     const method = (init?.method ?? 'GET').toUpperCase()
 
-    const bytes = store.rawDownload(u.pathname, u.searchParams)
+    // Raw bytes only for a GET; any other method falls through to the 405.
+    const bytes = method === 'GET' ? store.rawDownload(u.pathname, u.searchParams) : null
     if (bytes) {
       const name = nameOf(normalize(u.searchParams.get('path') ?? ''))
       return new Response(bytes, {

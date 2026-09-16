@@ -31,15 +31,15 @@ static const Route ROUTES[] = {
 };
 // clang-format on
 
-/// The route @p url names under @p prefix, or nullptr when it names none. No name
-/// is a prefix of another, so the order above does not matter.
+/// The route @p url names under @p prefix, or nullptr when it names none. The name
+/// is the whole tail: "readme" is not a read and "list/" is not a list.
 inline const Route *route_for(std::string_view url, std::string_view prefix) {
   if (!url.starts_with(prefix) || url.size() <= prefix.size() || url[prefix.size()] != '/') {
     return nullptr;
   }
   std::string_view tail = url.substr(prefix.size() + 1);
   for (const Route &route : ROUTES) {
-    if (tail.starts_with(route.name)) {
+    if (tail == route.name) {
       return &route;
     }
   }

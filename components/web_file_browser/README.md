@@ -47,8 +47,8 @@ ship. Method enforcement is not a substitute — it keeps a mutating route out o
 
 ## REST
 
-Paths are relative to the mount, and `..` is rejected. Routes match on the URL path, and each
-answers the one method below: anything else is `405` with an `Allow` header.
+Paths are relative to the mount, and `..` is rejected. Routes match on the exact URL path, and
+each answers the one method below: anything else is `405` with an `Allow` header.
 
 | Method | Path | |
 |---|---|---|
