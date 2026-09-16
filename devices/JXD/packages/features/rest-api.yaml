@@ -1,0 +1,11 @@
+# The REST APIs on the web server port: the user partition as a JSON file API
+# under /files, the automation rules under /automation-editor/api. Multipart
+# uploads need `ota: - platform: web_server`, which the CPU board package provides.
+external_components:
+  - source: ${components}
+    components: [web_file_browser, web_automation_editor]
+
+web_file_browser:
+  storage_id: user_storage
+
+web_automation_editor:

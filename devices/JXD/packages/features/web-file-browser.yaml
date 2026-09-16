@@ -1,9 +1,0 @@
-# The user partition over HTTP: a JSON file API under /files, for the dashboard's
-# Files screen and for curl. Multipart uploads need `ota: - platform: web_server`,
-# which the CPU board package provides.
-external_components:
-  - source: ${components}
-    components: [web_file_browser]
-
-web_file_browser:
-  storage_id: user_storage

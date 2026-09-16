@@ -1,9 +1,9 @@
 # Runtime Automations
 
 Rules that run on the device without recompiling. They live as JSON files on the LittleFS
-partition, are loaded at boot and can be created, changed and removed while the device runs.
-Until the web editor ships, rules are written into the folder by hand or through the component's
-API; the file format and the API are in
+partition, are loaded at boot and can be created, changed and removed while the device runs:
+over HTTP under `/automation-editor/api` ([the routes](../components/web_automation_editor/README.md)),
+from a lambda, or by writing into the folder by hand. The file format and the C++ API are in
 [components/automations/README.md](../components/automations/README.md).
 
 ## What a rule can do
@@ -29,14 +29,30 @@ Entities are named by object id, so renaming a relay, an input or a temperature 
 the rules that used it unbuilt — the boot log says which, and their files are kept exactly as
 written until the entity is back.
 
+## Over HTTP
+
+`features/rest-api.yaml` serves the rules on the web server port: `list`, `get`, `save`,
+`delete`, `export`, plus `entities` and `schema` for an editor's menus. A backup is one `GET
+.../export`; a restore is that file's rules sent back one by one through `save`, each without
+its `id`, so they are created rather than looked up.
+
+```bash
+curl 'http://<device>/automation-editor/api/list'
+curl -X POST 'http://<device>/automation-editor/api/save' -H 'Content-Type: application/json' \
+  --data-binary @porch-light.json
+curl -X POST 'http://<device>/automation-editor/api/delete?id=3' -d ''
+```
+
 ## Testing without hardware
 
 ```bash
 python tests/run.py automations [-- --gtest_filter='Storage.*']
+python tests/run.py web_automation_editor
 ```
 
 Builds the engine for the host platform into a Google Test binary and runs
 `tests/components/automations/cases/`:
 the JSON and cron parsers, rules driven by hand with every delay held back until the test fires
 it, the cron tick against a clock the test moves, and the whole component over a directory that
-stands in for the flash. How to add a case: [TESTING.md](TESTING.md).
+stands in for the flash. The second suite drives every HTTP route through the handler, over the
+real engine and a stand-in for the web server. How to add a case: [TESTING.md](TESTING.md).

@@ -19,12 +19,15 @@ tests/
   harness/
     main.cpp                # upstream's tests/components/main.cpp: runs the tests instead of setup()
     environment.cpp         # constructs App, which that setup would have done
-    components/dir_storage  # test-only storage backend: a directory on the host
+    components/
+      dir_storage           # test-only storage backend: a directory on the host
+      web_server_base       # stand-in for upstream's: requests a test builds, no socket
   components/
     automations/
       test.yaml             # host config: the component under test, its entities, the harness
       cases/                # the tests; common.h holds what they share
       test_schema.py        # the component's YAML schema, run with unittest by run.py
+    web_automation_editor/  # the same layout: every HTTP route through the handler
 ```
 
 ## Adding a suite for a new component
@@ -49,6 +52,22 @@ tests/
   logs.
 - Only what exists solely on ESP-IDF (NVS, LittleFS, `web_server_base`, the cross-task path of
   the mutators) has no test; say so in the pull request.
+
+## What the web_automation_editor suite covers
+
+`test_api.cpp`: every route through the handler, over the real engine and a directory: which
+URLs it claims, the method each route takes, create / update / delete and what they leave on
+disk, every refusal and its message, the body limit, export against get, entities without the
+internal ones, and that every word in the static schema is one the engine parses. Its
+`cases/common.h` has the `Editor` fixture with `get()` / `post()` / `call()` returning a `Reply`
+(status, body, parsed JSON), `create()`, `files()`, and a `TestEditor` whose reboot only counts.
+
+HTTP handlers are testable at all because `tests/harness/components/web_server_base/` shadows
+upstream's component for the host build: the same `AsyncWebServerRequest`, `AsyncWebHandler`
+and `WebServerBase` names, a request the test constructs from a method, a URL and a body, and a
+`dispatch()` that takes web_server_idf's path — a raw body through `handleBody()` in chunks, a
+form-encoded one into parameters, then `handleRequest()`. Only what the components under test
+use exists there; add to it when a handler needs more.
 
 Its `cases/common.h` provides:
 
@@ -79,3 +98,6 @@ Its `cases/common.h` provides:
   seams are `schedule_delay()`, `tick()` and calling `on_startup()` yourself.
 - Logger listeners exist only when the YAML asks for them: `test.yaml` carries
   `-DUSE_LOG_LISTENERS -DESPHOME_LOG_MAX_LISTENERS=1` so a suite can read what was logged.
+- Entity strings (units, device classes, icons) are indices into tables codegen builds from the
+  YAML; a case that registers an entity with a unit declares that unit in `test.yaml` and passes
+  its index in `entity_fields`.

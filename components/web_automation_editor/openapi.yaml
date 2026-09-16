@@ -1,0 +1,590 @@
+openapi: 3.1.0
+
+info:
+  title: web_automation_editor HTTP API
+  version: 1.0.0
+  description: >-
+    JSON/REST API of the ESPHome `automations` component, served by the
+    `web_automation_editor` component on the device's own web server (default
+    prefix `/automation-editor`, routes under `<prefix>/api/`). List, read,
+    create, update, delete and export the rules, discover the entities a rule
+    may name, and read what an editor may offer. ESP-IDF (ESP32) only.
+
+    This document is the wire contract; the TypeScript client and mock in
+    `client/` implement it. Every route answers exactly one HTTP method — any
+    other method is `405` with an `Allow` header. Route names match the URL path
+    exactly, so an unknown name is `404`. A POST needs a `Content-Length`, even
+    `0`: ESP-IDF's server answers `411` without one. A rule's shape is the file
+    format of the `automations` component, documented in its README.
+
+servers:
+  - url: http://{host}:{port}{prefix}/api
+    description: A device on the local network.
+    variables:
+      host:
+        default: device.local
+      port:
+        default: "80"
+      prefix:
+        default: /automation-editor
+        description: The component's `url_prefix`; baked into a dashboard at build time.
+
+# Optional: the routes inherit whatever auth the `web_server:` block sets. The
+# configs in this repository set none, so the empty requirement is the shipped
+# default — anything that reaches the port may call every route.
+security:
+  - {}
+  - webServerAuth: []
+
+tags:
+  - name: read
+    description: Read-only routes (GET).
+  - name: write
+    description: Mutating routes (POST).
+
+paths:
+  /list:
+    get:
+      tags: [read]
+      operationId: listAutomations
+      summary: Every rule, summarized.
+      responses:
+        "200":
+          description: The rules.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [automations]
+                properties:
+                  automations:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AutomationSummary"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /get:
+    get:
+      tags: [read]
+      operationId: getAutomation
+      summary: One rule, in full.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+      responses:
+        "200":
+          description: The rule, as its file stores it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationConfig"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /save:
+    post:
+      tags: [write]
+      operationId: saveAutomation
+      summary: Create or replace a rule.
+      description: >-
+        `id` absent or `0` creates a rule and answers with the assigned `id`; an
+        existing `id` replaces that rule, renamed or not, and answers without one.
+        The body is read raw, so the request needs a `Content-Type` that is not a
+        form: a form-encoded body is parsed into fields by the server and answered
+        `Empty request body`. Names collide by file name (`Porch light` and
+        `porch-LIGHT` are one), and a name another rule owns is refused with the
+        reason. The engine's own refusals — the rule limit, a file the loader had
+        refused under that name, a call from inside a running rule — come back as
+        `Failed to create automation` / `Failed to update automation`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutomationConfig"
+      responses:
+        "200":
+          description: Created (with `id`) or updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaveResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          description: The body is over 16 KiB, the engine's ceiling on a rule file.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Request body over 16 KiB
+
+  /delete:
+    post:
+      tags: [write]
+      operationId: deleteAutomation
+      summary: Remove a rule and its file.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+      responses:
+        "200":
+          $ref: "#/components/responses/Success"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /export:
+    get:
+      tags: [read]
+      operationId: exportAutomations
+      summary: Every rule in full, as a backup file.
+      description: >-
+        Each entry is what `/get` returns for that rule; a client re-imports the
+        file rule by rule through `/save`, with the `id` dropped so each is created.
+      responses:
+        "200":
+          description: The rules.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationExport"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /entities:
+    get:
+      tags: [read]
+      operationId: listEntities
+      summary: The entities a rule may name.
+      description: Internal entities are left out. Sensors carry their unit.
+      responses:
+        "200":
+          description: Entities by domain.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Entities"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /schema:
+    get:
+      tags: [read]
+      operationId: getSchema
+      summary: What an editor may offer.
+      description: >-
+        The trigger, condition and action types with their subtypes, and the
+        cron presets, as the engine parses them. A static catalog for menus.
+      responses:
+        "200":
+          description: The catalog.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schema"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /reboot:
+    post:
+      tags: [write]
+      operationId: reboot
+      summary: Reboot the device.
+      description: Answers first, then runs the safe reboot.
+      responses:
+        "200":
+          $ref: "#/components/responses/Success"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /ping:
+    get:
+      tags: [read]
+      operationId: ping
+      summary: Liveness.
+      responses:
+        "200":
+          description: The API answers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+components:
+  securitySchemes:
+    webServerAuth:
+      type: http
+      scheme: basic
+      description: >-
+        Credentials from the `web_server:` `auth:` block, when set. Basic auth on
+        ESP32. Off by default in this repository.
+
+  parameters:
+    IdQuery:
+      name: id
+      in: query
+      required: true
+      description: The rule's id, as `/list` reports it.
+      schema:
+        type: integer
+        minimum: 1
+      example: 3
+
+  responses:
+    Success:
+      description: The operation succeeded.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SuccessEnvelope"
+    BadRequest:
+      description: >-
+        Bad request — a missing `id`, a body that is empty, not JSON or not a
+        rule, a name another rule owns, or a refusal from the engine.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: No rule has that id.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Automation not found
+    MethodNotAllowed:
+      description: Wrong HTTP method for this route.
+      headers:
+        Allow:
+          description: The one method this route accepts.
+          schema:
+            type: string
+            enum: [GET, POST]
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Method not allowed
+
+  schemas:
+    AutomationSummary:
+      type: object
+      required: [id, name, enabled, trigger_count, action_count, else_action_count, mode]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        enabled:
+          type: boolean
+        trigger_count:
+          type: integer
+        action_count:
+          type: integer
+        else_action_count:
+          type: integer
+        mode:
+          $ref: "#/components/schemas/Mode"
+      example:
+        id: 1
+        name: Porch light
+        enabled: true
+        trigger_count: 1
+        action_count: 1
+        else_action_count: 0
+        mode: single
+
+    Mode:
+      type: string
+      enum: [single, restart, parallel]
+      description: >-
+        `single` ignores a trigger while the rule runs, `restart` starts over,
+        `parallel` runs up to 8 copies.
+
+    AutomationConfig:
+      type: object
+      description: >-
+        A rule in the file format of the `automations` component. Entities are
+        named by object id; a cron expression is six fields, seconds first, and
+        comes back re-serialized from the sets the engine parsed it into.
+      required: [name, triggers, actions]
+      properties:
+        id:
+          type: integer
+          description: Assigned by the device; absent or `0` on create.
+        name:
+          type: string
+        enabled:
+          type: boolean
+          default: true
+        mode:
+          $ref: "#/components/schemas/Mode"
+        triggers:
+          type: array
+          description: Any of them fires the rule.
+          items:
+            $ref: "#/components/schemas/Trigger"
+        condition:
+          $ref: "#/components/schemas/Condition"
+        actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Action"
+        else_actions:
+          type: array
+          description: Run instead of `actions` when the condition is false.
+          items:
+            $ref: "#/components/schemas/Action"
+      example:
+        id: 1
+        name: Porch light
+        enabled: true
+        mode: single
+        triggers:
+          - source: input
+            type: click
+            object_id: input_1
+        condition:
+          type: input
+          object_id: input_3
+          state: "true"
+        actions:
+          - source: switch
+            type: turn_on
+            object_id: relay_1
+          - source: delay
+            delay_ms: 5000
+          - source: switch
+            type: turn_off
+            object_id: relay_1
+
+    Trigger:
+      type: object
+      required: [source]
+      properties:
+        source:
+          type: string
+          enum: [input, switch, temperature, cron, startup]
+        type:
+          type: string
+          description: >-
+            `input`: press, release, click, state_change. `switch`: turn_on,
+            turn_off, state_change. `temperature`: above, below, range.
+        object_id:
+          type: string
+        threshold:
+          type: number
+          description: For `above` and `below`, strict.
+        min_threshold:
+          type: number
+          description: For `range`, inclusive.
+        max_threshold:
+          type: number
+        cron:
+          type: string
+          description: Six fields, seconds first.
+          example: "0 30 6,18 * * *"
+        cron_preset:
+          type: string
+          enum: [daily, hourly, every_n_minutes, weekly, monthly, custom]
+          description: The editor's note about the form it offered; the engine never reads it.
+
+    Condition:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [input, temperature, and, or, xor]
+        object_id:
+          type: string
+        state:
+          type: string
+          enum: ["true", "false"]
+          description: For `input`.
+        temperature_type:
+          type: string
+          enum: [above, below, range]
+        threshold:
+          type: number
+        min_threshold:
+          type: number
+        max_threshold:
+          type: number
+        conditions:
+          type: array
+          description: For `and`, `or`, `xor`; nested freely.
+          items:
+            $ref: "#/components/schemas/Condition"
+
+    Action:
+      type: object
+      required: [source]
+      properties:
+        source:
+          type: string
+          enum: [switch, delay]
+        type:
+          type: string
+          enum: [turn_on, turn_off, toggle, follow]
+          description: For `switch`. `follow` copies the state the trigger carried.
+        object_id:
+          type: string
+        invert:
+          type: boolean
+          description: For `follow`; absent is false.
+        delay_ms:
+          type: integer
+          description: For `delay`.
+
+    SaveResult:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+          enum: [Automation created, Automation updated]
+        id:
+          type: integer
+          description: The assigned id; present on create only.
+      example:
+        success: true
+        message: Automation created
+        id: 4
+
+    AutomationExport:
+      type: object
+      required: [version, automations]
+      properties:
+        version:
+          type: integer
+          enum: [1]
+        automations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AutomationConfig"
+
+    EntityRef:
+      type: object
+      required: [object_id, name]
+      properties:
+        object_id:
+          type: string
+        name:
+          type: string
+        unit:
+          type: string
+          description: Sensors only.
+
+    Entities:
+      type: object
+      required: [binary_sensors, sensors, switches]
+      properties:
+        binary_sensors:
+          type: array
+          items:
+            $ref: "#/components/schemas/EntityRef"
+        sensors:
+          type: array
+          items:
+            $ref: "#/components/schemas/EntityRef"
+        switches:
+          type: array
+          items:
+            $ref: "#/components/schemas/EntityRef"
+      example:
+        binary_sensors:
+          - object_id: input_1
+            name: Input 1
+        sensors:
+          - object_id: temp_1
+            name: Temp 1
+            unit: °C
+        switches:
+          - object_id: relay_1
+            name: Relay 1
+
+    Schema:
+      type: object
+      required: [triggers, conditions, actions, cron_presets]
+      properties:
+        triggers:
+          type: array
+          items:
+            $ref: "#/components/schemas/TypeEntry"
+        conditions:
+          type: array
+          items:
+            $ref: "#/components/schemas/TypeEntry"
+        actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/TypeEntry"
+        cron_presets:
+          type: array
+          items:
+            type: string
+
+    TypeEntry:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+        subtypes:
+          type: array
+          items:
+            type: string
+
+    SuccessEnvelope:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+      example:
+        success: true
+        message: Automation deleted
+
+    ErrorEnvelope:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: string
+      example:
+        success: false
+        error: Missing id parameter

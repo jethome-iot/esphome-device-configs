@@ -27,7 +27,7 @@ packages:
   temperature: !include ${features}/temperature.yaml
   uarts: !include ${features}/uarts.yaml
   vin_measure: !include ${features}/vin-measure.yaml
-  web_file_browser: !include ${features}/web-file-browser.yaml
+  rest_api: !include ${features}/rest-api.yaml
 
   # Display: pages, menu and buttons.
   blank_page: !include ${display}/blank-page.yaml
