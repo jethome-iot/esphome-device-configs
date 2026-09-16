@@ -189,6 +189,8 @@ def needs_block_style(value: str) -> bool:
 
 
 def _represent_block(dumper: Any, value: BlockStr) -> Any:
+    if yaml_util.is_secret(value):
+        return dumper.represent_secret(value)
     return dumper.represent_scalar("tag:yaml.org,2002:str", str(value), style="|")
 
 
@@ -203,7 +205,8 @@ def harden_scalars(node: Any) -> Any:
     if isinstance(node, list):
         return [harden_scalars(value) for value in node]
     if isinstance(node, str) and not isinstance(node, BlockStr):
-        if needs_block_style(str(node)):
+        # A multi-line value is only readable as a block: quoted, its line breaks fold.
+        if "\n" in node or needs_block_style(str(node)):
             return BlockStr(node)
     return node
 
