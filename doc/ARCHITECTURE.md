@@ -53,7 +53,7 @@ boundaries; everything else is local to its file.
 | Priority | What runs |
 | --- | --- |
 | 800 | fill the `relays` / `inputs` vectors |
-| 700 | push the stored Modbus address, baud rate, parity and stop bits into `jxm_uart2`; add a `Relay N` / `Input N` submenu per entry of those vectors to the Relays and Inputs menus |
+| 700 | push the stored Modbus address, baud rate, parity and stop bits into `jxm_uart2`; add the settings rows to the Nth `Relay N` / `Input N` submenu for the Nth entry of those vectors |
 | 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); restore the timezone and read the RTC (`setup_time`, called from the device config). `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
 | 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created. `board_info` reads the EEPROM here too, once `eeprom_cpu` (600) has answered |
 | 500 | add a `Temp N` submenu per bound slot to the Temperatures menu |

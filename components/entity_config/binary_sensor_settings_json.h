@@ -131,17 +131,14 @@ class BinarySensorSettingsJson
     return this->make_record(sensor, settings["inverted"] | false);
   }
 
-  // Display menu: applied and saved at once. Runs on the loop task.
+  // Display menu; applied at once, saved after the debounce. Runs on the loop task.
   bool is_inverted(binary_sensor::BinarySensor *sensor) {
     BinarySensorSettingsRecord record;
     return this->get_record(sensor, record) && record.inverted;
   }
 
-  const char *inverted_label(binary_sensor::BinarySensor *sensor) { return this->is_inverted(sensor) ? "Yes" : "No"; }
-
-  void toggle_inverted(binary_sensor::BinarySensor *sensor) {
-    auto *record = this->make_record(sensor, !this->is_inverted(sensor));
-    this->apply_record_(record);
+  void set_inverted(binary_sensor::BinarySensor *sensor, bool inverted) {
+    this->apply_record_(this->make_record(sensor, inverted));
     if (config_json::global_config_json_keeper != nullptr)
       config_json::global_config_json_keeper->save(NAME);
   }

@@ -53,16 +53,15 @@ fails at link.
 
 ## From lambdas
 
-`switch` settings, given a `switch_::Switch *`:
+`switch` settings, given a `switch_::Switch *` and a `Field` (`INVERTED`, `RESTORE_MODE`, and
+with the `bindings` component `BINDING_INPUT`, `BINDING_MODE`), each field is a list of options:
 
-- `inverted_label(sw)`, `toggle_inverted(sw)`
-- `restore_mode_label(sw)`, `cycle_restore_mode(sw, ±1)`
-- `binding_input_label(sw)`, `cycle_binding_input(sw, ±1)`, `binding_mode_label(sw)`,
-  `cycle_binding_mode(sw, ±1)` — only with the `bindings` component
+- `option_count(field)`, `option_label(sw, field, index)`
+- `option_index(sw, field)`: the stored value's index, `-1` when the list does not offer it (a
+  hand-edited file); `option_label` with `-1` names that value
+- `set_option(sw, field, index)`
 
-`binary_sensor` settings, given a `binary_sensor::BinarySensor *`:
+`binary_sensor` settings, given a `binary_sensor::BinarySensor *`: `is_inverted(sensor)`,
+`set_inverted(sensor, inverted)`.
 
-- `inverted_label(sensor)`, `is_inverted(sensor)`, `toggle_inverted(sensor)`
-
-Each edit applies at once and schedules the debounced save. The cycles wrap around, and from a
-value the list does not offer — a hand-edited file — the next step lands on the first option.
+A set applies at once and schedules the debounced save.

@@ -8,33 +8,98 @@ graphical_display_menu:
     then:
       - component.update: display1
   items:
-    # A Relay N / Input N submenu per entity is added at boot (esphome: on_boot below);
-    # the schema wants one item here, so the first row sums up what is on.
+    # The settings rows of each Relay N / Input N are added at boot (esphome: on_boot below).
     - type: menu
       text: "Relays"
       id: relays_menu
       items:
-        - type: label
-          text: !lambda |-
-            std::string on;
-            for (size_t i = 0; i < id(relays).size(); i++) {
-              if (id(relays)[i]->state)
-                on += str_sprintf(" %u", static_cast<unsigned>(i + 1));
-            }
-            return on.empty() ? "All off" : "On:" + on;
+        - type: menu
+          text: !lambda 'return id(relay_1).state ? "Relay 1 (On)" : "Relay 1 (Off)";'
+          items:
+            - type: switch
+              text: "State"
+              switch: relay_1
+              immediate_edit: true
+
+        - type: menu
+          text: !lambda 'return id(relay_2).state ? "Relay 2 (On)" : "Relay 2 (Off)";'
+          items:
+            - type: switch
+              text: "State"
+              switch: relay_2
+              immediate_edit: true
+
+        - type: menu
+          text: !lambda 'return id(relay_3).state ? "Relay 3 (On)" : "Relay 3 (Off)";'
+          items:
+            - type: switch
+              text: "State"
+              switch: relay_3
+              immediate_edit: true
+
+        - type: menu
+          text: !lambda 'return id(relay_4).state ? "Relay 4 (On)" : "Relay 4 (Off)";'
+          items:
+            - type: switch
+              text: "State"
+              switch: relay_4
+              immediate_edit: true
+
+        - type: menu
+          text: !lambda 'return id(relay_5).state ? "Relay 5 (On)" : "Relay 5 (Off)";'
+          items:
+            - type: switch
+              text: "State"
+              switch: relay_5
+              immediate_edit: true
+
+        - type: menu
+          text: !lambda 'return id(relay_6).state ? "Relay 6 (On)" : "Relay 6 (Off)";'
+          items:
+            - type: switch
+              text: "State"
+              switch: relay_6
+              immediate_edit: true
 
     - type: menu
       text: "Inputs"
       id: inputs_menu
       items:
-        - type: label
-          text: !lambda |-
-            std::string on;
-            for (size_t i = 0; i < id(inputs).size(); i++) {
-              if (id(inputs)[i]->state)
-                on += str_sprintf(" %u", static_cast<unsigned>(i + 1));
-            }
-            return on.empty() ? "All off" : "On:" + on;
+        - type: menu
+          text: !lambda 'return id(input_1).state ? "Input 1 (On)" : "Input 1 (Off)";'
+          items:
+            - type: label
+              text: !lambda 'return id(input_1).state ? "State (On)" : "State (Off)";'
+
+        - type: menu
+          text: !lambda 'return id(input_2).state ? "Input 2 (On)" : "Input 2 (Off)";'
+          items:
+            - type: label
+              text: !lambda 'return id(input_2).state ? "State (On)" : "State (Off)";'
+
+        - type: menu
+          text: !lambda 'return id(input_3).state ? "Input 3 (On)" : "Input 3 (Off)";'
+          items:
+            - type: label
+              text: !lambda 'return id(input_3).state ? "State (On)" : "State (Off)";'
+
+        - type: menu
+          text: !lambda 'return id(input_4).state ? "Input 4 (On)" : "Input 4 (Off)";'
+          items:
+            - type: label
+              text: !lambda 'return id(input_4).state ? "State (On)" : "State (Off)";'
+
+        - type: menu
+          text: !lambda 'return id(input_5).state ? "Input 5 (On)" : "Input 5 (Off)";'
+          items:
+            - type: label
+              text: !lambda 'return id(input_5).state ? "State (On)" : "State (Off)";'
+
+        - type: menu
+          text: !lambda 'return id(input_6).state ? "Input 6 (On)" : "Input 6 (Off)";'
+          items:
+            - type: label
+              text: !lambda 'return id(input_6).state ? "State (On)" : "State (Off)";'
 
     # A Temp N submenu per slot up to the last bound one is added at boot (esphome:
     # on_boot below); a freed slot's submenu only says Free slot.
@@ -123,67 +188,68 @@ graphical_display_menu:
 
 esphome:
   on_boot:
-    # After the board has filled `relays` / `inputs` (800). A settings row is opened with
-    # CENTER, stepped with LEFT / RIGHT and closed with CENTER or BACK; every step applies
-    # and is saved at once, because upstream fires the same on_leave for both ways out.
+    # After the board has filled `relays` / `inputs` (800): the Nth submenu belongs to the Nth
+    # entity. A row is opened with CENTER, stepped with LEFT / RIGHT and closed with CENTER or
+    # BACK; the choice is applied when it closes.
     - priority: 700
       then:
         - lambda: |-
             using namespace display_menu_base;
-            auto on_off = [](const std::string &name, bool state) {
-              return str_sprintf("%s (%s)", name.c_str(), state ? "On" : "Off");
-            };
-            auto add_row = [](MenuItemMenu *menu, const char *text, std::function<std::string()> value,
-                              std::function<void(int)> step) {
+            using Field = entity_config::SwitchSettingsJson::Field;
+            auto add_row = [](MenuItemMenu *menu, const char *text, std::function<size_t()> count,
+                              std::function<std::string(int)> label, std::function<int()> index,
+                              std::function<void(size_t)> set) {
+              auto *pending = new int(-1);  // the choice being edited; -1 outside editing
               auto *row = new MenuItemCustom();
               row->set_text(std::string(text));
-              row->set_value_lambda([value](const MenuItem *) { return value(); });
-              row->add_on_next_callback([step]() { step(1); });
-              row->add_on_prev_callback([step]() { step(-1); });
+              row->set_value_lambda([=](const MenuItem *) { return label(*pending >= 0 ? *pending : index()); });
+              row->add_on_enter_callback([=]() { *pending = index(); });
+              row->add_on_next_callback([=]() { *pending = (*pending + 1) % static_cast<int>(count()); });
+              row->add_on_prev_callback([=]() {
+                const int n = count();
+                *pending = *pending < 0 ? n - 1 : (*pending + n - 1) % n;
+              });
+              row->add_on_leave_callback([=]() {
+                if (*pending >= 0 && *pending != index())
+                  set(*pending);
+                *pending = -1;
+              });
               menu->add_item(row);
+            };
+            auto submenu = [](MenuItemMenu *parent, size_t i) -> MenuItemMenu * {
+              if (i >= parent->items_size() || parent->get_item(i)->get_type() != MENU_ITEM_MENU)
+                return nullptr;
+              return static_cast<MenuItemMenu *>(parent->get_item(i));
             };
 
             auto *sws = id(switch_settings);
-            for (auto *sw : id(relays)) {
-              const std::string name = sw->get_name().str();
-              auto *menu = new MenuItemMenu();
-              menu->set_text(on_off(name, sw->state));
-              sw->add_on_state_callback([menu, name, on_off](bool state) { menu->set_text(on_off(name, state)); });
-
-              auto *state = new MenuItemSwitch();
-              state->set_text(std::string("State"));
-              state->set_switch_variable(sw);
-              state->set_on_text("On");  // codegen fills these from YAML; here nobody does
-              state->set_off_text("Off");
-              state->set_immediate_edit(true);
-              menu->add_item(state);
-
-              add_row(menu, "Inverted", [sws, sw]() { return std::string(sws->inverted_label(sw)); },
-                      [sws, sw](int) { sws->toggle_inverted(sw); });
-              add_row(menu, "Start mode", [sws, sw]() { return std::string(sws->restore_mode_label(sw)); },
-                      [sws, sw](int step) { sws->cycle_restore_mode(sw, step); });
-              add_row(menu, "Bind to", [sws, sw]() { return sws->binding_input_label(sw); },
-                      [sws, sw](int step) { sws->cycle_binding_input(sw, step); });
-              add_row(menu, "Binding", [sws, sw]() { return sws->binding_mode_label(sw); },
-                      [sws, sw](int step) { sws->cycle_binding_mode(sw, step); });
-              id(relays_menu)->add_item(menu);
+            for (size_t i = 0; i < id(relays).size(); i++) {
+              auto *sw = id(relays)[i];
+              auto *menu = submenu(id(relays_menu), i);
+              if (menu == nullptr)
+                break;
+              auto field_row = [&](const char *text, Field field) {
+                add_row(menu, text, [sws, field]() { return sws->option_count(field); },
+                        [sws, sw, field](int index) { return sws->option_label(sw, field, index); },
+                        [sws, sw, field]() { return sws->option_index(sw, field); },
+                        [sws, sw, field](size_t index) { sws->set_option(sw, field, index); });
+              };
+              field_row("Inverted", Field::INVERTED);
+              field_row("Start mode", Field::RESTORE_MODE);
+              field_row("Bind to", Field::BINDING_INPUT);
+              field_row("Binding", Field::BINDING_MODE);
             }
 
             auto *bss = id(binary_sensor_settings);
-            for (auto *input : id(inputs)) {
-              const std::string name = input->get_name().str();
-              auto *menu = new MenuItemMenu();
-              menu->set_text(on_off(name, input->state));
-              auto *state = new MenuItem(MENU_ITEM_LABEL);
-              state->set_text(on_off("State", input->state));
-              input->add_on_state_callback([menu, state, name, on_off](bool value) {
-                menu->set_text(on_off(name, value));
-                state->set_text(on_off("State", value));
-              });
-              menu->add_item(state);
-              add_row(menu, "Inverted", [bss, input]() { return std::string(bss->inverted_label(input)); },
-                      [bss, input](int) { bss->toggle_inverted(input); });
-              id(inputs_menu)->add_item(menu);
+            for (size_t i = 0; i < id(inputs).size(); i++) {
+              auto *input = id(inputs)[i];
+              auto *menu = submenu(id(inputs_menu), i);
+              if (menu == nullptr)
+                break;
+              add_row(menu, "Inverted", []() { return 2; },
+                      [](int index) { return index == 1 ? "Yes" : "No"; },
+                      [bss, input]() { return bss->is_inverted(input) ? 1 : 0; },
+                      [bss, input](size_t index) { bss->set_inverted(input, index == 1); });
             }
 
     # After dallas_scan (600) has created the sensors.

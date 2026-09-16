@@ -78,14 +78,6 @@ inline constexpr BindingModeOption BINDING_MODE_OPTIONS[] = {
 };
 #endif
 
-// Wraps around; from a value the list does not hold, next lands on the first and prev on the last.
-inline size_t step_option(int index, int step, size_t count) {
-  if (index < 0)
-    return step > 0 ? 0 : count - 1;
-  const int n = static_cast<int>(count);
-  return static_cast<size_t>(((index + step) % n + n) % n);
-}
-
 struct SwitchSettingsRecord {
   std::string source_name_;
   switch_::SwitchRestoreMode restore_mode = switch_::SWITCH_ALWAYS_OFF;
@@ -224,83 +216,111 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     return record;
   }
 
-  // Display menu: one field at a time, applied and saved at once. Runs on the loop task.
-  const char *inverted_label(switch_::Switch *sw) { return this->effective_(sw).inverted ? "Yes" : "No"; }
-
-  void toggle_inverted(switch_::Switch *sw) {
-    auto *record = this->edit_(sw);
-    record->inverted = !record->inverted;
-    this->commit_(record);
-  }
-
-  const char *restore_mode_label(switch_::Switch *sw) {
-    const auto mode = this->effective_(sw).restore_mode;
-    for (const auto &option : START_MODE_OPTIONS) {
-      if (option.mode == mode)
-        return option.label;
-    }
-    return restore_mode_to_string(mode);  // a hand-edited file may hold one the form does not offer
-  }
-
-  void cycle_restore_mode(switch_::Switch *sw, int step) {
-    auto *record = this->edit_(sw);
-    int index = -1;
-    for (size_t i = 0; i < std::size(START_MODE_OPTIONS); i++) {
-      if (START_MODE_OPTIONS[i].mode == record->restore_mode)
-        index = i;
-    }
-    record->restore_mode = START_MODE_OPTIONS[step_option(index, step, std::size(START_MODE_OPTIONS))].mode;
-    this->commit_(record);
-  }
-
-  // Guarded like every other binding surface: without the bindings component apply_record_ ignores
-  // what these write, and binding_input_label needs the binary_sensor entity table to exist.
+  // Display menu: each field as a list of options, so a row can hold the choice being edited
+  // and apply it once when it is closed. Runs on the loop task.
+  enum class Field : uint8_t {
+    INVERTED,
+    RESTORE_MODE,
 #ifdef ENTITY_CONFIG_BINDINGS
-  std::string binding_input_label(switch_::Switch *sw) {
-    const std::string input = this->effective_(sw).binding_input;
-    if (input.empty())
-      return "None";
-    auto *sensor = find_binary_sensor(fnv1_hash(input));
-    return sensor != nullptr ? sensor->get_name().str() : input;  // missing in this build: the stored id
-  }
-
-  void cycle_binding_input(switch_::Switch *sw, int step) {
-    // None first, then the inputs in registration order, as the form lists them.
-    std::vector<std::string> options{""};
-    for (auto *sensor : App.get_binary_sensors()) {
-      if (sensor != nullptr && !sensor->is_internal())
-        options.push_back(object_id_of(*sensor));
-    }
-    auto *record = this->edit_(sw);
-    int index = -1;
-    for (size_t i = 0; i < options.size(); i++) {
-      if (options[i] == record->binding_input)
-        index = i;
-    }
-    record->binding_input = options[step_option(index, step, options.size())];
-    this->commit_(record);
-  }
-
-  std::string binding_mode_label(switch_::Switch *sw) {
-    const std::string mode = this->effective_(sw).binding_mode;
-    for (const auto &option : BINDING_MODE_OPTIONS) {
-      if (mode == option.value)
-        return option.label;
-    }
-    return mode;  // a hand-edited file may hold one the form does not offer
-  }
-
-  void cycle_binding_mode(switch_::Switch *sw, int step) {
-    auto *record = this->edit_(sw);
-    int index = -1;
-    for (size_t i = 0; i < std::size(BINDING_MODE_OPTIONS); i++) {
-      if (record->binding_mode == BINDING_MODE_OPTIONS[i].value)
-        index = i;
-    }
-    record->binding_mode = BINDING_MODE_OPTIONS[step_option(index, step, std::size(BINDING_MODE_OPTIONS))].value;
-    this->commit_(record);
-  }
+    BINDING_INPUT,
+    BINDING_MODE,
 #endif
+  };
+
+  size_t option_count(Field field) {
+    switch (field) {
+      case Field::INVERTED:
+        return 2;
+      case Field::RESTORE_MODE:
+        return std::size(START_MODE_OPTIONS);
+#ifdef ENTITY_CONFIG_BINDINGS
+      case Field::BINDING_INPUT:
+        return binding_inputs_().size();
+      case Field::BINDING_MODE:
+        return std::size(BINDING_MODE_OPTIONS);
+#endif
+    }
+    return 0;
+  }
+
+  // Index of the stored value; -1 when the list does not offer it (a hand-edited file).
+  int option_index(switch_::Switch *sw, Field field) {
+    const SwitchSettingsRecord record = this->effective_(sw);
+    switch (field) {
+      case Field::INVERTED:
+        return record.inverted ? 1 : 0;
+      case Field::RESTORE_MODE:
+        for (size_t i = 0; i < std::size(START_MODE_OPTIONS); i++) {
+          if (START_MODE_OPTIONS[i].mode == record.restore_mode)
+            return i;
+        }
+        return -1;
+#ifdef ENTITY_CONFIG_BINDINGS
+      case Field::BINDING_INPUT: {
+        const auto options = binding_inputs_();
+        for (size_t i = 0; i < options.size(); i++) {
+          if (options[i] == record.binding_input)
+            return i;
+        }
+        return -1;
+      }
+      case Field::BINDING_MODE:
+        for (size_t i = 0; i < std::size(BINDING_MODE_OPTIONS); i++) {
+          if (record.binding_mode == BINDING_MODE_OPTIONS[i].value)
+            return i;
+        }
+        return -1;
+#endif
+    }
+    return -1;
+  }
+
+  // The label of option `index`; -1 labels the stored value itself.
+  std::string option_label(switch_::Switch *sw, Field field, int index) {
+    const SwitchSettingsRecord record = this->effective_(sw);
+    switch (field) {
+      case Field::INVERTED:
+        return (index < 0 ? record.inverted : index == 1) ? "Yes" : "No";
+      case Field::RESTORE_MODE:
+        return index < 0 ? restore_mode_to_string(record.restore_mode) : START_MODE_OPTIONS[index].label;
+#ifdef ENTITY_CONFIG_BINDINGS
+      case Field::BINDING_INPUT: {
+        const std::string input = index < 0 ? record.binding_input : binding_inputs_()[index];
+        if (input.empty())
+          return "None";
+        auto *sensor = find_binary_sensor(fnv1_hash(input));
+        return sensor != nullptr ? sensor->get_name().str() : input;  // missing in this build: the stored id
+      }
+      case Field::BINDING_MODE:
+        return index < 0 ? record.binding_mode : BINDING_MODE_OPTIONS[index].label;
+#endif
+    }
+    return "";
+  }
+
+  // Applied at once, saved after the debounce.
+  void set_option(switch_::Switch *sw, Field field, size_t index) {
+    if (index >= this->option_count(field))
+      return;
+    auto *record = this->edit_(sw);
+    switch (field) {
+      case Field::INVERTED:
+        record->inverted = index == 1;
+        break;
+      case Field::RESTORE_MODE:
+        record->restore_mode = START_MODE_OPTIONS[index].mode;
+        break;
+#ifdef ENTITY_CONFIG_BINDINGS
+      case Field::BINDING_INPUT:
+        record->binding_input = binding_inputs_()[index];
+        break;
+      case Field::BINDING_MODE:
+        record->binding_mode = BINDING_MODE_OPTIONS[index].value;
+        break;
+#endif
+    }
+    this->commit_(record);
+  }
 
   void write_settings_meta(JsonObject obj) override {
     JsonObject start_field = obj["restore_mode"].to<JsonObject>();
@@ -358,6 +378,16 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
   }
 
 #ifdef ENTITY_CONFIG_BINDINGS
+  // None first, then the inputs in registration order, as the form lists them.
+  static std::vector<std::string> binding_inputs_() {
+    std::vector<std::string> options{""};
+    for (auto *sensor : App.get_binary_sensors()) {
+      if (sensor != nullptr && !sensor->is_internal())
+        options.push_back(object_id_of(*sensor));
+    }
+    return options;
+  }
+
   static bool has_bindable_input_() {
     for (auto *sensor : App.get_binary_sensors()) {
       if (sensor != nullptr && !sensor->is_internal())
