@@ -886,6 +886,13 @@ external_components:
       path: components
     components:
       - dallas_scan
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - web_file_browser
 littlefs_storage:
   id: user_storage
   partition_label: littlefs
@@ -910,6 +917,8 @@ uart:
     rx_pin: GPIO39
     baud_rate: 9600
     stop_bits: 1
+web_file_browser:
+  storage_id: user_storage
 display:
   - platform: ssd1306_i2c
     id: !extend 'display1'

@@ -33,6 +33,9 @@ boundaries; everything else is local to its file.
   (`display/display.yaml`), which every button handler runs last.
 - `user_storage` (`features/storage.yaml`) is the LittleFS partition mounted at `/littlefs`; code
   that keeps files checks `id(user_storage).is_mounted()` and writes below `get_base_path()`.
+  `web_file_browser` (`features/web-file-browser.yaml`) serves the same mount over HTTP under
+  `/files`, on the `web_server` port and with its credentials, so anything written there is also
+  reachable from the network.
 
 ## Boot order
 
@@ -78,6 +81,11 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   `web_server::WebServer::add_entity_config`. The menu rows are `MenuItem`s built by hand.
 - Upstream builds ESP-IDF with `CONFIG_VFS_SUPPORT_DIR` off, so `components/littlefs_storage`
   calls `esp32.require_vfs_dir()` to keep `opendir`/`mkdir` from being stubs.
+- `components/web_file_browser` sits on web-server internals: `/download` writes straight to
+  `esp_http_server` through `AsyncWebServerRequest`'s `httpd_req_t *` conversion, `/upload` takes the
+  multipart reader's two `handleUpload()` calls at index 0 as the start of a transfer, and that
+  multipart branch exists at all only because `ota: - platform: web_server` defines
+  `USE_WEBSERVER_OTA` — which a final-validate check in the component insists on.
 - `components/virtual_display` (emulator only, see [QEMU.md](QEMU.md)) renders through
   `DisplayBuffer`'s protected `init_internal_` / `do_update_` and serves its endpoints as a
   `web_server_base` handler, setting the 405 status line through ESP-IDF's

@@ -18,6 +18,7 @@ runs the pre-commit hooks.
 | touch CI, firmware versions, channels, publishing | [doc/RELEASE.md](doc/RELEASE.md) |
 | run a device config in the emulator, or touch the QEMU overlays | [doc/QEMU.md](doc/QEMU.md) |
 | change how Dallas sensors get their slots | [doc/ONEWIRE_WORKFLOW.md](doc/ONEWIRE_WORKFLOW.md) |
+| use or change the HTTP file API over the user partition | [components/web_file_browser/README.md](components/web_file_browser/README.md) |
 | change WiFi provisioning | [doc/WIFI_SETUP.md](doc/WIFI_SETUP.md) |
 
 The tree itself is in the README, "Repository Layout".
