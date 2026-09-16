@@ -41,7 +41,7 @@ class AutomationStorage : public Component {
   /// Names collide by sanitized filename; `exclude_id` never blocks itself.
   bool is_name_taken(const std::string &name, uint32_t exclude_id = 0) const;
 
-  AutomationConfigStorage &configs() { return this->config_storage_; }
+  const AutomationConfigStorage &configs() const { return this->config_storage_; }
 
   void set_time_source(time::RealTimeClock *rtc) { this->rtc_ = rtc; }
   void set_folder_path(const std::string &path) { this->folder_path_ = path; }
@@ -56,6 +56,12 @@ class AutomationStorage : public Component {
   }
   virtual void cancel_delay(uint32_t id) { this->cancel_timeout(id); }
   virtual uint32_t now_ms() const;
+  // Runs a rule's own step, so an edit from inside it is refused as from any other dispatch.
+  template<typename F> void drive(F &&step) {
+    this->dispatching_++;
+    step();
+    this->dispatching_--;
+  }
 
   template<typename E> struct Subscription {
     AutomationStorage *engine;

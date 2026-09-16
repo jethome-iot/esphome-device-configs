@@ -489,6 +489,39 @@ TEST_F(Storage, AnUnwritableFolderKeepsTheRuleLiveButUnsaved) {
   EXPECT_EQ(engine->configs().size(), 0u);
 }
 
+TEST_F(Storage, RefusesToRunOverAFolderItCannotRead) {
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root reads anywhere";
+  chmod(rules().c_str(), 0000);
+  boot();
+  EXPECT_TRUE(engine->is_failed());
+  EXPECT_TRUE(log().has(log().errors, "Cannot read"));
+}
+
+TEST_F(Storage, IdsWrapBeforeTheTimerRange) {
+  write("top.json", R"({"id":268435455,"name":"Top","triggers":[{"source":"startup"}]})");
+  write("noid.json", R"({"name":"No Id","triggers":[{"source":"startup"}]})");
+  boot();
+  EXPECT_EQ(id_of("Top"), 268435455u);
+  EXPECT_EQ(id_of("No Id"), 1u);
+  EXPECT_EQ(engine->add_automation(rule(R"({"name":"Next","triggers":[{"source":"startup"}]})")), 2u);
+}
+
+TEST_F(Storage, RulesCannotBeEditedFromADelayedStepEither) {
+  write(
+      "delayed.json",
+      R"({"id":1,"name":"Delayed","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"actions":[{"source":"delay","delay_ms":500},{"source":"switch","type":"turn_on","object_id":"relay_1"}]})");
+  boot();
+  bool removed = true;
+  e.relay1.on_change = [&]() { removed = engine->remove_automation(1); };
+  press(e.in1);
+  ASSERT_EQ(engine->delays.size(), 1u);
+  engine->fire_next();
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_FALSE(removed);
+  EXPECT_EQ(engine->configs().size(), 1u);
+}
+
 TEST_F(Storage, AnIdTooLargeForATimerIsRestamped) {
   write("big.json", R"({"id":300000000,"name":"Big","triggers":[{"source":"startup"}]})");
   boot();

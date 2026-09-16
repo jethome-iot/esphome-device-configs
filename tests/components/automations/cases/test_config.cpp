@@ -43,6 +43,14 @@ TEST(TriggerConfig, TemperatureCarriesThresholds) {
   EXPECT_FLOAT_EQ(range.params.temperature.max_threshold, 20.0f);
 }
 
+TEST(TriggerConfig, TemperatureNeedsItsThresholds) {
+  TriggerConfig t;
+  EXPECT_FALSE(load(R"({"source":"temperature","type":"below","object_id":"temp"})", t));
+  EXPECT_FALSE(load(R"({"source":"temperature","type":"above","object_id":"temp","treshold":25})", t));
+  EXPECT_FALSE(load(R"({"source":"temperature","type":"range","object_id":"temp","min_threshold":10})", t));
+  EXPECT_FALSE(load(R"({"source":"temperature","type":"above","object_id":"temp","threshold":"hot"})", t));
+}
+
 TEST(TriggerConfig, StartupNeedsNothingElse) {
   TriggerConfig t;
   ASSERT_TRUE(load(R"({"source":"startup"})", t));
@@ -98,10 +106,12 @@ TEST(ConditionConfig, RefusesABrokenMember) {
   EXPECT_FALSE(load(R"({"type":"xor","conditions":[{"type":"input","object_id":"in_2"},{"type":"tempratur"}]})", c));
 }
 
-TEST(ConditionConfig, TemperatureNeedsAKnownType) {
+TEST(ConditionConfig, TemperatureNeedsAKnownTypeAndItsThresholds) {
   ConditionConfig c;
   EXPECT_FALSE(load(R"({"type":"temperature","object_id":"temp"})", c));
   EXPECT_FALSE(load(R"({"type":"temperature","object_id":"temp","temperature_type":"none"})", c));
+  EXPECT_FALSE(load(R"({"type":"temperature","object_id":"temp","temperature_type":"below"})", c));
+  EXPECT_FALSE(load(R"({"type":"temperature","object_id":"temp","temperature_type":"range","max_threshold":20})", c));
 }
 
 // --- Actions ---
@@ -115,6 +125,12 @@ TEST(ActionConfig, DelayReadsEitherUnitAndWritesMilliseconds) {
   ASSERT_TRUE(load(R"({"source":"delay","delay_s":5})", a));
   EXPECT_EQ(a.params.delay.delay_ms, 5000u);
   EXPECT_EQ(dump(a), R"({"source":"delay","delay_ms":5000})");
+}
+
+TEST(ActionConfig, DelayNeedsOneOfItsUnits) {
+  ActionConfig a;
+  EXPECT_FALSE(load(R"({"source":"delay"})", a));
+  EXPECT_FALSE(load(R"({"source":"delay","delay_mz":500})", a));
 }
 
 TEST(ActionConfig, DelayClampsToWhatTheSchedulerTakes) {

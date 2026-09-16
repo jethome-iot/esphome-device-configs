@@ -23,17 +23,20 @@ TEST(CronField, RoundTripsEveryForm) {
   EXPECT_EQ(round_trip("0 0 6 * 1-3/1 *"), "0 0 6 * 1-3 *");
 }
 
-TEST(CronField, ClampsARangeToTheField) {
-  EXPECT_EQ(round_trip("0 0 0 1-40 * *"), "0 0 0 * * *");
-  EXPECT_EQ(round_trip("0 0 20-30 * * *"), "0 0 20-23 * * *");
-}
-
-TEST(CronField, RefusesAFieldThatNeverMatches) {
+TEST(CronField, RefusesAMemberItCannotRead) {
   EXPECT_EQ(round_trip("99 * * * * *"), "<refused>");
   EXPECT_EQ(round_trip("5-3 * * * * *"), "<refused>");
   EXPECT_EQ(round_trip("*/0 * * * * *"), "<refused>");
+  EXPECT_EQ(round_trip("*/x * * * * *"), "<refused>");
   EXPECT_EQ(round_trip("a * * * * *"), "<refused>");
   EXPECT_EQ(round_trip("* * * * * 0"), "<refused>");
+  // Every member counts: a typo next to a good value must not be dropped.
+  EXPECT_EQ(round_trip("0,typo * * * * *"), "<refused>");
+  EXPECT_EQ(round_trip("0,99 * * * * *"), "<refused>");
+  EXPECT_EQ(round_trip("0, * * * * *"), "<refused>");
+  // A range outside the field is not clamped: it would be stored as something else.
+  EXPECT_EQ(round_trip("0 0 0 1-40 * *"), "<refused>");
+  EXPECT_EQ(round_trip("0 0 20-30 * * *"), "<refused>");
 }
 
 TEST(CronField, RefusesTheWrongNumberOfFields) {

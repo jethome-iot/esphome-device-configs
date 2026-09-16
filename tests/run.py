@@ -29,9 +29,14 @@ def run_component(component: Path, gtest_args: list[str]) -> bool:
     env["ESPHOME_PREFDIR"] = str(component / ".prefs")
     # App and the test entities live for the whole run; upstream runs its tests the same way.
     env.setdefault("ASAN_OPTIONS", "detect_leaks=0")
-    proc = subprocess.run(
-        [str(binary_for(config)), *gtest_args], cwd=component, env=env
-    )
+    # A report must fail the run, not just print.
+    env.setdefault("UBSAN_OPTIONS", "halt_on_error=1:print_stacktrace=1")
+    # The harness main.cpp calls InitGoogleTest() without argv, so flags go in as variables:
+    # --gtest_filter=X becomes GTEST_FILTER=X.
+    for arg in gtest_args:
+        name, _, value = arg.lstrip("-").partition("=")
+        env[name.upper()] = value or "1"
+    proc = subprocess.run([str(binary_for(config))], cwd=component, env=env)
     return proc.returncode == 0
 
 

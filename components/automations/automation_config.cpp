@@ -26,6 +26,16 @@ static bool safe_parse_uint8(const std::string &str, uint8_t &out) {
   return true;
 }
 
+// A number the file does not carry would read back as 0 and be stored as such.
+static bool read_float(const JsonObject &obj, const char *key, float &out) {
+  if (obj[key].isNull() || !obj[key].is<float>()) {
+    ESP_LOGE(TAG, "Missing %s", key);
+    return false;
+  }
+  out = obj[key].as<float>();
+  return true;
+}
+
 // A word the engine does not know reads back as a default, and the next save would write that
 // default over what the file says: refuse the rule instead and leave the file alone.
 template<typename E>
@@ -125,97 +135,63 @@ static std::string serialize_cron_field(const std::vector<uint8_t> &values, uint
   return result;
 }
 
-// Helper to parse a single cron part (handles *, */N, X-Y, X-Y/N, N)
-static void parse_cron_part(const std::string &part, uint8_t min_val, uint8_t max_val, std::vector<uint8_t> &result) {
+// One member of a cron field: *, */N, X-Y, X-Y/N or N. Anything else, or a value outside the
+// field, refuses the member: skipping it would store a rule that runs at other times than written.
+static bool parse_cron_part(const std::string &part, uint8_t min_val, uint8_t max_val, std::vector<uint8_t> &result) {
   if (part.empty())
-    return;
+    return false;
 
-  // Check for step notation (contains '/')
   std::string base_part = part;
   uint8_t step = 1;
-  size_t slash_pos = part.find('/');
+  const size_t slash_pos = part.find('/');
   if (slash_pos != std::string::npos) {
     base_part = part.substr(0, slash_pos);
-    std::string step_str = part.substr(slash_pos + 1);
-    if (!safe_parse_uint8(step_str, step) || step == 0) {
-      return;  // Invalid step, skip this part
-    }
+    if (!safe_parse_uint8(part.substr(slash_pos + 1), step) || step == 0)
+      return false;
   }
 
   uint8_t range_start = min_val;
   uint8_t range_end = max_val;
-
-  if (base_part == "*") {
-    // Full range with optional step: * or */N
-    range_start = min_val;
-    range_end = max_val;
-  } else {
-    // Check for range notation (contains '-')
-    size_t dash_pos = base_part.find('-');
+  if (base_part != "*") {
+    const size_t dash_pos = base_part.find('-');
     if (dash_pos != std::string::npos) {
-      // Range: X-Y
-      std::string start_str = base_part.substr(0, dash_pos);
-      std::string end_str = base_part.substr(dash_pos + 1);
-      if (!safe_parse_uint8(start_str, range_start) || !safe_parse_uint8(end_str, range_end)) {
-        return;  // Invalid range, skip this part
-      }
-      // Clamp to valid range
-      if (range_start < min_val)
-        range_start = min_val;
-      if (range_end > max_val)
-        range_end = max_val;
-      if (range_start > range_end)
-        return;  // Invalid range
+      if (!safe_parse_uint8(base_part.substr(0, dash_pos), range_start) ||
+          !safe_parse_uint8(base_part.substr(dash_pos + 1), range_end))
+        return false;
     } else {
-      // Single value
-      uint8_t val;
-      if (!safe_parse_uint8(base_part, val)) {
-        return;  // Invalid value, skip this part
-      }
-      if (val >= min_val && val <= max_val) {
-        result.push_back(val);
-      }
-      return;
+      if (!safe_parse_uint8(base_part, range_start))
+        return false;
+      range_end = range_start;
     }
+    if (range_start < min_val || range_end > max_val || range_start > range_end)
+      return false;
   }
 
-  // Generate values in range with step
   for (uint8_t i = range_start; i <= range_end; i += step) {
     result.push_back(i);
     // Prevent overflow when i + step > 255
     if (i > range_end - step && step > 1)
       break;
   }
+  return true;
 }
 
-// Helper function to deserialize a cron field string to vector
-// Supports: *, */N, X-Y, X-Y/N, N, and comma-separated combinations
-static std::vector<uint8_t> deserialize_cron_field(const std::string &field, uint8_t min_val, uint8_t max_val) {
-  std::vector<uint8_t> result;
-
-  if (field.empty()) {
-    return result;
-  }
-
-  // Parse comma-separated parts
+// A whole field: comma-separated members, sorted and unique.
+static bool deserialize_cron_field(const std::string &field, uint8_t min_val, uint8_t max_val,
+                                   std::vector<uint8_t> &result) {
+  result.clear();
   size_t start = 0;
-  size_t comma_pos;
-  while ((comma_pos = field.find(',', start)) != std::string::npos) {
-    std::string part = field.substr(start, comma_pos - start);
-    parse_cron_part(part, min_val, max_val, result);
+  while (start <= field.length()) {
+    size_t comma_pos = field.find(',', start);
+    if (comma_pos == std::string::npos)
+      comma_pos = field.length();
+    if (!parse_cron_part(field.substr(start, comma_pos - start), min_val, max_val, result))
+      return false;
     start = comma_pos + 1;
   }
-  // Last part
-  if (start < field.length()) {
-    std::string part = field.substr(start);
-    parse_cron_part(part, min_val, max_val, result);
-  }
-
-  // Sort and remove duplicates
   std::sort(result.begin(), result.end());
   result.erase(std::unique(result.begin(), result.end()), result.end());
-
-  return result;
+  return true;
 }
 
 TriggerConfig::TriggerConfig() : source(SourceTrigger::NONE) { memset(&params, 0, sizeof(params)); }
@@ -288,10 +264,12 @@ bool TriggerConfig::deserialize(const JsonObject &obj) {
 
       if (params.temperature.type == TypesTemperatureTrigger::BELOW ||
           params.temperature.type == TypesTemperatureTrigger::ABOVE) {
-        params.temperature.threshold = obj["threshold"].as<float>();
+        if (!read_float(obj, "threshold", params.temperature.threshold))
+          return false;
       } else if (params.temperature.type == TypesTemperatureTrigger::RANGE) {
-        params.temperature.min_threshold = obj["min_threshold"].as<float>();
-        params.temperature.max_threshold = obj["max_threshold"].as<float>();
+        if (!read_float(obj, "min_threshold", params.temperature.min_threshold) ||
+            !read_float(obj, "max_threshold", params.temperature.max_threshold))
+          return false;
       }
       break;
     }
@@ -327,12 +305,15 @@ bool TriggerConfig::deserialize(const JsonObject &obj) {
         return false;
       }
 
-      cron_seconds = deserialize_cron_field(fields[0], 0, 60);
-      cron_minutes = deserialize_cron_field(fields[1], 0, 59);
-      cron_hours = deserialize_cron_field(fields[2], 0, 23);
-      cron_days_of_month = deserialize_cron_field(fields[3], 1, 31);
-      cron_months = deserialize_cron_field(fields[4], 1, 12);
-      cron_days_of_week = deserialize_cron_field(fields[5], 1, 7);
+      if (!deserialize_cron_field(fields[0], 0, 60, cron_seconds) ||
+          !deserialize_cron_field(fields[1], 0, 59, cron_minutes) ||
+          !deserialize_cron_field(fields[2], 0, 23, cron_hours) ||
+          !deserialize_cron_field(fields[3], 1, 31, cron_days_of_month) ||
+          !deserialize_cron_field(fields[4], 1, 12, cron_months) ||
+          !deserialize_cron_field(fields[5], 1, 7, cron_days_of_week)) {
+        ESP_LOGE(TAG, "Invalid cron '%s': a field cannot be read", cron_str.c_str());
+        return false;
+      }
 
       // A field that matched nothing never fires yet comes back as "*", which reads like
       // "always": refuse the rule rather than store that.
@@ -447,10 +428,11 @@ bool ConditionConfig::deserialize(const JsonObject &obj) {
 
       if (temperature_type == TypesTemperatureCondition::BELOW ||
           temperature_type == TypesTemperatureCondition::ABOVE) {
-        threshold = obj["threshold"].as<float>();
+        if (!read_float(obj, "threshold", threshold))
+          return false;
       } else if (temperature_type == TypesTemperatureCondition::RANGE) {
-        min_threshold = obj["min_threshold"].as<float>();
-        max_threshold = obj["max_threshold"].as<float>();
+        if (!read_float(obj, "min_threshold", min_threshold) || !read_float(obj, "max_threshold", max_threshold))
+          return false;
       }
       break;
     }
@@ -503,6 +485,10 @@ bool ActionConfig::deserialize(const JsonObject &obj) {
       // delay_s is what every file written before this stored. Read either, write only
       // delay_ms; both clamp, because either used to reach the scheduler as a wrapped uint32.
       const bool in_ms = !obj["delay_ms"].isNull();
+      if (!in_ms && obj["delay_s"].isNull()) {
+        ESP_LOGE(TAG, "Missing delay_ms");
+        return false;
+      }
       const double ms = in_ms ? obj["delay_ms"].as<double>() : obj["delay_s"].as<double>() * 1000;
       const double limit = MAX_DELAY_MS;
       params.delay.delay_ms = static_cast<uint32_t>(ms > 0 ? std::min(ms, limit) : 0.0);

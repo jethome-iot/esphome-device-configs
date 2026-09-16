@@ -16,6 +16,15 @@ AUTO_LOAD = ["json", "time"]
 CONF_STORAGE = "storage"
 CONF_FOLDER_PATH = "folder_path"
 
+
+def folder_name(value):
+    # One folder below the storage: a path would let the engine scan and delete elsewhere.
+    value = cv.string_strict(value)
+    if not value or "/" in value or "\\" in value or value in (".", ".."):
+        raise cv.Invalid("folder_path must be a single folder name")
+    return value
+
+
 automations_ns = cg.esphome_ns.namespace("automations")
 AutomationStorage = automations_ns.class_("AutomationStorage", cg.Component)
 
@@ -26,7 +35,7 @@ CONFIG_SCHEMA = cv.Schema(
             filesystem_storage_abstract.FilesystemStorageAbstract
         ),
         cv.Optional(CONF_TIME_ID): cv.use_id(time_.RealTimeClock),
-        cv.Optional(CONF_FOLDER_PATH, default="automations"): cv.string_strict,
+        cv.Optional(CONF_FOLDER_PATH, default="automations"): folder_name,
     }
 ).extend(cv.COMPONENT_SCHEMA)
 

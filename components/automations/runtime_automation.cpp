@@ -374,7 +374,7 @@ void RuntimeAutomation::step_(uint32_t token) {
     const CompiledAction &action = (*run->branch)[run->cursor++];
     if (action.source == SourceAction::DELAY) {
       this->engine_->schedule_delay(this->timer_id_(run->seq), action.delay_ms,
-                                    [this, token]() { this->step_(token); });
+                                    [this, token]() { this->engine_->drive([this, token]() { this->step_(token); }); });
       return;
     }
     this->play_switch_(action, *run);

@@ -98,7 +98,12 @@ void AutomationStorage::setup() {
   }
 
   DIR *dir = opendir(folder_path.c_str());
-  if (dir != nullptr) {
+  if (dir == nullptr) {
+    ESP_LOGE(TAG, "Cannot read '%s'", folder_path.c_str());
+    this->mark_failed();
+    return;
+  }
+  {
     struct dirent *entry;
     while ((entry = readdir(dir)) != nullptr) {
       std::string filename = entry->d_name;
@@ -241,28 +246,32 @@ bool AutomationStorage::run_on_loop_(std::function<bool()> &&job) {
   }
 #ifdef USE_ESP32
   if (this->loop_task_ != nullptr && xTaskGetCurrentTaskHandle() != this->loop_task_) {
+    enum class JobState : uint8_t { PENDING, RUNNING, DONE, ABANDONED };
     struct LoopJob {
       std::function<bool()> fn;
-      std::atomic<bool> done{false};
-      std::atomic<bool> abandoned{false};
+      std::atomic<JobState> state{JobState::PENDING};
       bool result{false};
     };
     auto shared = std::make_shared<LoopJob>();
     shared->fn = std::move(job);
     this->defer([shared]() {
-      // The caller has reported failure by now: doing the edit anyway would contradict it.
-      if (shared->abandoned)
+      // Only a job still pending may start: an abandoned one has been reported as failed.
+      JobState expected = JobState::PENDING;
+      if (!shared->state.compare_exchange_strong(expected, JobState::RUNNING))
         return;
       shared->result = shared->fn();
-      shared->done = true;
+      shared->state = JobState::DONE;
     });
-    for (uint32_t waited = 0; !shared->done && waited < LOOP_JOB_TIMEOUT_MS; waited += 2)
+    for (uint32_t waited = 0; shared->state != JobState::DONE && waited < LOOP_JOB_TIMEOUT_MS; waited += 2)
       vTaskDelay(pdMS_TO_TICKS(2));
-    if (!shared->done) {
-      shared->abandoned = true;
+    JobState expected = JobState::PENDING;
+    if (shared->state.compare_exchange_strong(expected, JobState::ABANDONED)) {
       ESP_LOGE(TAG, "Loop task did not run the request in time");
       return false;
     }
+    // It started at the deadline: it will finish, and the caller gets the truth.
+    while (shared->state != JobState::DONE)
+      vTaskDelay(pdMS_TO_TICKS(2));
     return shared->result;
   }
 #endif
@@ -508,10 +517,15 @@ bool AutomationStorage::is_name_taken(const std::string &name, uint32_t exclude_
 }
 
 uint32_t AutomationStorage::allocate_id_() {
-  // Skip ids in use (a hand-written file can carry any) and never hand out 0.
-  while (this->next_id_ == 0 || this->find_automation_index_by_id_(this->next_id_) >= 0)
+  // Skip ids in use (a hand-written file can carry any), never hand out 0, and stay within
+  // what a timer id can carry.
+  while (true) {
+    if (this->next_id_ == 0 || this->next_id_ > MAX_RULE_ID)
+      this->next_id_ = 1;
+    if (this->find_automation_index_by_id_(this->next_id_) < 0)
+      return this->next_id_++;
     this->next_id_++;
-  return this->next_id_++;
+  }
 }
 
 bool AutomationStorage::ensure_directory_exists_(const std::string &path) {
