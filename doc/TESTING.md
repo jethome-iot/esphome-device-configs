@@ -21,13 +21,15 @@ tests/
     environment.cpp         # constructs App, which that setup would have done
     components/
       dir_storage           # test-only storage backend: a directory on the host
-      web_server_base       # stand-in for upstream's: requests a test builds, no socket
+      web_server_base       # stand-in for upstream's, so HTTP handlers run on the host
   components/
     automations/
       test.yaml             # host config: the component under test, its entities, the harness
       cases/                # the tests; common.h holds what they share
       test_schema.py        # the component's YAML schema, run with unittest by run.py
-    web_automation_editor/  # the same layout: every HTTP route through the handler
+    i2c_eeprom/             # the same layout, one suite per component
+    jethome_board_info/
+    web_automation_editor/
 ```
 
 ## Adding a suite for a new component
@@ -39,50 +41,6 @@ tests/
 2. `tests/components/<name>/cases/`: the tests, in `esphome::<name>::testing`, as upstream's.
 3. `tests/components/<name>/test_*.py` for the schema: what a bad config is refused with.
 4. Nothing else: `run.py` and CI pick the directory up.
-
-## What the automations suite covers
-
-- `test_enums.cpp`, `test_config.cpp`, `test_cron.cpp`: the enum tables, the JSON and the cron
-  parsers.
-- `test_runtime.cpp`: one rule driven by hand: edges, click timing, condition, branches, modes,
-  delays.
-- `test_tick.cpp`: the cron tick against a clock the test moves: catch-up and clock jumps.
-- `test_storage.cpp`: the whole component over a real directory: loading and repairing the
-  folder, refused files, the API and what it writes, the second boot, the errors and warnings it
-  logs.
-- Only what exists solely on ESP-IDF (NVS, LittleFS, `web_server_base`, the cross-task path of
-  the mutators) has no test; say so in the pull request.
-
-## What the web_automation_editor suite covers
-
-`test_api.cpp`: every route through the handler, over the real engine and a directory: which
-URLs it claims, the method each route takes, create / update / delete and what they leave on
-disk, every refusal and its message, the body limit, export against get, entities without the
-internal ones, and that every word in the static schema is one the engine parses. Its
-`cases/common.h` has the `Editor` fixture with `get()` / `post()` / `call()` returning a `Reply`
-(status, body, parsed JSON), `create()`, `files()`, and a `TestEditor` whose reboot only counts.
-
-HTTP handlers are testable at all because `tests/harness/components/web_server_base/` shadows
-upstream's component for the host build: the same `AsyncWebServerRequest`, `AsyncWebHandler`
-and `WebServerBase` names, a request the test constructs from a method, a URL and a body, and a
-`dispatch()` that takes web_server_idf's path — a raw body through `handleBody()` in chunks, a
-form-encoded one into parameters, then `handleRequest()`. Only what the components under test
-use exists there; add to it when a handler needs more.
-
-Its `cases/common.h` provides:
-
-- `entities()`: `in1`, `in2` (binary sensors), `temp` (sensor), `relay1`, `relay2`
-  (`FakeSwitch`, which counts its `writes` and runs `on_change` when the state changes). Their
-  object ids are `in_1`, `in_2`, `temp`, `relay_1`, `relay_2`. `reset_entities()` puts them
-  back; the fixtures call it.
-- `FakeEngine`: an `AutomationStorage` whose delays wait in `delays` until `fire_next()`, whose
-  clocks are `ms` (click timing) and `now` (epoch seconds, read by `tick()`), with `with_clock()`
-  so cron triggers build, `adopt()` to run a rule inside it and `forget()` to drop the rules
-  without touching files.
-- `load(json, config)`, `dump(config)`, `build_rule(engine, json)`.
-- The `Storage` fixture in `test_storage.cpp`: a temporary directory under `.storage/` next to
-  the config, `boot()` / `reboot()`, `write()` / `read()` / `files()`, and `log()` with every
-  error and warning logged since the test began.
 
 ## Rules every suite lives by
 
@@ -98,6 +56,7 @@ Its `cases/common.h` provides:
   seams are `schedule_delay()`, `tick()` and calling `on_startup()` yourself.
 - Logger listeners exist only when the YAML asks for them: `test.yaml` carries
   `-DUSE_LOG_LISTENERS -DESPHOME_LOG_MAX_LISTENERS=1` so a suite can read what was logged.
+- An I2C component validates on the host only with an `i2c:` bus that names a `device:`;
+  nothing opens it. The suite drives the component over a fake `i2c::I2CBus` of its own.
 - Entity strings (units, device classes, icons) are indices into tables codegen builds from the
-  YAML; a case that registers an entity with a unit declares that unit in `test.yaml` and passes
-  its index in `entity_fields`.
+  YAML: declare the unit in `test.yaml` and pass its index in `entity_fields`.

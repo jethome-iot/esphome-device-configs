@@ -21,6 +21,58 @@ ota:
   - platform: web_server
 preferences:
   flash_write_interval: 5s
+external_components:
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - i2c_eeprom
+      - jethome_board_info
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - web_automation_editor
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - automations
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - filesystem_storage_abstract
+      - littlefs_storage
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - dallas_scan
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - web_file_browser
+i2c_eeprom:
+  - id: eeprom_cpu
+    size: 64KB
+    address: 84
+jethome_board_info:
+  id: board_info
+  eeprom_id: eeprom_cpu
 logger:
   level: debug
 web_server:
@@ -72,9 +124,9 @@ sensor:
           send_first_at: 10
       - clamp:
           min_value: 0
-      - lambda: 'if (x <= 2.8) return 0;
-
-          return x;'
+      - lambda: |-
+          if (x <= 2.8) return 0;
+          return x;
   - platform: adc
     name: PoE voltage
     id: poe_voltage
@@ -92,9 +144,9 @@ sensor:
           send_first_at: 10
       - clamp:
           min_value: 0
-      - lambda: 'if (x <= 2.8) return 0;
-
-          return x;'
+      - lambda: |-
+          if (x <= 2.8) return 0;
+          return x;
   - platform: template
     id: input_voltage
     internal: true
@@ -216,10 +268,16 @@ text_sensor:
     id: ip
     internal: true
     update_interval: never
-    lambda: "if (id(ethernet_id).is_connected())\n  return id(ip_eth).state;\nif (id(wifi_id).is_connected())\n\
-      \  return id(ip_wifi).state;\nif (id(wifi_id).is_ap_active()) {\n  char buf[esphome::network::IP_ADDRESS_BUFFER_SIZE];\n\
-      \  return std::string(id(wifi_id).wifi_soft_ap_ip().str_to(buf));\n}\nreturn\
-      \ std::string();"
+    lambda: |-
+      if (id(ethernet_id).is_connected())
+        return id(ip_eth).state;
+      if (id(wifi_id).is_connected())
+        return id(ip_wifi).state;
+      if (id(wifi_id).is_ap_active()) {
+        char buf[esphome::network::IP_ADDRESS_BUFFER_SIZE];
+        return std::string(id(wifi_id).wifi_soft_ap_ip().str_to(buf));
+      }
+      return std::string();
 pca9554:
   - id: jxd_d6_r6_exp
     pin_count: 16
@@ -309,9 +367,13 @@ binary_sensor:
       mode:
         input: true
     on_press:
-      - lambda: "if (id(display_menu).is_active()) {\n  id(display_menu).up();\n}\
-          \ else if (id(display1).get_active_page() == id(status_page)) {\n  id(status_temp_scroll)--;\n\
-          \  id(display1).update();\n}"
+      - lambda: |-
+          if (id(display_menu).is_active()) {
+            id(display_menu).up();
+          } else if (id(display1).get_active_page() == id(status_page)) {
+            id(status_temp_scroll)--;
+            id(display1).update();
+          }
       - script.execute: check_blank_page
   - platform: gpio
     name: DOWN
@@ -323,9 +385,13 @@ binary_sensor:
       mode:
         input: true
     on_press:
-      - lambda: "if (id(display_menu).is_active()) {\n  id(display_menu).down();\n\
-          } else if (id(display1).get_active_page() == id(status_page)) {\n  id(status_temp_scroll)++;\n\
-          \  id(display1).update();\n}"
+      - lambda: |-
+          if (id(display_menu).is_active()) {
+            id(display_menu).down();
+          } else if (id(display1).get_active_page() == id(status_page)) {
+            id(status_temp_scroll)++;
+            id(display1).update();
+          }
       - script.execute: check_blank_page
   - platform: gpio
     name: LEFT
@@ -337,12 +403,19 @@ binary_sensor:
       mode:
         input: true
     on_press:
-      - lambda: "auto *page = id(display1).get_active_page();\nif (id(display_menu).is_active())\
-          \ {\n  id(display_menu).left();\n} else if (page == id(main_page) || page\
-          \ == id(blank_page)) {\n  id(status_relay_sel) = 0;\n  id(status_temp_scroll)\
-          \ = 0;\n  id(display1).show_page(id(status_page));\n} else if (page == id(status_page)\
-          \ && !id(relays).empty()) {\n  int n = id(relays).size();\n  id(status_relay_sel)\
-          \ = (id(status_relay_sel) + n - 1) % n;\n  id(display1).update();\n}"
+      - lambda: |-
+          auto *page = id(display1).get_active_page();
+          if (id(display_menu).is_active()) {
+            id(display_menu).left();
+          } else if (page == id(main_page) || page == id(blank_page)) {
+            id(status_relay_sel) = 0;
+            id(status_temp_scroll) = 0;
+            id(display1).show_page(id(status_page));
+          } else if (page == id(status_page) && !id(relays).empty()) {
+            int n = id(relays).size();
+            id(status_relay_sel) = (id(status_relay_sel) + n - 1) % n;
+            id(display1).update();
+          }
       - script.execute: check_blank_page
   - platform: gpio
     name: RIGHT
@@ -354,12 +427,17 @@ binary_sensor:
       mode:
         input: true
     on_press:
-      - lambda: "auto *page = id(display1).get_active_page();\nif (id(display_menu).is_active())\
-          \ {\n  id(display_menu).right();\n} else if (page == id(main_page) || page\
-          \ == id(blank_page)) {\n  id(display1).show_page(id(time_page));\n} else\
-          \ if (page == id(status_page) && !id(relays).empty()) {\n  int n = id(relays).size();\n\
-          \  id(status_relay_sel) = (id(status_relay_sel) + 1) % n;\n  id(display1).update();\n\
-          }"
+      - lambda: |-
+          auto *page = id(display1).get_active_page();
+          if (id(display_menu).is_active()) {
+            id(display_menu).right();
+          } else if (page == id(main_page) || page == id(blank_page)) {
+            id(display1).show_page(id(time_page));
+          } else if (page == id(status_page) && !id(relays).empty()) {
+            int n = id(relays).size();
+            id(status_relay_sel) = (id(status_relay_sel) + 1) % n;
+            id(display1).update();
+          }
       - script.execute: check_blank_page
   - platform: gpio
     name: CENTER
@@ -371,11 +449,19 @@ binary_sensor:
       mode:
         input: true
     on_press:
-      - lambda: "auto *page = id(display1).get_active_page();\nif (id(display_menu).is_active())\
-          \ {\n  id(display_menu).enter();\n} else if (page == id(main_page)) {\n\
-          \  id(display_menu).show_main();\n} else if (page == id(status_page)) {\n\
-          \  int sel = id(status_relay_sel);\n  if (sel >= 0 && sel < (int) id(relays).size())\
-          \ {\n    id(relays)[sel]->toggle();\n    id(display1).update();\n  }\n}"
+      - lambda: |-
+          auto *page = id(display1).get_active_page();
+          if (id(display_menu).is_active()) {
+            id(display_menu).enter();
+          } else if (page == id(main_page)) {
+            id(display_menu).show_main();
+          } else if (page == id(status_page)) {
+            int sel = id(status_relay_sel);
+            if (sel >= 0 && sel < (int) id(relays).size()) {
+              id(relays)[sel]->toggle();
+              id(display1).update();
+            }
+          }
       - script.execute: check_blank_page
   - platform: gpio
     name: HOME
@@ -387,8 +473,11 @@ binary_sensor:
       mode:
         input: true
     on_press:
-      - lambda: "if (id(display1).get_active_page() != id(main_page)) {\n  id(display_menu).hide();\n\
-          \  id(display1).show_page(id(main_page));\n}"
+      - lambda: |-
+          if (id(display1).get_active_page() != id(main_page)) {
+            id(display_menu).hide();
+            id(display1).show_page(id(main_page));
+          }
       - script.execute: check_blank_page
   - platform: gpio
     name: BACK
@@ -400,22 +489,41 @@ binary_sensor:
       mode:
         input: true
     on_press:
-      - lambda: "// leave_menu_() is protected upstream; reached via pointer-to-member.\n\
-          struct MenuBack : public display_menu_base::DisplayMenuComponent {\n  using\
-          \ Menu = display_menu_base::DisplayMenuComponent;\n\n  static bool step_back(Menu\
-          \ *menu) {\n    auto editing = static_cast<bool Menu::*>(&MenuBack::editing_);\n\
-          \    auto finish_editing = static_cast<void (Menu::*)()>(&MenuBack::finish_editing_);\n\
-          \    auto leave_menu = static_cast<bool (Menu::*)()>(&MenuBack::leave_menu_);\n\
-          \    auto redraw = static_cast<void (Menu::*)()>(&MenuBack::draw_and_update);\n\
-          \n    if (menu->*editing) {\n      (menu->*finish_editing)();\n    } else\
-          \ if (!(menu->*leave_menu)()) {\n      return false;\n    }\n    (menu->*redraw)();\n\
-          \    return true;\n  }\n};\n\nauto *page = id(display1).get_active_page();\n\
-          if (id(display_menu).is_active()) {\n  if (!MenuBack::step_back(id(display_menu)))\
-          \ {\n    id(display_menu).hide();\n    id(display1).show_page(id(main_page));\n\
-          \  }\n} else if (page == id(blank_page)) {\n  id(display_off_s) = 0;\n \
-          \ id(display1).show_page(id(main_page));\n} else if (page == id(main_page))\
-          \ {\n  id(display1).show_page(id(blank_page));\n} else {\n  id(display1).show_page(id(main_page));\n\
-          }"
+      - lambda: |-
+          // leave_menu_() is protected upstream; reached via pointer-to-member.
+          struct MenuBack : public display_menu_base::DisplayMenuComponent {
+            using Menu = display_menu_base::DisplayMenuComponent;
+
+            static bool step_back(Menu *menu) {
+              auto editing = static_cast<bool Menu::*>(&MenuBack::editing_);
+              auto finish_editing = static_cast<void (Menu::*)()>(&MenuBack::finish_editing_);
+              auto leave_menu = static_cast<bool (Menu::*)()>(&MenuBack::leave_menu_);
+              auto redraw = static_cast<void (Menu::*)()>(&MenuBack::draw_and_update);
+
+              if (menu->*editing) {
+                (menu->*finish_editing)();
+              } else if (!(menu->*leave_menu)()) {
+                return false;
+              }
+              (menu->*redraw)();
+              return true;
+            }
+          };
+
+          auto *page = id(display1).get_active_page();
+          if (id(display_menu).is_active()) {
+            if (!MenuBack::step_back(id(display_menu))) {
+              id(display_menu).hide();
+              id(display1).show_page(id(main_page));
+            }
+          } else if (page == id(blank_page)) {
+            id(display_off_s) = 0;
+            id(display1).show_page(id(main_page));
+          } else if (page == id(main_page)) {
+            id(display1).show_page(id(blank_page));
+          } else {
+            id(display1).show_page(id(main_page));
+          }
 globals:
   - id: relays
     type: std::vector<switch_::Switch *>
@@ -444,22 +552,20 @@ esphome:
   on_boot:
     - priority: 800
       then:
-        - lambda: "id(relays) = {id(relay_1), id(relay_2), id(relay_3),\n        \
-            \      id(relay_4), id(relay_5), id(relay_6)};\nid(inputs) = {id(input_1),\
-            \ id(input_2), id(input_3),\n              id(input_4), id(input_5), id(input_6)};"
+        - lambda: |-
+            id(relays) = {id(relay_1), id(relay_2), id(relay_3),
+                          id(relay_4), id(relay_5), id(relay_6)};
+            id(inputs) = {id(input_1), id(input_2), id(input_3),
+                          id(input_4), id(input_5), id(input_6)};
     - priority: 700
       then:
-        - lambda: 'id(modbus_server1).set_address((uint8_t) id(modbus_address).state);
-
+        - lambda: |-
+            id(modbus_server1).set_address((uint8_t) id(modbus_address).state);
             auto *bus = id(jxm_uart2);
-
             bus->set_baud_rate(parse_number<uint32_t>(id(modbus_baud_rate).current_option().c_str()).value_or(9600));
-
             bus->set_stop_bits(parse_number<uint8_t>(id(modbus_stop_bits).current_option().c_str()).value_or(1));
-
             bus->set_parity((uart::UARTParityOptions) id(modbus_parity).active_index().value_or(0));
-
-            bus->load_settings(false);'
+            bus->load_settings(false);
     - priority: 600
       then:
         - script.execute: set_wifi_ap
@@ -471,30 +577,54 @@ esphome:
             value: 'true'
     - priority: 500
       then:
-        - lambda: "using namespace display_menu_base;\nauto *scan = id(temps);\nfor\
-            \ (size_t slot = 0; slot < scan->used_slots(); slot++) {\n  const std::string\
-            \ name = scan->slot_name(slot);\n  auto format = [name](float value) {\n\
-            \    return std::isnan(value) ? name + \": --\" : str_sprintf(\"%s: %.1f°C\"\
-            , name.c_str(), value);\n  };\n\n  // The row shows the reading and opens\
-            \ the slot: reading, address, and\n  // forget where it changes anything.\
-            \ A freed slot between sensors keeps\n  // its row and only says that\
-            \ it is free.\n  auto *menu = new MenuItemMenu();\n  menu->set_text(format(scan->temperature(slot)));\
-            \  // a listed sensor may have a state already\n  auto *sensor = scan->sensor(slot);\n\
-            \  if (sensor == nullptr) {\n    auto *note = new MenuItem(MENU_ITEM_LABEL);\n\
-            \    note->set_text(\"Free slot\");\n    menu->add_item(note);\n    id(temperatures_menu)->add_item(menu);\n\
-            \    continue;\n  }\n  auto *reading = new MenuItem(MENU_ITEM_LABEL);\n\
-            \  reading->set_text(format(sensor->state));\n  sensor->add_on_state_callback([menu,\
-            \ reading, format](float value) {\n    menu->set_text(format(value));\n\
-            \    reading->set_text(format(value));\n  });\n  menu->add_item(reading);\n\
-            \  if (const uint64_t rom = scan->address(slot); rom != 0) {\n    auto\
-            \ *address = new MenuItem(MENU_ITEM_LABEL);\n    address->set_text(str_sprintf(\"\
-            0x%016\" PRIx64, rom));\n    menu->add_item(address);\n  }\n  if (!scan->pinned(slot))\
-            \ {\n    auto *question = new MenuItem(MENU_ITEM_LABEL);\n    question->set_text(\"\
-            Forget slot?\");\n    menu->add_item(question);\n    auto *confirm = new\
-            \ MenuItemCommand();\n    confirm->set_text(\"Confirm\");\n    confirm->add_on_value_callback([confirm,\
-            \ slot]() {\n      confirm->set_text(\"Confirm - OK\");\n      id(forget_temperatures)->execute(slot);\n\
-            \    });\n    menu->add_item(confirm);\n  }\n  id(temperatures_menu)->add_item(menu);\n\
-            }"
+        - lambda: |-
+            using namespace display_menu_base;
+            auto *scan = id(temps);
+            for (size_t slot = 0; slot < scan->used_slots(); slot++) {
+              const std::string name = scan->slot_name(slot);
+              auto format = [name](float value) {
+                return std::isnan(value) ? name + ": --" : str_sprintf("%s: %.1f°C", name.c_str(), value);
+              };
+
+              // The row shows the reading and opens the slot: reading, address, and
+              // forget where it changes anything. A freed slot between sensors keeps
+              // its row and only says that it is free.
+              auto *menu = new MenuItemMenu();
+              menu->set_text(format(scan->temperature(slot)));  // a listed sensor may have a state already
+              auto *sensor = scan->sensor(slot);
+              if (sensor == nullptr) {
+                auto *note = new MenuItem(MENU_ITEM_LABEL);
+                note->set_text("Free slot");
+                menu->add_item(note);
+                id(temperatures_menu)->add_item(menu);
+                continue;
+              }
+              auto *reading = new MenuItem(MENU_ITEM_LABEL);
+              reading->set_text(format(sensor->state));
+              sensor->add_on_state_callback([menu, reading, format](float value) {
+                menu->set_text(format(value));
+                reading->set_text(format(value));
+              });
+              menu->add_item(reading);
+              if (const uint64_t rom = scan->address(slot); rom != 0) {
+                auto *address = new MenuItem(MENU_ITEM_LABEL);
+                address->set_text(str_sprintf("0x%016" PRIx64, rom));
+                menu->add_item(address);
+              }
+              if (!scan->pinned(slot)) {
+                auto *question = new MenuItem(MENU_ITEM_LABEL);
+                question->set_text("Forget slot?");
+                menu->add_item(question);
+                auto *confirm = new MenuItemCommand();
+                confirm->set_text("Confirm");
+                confirm->add_on_value_callback([confirm, slot]() {
+                  confirm->set_text("Confirm - OK");
+                  id(forget_temperatures)->execute(slot);
+                });
+                menu->add_item(confirm);
+              }
+              id(temperatures_menu)->add_item(menu);
+            }
     - priority: 600
       then:
         - delay: 200ms
@@ -505,43 +635,6 @@ esphome:
   project:
     name: JetHome.JXD-R6-E1ETH-LCD
     version: ${version}
-external_components:
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - web_automation_editor
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - automations
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - filesystem_storage_abstract
-      - littlefs_storage
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - dallas_scan
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - web_file_browser
 web_automation_editor: null
 automations:
   storage: user_storage
@@ -560,11 +653,10 @@ select:
       - never
     on_value:
       then:
-        - lambda: 'const uint32_t MINUTES[] = {5, 10, 15, 0};
-
+        - lambda: |-
+            const uint32_t MINUTES[] = {5, 10, 15, 0};
             id(display_off_threshold_s) = MINUTES[i] * 60;
-
-            id(display_off_s) = 0;'
+            id(display_off_s) = 0;
   - platform: template
     name: Modbus baud rate
     id: modbus_baud_rate
@@ -634,13 +726,24 @@ select:
 interval:
   - interval: 1s
     then:
-      - lambda: "if (id(display_off_threshold_s) == 0)\n  return;\n\nif (id(display_off_s)\
-          \ >= id(display_off_threshold_s)) {\n  id(display_menu).hide();\n  id(display1).show_page(id(blank_page));\n\
-          } else {\n  id(display_off_s)++;\n}"
+      - lambda: |-
+          if (id(display_off_threshold_s) == 0)
+            return;
+
+          if (id(display_off_s) >= id(display_off_threshold_s)) {
+            id(display_menu).hide();
+            id(display1).show_page(id(blank_page));
+          } else {
+            id(display_off_s)++;
+          }
   - interval: 2s
     then:
-      - lambda: "const bool ap = id(wifi_id).is_ap_active();\nif (ap != id(ap_was_active))\
-          \ {\n  id(ap_was_active) = ap;\n  id(ip).update();\n}"
+      - lambda: |-
+          const bool ap = id(wifi_id).is_ap_active();
+          if (ap != id(ap_was_active)) {
+            id(ap_was_active) = ap;
+            id(ip).update();
+          }
 i2c:
   - id: i2c1
     sda: 5
@@ -675,109 +778,139 @@ modbus_server:
     registers:
       - address: 0
         value_type: S_WORD
-        read_lambda: 'float t = id(temps)->temperature(0);
-
-          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+        read_lambda: |-
+          float t = id(temps)->temperature(0);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
       - address: 1
         value_type: S_WORD
-        read_lambda: 'float t = id(temps)->temperature(1);
-
-          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+        read_lambda: |-
+          float t = id(temps)->temperature(1);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
       - address: 2
         value_type: S_WORD
-        read_lambda: 'float t = id(temps)->temperature(2);
-
-          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+        read_lambda: |-
+          float t = id(temps)->temperature(2);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
       - address: 3
         value_type: S_WORD
-        read_lambda: 'float t = id(temps)->temperature(3);
-
-          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+        read_lambda: |-
+          float t = id(temps)->temperature(3);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
       - address: 4
         value_type: S_WORD
-        read_lambda: 'float t = id(temps)->temperature(4);
-
-          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+        read_lambda: |-
+          float t = id(temps)->temperature(4);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
       - address: 5
         value_type: S_WORD
-        read_lambda: 'float t = id(temps)->temperature(5);
-
-          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+        read_lambda: |-
+          float t = id(temps)->temperature(5);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
       - address: 6
         value_type: S_WORD
-        read_lambda: 'float t = id(temps)->temperature(6);
-
-          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+        read_lambda: |-
+          float t = id(temps)->temperature(6);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
       - address: 7
         value_type: S_WORD
-        read_lambda: 'float t = id(temps)->temperature(7);
-
-          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+        read_lambda: |-
+          float t = id(temps)->temperature(7);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
       - address: 8
         value_type: S_WORD
-        read_lambda: 'float t = id(temps)->temperature(8);
-
-          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+        read_lambda: |-
+          float t = id(temps)->temperature(8);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
       - address: 9
         value_type: S_WORD
-        read_lambda: 'float t = id(temps)->temperature(9);
-
-          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+        read_lambda: |-
+          float t = id(temps)->temperature(9);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
       - address: 10
         value_type: S_WORD
-        read_lambda: 'float t = id(temps)->temperature(10);
-
-          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+        read_lambda: |-
+          float t = id(temps)->temperature(10);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
       - address: 11
         value_type: S_WORD
-        read_lambda: 'float t = id(temps)->temperature(11);
-
-          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+        read_lambda: |-
+          float t = id(temps)->temperature(11);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
       - address: 12
         value_type: S_WORD
-        read_lambda: 'float t = id(temps)->temperature(12);
-
-          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+        read_lambda: |-
+          float t = id(temps)->temperature(12);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
       - address: 13
         value_type: S_WORD
-        read_lambda: 'float t = id(temps)->temperature(13);
-
-          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+        read_lambda: |-
+          float t = id(temps)->temperature(13);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
       - address: 14
         value_type: S_WORD
-        read_lambda: 'float t = id(temps)->temperature(14);
-
-          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+        read_lambda: |-
+          float t = id(temps)->temperature(14);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
       - address: 15
         value_type: S_WORD
-        read_lambda: 'float t = id(temps)->temperature(15);
-
-          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));'
+        read_lambda: |-
+          float t = id(temps)->temperature(15);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
     bits:
       - address: 0
         read_lambda: return id(relay_1).state;
-        write_lambda: "if (x) {\n  id(relay_1).turn_on();\n} else {\n  id(relay_1).turn_off();\n\
-          }\nreturn true;"
+        write_lambda: |-
+          if (x) {
+            id(relay_1).turn_on();
+          } else {
+            id(relay_1).turn_off();
+          }
+          return true;
       - address: 1
         read_lambda: return id(relay_2).state;
-        write_lambda: "if (x) {\n  id(relay_2).turn_on();\n} else {\n  id(relay_2).turn_off();\n\
-          }\nreturn true;"
+        write_lambda: |-
+          if (x) {
+            id(relay_2).turn_on();
+          } else {
+            id(relay_2).turn_off();
+          }
+          return true;
       - address: 2
         read_lambda: return id(relay_3).state;
-        write_lambda: "if (x) {\n  id(relay_3).turn_on();\n} else {\n  id(relay_3).turn_off();\n\
-          }\nreturn true;"
+        write_lambda: |-
+          if (x) {
+            id(relay_3).turn_on();
+          } else {
+            id(relay_3).turn_off();
+          }
+          return true;
       - address: 3
         read_lambda: return id(relay_4).state;
-        write_lambda: "if (x) {\n  id(relay_4).turn_on();\n} else {\n  id(relay_4).turn_off();\n\
-          }\nreturn true;"
+        write_lambda: |-
+          if (x) {
+            id(relay_4).turn_on();
+          } else {
+            id(relay_4).turn_off();
+          }
+          return true;
       - address: 4
         read_lambda: return id(relay_5).state;
-        write_lambda: "if (x) {\n  id(relay_5).turn_on();\n} else {\n  id(relay_5).turn_off();\n\
-          }\nreturn true;"
+        write_lambda: |-
+          if (x) {
+            id(relay_5).turn_on();
+          } else {
+            id(relay_5).turn_off();
+          }
+          return true;
       - address: 5
         read_lambda: return id(relay_6).state;
-        write_lambda: "if (x) {\n  id(relay_6).turn_on();\n} else {\n  id(relay_6).turn_off();\n\
-          }\nreturn true;"
+        write_lambda: |-
+          if (x) {
+            id(relay_6).turn_on();
+          } else {
+            id(relay_6).turn_off();
+          }
+          return true;
       - address: 16
         read_lambda: return id(input_1).state;
       - address: 17
@@ -847,35 +980,42 @@ captive_portal:
 script:
   - id: set_wifi_ap
     then:
-      - lambda: 'uint8_t mac[6];
-
+      - lambda: |-
+          uint8_t mac[6];
           get_mac_address_raw(mac);
-
           wifi::WiFiAP ap;
-
           ap.set_ssid("${friendly_name}-" + str_snprintf("%02X%02X", 4, mac[4], mac[5]));
-
-          ap.set_password(str_snprintf("%02x%02x%02x%02x", 8, mac[2], mac[3], mac[4],
-          mac[5]));
-
-          id(wifi_id).set_ap(ap);'
+          ap.set_password(str_snprintf("%02x%02x%02x%02x", 8, mac[2], mac[3], mac[4], mac[5]));
+          id(wifi_id).set_ap(ap);
   - id: apply_network_mode
     then:
-      - lambda: "// Option index: 0 Auto, 1 Ethernet, 2 WiFi.\nconst size_t mode =\
-          \ id(network_mode).active_index().value_or(0);\nif (mode == 2) {\n  id(ethernet_id).disable();\n\
-          } else {\n  id(ethernet_id).enable();\n}\nif (mode == 1) {\n  id(wifi_id).disable();\n\
-          } else {\n  id(wifi_id).enable();\n}"
+      - lambda: |-
+          // Option index: 0 Auto, 1 Ethernet, 2 WiFi.
+          const size_t mode = id(network_mode).active_index().value_or(0);
+          if (mode == 2) {
+            id(ethernet_id).disable();
+          } else {
+            id(ethernet_id).enable();
+          }
+          if (mode == 1) {
+            id(wifi_id).disable();
+          } else {
+            id(wifi_id).enable();
+          }
       - component.update: ip
   - id: reset_wifi
     then:
       - logger.log: Reset WiFi creds
-      - lambda: 'id(wifi_id).save_wifi_sta("", "");
-
-          App.safe_reboot();'
+      - lambda: |-
+          id(wifi_id).save_wifi_sta("", "");
+          App.safe_reboot();
   - id: setup_time
     then:
-      - lambda: "const auto &tz = id(stored_timezone);\nif (tz.std_offset_seconds\
-          \ != 0 || tz.has_dst()) {\n  esphome::time::set_global_tz(tz);\n}"
+      - lambda: |-
+          const auto &tz = id(stored_timezone);
+          if (tz.std_offset_seconds != 0 || tz.has_dst()) {
+            esphome::time::set_global_tz(tz);
+          }
       - pcf8563.read_time:
           id: pcf8563_time
   - id: forget_temperatures
@@ -886,8 +1026,11 @@ script:
       - lambda: id(temps)->forget(slot);
   - id: check_blank_page
     then:
-      - lambda: "id(display_off_s) = 0;\nif (id(display1).get_active_page() == id(blank_page))\
-          \ {\n  id(display1).show_page(id(main_page));\n}"
+      - lambda: |-
+          id(display_off_s) = 0;
+          if (id(display1).get_active_page() == id(blank_page)) {
+            id(display1).show_page(id(main_page));
+          }
 time:
   - platform: homeassistant
     id: homeassistant_time
@@ -950,77 +1093,102 @@ display:
     update_interval: 200ms
     pages:
       - id: main_page
-        lambda: 'uint8_t mac[6];
-
+        lambda: |-
+          uint8_t mac[6];
           get_mac_address_raw(mac);
-
-          auto str_name = "${friendly_name}-" + str_snprintf("%02X%02X", 4, mac[4],
-          mac[5]);
-
+          auto str_name = "${friendly_name}-" + str_snprintf("%02X%02X", 4, mac[4], mac[5]);
 
           const int row_size = 15;
-
           int y = (64 - row_size * 4) / 2;
 
-
           it.printf(0, y, id(f6x12), "%s", str_name.c_str());
-
           y += row_size;
-
           it.printf(0, y, id(f6x12), "IP: %s", id(ip).state.c_str());
-
           y += row_size;
-
           it.printf(0, y, id(f6x12), "UP: %s", id(uptime_sensor).state.c_str());
-
           y += row_size;
-
           it.printf(0, y, id(f6x12), "VIN: %2.1fV", id(input_voltage).state);
 
-
           // Status icons share the bottom row, to the right of the VIN reading:
-
-          // centred on the row''s cap height, and off the screen edge.
-
+          // centred on the row's cap height, and off the screen edge.
           it.image(88, 45, ${link_icon});
-
-          it.image(109, 45, id(api_server).is_connected() ? id(icon_ha) : id(icon_ha_off));'
+          it.image(109, 45, id(api_server).is_connected() ? id(icon_ha) : id(icon_ha_off));
   - platform: ssd1306_i2c
     id: !extend 'display1'
     pages:
       - id: status_page
-        lambda: "const auto black = Color(0, 0, 0);\nconst int radius = 4;\nconst\
-          \ int x_spacing = 15;\nconst int x_start = 5;\n\nit.print(0, 0, id(f5x7),\
-          \ \"Relays\");\nint x = x_start;\nfor (size_t i = 0; i < id(relays).size();\
-          \ i++) {\n  if (id(relays)[i]->state) {\n    it.filled_circle(x, 15, radius);\n\
-          \  } else {\n    it.circle(x, 15, radius);\n  }\n  if ((int) i == id(status_relay_sel))\
-          \ {\n    it.filled_rectangle(x - 3, 21, 7, 9);\n    it.printf(x - 2, 22,\
-          \ id(f5x7), black, \"%d\", (int) i + 1);\n  } else {\n    it.printf(x -\
-          \ 2, 22, id(f5x7), \"%d\", (int) i + 1);\n  }\n  x += x_spacing;\n}\n\n\
-          it.print(0, 32, id(f5x7), \"Inputs\");\nx = x_start;\nint num = 1;\nfor\
-          \ (auto *input : id(inputs)) {\n  if (input->state) {\n    it.filled_circle(x,\
-          \ 47, radius);\n  } else {\n    it.circle(x, 47, radius);\n  }\n  it.printf(x\
-          \ - 2, 54, id(f5x7), \"%d\", num++);\n  x += x_spacing;\n}\n\n// Slots up\
-          \ to the last bound one, three rows, a freed slot reads --.-; UP/DOWN scroll.\n\
-          const int rows = 3;\nauto *scan = id(temps);\nconst int used = scan->used_slots();\n\
-          int &scroll = id(status_temp_scroll);\nscroll = std::clamp(scroll, 0, std::max(used\
-          \ - rows, 0));\n\nit.print(92, 0, id(f5x7), \"Temp\");\nif (scroll > 0)\n\
-          \  it.filled_triangle(117, 6, 121, 6, 119, 2);\nif (scroll + rows < used)\n\
-          \  it.filled_triangle(123, 2, 127, 2, 125, 6);\n\nint y = 11;\nfor (int\
-          \ slot = scroll; slot < std::min(scroll + rows, used); slot++) {\n  it.printf(92,\
-          \ y, id(f5x7), \"%.7s\", scan->slot_name(slot).c_str());\n  y += 8;\n  const\
-          \ float value = scan->temperature(slot);\n  if (std::isnan(value)) {\n \
-          \   it.print(92, y, id(f5x7), \"--.-\");\n  } else {\n    it.printf(92,\
-          \ y, id(f5x7), \"%.1f\", value);\n  }\n  y += 11;\n}"
+        lambda: |-
+          const auto black = Color(0, 0, 0);
+          const int radius = 4;
+          const int x_spacing = 15;
+          const int x_start = 5;
+
+          it.print(0, 0, id(f5x7), "Relays");
+          int x = x_start;
+          for (size_t i = 0; i < id(relays).size(); i++) {
+            if (id(relays)[i]->state) {
+              it.filled_circle(x, 15, radius);
+            } else {
+              it.circle(x, 15, radius);
+            }
+            if ((int) i == id(status_relay_sel)) {
+              it.filled_rectangle(x - 3, 21, 7, 9);
+              it.printf(x - 2, 22, id(f5x7), black, "%d", (int) i + 1);
+            } else {
+              it.printf(x - 2, 22, id(f5x7), "%d", (int) i + 1);
+            }
+            x += x_spacing;
+          }
+
+          it.print(0, 32, id(f5x7), "Inputs");
+          x = x_start;
+          int num = 1;
+          for (auto *input : id(inputs)) {
+            if (input->state) {
+              it.filled_circle(x, 47, radius);
+            } else {
+              it.circle(x, 47, radius);
+            }
+            it.printf(x - 2, 54, id(f5x7), "%d", num++);
+            x += x_spacing;
+          }
+
+          // Slots up to the last bound one, three rows, a freed slot reads --.-; UP/DOWN scroll.
+          const int rows = 3;
+          auto *scan = id(temps);
+          const int used = scan->used_slots();
+          int &scroll = id(status_temp_scroll);
+          scroll = std::clamp(scroll, 0, std::max(used - rows, 0));
+
+          it.print(92, 0, id(f5x7), "Temp");
+          if (scroll > 0)
+            it.filled_triangle(117, 6, 121, 6, 119, 2);
+          if (scroll + rows < used)
+            it.filled_triangle(123, 2, 127, 2, 125, 6);
+
+          int y = 11;
+          for (int slot = scroll; slot < std::min(scroll + rows, used); slot++) {
+            it.printf(92, y, id(f5x7), "%.7s", scan->slot_name(slot).c_str());
+            y += 8;
+            const float value = scan->temperature(slot);
+            if (std::isnan(value)) {
+              it.print(92, y, id(f5x7), "--.-");
+            } else {
+              it.printf(92, y, id(f5x7), "%.1f", value);
+            }
+            y += 11;
+          }
   - platform: ssd1306_i2c
     id: !extend 'display1'
     pages:
       - id: time_page
-        lambda: "const auto width = it.get_width();\nconst auto height = it.get_height();\n\
-          it.strftime(width / 2, height / 2 - 12, id(big_label_font), TextAlign::CENTER,\n\
-          \            \"%H:%M:%S\", id(pcf8563_time).now());\nit.strftime(width /\
-          \ 2, height / 2 + 8, id(f7x14_mod2), TextAlign::CENTER,\n            \"\
-          %a, %b %d\", id(pcf8563_time).now());"
+        lambda: |-
+          const auto width = it.get_width();
+          const auto height = it.get_height();
+          it.strftime(width / 2, height / 2 - 12, id(big_label_font), TextAlign::CENTER,
+                      "%H:%M:%S", id(pcf8563_time).now());
+          it.strftime(width / 2, height / 2 + 8, id(f7x14_mod2), TextAlign::CENTER,
+                      "%a, %b %d", id(pcf8563_time).now());
 font:
   - file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/fonts/7x14-mod2.bdf
     id: f7x14_mod2
@@ -1151,13 +1319,47 @@ graphical_display_menu:
               on_value:
                 - lambda: id(factory_reset_yes)->set_text("Confirm - OK");
                 - delay: 1s
-                - lambda: 'global_preferences->reset();
-
-                    App.safe_reboot();'
+                - lambda: |-
+                    global_preferences->reset();
+                    App.safe_reboot();
         - type: command
           text: Reboot device
           on_value:
             - lambda: App.safe_reboot();
+    - id: !extend 'info_submenu'
+      items:
+        - type: menu
+          text: Device info
+          items:
+            - type: label
+              text: 'Model:'
+            - type: label
+              text: !lambda |-
+                const auto &model = id(board_info)->get_device_model();
+                return model.empty() ? std::string(" --") : " " + model;
+            - type: label
+              text: 'HW rev:'
+            - type: label
+              text: !lambda |-
+                const auto &revision = id(board_info)->get_hw_revision();
+                return revision.empty() ? std::string(" --") : " " + revision;
+            - type: label
+              text: 'Board:'
+            - type: label
+              text: !lambda |-
+                auto *board = id(board_info);
+                std::string value = board->get_boardname();
+                if (!board->get_boardversion().empty())
+                  value += (value.empty() ? "" : " ") + board->get_boardversion();
+                return value.empty() ? std::string(" --") : " " + value;
+            - type: label
+              text: 'Serial:'
+            - type: label
+              text: !lambda |-
+                // A v4 board without device.id has only its board serial.
+                auto *board = id(board_info);
+                const auto &serial = board->get_device_serial().empty() ? board->get_board_serial() : board->get_device_serial();
+                return serial.empty() ? std::string(" --") : " " + serial;
     - id: !extend 'info_submenu'
       items:
         - type: label

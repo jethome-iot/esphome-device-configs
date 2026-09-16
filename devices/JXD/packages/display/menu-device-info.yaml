@@ -1,0 +1,45 @@
+# Info → Device info: the identity from the CPU board EEPROM; a value the EEPROM does not
+# hold reads --.
+graphical_display_menu:
+  items:
+    - id: !extend info_submenu
+      items:
+        - type: menu
+          text: "Device info"
+          items:
+            - type: label
+              text: "Model:"
+
+            - type: label
+              text: !lambda |-
+                const auto &model = id(board_info)->get_device_model();
+                return model.empty() ? std::string(" --") : " " + model;
+
+            - type: label
+              text: "HW rev:"
+
+            - type: label
+              text: !lambda |-
+                const auto &revision = id(board_info)->get_hw_revision();
+                return revision.empty() ? std::string(" --") : " " + revision;
+
+            - type: label
+              text: "Board:"
+
+            - type: label
+              text: !lambda |-
+                auto *board = id(board_info);
+                std::string value = board->get_boardname();
+                if (!board->get_boardversion().empty())
+                  value += (value.empty() ? "" : " ") + board->get_boardversion();
+                return value.empty() ? std::string(" --") : " " + value;
+
+            - type: label
+              text: "Serial:"
+
+            - type: label
+              text: !lambda |-
+                // A v4 board without device.id has only its board serial.
+                auto *board = id(board_info);
+                const auto &serial = board->get_device_serial().empty() ? board->get_board_serial() : board->get_device_serial();
+                return serial.empty() ? std::string(" --") : " " + serial;

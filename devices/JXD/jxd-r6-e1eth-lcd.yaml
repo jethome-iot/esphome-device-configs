@@ -35,6 +35,7 @@ packages:
   buttons: !include ${display}/buttons.yaml
   display: !include ${display}/display.yaml
   menu: !include ${display}/menu.yaml
+  menu_device_info: !include ${display}/menu-device-info.yaml
   menu_items: !include ${display}/menu-items-network.yaml
   status_page: !include ${display}/status-page.yaml
   time_page: !include ${display}/time-page.yaml

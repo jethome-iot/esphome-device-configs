@@ -38,6 +38,7 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
 - **User Storage**: a 4 MB LittleFS partition mounted at `/littlefs`, kept across OTA updates, served over HTTP as a JSON file API under `/files` ([details](components/web_file_browser/README.md))
 - **Runs without hardware**: the real config boots in Espressif's QEMU, screen and joystick included ([details](doc/QEMU.md))
 - **Runtime Automations**: rules stored on that partition as JSON, loaded at boot and editable without a recompile, over HTTP under `/automation-editor/api` ([details](doc/AUTOMATIONS.md))
+- **Board identity**: the model, hardware revision, board version and serial number the factory wrote into the CPU board's EEPROM, under **Info → Device info**; the factory signature is read along with them for a verifier outside the device ([details](components/jethome_board_info/README.md))
 
 ## Repository Layout
 
@@ -62,16 +63,16 @@ the device. Those packages live under the family's `packages/`, split by role:
 
 | Directory            | Contents |
 | -------------------- | -------- |
-| `packages/boards/`   | Platform and the chips sitting on each board — `jxd-cpu-e1eth.yaml` (ESP32, api/ota/logger/web_server, TMP102, LED) and `jxd-d6-r6-rev1.2.yaml` (PCA9554 expander, 6 relays, 6 inputs, DS2484 1-Wire bridge) |
+| `packages/boards/`   | Platform and the chips sitting on each board — `jxd-cpu-e1eth.yaml` (ESP32, api/ota/logger/web_server, TMP102, LED, the identity EEPROM) and `jxd-d6-r6-rev1.2.yaml` (PCA9554 expander, 6 relays, 6 inputs, DS2484 1-Wire bridge) |
 | `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network`, `web-file-browser`, `automations`, `automation-editor` |
-| `packages/display/`  | Display, pages, menu and buttons — `display.yaml`, `menu.yaml`, `buttons.yaml`, `menu-items-network.yaml` |
+| `packages/display/`  | Display, pages, menu and buttons — `display.yaml`, `menu.yaml`, `buttons.yaml`, `menu-items-network.yaml`, `menu-device-info.yaml` |
 | `packages/qemu/`     | Overlays that `scripts/qemu.sh` layers over the real config to run it in the emulator — never part of a firmware build |
 
 Shared code and tooling stay at the repository root:
 
 | Directory  | Contents |
 | ---------- | -------- |
-| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`) and `virtual_display` (the emulator's front panel) |
+| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, and `virtual_display` (the emulator's front panel) |
 | `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `device-files.py` (the `web_file_browser` API from a terminal), `qemu.sh`, `setup.sh` / `setup.bat` |
 | `dist/`    | Generated self-contained configs the ESPHome Builder imports |
 | `doc/`     | Guides, plus the README's UI mockups in `doc/images/` |
@@ -230,7 +231,7 @@ Current date and time from the hardware RTC.
 - **Relays** - toggle each of the 6 relays
 - **Inputs** - live state of the 6 digital inputs
 - **Temperatures** - temperature sensor readings; a DS18B20 row opens its slot: the ROM address and a forget command
-- **Info** - network information (Ethernet and WiFi IP and MAC addresses, access point password)
+- **Info** - **Device info** (model, hardware revision, board and serial number from the CPU board's EEPROM; `--` where it holds none), then network information (Ethernet and WiFi IP and MAC addresses, access point password)
 - **Settings** - display auto-off timer, Modbus settings, temperature slots, network mode, WiFi credential reset, factory reset, reboot
 
 **Getting here**: CENTER from the main page.

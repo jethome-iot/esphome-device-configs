@@ -21,9 +21,14 @@ boundaries; everything else is local to its file.
   status page, the menu and the Modbus map read the temperatures through it (`used_slots()`,
   `slot_name(slot)`, `sensor(slot)`, `temperature(slot)`), and `forget_temperatures` (a script)
   clears slots.
+- `board_info` (`boards/jxd-cpu-e1eth.yaml`) is the `jethome_board_info` component over the
+  CPU board's EEPROM `eeprom_cpu`; `display/menu-device-info.yaml` reads it for the Device
+  info submenu.
 - `display1` and `main_page` come from `display/display.yaml`; the other pages attach with
   `id: !extend display1`. `display_menu` (`display/menu.yaml`) exposes `info_submenu` and
-  `menu_settings_id` as extension points that `menu-items-network.yaml` fills via `!extend`;
+  `menu_settings_id` as extension points that `menu-device-info.yaml` and
+  `menu-items-network.yaml` fill via `!extend`, their rows in the device config's package
+  order;
   `temperatures_menu` gets a `Temp N` submenu per slot up to the last bound one at boot; a
   freed slot's submenu only says `Free slot`.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
@@ -48,7 +53,7 @@ boundaries; everything else is local to its file.
 | 800 | fill the `relays` / `inputs` vectors |
 | 700 | push the stored Modbus address, baud rate, parity and stop bits into `jxm_uart2` |
 | 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); restore the timezone and read the RTC (`setup_time`, called from the device config). `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
-| 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created |
+| 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created. `board_info` reads the EEPROM here too, once `eeprom_cpu` (600) has answered |
 | 500 | add a `Temp N` submenu per bound slot to the Temperatures menu |
 | 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
 
