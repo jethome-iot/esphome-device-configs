@@ -42,9 +42,8 @@ class VirtualDisplay : public display::DisplayBuffer, public AsyncWebHandler {
   void setup() override;
   void update() override;
   void dump_config() override;
-  // Not PROCESSOR like a bus-backed display driver: setup() starts the HTTP
-  // server, and doing that before the network stack exists asserts inside lwIP.
-  // Matches the other web components; nothing draws before setup anyway.
+  // Not PROCESSOR like a bus-backed driver: setup() starts the HTTP server, and
+  // doing that before the network stack exists asserts inside lwIP.
   float get_setup_priority() const override { return setup_priority::WIFI - 1.0f; }
 
   void set_base(web_server_base::WebServerBase *base) { this->base_ = base; }
@@ -97,9 +96,8 @@ class VirtualDisplay : public display::DisplayBuffer, public AsyncWebHandler {
   uint16_t height_{64};
   uint32_t hold_time_{120};
 
-  // What /frame serves. update() runs on the main loop and the HTTP handler on
-  // the httpd task, so the finished frame is published as a snapshot: id and
-  // bytes are written and read together under the lock, never torn.
+  // What /frame serves: update() renders on the main loop and the handler reads
+  // on the httpd task, so id and bytes move together under the lock, never torn.
   uint8_t *snapshot_{nullptr};
   // Bumped on every render so the page can poll without re-fetching a frame it
   // already has.

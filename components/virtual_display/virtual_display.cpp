@@ -72,9 +72,8 @@ async function poll() {
   setTimeout(poll, POLL_MS);
 }
 
-// One request in flight per key: a fast tap's `up` can otherwise overtake its
-// `down` on another connection and leave the key held. Chained per key, so
-// different keys still overlap; the catch keeps a failure from stalling a chain.
+// Chained per key so a fast tap's `up` cannot overtake its `down` on another
+// connection and leave the key held; the catch keeps a failure from stalling one.
 const queues = new Map();
 function key(name, action) {
   const q = action ? `?action=${action}` : '';
@@ -287,9 +286,8 @@ void VirtualDisplay::press_key_(Key &key) {
   this->cancel_timeout(key.release_id);
   if (key.down)
     return;
-  // Publish the release first: `on_press` fires on a false->true edge, so a press
-  // onto a sensor something else left held would never re-fire. Free when the key
-  // was already up — publish_state() de-dups only after the filter chain.
+  // Release first: `on_press` needs a false->true edge, so a press onto a sensor
+  // something else left held would otherwise never fire.
   key.sensor->publish_state(false);
   key.sensor->publish_state(true);
   key.down = true;
@@ -325,14 +323,11 @@ void VirtualDisplay::handle_key_(AsyncWebServerRequest *request, const std::stri
     }
     Key *key_ptr = &key;
     const uint32_t hold_time = this->hold_time_;
-    // Everything that touches entity state is handed to the main loop: this
-    // handler runs on the HTTP server task, while publish_state() walks the
-    // filter chain and calls every state callback — automations included —
-    // synchronously. The sibling components defer for the same reason.
+    // Entity state is touched on the main loop only: this runs on the httpd task,
+    // and publish_state() walks the filter chain and every callback synchronously.
     //
-    // Deliberately unnamed: a named defer replaces the pending callback with the
-    // same name, so a fast tap — down and up arriving within one loop tick —
-    // would lose the press entirely. Unnamed ones queue in order.
+    // Unnamed defer: a named one replaces a pending callback of the same name, so
+    // a tap whose down and up share a loop tick would lose the press.
     this->defer([this, key_ptr, action, hold_time]() {
       if (action == "up") {
         this->release_key_(*key_ptr);

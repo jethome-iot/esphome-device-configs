@@ -76,10 +76,8 @@ CMD=${1:-help}
 [ $# -gt 0 ] && shift || true
 DEVICE=""
 
-# The accepted value goes into OPT_VALUE rather than to stdout: `die` inside a
-# command substitution only kills the subshell, so the caller went on with an
-# empty value and every later check added its own message. `--http-port` as the
-# last argument would also abort on an unbound $2 with a raw bash error.
+# Returned in OPT_VALUE, not on stdout: `die` inside a command substitution only
+# kills the subshell, and the caller would carry on with an empty value.
 OPT_VALUE=""
 opt_arg() {
   [ -n "${2:-}" ] || die "$1 needs a value"
@@ -145,10 +143,8 @@ list_devices() {
   done
 }
 
-# Ordered best-first: an explicit override, then the newest Espressif install,
-# then whatever is on PATH — which on many machines is the distro build, and that
-# one has no `esp32` machine at all. A candidate that is upstream, or that cannot
-# start, is skipped rather than fatal, so one bad entry never hides a good one.
+# Best-first: an explicit override, the newest Espressif install, then PATH — often
+# the distro build, which has no `esp32` machine. A bad candidate is skipped, not fatal.
 find_qemu() {
   local candidates=() installs=() c
   # `sort -V` gives oldest first; prepend so the newest install ends up first.
@@ -241,17 +237,12 @@ do_image() {
     --output "$image" 0x0 "$factory" >/dev/null
 }
 
-# Instances are identified by the flash image on their command line, which is
-# unique per device. The pidfile is only a convenience for the user: an
-# interactive session `exec`s and never cleans up, a killed one leaves it behind,
-# and a live instance can end up with no pidfile at all — so trusting it would
-# both miss running instances and, after PID reuse, signal something unrelated.
+# Instances are found by the flash image on their command line, unique per device:
+# the pidfile can be stale, missing, or reused by an unrelated process.
 qemu_pids_for() {
   local image=$1 pid cmdline
-  # Matched on `if=mtd` and not on the binary name: $QEMU_XTENSA may point at a
-  # binary called anything, and `pgrep -x` cannot see this one either — procps
-  # refuses a pattern longer than the 15-char comm. The exact `file=$image,`
-  # below is what narrows it to this device, and to this checkout.
+  # Matched on `if=mtd`, not the binary name: $QEMU_XTENSA may be called anything,
+  # and `pgrep -x` refuses a pattern longer than the 15-char comm.
   for pid in $(pgrep -f 'if=mtd' 2>/dev/null || true); do
     # 2>/dev/null goes first: redirections are applied left to right, and it is
     # the *input* one that fails noisily when the process exits mid-scan.
@@ -276,10 +267,8 @@ stop_previous() {
   rm -f "$(build_dir "$device")/qemu.pid"
 }
 
-# `run` stops the old instance before rewriting its image; the standalone `image`
-# command has no such mandate, so it refuses rather than killing an emulator the
-# caller never asked it to touch — and the live instance would write its own
-# state back over the fresh file anyway.
+# Unlike `run`, the standalone `image` command has no mandate to kill an emulator
+# — and a live one would write its state back over the fresh file anyway.
 refuse_if_running() {
   local device=$1 pids
   pids=$(qemu_pids_for "$(flash_image "$device")")
@@ -292,9 +281,8 @@ refuse_if_running() {
 # instead, where the caller is looking.
 check_ports_free() {
   local port
-  # Two of ours pointed at the same host port is the one clash `ss` cannot see —
-  # nothing is listening yet, and QEMU still refuses. `--http-port 6053` with the
-  # API left at its default is the realistic way to hit it.
+  # Two of ours on the same host port is the one clash `ss` cannot see: nothing is
+  # listening yet, and QEMU still refuses.
   if [ "$(printf '%s\n' "$HTTP_PORT" "$API_PORT" "$OTA_PORT" | sort -u | wc -l)" -ne 3 ]; then
     die "--http-port/--api-port/--ota-port must differ, got $HTTP_PORT/$API_PORT/$OTA_PORT"
   fi
@@ -319,8 +307,8 @@ do_run() {
   local device=$1 image logfile args
   image=$(flash_image "$device")
   logfile="$(build_dir "$device")/qemu.log"
-  # Again, deliberately: `run` checks up front to fail before compiling, but a
-  # build takes minutes and someone else can take the port in the meantime.
+  # Checked again: `run` checks before compiling to fail fast, but a build takes
+  # minutes and the port can be taken in the meantime.
   check_ports_free
   [ -n "$QEMU_LIBDIR" ] && export LD_LIBRARY_PATH="$QEMU_LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
@@ -371,9 +359,8 @@ do_run() {
   fi
 }
 
-# The counterpart to `run`: same teardown `run` and `clean` do, on its own and
-# without touching the build. Silence would be indistinguishable from a device
-# that was never named right, so say when nothing was running.
+# The same teardown `run` and `clean` do, without touching the build. Says when
+# nothing was running: silence would look the same as a mistyped device name.
 do_stop() {
   local device=${1:-} d stopped=0 devices=()
   if [ -n "$device" ]; then
@@ -390,9 +377,8 @@ do_stop() {
   [ "$stopped" -gt 0 ] || info "no emulator running${device:+ for $device}"
 }
 
-# What `check_ports_free` sends the caller to when a port is taken, so it has to
-# name every forwarded port, not just the web one — the clash is as often on the
-# API or OTA port, and they are recorded nowhere but the running command line.
+# Which host port a running instance forwards: `list` is where the caller is sent
+# after a clash, and the command line is the only place the ports are recorded.
 hostfwd_port() {
   printf '%s' "$1" |
     sed -n "s/.*hostfwd=tcp:127\.0\.0\.1:\([0-9]\{1,\}\)-:$2[^0-9].*/\1/p"
@@ -402,9 +388,8 @@ do_list() {
   local d pid pids cmdline http api ota devices=()
   mapfile -t devices < <(list_devices)
   for d in ${devices[@]+"${devices[@]}"}; do
-    # `| head -1` would be a SIGPIPE away from killing the whole listing under
-    # pipefail the moment a device has two instances — which is when you are
-    # looking at `list` in the first place.
+    # No `| head -1`: under pipefail its SIGPIPE on a device with two instances
+    # would kill the whole listing.
     pids=$(qemu_pids_for "$(flash_image "$d")")
     pid=${pids%%$'\n'*}
     if [ -z "$pid" ]; then

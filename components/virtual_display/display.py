@@ -42,9 +42,7 @@ def _validate_key_name(value):
 
 
 # None of these survive the trip to canHandle(): url_to() cuts the path at '?',
-# a client never sends the '#' fragment at all, and url_decode() turns '+' into a
-# space and '%XX' into its byte before the compare. A prefix carrying one would
-# validate and then match nothing.
+# '#' never arrives, and url_decode() rewrites '+' and '%XX' before the compare.
 _URL_PREFIX_REJECTED = "?#+%"
 
 
