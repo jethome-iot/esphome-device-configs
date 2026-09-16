@@ -22,11 +22,9 @@ namespace web_file_browser {
 
 static const char *const TAG = "web_file_browser";
 
-// How deep delete/copy may recurse. Both run on the esp_http_server task, whose
-// stack stock sizes at 4352 bytes; at roughly 200 bytes a frame, plus whatever
-// readdir() puts there, a deeper tree would smash the stack instead of failing
-// the request. mkdir imposes no depth limit of its own, so the tree can be
-// deeper than this — say so rather than report a partial delete as success.
+// How deep delete/copy may recurse. Both run on the 4352-byte esp_http_server
+// task stack, where a deeper tree would smash it instead of failing the request;
+// mkdir has no such limit, so a deeper tree is an error, not a partial delete.
 static const unsigned MAX_RECURSION_DEPTH = 8;
 
 void WebFileBrowser::setup() {
@@ -142,17 +140,9 @@ void WebFileBrowser::handleUpload(AsyncWebServerRequest *request, const std::str
 
   this->upload_seen_ = true;
 
-  // The multipart reader announces a new file with an empty chunk and then
-  // repeats index 0 for its first data chunk, so index alone cannot mark the
-  // start. An upload still marked active with bytes written is a transfer that
-  // was cut off before its final chunk — drop it rather than write into it.
-  //
-  // "Active with nothing written" cannot outlive a request: the reader emits the
-  // start marker and the first data chunk back to back in one callback, with no
-  // recv or yield between them, so there is no window to abort in. Identifying
-  // the owning request would make that independent of the reader, but it cannot
-  // be done by pointer — AsyncWebServerRequest is a stack local in the httpd
-  // handler, so every upload sees the same address.
+  // The reader announces a new file with an empty chunk and then repeats index 0
+  // for its first data chunk, so index alone cannot mark the start; an upload
+  // still active with bytes written was cut off, so drop it rather than add to it.
   if (index == 0 && (!this->upload_active_ || this->upload_written_ > 0)) {
     this->discard_upload_();
     this->upload_error_.clear();
@@ -166,10 +156,8 @@ void WebFileBrowser::handleUpload(AsyncWebServerRequest *request, const std::str
     }
     ESP_LOGD(TAG, "Starting upload to: %s", this->upload_path_.c_str());
 
-    // Both failure branches below clear upload_path_ BEFORE the reset: nothing was
-    // opened yet, so discard_upload_()'s remove() would delete something this
-    // upload never created — a path the validator just rejected, or the existing
-    // empty directory that made fopen() fail with EISDIR.
+    // Both failure branches clear upload_path_ before the reset: nothing was opened
+    // yet, so discard_upload_() would remove a file this upload never created.
     if (!this->is_valid_path_(this->upload_path_)) {
       ESP_LOGE(TAG, "Invalid upload path: %s", this->upload_path_.c_str());
       this->upload_error_ = "Invalid path";
@@ -180,10 +168,8 @@ void WebFileBrowser::handleUpload(AsyncWebServerRequest *request, const std::str
       return;
     }
 
-    // Only a file this upload brought into being may be removed when it fails.
-    // Overwriting an existing one truncates it at fopen("wb"), so deleting it
-    // afterwards would turn a partial overwrite into no file at all — the same
-    // rule handle_write_request_ follows.
+    // Only a file this upload created may be removed when it fails: an overwrite
+    // was already truncated at fopen(), so removing it would lose the original too.
     FILE *existing = fopen(this->upload_path_.c_str(), "rb");
     this->upload_created_ = existing == nullptr;
     if (existing != nullptr) {
@@ -213,10 +199,8 @@ void WebFileBrowser::handleUpload(AsyncWebServerRequest *request, const std::str
 
   if (final) {
     if (this->upload_file_ != nullptr) {
-      // close is part of the write: LittleFS commits the tail of the file cache
-      // and the metadata entry here, so a full filesystem surfaces at fclose and
-      // not at any fwrite we checked. Dropping this would report success for a
-      // truncated file — the exact lie this endpoint stopped telling.
+      // close is part of the write: LittleFS commits the file tail and the metadata
+      // entry here, so a full filesystem surfaces at fclose, not at any fwrite above.
       bool closed = fclose(this->upload_file_) == 0;
       this->upload_file_ = nullptr;
       if (!closed) {
@@ -536,10 +520,8 @@ void WebFileBrowser::handle_upload_request_(AsyncWebServerRequest *request) {
     return;
   }
 
-  // The multipart reader skips zero-length parts outright, so handleUpload never
-  // ran and nothing was written. Reporting success here would lose the file in
-  // silence — which is exactly what this endpoint stopped doing. Clients create
-  // an empty file with /write instead.
+  // The multipart reader skips zero-length parts, so handleUpload never ran and
+  // nothing was written; reporting success would lose the file in silence.
   if (!seen) {
     this->send_json_error_(request, "No file received");
     return;
@@ -549,11 +531,8 @@ void WebFileBrowser::handle_upload_request_(AsyncWebServerRequest *request) {
 }
 
 // GET /read?path=: the file streams out as the "content" string of the JSON
-// envelope, escaped a chunk at a time. Buffering it whole is not an option here:
-// AsyncResponseStream is a std::string, not a stream, so the file, its escaped
-// copy and the response would be live at once, in internal DRAM (the psram
-// component never sets CONFIG_SPIRAM_USE_MALLOC), and std::string's throwing
-// allocation would abort the firmware rather than fail the request.
+// envelope, escaped a chunk at a time — buffering it whole would hold the file,
+// its escaped copy and the response in DRAM at once.
 void WebFileBrowser::handle_read_request_(AsyncWebServerRequest *request) {
 #ifdef USE_ESP32
   if (!request->hasParam("path")) {
@@ -944,13 +923,9 @@ std::string WebFileBrowser::resolve_path_(const std::string &path) const {
     full = base + "/" + path;
   }
 
-  // Rebuild from segments, dropping empty ones (duplicate or trailing separators)
-  // and "." ones, so that comparing two paths as strings means what it looks like.
-  // Without this a source sent as "/dir/" or "/dir/." makes the copy subtree guard
-  // test a prefix nothing can match, and the directory copy then walks into the
-  // destination it just created — recursing until the flash is full.
-  // ".." is deliberately NOT resolved here: is_valid_path_ rejects any path still
-  // containing it, and quietly collapsing it would defeat that check.
+  // Rebuild from segments, dropping empty and "." ones, so comparing two paths as
+  // strings means what it looks like — /copy's subtree guard depends on it. ".." is
+  // deliberately left alone: is_valid_path_ rejects it, collapsing it would not.
   std::string out;
   out.reserve(full.size());
   size_t i = 0;
@@ -1007,10 +982,8 @@ bool WebFileBrowser::delete_recursive_(const std::string &path, unsigned depth) 
   struct dirent *entry;
   bool success = true;
 
-  // Delete all contents first. Same readdir() caveat as copy_recursive_: only
-  // errno separates end-of-directory from a read error, and this is also the
-  // rollback path for a failed copy, where a silent partial delete would leave
-  // the wreck it exists to clear away.
+  // Delete all contents first. Same readdir() caveat as copy_recursive_: only errno
+  // separates end-of-directory from a read error, and this is also copy's rollback.
   errno = 0;
   while ((entry = readdir(dir)) != nullptr) {
     // Skip . and ..
@@ -1199,10 +1172,9 @@ bool WebFileBrowser::copy_recursive_(const std::string &src, const std::string &
 
   closedir(dir);
 
-  // Roll the partial tree back: it is usually a full filesystem that stopped us,
-  // and a half-copied tree would also block the retry as "already exists". The
-  // rollback runs on top of the copy frames, so it continues this depth rather
-  // than restarting the budget at zero.
+  // Roll the partial tree back: a full filesystem is the usual cause, and a
+  // half-copied tree would also block the retry as "already exists". Runs on top of
+  // the copy frames, so it continues this depth instead of restarting the budget.
   if (!success) {
     this->delete_recursive_(dst, depth);
   }
