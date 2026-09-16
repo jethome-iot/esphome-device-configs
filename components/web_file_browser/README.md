@@ -112,7 +112,5 @@ scripts/device-files.py --host 192.168.1.50 restore jxd.tar.gz --clean
 DEVICE_HOST=192.168.1.50 scripts/device-files.py shell
 ```
 
-Also `tree`, `write`, `rm`, `mkdir -p`, `mv` and `cp`; `shell` keeps a current directory and
-completes remote names. A directory needs `-r` for `get`, `put` and `rm`, and `put -r`
-creates each level with `mkdir` before uploading. Files go through `upload`; an empty file,
-`write` and `edit` go through `write`. A refused request is one line on stderr and exit code 1.
+Also `info`, `tree`, `cat`, `get`, `write`, `rm`, `mkdir -p`, `mv`, `cp` and `edit`; a directory
+needs `-r`, and `restore` deletes what the archive lacks only with `--clean`.
