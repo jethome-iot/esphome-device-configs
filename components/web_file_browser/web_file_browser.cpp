@@ -354,7 +354,9 @@ void WebFileBrowser::handle_list_request_(AsyncWebServerRequest *request) {
     if (stat(entry_path.c_str(), &st) == 0) {
       is_dir = S_ISDIR(st.st_mode);
       size = st.st_size;
-      mtime = st.st_mtime;
+      // esp_littlefs reports -1 for an entry without a timestamp (every
+      // directory); 0 says "none" without reading as a date.
+      mtime = st.st_mtime > 0 ? st.st_mtime : 0;
     } else {
       // Listed anyway, as a file of unknown size: readdir() just said the name
       // exists, and the name is what keeps a client from writing over it.

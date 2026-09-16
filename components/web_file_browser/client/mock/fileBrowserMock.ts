@@ -239,7 +239,9 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
     const out: FileEntry[] = []
     for (const [p, node] of fs) {
       if (p !== path && parentOf(p) === path) {
-        out.push({ name: nameOf(p), type: node.type, size: sizeOf(node), mtime: node.mtime })
+        // LittleFS keeps no timestamp for a directory, so the device reports 0.
+        const mtime = node.type === 'directory' ? 0 : node.mtime
+        out.push({ name: nameOf(p), type: node.type, size: sizeOf(node), mtime })
       }
     }
     return out
