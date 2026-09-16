@@ -80,7 +80,7 @@ export interface FileBrowserApi {
     onProgress?: (percent: number) => void,
     abortSignal?: AbortSignal
   ): Promise<void>
-  /** Recursively enumerate every subfolder under `path` (for a move dialog). */
+  /** Every subfolder under `path`, recursively (for a move dialog); throws when any level fails to list. */
   listFoldersRecursive(path: string): Promise<string[]>
 }
 
@@ -306,18 +306,13 @@ export function createFileBrowserApi(options: FileBrowserApiOptions): FileBrowse
     },
 
     async listFoldersRecursive(path) {
+      // A level that fails to list fails the walk: a partial tree would offer
+      // move targets that may not exist and hide ones that do.
       const folders: string[] = []
-      try {
-        const files = await api.list(path)
-        for (const file of files) {
-          if (file.type === 'directory') {
-            const folderPath = path === '/' ? '/' + file.name : path + '/' + file.name
-            folders.push(folderPath)
-            folders.push(...(await api.listFoldersRecursive(folderPath)))
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching folders:', error)
+      for (const file of await api.list(path)) {
+        if (file.type !== 'directory') continue
+        const folderPath = path === '/' ? '/' + file.name : path + '/' + file.name
+        folders.push(folderPath, ...(await api.listFoldersRecursive(folderPath)))
       }
       return folders
     }
