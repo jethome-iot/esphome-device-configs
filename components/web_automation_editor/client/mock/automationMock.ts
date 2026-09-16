@@ -13,7 +13,11 @@
 // 400/404 with a {success:false,error} body; /ping returns {status:"ok"} (not the
 // success envelope).
 import type {
+  AutomationAction,
+  AutomationCondition,
   AutomationConfig,
+  AutomationSaveInput,
+  AutomationTrigger,
   AutomationEntitiesResponse,
   AutomationSchema
 } from '../types'
@@ -109,6 +113,62 @@ export const seedSchema: AutomationSchema = {
   cron_presets: ['daily', 'hourly', 'every_n_minutes', 'weekly', 'monthly', 'custom']
 }
 
+// --- What the device's deserialize refuses -----------------------------------
+// The words come from the same catalog /schema serves; thresholds, object ids and
+// the like are not checked, the device resolves those at boot anyway.
+function knownType(entries: Array<{ type: string; subtypes?: string[] }>, type: unknown, subtype: unknown): boolean {
+  const entry = entries.find((e) => e.type === type)
+  if (!entry) return false
+  if (!entry.subtypes || entry.subtypes.length === 0) return true
+  return typeof subtype === 'string' && entry.subtypes.includes(subtype)
+}
+
+function validTrigger(t: AutomationTrigger): boolean {
+  if (!knownType(seedSchema.triggers, t.source, t.type)) return false
+  return t.source !== 'cron' || validateCronExpression(t.cron ?? '') === null
+}
+
+function validAction(a: AutomationAction): boolean {
+  return knownType(seedSchema.actions as Array<{ type: string; subtypes?: string[] }>, a.source, a.type)
+}
+
+function validCondition(c: AutomationCondition): boolean {
+  if (c.type === 'input') return typeof c.object_id === 'string'
+  if (c.type === 'temperature') {
+    return knownType(seedSchema.conditions as Array<{ type: string; subtypes?: string[] }>, c.type, c.temperature_type)
+  }
+  if (c.type === 'and' || c.type === 'or' || c.type === 'xor') {
+    return Array.isArray(c.conditions) && c.conditions.length > 0 && c.conditions.every(validCondition)
+  }
+  return false
+}
+
+function validRule(cfg: unknown): cfg is AutomationSaveInput {
+  if (!cfg || typeof cfg !== 'object') return false
+  const c = cfg as Partial<AutomationSaveInput>
+  return (
+    typeof c.name === 'string' &&
+    Array.isArray(c.triggers) &&
+    c.triggers.every(validTrigger) &&
+    Array.isArray(c.actions) &&
+    c.actions.every(validAction) &&
+    (c.else_actions === undefined || (Array.isArray(c.else_actions) && c.else_actions.every(validAction))) &&
+    (c.condition === undefined || validCondition(c.condition))
+  )
+}
+
+// The device's id parameter: the whole value, decimal, non-zero.
+function idParam(search: URLSearchParams): number | MockResult {
+  const raw = search.get('id')
+  if (raw === null) return { status: 400, body: { success: false, error: 'Missing id parameter' } }
+  if (!/^\d+$/.test(raw) || Number(raw) === 0 || Number(raw) > 0xffffffff) {
+    return { status: 400, body: { success: false, error: 'Invalid id parameter' } }
+  }
+  return Number(raw)
+}
+
+const MAX_BODY_BYTES = 16384
+
 // --- Stateful core -----------------------------------------------------------
 export interface MockResult {
   status: number
@@ -153,7 +213,8 @@ export function createAutomationMockStore(): AutomationMockStore {
         }
 
       case '/get': {
-        const id = Number(search.get('id'))
+        const id = idParam(search)
+        if (typeof id !== 'number') return id
         const found = automations.find((a) => a.id === id)
         return found
           ? { status: 200, body: found }
@@ -176,24 +237,23 @@ export function createAutomationMockStore(): AutomationMockStore {
         return { status: 200, body: { success: true, message: 'Rebooting device...' } }
 
       case '/save': {
+        if (new TextEncoder().encode(body).length > MAX_BODY_BYTES) {
+          return { status: 413, body: { success: false, error: 'Request body over 16 KiB' } }
+        }
         if (!body) {
           return { status: 400, body: { success: false, error: 'Empty request body' } }
         }
-        let cfg: AutomationConfig
+        let parsed: unknown
         try {
-          cfg = JSON.parse(body)
+          parsed = JSON.parse(body)
         } catch {
           return { status: 400, body: { success: false, error: 'JSON parse error' } }
         }
-        // What the device's deserialize refuses: not a rule, or a cron it cannot parse.
-        const isRule =
-          cfg && typeof cfg === 'object' && typeof cfg.name === 'string' && Array.isArray(cfg.triggers) && Array.isArray(cfg.actions)
-        const badCron = isRule && cfg.triggers.some((t) => t.source === 'cron' && validateCronExpression(t.cron ?? '') !== null)
-        if (!isRule || badCron) {
+        if (!validRule(parsed)) {
           return { status: 400, body: { success: false, error: 'Failed to parse automation config' } }
         }
         // The device fills the defaults a client leaves out.
-        cfg = { ...cfg, enabled: cfg.enabled ?? true, mode: cfg.mode ?? 'single' }
+        const cfg: AutomationConfig = { ...parsed, id: parsed.id ?? 0, enabled: parsed.enabled ?? true, mode: parsed.mode ?? 'single' }
         // Name clash by stored filename, as the backend checks it.
         if (isNameTaken(cfg.name, cfg.id, automations)) {
           return {
@@ -201,7 +261,7 @@ export function createAutomationMockStore(): AutomationMockStore {
             body: { success: false, error: `An automation named "${cfg.name}" already exists` }
           }
         }
-        if (cfg.id && cfg.id > 0) {
+        if (cfg.id > 0) {
           const i = automations.findIndex((a) => a.id === cfg.id)
           if (i < 0) {
             return { status: 404, body: { success: false, error: 'Automation not found' } }
@@ -215,7 +275,8 @@ export function createAutomationMockStore(): AutomationMockStore {
       }
 
       case '/delete': {
-        const id = Number(search.get('id'))
+        const id = idParam(search)
+        if (typeof id !== 'number') return id
         const i = automations.findIndex((a) => a.id === id)
         if (i < 0) {
           return { status: 404, body: { success: false, error: 'Automation not found' } }

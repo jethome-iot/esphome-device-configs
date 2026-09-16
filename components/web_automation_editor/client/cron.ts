@@ -173,6 +173,14 @@ export function normalizeCron(expr: string): string {
 // matches nothing fails the save with `Failed to parse automation config`.
 // Checking here lets the UI name the field before the round trip.
 
+// The device reads every number with safe_parse_uint8: decimal digits only, 0-255.
+// Number() would also take '0x10' or '1e1', which the device refuses.
+function parseUint8(text: string): number | null {
+  if (!/^\d+$/.test(text)) return null
+  const v = Number(text)
+  return v <= 255 ? v : null
+}
+
 function validateCronPart(part: string, min: number, max: number): boolean {
   if (part === '') return false
 
@@ -180,27 +188,22 @@ function validateCronPart(part: string, min: number, max: number): boolean {
   const slash = part.indexOf('/')
   if (slash !== -1) {
     base = part.slice(0, slash)
-    const stepStr = part.slice(slash + 1)
-    const step = Number(stepStr)
-    if (stepStr === '' || !Number.isInteger(step) || step <= 0) return false
+    const step = parseUint8(part.slice(slash + 1))
+    if (step === null || step === 0) return false
   }
 
   if (base === '*') return true
 
   const dash = base.indexOf('-')
   if (dash !== -1) {
-    const startStr = base.slice(0, dash)
-    const endStr = base.slice(dash + 1)
-    const s = Number(startStr)
-    const e = Number(endStr)
-    if (startStr === '' || endStr === '' || !Number.isInteger(s) || !Number.isInteger(e)) return false
-    if (s < min || e > max || s > e) return false
-    return true
+    const s = parseUint8(base.slice(0, dash))
+    const e = parseUint8(base.slice(dash + 1))
+    if (s === null || e === null) return false
+    return s >= min && e <= max && s <= e
   }
 
-  const v = Number(base)
-  if (!Number.isInteger(v)) return false
-  return v >= min && v <= max
+  const v = parseUint8(base)
+  return v !== null && v >= min && v <= max
 }
 
 /**

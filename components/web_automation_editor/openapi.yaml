@@ -244,10 +244,11 @@ components:
       name: id
       in: query
       required: true
-      description: The rule's id, as `/list` reports it.
+      description: The rule's id, as `/list` reports it. Decimal digits only and non-zero; anything else is `400`.
       schema:
         type: integer
         minimum: 1
+        maximum: 4294967295
       example: 3
 
   responses:

@@ -1,6 +1,6 @@
 #include "web_automation_editor.h"
 #include <ArduinoJson.h>
-#include <cstdlib>
+#include <cstdint>
 #include "esphome/components/automations/entity_lookup.h"
 #include "esphome/components/automations/enums.h"
 #include "esphome/core/application.h"
@@ -99,8 +99,10 @@ void WebAutomationEditor::handleBody(AsyncWebServerRequest *request, uint8_t *da
   if (index == 0) {
     this->body_.clear();
     this->body_total_ = total;
+    this->body_received_ = 0;
     this->body_too_large_ = total > MAX_BODY_BYTES;
   }
+  this->body_received_ += len;
   if (this->body_too_large_)
     return;
   this->body_.append(reinterpret_cast<const char *>(data), len);
@@ -110,7 +112,8 @@ void WebAutomationEditor::handleRequest(AsyncWebServerRequest *request) {
   const std::string url = this->url_(request);
   const Route *route = this->route_for_(url);
   ESP_LOGD(TAG, "%s", url.c_str());
-  if (this->body_total_ != request->contentLength())
+  // The buffer is this request's only if it is complete and sized for it.
+  if (this->body_total_ != request->contentLength() || this->body_received_ != this->body_total_)
     this->reset_body_();
   if (route != nullptr && this->check_method_(request, *route)) {
     switch (route->id) {
@@ -151,7 +154,29 @@ void WebAutomationEditor::handleRequest(AsyncWebServerRequest *request) {
 void WebAutomationEditor::reset_body_() {
   std::string().swap(this->body_);
   this->body_total_ = 0;
+  this->body_received_ = 0;
   this->body_too_large_ = false;
+}
+
+// The whole parameter, decimal, non-zero, within uint32_t: "1junk" is not rule 1.
+bool WebAutomationEditor::read_id_(AsyncWebServerRequest *request, uint32_t &id) {
+  if (!request->hasParam("id")) {
+    this->send_error_(request, "Missing id parameter");
+    return false;
+  }
+  const std::string &value = request->getParam("id")->value();
+  uint64_t parsed = 0;
+  bool valid = !value.empty() && value.size() <= 10;
+  for (size_t i = 0; valid && i < value.size(); i++) {
+    valid = value[i] >= '0' && value[i] <= '9';
+    parsed = parsed * 10 + (value[i] - '0');
+  }
+  if (!valid || parsed == 0 || parsed > UINT32_MAX) {
+    this->send_error_(request, "Invalid id parameter");
+    return false;
+  }
+  id = static_cast<uint32_t>(parsed);
+  return true;
 }
 
 bool WebAutomationEditor::check_method_(AsyncWebServerRequest *request, const Route &route) {
@@ -190,11 +215,9 @@ const automations::AutomationConfig *WebAutomationEditor::find_(uint32_t id) con
 }
 
 void WebAutomationEditor::handle_get_(AsyncWebServerRequest *request) {
-  if (!request->hasParam("id")) {
-    this->send_error_(request, "Missing id parameter");
+  uint32_t id;
+  if (!this->read_id_(request, id))
     return;
-  }
-  const auto id = static_cast<uint32_t>(strtoul(request->getParam("id")->value().c_str(), nullptr, 10));
   const automations::AutomationConfig *config = this->find_(id);
   if (config == nullptr) {
     this->send_error_(request, "Automation not found", 404);
@@ -250,11 +273,9 @@ void WebAutomationEditor::handle_save_(AsyncWebServerRequest *request) {
 }
 
 void WebAutomationEditor::handle_delete_(AsyncWebServerRequest *request) {
-  if (!request->hasParam("id")) {
-    this->send_error_(request, "Missing id parameter");
+  uint32_t id;
+  if (!this->read_id_(request, id))
     return;
-  }
-  const auto id = static_cast<uint32_t>(strtoul(request->getParam("id")->value().c_str(), nullptr, 10));
   if (this->find_(id) == nullptr) {
     this->send_error_(request, "Automation not found", 404);
     return;

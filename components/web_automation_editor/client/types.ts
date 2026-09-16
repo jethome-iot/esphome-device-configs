@@ -66,6 +66,10 @@ export interface AutomationConfig {
   else_actions?: AutomationAction[]
 }
 
+/** What POST /save takes: `id` absent or 0 creates; `enabled` and `mode` default on the device. */
+export type AutomationSaveInput = Omit<AutomationConfig, 'id' | 'enabled' | 'mode'> &
+  Partial<Pick<AutomationConfig, 'id' | 'enabled' | 'mode'>>
+
 export interface AutomationSaveResponse {
   success: boolean
   message?: string

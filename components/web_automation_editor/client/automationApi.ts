@@ -13,6 +13,7 @@
 import type {
   AutomationListResponse,
   AutomationConfig,
+  AutomationSaveInput,
   AutomationSaveResponse,
   AutomationEntitiesResponse,
   AutomationSchema,
@@ -37,7 +38,7 @@ export interface AutomationApi {
   /** GET /get?id= — full config for editing. */
   get(id: number): Promise<AutomationConfig>
   /** POST /save — create (id 0/absent) or update (id>0). JSON body. */
-  save(config: AutomationConfig): Promise<AutomationSaveResponse>
+  save(config: AutomationSaveInput): Promise<AutomationSaveResponse>
   /** POST /delete?id= — delete an automation (no body). */
   remove(id: number): Promise<AutomationSaveResponse>
   /** GET /entities — grouped object_id/name for editor dropdowns. */

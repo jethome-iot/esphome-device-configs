@@ -65,7 +65,8 @@ are one — is refused with the reason, and the engine's own refusals (a rule li
 file the loader had refused under that name, a call from inside a running rule) come back as
 `Failed to create automation` / `Failed to update automation`.
 
-Every failure is `{"success": false, "error"}`: `400` for a bad request, `404` for an `id` no
+Every failure is `{"success": false, "error"}`: `400` for a bad request (an `id` that is missing
+or not a plain non-zero number included), `404` for an `id` no
 rule has (`get`, `delete`, and a `save` carrying one), `405` for the wrong method, `413` for an
 oversized body. The same contract,
 machine-readable: [openapi.yaml](openapi.yaml) (OpenAPI 3.1).

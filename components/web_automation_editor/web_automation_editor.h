@@ -47,6 +47,9 @@ class WebAutomationEditor : public AsyncWebHandler, public Component {
   std::string url_(AsyncWebServerRequest *request) const;
   const Route *route_for_(const std::string &url) const;
   const automations::AutomationConfig *find_(uint32_t id) const;
+  // Answers 400 itself when the id parameter is missing or not a number, so a false return
+  // is a finished request.
+  bool read_id_(AsyncWebServerRequest *request, uint32_t &id);
   void reset_body_();
   // Answers 405 itself when the method is wrong, so a false return is a finished request.
   bool check_method_(AsyncWebServerRequest *request, const Route &route);
@@ -72,6 +75,7 @@ class WebAutomationEditor : public AsyncWebHandler, public Component {
   // handleRequest, so the next request checks it against its own before trusting the buffer.
   std::string body_;
   size_t body_total_{0};
+  size_t body_received_{0};
   bool body_too_large_{false};
 };
 

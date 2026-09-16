@@ -147,6 +147,12 @@ TEST_F(Editor, ABodyLeftByAFailedReceiveIsNotTheNextRequests) {
   Reply reply = this->post("save");
   EXPECT_EQ(reply.code, 400);
   EXPECT_EQ(reply.error(), "Empty request body");
+
+  // A form of the same length never reaches handleBody; the leftover must not pass for it.
+  this->editor->handleBody(&aborted, reinterpret_cast<uint8_t *>(&partial[0]), 20, 0, partial.size());
+  reply = this->call(HTTP_POST, "save", std::string(partial.size(), 'x'), "application/x-www-form-urlencoded");
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "Empty request body");
   EXPECT_TRUE(this->files().empty());
 }
 
@@ -165,6 +171,9 @@ TEST_F(Editor, DeleteRemovesTheRuleAndItsFile) {
   reply = this->post("delete");
   EXPECT_EQ(reply.code, 400);
   EXPECT_EQ(reply.error(), "Missing id parameter");
+  reply = this->post("delete?id=1junk");
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "Invalid id parameter");
 }
 
 TEST_F(Editor, SaveWithAnUnknownIdIsNotFound) {
@@ -178,6 +187,11 @@ TEST_F(Editor, GetNeedsAnExistingId) {
   Reply reply = this->get("get");
   EXPECT_EQ(reply.code, 400);
   EXPECT_EQ(reply.error(), "Missing id parameter");
+  for (const char *bad : {"get?id=", "get?id=0", "get?id=1junk", "get?id=-1", "get?id=0x1", "get?id=4294967296"}) {
+    reply = this->get(bad);
+    EXPECT_EQ(reply.code, 400) << bad;
+    EXPECT_EQ(reply.error(), "Invalid id parameter") << bad;
+  }
   reply = this->get("get?id=99");
   EXPECT_EQ(reply.code, 404);
   EXPECT_EQ(reply.error(), "Automation not found");
