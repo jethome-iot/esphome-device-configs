@@ -38,8 +38,12 @@ web_file_browser:
 | `url_prefix` | `/files` | Where the routes live. A dashboard bakes this in at build time, so changing it needs the client rebuilt |
 
 The handler registers on the shared `web_server_base`, so it answers on the same port as
-`web_server` and inherits its `auth:` credentials. Without `auth:` the whole partition is
-readable and writable by anything on the network.
+`web_server` and behind its `auth:` credentials — requests, raw bodies and multipart uploads
+alike. Those credentials come from the `web_server:` block and from nowhere else: with no
+`web_server:`, or no `auth:` in it, the whole partition is readable and writable by anything
+that can reach the port. The configs in this repository set no `auth:`, so that is how they
+ship. Method enforcement is not a substitute — it keeps a mutating route out of reach of an
+`<img src>`, but a cross-site form can still POST.
 
 ## REST
 
