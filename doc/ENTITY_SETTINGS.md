@@ -12,7 +12,7 @@ set themselves up.
 | Relay | `Inverted` | `No`, `Yes` | Swaps the physical output: the app's On drives the pin low |
 | Relay | `Start mode` | `Off`, `On`, `Last` | What the relay does at power-up |
 | Relay | `Bind to` | `None`, `Input 1` … `Input 6` | The input that drives this relay directly; needs a `Binding` other than `Disabled` |
-| Relay | `Binding` | `Disabled`, `Toggle`, `Follow` | `Toggle` flips the relay on each press of the input; `Follow` makes the relay copy the input, at boot too, so it wins over `Start mode` |
+| Relay | `Binding` | `Disabled`, `Toggle`, `Follow` | `Toggle` flips the relay on each rising edge of the input as reported, after its `Inverted`; `Follow` makes the relay copy the input, at boot too, so it wins over `Start mode` |
 | Input | `Inverted` | `No`, `Yes` | A closed contact is reported as Off; bindings see the input after this |
 
 The binding rules are in [components/bindings](../components/bindings/README.md).

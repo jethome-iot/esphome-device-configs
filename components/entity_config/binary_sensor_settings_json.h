@@ -15,6 +15,9 @@
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
+#ifdef ENTITY_CONFIG_BINDINGS
+#include "esphome/components/bindings/bindings.h"
+#endif
 
 namespace esphome::entity_config {
 
@@ -42,6 +45,8 @@ class RuntimeInvertFilter : public binary_sensor::Filter {
   }
 
   bool is_inverted() const { return this->inverted_; }
+  // Whether set_inverted() with a different value would re-emit.
+  bool has_raw() const { return this->raw_.has_value(); }
 
  protected:
   bool inverted_{false};
@@ -173,7 +178,13 @@ class BinarySensorSettingsJson
       ESP_LOGW(TAG, "Binary sensor not found for source_name '%s'", record->source_name());
       return;
     }
-    this->filter_for_(sensor)->set_inverted(record->inverted);
+    auto *filter = this->filter_for_(sensor);
+#ifdef ENTITY_CONFIG_BINDINGS
+    // The re-emitted state is the same contact seen the other way round, not an edge.
+    if (bindings::global_bindings_manager != nullptr && filter->has_raw() && filter->is_inverted() != record->inverted)
+      bindings::global_bindings_manager->expect_level(record->key());
+#endif
+    filter->set_inverted(record->inverted);
     ESP_LOGD(TAG, "Applied settings to binary_sensor '%s'", record->source_name());
   }
 

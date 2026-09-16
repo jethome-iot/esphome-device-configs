@@ -44,8 +44,8 @@ is logged and dropped, the rest of the file still loads.
 
 A file that is missing, empty, larger than 64 KiB or not parseable leaves the type at its
 compiled defaults and is left on disk untouched — nothing is dirty, so the boot writes nothing
-and a file that is corrupt for an unrelated reason is not overwritten by mistake. Writes are not
-atomic: a power cut mid-save truncates the file, which reads back as defaults on the next boot.
+and a file that is corrupt for an unrelated reason is not overwritten by mistake. A save writes
+`<key>.json.tmp` and renames it over the file, so a power cut mid-save keeps the last good copy.
 
 ## Boot order
 

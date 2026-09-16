@@ -124,6 +124,27 @@ bool BindingsManager::remove_binding(uint32_t output_key) {
   return false;
 }
 
+void BindingsManager::expect_level(uint32_t input_key) {
+  // Only an input with a listener can consume the mark; on any other it would swallow a
+  // real edge later.
+  for (uint32_t key : this->subscribed_) {
+    if (key == input_key) {
+      this->level_only_.push_back(input_key);
+      return;
+    }
+  }
+}
+
+bool BindingsManager::take_level_only_(uint32_t input_key) {
+  for (auto it = this->level_only_.begin(); it != this->level_only_.end(); ++it) {
+    if (*it == input_key) {
+      this->level_only_.erase(it);
+      return true;
+    }
+  }
+  return false;
+}
+
 BindingsManager::Binding *BindingsManager::find_binding_(uint32_t output_key) {
   for (auto &binding : this->bindings_) {
     if (binding.output_key == output_key)
@@ -143,8 +164,9 @@ void BindingsManager::ensure_listener_(binary_sensor::BinarySensor *sensor, uint
   sensor->add_full_state_callback([this, input_key](optional<bool> previous, optional<bool> current) {
     if (!current.has_value())
       return;
-    // No previous value = the boot level, a state and not an edge.
-    const bool rising = current.value() && previous.has_value() && !previous.value();
+    // No previous value = the boot level, a state and not an edge; so is an announced level.
+    const bool level = this->take_level_only_(input_key);
+    const bool rising = !level && current.value() && previous.has_value() && !previous.value();
     this->on_input_state_(input_key, current.value(), rising);
   });
 }

@@ -70,15 +70,23 @@ bool SettingsBaseJson::save_to_file(filesystem_storage_abstract::FilesystemStora
   std::string json_data;
   serializeJson(doc, json_data);
 
-  FILE *file = fopen(full_path.c_str(), "w");
+  // Into a sibling file first, so a power cut mid-write leaves the last good copy in place.
+  const std::string tmp_path = full_path + ".tmp";
+  FILE *file = fopen(tmp_path.c_str(), "w");
   if (file == nullptr) {
-    ESP_LOGE(TAG, "Failed to open '%s' for writing", full_path.c_str());
+    ESP_LOGE(TAG, "Failed to open '%s' for writing", tmp_path.c_str());
     return false;
   }
   const size_t written = fwrite(json_data.c_str(), 1, json_data.length(), file);
-  fclose(file);
-  if (written != json_data.length()) {
-    ESP_LOGE(TAG, "Failed to write complete data to '%s'", full_path.c_str());
+  const bool closed = fclose(file) == 0;
+  if (written != json_data.length() || !closed) {
+    ESP_LOGE(TAG, "Failed to write complete data to '%s'", tmp_path.c_str());
+    remove(tmp_path.c_str());
+    return false;
+  }
+  if (rename(tmp_path.c_str(), full_path.c_str()) != 0) {
+    ESP_LOGE(TAG, "Failed to rename '%s' over '%s'", tmp_path.c_str(), full_path.c_str());
+    remove(tmp_path.c_str());
     return false;
   }
 

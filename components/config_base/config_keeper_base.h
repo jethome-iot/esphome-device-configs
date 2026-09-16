@@ -66,12 +66,9 @@ template<typename TDerived, typename TSettings> class ConfigKeeperBase : public 
     }
   }
 
-  void on_shutdown() override {
-    if (this->save_pending_) {
-      ESP_LOGI(static_cast<TDerived *>(this)->get_log_tag(), "Saving pending changes before shutdown");
-      this->save_immediate();
-    }
-  }
+  // Unconditional: a write that failed earlier left its type dirty with no timer pending, and
+  // save_all_() skips a clean state anyway.
+  void on_shutdown() override { this->save_immediate(); }
 
   void cancel_pending_save() {
     if (this->save_pending_) {
