@@ -1,10 +1,10 @@
-# Google Test binary for components/automations, built through esphome compile.
-# main.cpp replaces the generated one, so nothing declared here is ever set up:
-# the entities and the engine exist only to get the sources compiled and the
-# USE_* defines set. The tests create their own.
+# Google Test binary for components/automations, built through esphome compile
+# by tests/run.py. The harness main.cpp replaces the generated one, so nothing
+# declared here is ever set up: the entities and the engine exist only to get
+# the sources compiled and the USE_* defines set. The tests create their own.
 esphome:
-  name: automations-unit
-  includes: [main.cpp, cases]
+  name: automations-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
   libraries: ["google/googletest@^1.15.2"]
   platformio_options:
     build_type: debug
@@ -26,9 +26,9 @@ logger:
   level: DEBUG
 
 external_components:
-  - source: ../../components
+  - source: ../../../components
     components: [filesystem_storage_abstract, automations]
-  - source: components
+  - source: ../../harness/components
     components: [dir_storage]
 
 time:

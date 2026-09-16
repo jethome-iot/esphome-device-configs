@@ -113,5 +113,6 @@ callback, say) they refuse and return false.
 
 ## Testing
 
-`python tests/unit/run.py` builds the engine for the ESPHome `host` platform into a Google Test
-binary and runs it, with a directory standing in for the flash. See [doc/TESTING.md](../../doc/TESTING.md).
+`python tests/run.py automations` builds the engine for the ESPHome `host` platform into a Google
+Test binary and runs it, with a directory standing in for the flash; the cases are in
+`tests/components/automations/`. See [doc/TESTING.md](../../doc/TESTING.md).

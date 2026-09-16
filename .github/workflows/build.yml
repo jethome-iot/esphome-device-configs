@@ -121,8 +121,8 @@ jobs:
 
       # Builds for the host platform with the system compiler: no ESP-IDF
       # toolchain, nothing big enough to be worth caching.
-      - name: Run the automations unit tests
-        run: python tests/unit/run.py
+      - name: Run the component tests
+        run: python tests/run.py
 
   dist:
     name: Check dist/ is current

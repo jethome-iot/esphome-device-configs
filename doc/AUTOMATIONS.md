@@ -32,10 +32,11 @@ written until the entity is back.
 ## Testing without hardware
 
 ```bash
-python tests/unit/run.py [--gtest_filter='Storage.*']
+python tests/run.py automations [-- --gtest_filter='Storage.*']
 ```
 
-Builds the engine for the host platform into a Google Test binary and runs `tests/unit/cases/`:
+Builds the engine for the host platform into a Google Test binary and runs
+`tests/components/automations/cases/`:
 the JSON and cron parsers, rules driven by hand with every delay held back until the test fires
 it, the cron tick against a clock the test moves, and the whole component over a directory that
 stands in for the flash. How to add a case: [TESTING.md](TESTING.md).

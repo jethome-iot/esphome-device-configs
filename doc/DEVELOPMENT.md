@@ -24,7 +24,7 @@ esphome -s version 2026.8.2.0 -s timezone Europe/Berlin compile <config>   # sub
 python scripts/build-dist.py  [--check]    # regenerate / verify dist/ (imports esphome: use the venv)
 python scripts/build-icons.py [--check]    # regenerate / verify assets/res/
 python scripts/firmware-matrix.py build    # CI matrix from firmwares.yaml; also validates the file
-python tests/unit/run.py                   # build the automations unit tests for the host and run them
+python tests/run.py [component]            # build every tests/components/*/ suite for the host and run it
 
 pre-commit run --all-files                 # ruff --fix, ruff-format, pyupgrade --py310-plus, yamllint, clang-format, build-icons, build-dist
 SKIP=build-dist pre-commit run --all-files # what the CI lint job runs
@@ -46,11 +46,11 @@ the firmware.
 The Build workflow is these four; run them locally:
 
 1. `esphome compile` for every config in `firmwares.yaml`
-2. `python tests/unit/run.py`
+2. `python tests/run.py`
 3. `python scripts/build-dist.py --check`
 4. `pre-commit run --all-files`
 
-The unit tests need no ESP toolchain. What they cover and how to add one: [TESTING.md](TESTING.md).
+The tests need no ESP toolchain. What they cover and how to add one: [TESTING.md](TESTING.md).
 
 ## Generated files
 
