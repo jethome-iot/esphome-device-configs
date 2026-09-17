@@ -81,8 +81,8 @@ upstream's: a bump can change either the style config or the version it formats 
 
 `dev` is the default branch: pull requests target it, and Build runs on every push to it.
 `master` is the release branch — `dashboard_import` and the asset URLs in `dist/` point at
-`@master`, so it moves only when `dev` is merged into it for a release. The
-`no-commit-to-branch` hook keeps commits off `master`.
+`@master`, so it moves only when `dev` is merged into it for a release. Branch rules keep
+direct commits off both `dev` and `master`: everything lands through pull requests.
 
 ## Style
 
