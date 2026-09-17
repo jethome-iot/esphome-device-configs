@@ -39,11 +39,17 @@ the firmware.
 
 ## Before pushing
 
-There is no test suite. The Build workflow is these three; run them locally:
+There is no test suite. The Build workflow is these; run them locally:
 
-1. `esphome compile` for every config in `firmwares.yaml`
-2. `python scripts/build-dist.py --check`
-3. `pre-commit run --all-files`
+1. `esphome config` for every config in `firmwares.yaml` — the fast schema
+   gate CI runs as the `Validate` jobs; `esphome compile` subsumes it locally
+   (a config that compiles validates)
+2. `esphome compile` for every config in `firmwares.yaml`
+3. `python scripts/build-dist.py --check`
+4. `pre-commit run --all-files`
+
+CI aggregates everything into the single `ci-ok` check, which is what branch
+protection requires.
 
 ## Generated files
 
