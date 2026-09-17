@@ -268,8 +268,15 @@ jobs:
           restore-keys: |
             ccache-${{ matrix.config }}--
 
-      - name: Install ccache
+      - name: Ensure ccache
+        # The runner image is its own thing — probe first, install only when
+        # the binary is genuinely missing (and the image's own version, if
+        # present, always wins).
         run: |
+          if command -v ccache >/dev/null 2>&1; then
+            echo "ccache already on PATH: $(ccache --version | head -1)"
+            exit 0
+          fi
           sudo apt-get install -y --no-install-recommends ccache \
             || { sudo apt-get update \
                  && sudo apt-get install -y --no-install-recommends ccache; }
