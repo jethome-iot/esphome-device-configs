@@ -1,0 +1,51 @@
+# Google Test binary for components/bindings, built through esphome compile by tests/run.py.
+# The harness main.cpp replaces the generated one, so nothing declared here is ever set up:
+# the entities exist to size App's lists and to set the USE_* defines. The tests register
+# their own.
+esphome:
+  name: bindings-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+      - -DUSE_LOG_LISTENERS
+      - -DESPHOME_LOG_MAX_LISTENERS=1
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../../components
+    components: [bindings]
+
+bindings:
+
+# App sizes its entity lists from what is declared here and silently drops a
+# registration past that, so this is at least what cases/common.h registers.
+binary_sensor:
+  - platform: template
+    id: in_1_unused
+    name: "Input 1"
+  - platform: template
+    id: in_2_unused
+    name: "Input 2"
+
+switch:
+  - platform: template
+    id: relay_1_unused
+    name: "Relay 1"
+    optimistic: true
+  - platform: template
+    id: relay_2_unused
+    name: "Relay 2"
+    optimistic: true

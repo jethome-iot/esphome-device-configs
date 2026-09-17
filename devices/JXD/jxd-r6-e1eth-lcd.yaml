@@ -20,6 +20,7 @@ packages:
   automation_editor: !include ${features}/automation-editor.yaml
   automations: !include ${features}/automations.yaml
   display_off: !include ${features}/display-off.yaml
+  entity_settings: !include ${features}/entity-settings.yaml
   i2c: !include ${features}/i2c.yaml
   modbus: !include ${features}/modbus-server.yaml
   network: !include ${features}/network.yaml

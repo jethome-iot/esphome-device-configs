@@ -21,6 +21,7 @@ generated files and runs the pre-commit hooks.
 | use or change the HTTP file API over the user partition | [components/web_file_browser/README.md](components/web_file_browser/README.md) |
 | touch the `automations` engine or its rule format | [doc/AUTOMATIONS.md](doc/AUTOMATIONS.md) |
 | add a test, or wonder which suite a case belongs in | [doc/TESTING.md](doc/TESTING.md) |
+| change what a relay or an input remembers across reboots | [doc/ENTITY_SETTINGS.md](doc/ENTITY_SETTINGS.md) |
 | change WiFi provisioning | [doc/WIFI_SETUP.md](doc/WIFI_SETUP.md) |
 
 The tree itself is in the README, "Repository Layout".

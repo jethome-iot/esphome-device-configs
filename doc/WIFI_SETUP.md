@@ -51,7 +51,7 @@ configured or stored:
 credentials and reboots; the access point is back within 90 seconds, and you
 reconfigure through the captive portal as above.
 
-**By factory reset.** **Settings → Factory reset → Confirm** clears all stored data,
+**By factory reset.** **Settings → Factory reset → Confirm** clears the stored preferences,
 credentials included, and reboots into AP mode.
 
 **By baking credentials into the firmware.** `devices/JXD/packages/features/network.yaml` configures
