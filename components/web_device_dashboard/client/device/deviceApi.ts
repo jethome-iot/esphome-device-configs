@@ -3,7 +3,8 @@
 import { createHttp, type HttpOptions } from './http'
 import type { DeviceInfo, DeviceStatus } from './types'
 
-export type { ApiError } from './http'
+// A class, so a value export: a consumer needs it for `instanceof`, not only for types.
+export { ApiError } from './http'
 export type { FetchImpl, HttpOptions } from './http'
 
 export interface DeviceApi {
