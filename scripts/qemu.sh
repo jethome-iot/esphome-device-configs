@@ -21,6 +21,7 @@
 #   scripts/qemu.sh list                       device configs, marking the running ones
 #   scripts/qemu.sh stop [<device>]            stop instances, keep flash state and build
 #   scripts/qemu.sh clean [<device>]           stop instances, drop wrappers and images
+#   scripts/qemu.sh install-qemu               download the JetHome QEMU build for this machine
 #   scripts/qemu.sh help
 #
 # An emulator left running holds its forwarded ports and its flash image, so stop
@@ -32,6 +33,9 @@
 #   --api-port <p>     host port forwarded to the native API 6053      (default 6053)
 #   --ota-port <p>     host port forwarded to the OTA listener 3232    (default 3232)
 #   --psram <size>     PSRAM given to the machine: 2M|4M|none          (default 4M)
+#   --eeprom <file>    attach the CPU-board EEPROM (0x54) backed by this file, so the
+#                      device reports the identity the file carries; needs the JetHome
+#                      QEMU build (install-qemu)
 #   --fresh            recreate the flash image, wiping emulated flash state
 #                      (NVS, LittleFS, saved config) — like erasing a real device
 #   --no-build         skip `esphome compile`, use whatever was built last
@@ -40,12 +44,12 @@
 #   --wait-http <sec>  with --daemon: poll the web server until it answers; on a
 #                      timeout, stop the instance again and exit non-zero
 #
-# Prerequisite: Espressif's QEMU fork (upstream qemu-system-xtensa has no `esp32`
-# machine). Install with:
-#   IDF_PATH=~/.platformio/packages/framework-espidf \
-#     python3 ~/.platformio/packages/framework-espidf/tools/idf_tools.py install qemu-xtensa
-# Its user-mode networking needs libslirp: `sudo apt install libslirp0`.
-# Point QEMU_XTENSA at the binary to override discovery.
+# Prerequisite: the JetHome build of Espressif's QEMU fork (upstream qemu-system-xtensa
+# has no `esp32` machine; Espressif's stock build boots the device but has no chips to
+# attach for --eeprom). `scripts/qemu.sh install-qemu` downloads it into
+# ~/.espressif/tools/qemu-xtensa/, next to any Espressif install. Its user-mode
+# networking needs libslirp: `sudo apt install libslirp0`.
+# Point QEMU_XTENSA at a binary to override discovery.
 set -Eeuo pipefail
 
 die()  { printf 'qemu: %s\n' "$*" >&2; exit 1; }
@@ -56,6 +60,11 @@ usage() { sed -n '2,/^set /p' "${BASH_SOURCE[0]}" | sed '/^set /d; s/^# \{0,1\}/
 SELF_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd -- "$SELF_DIR/.." && pwd)
 DEVICES_DIR="$ROOT/devices"
+# Where idf_tools.py puts Espressif's builds; install-qemu puts the JetHome build there too.
+TOOLS_DIR="$HOME/.espressif/tools/qemu-xtensa"
+QEMU_RELEASES="https://github.com/jethome-iot/qemu/releases"
+# install-qemu's download directory; global so the EXIT trap still sees it under set -u.
+INSTALL_TMP=""
 # Included from the device's own directory, so it is relative to that.
 OVERLAY="packages/qemu/qemu.yaml"
 
@@ -71,6 +80,9 @@ DO_BUILD=1
 NO_WDT=0
 DAEMON=0
 WAIT_HTTP=0
+EEPROM=""
+# Bytes: the 64 Kbit part the config declares.
+EEPROM_SIZE=8192
 
 CMD=${1:-help}
 [ $# -gt 0 ] && shift || true
@@ -100,6 +112,7 @@ while [ $# -gt 0 ]; do
     --ota-port)  opt_port "$1" "${2:-}"; OTA_PORT=$OPT_VALUE;  shift 2 ;;
     --wait-http) opt_uint "$1" "${2:-}"; WAIT_HTTP=$OPT_VALUE; shift 2 ;;
     --psram)     opt_arg  "$1" "${2:-}"; PSRAM=$OPT_VALUE;     shift 2 ;;
+    --eeprom)    opt_arg  "$1" "${2:-}"; EEPROM=$OPT_VALUE;    shift 2 ;;
     --fresh)     FRESH=1;      shift ;;
     --no-build)  DO_BUILD=0;   shift ;;
     --no-wdt)    NO_WDT=1;     shift ;;
@@ -145,38 +158,122 @@ list_devices() {
   done
 }
 
-# Best-first: an explicit override, the newest Espressif install, then PATH — often
+# Best-first: an explicit override, a JetHome build, any Espressif build, then PATH — often
 # the distro build, which has no `esp32` machine. A bad candidate is skipped, not fatal.
+# A JetHome build ranks ahead of a newer stock one on purpose: `sort -V` would put a future
+# esp_develop_9.2.3 above esp_develop_9.2.2_…_jethome1 and silently take --eeprom away.
 find_qemu() {
   local candidates=() installs=() c
   # `sort -V` gives oldest first; prepend so the newest install ends up first.
   while IFS= read -r c; do installs=("$c" ${installs[@]+"${installs[@]}"}); done < <(
-    ls -d "$HOME"/.espressif/tools/qemu-xtensa/*/qemu/bin/qemu-system-xtensa 2>/dev/null | sort -V
+    ls -d "$TOOLS_DIR"/*/qemu/bin/qemu-system-xtensa 2>/dev/null | sort -V
   )
   [ -n "${QEMU_XTENSA:-}" ] && candidates+=("$QEMU_XTENSA")
   [ ${#installs[@]} -gt 0 ] && candidates+=("${installs[@]}")
   command -v qemu-system-xtensa >/dev/null 2>&1 && candidates+=("$(command -v qemu-system-xtensa)")
-  [ ${#candidates[@]} -gt 0 ] || die "qemu-system-xtensa not found — see the install hint in $0"
+  [ ${#candidates[@]} -gt 0 ] || die "qemu-system-xtensa not found — run: scripts/qemu.sh install-qemu"
 
-  local qemu libdir out slirp_missing=0 upstream_seen=0
-  for qemu in "${candidates[@]}"; do
-    [ -x "$qemu" ] || continue
-    # The published tarballs do not carry libslirp, but an install may have had
-    # it vendored next to the binary; the arch subdirectory differs, so take
-    # whatever is there and fall back to the system one.
-    libdir=$(dirname -- "$qemu")/../lib
-    libdir=$(cd -- "$libdir" 2>/dev/null && ls -d "$PWD"/*-linux-gnu 2>/dev/null | head -1) || libdir=""
-    if out=$(LD_LIBRARY_PATH="${libdir}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$qemu" --version 2>&1); then
-      case "$out" in
-        *esp_develop*) QEMU_BIN=$qemu; QEMU_LIBDIR=$libdir; return 0 ;;
-        *) upstream_seen=1; continue ;;
-      esac
-    fi
-    case "$out" in *libslirp*) slirp_missing=1 ;; esac
+  local qemu libdir out tier slirp_missing=0 upstream_seen=0
+  for tier in explicit jethome any; do
+    for qemu in "${candidates[@]}"; do
+      [ -x "$qemu" ] || continue
+      [ "$tier" = explicit ] && [ "$qemu" != "${QEMU_XTENSA:-}" ] && continue
+      # The published tarballs do not carry libslirp, but an install may have had
+      # it vendored next to the binary; the arch subdirectory differs, so take
+      # whatever is there and fall back to the system one.
+      libdir=$(dirname -- "$qemu")/../lib
+      libdir=$(cd -- "$libdir" 2>/dev/null && ls -d "$PWD"/*-linux-gnu 2>/dev/null | head -1) || libdir=""
+      out=$(LD_LIBRARY_PATH="${libdir}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$qemu" --version 2>&1) || {
+        case "$out" in *libslirp*) slirp_missing=1 ;; esac
+        continue
+      }
+      # Not for the explicit tier: QEMU_XTENSA is the escape hatch, and a hand-built
+      # binary carries no pkgversion at all.
+      [ "$tier" != explicit ] && case "$out" in *esp_develop*) ;; *) upstream_seen=1; continue ;; esac
+      [ "$tier" = jethome ] && case "$out" in *jethome*) ;; *) continue ;; esac
+      QEMU_BIN=$qemu; QEMU_LIBDIR=$libdir; return 0
+    done
   done
   [ "$slirp_missing" -eq 1 ] && die "qemu-system-xtensa needs libslirp — install it with: sudo apt install libslirp0"
-  [ "$upstream_seen" -eq 1 ] && die "only upstream qemu-system-xtensa found (no \`esp32\` machine) — install Espressif's fork, see the hint in $0"
+  [ "$upstream_seen" -eq 1 ] && die "only upstream qemu-system-xtensa found (no \`esp32\` machine) — run: scripts/qemu.sh install-qemu"
   die "found qemu-system-xtensa but could not run it"
+}
+
+# Espressif's stock build models the I2C controller but compiles in no chips, so whether
+# `at24c-eeprom` exists is what tells the JetHome build apart where it matters.
+require_i2c_devices() {
+  LD_LIBRARY_PATH="${QEMU_LIBDIR}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    "$QEMU_BIN" -device help 2>/dev/null | grep -q 'name "at24c-eeprom"' && return 0
+  die "--eeprom needs the JetHome QEMU build, $QEMU_BIN has no chips to attach — run: scripts/qemu.sh install-qemu"
+}
+
+# Before the build, so a missing capability or a wrong-sized image costs a message, not a
+# compile.
+prepare_eeprom() {
+  local size
+  require_i2c_devices
+  if [ ! -e "$EEPROM" ]; then
+    info "==> $EEPROM does not exist — creating an erased part"
+    head -c "$EEPROM_SIZE" /dev/zero | tr '\0' '\377' >"$EEPROM"
+  fi
+  size=$(stat -c%s "$EEPROM" 2>/dev/null || stat -f%z "$EEPROM" 2>/dev/null) || die "cannot read --eeprom file: $EEPROM"
+  # at24c refuses a file that is not exactly rom-size, and says so only in the QEMU log.
+  [ "$size" -eq "$EEPROM_SIZE" ] ||
+    die "--eeprom file is $size bytes, the emulated part is $EEPROM_SIZE"
+}
+
+# The JetHome build of Espressif's QEMU: the same machines, plus I2C chips that can be
+# attached from the command line, which --eeprom needs. Unpacked where idf_tools.py puts
+# Espressif's own builds, so find_qemu sees it like any other.
+do_install_qemu() {
+  local arch os url tag version dest asset sums sha
+  case "$(uname -m)" in
+    x86_64)        arch=x86_64 ;;
+    aarch64|arm64) arch=aarch64 ;;
+    *) die "no JetHome QEMU build for $(uname -m)" ;;
+  esac
+  case "$(uname -s)" in
+    Linux)  os=linux-gnu ;;
+    Darwin) os=apple-darwin ;;
+    *) die "no JetHome QEMU build for $(uname -s)" ;;
+  esac
+  command -v curl >/dev/null 2>&1 || die "install-qemu needs curl"
+  # /releases/latest redirects to the tagged release, and the tag names the version.
+  url=$(curl -fsSL -o /dev/null -w '%{url_effective}' "$QEMU_RELEASES/latest") || die "cannot reach $QEMU_RELEASES"
+  tag=${url##*/}
+  case "$tag" in esp-develop-*) ;; *) die "unexpected release tag '$tag' at $url" ;; esac
+  version=${tag//-/_}
+  dest="$TOOLS_DIR/$version"
+  if [ -x "$dest/qemu/bin/qemu-system-xtensa" ]; then
+    info "already installed: $dest/qemu/bin/qemu-system-xtensa"
+    return 0
+  fi
+  asset="qemu-xtensa-softmmu-$version-$arch-$os.tar.xz"
+  sums="qemu-$version-checksum.sha256"
+  INSTALL_TMP=$(mktemp -d)
+  trap 'rm -rf "$INSTALL_TMP"' EXIT
+  info "==> downloading $asset"
+  curl -fSL --progress-bar -o "$INSTALL_TMP/$asset" "$QEMU_RELEASES/download/$tag/$asset" ||
+    die "download failed: $QEMU_RELEASES/download/$tag/$asset"
+  curl -fsSL -o "$INSTALL_TMP/$sums" "$QEMU_RELEASES/download/$tag/$sums" || die "download failed: $sums"
+  sha=$(sed -n "s/^\([0-9a-f]\{64\}\) \*$asset\$/\1/p" "$INSTALL_TMP/$sums")
+  [ -n "$sha" ] || die "$sums has no entry for $asset"
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s  %s\n' "$sha" "$INSTALL_TMP/$asset" | sha256sum -c --quiet - >/dev/null || die "checksum mismatch for $asset"
+  else
+    printf '%s  %s\n' "$sha" "$INSTALL_TMP/$asset" | shasum -a 256 -c --quiet - >/dev/null || die "checksum mismatch for $asset"
+  fi
+  # Unpacked aside and moved into place, so a failed unpack cannot leave a half-installed
+  # build that the next run reports as already installed.
+  mkdir -p "$INSTALL_TMP/unpack"
+  tar -xJf "$INSTALL_TMP/$asset" -C "$INSTALL_TMP/unpack"
+  [ -x "$INSTALL_TMP/unpack/qemu/bin/qemu-system-xtensa" ] ||
+    die "$asset did not unpack to qemu/bin/qemu-system-xtensa"
+  mkdir -p "$dest"
+  rm -rf "$dest/qemu"
+  mv "$INSTALL_TMP/unpack/qemu" "$dest/qemu"
+  info "==> installed $dest/qemu/bin/qemu-system-xtensa"
+  info "    user-mode networking needs libslirp: sudo apt install libslirp0"
 }
 
 activate_env() {
@@ -322,6 +419,9 @@ do_run() {
         -nic "user,model=open_eth,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80,hostfwd=tcp:127.0.0.1:$API_PORT-:6053,hostfwd=tcp:127.0.0.1:$OTA_PORT-:3232")
   [ "$PSRAM" != "none" ] && args+=(-m "$PSRAM")
   [ "$NO_WDT" -eq 1 ] && args+=(-global driver=timer.esp32.timg,property=wdt_disable,value=true)
+  # The CPU-board part at 0x54, on the controller ESPHome's bus takes (i2c0).
+  [ -n "$EEPROM" ] && args+=(-drive "if=none,id=eeprom0,format=raw,file=$EEPROM"
+                             -device "at24c-eeprom,bus=i2c0,address=0x54,rom-size=$EEPROM_SIZE,address-size=2,drive=eeprom0")
 
   info "==> $device on QEMU"
   info "    web    http://127.0.0.1:$HTTP_PORT"
@@ -446,6 +546,7 @@ case "$CMD" in
     # Everything that can refuse to proceed runs before anything is touched, and
     # the old instance goes before the image it holds is rewritten.
     find_qemu
+    [ -n "$EEPROM" ] && prepare_eeprom
     stop_previous "$DEVICE"
     # After stop_previous, so re-running the same device is not a clash with
     # itself, and before the build, so a taken port costs a message and not a
@@ -454,6 +555,7 @@ case "$CMD" in
     [ "$DO_BUILD" -eq 1 ] && do_build "$DEVICE"
     do_image "$DEVICE"
     do_run "$DEVICE" ;;
+  install-qemu) do_install_qemu ;;
   help|-h|--help) usage ;;
   *) die "unknown command: $CMD (try: scripts/qemu.sh help)" ;;
 esac
