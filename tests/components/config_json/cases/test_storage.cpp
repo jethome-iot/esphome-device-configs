@@ -269,4 +269,29 @@ TEST_F(Storage, ResetAllClearsTheRecordsAndWritesAtOnce) {
   EXPECT_EQ(read(), R"({"version":1,"records":[]})");
 }
 
+// What a factory reset does before it formats: the flush that App.safe_reboot() runs must
+// not put the settings file back on the filesystem that is about to be wiped.
+TEST_F(Storage, AStorageWithWritesDisabledTakesNoMore) {
+  this->boot();
+  this->settings.update("sw_a", true, 7);
+  this->keeper->save_immediate();
+  ASSERT_GT(this->size(), 0);
+  const std::string saved = this->read();
+
+  this->backend.disable_writes();
+  log().clear();
+  this->settings.update("sw_b", false, 2);
+  this->keeper->save_immediate();
+
+  EXPECT_EQ(this->read(), saved);
+  EXPECT_TRUE(log().has(log().warnings, "Storage is being formatted"));
+}
+
+TEST_F(Storage, ADisabledStorageIsStillReadable) {
+  this->write(VALID);
+  this->backend.disable_writes();
+  this->boot();
+  EXPECT_EQ(this->settings.report(), "sw_a=1/7 sw_b=0/2");
+}
+
 }  // namespace esphome::config_json::testing
