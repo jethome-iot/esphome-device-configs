@@ -52,9 +52,35 @@ jobs:
           fi
           echo "configs=$configs" >> "$GITHUB_OUTPUT"
 
+  validate:
+    name: Validate ${{ matrix.config }}
+    needs: discover
+    runs-on: [self-hosted, ubuntu-latest]
+    strategy:
+      fail-fast: false
+      matrix:
+        config: ${{ fromJson(needs.discover.outputs.configs) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install ESPHome
+        run: pip install -r requirements.txt
+
+      # The fast schema gate: pure validation, no PlatformIO toolchain, so a
+      # broken config fails in ~a minute instead of after the toolchain
+      # restore in the build job.
+      - name: Validate
+        run: esphome config "${{ matrix.config }}"
+
   build:
     name: ${{ matrix.config }}
-    needs: discover
+    needs: [discover, validate]
     runs-on: [self-hosted, ubuntu-latest]
     strategy:
       fail-fast: false
@@ -149,3 +175,26 @@ jobs:
         env:
           SKIP: build-dist
         run: pre-commit run --all-files --show-diff-on-failure
+
+  # The single stable check name for branch protection: the matrix jobs above
+  # are named after firmware paths, and required checks match exact names —
+  # one aggregate keeps the rules working when the firmware list changes.
+  # Every need must have succeeded: a skipped job (an upstream failure) is as
+  # disqualifying as a failed one, or a discover failure would let this pass
+  # with zero firmware validated or compiled.
+  ci-ok:
+    name: ci-ok
+    needs: [discover, validate, build, dist, lint]
+    if: ${{ !cancelled() }}
+    runs-on: [self-hosted, ubuntu-latest]
+    steps:
+      - name: Require all checks green
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          set -euo pipefail
+          if ! jq -e 'all(. == "success")' <<< "$RESULTS" >/dev/null; then
+            echo "::error::not every required check succeeded: $RESULTS"
+            exit 1
+          fi
+          echo "All required checks passed"
