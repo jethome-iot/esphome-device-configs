@@ -48,11 +48,14 @@
 # has no `esp32` machine; Espressif's stock build boots the device but has no chips to
 # attach for --eeprom). `scripts/qemu.sh install-qemu` downloads it into
 # ~/.espressif/tools/qemu-xtensa/, next to any Espressif install. Its user-mode
-# networking needs libslirp: `sudo apt install libslirp0`.
+# networking needs libslirp: `sudo apt install libslirp0`, `brew install libslirp` on macOS.
 # Point QEMU_XTENSA at a binary to override discovery.
 set -Eeuo pipefail
 
 die()  { printf 'qemu: %s\n' "$*" >&2; exit 1; }
+
+# The installer serves Linux and macOS builds alike; the package differs.
+slirp_hint() { case "$(uname -s)" in Darwin) printf 'brew install libslirp' ;; *) printf 'sudo apt install libslirp0' ;; esac; }
 info() { printf '%s\n' "$*"; }
 
 usage() { sed -n '2,/^set /p' "${BASH_SOURCE[0]}" | sed '/^set /d; s/^# \{0,1\}//'; }
@@ -194,7 +197,7 @@ find_qemu() {
       QEMU_BIN=$qemu; QEMU_LIBDIR=$libdir; return 0
     done
   done
-  [ "$slirp_missing" -eq 1 ] && die "qemu-system-xtensa needs libslirp — install it with: sudo apt install libslirp0"
+  [ "$slirp_missing" -eq 1 ] && die "qemu-system-xtensa needs libslirp — install it with: $(slirp_hint)"
   [ "$upstream_seen" -eq 1 ] && die "only upstream qemu-system-xtensa found (no \`esp32\` machine) — run: scripts/qemu.sh install-qemu"
   die "found qemu-system-xtensa but could not run it"
 }
@@ -273,7 +276,7 @@ do_install_qemu() {
   rm -rf "$dest/qemu"
   mv "$INSTALL_TMP/unpack/qemu" "$dest/qemu"
   info "==> installed $dest/qemu/bin/qemu-system-xtensa"
-  info "    user-mode networking needs libslirp: sudo apt install libslirp0"
+  info "    user-mode networking needs libslirp: $(slirp_hint)"
 }
 
 activate_env() {

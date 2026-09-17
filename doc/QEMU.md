@@ -21,7 +21,7 @@ any Espressif install, and needs libslirp for user-mode networking:
 
 ```bash
 ./scripts/qemu.sh install-qemu     # → ~/.espressif/tools/qemu-xtensa/<version>/
-sudo apt install libslirp0         # the binary will not start without it
+sudo apt install libslirp0         # the binary will not start without it (macOS: brew install libslirp)
 ```
 
 The script prefers a JetHome build over a newer stock one, refuses an upstream build, and
