@@ -1,0 +1,33 @@
+# Google Test binary for components/display_menu_base, built through esphome compile by
+# tests/run.py. The component has no YAML key of its own, so the harness stub is what pulls
+# it into the build. Nothing declared here is set up: the cases build their own menus.
+# components/graphical_display_menu is not built here: its one addition, fill_row, is a
+# branch in a measurement, and standing a display platform up for the host costs more than
+# that is worth. It is covered by test_schema.py and checked on the panel under QEMU.
+esphome:
+  name: display-menu-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../../components
+    components: [display_menu_base]
+  - source: ../../harness/components
+    components: [display_menu_host]
+
+display_menu_host:

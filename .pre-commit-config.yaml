@@ -62,3 +62,14 @@ repos:
         additional_dependencies: [esphome==2026.8.2]
         pass_filenames: false
         files: ^(devices/|scripts/build-dist\.py)
+
+      # The components that shadow ESPHome's own are not reached by a version bump.
+      # Every hunk against the installed copy has to carry a JetHome marker, so an
+      # unmarked one means the copy is stale. Keep the pin in step with the others.
+      - id: vendored-diff
+        name: vendored components match the ESPHome pin
+        entry: python scripts/vendored-diff.py --check
+        language: python
+        additional_dependencies: [esphome==2026.8.2]
+        pass_filenames: false
+        files: ^(components/|requirements\.txt$|scripts/vendored-diff\.py$)
