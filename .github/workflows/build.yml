@@ -179,9 +179,12 @@ jobs:
   # The single stable check name for branch protection: the matrix jobs above
   # are named after firmware paths, and required checks match exact names —
   # one aggregate keeps the rules working when the firmware list changes.
+  # Every need must have succeeded: a skipped job (an upstream failure) is as
+  # disqualifying as a failed one, or a discover failure would let this pass
+  # with zero firmware validated or compiled.
   ci-ok:
     name: ci-ok
-    needs: [validate, build, dist, lint]
+    needs: [discover, validate, build, dist, lint]
     if: ${{ !cancelled() }}
     runs-on: [self-hosted, ubuntu-latest]
     steps:
@@ -190,8 +193,8 @@ jobs:
           RESULTS: ${{ toJSON(needs.*.result) }}
         run: |
           set -euo pipefail
-          if jq -e 'any(. == "failure" or . == "cancelled")' <<< "$RESULTS" >/dev/null; then
-            echo "::error::one or more required checks failed or were cancelled"
+          if ! jq -e 'all(. == "success")' <<< "$RESULTS" >/dev/null; then
+            echo "::error::not every required check succeeded: $RESULTS"
             exit 1
           fi
           echo "All required checks passed"
