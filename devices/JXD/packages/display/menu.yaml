@@ -16,98 +16,15 @@ graphical_display_menu:
     then:
       - component.update: display1
   items:
-    # The settings rows of each Relay N / Input N are added at boot (esphome: on_boot below).
+    # A Relay N / Input N submenu per entry of the relays / inputs vectors is added at
+    # boot (esphome: on_boot below); both are empty until then.
     - type: menu
       text: "Relays"
       id: relays_menu
-      items:
-        - type: menu
-          text: !lambda 'return id(relay_1).state ? "Relay 1 (On)" : "Relay 1 (Off)";'
-          items:
-            - type: switch
-              text: "State"
-              switch: relay_1
-              immediate_edit: true
-
-        - type: menu
-          text: !lambda 'return id(relay_2).state ? "Relay 2 (On)" : "Relay 2 (Off)";'
-          items:
-            - type: switch
-              text: "State"
-              switch: relay_2
-              immediate_edit: true
-
-        - type: menu
-          text: !lambda 'return id(relay_3).state ? "Relay 3 (On)" : "Relay 3 (Off)";'
-          items:
-            - type: switch
-              text: "State"
-              switch: relay_3
-              immediate_edit: true
-
-        - type: menu
-          text: !lambda 'return id(relay_4).state ? "Relay 4 (On)" : "Relay 4 (Off)";'
-          items:
-            - type: switch
-              text: "State"
-              switch: relay_4
-              immediate_edit: true
-
-        - type: menu
-          text: !lambda 'return id(relay_5).state ? "Relay 5 (On)" : "Relay 5 (Off)";'
-          items:
-            - type: switch
-              text: "State"
-              switch: relay_5
-              immediate_edit: true
-
-        - type: menu
-          text: !lambda 'return id(relay_6).state ? "Relay 6 (On)" : "Relay 6 (Off)";'
-          items:
-            - type: switch
-              text: "State"
-              switch: relay_6
-              immediate_edit: true
 
     - type: menu
       text: "Inputs"
       id: inputs_menu
-      items:
-        - type: menu
-          text: !lambda 'return id(input_1).state ? "Input 1 (On)" : "Input 1 (Off)";'
-          items:
-            - type: label
-              text: !lambda 'return id(input_1).state ? "State (On)" : "State (Off)";'
-
-        - type: menu
-          text: !lambda 'return id(input_2).state ? "Input 2 (On)" : "Input 2 (Off)";'
-          items:
-            - type: label
-              text: !lambda 'return id(input_2).state ? "State (On)" : "State (Off)";'
-
-        - type: menu
-          text: !lambda 'return id(input_3).state ? "Input 3 (On)" : "Input 3 (Off)";'
-          items:
-            - type: label
-              text: !lambda 'return id(input_3).state ? "State (On)" : "State (Off)";'
-
-        - type: menu
-          text: !lambda 'return id(input_4).state ? "Input 4 (On)" : "Input 4 (Off)";'
-          items:
-            - type: label
-              text: !lambda 'return id(input_4).state ? "State (On)" : "State (Off)";'
-
-        - type: menu
-          text: !lambda 'return id(input_5).state ? "Input 5 (On)" : "Input 5 (Off)";'
-          items:
-            - type: label
-              text: !lambda 'return id(input_5).state ? "State (On)" : "State (Off)";'
-
-        - type: menu
-          text: !lambda 'return id(input_6).state ? "Input 6 (On)" : "Input 6 (Off)";'
-          items:
-            - type: label
-              text: !lambda 'return id(input_6).state ? "State (On)" : "State (Off)";'
 
     # A Temp N submenu per slot up to the last bound one is added at boot (esphome:
     # on_boot below); a freed slot's submenu only says Free slot.
@@ -202,9 +119,9 @@ graphical_display_menu:
 
 esphome:
   on_boot:
-    # After the board has filled `relays` / `inputs` (800): the Nth submenu belongs to the Nth
-    # entity. A row is opened with CENTER, stepped with LEFT / RIGHT and closed with CENTER or
-    # BACK; the choice is applied when it closes.
+    # After the board has filled `relays` / `inputs` (800). A settings row is opened with
+    # CENTER, stepped with LEFT / RIGHT and closed with CENTER or BACK; the choice is applied
+    # when it closes.
     - priority: 700
       then:
         - lambda: |-
@@ -230,20 +147,21 @@ esphome:
               });
               menu->add_item(row);
             };
-            // Index-based: a weight on any Relay N / Input N submenu would reorder them and
-            // silently bind these rows to the wrong entity.
-            auto submenu = [](MenuItemMenu *parent, size_t i) -> MenuItemMenu * {
-              if (i >= parent->items_size() || parent->get_item(i)->get_type() != MENU_ITEM_MENU)
-                return nullptr;
-              return static_cast<MenuItemMenu *>(parent->get_item(i));
-            };
-
+            // Each submenu is built next to its entity, so nothing binds its rows by position.
             auto *sws = id(switch_settings);
-            for (size_t i = 0; i < id(relays).size(); i++) {
-              auto *sw = id(relays)[i];
-              auto *menu = submenu(id(relays_menu), i);
-              if (menu == nullptr)
-                break;
+            for (auto *sw : id(relays)) {
+              auto *menu = new MenuItemMenu();
+              menu->set_text([sw](const MenuItem *) {
+                return sw->get_name().str() + (sw->state ? " (On)" : " (Off)");
+              });
+              auto *state_row = new MenuItemSwitch();
+              state_row->set_text(std::string("State"));
+              state_row->set_switch_variable(sw);
+              state_row->set_on_text("On");
+              state_row->set_off_text("Off");
+              state_row->set_immediate_edit(true);
+              menu->add_item(state_row);
+
               auto field_row = [&](const char *text, Field field) {
                 add_row(menu, text, [sws, field]() { return sws->option_count(field); },
                         [sws, sw, field](int index) { return sws->option_label(sw, field, index); },
@@ -254,18 +172,26 @@ esphome:
               field_row("Start mode", Field::RESTORE_MODE);
               field_row("Bind to", Field::BINDING_INPUT);
               field_row("Binding", Field::BINDING_MODE);
+              id(relays_menu)->add_item(menu);
             }
 
             auto *bss = id(binary_sensor_settings);
-            for (size_t i = 0; i < id(inputs).size(); i++) {
-              auto *input = id(inputs)[i];
-              auto *menu = submenu(id(inputs_menu), i);
-              if (menu == nullptr)
-                break;
+            for (auto *input : id(inputs)) {
+              auto *menu = new MenuItemMenu();
+              menu->set_text([input](const MenuItem *) {
+                return input->get_name().str() + (input->state ? " (On)" : " (Off)");
+              });
+              auto *state_row = new MenuItem(MENU_ITEM_LABEL);
+              state_row->set_text([input](const MenuItem *) {
+                return std::string(input->state ? "State (On)" : "State (Off)");
+              });
+              menu->add_item(state_row);
+
               add_row(menu, "Inverted", []() { return 2; },
                       [](int index) { return index == 1 ? "Yes" : "No"; },
                       [bss, input]() { return bss->is_inverted(input) ? 1 : 0; },
                       [bss, input](size_t index) { bss->set_inverted(input, index == 1); });
+              id(inputs_menu)->add_item(menu);
             }
 
     # After dallas_scan (600) has created the sensors.
