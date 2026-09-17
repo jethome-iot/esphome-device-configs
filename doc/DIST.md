@@ -14,14 +14,17 @@ so `${name}` and `${friendly_name}` stay symbolic for the Builder to rename. It:
   URLs under that ref, drops substitutions naming repository directories, and fails on any other
   value still pointing at a repository file: add the key to `ASSET_KEYS` if it names an asset,
   otherwise inline the value;
+- rewrites local `external_components` sources (`source: ${components}`) into the git form
+  (`type: git`, `url`, `ref`, `path`) under that same ref, so the Builder clones the components
+  from the release branch;
 - emits values YAML 1.1 would misread (`Yes`, `12:30`) as block scalars and verifies a ruamel
   round-trip leaves the config unchanged;
 - refuses to run while a device config is missing from `firmwares.yaml`.
 
 ## Adding a device
 
-1. `devices/<family>/<device>.yaml` with the path substitutions (`assets`, `boards`, `features`,
-   `display`) and the package list.
+1. `devices/<family>/<device>.yaml` with the path substitutions (`assets`, `components`, `boards`,
+   `features`, `display`) and the package list.
 2. The import pointing at the generated file:
 
    ```yaml

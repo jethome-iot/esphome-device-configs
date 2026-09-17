@@ -23,7 +23,7 @@ import serial
 COILS_BASE = 0x0000  # relays, FC 0x01/0x05/0x0F
 DISCRETE_BASE = 0x0010  # digital inputs, FC 0x02
 TEMP_BASE = 0x0000  # temperature slots, FC 0x03/0x04, signed 0.1 °C
-TEMP_COUNT = 8
+TEMP_COUNT = 16
 TEMP_NONE = 0x8000  # slot has no reading
 
 EXCEPTIONS = {

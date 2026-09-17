@@ -92,7 +92,7 @@ esphome:
 #
 # FC 0x03 and FC 0x04 likewise read one register table:
 #
-#   0x0000-0x0007  temperature slots 1-8, signed, 0.1 °C; 0x8000 = no reading
+#   0x0000-0x000F  temperature slots 1-16, signed, 0.1 °C; 0x8000 = no reading
 #
 # Anything else answers 0 (courtesy_response) instead of an exception.
 modbus_server:
@@ -105,49 +105,97 @@ modbus_server:
       - address: 0x0000
         value_type: S_WORD
         read_lambda: |-
-          float t = id(temp_1).state;
+          float t = id(temps)->temperature(0);
           return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
 
       - address: 0x0001
         value_type: S_WORD
         read_lambda: |-
-          float t = id(temp_2).state;
+          float t = id(temps)->temperature(1);
           return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
 
       - address: 0x0002
         value_type: S_WORD
         read_lambda: |-
-          float t = id(temp_3).state;
+          float t = id(temps)->temperature(2);
           return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
 
       - address: 0x0003
         value_type: S_WORD
         read_lambda: |-
-          float t = id(temp_4).state;
+          float t = id(temps)->temperature(3);
           return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
 
       - address: 0x0004
         value_type: S_WORD
         read_lambda: |-
-          float t = id(temp_5).state;
+          float t = id(temps)->temperature(4);
           return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
 
       - address: 0x0005
         value_type: S_WORD
         read_lambda: |-
-          float t = id(temp_6).state;
+          float t = id(temps)->temperature(5);
           return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
 
       - address: 0x0006
         value_type: S_WORD
         read_lambda: |-
-          float t = id(temp_7).state;
+          float t = id(temps)->temperature(6);
           return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
 
       - address: 0x0007
         value_type: S_WORD
         read_lambda: |-
-          float t = id(temp_8).state;
+          float t = id(temps)->temperature(7);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
+
+      - address: 0x0008
+        value_type: S_WORD
+        read_lambda: |-
+          float t = id(temps)->temperature(8);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
+
+      - address: 0x0009
+        value_type: S_WORD
+        read_lambda: |-
+          float t = id(temps)->temperature(9);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
+
+      - address: 0x000A
+        value_type: S_WORD
+        read_lambda: |-
+          float t = id(temps)->temperature(10);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
+
+      - address: 0x000B
+        value_type: S_WORD
+        read_lambda: |-
+          float t = id(temps)->temperature(11);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
+
+      - address: 0x000C
+        value_type: S_WORD
+        read_lambda: |-
+          float t = id(temps)->temperature(12);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
+
+      - address: 0x000D
+        value_type: S_WORD
+        read_lambda: |-
+          float t = id(temps)->temperature(13);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
+
+      - address: 0x000E
+        value_type: S_WORD
+        read_lambda: |-
+          float t = id(temps)->temperature(14);
+          return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
+
+      - address: 0x000F
+        value_type: S_WORD
+        read_lambda: |-
+          float t = id(temps)->temperature(15);
           return (int16_t) (std::isnan(t) ? -32768 : lroundf(t * 10));
 
     bits:

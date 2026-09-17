@@ -14,9 +14,9 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
+      # dev is the working branch; only the release branch is protected.
       - id: no-commit-to-branch
         args:
-          - --branch=dev
           - --branch=master
       # Generated files are the generators' business; the BDF fonts are upstream.
       - id: end-of-file-fixer
@@ -33,8 +33,19 @@ repos:
     hooks:
       - id: yamllint
         # Generated output: the blank lines inside block scalars are ESPHome's
-        # dumper's doing, not ours.
-        exclude: ^dist/
+        # dumper's doing, not ours. The clang dotfiles are YAML by syntax only:
+        # they are upstream ESPHome's files, kept verbatim.
+        exclude: ^(dist/|\.clang-(format|tidy)$)
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    # The hook carries its own clang-format, so this rev is the only thing that
+    # decides how the tree is formatted. Upstream ESPHome pins the same one.
+    rev: v13.0.1
+    hooks:
+      - id: clang-format
+        types_or: [c, c++]
+        files: ^components/
+        # Generated gzip payload, thousands of lines of byte array.
+        exclude: ^components/web_device_dashboard/web_device_dashboard_data\.cpp$
   - repo: local
     hooks:
       # Rewrites assets/res/, so a stale copy fails the commit until it is staged.
