@@ -1410,6 +1410,7 @@ graphical_display_menu:
           select: display_off_timer_select
         - type: menu
           text: Modbus
+          weight: 10
           items:
             - type: label
               text: Applied on reboot
@@ -1428,6 +1429,7 @@ graphical_display_menu:
               select: modbus_stop_bits
         - type: menu
           text: Temp sensors
+          weight: 20
           items:
             - type: label
               text: Forget all?
@@ -1441,6 +1443,7 @@ graphical_display_menu:
                     slot: -1
         - type: menu
           text: Factory reset
+          weight: 40
           items:
             - type: label
               text: Factory reset?
@@ -1455,6 +1458,7 @@ graphical_display_menu:
                     App.safe_reboot();
         - type: command
           text: Reboot device
+          weight: 30
           on_value:
             - lambda: App.safe_reboot();
     - id: !extend 'info_submenu'
@@ -1497,6 +1501,7 @@ graphical_display_menu:
           select: network_mode
         - type: menu
           text: Reset WiFi creds
+          weight: 20
           items:
             - type: label
               text: Reset?
