@@ -307,8 +307,14 @@ bool DisplayMenuComponent::cursor_down_() {
 }
 
 bool DisplayMenuComponent::enter_menu_() {
+  // JetHome: empty menu. There is no way back out of one, so refuse it here, before the
+  // on_leave() that would have no matching on_enter().
+  auto *target = static_cast<MenuItemMenu *>(this->get_selected_item_());
+  if (target->items_size() == 0)
+    return false;
+
   this->displayed_item_->on_leave();
-  this->displayed_item_ = static_cast<MenuItemMenu *>(this->get_selected_item_());
+  this->displayed_item_ = target;
   this->selection_stack_.emplace_front(this->top_index_, this->cursor_index_);
   this->cursor_index_ = this->top_index_ = 0;
   this->displayed_item_->on_enter();

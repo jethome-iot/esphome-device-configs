@@ -224,6 +224,8 @@ esphome:
               });
               menu->add_item(row);
             };
+            // Index-based: a weight on any Relay N / Input N submenu would reorder them and
+            // silently bind these rows to the wrong entity.
             auto submenu = [](MenuItemMenu *parent, size_t i) -> MenuItemMenu * {
               if (i >= parent->items_size() || parent->get_item(i)->get_type() != MENU_ITEM_MENU)
                 return nullptr;
