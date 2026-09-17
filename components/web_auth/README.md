@@ -1,8 +1,8 @@
 # web_auth
 
 Makes the `web_server` credentials changeable on a running device. The `auth:` block in the
-configuration becomes the factory default; a pair set later is kept in flash and used from the
-next boot on. ESP-IDF only.
+configuration becomes the factory default; a pair set later takes effect on the next request
+and is kept in flash, so it survives reboots and OTA updates. ESP-IDF only.
 
 ```yaml
 external_components:

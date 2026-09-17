@@ -106,6 +106,12 @@ class Credentials:
         self.challenge: dict[str, str] | None = None
         self.nonce_count = 0
 
+    def meet(self, header: str) -> None:
+        """Take a fresh challenge. The count is scoped to the nonce it answers, so it
+        restarts: a server that tracks nonces rejects a reused count."""
+        self.challenge = parse_challenge(header)
+        self.nonce_count = 0
+
     def header(self, method: str, target: str) -> str | None:
         c = self.challenge
         if c is None:
@@ -180,7 +186,7 @@ class Device:
             and (header := res.getheader("WWW-Authenticate"))
         ):
             res.read()
-            self.credentials.challenge = parse_challenge(header)
+            self.credentials.meet(header)
             res = self._send(method, target, body, headers)
         return res
 
