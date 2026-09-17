@@ -255,7 +255,6 @@ jobs:
           path: |
             ~/.platformio
             ~/.cache/esphome
-            !~/.cache/esphome/platformio-ccache
           key: toolchains-${{ hashFiles('requirements.txt') }}
           restore-keys: toolchains-
 
@@ -264,7 +263,7 @@ jobs:
       - name: Restore ccache
         uses: actions/cache/restore@v6
         with:
-          path: ~/.cache/esphome/platformio-ccache
+          path: ~/.cache/ccache
           key: ccache-${{ matrix.config }}--${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             ccache-${{ matrix.config }}--
@@ -278,10 +277,12 @@ jobs:
       # The version reaches the firmware through its `version` substitution, so
       # no config file is touched at build time.
       - name: Compile
-        env:
-          # Content check: the toolchain comes from the cache at a stable path.
-          CCACHE_COMPILERCHECK: content
         run: |
+          # Same cache dir for the stats commands and esphome's builds; the
+          # compiler is verified by content (stable toolchain path from the
+          # cache would misfire the default mtime check).
+          export CCACHE_DIR="$HOME/.cache/ccache"
+          export CCACHE_COMPILERCHECK=content
           ccache --zero-stats > /dev/null
           esphome -s version "$FW_VERSION" compile "${{ matrix.config }}"
           ccache --show-stats
@@ -290,7 +291,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/cache/save@v6
         with:
-          path: ~/.cache/esphome/platformio-ccache
+          path: ~/.cache/ccache
           key: ccache-${{ matrix.config }}--${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Stage firmware images

@@ -112,7 +112,6 @@ jobs:
           path: |
             ~/.platformio
             ~/.cache/esphome
-            !~/.cache/esphome/platformio-ccache
           key: toolchains-${{ hashFiles('requirements.txt') }}
           restore-keys: toolchains-
 
@@ -123,20 +122,23 @@ jobs:
           path: |
             ~/.platformio
             ~/.cache/esphome
-            !~/.cache/esphome/platformio-ccache
           key: toolchains-${{ hashFiles('requirements.txt') }}
           restore-keys: toolchains-
 
       # esphome turns ccache on by itself when the binary is on PATH — this
-      # job only installs it, rolls its storage, and reports the stats. The
-      # cache rolls because actions/cache keys are immutable: restore the
+      # job only installs it, points it at a directory of its own, rolls its
+      # storage and reports the stats. esphome's own defaults put the cache
+      # inside ~/.cache/esphome (different subdir per framework) — a preset
+      # CCACHE_DIR is respected by every esphome code path and keeps the
+      # compile cache out of the toolchain cache entirely.
+      # The cache rolls because actions/cache keys are immutable: restore the
       # freshest entry for this firmware by prefix, save under a per-run key.
-      # Entries are ~50 MB, so a save per run is cheap and the quota's LRU
-      # keeps the prefix bounded. Saved even on failure — a retry starts warm.
+      # Saved even on failure — a retry starts warm; the quota's LRU keeps
+      # the prefix bounded.
       - name: Restore ccache
         uses: actions/cache/restore@v6
         with:
-          path: ~/.cache/esphome/platformio-ccache
+          path: ~/.cache/ccache
           key: ccache-${{ matrix.config }}--${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             ccache-${{ matrix.config }}--
@@ -148,12 +150,13 @@ jobs:
                  && sudo apt-get install -y --no-install-recommends ccache; }
 
       - name: Compile
-        env:
-          # The toolchain arrives from the cache at a stable path; verifying
-          # the compiler by content keeps restored entries from misfiring as
-          # misses after a restore-key fallback.
-          CCACHE_COMPILERCHECK: content
         run: |
+          # The stats commands and esphome's builds must share one cache dir,
+          # and the compiler is verified by content — the toolchain arrives
+          # from the cache at a stable path, and the default mtime check
+          # would misfire restored entries as misses.
+          export CCACHE_DIR="$HOME/.cache/ccache"
+          export CCACHE_COMPILERCHECK=content
           ccache --zero-stats > /dev/null
           esphome compile "${{ matrix.config }}"
           ccache --show-stats
@@ -162,7 +165,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/cache/save@v6
         with:
-          path: ~/.cache/esphome/platformio-ccache
+          path: ~/.cache/ccache
           key: ccache-${{ matrix.config }}--${{ github.run_id }}-${{ github.run_attempt }}
 
   dist:
