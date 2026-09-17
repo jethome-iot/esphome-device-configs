@@ -82,6 +82,11 @@ jobs:
     name: ${{ matrix.config }}
     needs: [discover, validate]
     runs-on: [self-hosted, ubuntu-latest]
+    env:
+      # Budget the compile cache: the rolling key keeps two generations
+      # alive (restored + saved), and with the default 5 GB each they
+      # would crowd the shared quota and evict the toolchain entries.
+      CCACHE_MAXSIZE: 1G
     strategy:
       fail-fast: false
       matrix:
@@ -136,7 +141,8 @@ jobs:
             ccache-${{ matrix.config }}--
 
       - name: Ensure ccache
-        # Stock-runner baseline: probe first, the image's version wins.
+        # The stock GitHub-hosted toolset is the baseline the workflows may
+        # rely on; the self-hosted image may add tools — probe, its version wins.
         run: |
           if command -v ccache >/dev/null 2>&1; then
             echo "ccache already on PATH: $(ccache --version | head -1)"

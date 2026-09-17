@@ -237,6 +237,9 @@ jobs:
       matrix: ${{ fromJson(needs.resolve.outputs.matrix) }}
     env:
       FW_VERSION: ${{ needs.resolve.outputs.version }}
+      # Same budget as the CI build job: two rolling generations must not
+      # crowd the shared quota at the toolchain entries' expense.
+      CCACHE_MAXSIZE: 1G
     steps:
       - uses: actions/checkout@v7
 
@@ -269,9 +272,8 @@ jobs:
             ccache-${{ matrix.config }}--
 
       - name: Ensure ccache
-        # Workflows rely only on the stock GitHub-hosted runner baseline;
-        # the image may add tools but never subtract. Probe first — the
-        # image's own version, when present, always wins over the distro's.
+        # The stock GitHub-hosted toolset is the baseline the workflows may
+        # rely on; the self-hosted image may add tools — probe, its version wins.
         run: |
           if command -v ccache >/dev/null 2>&1; then
             echo "ccache already on PATH: $(ccache --version | head -1)"
