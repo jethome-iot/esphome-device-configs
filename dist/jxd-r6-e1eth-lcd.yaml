@@ -75,6 +75,13 @@ external_components:
       ref: master
       path: components
     components:
+      - web_device_dashboard
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
       - web_file_browser
 i2c_eeprom:
   - id: eeprom_cpu
@@ -88,7 +95,6 @@ logger:
 web_server:
   port: 80
   version: 3
-  local: true
   sorting_groups:
     - id: group_relays
       name: Relays
@@ -1158,6 +1164,8 @@ uart:
     rx_pin: GPIO39
     baud_rate: 9600
     stop_bits: 1
+web_device_dashboard:
+  board_info_id: board_info
 web_file_browser:
   storage_id: user_storage
 display:

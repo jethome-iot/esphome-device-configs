@@ -63,6 +63,10 @@ requires.
   the maps, never the SVGs.
 - `dist/<device>.yaml` — `scripts/build-dist.py`; regenerate and commit after changing anything a
   device config pulls in. Excluded from yamllint. Rules: [DIST.md](DIST.md).
+- `components/web_device_dashboard/dashboard_index.h` — the gzipped dashboard page.
+  `npm run build` in [jethome-devices-web-dashboard](https://github.com/jethome-iot/jethome-devices-web-dashboard)
+  writes `dist/dashboard_index.h`; copy it over this one, or merge the pull request that
+  repository's Release workflow opens.
 
 `firmwares.yaml` must list every device config (`build-dist.py` refuses to run otherwise); it is
 the only input to the Build and Release matrices.

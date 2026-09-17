@@ -16,9 +16,9 @@ repos:
     hooks:
       # Generated files are the generators' business; the BDF fonts are upstream.
       - id: end-of-file-fixer
-        exclude: ^(dist/|assets/)
+        exclude: ^(dist/|assets/|components/web_device_dashboard/dashboard_index\.h$)
       - id: trailing-whitespace
-        exclude: ^(dist/|assets/)
+        exclude: ^(dist/|assets/|components/web_device_dashboard/dashboard_index\.h$)
   - repo: https://github.com/asottile/pyupgrade
     rev: v3.20.0
     hooks:
@@ -41,7 +41,7 @@ repos:
         types_or: [c, c++]
         files: ^(components|tests)/
         # Generated gzip payload, thousands of lines of byte array.
-        exclude: ^components/web_device_dashboard/web_device_dashboard_data\.cpp$
+        exclude: ^components/web_device_dashboard/dashboard_index\.h$
   - repo: local
     hooks:
       # Rewrites assets/res/, so a stale copy fails the commit until it is staged.

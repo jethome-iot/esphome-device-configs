@@ -22,7 +22,8 @@ boundaries; everything else is local to its file.
   `slot_name(slot)`, `sensor(slot)`, `temperature(slot)`), and `forget_temperatures` (a script)
   clears slots.
 - `board_info` (`boards/jxd-cpu-e1eth.yaml`) is the `jethome_board_info` component over the
-  CPU board's EEPROM `eeprom_cpu`; `display/menu-serial.yaml` reads it for the Serial row.
+  CPU board's EEPROM `eeprom_cpu`; `display/menu-serial.yaml` reads it for the Serial row and
+  `features/web-device-dashboard.yaml` for `/api/device/info`.
 - `display1` and `main_page` come from `display/display.yaml`; the other pages attach with
   `id: !extend display1`. `display_menu` (`display/menu.yaml`) exposes `info_submenu` and
   `menu_settings_id` as extension points that `menu-items-network.yaml` and
@@ -46,6 +47,11 @@ boundaries; everything else is local to its file.
 - `switch_settings` and `binary_sensor_settings` (`features/entity-settings.yaml`) are the
   settings objects the menu's Relay N and Input N rows call. Those two ids are set explicitly: a
   generated id cannot be named from a lambda.
+- `web_device_dashboard` (`features/web-device-dashboard.yaml`) is the page at `/`, registered
+  ahead of `web_server`'s own. Entity state and control go through `web_server`'s REST and
+  `/events`, the Files screen through `web_file_browser` at `/files`, the Automations screen
+  through `web_automation_editor` at `/automation-editor`; both prefixes are baked into the page
+  at build time.
 
 ## Boot order
 
@@ -109,6 +115,10 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   multipart reader's two `handleUpload()` calls at index 0 as the start of a transfer, and that
   multipart branch exists at all only because `ota: - platform: web_server` defines
   `USE_WEBSERVER_OTA` — which a final-validate check in the component insists on.
+- `components/web_device_dashboard` owns `/` only by registering first: it sets up at
+  `setup_priority::WIFI - 0.5`, just ahead of `web_server`'s `WIFI - 1`, and `web_server_base`
+  asks its handlers in registration order. `web_server` therefore runs without `local: true`:
+  the page it would embed is never served.
 - `components/virtual_display` (emulator only, see [QEMU.md](QEMU.md)) renders through
   `DisplayBuffer`'s protected `init_internal_` / `do_update_` and serves its endpoints as a
   `web_server_base` handler, setting the 405 status line through ESP-IDF's
