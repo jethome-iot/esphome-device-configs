@@ -11,8 +11,14 @@ on:
   workflow_dispatch:
 
 concurrency:
+  # The same group the Release workflow's release-channel publishers use
+  # (groups are shared across workflows by name): the draft computes the
+  # next release number, and a concurrent release dispatch claiming that
+  # number mid-refresh would leave the draft pointing at the wrong commit
+  # — or no draft at all. Nightly publishers and dry runs touch neither
+  # the release numbers nor the draft and stay in their own groups.
+  group: release-release
   # Not cancellable: a run killed mid-refresh could leave the draft deleted.
-  group: draft-release
   cancel-in-progress: false
 
 permissions:
