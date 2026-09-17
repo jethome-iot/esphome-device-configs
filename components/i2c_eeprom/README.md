@@ -24,7 +24,12 @@ i2c_eeprom:
 - `get(addr, buffer, size)`: reads `size` bytes from memory address `addr`; false on a bus error
   or when the range does not fit the part
 - `put(addr, buffer, size)`, `put(addr, byte)`: writes and waits out the write cycle; false on a
-  bus error or an out-of-range write. A write is not split at page boundaries
+  bus error, an out-of-range write or a write-protected chip. A write is not split at page
+  boundaries
+- `is_write_protected()`, `set_write_protected(bool)`: while it is on, every write is refused and
+  reads are untouched. `jethome_board_info` turns it on for the CPU board's EEPROM, which holds what
+  the manufacturer put there; `protect_eeprom: false` there gives the writes back, and what becomes
+  of that data is then your call
 - `get_size()`: bytes
 - `is_connected()`: the chip answers a read
 

@@ -17,19 +17,22 @@ jethome_board_info:
 
 ## Options
 
-| Option      | Meaning |
-| ----------- | ------- |
-| `eeprom_id` | The `i2c_eeprom` holding the identity |
+| Option           | Default | Meaning |
+| ---------------- | ------- | ------- |
+| `eeprom_id`      |         | The `i2c_eeprom` holding the identity |
+| `protect_eeprom` | `true`  | Refuse every write to that EEPROM |
 
 ## What it reads
 
 The EEPROM starts with a 256-byte board header (JEEFS header v3 or v4) and, on v4 boards,
 continues with a file chain in which `device.id` describes the device built on the board.
 Everything is read once at boot, after the EEPROM is up, CRC-checked and listed by
-`dump_config`. Nothing is written. A header that fails its checks marks the component failed
-and leaves every field empty; a `device.id` that fails its checks is treated as absent. The
-USID carries the last ten digits of the device serial, so a `device.id` serial is
-cross-checked against it.
+`dump_config`. Nothing is written, and by default nothing else writes either: the EEPROM holds
+what the manufacturer put there, so `protect_eeprom` has `i2c_eeprom` refuse every `put` on it;
+turning it off gives the writes back, and what becomes of that data is then your call. A header
+that fails its checks marks the component failed and leaves every field empty; a `device.id` that
+fails its checks is treated as absent. The USID carries the last ten digits of the device serial,
+so a `device.id` serial is cross-checked against it.
 
 ## From lambdas
 

@@ -24,6 +24,22 @@ class Schema(unittest.TestCase):
             str(config[jethome_board_info.CONF_EEPROM_ID].id), "eeprom_cpu"
         )
 
+    def test_the_eeprom_is_write_protected_by_default(self):
+        config = jethome_board_info.CONFIG_SCHEMA({"eeprom_id": "eeprom_cpu"})
+        self.assertIs(config[jethome_board_info.CONF_PROTECT_EEPROM], True)
+
+    def test_the_protection_can_be_turned_off(self):
+        config = jethome_board_info.CONFIG_SCHEMA(
+            {"eeprom_id": "eeprom_cpu", "protect_eeprom": "no"}
+        )
+        self.assertIs(config[jethome_board_info.CONF_PROTECT_EEPROM], False)
+
+    def test_a_protection_that_is_not_a_boolean_is_refused(self):
+        with self.assertRaisesRegex(cv.Invalid, "Expected boolean"):
+            jethome_board_info.CONFIG_SCHEMA(
+                {"eeprom_id": "eeprom_cpu", "protect_eeprom": "sometimes"}
+            )
+
     def test_unknown_keys_are_refused(self):
         with self.assertRaisesRegex(cv.Invalid, "address"):
             jethome_board_info.CONFIG_SCHEMA(

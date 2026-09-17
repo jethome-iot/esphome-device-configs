@@ -22,6 +22,7 @@ void I2CEeprom::dump_config() {
   ESP_LOGCONFIG(TAG, "EEPROM:");
   LOG_I2C_DEVICE(this);
   ESP_LOGCONFIG(TAG, "  Size: %u bytes", static_cast<unsigned>(this->size_));
+  ESP_LOGCONFIG(TAG, "  Write protection: %s", ONOFF(this->write_protected_));
 }
 
 bool I2CEeprom::is_connected() {
@@ -51,6 +52,10 @@ bool I2CEeprom::in_range_(uint16_t memaddr, size_t size) const {
 }
 
 bool I2CEeprom::put(uint16_t memaddr, const uint8_t *value, size_t size) {
+  if (this->write_protected_) {
+    ESP_LOGE(TAG, "Write-protected: refusing %u bytes at 0x%04X", static_cast<unsigned>(size), memaddr);
+    return false;
+  }
   if (!this->in_range_(memaddr, size))
     return false;
   std::vector<uint8_t> frame(2 + size);
