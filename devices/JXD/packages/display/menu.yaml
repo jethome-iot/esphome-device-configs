@@ -178,6 +178,10 @@ graphical_display_menu:
                 - lambda: 'id(factory_reset_yes)->set_text("Confirm - OK");'
                 - delay: 1s
                 - lambda: |-
+                    // Rules and uploaded files live on the partition, not in preferences.
+                    if (!id(user_storage)->format()) {
+                      ESP_LOGE("factory_reset", "Wiping the user partition failed");
+                    }
                     global_preferences->reset();
                     App.safe_reboot();
 

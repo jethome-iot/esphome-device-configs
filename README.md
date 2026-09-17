@@ -234,7 +234,7 @@ Current date and time from the hardware RTC.
 - **Inputs** - a submenu per input: live state and inversion
 - **Temperatures** - temperature sensor readings; a DS18B20 row opens its slot: the ROM address and a forget command
 - **Info** - network information (Ethernet and WiFi IP and MAC addresses, access point password), then the serial number from the CPU board's EEPROM (`--` when it holds none)
-- **Settings** - display auto-off timer, Modbus settings, temperature slots, network mode, WiFi credential reset, factory reset, reboot
+- **Settings** - display auto-off timer, Modbus settings, temperature slots, network mode, WiFi credential reset, reboot; a factory reset clears the stored preferences (WiFi credentials, settings, the temperature slot table) and formats the user partition, taking the automation rules and uploaded files with it
 
 **Getting here**: CENTER from the main page.
 
