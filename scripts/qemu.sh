@@ -346,9 +346,10 @@ qemu_pids_for() {
   # Matched on `if=mtd`, not the binary name: $QEMU_XTENSA may be called anything,
   # and `pgrep -x` refuses a pattern longer than the 15-char comm.
   for pid in $(pgrep -f 'if=mtd' 2>/dev/null || true); do
-    # 2>/dev/null goes first: redirections are applied left to right, and it is
-    # the *input* one that fails noisily when the process exits mid-scan.
-    cmdline=$(tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline") || continue
+    # ps, not /proc: the installer serves macOS builds too, and there the missing
+    # /proc would quietly report every instance as stopped. -ww keeps the full
+    # command line whatever the terminal width.
+    cmdline=$(ps -ww -p "$pid" -o args= 2>/dev/null) || continue
     case "$cmdline" in *"file=$image,"*) printf '%s\n' "$pid" ;; esac
   done
 }
@@ -378,6 +379,19 @@ refuse_if_running() {
     die "$device is running (pid ${pids//$'\n'/, }) and holds its flash image — stop it first: scripts/qemu.sh stop $device"
 }
 
+# ss is Linux's; macOS has lsof instead. Neither present means no early warning, which is
+# what the check was before it existed.
+port_listening() {
+  local port=$1
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltn "sport = :$port" 2>/dev/null | grep -q LISTEN
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
+  else
+    return 1
+  fi
+}
+
 # QEMU refuses to start at all if one forwarded port is taken — usually another
 # emulated device still running — and says so only in its log. Name the port here
 # instead, where the caller is looking.
@@ -389,7 +403,7 @@ check_ports_free() {
     die "--http-port/--api-port/--ota-port must differ, got $HTTP_PORT/$API_PORT/$OTA_PORT"
   fi
   for port in "$HTTP_PORT" "$API_PORT" "$OTA_PORT"; do
-    if ss -ltn "sport = :$port" 2>/dev/null | grep -q LISTEN; then
+    if port_listening "$port"; then
       die "port $port is already in use — another device is likely running (see: scripts/qemu.sh list), or pass --http-port/--api-port/--ota-port"
     fi
   done
