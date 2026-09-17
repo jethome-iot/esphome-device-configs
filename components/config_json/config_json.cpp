@@ -54,8 +54,8 @@ void ConfigJsonKeeper::save_one(SettingsBaseJson *settings) {
 bool ConfigJsonKeeper::ensure_directory_exists_() {
   if (this->storage_backend_ == nullptr)
     return false;
-  filesystem_storage_abstract::FilesystemStorageAbstract::Write write(this->storage_backend_);
-  if (!write)
+  filesystem_storage_abstract::FilesystemStorageAbstract::Access use(this->storage_backend_);
+  if (!use)
     return false;
   std::string full_dir = this->storage_backend_->get_base_path() + "/" + this->config_dir_;
   struct stat st {};

@@ -271,14 +271,14 @@ TEST_F(Storage, ResetAllClearsTheRecordsAndWritesAtOnce) {
 
 // What a factory reset does before it formats: the flush that App.safe_reboot() runs must
 // not put the settings file back on the filesystem that is about to be wiped.
-TEST_F(Storage, AStorageWithWritesDisabledTakesNoMore) {
+TEST_F(Storage, AStorageWithAccessDisabledTakesNoMoreWrites) {
   this->boot();
   this->settings.update("sw_a", true, 7);
   this->keeper->save_immediate();
   ASSERT_GT(this->size(), 0);
   const std::string saved = this->read();
 
-  this->backend.disable_writes();
+  this->backend.disable_access();
   log().clear();
   this->settings.update("sw_b", false, 2);
   this->keeper->save_immediate();
@@ -287,9 +287,9 @@ TEST_F(Storage, AStorageWithWritesDisabledTakesNoMore) {
   EXPECT_TRUE(log().has(log().warnings, "Storage is being formatted"));
 }
 
-TEST_F(Storage, ADisabledStorageIsStillReadable) {
+TEST_F(Storage, ALatchedStorageStillLoadsAtBoot) {
   this->write(VALID);
-  this->backend.disable_writes();
+  this->backend.disable_access();
   this->boot();
   EXPECT_EQ(this->settings.report(), "sw_a=1/7 sw_b=0/2");
 }

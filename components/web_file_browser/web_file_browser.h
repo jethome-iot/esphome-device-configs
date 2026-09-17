@@ -90,8 +90,9 @@ class WebFileBrowser : public AsyncWebHandler, public Component {
   bool delete_recursive_(const std::string &path, unsigned depth = 0);
   bool copy_file_(const std::string &src, const std::string &dst);
   bool copy_recursive_(const std::string &src, const std::string &dst, unsigned depth = 0);
-  // Closes the upload file and removes whatever was written of it.
+  // Lets go of what a transfer was holding when a format latched the filesystem off.
   void abandon_transfers_();
+  // Closes the upload file and removes whatever was written of it.
   void discard_upload_();
   void send_json_error_(AsyncWebServerRequest *request, const std::string &message, int code = 400);
   void send_json_success_(AsyncWebServerRequest *request, const std::string &message = "success");

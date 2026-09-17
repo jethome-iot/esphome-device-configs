@@ -41,9 +41,9 @@ void LittleFSStorage::dump_config() {
 }
 
 bool LittleFSStorage::format() {
-  // The library unmounts and frees every open file struct on the way, so everything that
-  // writes here is stopped first and given a moment to leave the filesystem.
-  this->disable_writes();
+  // The library unmounts and frees every open file and directory struct on the way, so
+  // everything using the filesystem is stopped first and given a moment to leave it.
+  this->disable_access();
   esp_err_t err = esp_littlefs_format(this->partition_label_.c_str());
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Format failed: %s", esp_err_to_name(err));
