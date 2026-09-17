@@ -59,7 +59,7 @@ these routes are `404`:
 | Method | Path | |
 |---|---|---|
 | GET | `/api/device/auth` | `{"username", "password_length", "is_default"}` — never the password |
-| POST | `/api/device/auth` | `{"username", "password"}` replaces both; needs `Content-Type: application/json`, which no HTML form can send. Applied from the main loop, so the call still answers under the old pair |
+| POST | `/api/device/auth` | `{"username", "password"}` replaces both; needs `Content-Type: application/json`, which no HTML form can send. Answers `200` for a pair it accepted, under the old credentials; the change itself happens on the next turn of the main loop, and the `GET` confirms it |
 
 With a `config_json` store (`entity_config`'s `switch` and `binary_sensor` types), the entity
 settings too; without one these routes are `404`:

@@ -28,7 +28,9 @@ nothing for this component to replace; the configuration is refused with that me
 ESP32 the block must also say `type: digest`.
 
 A new pair applies to the next request: no restart, and the request that sets it still answers.
-The browser asks for the new credentials as soon as the page makes its next call. A username is
+The browser asks for the new credentials as soon as the page makes its next call. The pair is
+stored before it is applied, from the main loop task, so a device that cannot write its flash
+keeps serving the old one and says so in the log. A username is
 up to 32 characters and a password up to 64, both printable ASCII, and a username may not
 contain `:`, `"` or `\`.
 

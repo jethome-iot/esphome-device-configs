@@ -162,9 +162,11 @@ paths:
       responses:
         "200":
           description: >-
-            Stored and queued; the pair is applied from the next turn of the
-            device's main loop. A store that fails says so in the device log, not
-            here.
+            Accepted: the pair passed validation and is queued for the next turn
+            of the device's main loop, which is the only task that may write the
+            flash preferences. A store that fails there leaves the old pair in
+            force and says so in the device log; a client that needs to know
+            confirms with a `GET` of this route under the new credentials.
           content:
             application/json:
               schema:
