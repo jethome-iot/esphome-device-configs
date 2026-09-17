@@ -157,7 +157,12 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           export CCACHE_DIR="$HOME/.cache/ccache"
-          ccache --show-stats
+          {
+            echo '### ccache'
+            echo '```text'
+            ccache --show-stats
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save ccache
         if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
