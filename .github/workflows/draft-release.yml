@@ -11,13 +11,12 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # The same group the Release workflow's release-channel publishers use
-  # (groups are shared across workflows by name): the draft computes the
-  # next release number, and a concurrent release dispatch claiming that
-  # number mid-refresh would leave the draft pointing at the wrong commit
-  # — or no draft at all. Nightly publishers and dry runs touch neither
-  # the release numbers nor the draft and stay in their own groups.
-  group: release-release
+  # Own group, deliberately NOT shared with the Release workflow: GitHub
+  # keeps a single pending run per group and a newly queued run replaces it,
+  # so sharing would let a routine master push evict a queued release
+  # publisher. The version race that sharing would have prevented is closed
+  # by the tag-freedom check right before the draft is created instead.
+  group: draft-release
   # Not cancellable: a run killed mid-refresh could leave the draft deleted.
   cancel-in-progress: false
 
@@ -73,6 +72,16 @@ jobs:
             fi
           done < <(gh api --paginate "repos/$REPO/releases" \
             --jq '.[] | select(.draft) | .tag_name')
+
+          # The version was computed from the tag listing at the top; a
+          # release publishing concurrently may have claimed it since. gh
+          # would silently reuse the existing tag and pin the draft to the
+          # wrong commit — refuse instead. The next master push computes the
+          # then-next number and rebuilds the draft.
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
+            echo "::error::tag $VERSION was claimed while this draft was being prepared — a release published concurrently; the next master push rebuilds the draft"
+            exit 1
+          fi
 
           gh release create "$VERSION" --repo "$REPO" --draft \
             --target "$SHA" --title "$VERSION" --generate-notes \
