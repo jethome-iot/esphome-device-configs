@@ -1,0 +1,103 @@
+name: Draft release
+
+# Keeps exactly one rolling draft release on master, tagged with the version
+# the next release will publish (<esphome>.<next sub>, same computation the
+# Release workflow uses). Publishing the draft creates the tag, which runs the
+# Release workflow and ships the firmware — a human only presses the button.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    name: Refresh the release draft
+    # Master only: a dispatch from another branch must not delete the master
+    # draft and replace it with that branch's content.
+    if: github.ref == 'refs/heads/master'
+    runs-on: [self-hosted, ubuntu-latest]
+    # Job-level on purpose (a skipped job never joins the group), and not
+    # shared with the Release workflow: one pending slot per group means a
+    # shared group would let master pushes evict queued release publishers —
+    # the tag check below closes that race instead. Never cancellable: a run
+    # killed mid-refresh could leave the draft deleted.
+    concurrency:
+      group: draft-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Existing tags decide the next version; a shallow clone has none.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Compute the next version
+        id: version
+        run: |
+          set -euo pipefail
+          git fetch --quiet --force origin 'refs/tags/*:refs/tags/*'
+          VERSION=$(git tag --list | python scripts/release-version.py)
+          echo "Next release version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Refresh the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # One rolling draft, workflow-owned: stale ones are deleted, this
+          # version's is recreated so the notes cover latest master. The
+          # listing goes through a file so its failure fails the step (a
+          # process substitution would swallow it), and each candidate is
+          # re-inspected via the API status line: only an HTTP 200 that still
+          # says draft is deleted, 404 means already gone, anything else
+          # aborts instead of guessing.
+          DRAFTS=$(mktemp)
+          gh api --paginate "repos/$REPO/releases" \
+            --jq '.[] | select(.draft) | .tag_name' > "$DRAFTS"
+          while read -r tag; do
+            RESP=$(gh api -i "repos/$REPO/releases/tags/$tag" 2>/dev/null || true)
+            CODE=$(printf '%s\n' "$RESP" | sed -n '1s|^HTTP[^ ]* \([0-9][0-9][0-9]\).*|\1|p')
+            case "$CODE" in
+              200) ;;
+              404) continue ;;
+              *)
+                echo "::error::cannot inspect release $tag (HTTP ${CODE:-none}) — refusing to continue"
+                exit 1
+                ;;
+            esac
+            if printf '%s\n' "$RESP" | tr -d '\r' | awk 'f{print} /^$/{f=1}' | jq -e .draft >/dev/null; then
+              echo "Deleting stale release draft $tag"
+              gh release delete "$tag" --repo "$REPO" --yes
+            fi
+          done < "$DRAFTS"
+
+          # A release may have claimed this number since the listing above;
+          # gh would silently reuse its tag and pin the draft to the wrong
+          # commit — refuse instead (the next master push rebuilds).
+          # --exit-code: 0 found, 2 no match, anything else transport error.
+          rc=0
+          git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1 || rc=$?
+          if [ "$rc" -eq 0 ]; then
+            echo "::error::tag $VERSION was claimed while this draft was being prepared — a release published concurrently; the next master push rebuilds the draft"
+            exit 1
+          fi
+          if [ "$rc" -ne 2 ]; then
+            echo "::error::git ls-remote failed (exit $rc) — cannot verify the tag is unclaimed"
+            exit 1
+          fi
+
+          gh release create "$VERSION" --repo "$REPO" --draft \
+            --target "$SHA" --title "$VERSION" --generate-notes \
+            --notes "Auto-draft for \`$VERSION\`. Publishing runs the Release workflow: every firmware is built, the binaries land here as assets, and the \`upload: true\` ones ship to fw.jethome.com."
+          echo "Draft $VERSION refreshed" >> "$GITHUB_STEP_SUMMARY"
