@@ -36,8 +36,9 @@ web_automation_editor:
 The handler registers on the shared `web_server_base`, so it answers on the same port as
 `web_server` and behind its `auth:` credentials. Those credentials come from the `web_server:`
 block and from nowhere else: with no `web_server:`, or no `auth:` in it, anything that can reach
-the port can rewrite every rule and reboot the device. The configs in this repository set no
-`auth:`, so that is how they ship. Method enforcement is not a substitute — it keeps a mutating
+the port can rewrite every rule and reboot the device. The configs in this repository set them,
+and [`web_auth`](../web_auth/README.md) lets the device replace the pair. Method enforcement is
+not a substitute — it keeps a mutating
 route out of reach of an `<img src>`, but a cross-site form can still POST.
 
 ## REST

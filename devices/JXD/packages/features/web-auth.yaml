@@ -1,0 +1,16 @@
+# Password protection for everything the web server carries — the dashboard, the file
+# manager, the automation editor and web_server's own REST API and /events. The pair below
+# is the factory default; the dashboard changes it and the device keeps the change.
+# Details: components/web_auth/README.md
+external_components:
+  - source: ${components}
+    components: [web_auth]
+
+web_server:
+  auth:
+    type: digest
+    username: admin
+    password: admin
+
+web_auth:
+  id: web_auth_credentials

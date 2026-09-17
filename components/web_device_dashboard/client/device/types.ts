@@ -248,12 +248,12 @@ export interface DeviceStatus {
   }
 }
 
-/** Envelope returned by the mutating system/network/mqtt endpoints. */
+/** Envelope every mutating route answers with. */
 export interface MutationResponse {
   success: boolean
   message?: string
-  /** /network/config, /network/mqtt and /auth: saved, applied at boot. /status
-   *  carries the same state. */
+  /** Set by a route whose change waits for a restart; no route here has one — /auth
+   *  applies what it stores. */
   reboot_required?: boolean
 }
 
@@ -376,12 +376,14 @@ export interface MqttConfigUpdate {
   discovery?: boolean
 }
 
-// --- Auth ---
+// --- Auth (web_auth) ---
 
 export interface AuthStatus {
-  enabled: boolean
   username: string
+  /** Characters in the stored password; the password itself is never answered. */
   password_length: number
+  /** Still the pair the firmware was built with. */
+  is_default: boolean
 }
 
 // --- Entity settings (per-entity user config) ---

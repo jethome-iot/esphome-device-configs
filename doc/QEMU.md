@@ -104,15 +104,21 @@ The panel overlay patches the joystick sensors by id, so every button in
 
 ## Talking to the emulated device
 
-The web server here has no auth. Note that ESPHome 2026.8.2 matches REST entities by **name**,
-not object id, so the path segment is the display name URL-encoded, and the ESP-IDF httpd
-rejects a POST with no `Content-Length` (`-d ""`):
+The web server wants the credentials of [`web_auth`](../components/web_auth/README.md), Digest
+and `admin`/`admin` on a freshly built image, so every request below carries `--digest -u`. Note
+that ESPHome 2026.8.2 matches REST entities by **name**, not object id, so the path segment is
+the display name URL-encoded, and the ESP-IDF httpd rejects a POST with no `Content-Length`
+(`-d ""`):
 
 ```bash
-curl -s   'http://127.0.0.1:8080/switch/Relay%201'                     # {"id":"switch/Relay 1",...}
-curl -sX POST -d "" 'http://127.0.0.1:8080/switch/Relay%201/turn_on'
-curl -sX POST -d "" 'http://127.0.0.1:8080/switch/Drive%20input%203/turn_on'   # raises Input 3
+A='--digest -u admin:admin'
+curl -s   $A 'http://127.0.0.1:8080/switch/Relay%201'                  # {"id":"switch/Relay 1",...}
+curl -sX POST -d "" $A 'http://127.0.0.1:8080/switch/Relay%201/turn_on'
+curl -sX POST -d "" $A 'http://127.0.0.1:8080/switch/Drive%20input%203/turn_on'   # raises Input 3
 ```
+
+A password set from the dashboard is kept in flash, so it outlives a restart of the emulator
+but not a fresh image.
 
 The `Drive input N` switches are deliberately `internal:`, so they are absent from the entity
 list and from the `/events` stream — but a command still reaches them, because the web server
@@ -127,9 +133,9 @@ served over HTTP instead of pushed at a chip, with keys injected into the binary
 joystick drives, so every `on_press` fires exactly as on the device.
 
 ```bash
-curl -s http://127.0.0.1:8080/panel/info                # {"width":128,"height":64,"keys":[...]}
-curl -s http://127.0.0.1:8080/panel/frame -o frame.bin  # 1024 bytes, 1bpp
-curl -sX POST -d "" http://127.0.0.1:8080/panel/key/down   # ?action=down|up to hold and release
+curl -s $A http://127.0.0.1:8080/panel/info                # {"width":128,"height":64,"keys":[...]}
+curl -s $A http://127.0.0.1:8080/panel/frame -o frame.bin  # 1024 bytes, 1bpp
+curl -sX POST -d "" $A http://127.0.0.1:8080/panel/key/down   # ?action=down|up to hold and release
 ```
 
 A frame is `((width + 7) / 8) * height` bytes: pixel `(x, y)` is bit `7 - (x & 7)` of byte

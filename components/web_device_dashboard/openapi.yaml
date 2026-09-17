@@ -8,8 +8,9 @@ info:
     `web_device_dashboard` component on the device's own web server under
     `/api/device/`: the device identity (with the CPU board's EEPROM record when
     a `jethome_board_info` is wired in), the runtime status, the live network
-    link, and — on a firmware with a `config_json` store — the per-entity
-    settings and their form fields. ESP-IDF (ESP32) only.
+    link, on a firmware with a `web_auth` the HTTP credentials, and — on a
+    firmware with a `config_json` store — the per-entity settings and their form
+    fields. ESP-IDF (ESP32) only.
 
     This document is the wire contract; the TypeScript client in `client/device`
     implements it and the dashboard repository's dev server mocks it. Reads
@@ -34,12 +35,13 @@ servers:
       port:
         default: "80"
 
-# Optional: the routes inherit whatever auth the `web_server:` block sets. The
-# configs in this repository set none, so the empty requirement is the shipped
-# default — anything that reaches the port may call every route.
+# The routes inherit whatever auth the `web_server:` block sets. The configs in
+# this repository set Digest credentials, so that is the shipped default; the
+# empty requirement covers a firmware built without an `auth:` block, where
+# anything that reaches the port may call every route.
 security:
-  - {}
   - webServerAuth: []
+  - {}
 
 tags:
   - name: read
@@ -68,6 +70,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DeviceInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
 
@@ -84,6 +88,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DeviceStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
 
@@ -102,8 +108,91 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/NetworkStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+
+  /auth:
+    get:
+      tags: [read]
+      operationId: getAuth
+      summary: The credentials the server checks.
+      description: >-
+        The username and how long the password is; the password itself is never
+        answered. `is_default` says the device still takes the pair the firmware
+        was built with. Only on a firmware with a `web_auth`; without one this
+        route is the prefix's plain 404.
+      responses:
+        "200":
+          description: The credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NoWebAuth"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+    post:
+      tags: [write]
+      operationId: setAuth
+      summary: Replace the credentials.
+      description: >-
+        Both fields are required and are sent as they will be typed — this
+        request carries the new password in the clear, whatever scheme the
+        firmware checks with. The pair is stored and applied from the device's
+        main loop, so this request still answers under the old one and the next
+        request needs the new one; a browser asks for it again on the page's next
+        call. A username is at most 32 characters and a password at most 64, both
+        printable ASCII, and a username may not contain `:` or `"`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthUpdate"
+      responses:
+        "200":
+          description: Stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+              example:
+                success: true
+                message: Credentials updated
+        "400":
+          description: >-
+            Bad request — a body that is empty, not JSON or not an object
+            (`Invalid JSON`); a `username` or `password` that is not a string
+            (`'username' and 'password' must be strings`); either one empty, over
+            its length, outside printable ASCII, or a username carrying `:` or
+            `"`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: "'username' cannot contain ':' or '\"'"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NoWebAuth"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          description: The body is over 4 KiB; a credential pair is under a hundred bytes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Request body over 4 KiB
 
   /entities:
     get:
@@ -123,6 +212,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EntityIndex"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NoStore"
         "405":
@@ -161,6 +252,8 @@ paths:
               example:
                 success: false
                 error: Query parameter 'type' is required
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/TypeNotFound"
         "405":
@@ -223,6 +316,8 @@ paths:
               example:
                 success: false
                 error: Failed to update settings record
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/TypeNotFound"
         "405":
@@ -257,6 +352,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SettingsMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NoStore"
         "405":
@@ -266,10 +363,12 @@ components:
   securitySchemes:
     webServerAuth:
       type: http
-      scheme: basic
+      scheme: digest
       description: >-
-        Credentials from the `web_server:` `auth:` block, when set. Basic auth on
-        ESP32. Off by default in this repository.
+        Credentials from the `web_server:` `auth:` block. The scheme is fixed at
+        build time; the configs in this repository build Digest. A firmware with
+        a `web_auth` serves the pair stored on the device instead of the compiled
+        one, so a client must be ready for either.
 
   parameters:
     TypeQuery:
@@ -297,6 +396,27 @@ components:
           example:
             success: false
             error: Method not allowed
+    Unauthorized:
+      description: >-
+        The credentials the `web_server:` `auth:` block set — replaced by what a
+        `web_auth` stored — are missing or wrong. The server names the scheme in
+        `WWW-Authenticate`; the body is the HTTP server's, not this API's.
+      headers:
+        WWW-Authenticate:
+          description: The scheme the firmware was built with.
+          schema:
+            type: string
+    NoWebAuth:
+      description: >-
+        This firmware has no `web_auth`, so the credentials route does not exist;
+        the answer is the prefix's plain 404.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Not found
     NoStore:
       description: >-
         This firmware has no `config_json` store, so the settings routes do not
@@ -461,6 +581,37 @@ components:
           type: [string, "null"]
         custom_mac:
           type: [string, "null"]
+
+    AuthStatus:
+      type: object
+      required: [username, password_length, is_default]
+      properties:
+        username:
+          type: string
+        password_length:
+          type: integer
+          description: Characters in the stored password, so a client can show it masked.
+        is_default:
+          type: boolean
+          description: The pair is still the one the firmware was built with.
+      example:
+        username: admin
+        password_length: 5
+        is_default: true
+
+    AuthUpdate:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          maxLength: 32
+        password:
+          type: string
+          maxLength: 64
+      example:
+        username: admin
+        password: a-better-one
 
     DeviceStatus:
       type: object

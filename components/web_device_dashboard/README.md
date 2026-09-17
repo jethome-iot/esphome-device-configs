@@ -27,7 +27,8 @@ The one option, `board_info_id`, names a `jethome_board_info`; with it `/api/dev
 the identity the firmware read from the CPU board's EEPROM. The handler registers on the shared
 `web_server_base` ahead of `web_server`'s, so `/` is the dashboard and `web_server`'s own page is
 not reachable; its REST routes, `/events` and its `auth:` stay as they are, and the dashboard uses
-them for entity state and control and for the log. The Automations and Files screens talk to
+them for entity state and control and for the log. On a firmware with an `auth:` block the page
+and every route here are behind it, so the browser asks for the credentials before the page loads. The Automations and Files screens talk to
 `web_automation_editor` and `web_file_browser` at their default `url_prefix`
 (`/automation-editor`, `/files`), baked into the page at build time; without those components the
 screens have nothing to show.
@@ -50,6 +51,14 @@ failure `{"success": false, "error"}`. The same contract, machine-readable:
 | GET | `/api/device/info` | `{"name", "base_mac_address", "mac_address", "version"}`; with `board_info_id` also `serial_number`, `device_model`, `hw_revision` and `board` — what `jethome_board_info` read, verbatim, plus the chip's eFuses |
 | GET | `/api/device/status` | `{"ha_connected", "uptime_s", "reset_reason", "connection_type", "rssi", "ip_address", "reboot_required"}` |
 | GET | `/api/device/network` | `{"hostname", "connection_type", "ip_address", "gateway", "subnet", "dns1", "dns2", "ssid", "rssi", "ethernet_connected"}` |
+
+With a [`web_auth`](../web_auth/README.md), the web server's own credentials; without one
+these routes are `404`:
+
+| Method | Path | |
+|---|---|---|
+| GET | `/api/device/auth` | `{"username", "password_length", "is_default"}` — never the password |
+| POST | `/api/device/auth` | `{"username", "password"}` replaces both. Applied from the main loop, so the call still answers under the old pair |
 
 With a `config_json` store (`entity_config`'s `switch` and `binary_sensor` types), the entity
 settings too; without one these routes are `404`:

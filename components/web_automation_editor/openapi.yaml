@@ -234,10 +234,12 @@ components:
   securitySchemes:
     webServerAuth:
       type: http
-      scheme: basic
+      scheme: digest
       description: >-
-        Credentials from the `web_server:` `auth:` block, when set. Basic auth on
-        ESP32. Off by default in this repository.
+        Credentials from the `web_server:` `auth:` block. The scheme is fixed at
+        build time; the configs in this repository build Digest. A firmware with a
+        `web_auth` serves the pair stored on the device instead of the compiled
+        one, so a client must be ready for either.
 
   parameters:
     IdQuery:

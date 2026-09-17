@@ -1,0 +1,41 @@
+# Google Test binary for components/web_auth, built through esphome compile by tests/run.py.
+# The harness main.cpp replaces the generated one, so nothing declared here is ever set up:
+# the sections exist to get the sources compiled and the USE_* defines set. The tests build
+# their own WebAuth over the web_server_base stand-in and read back what it hands the server.
+esphome:
+  name: web-auth-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../../components
+    components: [web_auth]
+  - source: ../../harness/components
+    components: [web_server_base, web_server]
+
+# The block that makes USE_WEBSERVER_AUTH exist and sets the pair web_auth replaces.
+web_server:
+  auth:
+    type: digest
+    username: admin
+    password: hunter2
+
+web_server_base: {}
+
+web_auth:
+  id: test_auth

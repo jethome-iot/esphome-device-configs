@@ -27,6 +27,9 @@
 #ifdef USE_CONFIG_JSON
 #include "esphome/components/config_json/config_json.h"
 #endif
+#ifdef USE_WEB_AUTH
+#include "esphome/components/web_auth/web_auth.h"
+#endif
 #ifdef USE_ESP32
 #include <esp_netif.h>
 #include <esp_system.h>
@@ -49,6 +52,9 @@ static const Route ROUTES[] = {
     {"info", RouteId::INFO, true, false},
     {"status", RouteId::STATUS, true, false},
     {"network", RouteId::NETWORK, true, false},
+#ifdef USE_WEB_AUTH
+    {"auth", RouteId::AUTH, true, true},
+#endif
 #ifdef USE_CONFIG_JSON
     {"entities", RouteId::ENTITIES, true, false},
     {"entity-settings", RouteId::ENTITY_SETTINGS, true, true},
@@ -137,6 +143,15 @@ void WebDeviceDashboard::handleRequest(AsyncWebServerRequest *request) {
       case RouteId::NETWORK:
         this->handle_network_(request);
         break;
+#ifdef USE_WEB_AUTH
+      case RouteId::AUTH:
+        if (request->method() == HTTP_POST) {
+          this->handle_auth_set_(request);
+        } else {
+          this->handle_auth_get_(request);
+        }
+        break;
+#endif
 #ifdef USE_CONFIG_JSON
       case RouteId::ENTITIES:
         this->handle_entities_(request);
@@ -454,6 +469,59 @@ void WebDeviceDashboard::handle_network_(AsyncWebServerRequest *request) {
   });
   request->send(200, "application/json", body.c_str());
 }
+
+#ifdef USE_WEB_AUTH
+// GET /api/device/auth: who the server lets in, and whether that is still the factory pair.
+void WebDeviceDashboard::handle_auth_get_(AsyncWebServerRequest *request) {
+  auto *auth = web_auth::global_web_auth;
+  if (auth == nullptr) {
+    this->send_error_(request, 503, "Web auth not available");
+    return;
+  }
+  auto body = json::build_json([auth](JsonObject root) {
+    root["username"] = auth->username();
+    root["password_length"] = auth->password_length();
+    root["is_default"] = auth->is_default();
+  });
+  request->send(200, "application/json", body.c_str());
+}
+
+// POST {"username", "password"}. The new pair is checked here and applied from the loop task,
+// so this request still answers under the old one and the browser is asked for the new one on
+// the page's next call.
+void WebDeviceDashboard::handle_auth_set_(AsyncWebServerRequest *request) {
+  if (this->body_too_large_) {
+    this->send_error_(request, 413, "Request body over 4 KiB");
+    return;
+  }
+  auto *auth = web_auth::global_web_auth;
+  if (auth == nullptr) {
+    this->send_error_(request, 503, "Web auth not available");
+    return;
+  }
+  JsonDocument doc = json::parse_json(this->body_);
+  if (doc.isNull() || !doc.is<JsonObject>()) {
+    this->send_error_(request, 400, "Invalid JSON");
+    return;
+  }
+  // A number or a null here would read as an empty string further down and shut the device
+  // behind credentials nobody typed.
+  if (!doc["username"].is<const char *>() || !doc["password"].is<const char *>()) {
+    this->send_error_(request, 400, "'username' and 'password' must be strings");
+    return;
+  }
+  const std::string username = doc["username"].as<const char *>();
+  const std::string password = doc["password"].as<const char *>();
+  if (const char *error = web_auth::WebAuth::validate(username, password); error != nullptr) {
+    this->send_error_(request, 400, error);
+    return;
+  }
+  // Preferences are written from the loop task; storing them on the server's task would race
+  // the pending-write list it flushes.
+  this->defer([auth, username, password]() { auth->set_credentials(username, password); });
+  this->send_success_(request, "Credentials updated");
+}
+#endif  // USE_WEB_AUTH
 
 #ifdef USE_CONFIG_JSON
 template<typename T> static void write_entity_index(JsonObject root, const char *type, const T &entities) {

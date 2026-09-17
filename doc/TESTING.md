@@ -22,6 +22,7 @@ tests/
     components/
       dir_storage           # test-only storage backend: a directory on the host
       display_menu_host     # test-only key that pulls display_menu_base into a host build
+      web_server            # stand-in for upstream's, which builds for ESP platforms only
       web_server_base       # stand-in for upstream's, so HTTP handlers run on the host
   components/
     automations/
@@ -34,7 +35,9 @@ tests/
     entity_config/
     i2c_eeprom/
     jethome_board_info/
+    web_auth/
     web_automation_editor/
+    web_device_dashboard/
 ```
 
 ## Adding a suite for a new component

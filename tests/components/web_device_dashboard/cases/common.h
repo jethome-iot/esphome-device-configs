@@ -12,7 +12,9 @@
 #include "esphome/components/config_json/settings_base_json.h"
 #include "esphome/components/jethome_board_info/jethome_board_info.h"
 #include "esphome/components/logger/logger.h"
+#include "esphome/components/host/preferences.h"
 #include "esphome/components/switch/switch.h"
+#include "esphome/components/web_auth/web_auth.h"
 #include "esphome/components/web_device_dashboard/web_device_dashboard.h"
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
@@ -301,6 +303,16 @@ class Dashboard : public ::testing::Test {
     store().sw.forget();
     store().bs.forget();
     store().other.forget();
+    // A device that has never had its credentials changed; the auth cases store their own.
+    host::setup_preferences();
+    global_preferences->sync();
+    global_preferences->reset();
+    global_preferences->sync();
+    this->auth = std::make_unique<web_auth::WebAuth>(&this->base);
+    this->auth->set_default_credentials("admin", "hunter2");
+    this->auth->set_preference_hash(fnv1_hash("test_auth"));
+    this->auth->setup();
+
     this->dashboard = std::make_unique<TestDashboard>(&this->base);
     this->dashboard->set_board_info(&this->board);
     this->dashboard->setup();
@@ -357,6 +369,7 @@ class Dashboard : public ::testing::Test {
 
   web_server_base::WebServerBase base;
   FakeBoard board;
+  std::unique_ptr<web_auth::WebAuth> auth;
   std::unique_ptr<TestDashboard> dashboard;
 };
 
