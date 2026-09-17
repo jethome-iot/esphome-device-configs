@@ -185,37 +185,6 @@ export type Entity =
   | UpdateEntity
 
 /**
- * Response from GET /api/entities — entities grouped by domain type.
- */
-export interface EntitiesResponse {
-  sensor?: SensorEntity[]
-  binary_sensor?: BinarySensorEntity[]
-  text_sensor?: TextSensorEntity[]
-  switch?: SwitchEntity[]
-  update?: UpdateEntity[]
-  select?: SelectEntity[]
-  number?: NumberEntity[]
-  button?: ButtonEntity[]
-  light?: LightEntity[]
-  fan?: FanEntity[]
-  cover?: CoverEntity[]
-  lock?: LockEntity[]
-  climate?: ClimateEntity[]
-  event?: EventEntity[]
-  // Additional entity domains as they are added backend-side.
-  [domain: string]: BaseEntity[] | undefined
-}
-
-/**
- * Response from POST /api/entities/batch — requested entities plus the ids that
- * were not found, both grouped by domain.
- */
-export interface EntitiesBatchResponse {
-  entities: Record<string, unknown[]>
-  not_found: Record<string, string[]>
-}
-
-/**
  * Entity state as delivered over the web_server SSE stream (state / state_detail_all).
  * The SSE transport itself lives in the consumer; the shape is part of the entity
  * contract, so it is owned here. Carries the same domain-specific fields as the
