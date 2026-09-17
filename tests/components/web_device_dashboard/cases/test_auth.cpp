@@ -81,7 +81,8 @@ TEST_F(Dashboard, ASetPassesTheComponentsRefusalOn) {
 // text/plain is the only one of the three form encodings the server hands on as a raw body,
 // so it is the one a cross-site form would arrive as; the type check is what keeps it out.
 TEST_F(Dashboard, ASetRefusesABodyThatDoesNotSayItIsJson) {
-  for (const char *type : {"text/plain", "text/plain;charset=UTF-8", ""}) {
+  for (const char *type : {"text/plain", "text/plain;charset=UTF-8", "", "application/x-www-form-urlencoded",
+                           "application/jsonp", "text/application/json", "application/json-patch+json"}) {
     Reply reply = this->call(HTTP_POST, "/api/device/auth", SET_CREDENTIALS, 512, type);
     EXPECT_EQ(reply.code, 415) << type;
     EXPECT_EQ(reply.error(), "Expected Content-Type: application/json") << type;
@@ -93,7 +94,8 @@ TEST_F(Dashboard, ASetRefusesABodyThatDoesNotSayItIsJson) {
 // A media type is case-insensitive and may carry parameters, and upstream reads the form
 // types the same way; a client that spells it either way is not a client to turn away.
 TEST_F(Dashboard, ASetTakesTheTypeWithParametersAndInAnyCase) {
-  for (const char *type : {"application/json; charset=utf-8", "Application/JSON"}) {
+  for (const char *type : {"application/json; charset=utf-8", "Application/JSON", " application/json ",
+                           "application/json;charset=utf-8"}) {
     Reply reply = this->call(HTTP_POST, "/api/device/auth", SET_CREDENTIALS, 512, type);
     EXPECT_EQ(reply.code, 200) << type;
   }

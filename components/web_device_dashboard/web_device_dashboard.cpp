@@ -490,6 +490,18 @@ void WebDeviceDashboard::handle_auth_get_(AsyncWebServerRequest *request) {
   request->send(200, "application/json", body.c_str());
 }
 
+// The media type on its own: parameters dropped, surrounding space gone, case ignored. The
+// one type, not anything that merely contains it.
+static bool says_json(const optional<std::string> &content_type) {
+  if (!content_type.has_value())
+    return false;
+  const std::string type = str_lower_case(str_until(content_type.value(), ';'));
+  const size_t first = type.find_first_not_of(" \t");
+  if (first == std::string::npos)
+    return false;
+  return type.compare(first, type.find_last_not_of(" \t") - first + 1, "application/json") == 0;
+}
+
 // POST {"username", "password"}. The new pair is checked here and applied from the loop task,
 // so this request still answers under the old one and the browser is asked for the new one on
 // the page's next call.
@@ -497,8 +509,7 @@ void WebDeviceDashboard::handle_auth_set_(AsyncWebServerRequest *request) {
   // A type no HTML form can send, so no page on another site can aim one here and have the
   // browser attach the credentials it has cached; the way back from this route is a trip to
   // the device's display menu.
-  const optional<std::string> content_type = request->get_header("Content-Type");
-  if (!content_type.has_value() || str_lower_case(content_type.value()).find("application/json") == std::string::npos) {
+  if (!says_json(request->get_header("Content-Type"))) {
     this->send_error_(request, 415, "Expected Content-Type: application/json");
     return;
   }
