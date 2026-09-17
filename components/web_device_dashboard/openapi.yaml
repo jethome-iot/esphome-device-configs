@@ -655,7 +655,10 @@ components:
           type: string
           description: The entity's object id, as `/entities` lists it.
         settings:
-          description: The type's fields. Left out, the record is re-saved as it is.
+          description: >-
+            The type's fields. Left out, a `switch` record is re-saved as it is,
+            while a `binary_sensor` takes `inverted` as false — the same rule as
+            for a single field left out.
           anyOf:
             - $ref: "#/components/schemas/SwitchSettings"
             - $ref: "#/components/schemas/BinarySensorSettings"
