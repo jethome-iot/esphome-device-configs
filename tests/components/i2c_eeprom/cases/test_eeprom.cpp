@@ -158,6 +158,26 @@ TEST(I2CEeprom, WritesAOneBytePartWithAOneByteAddress) {
   EXPECT_EQ(chip.bus.image[0x7F], 0x42);
 }
 
+// What jethome_board_info turns on for the CPU board's EEPROM: nothing reaches the bus.
+TEST(I2CEeprom, WriteProtectionRefusesWritesAndLeavesReadsAlone) {
+  Chip chip(8192);
+  EXPECT_FALSE(chip.eeprom.is_write_protected());
+  chip.eeprom.set_write_protected(true);
+
+  const uint8_t data[2] = {0xAA, 0xBB};
+  EXPECT_FALSE(chip.eeprom.put(0x0000, data, sizeof(data)));
+  EXPECT_FALSE(chip.eeprom.put(0x1FFF, 0x01));
+  EXPECT_TRUE(chip.bus.log.empty());
+  EXPECT_EQ(chip.bus.image[0x1FFF], static_cast<uint8_t>(0x1FFF * 7));
+
+  uint8_t byte = 0;
+  EXPECT_TRUE(chip.eeprom.get(0x0000, &byte));
+
+  chip.eeprom.set_write_protected(false);
+  EXPECT_TRUE(chip.eeprom.put(0x0000, 0x42));
+  EXPECT_EQ(chip.bus.image[0], 0x42);
+}
+
 TEST(I2CEeprom, AChipThatDoesNotAnswerFailsEverything) {
   Chip chip(8192);
   chip.bus.present_at = 0x50;

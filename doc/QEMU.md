@@ -7,24 +7,26 @@ involved.
 
 ```bash
 ./scripts/qemu.sh run jxd-r6-e1eth-lcd --daemon --wait-http 240
-# → http://127.0.0.1:8080          device web server
+# → http://127.0.0.1:8080          the dashboard, with web_server's REST and /events
 # → http://127.0.0.1:8080/panel    the 128x64 screen and its joystick
 ./scripts/qemu.sh stop                              # when you are done
 ```
 
 ## Prerequisites
 
-Espressif's QEMU fork — upstream `qemu-system-xtensa` has no `esp32` machine:
+The JetHome build of Espressif's QEMU fork, [jethome-iot/qemu](https://github.com/jethome-iot/qemu):
+Espressif's `esp32` machine, which upstream `qemu-system-xtensa` lacks, plus I2C chips that
+can be attached from the command line, which Espressif's own build lacks. It unpacks next to
+any Espressif install, and needs libslirp for user-mode networking:
 
 ```bash
-IDF_PATH=~/.platformio/packages/framework-espidf \
-  python3 ~/.platformio/packages/framework-espidf/tools/idf_tools.py install qemu-xtensa
-sudo apt install libslirp0     # user-mode networking; the binary will not start without it
+./scripts/qemu.sh install-qemu     # → ~/.espressif/tools/qemu-xtensa/<version>/
+sudo apt install libslirp0         # the binary will not start without it (macOS: brew install libslirp)
 ```
 
-The script picks the newest install under `~/.espressif/tools/qemu-xtensa/` and refuses an
-upstream build; `QEMU_XTENSA=...` overrides discovery. Compiling uses the repo venv
-(`requirements.txt`), which the script activates itself.
+The script prefers a JetHome build over a newer stock one, refuses an upstream build, and
+takes `QEMU_XTENSA=...` as an override. Compiling uses the repo venv (`requirements.txt`),
+which the script activates itself.
 
 ## Commands
 
@@ -37,12 +39,13 @@ upstream build; `QEMU_XTENSA=...` overrides discovery. Compiling uses the repo v
 ./scripts/qemu.sh image <device>             # (re)create the padded flash image only
 ./scripts/qemu.sh stop [<device>]            # stop instances, keep flash state and build
 ./scripts/qemu.sh clean [<device>]           # stop instances, drop wrappers and flash images
+./scripts/qemu.sh install-qemu               # fetch the JetHome QEMU build for this machine
 ```
 
 `<device>` is the bare name of a config under `devices/<family>/`, e.g. `jxd-r6-e1eth-lcd`.
 
 Options: `--http-port` (default 8080), `--api-port` (6053), `--ota-port` (3232),
-`--psram 2M|4M|none`, `--no-wdt`, `--daemon`, `--wait-http <sec>`. Exit an interactive session
+`--psram 2M|4M|none`, `--eeprom <file>` (below), `--no-wdt`, `--daemon`, `--wait-http <sec>`. Exit an interactive session
 with `Ctrl-A x`. Each instance holds all three forwarded ports, so a second one needs its own
 trio — a clash is caught before QEMU starts and names the port:
 
@@ -133,8 +136,25 @@ A frame is `((width + 7) / 8) * height` bytes: pixel `(x, y)` is bit `7 - (x & 7
 `y * 16 + (x >> 3)`. Endpoints and options are in the
 [component README](../components/virtual_display/README.md).
 
-QEMU cannot help here: the `esp32` machine carries one TMP105 at `0x48` and nothing else on
-I2C, so the SH1106 and the joystick expander have nothing to talk to.
+QEMU cannot help here: the machine models no SH1106 and no joystick expander, so the real
+drivers would have nothing to talk to.
+
+## The CPU board's EEPROM
+
+`--eeprom <file>` attaches the part `jethome_board_info` reads, backed by a host file, so
+the identity the device reports is whatever the file says:
+
+```bash
+./scripts/qemu.sh run jxd-r6-e1eth-lcd --daemon --wait-http 240 --eeprom /tmp/eeprom.bin
+```
+
+The file is the part byte for byte: 8192 bytes, the 64 Kbit chip the config declares. `run`
+creates an erased one where the file does not exist, which the firmware refuses like a blank
+board — Info → Serial stays at `--`. An image that carries a board header is read as on
+hardware: Info → Serial shows the serial, `/api/device/info` carries the `board` block, and
+what the page shows follows what the header holds, down to one written for another chip.
+Images come from a dump of a real part or from JetHome's board tooling; v3 and v4 are both
+read.
 
 ## What works and what is dead
 
@@ -144,7 +164,7 @@ I2C, so the SH1106 and the joystick expander have nothing to talk to.
 | The display and its keys, via `/panel` | ADC (`vin_meas`, `poe_voltage` — never sampled) |
 | Relays and inputs — state flips over REST and holds | 1-Wire: the bus reads as held low, the DS2484 scan finds nothing and no `Temp N` entity is created |
 | `PCB Temp` — QEMU's own TMP105 at `0x48`, a constant 25 °C | Wi-Fi and BT; Modbus sees an emulated UART with nothing on it |
-| | `jethome_board_info`: no EEPROM at `0x54`, so `i2c_eeprom` fails at setup and Info → Serial reads `--`. QEMU does model one (`-device at24c-eeprom,bus=i2c0,address=0x54,rom-size=8192,drive=<id>`, `i2c0` being the bus the firmware drives); `scripts/qemu.sh` does not attach it |
+| `jethome_board_info`, reading the file `--eeprom` attaches | Without `--eeprom`: no chip answers at `0x54`, `i2c_eeprom` fails at setup and Info → Serial reads `--` |
 | Ethernet on 10.0.2.15, native API on 6053, OTA, outbound HTTPS | |
 | NVS and `preferences`; flash state survives restarts | |
 

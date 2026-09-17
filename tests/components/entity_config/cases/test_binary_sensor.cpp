@@ -89,4 +89,14 @@ TEST_F(BinarySensorSettings, AFlipIsALevelForBindingsNotAnEdge) {
   EXPECT_FALSE(e.relay1.state);
 }
 
+TEST_F(BinarySensorSettings, ARestWriteRefusesAnInvertedThatIsNotABoolean) {
+  JsonDocument refused = body(R"({"source_name":"input_1","settings":{"inverted":"yes"}})");
+  EXPECT_EQ(settings.update_record(refused.as<JsonObject>()), nullptr);
+  EXPECT_FALSE(settings.is_inverted(&e.in1));
+
+  JsonDocument accepted = body(R"({"source_name":"input_1","settings":{"inverted":true}})");
+  ASSERT_NE(settings.update_record(accepted.as<JsonObject>()), nullptr);
+  EXPECT_TRUE(settings.is_inverted(&e.in1));
+}
+
 }  // namespace esphome::entity_config::testing

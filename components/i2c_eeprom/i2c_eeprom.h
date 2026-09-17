@@ -20,6 +20,11 @@ class I2CEeprom : public Component, public i2c::I2CDevice {
   bool put(uint16_t memaddr, uint8_t value) { return this->put(memaddr, &value, 1); }
   bool get(uint16_t memaddr, uint8_t *value, size_t size = 1);
 
+  // While on, every put is refused; reads are untouched. jethome_board_info turns it on for
+  // the CPU board's EEPROM, which holds what the manufacturer wrote.
+  void set_write_protected(bool value) { this->write_protected_ = value; }
+  bool is_write_protected() const { return this->write_protected_; }
+
   // Bytes. Parts above 16 Kbit take a two-byte memory address; 4 to 16 Kbit parts select
   // their upper blocks through the device address, which is not driven, so only the first
   // 256 bytes of those are reached.
@@ -37,6 +42,7 @@ class I2CEeprom : public Component, public i2c::I2CDevice {
 
   uint32_t size_{0};
   bool two_byte_address_{false};
+  bool write_protected_{false};
   Trigger<> setup_trigger_;
 };
 

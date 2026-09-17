@@ -26,6 +26,20 @@ class AsyncWebParameter {
   std::string value_;
 };
 
+// A response begun before it is sent, as web_server_idf's: the status and content type are set
+// when it is begun, the body only when it is sent.
+class AsyncWebServerResponse {
+ public:
+  AsyncWebServerResponse(int code, std::string content_type, const char *data, size_t size)
+      : code(code), content_type(std::move(content_type)), body(data, size) {}
+  void addHeader(const char *name, const char *value) { this->headers.emplace_back(name, value); }  // NOLINT
+
+  int code;
+  std::string content_type;
+  std::string body;
+  std::vector<std::pair<std::string, std::string>> headers;
+};
+
 class AsyncWebServerRequest {
  public:
   // @p target is the path with its query string. A form-encoded body becomes parameters, as
@@ -60,6 +74,17 @@ class AsyncWebServerRequest {
     this->response_type = content_type == nullptr ? "" : content_type;
     this->response_body = content == nullptr ? "" : content;
   }
+  // NOLINTNEXTLINE(readability-identifier-naming)
+  AsyncWebServerResponse *beginResponse(int code, const char *content_type, const uint8_t *data, size_t size) {
+    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
+    return new AsyncWebServerResponse(code, content_type, reinterpret_cast<const char *>(data), size);
+  }
+  void send(AsyncWebServerResponse *response) {
+    this->send(response->code, response->content_type.c_str());
+    this->response_body = response->body;
+    this->response_headers = std::move(response->headers);
+    delete response;  // NOLINT(cppcoreguidelines-owning-memory)
+  }
 
   const std::string &body() const { return this->body_; }
   bool is_form() const { return this->content_type_.find("application/x-www-form-urlencoded") != std::string::npos; }
@@ -69,6 +94,7 @@ class AsyncWebServerRequest {
   std::string response_type;
   std::string response_body;
   int responses{0};
+  std::vector<std::pair<std::string, std::string>> response_headers;
 
  protected:
   void add_params_(const std::string &query) {

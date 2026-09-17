@@ -224,4 +224,13 @@ TEST_F(SwitchSettings, StoredBindingsAreAppliedAtBoot) {
   EXPECT_TRUE(e.relay2.state);
 }
 
+TEST_F(SwitchSettings, ARestWriteRefusesAnInvertedThatIsNotABoolean) {
+  JsonDocument refused = body(R"({"source_name":"relay_1","settings":{"inverted":"yes"}})");
+  EXPECT_EQ(settings.update_record(refused.as<JsonObject>()), nullptr);
+
+  JsonDocument accepted = body(R"({"source_name":"relay_1","settings":{"inverted":true}})");
+  ASSERT_NE(settings.update_record(accepted.as<JsonObject>()), nullptr);
+  EXPECT_TRUE(record_of("relay_1")->inverted);
+}
+
 }  // namespace esphome::entity_config::testing

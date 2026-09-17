@@ -44,7 +44,7 @@ logger:
 web_server:
   port: 80
   version: 3
-  local: true
+  # No local: true. web_device_dashboard owns /, so the page it would embed is never served.
   sorting_groups:
     - id: group_relays
       name: "Relays"

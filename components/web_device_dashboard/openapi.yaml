@@ -1,0 +1,821 @@
+openapi: 3.1.0
+
+info:
+  title: web_device_dashboard HTTP API
+  version: 1.0.0
+  description: >-
+    The device API behind the dashboard page, served by the ESPHome
+    `web_device_dashboard` component on the device's own web server under
+    `/api/device/`: the device identity (with the CPU board's EEPROM record when
+    a `jethome_board_info` is wired in), the runtime status, the live network
+    link, and — on a firmware with a `config_json` store — the per-entity
+    settings and their form fields. ESP-IDF (ESP32) only.
+
+    This document is the wire contract; the TypeScript client in `client/device`
+    implements it and the dashboard repository's dev server mocks it. Reads
+    answer GET only and writes POST only, `entity-settings` both (a read on GET,
+    a write on POST); any other method is `405` with an `Allow` header. Route
+    names match the URL path exactly, so an unknown name under the prefix is
+    `404`. A POST needs a `Content-Length`, even `0`: ESP-IDF's server answers
+    `411` without one. Every failure is `{"success": false, "error"}`.
+
+    The page itself is outside this document: `GET /` answers it as `text/html`
+    with `Content-Encoding: gzip` and `Cache-Control: public, max-age=3600`, and
+    any other method on `/` is `405`. The entity state and control the page uses
+    are `web_server`'s own routes and its `/events` stream, typed in
+    `client/rest`.
+
+servers:
+  - url: http://{host}:{port}/api/device
+    description: A device on the local network. The prefix is fixed.
+    variables:
+      host:
+        default: device.local
+      port:
+        default: "80"
+
+# Optional: the routes inherit whatever auth the `web_server:` block sets. The
+# configs in this repository set none, so the empty requirement is the shipped
+# default — anything that reaches the port may call every route.
+security:
+  - {}
+  - webServerAuth: []
+
+tags:
+  - name: read
+    description: Read-only routes (GET).
+  - name: write
+    description: Mutating routes (POST).
+
+paths:
+  /info:
+    get:
+      tags: [read]
+      operationId: getInfo
+      summary: The device identity.
+      description: >-
+        `name` is the friendly name, or the node name without one. `mac_address`
+        is the Ethernet MAC on a build with Ethernet, else the chip's base MAC,
+        which `base_mac_address` always carries. With a `board_info_id`, what the
+        firmware read from the CPU board's EEPROM: `serial_number`,
+        `device_model` and `hw_revision` from the `device.id` record (the serial
+        from the header on a v3 board that predates it), each only when the
+        EEPROM has it, and `board`, the record verbatim plus the chip's eFuses.
+      responses:
+        "200":
+          description: The identity.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceInfo"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /status:
+    get:
+      tags: [read]
+      operationId: getStatus
+      summary: The runtime status.
+      description: Polled by the page every few seconds.
+      responses:
+        "200":
+          description: The status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceStatus"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /network:
+    get:
+      tags: [read]
+      operationId: getNetwork
+      summary: The live network link.
+      description: >-
+        The active interface with its address, gateway, mask and DNS servers, and
+        the SSID and RSSI on WiFi. Ethernet wins when both links are up.
+      responses:
+        "200":
+          description: The link.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NetworkStatus"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /entities:
+    get:
+      tags: [read]
+      operationId: getEntityIndex
+      summary: The entities that have settings, per type.
+      description: >-
+        For every settings type the firmware keeps, the entities of that type:
+        the object id, which keys the settings records, and the display name,
+        which `web_server`'s routes and `/events` address entities by. Internal
+        entities are left out. The types are `entity_config`'s: `switch` and
+        `binary_sensor`.
+      responses:
+        "200":
+          description: The index.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntityIndex"
+        "404":
+          $ref: "#/components/responses/NoStore"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /entity-settings:
+    get:
+      tags: [read]
+      operationId: getEntitySettings
+      summary: The stored records of one type, or one of them.
+      description: >-
+        An entity that was never edited has no record and is absent; with
+        `source_name`, that entity's record or an empty list.
+      parameters:
+        - $ref: "#/components/parameters/TypeQuery"
+        - name: source_name
+          in: query
+          required: false
+          description: One entity's object id, as `/entities` lists it.
+          schema:
+            type: string
+          example: relay_1
+      responses:
+        "200":
+          description: The records.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingsRecords"
+        "400":
+          description: No `type` parameter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Query parameter 'type' is required
+        "404":
+          $ref: "#/components/responses/TypeNotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/StoreNotReady"
+    post:
+      tags: [write]
+      operationId: setEntitySettings
+      summary: Update one entity's record, or remove it.
+      description: >-
+        An update replaces the entity's record with the fields given, saves the
+        type's file and applies the record on the loop task once the answer is
+        out. A field left out keeps its current value on a `switch`; on a
+        `binary_sensor`, `inverted` left out counts as false. The body is read
+        raw, so the request needs a `Content-Type` that is not a form: a
+        form-encoded body is parsed into fields by the server and answered
+        `Invalid JSON`. `action: delete` removes the record on a type that
+        supports it; neither `switch` nor `binary_sensor` does, so it is refused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/EntitySettingsUpdate"
+                - $ref: "#/components/schemas/EntitySettingsDelete"
+      responses:
+        "200":
+          description: Saved and being applied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+              examples:
+                updated:
+                  value:
+                    success: true
+                    message: Settings updated
+                removed:
+                  value:
+                    success: true
+                    message: Entity was removed
+        "400":
+          description: >-
+            Bad request — a body that is empty, not JSON or not an object
+            (`Invalid JSON`); no `type` (`'type' is required`); a `settings` that
+            is not an object (`'settings' must be an object`); an `action` that
+            is anything but the string `delete` (`'action' must be 'delete'`); a
+            record the type
+            refuses (`Failed to update settings record`: no `source_name`, one
+            naming no entity of that type, an `inverted` that is not a boolean, a
+            `restore_mode` or `binding_mode` outside its options, a
+            `binding_input` naming no input); a delete on a type that keeps its
+            records (`Cannot delete: record not found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Failed to update settings record
+        "404":
+          $ref: "#/components/responses/TypeNotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          description: The body is over 4 KiB; a record is a few hundred bytes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Request body over 4 KiB
+        "503":
+          $ref: "#/components/responses/StoreNotReady"
+
+  /entity-settings-meta:
+    get:
+      tags: [read]
+      operationId: getEntitySettingsMeta
+      summary: The form fields of every settings type.
+      description: >-
+        Per type, its fields in the order a form shows them, each with its kind,
+        label, help text, default and, for an `enum`, its options. The `switch`
+        binding fields are listed only on a firmware with the `bindings`
+        component and at least one input, and `binding_input`'s options are the
+        live inputs.
+      responses:
+        "200":
+          description: The fields.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingsMeta"
+        "404":
+          $ref: "#/components/responses/NoStore"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+components:
+  securitySchemes:
+    webServerAuth:
+      type: http
+      scheme: basic
+      description: >-
+        Credentials from the `web_server:` `auth:` block, when set. Basic auth on
+        ESP32. Off by default in this repository.
+
+  parameters:
+    TypeQuery:
+      name: type
+      in: query
+      required: true
+      description: The settings type, a key of `/entity-settings-meta`.
+      schema:
+        type: string
+      example: switch
+
+  responses:
+    MethodNotAllowed:
+      description: Wrong HTTP method for this route.
+      headers:
+        Allow:
+          description: What the route accepts.
+          schema:
+            type: string
+            enum: [GET, POST, "GET, POST"]
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Method not allowed
+    NoStore:
+      description: >-
+        This firmware has no `config_json` store, so the settings routes do not
+        exist; the answer is the prefix's plain 404.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Not found
+    TypeNotFound:
+      description: >-
+        No settings type of that name — or, on a firmware without a `config_json`
+        store, no such route at all (`Not found`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Settings type not found
+    StoreNotReady:
+      description: The `config_json` store has not come up.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Config JSON keeper not available
+
+  schemas:
+    DeviceInfo:
+      type: object
+      required: [name, base_mac_address, mac_address, version]
+      properties:
+        name:
+          type: string
+          description: The friendly name, or the node name without one.
+        base_mac_address:
+          type: string
+          description: The chip's base MAC, `AA:BB:CC:DD:EE:FF`.
+        mac_address:
+          type: string
+          description: The Ethernet MAC on a build with Ethernet, else the base MAC.
+        version:
+          type: string
+          description: The ESPHome version the firmware was built with.
+        serial_number:
+          type: string
+          description: >-
+            The device serial, from `device.id` or from the header of a v3 board.
+            Only with a `board_info_id`, and only when the EEPROM has one.
+        device_model:
+          type: string
+          description: The product model from `device.id`; as `serial_number`.
+        hw_revision:
+          type: string
+          description: The product hardware revision from `device.id`; as `serial_number`.
+        board:
+          $ref: "#/components/schemas/BoardInfo"
+      example:
+        name: JXD-R6-E1ETH-LCD
+        base_mac_address: "AA:BB:CC:DD:EE:FF"
+        mac_address: "AA:BB:CC:DD:EE:02"
+        version: 2026.8.2
+        serial_number: DSN-2026-000042
+        device_model: JXD-R6-E1ETH-LCD
+        hw_revision: 1.2a
+        board:
+          valid: true
+          header_version: 4
+          boardname: JXD-CPU-E1ETH
+          boardversion: "1.3"
+          board_serial: ""
+          usid: JXDR6E01012409012026000042A1B2
+          cpuid: "AA:BB:CC:DD:EE:FF"
+          mac: F0578DAABBCC
+          timestamp: 1700000000
+          signature_version: 2
+          signature: "7a1c…"
+          identity:
+            model: JXD-R6-E1ETH-LCD
+            serial: DSN-2026-000042
+            hw_revision: 1.2a
+            serial_matches_usid: true
+          efuse:
+            factory_mac: "AA:BB:CC:DD:EE:FF"
+            custom_mac: F0578DAABBCC
+
+    BoardInfo:
+      type: object
+      description: >-
+        What `jethome_board_info` read from the CPU board's EEPROM, verbatim, plus
+        the chip's own eFuses. Only `valid` when the header failed its checks.
+      required: [valid]
+      properties:
+        valid:
+          type: boolean
+          description: The header parsed and its CRC checked.
+        header_version:
+          type: integer
+          enum: [3, 4]
+        boardname:
+          type: string
+        boardversion:
+          type: string
+        board_serial:
+          type: string
+          description: v4 headers only; empty on v3, where the field held the device serial.
+        usid:
+          type: string
+          description: The unique system id the factory assigned.
+        cpuid:
+          type: string
+          description: The chip's factory MAC as the factory wrote it, `AA:BB:CC:DD:EE:FF`.
+        mac:
+          type: string
+          description: The chip's custom MAC as the factory wrote it, `AABBCCDDEEFF`.
+        timestamp:
+          type: integer
+          description: When the header was written, Unix seconds.
+        signature_version:
+          type: integer
+          description: 0 on a board that was never signed; otherwise the factory's scheme version, as written.
+        signature:
+          type: string
+          description: The factory signature, hex; absent on a board that was never signed.
+        identity:
+          description: The `device.id` record, the product's identity; null on a board without one.
+          oneOf:
+            - $ref: "#/components/schemas/BoardIdentity"
+            - type: "null"
+        efuse:
+          $ref: "#/components/schemas/BoardEfuse"
+
+    BoardIdentity:
+      type: object
+      required: [model, serial, hw_revision]
+      properties:
+        model:
+          type: string
+        serial:
+          type: string
+        hw_revision:
+          type: string
+        serial_matches_usid:
+          type: boolean
+          description: >-
+            The record's serial agrees with the header's USID. Absent when there was
+            nothing to compare, so false always means a real mismatch.
+
+    BoardEfuse:
+      type: object
+      description: >-
+        The chip's eFuses in the header's two formats. Null when an eFuse could not
+        be read; `custom_mac` is all zeros on a chip with none burned.
+      required: [factory_mac, custom_mac]
+      properties:
+        factory_mac:
+          type: [string, "null"]
+        custom_mac:
+          type: [string, "null"]
+
+    DeviceStatus:
+      type: object
+      required: [uptime_s, reset_reason, connection_type, rssi, ip_address, reboot_required]
+      properties:
+        ha_connected:
+          type: boolean
+          description: An API client is connected. Absent, not false, on a build with no `api:`.
+        uptime_s:
+          type: integer
+          description: Seconds since boot.
+        reset_reason:
+          type: string
+          enum:
+            - power-on
+            - external
+            - software
+            - panic
+            - interrupt watchdog
+            - task watchdog
+            - watchdog
+            - deep sleep
+            - brownout
+            - sdio
+            - unknown
+        connection_type:
+          $ref: "#/components/schemas/ConnectionType"
+        rssi:
+          type: [integer, "null"]
+          description: dBm on WiFi, null otherwise.
+        ip_address:
+          type: [string, "null"]
+          description: The first address the network stack has, null before one is set.
+        reboot_required:
+          type: boolean
+          description: Always false; nothing here changes a saved setting. Kept for the client's contract.
+      example:
+        ha_connected: true
+        uptime_s: 86400
+        reset_reason: power-on
+        connection_type: ethernet
+        rssi: null
+        ip_address: 192.168.1.50
+        reboot_required: false
+
+    ConnectionType:
+      type: string
+      enum: [wifi, ethernet, none]
+      description: The active link; Ethernet wins when both are up.
+
+    NetworkStatus:
+      type: object
+      required: [hostname, connection_type, ip_address, gateway, subnet, dns1, dns2, ssid, rssi, ethernet_connected]
+      properties:
+        hostname:
+          type: string
+          description: The node name.
+        connection_type:
+          $ref: "#/components/schemas/ConnectionType"
+        ip_address:
+          type: [string, "null"]
+        gateway:
+          type: [string, "null"]
+          description: IPv4; null when the link has none.
+        subnet:
+          type: [string, "null"]
+          description: The IPv4 mask; null when the link has none.
+        dns1:
+          type: [string, "null"]
+        dns2:
+          type: [string, "null"]
+        ssid:
+          type: [string, "null"]
+          description: WiFi only.
+        rssi:
+          type: [integer, "null"]
+          description: dBm, WiFi only.
+        ethernet_connected:
+          type: boolean
+      example:
+        hostname: jxd-r6-e1eth-lcd-aabbcc
+        connection_type: ethernet
+        ip_address: 192.168.1.50
+        gateway: 192.168.1.1
+        subnet: 255.255.255.0
+        dns1: 192.168.1.1
+        dns2: null
+        ssid: null
+        rssi: null
+        ethernet_connected: true
+
+    EntityIndex:
+      type: object
+      description: One key per settings type the firmware keeps, in the store's order.
+      additionalProperties:
+        type: array
+        items:
+          $ref: "#/components/schemas/EntityIndexEntry"
+      example:
+        switch:
+          - source_name: relay_1
+            name: Relay 1
+        binary_sensor:
+          - source_name: input_1
+            name: Input 1
+
+    EntityIndexEntry:
+      type: object
+      required: [source_name, name]
+      properties:
+        source_name:
+          type: string
+          description: The object id, the key of the settings records.
+        name:
+          type: string
+          description: The display name, the key of `web_server`'s routes and `/events`.
+
+    SettingsRecords:
+      type: object
+      required: [type, records]
+      properties:
+        type:
+          type: string
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/SettingsRecord"
+      example:
+        type: switch
+        records:
+          - source_name: relay_1
+            restore_mode: RESTORE_DEFAULT_OFF
+            inverted: false
+            binding_input: input_1
+            binding_mode: toggle
+
+    SettingsRecord:
+      type: object
+      description: >-
+        `source_name` and the type's fields, as `/entity-settings-meta` lists
+        them: `SwitchSettings` for a `switch`, `BinarySensorSettings` for a
+        `binary_sensor`.
+      required: [source_name]
+      properties:
+        source_name:
+          type: string
+      additionalProperties: true
+
+    SwitchSettings:
+      type: object
+      description: "The `switch` fields. On write each is optional: a key left out keeps its current value."
+      properties:
+        restore_mode:
+          type: string
+          enum:
+            - ALWAYS_OFF
+            - ALWAYS_ON
+            - RESTORE_DEFAULT_OFF
+            - RESTORE_DEFAULT_ON
+            - RESTORE_INVERTED_DEFAULT_OFF
+            - RESTORE_INVERTED_DEFAULT_ON
+            - RESTORE_DISABLED
+          description: What the output does at power-up. The form offers the first three.
+        inverted:
+          type: boolean
+        binding_input:
+          type: string
+          description: The object id of the input that drives this output, empty for none. With the `bindings` component only.
+        binding_mode:
+          type: string
+          enum: [none, toggle, follow]
+
+    BinarySensorSettings:
+      type: object
+      description: The `binary_sensor` fields. On write, `inverted` left out counts as false.
+      properties:
+        inverted:
+          type: boolean
+
+    EntitySettingsUpdate:
+      type: object
+      required: [type, source_name]
+      # `action` belongs to the delete body; leaving it out here keeps the two
+      # alternatives of the request's oneOf disjoint.
+      not:
+        required: [action]
+      properties:
+        type:
+          type: string
+          description: The settings type, a key of `/entity-settings-meta`.
+        source_name:
+          type: string
+          description: The entity's object id, as `/entities` lists it.
+        settings:
+          description: >-
+            The type's fields. Left out, a `switch` record is re-saved as it is,
+            while a `binary_sensor` takes `inverted` as false — the same rule as
+            for a single field left out.
+          anyOf:
+            - $ref: "#/components/schemas/SwitchSettings"
+            - $ref: "#/components/schemas/BinarySensorSettings"
+      example:
+        type: switch
+        source_name: relay_1
+        settings:
+          restore_mode: RESTORE_DEFAULT_OFF
+          inverted: false
+          binding_input: input_1
+          binding_mode: toggle
+
+    EntitySettingsDelete:
+      type: object
+      required: [type, source_name, action]
+      properties:
+        type:
+          type: string
+        source_name:
+          type: string
+        action:
+          type: string
+          enum: [delete]
+      example:
+        type: switch
+        source_name: relay_1
+        action: delete
+
+    SettingsMeta:
+      type: object
+      required: [settings]
+      properties:
+        common:
+          type: object
+          description: Fields every type shares. Reserved; the device emits none today.
+          additionalProperties:
+            $ref: "#/components/schemas/FieldDef"
+        settings:
+          type: object
+          description: One key per settings type, in the store's order; per type, its fields in form order.
+          additionalProperties:
+            type: object
+            additionalProperties:
+              $ref: "#/components/schemas/FieldDef"
+      example:
+        settings:
+          switch:
+            restore_mode:
+              type: enum
+              label: Start Mode
+              description: "What this output does at power-up: force Off, force On, or restore the state it had before the reboot."
+              default: ALWAYS_OFF
+              options:
+                - value: ALWAYS_OFF
+                  label: "Off"
+                - value: ALWAYS_ON
+                  label: "On"
+                - value: RESTORE_DEFAULT_OFF
+                  label: Last
+            binding_input:
+              type: enum
+              label: Bound input
+              description: An input that drives this output directly, with no automation.
+              default: ""
+              options:
+                - value: ""
+                  label: None
+                - value: input_1
+                  label: Input 1
+            binding_mode:
+              type: enum
+              label: Binding mode
+              description: Toggle flips the output on each press of the input; Follow makes the output copy the input and takes over from Start Mode.
+              default: none
+              options:
+                - value: none
+                  label: Disabled
+                - value: toggle
+                  label: Toggle
+                - value: follow
+                  label: Follow
+            inverted:
+              type: boolean
+              label: Inverted
+              description: "Swaps the physical output: the app's On drives the pin low, Off drives it high."
+              default: false
+          binary_sensor:
+            inverted:
+              type: boolean
+              label: Inverted
+              description: "Reports the input the other way round: a closed contact shows as Off."
+              default: false
+
+    FieldDef:
+      type: object
+      required: [type, label]
+      properties:
+        type:
+          type: string
+          enum: [string, boolean, enum, number]
+        label:
+          type: string
+        description:
+          type: string
+          description: Help text; the page shows it as a tooltip beside the label.
+        default:
+          description: The value an entity without a record has.
+        options:
+          type: array
+          description: For `enum`; the value is what the record stores.
+          items:
+            $ref: "#/components/schemas/FieldOption"
+        min:
+          type: number
+          description: For `number`, in the record's unit.
+        max:
+          type: number
+        unit:
+          type: string
+          description: "For `number`: the record's unit."
+        display_unit:
+          type: string
+          description: "For `number`: the unit the page shows, `unit` times `display_factor`."
+        display_factor:
+          type: number
+
+    FieldOption:
+      type: object
+      required: [value, label]
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+
+    SuccessEnvelope:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+      example:
+        success: true
+        message: Settings updated
+
+    ErrorEnvelope:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: string
+      example:
+        success: false
+        error: Not found
