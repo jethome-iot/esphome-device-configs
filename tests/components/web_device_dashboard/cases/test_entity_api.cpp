@@ -92,7 +92,8 @@ TEST_F(Dashboard, APostWithoutATypeIsRefused) {
 TEST_F(Dashboard, APostWhoseSettingsIsNotAnObjectIsRefused) {
   store().sw.seed("relay_1", true);
   for (const char *body : {R"({"type":"switch","source_name":"relay_1","settings":"yes"})",
-                           R"({"type":"switch","source_name":"relay_1","settings":5})"}) {
+                           R"({"type":"switch","source_name":"relay_1","settings":5})",
+                           R"({"type":"switch","source_name":"relay_1","settings":null})"}) {
     Reply reply = this->post("/api/device/entity-settings", body);
     EXPECT_EQ(reply.code, 400) << body;
     EXPECT_EQ(reply.error(), "'settings' must be an object") << body;
@@ -105,7 +106,8 @@ TEST_F(Dashboard, APostWhoseActionIsNotDeleteIsRefused) {
   store().sw.seed("relay_1", true);
   for (const char *body : {R"({"type":"switch","source_name":"relay_1","action":"deletee"})",
                            R"({"type":"switch","source_name":"relay_1","action":"update"})",
-                           R"({"type":"switch","source_name":"relay_1","action":7})"}) {
+                           R"({"type":"switch","source_name":"relay_1","action":7})",
+                           R"({"type":"switch","source_name":"relay_1","action":null})"}) {
     Reply reply = this->post("/api/device/entity-settings", body);
     EXPECT_EQ(reply.code, 400) << body;
     EXPECT_EQ(reply.error(), "'action' must be 'delete'") << body;

@@ -546,8 +546,9 @@ void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *requ
     return;
   }
   // A scalar here reads as an empty object further down, which would silently save the
-  // record with every field at its default.
-  if (!doc["settings"].isNull() && !doc["settings"].is<JsonObject>()) {
+  // record with every field at its default. isUnbound(), not isNull(): an explicit null is a
+  // value the caller wrote, not a key left out.
+  if (!doc["settings"].isUnbound() && !doc["settings"].is<JsonObject>()) {
     this->send_error_(request, 400, "'settings' must be an object");
     return;
   }
@@ -560,7 +561,7 @@ void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *requ
   const char *action = doc["action"];
   // Anything else here is a typo, not an update: the caller asked for something this API
   // does not have.
-  if (!doc["action"].isNull() && (action == nullptr || strcmp(action, "delete") != 0)) {
+  if (!doc["action"].isUnbound() && (action == nullptr || strcmp(action, "delete") != 0)) {
     this->send_error_(request, 400, "'action' must be 'delete'");
     return;
   }
