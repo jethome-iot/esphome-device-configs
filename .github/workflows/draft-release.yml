@@ -10,16 +10,6 @@ on:
     branches: [master]
   workflow_dispatch:
 
-concurrency:
-  # Own group, deliberately NOT shared with the Release workflow: GitHub
-  # keeps a single pending run per group and a newly queued run replaces it,
-  # so sharing would let a routine master push evict a queued release
-  # publisher. The version race that sharing would have prevented is closed
-  # by the tag-freedom check right before the draft is created instead.
-  group: draft-release
-  # Not cancellable: a run killed mid-refresh could leave the draft deleted.
-  cancel-in-progress: false
-
 permissions:
   contents: write
 
@@ -30,6 +20,19 @@ jobs:
     # draft and replace it with that branch's content.
     if: github.ref == 'refs/heads/master'
     runs-on: [self-hosted, ubuntu-latest]
+    # Concurrency lives on the job, not the workflow: a workflow-level group
+    # is claimed before the `if` above runs, so an off-master dispatch would
+    # enter the group, replace a pending master refresh, and then skip —
+    # leaving the draft stale. A skipped job never joins the group.
+    # The group is deliberately NOT shared with the Release workflow: GitHub
+    # keeps a single pending run per group and a newly queued run replaces it,
+    # so sharing would let a routine master push evict a queued release
+    # publisher. The version race that sharing would have prevented is closed
+    # by the tag-freedom check right before the draft is created instead.
+    # Not cancellable: a run killed mid-refresh could leave the draft deleted.
+    concurrency:
+      group: draft-release
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
         with:
@@ -78,8 +81,16 @@ jobs:
           # would silently reuse the existing tag and pin the draft to the
           # wrong commit — refuse instead. The next master push computes the
           # then-next number and rebuilds the draft.
-          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
+          # --exit-code semantics: 0 = the ref was found, 2 = none matched;
+          # anything else is a transport failure and must not read as free.
+          rc=0
+          git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1 || rc=$?
+          if [ "$rc" -eq 0 ]; then
             echo "::error::tag $VERSION was claimed while this draft was being prepared — a release published concurrently; the next master push rebuilds the draft"
+            exit 1
+          fi
+          if [ "$rc" -ne 2 ]; then
+            echo "::error::git ls-remote failed (exit $rc) — cannot verify the tag is unclaimed"
             exit 1
           fi
 
