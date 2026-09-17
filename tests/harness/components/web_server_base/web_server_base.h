@@ -5,8 +5,10 @@
 // components under test use, with web_server_idf's shapes and dispatch order.
 
 #include "esphome/core/defines.h"
+#include "esphome/core/optional.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -86,6 +88,20 @@ class AsyncWebServerRequest {
     this->response_body = response->body;
     this->response_headers = std::move(response->headers);
     delete response;  // NOLINT(cppcoreguidelines-owning-memory)
+  }
+
+  // Content-Type only: the one header the handlers under test read. HTTP names are
+  // case-insensitive, and upstream's ESP-IDF lookup is too.
+  optional<std::string> get_header(const char *name) const {
+    const std::string wanted(name);
+    if (wanted.size() != sizeof("Content-Type") - 1 ||
+        !std::equal(wanted.begin(), wanted.end(), "Content-Type", [](char a, char b) {
+          return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+        }))
+      return {};
+    if (this->content_type_.empty())
+      return {};
+    return this->content_type_;
   }
 
   const std::string &body() const { return this->body_; }

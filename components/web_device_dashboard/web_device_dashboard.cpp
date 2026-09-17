@@ -2,6 +2,7 @@
 #include <ArduinoJson.h>
 #include "dashboard_index.h"
 #include "esphome/components/json/json_util.h"
+#include "esphome/core/alloc_helpers.h"
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
@@ -196,6 +197,8 @@ static const char *status_line(int code) {
   switch (code) {
     case 413:
       return "413 Payload Too Large";
+    case 415:
+      return "415 Unsupported Media Type";
     case 503:
       return "503 Service Unavailable";
     default:
@@ -478,10 +481,11 @@ void WebDeviceDashboard::handle_auth_get_(AsyncWebServerRequest *request) {
     this->send_error_(request, 503, "Web auth not available");
     return;
   }
-  auto body = json::build_json([auth](JsonObject root) {
-    root["username"] = auth->username();
-    root["password_length"] = auth->password_length();
-    root["is_default"] = auth->is_default();
+  const web_auth::WebAuth::Status status = auth->status();
+  auto body = json::build_json([&status](JsonObject root) {
+    root["username"] = status.username;
+    root["password_length"] = status.password_length;
+    root["is_default"] = status.is_default;
   });
   request->send(200, "application/json", body.c_str());
 }
@@ -490,6 +494,14 @@ void WebDeviceDashboard::handle_auth_get_(AsyncWebServerRequest *request) {
 // so this request still answers under the old one and the browser is asked for the new one on
 // the page's next call.
 void WebDeviceDashboard::handle_auth_set_(AsyncWebServerRequest *request) {
+  // A type no HTML form can send, so no page on another site can aim one here and have the
+  // browser attach the credentials it has cached; the way back from this route is a trip to
+  // the device's display menu.
+  const optional<std::string> content_type = request->get_header("Content-Type");
+  if (!content_type.has_value() || str_lower_case(content_type.value()).find("application/json") == std::string::npos) {
+    this->send_error_(request, 415, "Expected Content-Type: application/json");
+    return;
+  }
   if (this->body_too_large_) {
     this->send_error_(request, 413, "Request body over 4 KiB");
     return;
@@ -517,8 +529,9 @@ void WebDeviceDashboard::handle_auth_set_(AsyncWebServerRequest *request) {
     return;
   }
   // Preferences are written from the loop task; storing them on the server's task would race
-  // the pending-write list it flushes.
-  this->defer([auth, username, password]() { auth->set_credentials(username, password); });
+  // the pending-write list it flushes. Named, so a second POST arriving before the loop runs
+  // replaces the first instead of queueing a second write of the pair the server is reading.
+  this->defer("web-auth", [auth, username, password]() { auth->set_credentials(username, password); });
   this->send_success_(request, "Credentials updated");
 }
 #endif  // USE_WEB_AUTH

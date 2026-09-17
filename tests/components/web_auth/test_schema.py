@@ -10,6 +10,7 @@ from esphome.const import (
     KEY_CORE,
     KEY_TARGET_PLATFORM,
     PLATFORM_ESP32,
+    PLATFORM_ESP8266,
     PLATFORM_HOST,
 )
 from esphome.core import CORE
@@ -79,6 +80,13 @@ class Schema(unittest.TestCase):
     def test_an_unknown_option_is_refused(self):
         with self.assertRaisesRegex(cv.Invalid, "username"):
             web_auth.CONFIG_SCHEMA({"username": "admin"})
+
+    # ESP32 for the devices and host for this suite; the pointers the component replaces are
+    # web_server_base's ESP-IDF ones, and nowhere else keeps the pair that way.
+    def test_another_platform_is_refused(self):
+        CORE.data[KEY_CORE][KEY_TARGET_PLATFORM] = PLATFORM_ESP8266
+        with self.assertRaisesRegex(cv.Invalid, "only available on"):
+            web_auth.CONFIG_SCHEMA({})
 
 
 if __name__ == "__main__":

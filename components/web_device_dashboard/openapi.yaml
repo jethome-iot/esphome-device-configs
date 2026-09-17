@@ -136,6 +136,8 @@ paths:
           $ref: "#/components/responses/NoWebAuth"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/AuthNotReady"
     post:
       tags: [write]
       operationId: setAuth
@@ -147,7 +149,10 @@ paths:
         main loop, so this request still answers under the old one and the next
         request needs the new one; a browser asks for it again on the page's next
         call. A username is at most 32 characters and a password at most 64, both
-        printable ASCII, and a username may not contain `:` or `"`.
+        printable ASCII, and a username may not contain `:`, `"` or `\`. The
+        request must say `Content-Type: application/json`, a type no HTML form
+        can send: that is what keeps a page on another site from steering a
+        browser's cached credentials at this route.
       requestBody:
         required: true
         content:
@@ -156,7 +161,10 @@ paths:
               $ref: "#/components/schemas/AuthUpdate"
       responses:
         "200":
-          description: Stored.
+          description: >-
+            Stored and queued; the pair is applied from the next turn of the
+            device's main loop. A store that fails says so in the device log, not
+            here.
           content:
             application/json:
               schema:
@@ -169,15 +177,15 @@ paths:
             Bad request — a body that is empty, not JSON or not an object
             (`Invalid JSON`); a `username` or `password` that is not a string
             (`'username' and 'password' must be strings`); either one empty, over
-            its length, outside printable ASCII, or a username carrying `:` or
-            `"`.
+            its length, outside printable ASCII, or a username carrying `:`, `"`
+            or `\`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
               example:
                 success: false
-                error: "'username' cannot contain ':' or '\"'"
+                error: "'username' cannot contain ':', '\"' or '\\'"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -193,6 +201,17 @@ paths:
               example:
                 success: false
                 error: Request body over 4 KiB
+        "415":
+          description: "The request did not say `Content-Type: application/json`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: "Expected Content-Type: application/json"
+        "503":
+          $ref: "#/components/responses/AuthNotReady"
 
   /entities:
     get:
@@ -406,6 +425,17 @@ components:
           description: The scheme the firmware was built with.
           schema:
             type: string
+    AuthNotReady:
+      description: >-
+        The `web_auth` did not come up. Codegen creates it before any route is
+        served, so a device does not reach this.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Web auth not available
     NoWebAuth:
       description: >-
         This firmware has no `web_auth`, so the credentials route does not exist;

@@ -14,8 +14,9 @@ WebAuth::WebAuth(web_server_base::WebServerBase *base) : base_(base) { global_we
 enum class Fault { OK, EMPTY, TOO_LONG, NOT_ASCII, RESERVED };
 
 // Both schemes carry the credentials as header text, so anything outside printable ASCII
-// cannot survive the round trip. Basic splits the pair on the first colon and Digest quotes
-// the username, which rules those two characters out of a username.
+// cannot survive the round trip. Basic splits the pair on the first colon; Digest sends the
+// username as a quoted string, which a client escapes and the server reads back raw, so a
+// quote or a backslash would never compare equal again and would lock the device out.
 static Fault check(const std::string &value, size_t max_len, const char *reserved) {
   if (value.empty())
     return Fault::EMPTY;
@@ -31,6 +32,12 @@ static Fault check(const std::string &value, size_t max_len, const char *reserve
 }
 
 void WebAuth::setup() {
+  // Room for the longest pair up front, so no later publish can reallocate a buffer the
+  // server may be reading through the pointers it was handed.
+  for (uint8_t slot = 0; slot < 2; slot++) {
+    this->username_[slot].reserve(USERNAME_MAX);
+    this->password_[slot].reserve(PASSWORD_MAX);
+  }
   this->pref_ = global_preferences->make_preference<StoredCredentials>(this->preference_hash_);
   StoredCredentials stored{};
   // A record of a different size does not load at all, so a build that changed the limits
@@ -55,7 +62,7 @@ void WebAuth::dump_config() {
 }
 
 const char *WebAuth::validate(const std::string &username, const std::string &password) {
-  switch (check(username, USERNAME_MAX, ":\"")) {
+  switch (check(username, USERNAME_MAX, ":\"\\")) {
     case Fault::EMPTY:
       return "'username' is required";
     case Fault::TOO_LONG:
@@ -63,10 +70,12 @@ const char *WebAuth::validate(const std::string &username, const std::string &pa
     case Fault::NOT_ASCII:
       return "'username' must be printable ASCII";
     case Fault::RESERVED:
-      return "'username' cannot contain ':' or '\"'";
+      return "'username' cannot contain ':', '\"' or '\\'";
     case Fault::OK:
       break;
   }
+  // No reserved characters: a password reaches neither header as text — Basic base64s it and
+  // Digest only hashes it.
   switch (check(password, PASSWORD_MAX, "")) {
     case Fault::EMPTY:
       return "'password' is required";
@@ -88,18 +97,26 @@ void WebAuth::set_credentials(const std::string &username, const std::string &pa
   }
 
   // Stored before applied: a write that fails leaves the device serving what it served
-  // before, rather than credentials the next boot would not know about.
+  // before, rather than credentials the next boot would not know about. save() only queues
+  // the record on ESP32 — sync() is what reaches NVS, so it is the call that can fail. It
+  // flushes every component's pending write, so an unrelated failure refuses this change
+  // too; there is no way to tell them apart, and refusing is the safe direction.
   StoredCredentials stored{};
   std::memcpy(stored.username, username.c_str(), username.size());
   std::memcpy(stored.password, password.c_str(), password.size());
-  if (!this->pref_.save(&stored)) {
+  if (!this->pref_.save(&stored) || !global_preferences->sync()) {
     ESP_LOGE(TAG, "Storing the credentials failed; the old ones stay in force");
     return;
   }
-  global_preferences->sync();
 
   this->publish_(username, password);
   ESP_LOGI(TAG, "Credentials changed for user '%s'", this->username().c_str());
+}
+
+WebAuth::Status WebAuth::status() const {
+  const uint8_t slot = this->slot_;
+  return {this->username_[slot], this->password_[slot].size(),
+          this->username_[slot] == this->default_username_ && this->password_[slot] == this->default_password_};
 }
 
 void WebAuth::publish_(const std::string &username, const std::string &password) {

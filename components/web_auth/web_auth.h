@@ -46,6 +46,15 @@ class WebAuth : public Component {
   // keeps its pending writes in a list the loop task flushes, with no lock of its own.
   void set_credentials(const std::string &username, const std::string &password);
 
+  // One consistent view, latched from a single read of the live slot: a route answers from
+  // the server's task while the loop may be publishing a new pair.
+  struct Status {
+    std::string username;
+    size_t password_length;
+    bool is_default;
+  };
+  Status status() const;
+
   const std::string &username() const { return this->username_[this->slot_]; }
   size_t password_length() const { return this->password_[this->slot_].size(); }
   // Still what the firmware was built with — the dashboard says so, and so does the boot log.
@@ -62,8 +71,9 @@ class WebAuth : public Component {
   uint32_t preference_hash_{0};
   const char *default_username_{""};
   const char *default_password_{""};
-  // Double-buffered: the strings the server holds are never the ones being written, so a
-  // request already inside authenticate() reads a pair that stays intact.
+  // Double-buffered: a publish writes the slot the server is not holding, so the request
+  // that may be inside authenticate() keeps reading intact strings. Two are enough while one
+  // publish is pending at a time, which is what the route's named defer keeps true.
   std::string username_[2];
   std::string password_[2];
   uint8_t slot_{0};

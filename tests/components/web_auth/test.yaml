@@ -16,6 +16,10 @@ esphome:
       - -fsanitize=undefined
       - -fno-sanitize-recover=all
       - -fno-omit-frame-pointer
+      # The boot warning about the factory password and the dump_config row exist only in
+      # the log, which the tests read through a listener.
+      - -DUSE_LOG_LISTENERS
+      - -DESPHOME_LOG_MAX_LISTENERS=1
 
 host:
 

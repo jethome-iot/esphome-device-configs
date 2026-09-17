@@ -1,8 +1,9 @@
 # web_device_dashboard
 
 The device's web UI at `/` — overview, the entities and their settings, automations, the
-device log and the file manager — plus the device API it needs under `/api/device/`. The page
-is a Vue app built in [jethome-devices-web-dashboard](https://github.com/jethome-iot/jethome-devices-web-dashboard)
+device log, the file manager and the device settings — plus the device API it needs under
+`/api/device/`. The page is a Vue app built in
+[jethome-devices-web-dashboard](https://github.com/jethome-iot/jethome-devices-web-dashboard)
 and embedded here, gzipped, as `dashboard_index.h`, so a device config needs no Node.js.
 ESP-IDF only.
 
@@ -28,10 +29,10 @@ the identity the firmware read from the CPU board's EEPROM. The handler register
 `web_server_base` ahead of `web_server`'s, so `/` is the dashboard and `web_server`'s own page is
 not reachable; its REST routes, `/events` and its `auth:` stay as they are, and the dashboard uses
 them for entity state and control and for the log. On a firmware with an `auth:` block the page
-and every route here are behind it, so the browser asks for the credentials before the page loads. The Automations and Files screens talk to
-`web_automation_editor` and `web_file_browser` at their default `url_prefix`
-(`/automation-editor`, `/files`), baked into the page at build time; without those components the
-screens have nothing to show.
+and every route here are behind it, so the browser asks for the credentials before the page
+loads. The Automations and Files screens talk to `web_automation_editor` and `web_file_browser`
+at their default `url_prefix` (`/automation-editor`, `/files`), baked into the page at build
+time; without those components the screens have nothing to show.
 
 ## Updating the page
 
@@ -58,7 +59,7 @@ these routes are `404`:
 | Method | Path | |
 |---|---|---|
 | GET | `/api/device/auth` | `{"username", "password_length", "is_default"}` — never the password |
-| POST | `/api/device/auth` | `{"username", "password"}` replaces both. Applied from the main loop, so the call still answers under the old pair |
+| POST | `/api/device/auth` | `{"username", "password"}` replaces both; needs `Content-Type: application/json`, which no HTML form can send. Applied from the main loop, so the call still answers under the old pair |
 
 With a `config_json` store (`entity_config`'s `switch` and `binary_sensor` types), the entity
 settings too; without one these routes are `404`:

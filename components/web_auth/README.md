@@ -30,7 +30,7 @@ ESP32 the block must also say `type: digest`.
 A new pair applies to the next request: no restart, and the request that sets it still answers.
 The browser asks for the new credentials as soon as the page makes its next call. A username is
 up to 32 characters and a password up to 64, both printable ASCII, and a username may not
-contain `:` or `"`.
+contain `:`, `"` or `\`.
 
 Everything the shared web server carries is behind the same credentials — the dashboard, the
 file manager, the automation editor and `web_server`'s own REST API and `/events`. The ESPHome
