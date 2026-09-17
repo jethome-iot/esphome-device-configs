@@ -255,13 +255,43 @@ jobs:
           path: |
             ~/.platformio
             ~/.cache/esphome
+            !~/.cache/esphome/platformio-ccache
           key: toolchains-${{ hashFiles('requirements.txt') }}
           restore-keys: toolchains-
+
+      # Same rolling ccache as the CI build job; the prefix keys on the config
+      # path, so release builds share the entries CI warmed.
+      - name: Restore ccache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/esphome/platformio-ccache
+          key: ccache-${{ matrix.config }}--${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ccache-${{ matrix.config }}--
+
+      - name: Install ccache
+        run: |
+          sudo apt-get install -y --no-install-recommends ccache \
+            || { sudo apt-get update \
+                 && sudo apt-get install -y --no-install-recommends ccache; }
 
       # The version reaches the firmware through its `version` substitution, so
       # no config file is touched at build time.
       - name: Compile
-        run: esphome -s version "$FW_VERSION" compile "${{ matrix.config }}"
+        env:
+          # Content check: the toolchain comes from the cache at a stable path.
+          CCACHE_COMPILERCHECK: content
+        run: |
+          ccache --zero-stats > /dev/null
+          esphome -s version "$FW_VERSION" compile "${{ matrix.config }}"
+          ccache --show-stats
+
+      - name: Save ccache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/esphome/platformio-ccache
+          key: ccache-${{ matrix.config }}--${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Stage firmware images
         run: |

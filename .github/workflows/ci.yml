@@ -112,6 +112,7 @@ jobs:
           path: |
             ~/.platformio
             ~/.cache/esphome
+            !~/.cache/esphome/platformio-ccache
           key: toolchains-${{ hashFiles('requirements.txt') }}
           restore-keys: toolchains-
 
@@ -122,11 +123,47 @@ jobs:
           path: |
             ~/.platformio
             ~/.cache/esphome
+            !~/.cache/esphome/platformio-ccache
           key: toolchains-${{ hashFiles('requirements.txt') }}
           restore-keys: toolchains-
 
+      # esphome turns ccache on by itself when the binary is on PATH — this
+      # job only installs it, rolls its storage, and reports the stats. The
+      # cache rolls because actions/cache keys are immutable: restore the
+      # freshest entry for this firmware by prefix, save under a per-run key.
+      # Entries are ~50 MB, so a save per run is cheap and the quota's LRU
+      # keeps the prefix bounded. Saved even on failure — a retry starts warm.
+      - name: Restore ccache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/esphome/platformio-ccache
+          key: ccache-${{ matrix.config }}--${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ccache-${{ matrix.config }}--
+
+      - name: Install ccache
+        run: |
+          sudo apt-get install -y --no-install-recommends ccache \
+            || { sudo apt-get update \
+                 && sudo apt-get install -y --no-install-recommends ccache; }
+
       - name: Compile
-        run: esphome compile "${{ matrix.config }}"
+        env:
+          # The toolchain arrives from the cache at a stable path; verifying
+          # the compiler by content keeps restored entries from misfiring as
+          # misses after a restore-key fallback.
+          CCACHE_COMPILERCHECK: content
+        run: |
+          ccache --zero-stats > /dev/null
+          esphome compile "${{ matrix.config }}"
+          ccache --show-stats
+
+      - name: Save ccache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/esphome/platformio-ccache
+          key: ccache-${{ matrix.config }}--${{ github.run_id }}-${{ github.run_attempt }}
 
   dist:
     name: Check dist/ is current
