@@ -144,9 +144,9 @@ jobs:
             ccache-${{ matrix.config }}--
 
       - name: Ensure ccache
-        # The runner image is its own thing — probe first, install only when
-        # the binary is genuinely missing (and the image's own version, if
-        # present, always wins).
+        # Workflows rely only on the stock GitHub-hosted runner baseline;
+        # the image may add tools but never subtract. Probe first — the
+        # image's own version, when present, always wins over the distro's.
         run: |
           if command -v ccache >/dev/null 2>&1; then
             echo "ccache already on PATH: $(ccache --version | head -1)"
