@@ -1,5 +1,6 @@
 """The component's YAML schema: the web_server block it cannot work without."""
 
+import re
 import unittest
 from pathlib import Path
 
@@ -67,6 +68,30 @@ class FinalValidate(unittest.TestCase):
     def test_basic_auth_is_accepted_on_esp32(self):
         CORE.data[KEY_CORE][KEY_TARGET_PLATFORM] = PLATFORM_ESP32
         self.validate(BASIC)
+
+    # The compiled pair never goes through WebAuth::validate: it is published at boot and it
+    # is what a factory reset restores, so a pair the device would refuse locks it for good.
+    def test_a_factory_pair_the_component_would_refuse_is_caught_here(self):
+        for field, value, fault in (
+            ("username", "u" * 33, "is over 32 characters"),
+            ("password", "p" * 65, "is over 64 characters"),
+            ("username", "админ", "must be printable ASCII"),
+            ("password", "pass\tword", "must be printable ASCII"),
+            ("username", 'adm"in', "cannot contain ':', '\"' or '\\'"),
+            ("username", "adm:in", "cannot contain ':', '\"' or '\\'"),
+            ("username", "adm\\in", "cannot contain ':', '\"' or '\\'"),
+        ):
+            with self.subTest(field=field, value=value):
+                config = {"web_server": {"auth": dict(DIGEST["web_server"]["auth"])}}
+                config["web_server"]["auth"][field] = value
+                with self.assertRaisesRegex(cv.Invalid, re.escape(f"{field} {fault}")):
+                    self.validate(config)
+
+    # A password carries none of the reserved characters into a header, so it may hold them.
+    def test_a_factory_password_may_carry_the_reserved_characters(self):
+        config = {"web_server": {"auth": dict(DIGEST["web_server"]["auth"])}}
+        config["web_server"]["auth"]["password"] = 'pa:ss"w\\ord'
+        self.validate(config)
 
 
 class Schema(unittest.TestCase):

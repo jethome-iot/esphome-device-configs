@@ -23,6 +23,13 @@ DEPENDENCIES = ["web_server_base", "web_server"]
 
 AUTH_TYPE_DIGEST = "digest"
 
+# WebAuth::validate's limits, so a build cannot ship a factory pair the running device would
+# refuse to take back — one a Digest client could never match leaves no way in at all, since a
+# factory reset restores that same pair.
+USERNAME_MAX = 32
+PASSWORD_MAX = 64
+USERNAME_RESERVED = ':"\\'
+
 web_auth_ns = cg.esphome_ns.namespace("web_auth")
 WebAuth = web_auth_ns.class_("WebAuth", cg.Component)
 
@@ -39,6 +46,18 @@ CONFIG_SCHEMA = cv.All(
 )
 
 
+def _fault(value, max_len, reserved):
+    """Why the component would refuse this field at runtime, or None. In its order."""
+    if len(value) > max_len:
+        return f"is over {max_len} characters"
+    if any(c < " " or c > "~" for c in value):
+        return "must be printable ASCII"
+    if any(c in reserved for c in value):
+        listed = ", ".join(f"'{c}'" for c in reserved[:-1])
+        return f"cannot contain {listed} or '{reserved[-1]}'"
+    return None
+
+
 def _final_validate(config):
     auth = (fv.full_config.get().get(CONF_WEB_SERVER) or {}).get(CONF_AUTH)
     if auth is None:
@@ -53,6 +72,15 @@ def _final_validate(config):
             "there checks a hash computed at build time, which no runtime credential "
             "can replace"
         )
+    for field, max_len, reserved in (
+        (CONF_USERNAME, USERNAME_MAX, USERNAME_RESERVED),
+        (CONF_PASSWORD, PASSWORD_MAX, ""),
+    ):
+        if (fault := _fault(auth[field], max_len, reserved)) is not None:
+            raise cv.Invalid(
+                f"web_server's 'auth:' {field} {fault}: web_auth serves that pair as the "
+                "factory default and a device has no other way back to it"
+            )
     return config
 
 
