@@ -470,6 +470,17 @@ jobs:
             # annotated tag is what a retry resolves to, and gh release
             # create happily reuses a tag that already exists.
             record_version_tag
+            # Drafts reserve no git tag, so a dispatch allocates the same
+            # number the rolling draft carries. Shipping into an unpublished
+            # draft would leave the server live while the GitHub release
+            # stays private — delete the workflow-owned draft and publish a
+            # real release instead.
+            IS_DRAFT=$(gh release view "$TAG" --repo "$REPO" \
+              --json isDraft --jq .isDraft 2>/dev/null || true)
+            if [ "$IS_DRAFT" = "true" ]; then
+              echo "Deleting the release draft holding $TAG"
+              gh release delete "$TAG" --repo "$REPO" --yes
+            fi
             NOTES="ESPHome $ESPHOME firmware $FW_VERSION, built from $SHA."
             PRERELEASE_FLAG=""
             if [ "$CHANNEL" = "nightly" ]; then PRERELEASE_FLAG="--prerelease"; fi

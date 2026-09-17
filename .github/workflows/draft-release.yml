@@ -21,6 +21,9 @@ permissions:
 jobs:
   draft:
     name: Refresh the release draft
+    # Master only: a dispatch from another branch must not delete the master
+    # draft and replace it with that branch's content.
+    if: github.ref == 'refs/heads/master'
     runs-on: [self-hosted, ubuntu-latest]
     steps:
       - uses: actions/checkout@v7
@@ -52,11 +55,17 @@ jobs:
           # One rolling draft: stale drafts (any other tag) are deleted, and
           # the draft for this version is recreated so the generated notes
           # cover the latest master. Manual edits to the draft are overwritten
-          # by design — the draft is workflow-owned.
+          # by design — the draft is workflow-owned. Each release is re-checked
+          # as a draft right before deletion: one published in the race window
+          # between the listing and this loop must not be deleted.
           while read -r tag; do
-            echo "Deleting stale release draft $tag"
-            gh release delete "$tag" --repo "$REPO" --yes
-          done < <(gh api "repos/$REPO/releases?per_page=100" \
+            IS_DRAFT=$(gh release view "$tag" --repo "$REPO" \
+              --json isDraft --jq .isDraft 2>/dev/null || true)
+            if [ "$IS_DRAFT" = "true" ]; then
+              echo "Deleting stale release draft $tag"
+              gh release delete "$tag" --repo "$REPO" --yes
+            fi
+          done < <(gh api --paginate "repos/$REPO/releases" \
             --jq '.[] | select(.draft) | .tag_name')
 
           gh release create "$VERSION" --repo "$REPO" --draft \

@@ -79,6 +79,10 @@ auto-generated notes. The draft is workflow-owned: manual edits to its notes
 are overwritten by the next refresh. Publishing the draft creates the tag,
 which is all the Release workflow needs to build and ship.
 
+A manual `channel: release` dispatch that lands while the draft holds the
+same number deletes that draft and publishes a real release itself — the
+server is never fed from an unpublished draft.
+
 ## What lands where
 
 **GitHub release assets** — every built firmware, both images:
