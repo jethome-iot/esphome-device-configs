@@ -9,6 +9,7 @@ involved.
 ./scripts/qemu.sh run jxd-r6-e1eth-lcd --daemon --wait-http 240
 # → http://127.0.0.1:8080          the dashboard, with web_server's REST and /events
 # → http://127.0.0.1:8080/panel    the 128x64 screen and its joystick
+# both ask for the web server's credentials: admin / admin on a freshly built image
 ./scripts/qemu.sh stop                              # when you are done
 ```
 
@@ -133,6 +134,7 @@ served over HTTP instead of pushed at a chip, with keys injected into the binary
 joystick drives, so every `on_press` fires exactly as on the device.
 
 ```bash
+A='--digest -u admin:admin'
 curl -s $A http://127.0.0.1:8080/panel/info                # {"width":128,"height":64,"keys":[...]}
 curl -s $A http://127.0.0.1:8080/panel/frame -o frame.bin  # 1024 bytes, 1bpp
 curl -sX POST -d "" $A http://127.0.0.1:8080/panel/key/down   # ?action=down|up to hold and release

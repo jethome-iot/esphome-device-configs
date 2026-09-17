@@ -5,7 +5,7 @@ Inspects and edits a device's LittleFS user partition without a browser: list,
 tree, cat, get/put (recursive with -r), write, rm, mkdir, mv, cp, edit and an
 interactive shell. Standard library only.
 
-    scripts/device-files.py --host 192.168.1.50 ls -l /
+    scripts/device-files.py --host 192.168.1.50 -u admin:admin ls -l /
     DEVICE_HOST=192.168.1.50 scripts/device-files.py put -r ./www /www
     DEVICE_HOST=192.168.1.50 scripts/device-files.py shell
 """
@@ -13,9 +13,11 @@ interactive shell. Standard library only.
 from __future__ import annotations
 
 import argparse
+import base64
 import cmd
 from collections.abc import Iterator
 from datetime import datetime
+import hashlib
 import http.client
 import json
 import mimetypes
@@ -30,6 +32,7 @@ from urllib.parse import quote, urlencode
 import uuid
 
 HOST_ENV = "DEVICE_HOST"
+USER_ENV = "DEVICE_USER"
 
 
 class DeviceError(Exception):
@@ -79,14 +82,78 @@ def parse_json(raw: bytes) -> object:
 # --- HTTP client -------------------------------------------------------------
 
 
+def parse_challenge(header: str) -> dict[str, str]:
+    """The comma-separated parameters of a WWW-Authenticate header, unquoted."""
+    scheme, _, rest = header.partition(" ")
+    out = {"scheme": scheme.lower()}
+    for part in rest.split(","):
+        name, _, value = part.strip().partition("=")
+        if name:
+            out[name.strip().lower()] = value.strip().strip('"')
+    return out
+
+
+class Credentials:
+    """Answers a 401 the way the device's web server asks — Digest or Basic.
+
+    Both schemes are stateless here: the challenge is kept so later requests carry an
+    Authorization header from the start instead of costing a round trip each.
+    """
+
+    def __init__(self, username: str, password: str) -> None:
+        self.username = username
+        self.password = password
+        self.challenge: dict[str, str] | None = None
+        self.nonce_count = 0
+
+    def header(self, method: str, target: str) -> str | None:
+        c = self.challenge
+        if c is None:
+            return None
+        if c["scheme"] == "basic":
+            token = base64.b64encode(
+                f"{self.username}:{self.password}".encode()
+            ).decode()
+            return f"Basic {token}"
+        md5 = lambda text: hashlib.md5(text.encode()).hexdigest()  # noqa: E731
+        realm, nonce, qop = c.get("realm", ""), c.get("nonce", ""), c.get("qop", "auth")
+        self.nonce_count += 1
+        nc = f"{self.nonce_count:08x}"
+        cnonce = uuid.uuid4().hex[:16]
+        ha1 = md5(f"{self.username}:{realm}:{self.password}")
+        ha2 = md5(f"{method}:{target}")
+        response = md5(f"{ha1}:{nonce}:{nc}:{cnonce}:{qop}:{ha2}")
+        fields = [
+            f'username="{self.username}"',
+            f'realm="{realm}"',
+            f'nonce="{nonce}"',
+            f'uri="{target}"',
+            f"qop={qop}",
+            f"nc={nc}",
+            f'cnonce="{cnonce}"',
+            f'response="{response}"',
+        ]
+        if "opaque" in c:
+            fields.append(f'opaque="{c["opaque"]}"')
+        return "Digest " + ", ".join(fields)
+
+
 class Device:
     """Client for the routes under <prefix>, one connection per request."""
 
-    def __init__(self, host: str, port: int, prefix: str, timeout: float) -> None:
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        prefix: str,
+        timeout: float,
+        credentials: Credentials | None = None,
+    ) -> None:
         self.host = host
         self.port = port
         self.prefix = "/" + prefix.strip("/")
         self.timeout = timeout
+        self.credentials = credentials
 
     def _open(
         self,
@@ -104,6 +171,31 @@ class Device:
         headers = {"Connection": "close"}
         if content_type:
             headers["Content-Type"] = content_type
+        res = self._send(method, target, body, headers)
+        # The first request of a session meets the challenge; answer it and retry once. Every
+        # body here is bytes already in hand, so replaying one costs nothing.
+        if (
+            res.status == 401
+            and self.credentials is not None
+            and (header := res.getheader("WWW-Authenticate"))
+        ):
+            res.read()
+            self.credentials.challenge = parse_challenge(header)
+            res = self._send(method, target, body, headers)
+        return res
+
+    def _send(
+        self,
+        method: str,
+        target: str,
+        body: bytes | None,
+        headers: dict[str, str],
+    ) -> http.client.HTTPResponse:
+        headers = dict(headers)
+        if self.credentials is not None:
+            authorization = self.credentials.header(method, target)
+            if authorization:
+                headers["Authorization"] = authorization
         conn = http.client.HTTPConnection(self.host, self.port, timeout=self.timeout)
         try:
             conn.request(method, target, body, headers)
@@ -568,6 +660,16 @@ def build_commands(shell: bool) -> argparse.ArgumentParser:
         parser.add_argument(
             "--timeout", type=float, default=30, help="seconds per request (default 30)"
         )
+        parser.add_argument(
+            "-u",
+            "--user",
+            default=os.environ.get(USER_ENV),
+            metavar="USER:PASSWORD",
+            help=(
+                "credentials for a device whose web_server has an auth: block; "
+                f"also ${USER_ENV}"
+            ),
+        )
     sub = parser.add_subparsers(dest="command", metavar="command", required=True)
 
     p = sub.add_parser("info", help="capacity and usage")
@@ -643,7 +745,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if not args.host:
         parser.error(f"--host or ${HOST_ENV} is required")
-    dev = Device(args.host, args.port, args.prefix, args.timeout)
+    credentials = None
+    if args.user:
+        username, _, password = args.user.partition(":")
+        credentials = Credentials(username, password)
+    dev = Device(args.host, args.port, args.prefix, args.timeout, credentials)
     try:
         args.func(dev, args, "/")
     except BrokenPipeError:

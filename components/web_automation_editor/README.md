@@ -72,12 +72,16 @@ rule has (`get`, `delete`, and a `save` carrying one), `405` for the wrong metho
 oversized body. The same contract,
 machine-readable: [openapi.yaml](openapi.yaml) (OpenAPI 3.1).
 
+A firmware with an `auth:` block wants the credentials on every one of these; `--digest -u`
+covers what the configs in this repository build.
+
 ```sh
-curl 'http://<device>/automation-editor/api/list'
-curl -X POST 'http://<device>/automation-editor/api/save' -H 'Content-Type: application/json' \
+A='--digest -u admin:admin'
+curl $A 'http://<device>/automation-editor/api/list'
+curl -X POST $A 'http://<device>/automation-editor/api/save' -H 'Content-Type: application/json' \
   --data-binary @porch-light.json
-curl -X POST 'http://<device>/automation-editor/api/delete?id=3' -d ''
-curl 'http://<device>/automation-editor/api/export' > automations.json
+curl -X POST $A 'http://<device>/automation-editor/api/delete?id=3' -d ''
+curl $A 'http://<device>/automation-editor/api/export' > automations.json
 ```
 
 A POST without a body needs `-d ''`: `curl` then sends the `Content-Length: 0` that
