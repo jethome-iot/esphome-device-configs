@@ -70,4 +70,8 @@ mirror. Nothing in this repository builds or type-checks them.
 
 ## Tests
 
-None: everything here sits on `web_server_base`, which exists only on ESP-IDF.
+`tests/components/web_device_dashboard/` drives the handler on the host through the
+`web_server_base` stand-in: the URLs it claims, the route table and its method matrix, the body
+accumulation and its 4 KiB cap, and the JSON every route answers with. Out of reach there is the
+ESP-IDF half — the `Allow` header, URL decoding, the reset reason and the IP lookups, the eFuse
+block, and a live WiFi or Ethernet link.

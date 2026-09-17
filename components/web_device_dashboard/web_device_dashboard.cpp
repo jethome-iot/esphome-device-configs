@@ -571,8 +571,9 @@ void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *requ
   keeper->save(type);
   ESP_LOGI(TAG, "Entity settings updated for type '%s'", type);
   this->send_success_(request, "Settings updated");
-  // Entities are driven from the loop task, not the server's.
-  this->defer([settings, record]() { settings->apply_record(record); });
+  // Entities are driven from the loop task, not the server's. The whole type is applied
+  // rather than this record: a delete arriving first would free the record under the defer.
+  this->defer([settings]() { settings->apply(); });
 }
 
 // GET /api/device/entity-settings-meta: the form fields per settings type.
