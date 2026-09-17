@@ -14,10 +14,6 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
-      # dev is the working branch; only the release branch is protected.
-      - id: no-commit-to-branch
-        args:
-          - --branch=master
       # Generated files are the generators' business; the BDF fonts are upstream.
       - id: end-of-file-fixer
         exclude: ^(dist/|assets/)

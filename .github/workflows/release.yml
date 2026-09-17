@@ -97,12 +97,10 @@ jobs:
           set -euo pipefail
 
           # Everything the repo builds with is decided by this pin; the
-          # firmware version is derived from it.
-          ESPHOME=$(sed -n 's/^esphome==\([0-9][0-9.]*\)$/\1/p' requirements.txt)
-          if [ -z "$ESPHOME" ]; then
-            echo "::error::cannot parse the esphome pin from requirements.txt"
-            exit 1
-          fi
+          # firmware version is derived from it. release-version.py is the
+          # single implementation — the draft-release workflow computes the
+          # same number through it.
+          ESPHOME=$(python scripts/release-version.py --pin)
           ESPESC=$(printf '%s' "$ESPHOME" | sed 's/\./\\./g')
 
           git fetch --quiet --force origin 'refs/tags/*:refs/tags/*'
@@ -167,8 +165,7 @@ jobs:
               VERSION=$(version_of_this_run "${ESPHOME}.*" "^${ESPESC}\.[0-9]+$"); then
               : # a retry of this run: the previous attempt's version stands
             else
-              LATEST=$(next_of "${ESPHOME}.*" "^${ESPESC}\.[0-9]+$" -1)
-              VERSION="${ESPHOME}.$((LATEST + 1))"
+              VERSION=$(git tag --list | python scripts/release-version.py)
             fi
           else
             # Nightly: <esphome>.<YYYYMMDD>.<attempt>, attempt auto-increments
@@ -473,6 +470,28 @@ jobs:
             # annotated tag is what a retry resolves to, and gh release
             # create happily reuses a tag that already exists.
             record_version_tag
+            # Drafts reserve no git tag, so a dispatch allocates the same
+            # number the rolling draft carries. Shipping into an unpublished
+            # draft would leave the server live while the GitHub release
+            # stays private — delete the workflow-owned draft and publish a
+            # real release instead. The API status line separates 404 (no
+            # release yet — the normal dispatch path) from transport
+            # failures, which abort instead of guessing.
+            RESP=$(gh api -i "repos/$REPO/releases/tags/$TAG" 2>/dev/null || true)
+            CODE=$(printf '%s\n' "$RESP" | sed -n '1s|^HTTP[^ ]* \([0-9][0-9][0-9]\).*|\1|p')
+            case "$CODE" in
+              200)
+                if printf '%s\n' "$RESP" | tr -d '\r' | awk 'f{print} /^$/{f=1}' | jq -e .draft >/dev/null; then
+                  echo "Deleting the release draft holding $TAG"
+                  gh release delete "$TAG" --repo "$REPO" --yes
+                fi
+                ;;
+              404) : ;; # no release yet — created below
+              *)
+                echo "::error::cannot inspect release $TAG (HTTP ${CODE:-none}) — refusing to touch the draft"
+                exit 1
+                ;;
+            esac
             NOTES="ESPHome $ESPHOME firmware $FW_VERSION, built from $SHA."
             PRERELEASE_FLAG=""
             if [ "$CHANNEL" = "nightly" ]; then PRERELEASE_FLAG="--prerelease"; fi

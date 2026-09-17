@@ -43,14 +43,19 @@ the firmware.
 
 ## Before pushing
 
-The Build workflow is these four; run them locally:
+The Build workflow is these; run them locally:
 
-1. `esphome compile` for every config in `firmwares.yaml`
-2. `python tests/run.py`
-3. `python scripts/build-dist.py --check`
-4. `pre-commit run --all-files`
+1. `esphome config` for every config in `firmwares.yaml` — the fast schema gate CI runs as the
+   `Validate` jobs; `esphome compile` subsumes it locally (a config that compiles validates)
+2. `esphome compile` for every config in `firmwares.yaml`
+3. `python tests/run.py`
+4. `python scripts/build-dist.py --check`
+5. `pre-commit run --all-files`
 
 The tests need no ESP toolchain. What they cover and how to add one: [TESTING.md](TESTING.md).
+
+CI aggregates everything into the single `ci-ok` check, which is what branch protection
+requires.
 
 ## Generated files
 
@@ -82,8 +87,8 @@ upstream's: a bump can change either the style config or the version it formats 
 
 `dev` is the default branch: pull requests target it, and Build runs on every push to it.
 `master` is the release branch — `dashboard_import` and the asset URLs in `dist/` point at
-`@master`, so it moves only when `dev` is merged into it for a release. The
-`no-commit-to-branch` hook keeps commits off `master`.
+`@master`, so it moves only when `dev` is merged into it for a release. Branch rules keep
+direct commits off both `dev` and `master`: everything lands through pull requests.
 
 ## Style
 

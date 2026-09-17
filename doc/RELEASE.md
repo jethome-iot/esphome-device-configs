@@ -6,9 +6,10 @@ How firmware gets built, versioned and published, and what runs where.
 
 | Workflow | When | What it does |
 | --- | --- | --- |
-| Build (`build.yml`) | push to `dev` or `master`, every PR, manual | Discovers firmwares in `firmwares.yaml`, compiles each with the pinned ESPHome, verifies `dist/` is current, runs lint |
+| Build (`build.yml`) | push to `dev` or `master`, every PR, manual | Discovers firmwares in `firmwares.yaml`, validates then compiles each with the pinned ESPHome, runs the component tests, verifies `dist/` is current, runs lint; `ci-ok` aggregates the lot into the one check branch protection requires |
 | Release (`release.yml`) | a release is published (incl. prerelease), manual dispatch | Compiles every firmware, attaches binaries to the GitHub release, uploads the `upload: true` ones to fw.jethome.com |
 | ESPHome release check (`esphome-release-check.yml`) | weekly, manual | On a new upstream ESPHome release: compiles every firmware with it and opens an issue with the results — the go/no-go for the dependabot bump |
+| Draft release (`draft-release.yml`) | push to `master`, manual | Refreshes the rolling draft release tagged with the next version — publish it to build and ship |
 | Dependabot | weekly | PRs bumping workflow actions and the pinned files in `requirements.txt` / `requirements-dev.txt`; an esphome bump PR is build-tested by Build |
 
 ## The firmware list: `firmwares.yaml`
@@ -51,19 +52,36 @@ at build time.
 1. Make sure `requirements.txt` pins the esphome version you want to ship
    (dependabot opens the bump PR, Build CI test-builds it — just merge).
 2. Merge `dev` into `master`: released firmware, `dashboard_import` and the
-   asset URLs in `dist/` all come from `master`.
-3. Go to **Actions → Release → Run workflow**:
-   - first with `dry_run` on: builds everything, uploads artifacts, touches
-     nothing;
-   - then with `dry_run` off and `channel: release` (the dispatch default is
-     `nightly` — the safe side: it never moves the release channel's `latest`
-     pointer): the workflow computes the version, creates the GitHub release,
-     attaches all binaries, and uploads the `upload: true` firmwares to the
-     server.
-4. Alternatively, create the release on GitHub yourself. A full release tag
-   must be `<esphome>` (workflow picks the next subversion) or
-   `<esphome>.<sub>` — the esphome part must match the `requirements.txt`
-   pin, otherwise the run fails.
+   asset URLs in `dist/` all come from `master`. The push refreshes the
+   rolling draft release (below) tagged with the next version.
+3. Open the draft release on GitHub and press **Publish release**. The tag
+   triggers the Release workflow: every firmware is built, the binaries land
+   on the release as assets, and the `upload: true` ones ship to
+   fw.jethome.com.
+4. No draft at hand, or need a rebuild of the same content? **Actions →
+   Release → Run workflow**:
+   - `dry_run` on: builds everything, uploads artifacts, touches nothing;
+   - `dry_run` off and `channel: release` (the dispatch default is `nightly`
+     — the safe side: it never moves the release channel's `latest` pointer):
+     the workflow computes the version, creates the GitHub release, attaches
+     all binaries, and uploads the `upload: true` firmwares to the server.
+5. A full release tag must be `<esphome>` (workflow picks the next
+   subversion) or `<esphome>.<sub>` — the esphome part must match the
+   `requirements.txt` pin, otherwise the run fails.
+
+## Draft releases
+
+`draft-release.yml` keeps exactly one rolling draft on master: every push to
+`master` deletes the stale draft (if any) and creates a fresh one, tagged
+with the next release version (`scripts/release-version.py` — the same
+computation the Release workflow's resolve step uses) and carrying
+auto-generated notes. The draft is workflow-owned: manual edits to its notes
+are overwritten by the next refresh. Publishing the draft creates the tag,
+which is all the Release workflow needs to build and ship.
+
+A manual `channel: release` dispatch that lands while the draft holds the
+same number deletes that draft and publishes a real release itself — the
+server is never fed from an unpublished draft.
 
 ## What lands where
 
