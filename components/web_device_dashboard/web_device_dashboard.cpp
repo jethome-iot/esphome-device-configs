@@ -6,6 +6,7 @@
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
+#include "esphome/core/preferences.h"
 #include "esphome/core/version.h"
 #ifdef USE_NETWORK
 #include "esphome/components/network/util.h"
@@ -33,6 +34,7 @@
 #endif
 #ifdef USE_ESP32
 #include <esp_netif.h>
+#include <esp_ota_ops.h>
 #include <esp_system.h>
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
 #include <esp_efuse.h>
@@ -47,6 +49,8 @@ static const char *const API_PREFIX = "/api/device/";
 static const size_t API_PREFIX_LEN = 12;
 // A settings record is a few hundred bytes; nothing this API takes comes close.
 static const size_t MAX_BODY_BYTES = 4096;
+// The tail of the pretty MAC a confirmation has to carry: "DD:EE:FF", three octets.
+static const size_t CONFIRM_TOKEN_LEN = 8;
 
 // clang-format off
 static const Route ROUTES[] = {
@@ -56,6 +60,10 @@ static const Route ROUTES[] = {
 #ifdef USE_WEB_AUTH
     {"auth", RouteId::AUTH, true, true},
 #endif
+    {"capabilities", RouteId::CAPABILITIES, true, false},
+    {"system/reboot", RouteId::SYSTEM_REBOOT, false, true},
+    {"system/factory-reset", RouteId::SYSTEM_FACTORY_RESET, false, true},
+    {"system/rollback", RouteId::SYSTEM_ROLLBACK, false, true},
 #ifdef USE_CONFIG_JSON
     {"entities", RouteId::ENTITIES, true, false},
     {"entity-settings", RouteId::ENTITY_SETTINGS, true, true},
@@ -153,6 +161,18 @@ void WebDeviceDashboard::handleRequest(AsyncWebServerRequest *request) {
         }
         break;
 #endif
+      case RouteId::CAPABILITIES:
+        this->handle_capabilities_(request);
+        break;
+      case RouteId::SYSTEM_REBOOT:
+        this->handle_reboot_(request);
+        break;
+      case RouteId::SYSTEM_FACTORY_RESET:
+        this->handle_factory_reset_(request);
+        break;
+      case RouteId::SYSTEM_ROLLBACK:
+        this->handle_rollback_(request);
+        break;
 #ifdef USE_CONFIG_JSON
       case RouteId::ENTITIES:
         this->handle_entities_(request);
@@ -195,6 +215,8 @@ bool WebDeviceDashboard::check_method_(AsyncWebServerRequest *request, const Rou
 // does not know are written out by hand, at the price of the server's default headers.
 static const char *status_line(int code) {
   switch (code) {
+    case 403:
+      return "403 Forbidden";
     case 413:
       return "413 Payload Too Large";
     case 415:
@@ -548,6 +570,194 @@ void WebDeviceDashboard::handle_auth_set_(AsyncWebServerRequest *request) {
   this->send_success_(request, "Credentials updated");
 }
 #endif  // USE_WEB_AUTH
+
+// GET /api/device/capabilities: what this firmware has, so the page knows which screens to
+// draw and which routes exist. A key is present only when the capability is; one that has no
+// detail to carry is `true`.
+void WebDeviceDashboard::handle_capabilities_(AsyncWebServerRequest *request) {
+  auto body = json::build_json([this](JsonObject root) {
+    root["reboot"] = true;
+    JsonObject factory_reset = root["factory_reset"].to<JsonObject>();
+    factory_reset["clears_storage"] = false;
+#ifdef USE_WEB_DEVICE_DASHBOARD_STORAGE
+    if (this->storage_ != nullptr) {
+      factory_reset["clears_storage"] = true;
+      JsonObject storage = root["storage"].to<JsonObject>();
+      storage["type"] = this->storage_->get_filesystem_type();
+      storage["base_path"] = this->storage_->get_base_path();
+      storage["mounted"] = this->storage_->is_mounted();
+      const auto info = this->storage_->get_storage_info();
+      if (info.valid) {
+        storage["total_bytes"] = info.total_bytes;
+        storage["used_bytes"] = info.used_bytes;
+        storage["free_bytes"] = info.free_bytes;
+      }
+    }
+#endif
+    const RollbackTarget target = this->rollback_target_();
+    if (target.available()) {
+      JsonObject rollback = root["rollback"].to<JsonObject>();
+      rollback["partition"] = target.partition;
+      if (!target.version.empty())
+        rollback["version"] = target.version;
+      if (!target.project_name.empty())
+        rollback["project_name"] = target.project_name;
+    }
+    if (this->files_url_prefix_ != nullptr) {
+      JsonObject files = root["files"].to<JsonObject>();
+      files["url_prefix"] = this->files_url_prefix_;
+    }
+    if (this->automations_url_prefix_ != nullptr) {
+      JsonObject automations = root["automations"].to<JsonObject>();
+      automations["url_prefix"] = this->automations_url_prefix_;
+    }
+#ifdef USE_CONFIG_JSON
+    auto *keeper = config_json::global_config_json_keeper;
+    if (keeper != nullptr) {
+      JsonObject entity_settings = root["entity_settings"].to<JsonObject>();
+      JsonArray types = entity_settings["types"].to<JsonArray>();
+      for (auto *settings : keeper->settings())
+        types.add(settings->get_key());
+    }
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
+    root["board_info"] = true;
+#endif
+  });
+  request->send(200, "application/json", body.c_str());
+}
+
+// A stray POST is one page load away, and all three system routes are one-way. The token is
+// the tail of base_mac_address, so confirming means having read /api/device/info of this
+// device rather than having followed a link. Not the active MAC: on a build with Ethernet
+// that is a different one, and the answer names which is meant.
+bool WebDeviceDashboard::check_confirm_(AsyncWebServerRequest *request) {
+  if (this->body_too_large_) {
+    this->send_error_(request, 413, "Request body over 4 KiB");
+    return false;
+  }
+  JsonDocument doc = json::parse_json(this->body_);
+  if (doc.isNull() || !doc.is<JsonObject>()) {
+    this->send_error_(request, 400, "Invalid JSON");
+    return false;
+  }
+  if (!(doc["confirm"] | false)) {
+    this->send_error_(request, 400, "'confirm' must be true");
+    return false;
+  }
+  char buf[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+  const std::string mac = get_mac_address_pretty_into_buffer(buf);
+  const std::string expected = mac.substr(mac.size() - CONFIRM_TOKEN_LEN);
+  const char *token = doc["confirm_token"];
+  if (token == nullptr || !str_equals_case_insensitive(token, expected)) {
+    ESP_LOGW(TAG, "Refusing a system action: wrong confirm_token");
+    this->send_error_(request, 403, "'confirm_token' must be the last three octets of base_mac_address");
+    return false;
+  }
+  return true;
+}
+
+// POST /api/device/system/reboot
+void WebDeviceDashboard::handle_reboot_(AsyncWebServerRequest *request) {
+  if (!this->check_confirm_(request))
+    return;
+  ESP_LOGI(TAG, "Reboot requested over the API");
+  this->send_success_(request, "Rebooting");
+  this->reboot_();
+}
+
+// POST /api/device/system/factory-reset
+void WebDeviceDashboard::handle_factory_reset_(AsyncWebServerRequest *request) {
+  if (!this->check_confirm_(request))
+    return;
+  ESP_LOGW(TAG, "Factory reset requested over the API");
+  this->send_success_(request, "Factory reset, rebooting");
+  this->factory_reset_();
+}
+
+// POST /api/device/system/rollback: the other app slot becomes the next boot -- the firmware
+// this one replaced, until a rollback makes the newer one the other slot. Availability is
+// answered before the confirmation because it is about the firmware, not about the request.
+// The image is checked here rather than optimistically, so a slot that turns out to be
+// broken is an error the caller sees instead of a device that reboots and comes back the same.
+void WebDeviceDashboard::handle_rollback_(AsyncWebServerRequest *request) {
+  const RollbackTarget target = this->rollback_target_();
+  if (!target.available()) {
+    this->send_error_(request, 503, "No firmware to roll back to");
+    return;
+  }
+  if (!this->check_confirm_(request))
+    return;
+  const char *error = this->select_rollback_(target);
+  if (error != nullptr) {
+    ESP_LOGE(TAG, "Rollback to '%s' failed: %s", target.partition.c_str(), error);
+    this->send_error_(request, 500, error);
+    return;
+  }
+  ESP_LOGW(TAG, "Rolling back to '%s'", target.partition.c_str());
+  this->send_success_(request, "Rolling back, rebooting");
+  this->reboot_();
+}
+
+#ifdef USE_ESP32
+// The slot the next update would be written to is the one a rollback boots, and its app
+// descriptor says which firmware that is. Only the descriptor is read here — a
+// 256-byte header, not the image — because /capabilities is answered on every page load;
+// whether the image behind it is whole is what esp_ota_set_boot_partition() then checks.
+RollbackTarget WebDeviceDashboard::rollback_target_() const {
+  RollbackTarget target;
+  const esp_partition_t *other = esp_ota_get_next_update_partition(nullptr);
+  if (other == nullptr)
+    return target;
+  esp_app_desc_t desc;
+  if (esp_ota_get_partition_description(other, &desc) != ESP_OK)
+    return target;
+  target.partition = other->label;
+  target.version = std::string(desc.version, strnlen(desc.version, sizeof(desc.version)));
+  target.project_name = std::string(desc.project_name, strnlen(desc.project_name, sizeof(desc.project_name)));
+  return target;
+}
+
+// Reads the whole image back and hashes it before it writes the boot selection, so this
+// takes a moment on the server task. With rollback enabled — it is, through `ota:` — the
+// slot is selected for one monitored boot: a firmware that dies before safe_mode marks it
+// good brings the bootloader back to this one.
+const char *WebDeviceDashboard::select_rollback_(const RollbackTarget &target) {
+  const esp_partition_t *other = esp_ota_get_next_update_partition(nullptr);
+  if (other == nullptr || target.partition != other->label)
+    return "The firmware to roll back to is gone";
+  const esp_err_t err = esp_ota_set_boot_partition(other);
+  return err == ESP_OK ? nullptr : esp_err_to_name(err);
+}
+#else
+RollbackTarget WebDeviceDashboard::rollback_target_() const { return {}; }
+
+const char *WebDeviceDashboard::select_rollback_(const RollbackTarget & /*target*/) {
+  return "Rollback needs an ESP32";
+}
+#endif
+
+void WebDeviceDashboard::restart_() { App.safe_reboot(); }
+
+// Both wait the answer out on the loop task: the server task is still holding the socket this
+// was asked on, and a format takes the filesystem away from everything using it.
+void WebDeviceDashboard::reboot_() {
+  this->set_timeout(this->action_delay_ms_, [this]() { this->restart_(); });
+}
+
+// The three steps the display menu's Factory reset takes, in that order: the shutdown behind
+// safe_reboot() writes the settings out, so the partition has to be wiped before it runs.
+void WebDeviceDashboard::factory_reset_() {
+  this->set_timeout(this->action_delay_ms_, [this]() {
+#ifdef USE_WEB_DEVICE_DASHBOARD_STORAGE
+    if (this->storage_ != nullptr && !this->storage_->format())
+      ESP_LOGE(TAG, "Wiping the user partition failed");
+#endif
+    global_preferences->reset();
+    this->restart_();
+  });
+}
+
 
 #ifdef USE_CONFIG_JSON
 template<typename T> static void write_entity_index(JsonObject root, const char *type, const T &entities) {

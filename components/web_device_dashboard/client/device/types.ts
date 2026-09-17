@@ -56,7 +56,6 @@ export interface DeviceInfo {
   board?: BoardInfo
   version?: string
   compilation_time?: string
-  rollback_available?: boolean
   /** Ordered object_ids the firmware marks as important for the Overview
    *  ("featured"). Device-declared via the web_device_api `overview_group:` option
    *  (a groups reference); the backend resolves the group's members to object_ids
@@ -262,10 +261,66 @@ export interface MutationResponse {
  *  Trimmed, printable ASCII, 1..32 chars; the compiled name clears the override. */
 export type DeviceNameUpdate = { name: string; reset?: false } | { reset: true; name?: never }
 
-/** Body required by the confirm-gated system actions (reboot/rollback/factory-reset). */
+/** Body required by the confirm-gated system actions (reboot/rollback/factory-reset).
+ *  `confirm_token` is the last three octets of `DeviceInfo.base_mac_address`, e.g.
+ *  `"DD:EE:FF"` — matched in either case. NOT `mac_address`, which on a build with Ethernet
+ *  is a different MAC. A wrong or missing one is `403`, a body without
+ *  `confirm: true` is `400`. It is a guard against a stray POST, not an authorization
+ *  scheme: whatever reaches the port and can read /info can send it. */
 export interface ConfirmPayload {
   confirm: true
   confirm_token: string
+}
+
+// --- Capabilities ---
+
+/** The mount the Files screen browses and a factory reset wipes. */
+export interface StorageCapability {
+  /** `"LittleFS"` on a device; whatever the storage component calls itself. */
+  type: string
+  base_path: string
+  /** False when the partition failed to mount: the Files screen has nothing to show. */
+  mounted: boolean
+  /** All three absent on a storage that cannot report its usage. */
+  total_bytes?: number
+  used_bytes?: number
+  free_bytes?: number
+}
+
+/**
+ * GET /capabilities — what this firmware has, so the page knows which screens to draw and
+ * which routes exist. Read once on load, not polled.
+ *
+ * A key is present only when the capability is, so `if (caps.files)` is the test; one that
+ * has no detail to carry is `true`. A `404` on this route is a firmware from before it
+ * existed, not a device without capabilities.
+ */
+export interface Capabilities {
+  /** POST /system/reboot is served. Always true — every device can reboot. */
+  reboot: true
+  /** POST /system/factory-reset is served. `clears_storage` says whether it also wipes the
+   *  user partition, which is what the confirmation dialog has to warn about. */
+  factory_reset: { clears_storage: boolean }
+  /** The slot POST /system/rollback would boot; present only when it holds an image, which
+   *  is also the only case where that route answers anything but `503`. `version` is the
+   *  ESPHome version string of that image, comparable to `DeviceInfo.version` — show it,
+   *  because after one rollback the other slot is the NEWER firmware. */
+  rollback?: {
+    /** The partition label, e.g. `"app1"`. */
+    partition: string
+    version?: string
+    project_name?: string
+  }
+  /** Present with a storage component; then `factory_reset.clears_storage` is true. */
+  storage?: StorageCapability
+  /** Present when the firmware serves the file API the Files screen uses. */
+  files?: { url_prefix: string }
+  /** Present when the firmware serves the automations API the Automations screen uses. */
+  automations?: { url_prefix: string }
+  /** Present with a `config_json` store; `types` are the keys `/entity-settings` takes. */
+  entity_settings?: { types: string[] }
+  /** The CPU board's EEPROM identity is in `/info`. */
+  board_info?: true
 }
 
 // --- Network (live status + saved config) ---

@@ -25,6 +25,11 @@ TEST_F(Dashboard, LooksEveryRouteUpByItsName) {
   EXPECT_EQ(this->dashboard->route_for_("/api/device/status")->id, RouteId::STATUS);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/network")->id, RouteId::NETWORK);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/auth")->id, RouteId::AUTH);
+  EXPECT_EQ(this->dashboard->route_for_("/api/device/capabilities")->id, RouteId::CAPABILITIES);
+  // A slash inside a name is matched like any other character: the tail is compared whole.
+  EXPECT_EQ(this->dashboard->route_for_("/api/device/system/reboot")->id, RouteId::SYSTEM_REBOOT);
+  EXPECT_EQ(this->dashboard->route_for_("/api/device/system/factory-reset")->id, RouteId::SYSTEM_FACTORY_RESET);
+  EXPECT_EQ(this->dashboard->route_for_("/api/device/system/rollback")->id, RouteId::SYSTEM_ROLLBACK);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/entities")->id, RouteId::ENTITIES);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/entity-settings")->id, RouteId::ENTITY_SETTINGS);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/entity-settings-meta")->id, RouteId::ENTITY_SETTINGS_META);
@@ -33,14 +38,15 @@ TEST_F(Dashboard, LooksEveryRouteUpByItsName) {
 TEST_F(Dashboard, HasNoRouteForAnythingElse) {
   // The tail is matched whole: no prefix, no suffix and no path below a route.
   for (const char *url : {"/", "/api/device/", "/api/device/nonesuch", "/api/device/inf", "/api/device/information",
-                          "/api/device/info/extra", "/api/device/entity-settings/meta", "/info"}) {
+                          "/api/device/info/extra", "/api/device/entity-settings/meta", "/info", "/api/device/system",
+                          "/api/device/system/", "/api/device/system/reboot/extra", "/api/device/reboot"}) {
     EXPECT_EQ(this->dashboard->route_for_(url), nullptr) << url;
   }
 }
 
 TEST_F(Dashboard, ReadRoutesAnswerGet) {
-  for (const char *url : {"/api/device/info", "/api/device/status", "/api/device/network", "/api/device/entities",
-                          "/api/device/entity-settings-meta"}) {
+  for (const char *url : {"/api/device/info", "/api/device/status", "/api/device/network", "/api/device/capabilities",
+                          "/api/device/entities", "/api/device/entity-settings-meta"}) {
     Reply reply = this->get(url);
     EXPECT_EQ(reply.code, 200) << url;
     EXPECT_EQ(reply.type, "application/json") << url;
@@ -48,8 +54,8 @@ TEST_F(Dashboard, ReadRoutesAnswerGet) {
 }
 
 TEST_F(Dashboard, ReadRoutesRefusePostAndAllowOnlyGet) {
-  for (const char *url : {"/api/device/info", "/api/device/status", "/api/device/network", "/api/device/entities",
-                          "/api/device/entity-settings-meta"}) {
+  for (const char *url : {"/api/device/info", "/api/device/status", "/api/device/network", "/api/device/capabilities",
+                          "/api/device/entities", "/api/device/entity-settings-meta"}) {
     LogCapture::instance().clear();
     Reply reply = this->post(url);
     EXPECT_EQ(reply.code, 405) << url;
@@ -57,6 +63,17 @@ TEST_F(Dashboard, ReadRoutesRefusePostAndAllowOnlyGet) {
     EXPECT_EQ(reply.error(), "Method not allowed") << url;
     // The Allow value only reaches a header on ESP-IDF; here the warning carries it.
     EXPECT_TRUE(LogCapture::instance().has_warning("allowed: GET")) << url;
+  }
+}
+
+TEST_F(Dashboard, WriteRoutesRefuseGetAndAllowOnlyPost) {
+  for (const char *url :
+       {"/api/device/system/reboot", "/api/device/system/factory-reset", "/api/device/system/rollback"}) {
+    LogCapture::instance().clear();
+    Reply reply = this->get(url);
+    EXPECT_EQ(reply.code, 405) << url;
+    EXPECT_FALSE(reply.success()) << url;
+    EXPECT_TRUE(LogCapture::instance().has_warning("allowed: POST")) << url;
   }
 }
 

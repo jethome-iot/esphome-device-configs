@@ -16,6 +16,18 @@ AUTO_LOAD = ["filesystem_storage_abstract"]
 CONF_STORAGE_ID = "storage_id"
 CONF_URL_PREFIX = "url_prefix"
 
+
+def url_prefix(value):
+    # Validated here, not in to_code: web_device_dashboard reads it off the config to report
+    # the Files screen in /api/device/capabilities, and a client builds URLs from it.
+    value = cv.string_strict(value).strip("/")
+    if not value:
+        raise cv.Invalid("url_prefix must name a path below the server root")
+    if any(c.isspace() or c in "?#" for c in value):
+        raise cv.Invalid("url_prefix must be a URL path: no spaces, '?' or '#'")
+    return "/" + value
+
+
 web_file_browser_ns = cg.esphome_ns.namespace("web_file_browser")
 WebFileBrowser = web_file_browser_ns.class_("WebFileBrowser", cg.Component)
 
@@ -29,7 +41,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Required(CONF_STORAGE_ID): cv.use_id(
             filesystem_storage_abstract.FilesystemStorageAbstract
         ),
-        cv.Optional(CONF_URL_PREFIX, default="/files"): cv.string,
+        cv.Optional(CONF_URL_PREFIX, default="/files"): url_prefix,
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -57,15 +69,10 @@ async def to_code(config):
     web_base = await cg.get_variable(config[CONF_WEB_SERVER_BASE_ID])
     storage = await cg.get_variable(config[CONF_STORAGE_ID])
 
-    # Normalize url_prefix to ensure it starts with /
-    url_prefix = config[CONF_URL_PREFIX]
-    if not url_prefix.startswith("/"):
-        url_prefix = "/" + url_prefix
-
     if CORE.is_esp32:
         from esphome.components import esp32
 
         esp32.require_vfs_dir()  # opendir/readdir/mkdir/rmdir behind the API
     var = cg.new_Pvariable(config[CONF_ID], web_base, storage)
-    cg.add(var.set_url_prefix(url_prefix))
+    cg.add(var.set_url_prefix(config[CONF_URL_PREFIX]))
     await cg.register_component(var, config)

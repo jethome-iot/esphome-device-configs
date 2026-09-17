@@ -84,9 +84,11 @@ web_server_base: {}
 web_auth:
   id: test_auth
 
-# board_info_id sets USE_WEB_DEVICE_DASHBOARD_BOARD_INFO, so /api/device/info carries the board.
+# board_info_id sets USE_WEB_DEVICE_DASHBOARD_BOARD_INFO, so /api/device/info carries the board;
+# storage_id sets USE_WEB_DEVICE_DASHBOARD_STORAGE, so the factory reset has a mount to wipe.
 web_device_dashboard:
   board_info_id: board
+  storage_id: test_storage
 
 # App sizes its entity lists from what is declared here and silently drops a registration past
 # that, so this is at least what cases/common.h registers.

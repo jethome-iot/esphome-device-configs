@@ -8,3 +8,6 @@ external_components:
 web_device_dashboard:
   # The EEPROM identity to report.
   board_info_id: board_info
+  # What a factory reset over the API wipes, and what /api/device/capabilities reports as the
+  # device's storage. Needs the storage package.
+  storage_id: user_storage
