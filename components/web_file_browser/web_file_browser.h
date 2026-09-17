@@ -92,8 +92,15 @@ class WebFileBrowser : public AsyncWebHandler, public Component {
   bool copy_recursive_(const std::string &src, const std::string &dst, unsigned depth = 0);
   // Lets go of what a transfer was holding when a format latched the filesystem off.
   void abandon_transfers_();
-  // Closes the upload file and removes whatever was written of it.
+  // Closes the upload file and removes whatever was written of it. Called with an Access
+  // claim held, so the handle it closes is still the format's to free, not already freed.
   void discard_upload_();
+#ifdef USE_ESP32
+  // A format frees every open handle, so a close has to happen inside a claim; false says
+  // the claim was gone and the handle was let go rather than closed.
+  bool close_file_(FILE *file);
+  bool close_dir_(DIR *dir);
+#endif
   void send_json_error_(AsyncWebServerRequest *request, const std::string &message, int code = 400);
   void send_json_success_(AsyncWebServerRequest *request, const std::string &message = "success");
   std::string json_escape_(const std::string &str) const;
