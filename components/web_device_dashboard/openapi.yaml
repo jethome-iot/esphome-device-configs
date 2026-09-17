@@ -208,7 +208,9 @@ paths:
           description: >-
             Bad request — a body that is empty, not JSON or not an object
             (`Invalid JSON`); no `type` (`'type' is required`); a `settings` that
-            is not an object (`'settings' must be an object`); a record the type
+            is not an object (`'settings' must be an object`); an `action` that
+            is anything but the string `delete` (`'action' must be 'delete'`); a
+            record the type
             refuses (`Failed to update settings record`: no `source_name`, one
             naming no entity of that type, an `inverted` that is not a boolean, a
             `restore_mode` or `binding_mode` outside its options, a

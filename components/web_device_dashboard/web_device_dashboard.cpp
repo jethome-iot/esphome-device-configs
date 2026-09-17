@@ -558,7 +558,13 @@ void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *requ
   }
 
   const char *action = doc["action"];
-  if (action != nullptr && strcmp(action, "delete") == 0) {
+  // Anything else here is a typo, not an update: the caller asked for something this API
+  // does not have.
+  if (!doc["action"].isNull() && (action == nullptr || strcmp(action, "delete") != 0)) {
+    this->send_error_(request, 400, "'action' must be 'delete'");
+    return;
+  }
+  if (action != nullptr) {
     void *record = settings->can_delete(doc.as<JsonObject>());
     if (record == nullptr) {
       this->send_error_(request, 400, "Cannot delete: record not found");

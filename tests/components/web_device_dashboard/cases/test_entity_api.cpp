@@ -101,6 +101,19 @@ TEST_F(Dashboard, APostWhoseSettingsIsNotAnObjectIsRefused) {
   EXPECT_TRUE(store().sw.find("relay_1")->inverted);
 }
 
+TEST_F(Dashboard, APostWhoseActionIsNotDeleteIsRefused) {
+  store().sw.seed("relay_1", true);
+  for (const char *body : {R"({"type":"switch","source_name":"relay_1","action":"deletee"})",
+                           R"({"type":"switch","source_name":"relay_1","action":"update"})",
+                           R"({"type":"switch","source_name":"relay_1","action":7})"}) {
+    Reply reply = this->post("/api/device/entity-settings", body);
+    EXPECT_EQ(reply.code, 400) << body;
+    EXPECT_EQ(reply.error(), "'action' must be 'delete'") << body;
+  }
+  // Read as an update, a misspelled delete would have saved the record at its defaults.
+  EXPECT_TRUE(store().sw.find("relay_1")->inverted);
+}
+
 TEST_F(Dashboard, APostOfATypeNobodyRegisteredIsRefused) {
   Reply reply = this->post("/api/device/entity-settings", R"({"type":"light","source_name":"lamp"})");
   EXPECT_EQ(reply.code, 404);
