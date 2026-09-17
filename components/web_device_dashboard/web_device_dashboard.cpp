@@ -384,7 +384,8 @@ void WebDeviceDashboard::handle_status_(AsyncWebServerRequest *request) {
 #ifdef USE_API
     root["ha_connected"] = api::global_api_server != nullptr && api::global_api_server->is_connected();
 #endif
-    root["uptime_s"] = millis() / 1000;
+    // 64-bit: a 32-bit millis() would send the uptime back to zero every 49.7 days.
+    root["uptime_s"] = millis_64() / 1000;
 #ifdef USE_ESP32
     root["reset_reason"] = reset_reason_name();
 #else
