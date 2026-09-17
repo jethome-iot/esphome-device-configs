@@ -545,6 +545,12 @@ void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *requ
     this->send_error_(request, 400, "'type' is required");
     return;
   }
+  // A scalar here reads as an empty object further down, which would silently save the
+  // record with every field at its default.
+  if (!doc["settings"].isNull() && !doc["settings"].is<JsonObject>()) {
+    this->send_error_(request, 400, "'settings' must be an object");
+    return;
+  }
   auto *settings = keeper->get_settings(type);
   if (settings == nullptr) {
     this->send_error_(request, 404, "Settings type not found");

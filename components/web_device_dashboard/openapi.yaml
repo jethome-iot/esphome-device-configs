@@ -207,11 +207,13 @@ paths:
         "400":
           description: >-
             Bad request — a body that is empty, not JSON or not an object
-            (`Invalid JSON`); no `type` (`'type' is required`); a record the type
+            (`Invalid JSON`); no `type` (`'type' is required`); a `settings` that
+            is not an object (`'settings' must be an object`); a record the type
             refuses (`Failed to update settings record`: no `source_name`, one
-            naming no entity of that type, a `restore_mode` or `binding_mode`
-            outside its options, a `binding_input` naming no input); a delete on
-            a type that keeps its records (`Cannot delete: record not found`).
+            naming no entity of that type, an `inverted` that is not a boolean, a
+            `restore_mode` or `binding_mode` outside its options, a
+            `binding_input` naming no input); a delete on a type that keeps its
+            records (`Cannot delete: record not found`).
           content:
             application/json:
               schema:
@@ -639,6 +641,10 @@ components:
     EntitySettingsUpdate:
       type: object
       required: [type, source_name]
+      # `action` belongs to the delete body; leaving it out here keeps the two
+      # alternatives of the request's oneOf disjoint.
+      not:
+        required: [action]
       properties:
         type:
           type: string

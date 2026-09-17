@@ -107,6 +107,14 @@ template<typename TRecord> bool load(const char *json, TRecord &out) {
   return out.from_json(doc.as<JsonObject>(), 1);
 }
 
+// A REST body, as the dashboard hands it to update_record().
+inline JsonDocument body(const char *json) {
+  JsonDocument doc;
+  if (deserializeJson(doc, json) != DeserializationError::Ok)
+    ADD_FAILURE() << "test JSON does not parse: " << json;
+  return doc;
+}
+
 template<typename TRecord> std::string dump(const TRecord &record) {
   JsonDocument doc;
   JsonObject obj = doc.to<JsonObject>();

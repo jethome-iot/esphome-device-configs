@@ -89,6 +89,18 @@ TEST_F(Dashboard, APostWithoutATypeIsRefused) {
   }
 }
 
+TEST_F(Dashboard, APostWhoseSettingsIsNotAnObjectIsRefused) {
+  store().sw.seed("relay_1", true);
+  for (const char *body : {R"({"type":"switch","source_name":"relay_1","settings":"yes"})",
+                           R"({"type":"switch","source_name":"relay_1","settings":5})"}) {
+    Reply reply = this->post("/api/device/entity-settings", body);
+    EXPECT_EQ(reply.code, 400) << body;
+    EXPECT_EQ(reply.error(), "'settings' must be an object") << body;
+  }
+  // Read as an empty object, the write would have saved the record at its defaults.
+  EXPECT_TRUE(store().sw.find("relay_1")->inverted);
+}
+
 TEST_F(Dashboard, APostOfATypeNobodyRegisteredIsRefused) {
   Reply reply = this->post("/api/device/entity-settings", R"({"type":"light","source_name":"lamp"})");
   EXPECT_EQ(reply.code, 404);

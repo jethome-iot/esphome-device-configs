@@ -136,7 +136,11 @@ class BinarySensorSettingsJson
     if (sensor == nullptr)
       return nullptr;
     JsonObject settings = obj["settings"];
-    return this->make_record(sensor, settings["inverted"] | false);
+    // A wrong type is not the same as left out: defaulting it would clear the inversion.
+    auto inverted = settings["inverted"];
+    if (!inverted.isNull() && !inverted.is<bool>())
+      return nullptr;
+    return this->make_record(sensor, inverted | false);
   }
 
   // Display menu; applied at once, saved after the debounce. Runs on the loop task.

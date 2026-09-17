@@ -191,7 +191,10 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
 
     JsonObject settings = obj["settings"];
     const SwitchSettingsRecord effective = this->effective_(sw);
-    const bool inverted = settings["inverted"] | effective.inverted;
+    auto inverted_value = settings["inverted"];
+    if (!inverted_value.isNull() && !inverted_value.is<bool>())
+      return nullptr;
+    const bool inverted = inverted_value | effective.inverted;
     auto restore_mode = effective.restore_mode;
     if (!settings["restore_mode"].isNull() && !parse_restore_mode(settings["restore_mode"] | "", restore_mode))
       return nullptr;
