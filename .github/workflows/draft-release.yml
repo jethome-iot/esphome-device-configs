@@ -20,16 +20,11 @@ jobs:
     # draft and replace it with that branch's content.
     if: github.ref == 'refs/heads/master'
     runs-on: [self-hosted, ubuntu-latest]
-    # Concurrency lives on the job, not the workflow: a workflow-level group
-    # is claimed before the `if` above runs, so an off-master dispatch would
-    # enter the group, replace a pending master refresh, and then skip —
-    # leaving the draft stale. A skipped job never joins the group.
-    # The group is deliberately NOT shared with the Release workflow: GitHub
-    # keeps a single pending run per group and a newly queued run replaces it,
-    # so sharing would let a routine master push evict a queued release
-    # publisher. The version race that sharing would have prevented is closed
-    # by the tag-freedom check right before the draft is created instead.
-    # Not cancellable: a run killed mid-refresh could leave the draft deleted.
+    # Job-level on purpose (a skipped job never joins the group), and not
+    # shared with the Release workflow: one pending slot per group means a
+    # shared group would let master pushes evict queued release publishers —
+    # the tag check below closes that race instead. Never cancellable: a run
+    # killed mid-refresh could leave the draft deleted.
     concurrency:
       group: draft-release
       cancel-in-progress: false
@@ -60,12 +55,10 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          # One rolling draft: stale drafts (any other tag) are deleted, and
-          # the draft for this version is recreated so the generated notes
-          # cover the latest master. Manual edits to the draft are overwritten
-          # by design — the draft is workflow-owned. Each release is re-checked
-          # as a draft right before deletion: one published in the race window
-          # between the listing and this loop must not be deleted.
+          # One rolling draft, workflow-owned: stale ones are deleted, this
+          # version's is recreated so the notes cover latest master. Each is
+          # re-checked as a draft right before deleting — one published
+          # mid-loop must survive.
           while read -r tag; do
             IS_DRAFT=$(gh release view "$tag" --repo "$REPO" \
               --json isDraft --jq .isDraft 2>/dev/null || true)
@@ -76,13 +69,10 @@ jobs:
           done < <(gh api --paginate "repos/$REPO/releases" \
             --jq '.[] | select(.draft) | .tag_name')
 
-          # The version was computed from the tag listing at the top; a
-          # release publishing concurrently may have claimed it since. gh
-          # would silently reuse the existing tag and pin the draft to the
-          # wrong commit — refuse instead. The next master push computes the
-          # then-next number and rebuilds the draft.
-          # --exit-code semantics: 0 = the ref was found, 2 = none matched;
-          # anything else is a transport failure and must not read as free.
+          # A release may have claimed this number since the listing above;
+          # gh would silently reuse its tag and pin the draft to the wrong
+          # commit — refuse instead (the next master push rebuilds).
+          # --exit-code: 0 found, 2 no match, anything else transport error.
           rc=0
           git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1 || rc=$?
           if [ "$rc" -eq 0 ]; then
