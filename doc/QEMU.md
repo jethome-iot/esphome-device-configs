@@ -152,7 +152,7 @@ The file is the part byte for byte: 8192 bytes, the 64 Kbit chip the config decl
 creates an erased one where the file does not exist, which the firmware refuses like a blank
 board — Info → Serial stays at `--`. An image that carries a board header is read as on
 hardware: Info → Serial shows the serial, `/api/device/info` carries the `board` block, and
-and what the page shows follows what the header holds, down to one written for another chip.
+what the page shows follows what the header holds, down to one written for another chip.
 Images come from a dump of a real part or from JetHome's board tooling; v3 and v4 are both
 read.
 
