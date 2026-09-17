@@ -97,12 +97,10 @@ jobs:
           set -euo pipefail
 
           # Everything the repo builds with is decided by this pin; the
-          # firmware version is derived from it.
-          ESPHOME=$(sed -n 's/^esphome==\([0-9][0-9.]*\)$/\1/p' requirements.txt)
-          if [ -z "$ESPHOME" ]; then
-            echo "::error::cannot parse the esphome pin from requirements.txt"
-            exit 1
-          fi
+          # firmware version is derived from it. release-version.py is the
+          # single implementation — the draft-release workflow computes the
+          # same number through it.
+          ESPHOME=$(python scripts/release-version.py --pin)
           ESPESC=$(printf '%s' "$ESPHOME" | sed 's/\./\\./g')
 
           git fetch --quiet --force origin 'refs/tags/*:refs/tags/*'
@@ -167,8 +165,7 @@ jobs:
               VERSION=$(version_of_this_run "${ESPHOME}.*" "^${ESPESC}\.[0-9]+$"); then
               : # a retry of this run: the previous attempt's version stands
             else
-              LATEST=$(next_of "${ESPHOME}.*" "^${ESPESC}\.[0-9]+$" -1)
-              VERSION="${ESPHOME}.$((LATEST + 1))"
+              VERSION=$(git tag --list | python scripts/release-version.py)
             fi
           else
             # Nightly: <esphome>.<YYYYMMDD>.<attempt>, attempt auto-increments

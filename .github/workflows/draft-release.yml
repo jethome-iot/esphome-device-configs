@@ -1,0 +1,65 @@
+name: Draft release
+
+# Keeps exactly one rolling draft release on master, tagged with the version
+# the next release will publish (<esphome>.<next sub>, same computation the
+# Release workflow uses). Publishing the draft creates the tag, which runs the
+# Release workflow and ships the firmware — a human only presses the button.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  # Not cancellable: a run killed mid-refresh could leave the draft deleted.
+  group: draft-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    name: Refresh the release draft
+    runs-on: [self-hosted, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Existing tags decide the next version; a shallow clone has none.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Compute the next version
+        id: version
+        run: |
+          set -euo pipefail
+          git fetch --quiet --force origin 'refs/tags/*:refs/tags/*'
+          VERSION=$(git tag --list | python scripts/release-version.py)
+          echo "Next release version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Refresh the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # One rolling draft: stale drafts (any other tag) are deleted, and
+          # the draft for this version is recreated so the generated notes
+          # cover the latest master. Manual edits to the draft are overwritten
+          # by design — the draft is workflow-owned.
+          while read -r tag; do
+            echo "Deleting stale release draft $tag"
+            gh release delete "$tag" --repo "$REPO" --yes
+          done < <(gh api "repos/$REPO/releases?per_page=100" \
+            --jq '.[] | select(.draft) | .tag_name')
+
+          gh release create "$VERSION" --repo "$REPO" --draft \
+            --target "$SHA" --title "$VERSION" --generate-notes \
+            --notes "Auto-draft for \`$VERSION\`. Publishing runs the Release workflow: every firmware is built, the binaries land here as assets, and the \`upload: true\` ones ship to fw.jethome.com."
+          echo "Draft $VERSION refreshed" >> "$GITHUB_STEP_SUMMARY"
