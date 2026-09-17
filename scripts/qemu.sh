@@ -165,11 +165,13 @@ list_devices() {
 # the distro build, which has no `esp32` machine. A bad candidate is skipped, not fatal.
 # A JetHome build ranks ahead of a newer stock one on purpose: `sort -V` would put a future
 # esp_develop_9.2.3 above esp_develop_9.2.2_…_jethome1 and silently take --eeprom away.
+version_sort() { if printf '' | sort -V >/dev/null 2>&1; then sort -V; else sort; fi; }
+
 find_qemu() {
   local candidates=() installs=() c
   # `sort -V` gives oldest first; prepend so the newest install ends up first.
   while IFS= read -r c; do installs=("$c" ${installs[@]+"${installs[@]}"}); done < <(
-    ls -d "$TOOLS_DIR"/*/qemu/bin/qemu-system-xtensa 2>/dev/null | sort -V
+    ls -d "$TOOLS_DIR"/*/qemu/bin/qemu-system-xtensa 2>/dev/null | version_sort
   )
   [ -n "${QEMU_XTENSA:-}" ] && candidates+=("$QEMU_XTENSA")
   [ ${#installs[@]} -gt 0 ] && candidates+=("${installs[@]}")
@@ -486,7 +488,7 @@ do_stop() {
   if [ -n "$device" ]; then
     devices=("$device")
   else
-    mapfile -t devices < <(list_devices)
+    while IFS= read -r d; do devices+=("$d"); done < <(list_devices)
   fi
   for d in ${devices[@]+"${devices[@]}"}; do
     [ -n "$(qemu_pids_for "$(flash_image "$d")")" ] && stopped=$((stopped + 1))
@@ -506,7 +508,7 @@ hostfwd_port() {
 
 do_list() {
   local d pid pids cmdline http api ota devices=()
-  mapfile -t devices < <(list_devices)
+  while IFS= read -r d; do devices+=("$d"); done < <(list_devices)
   for d in ${devices[@]+"${devices[@]}"}; do
     # No `| head -1`: under pipefail its SIGPIPE on a device with two instances
     # would kill the whole listing.
@@ -534,7 +536,7 @@ do_clean() {
           "$(build_dir "$device")/qemu.pid" "$(build_dir "$device")/qemu.log"
     info "cleaned $device"
   else
-    mapfile -t devices < <(list_devices)
+    while IFS= read -r d; do devices+=("$d"); done < <(list_devices)
     for d in ${devices[@]+"${devices[@]}"}; do stop_previous "$d"; done
     rm -f "$DEVICES_DIR"/*/*.qemu.yaml
     rm -f "$DEVICES_DIR"/*/.esphome/build/*-qemu/qemu-flash.bin \
