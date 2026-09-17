@@ -125,18 +125,8 @@ jobs:
           key: toolchains-${{ hashFiles('requirements.txt') }}
           restore-keys: toolchains-
 
-      # esphome turns ccache on by itself when the binary is on PATH — this
-      # job only installs it, points it at a directory of its own, rolls its
-      # storage and reports the stats. esphome's own defaults put the cache
-      # inside ~/.cache/esphome (different subdir per framework) — a preset
-      # CCACHE_DIR is respected by every esphome code path and keeps the
-      # compile cache out of the toolchain cache entirely.
-      # The cache rolls because actions/cache keys are immutable: restore the
-      # freshest entry for this firmware by prefix, save under a per-run key.
-      # Only dev writes — the same policy as the toolchain cache above: a
-      # save off the default branch is branch-scoped and invisible to other
-      # runs while its quota pressure can evict the multi-GB toolchain
-      # entries, a far worse miss than a cold compile.
+      # Compile cache, outside ~/.cache/esphome (esphome's own default lives
+      # inside it); written from dev only, same policy as the toolchains.
       - name: Restore ccache
         uses: actions/cache/restore@v6
         with:
@@ -146,9 +136,7 @@ jobs:
             ccache-${{ matrix.config }}--
 
       - name: Ensure ccache
-        # Workflows rely only on the stock GitHub-hosted runner baseline;
-        # the image may add tools but never subtract. Probe first — the
-        # image's own version, when present, always wins over the distro's.
+        # Stock-runner baseline: probe first, the image's version wins.
         run: |
           if command -v ccache >/dev/null 2>&1; then
             echo "ccache already on PATH: $(ccache --version | head -1)"
@@ -160,14 +148,15 @@ jobs:
 
       - name: Compile
         run: |
-          # The stats commands and esphome's builds must share one cache dir,
-          # and the compiler is verified by content — the toolchain arrives
-          # from the cache at a stable path, and the default mtime check
-          # would misfire restored entries as misses.
           export CCACHE_DIR="$HOME/.cache/ccache"
           export CCACHE_COMPILERCHECK=content
           ccache --zero-stats > /dev/null
           esphome compile "${{ matrix.config }}"
+
+      - name: ccache stats
+        if: ${{ !cancelled() }}
+        run: |
+          export CCACHE_DIR="$HOME/.cache/ccache"
           ccache --show-stats
 
       - name: Save ccache
