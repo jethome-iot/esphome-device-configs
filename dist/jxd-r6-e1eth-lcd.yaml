@@ -605,6 +605,8 @@ esphome:
               });
               menu->add_item(row);
             };
+            // Index-based: a weight on any Relay N / Input N submenu would reorder them and
+            // silently bind these rows to the wrong entity.
             auto submenu = [](MenuItemMenu *parent, size_t i) -> MenuItemMenu * {
               if (i >= parent->items_size() || parent->get_item(i)->get_type() != MENU_ITEM_MENU)
                 return nullptr;
@@ -1408,6 +1410,7 @@ graphical_display_menu:
           select: display_off_timer_select
         - type: menu
           text: Modbus
+          weight: 10
           items:
             - type: label
               text: Applied on reboot
@@ -1426,6 +1429,7 @@ graphical_display_menu:
               select: modbus_stop_bits
         - type: menu
           text: Temp sensors
+          weight: 20
           items:
             - type: label
               text: Forget all?
@@ -1439,6 +1443,7 @@ graphical_display_menu:
                     slot: -1
         - type: menu
           text: Factory reset
+          weight: 40
           items:
             - type: label
               text: Factory reset?
@@ -1453,6 +1458,7 @@ graphical_display_menu:
                     App.safe_reboot();
         - type: command
           text: Reboot device
+          weight: 30
           on_value:
             - lambda: App.safe_reboot();
     - id: !extend 'info_submenu'
@@ -1495,6 +1501,7 @@ graphical_display_menu:
           select: network_mode
         - type: menu
           text: Reset WiFi creds
+          weight: 20
           items:
             - type: label
               text: Reset?
@@ -1508,8 +1515,10 @@ graphical_display_menu:
     - id: !extend 'info_submenu'
       items:
         - type: label
+          weight: 10
           text: 'Serial:'
         - type: label
+          weight: 10
           text: !lambda |-
             // A v4 board without device.id has only its board serial.
             auto *board = id(board_info);

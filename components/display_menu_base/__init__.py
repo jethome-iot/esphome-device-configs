@@ -21,6 +21,7 @@ from esphome.const import (
     CONF_TEXT,
     CONF_TRIGGER_ID,
     CONF_TYPE,
+    CONF_WEIGHT,  # JetHome: weight
 )
 
 CODEOWNERS = ["@numo68"]
@@ -136,9 +137,15 @@ def menu_item_schema(value):
     return MENU_ITEM_SCHEMA(value)
 
 
+# JetHome: weight. Stable, so items of equal weight keep their declaration order.
+def sort_by_weight(items):
+    return sorted(items, key=lambda item: item.get(CONF_WEIGHT, 0))
+
+
 MENU_ITEM_COMMON_SCHEMA = cv.Schema(
     {
         cv.Optional(CONF_TEXT): cv.templatable(cv.string),
+        cv.Optional(CONF_WEIGHT): cv.int_,  # JetHome: weight
     }
 )
 
@@ -200,8 +207,9 @@ MENU_ITEM_SCHEMA = cv.typed_schema(
         CONF_MENU: MENU_ITEM_ENTER_LEAVE_SCHEMA.extend(
             {
                 cv.GenerateID(CONF_ID): cv.declare_id(MenuItemMenu),
-                cv.Required(CONF_ITEMS): cv.All(
-                    cv.ensure_list(menu_item_schema), cv.Length(min=1)
+                # JetHome: weight ordering; empty menu (items may be absent)
+                cv.Optional(CONF_ITEMS): cv.All(
+                    cv.ensure_list(menu_item_schema), sort_by_weight
                 ),
             }
         ),
@@ -287,8 +295,9 @@ DISPLAY_MENU_BASE_SCHEMA = cv.Schema(
                 ),
             }
         ),
+        # JetHome: weight ordering; the root still requires at least one item
         cv.Required(CONF_ITEMS): cv.All(
-            cv.ensure_list(MENU_ITEM_SCHEMA), cv.Length(min=1)
+            cv.ensure_list(MENU_ITEM_SCHEMA), cv.Length(min=1), sort_by_weight
         ),
     }
 ).extend(cv.COMPONENT_SCHEMA)

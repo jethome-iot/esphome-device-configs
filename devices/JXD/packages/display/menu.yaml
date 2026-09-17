@@ -130,6 +130,8 @@ graphical_display_menu:
     - type: menu
       text: "Settings"
       id: menu_settings_id
+      # Weights, not the package order, group these by what a row does: unweighted
+      # everyday settings, 10 commissioning, 20 erases data, 30+ the whole device.
       items:
         - type: select
           text: "Display off"
@@ -137,6 +139,7 @@ graphical_display_menu:
 
         - type: menu
           text: "Modbus"
+          weight: 10
           items:
             - type: label
               text: "Applied on reboot"
@@ -160,6 +163,7 @@ graphical_display_menu:
 
         - type: menu
           text: "Temp sensors"
+          weight: 20
           items:
             - type: label
               text: "Forget all?"
@@ -175,6 +179,7 @@ graphical_display_menu:
 
         - type: menu
           text: "Factory reset"
+          weight: 40
           items:
             - type: label
               text: "Factory reset?"
@@ -191,6 +196,7 @@ graphical_display_menu:
 
         - type: command
           text: "Reboot device"
+          weight: 30
           on_value:
             - lambda: 'App.safe_reboot();'
 
@@ -224,6 +230,8 @@ esphome:
               });
               menu->add_item(row);
             };
+            // Index-based: a weight on any Relay N / Input N submenu would reorder them and
+            // silently bind these rows to the wrong entity.
             auto submenu = [](MenuItemMenu *parent, size_t i) -> MenuItemMenu * {
               if (i >= parent->items_size() || parent->get_item(i)->get_type() != MENU_ITEM_MENU)
                 return nullptr;

@@ -38,7 +38,6 @@ packages:
   display: !include ${display}/display.yaml
   menu: !include ${display}/menu.yaml
   menu_items: !include ${display}/menu-items-network.yaml
-  # Info rows follow the package order: the serial stays last.
   menu_serial: !include ${display}/menu-serial.yaml
   status_page: !include ${display}/status-page.yaml
   time_page: !include ${display}/time-page.yaml

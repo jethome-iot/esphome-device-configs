@@ -3,10 +3,13 @@ graphical_display_menu:
   items:
     - id: !extend info_submenu
       items:
+        # The weight, not the package order, keeps the serial last among the Info rows.
         - type: label
+          weight: 10
           text: "Serial:"
 
         - type: label
+          weight: 10
           text: !lambda |-
             // A v4 board without device.id has only its board serial.
             auto *board = id(board_info);

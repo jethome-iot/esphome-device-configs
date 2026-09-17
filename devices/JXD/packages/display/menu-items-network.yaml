@@ -46,8 +46,10 @@ graphical_display_menu:
           text: "Network"
           select: network_mode
 
+        # 20: erases data, so it sits with the other destructive rows of menu.yaml.
         - type: menu
           text: "Reset WiFi creds"
+          weight: 20
           items:
             - type: label
               text: "Reset?"
