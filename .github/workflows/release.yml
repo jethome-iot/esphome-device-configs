@@ -259,7 +259,9 @@ jobs:
           restore-keys: toolchains-
 
       # Same rolling ccache as the CI build job; the prefix keys on the config
-      # path, so release builds share the entries CI warmed.
+      # path, so release builds share the entries CI warmed. Restores always;
+      # saves only from dev dispatches — release events run on tag refs, and
+      # a save there is scoped to a tag nothing will ever read again.
       - name: Restore ccache
         uses: actions/cache/restore@v6
         with:
@@ -295,7 +297,7 @@ jobs:
           ccache --show-stats
 
       - name: Save ccache
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
         uses: actions/cache/save@v6
         with:
           path: ~/.cache/ccache
