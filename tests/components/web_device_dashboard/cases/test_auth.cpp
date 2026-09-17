@@ -70,6 +70,16 @@ TEST_F(Dashboard, ASetRefusesAFieldThatIsNotAString) {
   }
 }
 
+// A JSON string may hold a NUL. Read as a C string it would end there, so the device would
+// store a shorter password than the client sent and still answer that all is well.
+TEST_F(Dashboard, ASetRefusesAFieldCarryingANul) {
+  Reply reply = this->post("/api/device/auth", R"({"username":"admin","password":"sec\u0000ret"})");
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "'password' must be printable ASCII");
+  Dashboard::loop();
+  EXPECT_EQ(std::string(this->base.get_auth_password()), "hunter2");
+}
+
 TEST_F(Dashboard, ASetPassesTheComponentsRefusalOn) {
   Reply reply = this->post("/api/device/auth", R"({"username":"adm:in","password":"secret"})");
   EXPECT_EQ(reply.code, 400);

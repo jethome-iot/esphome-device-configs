@@ -126,7 +126,9 @@ void WebAuth::publish_(const std::string &username, const std::string &password)
   this->slot_ = next;
 #ifdef USE_WEBSERVER_AUTH
   // Two setters, so a request landing between them sees one new field and one old and is
-  // asked to authenticate again; upstream offers no way to swap the pair at once.
+  // asked to authenticate again. Upstream keeps the pair as two plain pointers and offers no
+  // way to swap them together, so an aligned word store is as far as this goes; what the
+  // slots buy is that whichever pointer a request reads still leads to an intact string.
   this->base_->set_auth_password(this->password_[next].c_str());
   this->base_->set_auth_username(this->username_[next].c_str());
 #endif

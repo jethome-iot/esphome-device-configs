@@ -533,8 +533,10 @@ void WebDeviceDashboard::handle_auth_set_(AsyncWebServerRequest *request) {
     this->send_error_(request, 400, "'username' and 'password' must be strings");
     return;
   }
-  const std::string username = doc["username"].as<const char *>();
-  const std::string password = doc["password"].as<const char *>();
+  // Straight to std::string: a JSON string may carry a NUL, and through a C string the field
+  // would end there — a password stored shorter than the one that was sent, reported as saved.
+  const std::string username = doc["username"].as<std::string>();
+  const std::string password = doc["password"].as<std::string>();
   if (const char *error = web_auth::WebAuth::validate(username, password); error != nullptr) {
     this->send_error_(request, 400, error);
     return;
