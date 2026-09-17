@@ -5,6 +5,14 @@ from pathlib import Path
 
 import esphome.config_validation as cv
 from esphome import loader
+from esphome.const import (
+    KEY_CORE,
+    KEY_TARGET_PLATFORM,
+    PLATFORM_ESP32,
+    PLATFORM_ESP8266,
+    PLATFORM_HOST,
+)
+from esphome.core import CORE
 
 # External components import each other as esphome.components.<name>: give them the finder
 # that external_components: installs when a config names the directory.
@@ -14,6 +22,11 @@ from esphome.components import web_device_dashboard as dashboard  # noqa: E402
 from esphome.components.web_server_base import (  # noqa: E402
     CONF_WEB_SERVER_BASE_ID,
 )
+
+
+def setUpModule():
+    # only_on() reads the target platform; the suite builds for host.
+    CORE.data.setdefault(KEY_CORE, {})[KEY_TARGET_PLATFORM] = PLATFORM_HOST
 
 
 class MinimalConfig(unittest.TestCase):
@@ -59,6 +72,20 @@ class UnknownKeys(unittest.TestCase):
                 self.assertRaisesRegex(cv.Invalid, "extra keys not allowed"),
             ):
                 dashboard.CONFIG_SCHEMA({key: "x"})
+
+
+class Platforms(unittest.TestCase):
+    def tearDown(self):
+        CORE.data[KEY_CORE][KEY_TARGET_PLATFORM] = PLATFORM_HOST
+
+    def test_the_device_platform_is_accepted(self):
+        CORE.data[KEY_CORE][KEY_TARGET_PLATFORM] = PLATFORM_ESP32
+        self.assertIn("id", dashboard.CONFIG_SCHEMA({}))
+
+    def test_a_platform_the_handler_has_no_server_for_is_refused(self):
+        CORE.data[KEY_CORE][KEY_TARGET_PLATFORM] = PLATFORM_ESP8266
+        with self.assertRaisesRegex(cv.Invalid, "only available on"):
+            dashboard.CONFIG_SCHEMA({})
 
 
 if __name__ == "__main__":

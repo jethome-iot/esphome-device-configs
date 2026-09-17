@@ -4,7 +4,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import web_server_base
 from esphome.components.web_server_base import CONF_WEB_SERVER_BASE_ID
-from esphome.const import CONF_ID
+from esphome.const import CONF_ID, PLATFORM_ESP32, PLATFORM_HOST
 
 CODEOWNERS = ["@jethome-iot"]
 DEPENDENCIES = ["web_server_base", "web_server"]
@@ -18,15 +18,18 @@ JetHomeBoardInfo = cg.esphome_ns.namespace("jethome_board_info").class_(
     "JetHomeBoardInfo", cg.Component
 )
 
-CONFIG_SCHEMA = cv.Schema(
-    {
-        cv.GenerateID(): cv.declare_id(WebDeviceDashboard),
-        cv.GenerateID(CONF_WEB_SERVER_BASE_ID): cv.use_id(
-            web_server_base.WebServerBase
-        ),
-        cv.Optional(CONF_BOARD_INFO_ID): cv.use_id(JetHomeBoardInfo),
-    }
-).extend(cv.COMPONENT_SCHEMA)
+CONFIG_SCHEMA = cv.All(
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.declare_id(WebDeviceDashboard),
+            cv.GenerateID(CONF_WEB_SERVER_BASE_ID): cv.use_id(
+                web_server_base.WebServerBase
+            ),
+            cv.Optional(CONF_BOARD_INFO_ID): cv.use_id(JetHomeBoardInfo),
+        }
+    ).extend(cv.COMPONENT_SCHEMA),
+    cv.only_on([PLATFORM_ESP32, PLATFORM_HOST]),  # host: the test suite
+)
 
 
 async def to_code(config):
