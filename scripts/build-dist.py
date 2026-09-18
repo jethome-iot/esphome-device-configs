@@ -305,6 +305,16 @@ def verify_import_roundtrip(source: Path, text: str) -> None:
 def render(source: Path) -> tuple[Path, str] | None:
     config = flatten(source)
 
+    # The device polls the firmware server under fw_device; the release publishes under the
+    # firmwares.yaml slug. Different values mean checking a slug nothing is ever uploaded to.
+    slug = (config.get("substitutions") or {}).get("fw_device")
+    published = manifest_devices()[str(source.relative_to(REPO_ROOT))]
+    if slug is not None and slug != published:
+        raise SystemExit(
+            f"{source.name}: fw_device is {slug!r}, but {MANIFEST_NAME} publishes this "
+            f"config as {published!r} — the device would check a slug nothing is uploaded to."
+        )
+
     dashboard_import = config.get("dashboard_import")
     if not dashboard_import:
         return None
@@ -329,17 +339,6 @@ def render(source: Path) -> tuple[Path, str] | None:
         )
 
     substitutions = config.get("substitutions") or {}
-
-    # The device polls the firmware server under fw_device; the release publishes under the
-    # firmwares.yaml slug. Different values mean checking a slug nothing is ever uploaded to.
-    slug = substitutions.get("fw_device")
-    published = manifest_devices()[str(source.relative_to(REPO_ROOT))]
-    if slug is not None and slug != published:
-        raise SystemExit(
-            f"{source.name}: fw_device is {slug!r}, but {MANIFEST_NAME} publishes this "
-            f"config as {published!r} — the device would check a slug nothing is uploaded to."
-        )
-
     rewritten: list[str] = []
     rewrite_assets(config, raw_base, source.parent, substitutions, rewritten)
     rewrite_external_components(

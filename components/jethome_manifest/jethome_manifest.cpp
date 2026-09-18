@@ -35,15 +35,17 @@ static bool to_md5(std::string &hash) {
 std::string resolve_url(const std::string &source_url, const std::string &url) {
   if (url.empty() || url.compare(0, 7, "http://") == 0 || url.compare(0, 8, "https://") == 0)
     return url;
-  if (url.compare(0, 2, "//") == 0) {
-    const size_t scheme = source_url.find("//");
+
+  const size_t scheme = source_url.find("//");
+  if (url.compare(0, 2, "//") == 0)
     return source_url.substr(0, scheme == std::string::npos ? 0 : scheme) + url;
-  }
-  if (url[0] == '/') {
-    const size_t scheme = source_url.find("//");
-    const size_t host_end = scheme == std::string::npos ? source_url.find('/') : source_url.find('/', scheme + 2);
+
+  const size_t host_end = scheme == std::string::npos ? source_url.find('/') : source_url.find('/', scheme + 2);
+  if (url[0] == '/')
     return source_url.substr(0, host_end) + url;
-  }
+  // A manifest URL that is the bare server has no directory to resolve against.
+  if (host_end == std::string::npos)
+    return source_url + "/" + url;
   return source_url.substr(0, source_url.rfind('/') + 1) + url;
 }
 
@@ -68,7 +70,9 @@ bool parse_manifest(const uint8_t *data, size_t len, const std::string &channel,
     }
 
     JsonVariantConst image = firmware[ESPHOME_F("images")][ESPHOME_F("esp.ota")];
-    if (!firmware[ESPHOME_F("version")].is<const char *>() || !image[ESPHOME_F("url")].is<const char *>() ||
+    const char *version = firmware[ESPHOME_F("version")].as<const char *>();
+    const char *image_url = image[ESPHOME_F("url")].as<const char *>();
+    if (version == nullptr || *version == '\0' || image_url == nullptr || *image_url == '\0' ||
         !image[ESPHOME_F("hash")].is<const char *>()) {
       ESP_LOGE(TAG, "The '%s' firmware has no version, or no esp.ota image", channel.c_str());
       return false;
@@ -80,8 +84,8 @@ bool parse_manifest(const uint8_t *data, size_t len, const std::string &channel,
       return false;
     }
 
-    info.latest_version = firmware[ESPHOME_F("version")].as<std::string>();
-    info.firmware_url = resolve_url(source_url, image[ESPHOME_F("url")].as<std::string>());
+    info.latest_version = version;
+    info.firmware_url = resolve_url(source_url, image_url);
     info.md5 = std::move(md5);
     if (root[ESPHOME_F("device_name")].is<const char *>())
       info.title = root[ESPHOME_F("device_name")].as<std::string>();

@@ -89,7 +89,12 @@ void JethomeUpdate::update() {
   // The running check reads this, so it is set only while none is running.
   this->checking_channel_ = this->channel_;
 #ifdef USE_ESP32
-  xTaskCreate(JethomeUpdate::update_task, "jethome_update", 8192, (void *) this, 1, &this->update_task_handle_);
+  if (xTaskCreate(JethomeUpdate::update_task, "jethome_update", 8192, (void *) this, 1, &this->update_task_handle_) !=
+      pdPASS) {
+    ESP_LOGE(TAG, "Failed to start the update check");
+    this->update_task_handle_ = nullptr;
+    this->status_set_error(LOG_STR("Failed to start update check"));
+  }
 #else
   JethomeUpdate::update_task(this);
 #endif
@@ -171,6 +176,14 @@ void JethomeUpdate::finish_check_(CheckResult *result) {
 #ifdef USE_ESP32
   this->update_task_handle_ = nullptr;
 #endif
+
+  // The select can move the channel while a check is in flight; that answer is the old
+  // channel's, and its image must not be offered under the new one.
+  if (this->checking_channel_ != this->channel_) {
+    delete result;
+    this->update();
+    return;
+  }
 
   if (result->error_str != nullptr) {
     this->status_set_error(result->error_str);

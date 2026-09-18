@@ -89,6 +89,17 @@ TEST(Manifest, LeavesTheTitleEmptyWhenTheManifestNamesNoDevice) {
   EXPECT_TRUE(info.title.empty());
 }
 
+TEST(Manifest, RefusesAnEmptyVersionOrUrl) {
+  for (const char *fields : {R"("version": "", "images": {"esp.ota": {"url": "/a.bin",)",
+                             R"("version": "1.0.0", "images": {"esp.ota": {"url": "",)"}) {
+    const std::string manifest = std::string(R"({"latest_firmware": {"fw.release": {)") + fields +
+                                 R"( "hash": "8fd271ebf20c980fac0168646e8fa600"}}}}})";
+    update::UpdateInfo info;
+    EXPECT_FALSE(parse(manifest, "release", info)) << fields;
+    EXPECT_TRUE(info.latest_version.empty()) << fields;
+  }
+}
+
 TEST(Manifest, RefusesAManifestWithoutFirmware) {
   update::UpdateInfo info;
   EXPECT_FALSE(parse(R"({"device": "jxd-r6-e1eth-lcd"})", "release", info));
@@ -119,6 +130,10 @@ TEST(Url, TakesTheSchemeForASchemeRelativeUrl) {
 
 TEST(Url, TakesTheServerOfASourceThatHasNoPath) {
   EXPECT_EQ(resolve_url("https://fw.jethome.com", "/a.bin"), "https://fw.jethome.com/a.bin");
+}
+
+TEST(Url, TakesTheServerItselfWhenTheSourceHasNoPath) {
+  EXPECT_EQ(resolve_url("https://fw.jethome.com", "a.bin"), "https://fw.jethome.com/a.bin");
 }
 
 TEST(Url, LeavesAnEmptyUrlAlone) { EXPECT_EQ(resolve_url(SOURCE, ""), ""); }
