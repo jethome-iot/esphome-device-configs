@@ -117,7 +117,10 @@ TEST_F(Dashboard, SystemActionsNeedAConfirmation) {
   this->dashboard->stub_rollback = true;
   this->dashboard->rollback = other_slot();
   for (const char *url : {REBOOT, FACTORY_RESET, ROLLBACK}) {
-    for (const char *body : {"{}", R"({"confirm":false})", R"({"confirm_token":"AA:BB:CC"})"}) {
+    // Only a JSON boolean confirms: a truthy number or the string "true" is a client that
+    // does not know the contract, not a confirmation.
+    for (const char *body : {"{}", R"({"confirm":false})", R"({"confirm_token":"AA:BB:CC"})", R"({"confirm":1})",
+                             R"({"confirm":"true"})", R"({"confirm":null})"}) {
       Reply reply = this->post(url, body);
       EXPECT_EQ(reply.code, 400) << url << " " << body;
       EXPECT_EQ(reply.error(), "'confirm' must be true") << url << " " << body;

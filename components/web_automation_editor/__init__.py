@@ -26,6 +26,10 @@ def url_prefix(value):
         raise cv.Invalid("url_prefix must name a path below the server root")
     if any(c.isspace() or c in "?#" for c in value):
         raise cv.Invalid("url_prefix must be a URL path: no spaces, '?' or '#'")
+    # A browser resolves these away before it sends the request and the handler matches the
+    # prefix literally, so a route named with one could never be reached.
+    if any(segment in ("", ".", "..") for segment in value.split("/")):
+        raise cv.Invalid("url_prefix must not contain empty or dot path segments")
     return "/" + value
 
 
