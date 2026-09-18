@@ -23,6 +23,9 @@ namespace esphome::jethome_update {
 static const char *const TAG = "jethome_update";
 
 static const size_t MAX_READ_SIZE = 256;
+// A device manifest is a couple of kilobytes. Anything larger is not one, and allocating it
+// would cost the heap the install itself needs.
+static const size_t MAX_MANIFEST_SIZE = 16 * 1024;
 static constexpr uint32_t INITIAL_CHECK_INTERVAL_ID = 0;
 static constexpr uint32_t INITIAL_CHECK_INTERVAL_MS = 10000;
 static constexpr uint8_t INITIAL_CHECK_MAX_ATTEMPTS = 6;
@@ -143,10 +146,10 @@ void JethomeUpdate::run_check_(CheckResult &result) {
   }
 
   const size_t content_length = container->content_length;
-  if (content_length == 0) {
-    ESP_LOGE(TAG, "The manifest at %s is empty", this->source_url_.c_str());
+  if (content_length == 0 || content_length > MAX_MANIFEST_SIZE) {
+    ESP_LOGE(TAG, "The answer at %s is %zu bytes, which is not a manifest", this->source_url_.c_str(), content_length);
     container->end();
-    result.error_str = LOG_STR("Empty manifest");
+    result.error_str = LOG_STR("Unexpected manifest size");
     return;
   }
 
@@ -181,6 +184,15 @@ void JethomeUpdate::run_check_(CheckResult &result) {
   allocator.deallocate(data, content_length);
   if (!valid) {
     result.error_str = LOG_STR("Failed to parse manifest");
+    return;
+  }
+
+  // The manifest came over TLS; taking its image over plain HTTP would spend a whole download
+  // on something no one vouched for.
+  if (this->source_url_.compare(0, 8, "https://") == 0 && result.info.firmware_url.compare(0, 7, "http://") == 0) {
+    ESP_LOGE(TAG, "The firmware URL %s is not https", result.info.firmware_url.c_str());
+    result.info = {};
+    result.error_str = LOG_STR("Firmware URL is not https");
     return;
   }
 
