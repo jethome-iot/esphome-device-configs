@@ -66,13 +66,14 @@ display:
           const bool installing = fw->state == update::UPDATE_STATE_INSTALLING;
           const int width = it.get_width();
 
-          // What is happening, and to which version; the entity keeps both.
-          it.print(width / 2, 0, id(f6x12), TextAlign::TOP_CENTER,
-                   installing ? "Installing" : "Update failed");
-          // A nightly version is a character wider than the 7x14 font fits across the screen.
+          // The state, then the version latched when the install started.
+          it.print(width / 2, 2, id(f6x12), TextAlign::TOP_CENTER,
+                   installing ? "Update to version:" : "Update failed");
+          // A nightly version (2026.8.2.20260911.1) is wider than the 7x14 font fits across the
+          // screen; a longer one still loses only its tail, not both ends to the centring.
           const std::string &version = id(firmware_install_version);
-          it.print(width / 2, 14, version.size() > 18 ? id(f6x12) : id(f7x14_mod2), TextAlign::TOP_CENTER,
-                   version.empty() ? "?" : version.c_str());
+          it.printf(width / 2, 16, version.size() > 18 ? id(f6x12) : id(f7x14_mod2), TextAlign::TOP_CENTER,
+                    "%.21s", version.empty() ? "?" : version.c_str());
 
           if (!installing) {
             it.print(width / 2, 36, id(f6x12), TextAlign::TOP_CENTER, "Firmware unchanged");
@@ -82,11 +83,11 @@ display:
 
           const int pct = id(firmware_install_pct);
           if (pct < 0) {
-            it.print(width / 2, 30, id(big_label_font), TextAlign::TOP_CENTER, "...");
+            it.print(width / 2, 33, id(f6x12), TextAlign::TOP_CENTER, "...");
           } else {
-            it.printf(width / 2, 30, id(big_label_font), TextAlign::TOP_CENTER, "%d%%", pct);
+            it.printf(width / 2, 33, id(f6x12), TextAlign::TOP_CENTER, "%d%%", pct);
           }
 
-          // The bottom row is the same percentage as a bar, two pixels inside its frame.
-          it.rectangle(0, 56, width, 8);
-          it.filled_rectangle(2, 58, (width - 4) * std::clamp(pct, 0, 100) / 100, 4);
+          // The same percentage as a bar, two pixels inside its frame.
+          it.rectangle(4, 48, width - 8, 13);
+          it.filled_rectangle(6, 50, (width - 12) * std::clamp(pct, 0, 100) / 100, 9);

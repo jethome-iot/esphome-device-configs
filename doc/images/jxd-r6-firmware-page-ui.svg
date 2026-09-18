@@ -4,15 +4,15 @@
   <rect width="128" height="64" fill="#000000"/>
 
   <!-- State - centered, f6x12 font -->
-  <text x="64" y="10" font-family="monospace" font-size="12" fill="#FFFFFF" text-anchor="middle">Installing</text>
+  <text x="64" y="12" font-family="monospace" font-size="10" fill="#FFFFFF" text-anchor="middle">Update to version:</text>
 
   <!-- Version being written - centered, f7x14_mod2 font -->
-  <text x="64" y="25" font-family="monospace" font-size="14" fill="#FFFFFF" text-anchor="middle">1.2.0</text>
+  <text x="64" y="28" font-family="monospace" font-size="14" fill="#FFFFFF" text-anchor="middle">2026.9.1</text>
 
-  <!-- Percentage - centered, big_label_font (spleen 12x24) -->
-  <text x="64" y="50" font-family="monospace" font-size="24" fill="#FFFFFF" text-anchor="middle">42%</text>
+  <!-- Percentage - centered, f6x12 font -->
+  <text x="64" y="43" font-family="monospace" font-size="10" fill="#FFFFFF" text-anchor="middle">42%</text>
 
-  <!-- Progress bar - bottom row, filled to the same percentage -->
-  <rect x="0.5" y="56.5" width="127" height="7" fill="none" stroke="#FFFFFF" stroke-width="1"/>
-  <rect x="2" y="58" width="52" height="4" fill="#FFFFFF"/>
+  <!-- Progress bar - filled to the same percentage, two pixels inside its frame -->
+  <rect x="4.5" y="48.5" width="119" height="12" fill="none" stroke="#FFFFFF" stroke-width="1"/>
+  <rect x="6" y="50" width="48" height="9" fill="#FFFFFF"/>
 </svg>
