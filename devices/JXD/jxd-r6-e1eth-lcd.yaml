@@ -4,6 +4,8 @@ substitutions:
   name: "jxd-r6-e1eth-lcd"
   friendly_name: JXD-R6-E1ETH-LCD
   version: 1.0.0
+  # The slug this model publishes under on fw.jethome.com; ${name} is the user's to rename.
+  fw_device: jxd-r6-e1eth-lcd
   # Paths relative to this file.
   assets: ../../assets
   components: ../../components
@@ -21,6 +23,7 @@ packages:
   automations: !include ${features}/automations.yaml
   display_off: !include ${features}/display-off.yaml
   entity_settings: !include ${features}/entity-settings.yaml
+  firmware_update: !include ${features}/firmware-update.yaml
   i2c: !include ${features}/i2c.yaml
   modbus: !include ${features}/modbus-server.yaml
   network: !include ${features}/network.yaml

@@ -1,0 +1,44 @@
+# Firmware updates from fw.jethome.com: the device polls the manifest of its own
+# slug there and installs the esp.ota image of the selected channel.
+external_components:
+  - source: ${components}
+    components: [jethome_manifest, jethome_update]
+
+http_request:
+  useragent: JetHome
+  # The manifest is small, but a busy uplink makes 4.5s a tight read.
+  timeout: 10s
+
+ota:
+  - platform: http_request
+
+update:
+  - platform: jethome_update
+    id: firmware_update
+    name: Firmware update
+    source: https://fw.jethome.com/api/devices/${fw_device}/info
+    channel: release
+
+select:
+  - platform: template
+    id: firmware_channel
+    name: Firmware channel
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_option: release
+    options: [release, nightly]
+    on_value:
+      # Nothing is known about the new channel until it is asked; offline this does nothing.
+      - lambda: |-
+          id(firmware_update).set_channel(x);
+          id(firmware_update).check();
+
+button:
+  - platform: template
+    id: check_firmware_button
+    name: Check for updates
+    icon: mdi:cloud-refresh
+    entity_category: config
+    on_press:
+      - lambda: id(firmware_update).check();
