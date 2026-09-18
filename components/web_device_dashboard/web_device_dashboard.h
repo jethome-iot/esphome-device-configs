@@ -8,6 +8,9 @@
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
 #include "esphome/components/jethome_board_info/jethome_board_info.h"
 #endif
+#ifdef USE_WEB_AUTH
+#include "esphome/components/web_auth/web_auth.h"
+#endif
 
 namespace esphome::web_device_dashboard {
 
@@ -15,6 +18,9 @@ enum class RouteId : uint8_t {
   INFO,
   STATUS,
   NETWORK,
+#ifdef USE_WEB_AUTH
+  AUTH,
+#endif
 #ifdef USE_CONFIG_JSON
   ENTITIES,
   ENTITY_SETTINGS,
@@ -31,8 +37,9 @@ struct Route {
 };
 
 // The dashboard page at / and the device API under /api/device/: info (with the board's
-// EEPROM identity when jethome_board_info is wired in), status, network, and with
-// config_json the entity index, the entity settings and their form fields.
+// EEPROM identity when jethome_board_info is wired in), status, network, with web_auth the
+// HTTP credentials, and with config_json the entity index, the entity settings and their
+// form fields.
 class WebDeviceDashboard : public AsyncWebHandler, public Component {
  public:
   explicit WebDeviceDashboard(web_server_base::WebServerBase *base) : base_(base) {}
@@ -60,6 +67,10 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   void handle_info_(AsyncWebServerRequest *request);
   void handle_status_(AsyncWebServerRequest *request);
   void handle_network_(AsyncWebServerRequest *request);
+#ifdef USE_WEB_AUTH
+  void handle_auth_get_(AsyncWebServerRequest *request);
+  void handle_auth_set_(AsyncWebServerRequest *request);
+#endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
   void write_board_(JsonObject root);
 #endif

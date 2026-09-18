@@ -60,11 +60,15 @@ Key names are limited to letters, digits, `_` and `-`, so the posted path is the
 whatever the client encodes.
 
 A frame is `((width + 7) / 8) * height` bytes — 1024 for 128×64. Scripted use is just as easy
-as the page:
+as the page.
+
+The panel's home is the emulator, whose firmware has an `auth:` block, so every one of these
+wants the credentials; `--digest -u` covers what the configs in this repository build.
 
 ```bash
-curl -s http://device/panel/frame -o frame.bin
-curl -s -X POST -d "" http://device/panel/key/enter   # an empty body: httpd wants Content-Length
+A='--digest -u admin:admin'
+curl -s $A http://device/panel/frame -o frame.bin
+curl -s -X POST -d "" $A http://device/panel/key/enter   # an empty body: httpd wants Content-Length
 ```
 
 ## Why a frame is a snapshot

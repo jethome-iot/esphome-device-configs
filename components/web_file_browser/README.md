@@ -41,8 +41,9 @@ The handler registers on the shared `web_server_base`, so it answers on the same
 `web_server` and behind its `auth:` credentials — requests, raw bodies and multipart uploads
 alike. Those credentials come from the `web_server:` block and from nowhere else: with no
 `web_server:`, or no `auth:` in it, the whole partition is readable and writable by anything
-that can reach the port. The configs in this repository set no `auth:`, so that is how they
-ship. Method enforcement is not a substitute — it keeps a mutating route out of reach of an
+that can reach the port. The configs in this repository set them, and
+[`web_auth`](../web_auth/README.md) lets the device replace the pair. Method enforcement is not
+a substitute — it keeps a mutating route out of reach of an
 `<img src>`, but a cross-site form can still POST.
 
 ## REST
@@ -75,11 +76,15 @@ the connection (`download`), so an incomplete answer cannot pass for a complete 
 `delete` and `copy` recurse at most eight directory levels — a deeper tree is an error before
 anything is removed, not a smashed web server stack.
 
+A firmware with an `auth:` block wants the credentials on every one of these; `--digest -u`
+covers what the configs in this repository build.
+
 ```sh
-curl 'http://<device>/files/list?path=/'
-curl -X POST 'http://<device>/files/write?path=/notes.txt' -H 'Content-Type: text/plain' --data-binary 'hello'
-curl -X POST 'http://<device>/files/upload?path=/notes.bin' -F file=@notes.bin
-curl -X POST 'http://<device>/files/rename' -d 'old_path=/notes.txt&new_path=/readme.txt'
+A='--digest -u admin:admin'
+curl $A 'http://<device>/files/list?path=/'
+curl -X POST $A 'http://<device>/files/write?path=/notes.txt' -H 'Content-Type: text/plain' --data-binary 'hello'
+curl -X POST $A 'http://<device>/files/upload?path=/notes.bin' -F file=@notes.bin
+curl -X POST $A 'http://<device>/files/rename' -d 'old_path=/notes.txt&new_path=/readme.txt'
 ```
 
 `write` needs an explicit `Content-Type`: `curl` sends `application/x-www-form-urlencoded` by
@@ -102,13 +107,14 @@ does not claim it.
 ## scripts/device-files.py
 
 The same routes from a terminal, standard library only; `--host` or `DEVICE_HOST` names the
-device.
+device and `-u` or `DEVICE_USER` carries its credentials, Digest or Basic as the device asks.
 
 ```sh
-scripts/device-files.py --host 192.168.1.50 ls -l /config
-scripts/device-files.py --host 192.168.1.50 get -r / ./backup      # backup
-scripts/device-files.py --host 192.168.1.50 put -r ./backup /      # restore
-DEVICE_HOST=192.168.1.50 scripts/device-files.py shell
+export DEVICE_HOST=192.168.1.50 DEVICE_USER=admin:admin
+scripts/device-files.py ls -l /config
+scripts/device-files.py get -r / ./backup      # backup
+scripts/device-files.py put -r ./backup /      # restore
+scripts/device-files.py shell
 ```
 
 Also `info`, `tree`, `cat`, `write`, `rm`, `mkdir -p`, `mv`, `cp` and `edit`; a directory needs `-r`.

@@ -1,8 +1,9 @@
 # web_device_dashboard
 
 The device's web UI at `/` — overview, the entities and their settings, automations, the
-device log and the file manager — plus the device API it needs under `/api/device/`. The page
-is a Vue app built in [jethome-devices-web-dashboard](https://github.com/jethome-iot/jethome-devices-web-dashboard)
+device log, the file manager and the device settings — plus the device API it needs under
+`/api/device/`. The page is a Vue app built in
+[jethome-devices-web-dashboard](https://github.com/jethome-iot/jethome-devices-web-dashboard)
 and embedded here, gzipped, as `dashboard_index.h`, so a device config needs no Node.js.
 ESP-IDF only.
 
@@ -27,10 +28,11 @@ The one option, `board_info_id`, names a `jethome_board_info`; with it `/api/dev
 the identity the firmware read from the CPU board's EEPROM. The handler registers on the shared
 `web_server_base` ahead of `web_server`'s, so `/` is the dashboard and `web_server`'s own page is
 not reachable; its REST routes, `/events` and its `auth:` stay as they are, and the dashboard uses
-them for entity state and control and for the log. The Automations and Files screens talk to
-`web_automation_editor` and `web_file_browser` at their default `url_prefix`
-(`/automation-editor`, `/files`), baked into the page at build time; without those components the
-screens have nothing to show.
+them for entity state and control and for the log. On a firmware with an `auth:` block the page
+and every route here are behind it, so the browser asks for the credentials before the page
+loads. The Automations and Files screens talk to `web_automation_editor` and `web_file_browser`
+at their default `url_prefix` (`/automation-editor`, `/files`), baked into the page at build
+time; without those components the screens have nothing to show.
 
 ## Updating the page
 
@@ -50,6 +52,14 @@ failure `{"success": false, "error"}`. The same contract, machine-readable:
 | GET | `/api/device/info` | `{"name", "base_mac_address", "mac_address", "version"}`; with `board_info_id` also `serial_number`, `device_model`, `hw_revision` and `board` — what `jethome_board_info` read, verbatim, plus the chip's eFuses |
 | GET | `/api/device/status` | `{"ha_connected", "uptime_s", "reset_reason", "connection_type", "rssi", "ip_address", "reboot_required"}` |
 | GET | `/api/device/network` | `{"hostname", "connection_type", "ip_address", "gateway", "subnet", "dns1", "dns2", "ssid", "rssi", "ethernet_connected"}` |
+
+With a [`web_auth`](../web_auth/README.md), the web server's own credentials; without one
+these routes are `404`:
+
+| Method | Path | |
+|---|---|---|
+| GET | `/api/device/auth` | `{"username", "password_length", "is_default"}` — never the password |
+| POST | `/api/device/auth` | `{"username", "password"}` replaces both; needs `Content-Type: application/json`, which no HTML form can send. Answers `200` for a pair it accepted, under the old credentials; the change itself happens on the next turn of the main loop, and the `GET` confirms it |
 
 With a `config_json` store (`entity_config`'s `switch` and `binary_sensor` types), the entity
 settings too; without one these routes are `404`:

@@ -51,6 +51,10 @@ boundaries; everything else is local to its file.
 - `switch_settings` and `binary_sensor_settings` (`features/entity-settings.yaml`) are the
   settings objects the menu's Relay N and Input N rows call. Those two ids are set explicitly: a
   generated id cannot be named from a lambda.
+- `web_auth_credentials` (`features/web-auth.yaml`) holds the credentials the web server checks.
+  The `auth:` block in the same file is the factory pair; a pair set through the dashboard is
+  kept in the device's flash preferences and replaces it from the next request on, so a factory
+  reset from the display menu brings `admin` / `admin` back.
 - `web_device_dashboard` (`features/web-device-dashboard.yaml`) is the page at `/`, registered
   ahead of `web_server`'s own. Entity state and control go through `web_server`'s REST and
   `/events`, the Files screen through `web_file_browser` at `/files`, the Automations screen
@@ -127,6 +131,12 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   `setup_priority::WIFI - 0.5`, just ahead of `web_server`'s `WIFI - 1`, and `web_server_base`
   asks its handlers in registration order. `web_server` therefore runs without `local: true`:
   the page it would embed is never served.
+- `components/web_auth` replaces the two `const char *` upstream's `WebServerBase` keeps and
+  never copies, so the strings it hands over must outlive every request and the setters are
+  called again after each change. It also needs a compiled `auth:` block to exist at all:
+  `add_handler()` decides once, at registration, whether a handler gets the authentication
+  middleware, and without credentials at that moment none is installed. A final-validate check
+  in the component insists on the block.
 - `components/virtual_display` (emulator only, see [QEMU.md](QEMU.md)) renders through
   `DisplayBuffer`'s protected `init_internal_` / `do_update_` and serves its endpoints as a
   `web_server_base` handler, setting the 405 status line through ESP-IDF's

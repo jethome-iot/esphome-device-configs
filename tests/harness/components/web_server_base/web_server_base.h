@@ -4,7 +4,11 @@
 // HTTP handler is written against, driven by a test instead of a socket. Only what the
 // components under test use, with web_server_idf's shapes and dispatch order.
 
+#include "esphome/core/defines.h"
+#include "esphome/core/optional.h"
+
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -84,6 +88,20 @@ class AsyncWebServerRequest {
     this->response_body = response->body;
     this->response_headers = std::move(response->headers);
     delete response;  // NOLINT(cppcoreguidelines-owning-memory)
+  }
+
+  // Content-Type only: the one header the handlers under test read. HTTP names are
+  // case-insensitive, and upstream's ESP-IDF lookup is too.
+  optional<std::string> get_header(const char *name) const {
+    const std::string wanted(name);
+    if (wanted.size() != sizeof("Content-Type") - 1 ||
+        !std::equal(wanted.begin(), wanted.end(), "Content-Type", [](char a, char b) {
+          return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+        }))
+      return {};
+    if (this->content_type_.empty())
+      return {};
+    return this->content_type_;
   }
 
   const std::string &body() const { return this->body_; }
@@ -178,6 +196,15 @@ class WebServerBase {
       this->initialized_--;
   }
   AsyncWebServer *get_server() const { return this->server_; }
+#ifdef USE_WEBSERVER_AUTH
+  // Upstream keeps the two strings by pointer and never copies them; so does this, so a test
+  // reads back exactly what the component handed over. No middleware: upstream's 401 is the
+  // ESP-IDF server's, and re-implementing it here would only prove the copy right.
+  void set_auth_username(const char *auth_username) { this->auth_username_ = auth_username; }
+  void set_auth_password(const char *auth_password) { this->auth_password_ = auth_password; }
+  const char *get_auth_username() const { return this->auth_username_; }
+  const char *get_auth_password() const { return this->auth_password_; }
+#endif
   void add_handler(AsyncWebHandler *handler) {
     this->handlers_.push_back(handler);
     if (this->server_ != nullptr)
@@ -192,6 +219,10 @@ class WebServerBase {
   uint16_t port_{80};
   AsyncWebServer *server_{nullptr};
   std::vector<AsyncWebHandler *> handlers_;
+#ifdef USE_WEBSERVER_AUTH
+  const char *auth_username_{nullptr};
+  const char *auth_password_{nullptr};
+#endif
 };
 
 }  // namespace web_server_base

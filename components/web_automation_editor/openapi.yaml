@@ -29,12 +29,13 @@ servers:
         default: /automation-editor
         description: The component's `url_prefix`; baked into a dashboard at build time.
 
-# Optional: the routes inherit whatever auth the `web_server:` block sets. The
-# configs in this repository set none, so the empty requirement is the shipped
-# default — anything that reaches the port may call every route.
+# The routes inherit whatever auth the `web_server:` block sets. The configs in
+# this repository set Digest credentials, so that is the shipped default; the
+# empty requirement covers a firmware built without an `auth:` block, where
+# anything that reaches the port may call every route.
 security:
-  - {}
   - webServerAuth: []
+  - {}
 
 tags:
   - name: read
@@ -61,6 +62,8 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/AutomationSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
 
@@ -80,6 +83,8 @@ paths:
                 $ref: "#/components/schemas/AutomationConfig"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
         "405":
@@ -115,6 +120,8 @@ paths:
                 $ref: "#/components/schemas/SaveResult"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
         "405":
@@ -141,6 +148,8 @@ paths:
           $ref: "#/components/responses/Success"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
         "405":
@@ -161,6 +170,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AutomationExport"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
 
@@ -177,6 +188,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Entities"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
 
@@ -195,6 +208,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Schema"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
 
@@ -207,6 +222,8 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/Success"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
 
@@ -227,6 +244,8 @@ paths:
                   status:
                     type: string
                     enum: [ok]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
 
@@ -234,10 +253,12 @@ components:
   securitySchemes:
     webServerAuth:
       type: http
-      scheme: basic
+      scheme: digest
       description: >-
-        Credentials from the `web_server:` `auth:` block, when set. Basic auth on
-        ESP32. Off by default in this repository.
+        Credentials from the `web_server:` `auth:` block. The scheme is fixed at
+        build time; the configs in this repository build Digest. A firmware with a
+        `web_auth` serves the pair stored on the device instead of the compiled
+        one, so a client must be ready for either.
 
   parameters:
     IdQuery:
@@ -252,6 +273,16 @@ components:
       example: 3
 
   responses:
+    Unauthorized:
+      description: >-
+        The credentials the `web_server:` `auth:` block set — replaced by what a
+        `web_auth` stored — are missing or wrong. The server names the scheme in
+        `WWW-Authenticate`; the body is the HTTP server's, not this API's.
+      headers:
+        WWW-Authenticate:
+          description: The scheme the firmware was built with.
+          schema:
+            type: string
     Success:
       description: The operation succeeded.
       content:
