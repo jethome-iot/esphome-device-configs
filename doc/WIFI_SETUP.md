@@ -5,8 +5,9 @@ ships no WiFi credentials: once WiFi is switched on and it has no network to joi
 cannot reach the one it knows, it raises its own access point and serves a captive
 portal, and you hand it the real network from there.
 
-A device on Ethernet needs none of this. Note that in `Auto` mode the access point
-comes up and stays up until WiFi is provisioned, cable or not.
+A device on Ethernet needs none of this, and a device you can already reach is
+configured over the device API instead of through the portal. Note that in `Auto`
+mode the access point comes up and stays up until WiFi is provisioned, cable or not.
 
 ## Initial setup
 
@@ -31,6 +32,59 @@ comes up and stays up until WiFi is provisioned, cable or not.
    web interface. The main page shows the address of the link carrying the traffic,
    so with the Ethernet cable in it is the Ethernet one; both addresses are under
    **Info**.
+
+The network you hand the portal joins the device's stored network list at the next
+boot, and the device API answers it from then on.
+
+## Over the device API
+
+A device that is reachable — on Ethernet, or over WiFi on its old network — takes its
+whole network configuration over HTTP: the mode, up to five WiFi networks and each
+interface's address. The routes want the web server's credentials, Digest and
+`admin` / `admin` out of the factory:
+
+```bash
+A='--digest -u admin:admin'
+
+# what is stored now; a password is only ever reported as has_password
+curl -s $A http://<device>/api/device/network/config
+
+# the first network in the list is tried first; the mode is auto, wifi or ethernet
+curl -sX POST $A -H 'Content-Type: application/json' \
+  -d '{"network_type": "auto",
+       "wifi_networks": [{"ssid": "home", "password": "s3cret"}],
+       "wifi": {"use_dhcp": true}}' \
+  http://<device>/api/device/network/config
+```
+
+The update is partial and all-or-nothing: what you leave out keeps its stored value,
+and nothing is written unless every field passes. An entry without a `password` keeps
+the one stored for that SSID, so the body `GET` answers goes straight back into `POST`.
+A fixed address is the whole `manual_ip` object next to `use_dhcp: false`:
+
+```json
+{"ethernet": {"use_dhcp": false,
+              "manual_ip": {"static_ip": "10.0.0.7", "gateway": "10.0.0.1",
+                            "subnet": "255.255.255.0", "dns1": "10.0.0.1", "dns2": ""}}}
+```
+
+The mode and the network list take effect at once. An address change does not, and the
+answer says so with `reboot_required: true`; the reboot is yours to send, so that the
+client chooses when to lose the device:
+
+```bash
+curl -sX POST $A -H 'Content-Type: application/json' \
+  -d '{"confirm": true, "confirm_token": "DD:EE:FF"}' \
+  http://<device>/api/device/system/reboot
+```
+
+`confirm_token` is the last three octets of `base_mac_address` from
+`/api/device/info`. A device that comes back on an address nobody can reach is
+recovered by the display's factory reset.
+
+The settings are stored in `/littlefs/config/network.json` on the user partition,
+**passwords in the clear**, and the file API serves that directory like any other:
+whoever can reach `/files` with the web server's credentials can read them.
 
 ## Access point details
 
@@ -58,10 +112,10 @@ credentials included, formats the user partition, and reboots into AP mode.
 `POST /api/device/system/factory-reset` does the same over the network, while the device is
 still reachable on the old ones.
 
-**By baking credentials into the firmware.** `devices/JXD/packages/features/network.yaml` configures
-only the fallback AP; add `ssid` and `password` to its `wifi:` block, keeping them out
-of the repository, then recompile and upload:
+**Over the device API.** `POST /api/device/network/config`, as above; this is the way to
+move a device to another network without going near it.
 
-```bash
-esphome run devices/JXD/jxd-r6-e1eth-lcd.yaml --device <IP_ADDRESS>
-```
+Credentials cannot be compiled in: the stored list is what the device joins, and a
+`networks:` (or `ssid:`) in the `wifi:` block of
+`devices/JXD/packages/features/network.yaml` is refused at validation. That block
+configures the fallback AP and nothing else.

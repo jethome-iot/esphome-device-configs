@@ -50,6 +50,12 @@ boundaries; everything else is local to its file.
   (`features/automation-editor.yaml`) edits those rules under `/automation-editor/api`.
 - `config_json_keeper` (`features/storage.yaml`) owns the JSON settings files on that partition
   for any component that registers a settings type with it.
+- `network_config_id` (`features/network.yaml`) is the stored network configuration — the mode,
+  the WiFi networks and each interface's address — in that keeper's `network.json`. The
+  `Network mode` select is a view over it: the component publishes the stored mode into the
+  select at setup, the select's `on_value` writes back, and `apply_network_mode` is one call
+  into the component. The device API edits the same record under `/api/device/network/config`;
+  see [WIFI_SETUP.md](WIFI_SETUP.md).
 - `switch_settings` and `binary_sensor_settings` (`features/entity-settings.yaml`) are the
   settings objects the menu's Relay N and Input N rows call. Those two ids are set explicitly: a
   generated id cannot be named from a lambda.
@@ -76,10 +82,13 @@ boundaries; everything else is local to its file.
 | 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); restore the timezone and read the RTC (`setup_time`, called from the device config). `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
 | 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created. `board_info` reads the EEPROM here too, once `eeprom_cpu` (600) has answered |
 | 500 | add a `Temp N` submenu per bound slot to the Temperatures menu; add a row per loaded rule to the Automations menu |
-| 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
+| 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the stored mode is published before the interfaces exist |
 
 `littlefs_storage` mounts at 810, so the rule files are readable by the time `automations` loads
-them.
+them. `network_config` sets up at 260 — after the keeper has loaded `network.json` (805) and the
+`Network mode` select has published its compiled default (800), before Ethernet (250) and WiFi
+(245) — so the stored mode, addresses and WiFi networks are in place before either interface
+starts; the `on_boot` 200 block above is what then enables or disables them.
 Entity settings ride on `setup_priority` instead, ahead of every `on_boot` block: the
 `config_json` keeper loads the files at `HARDWARE + 5`, and one apply component per settings type
 pushes the values into the entities at `HARDWARE + 1`, before the switches and binary sensors set
@@ -89,7 +98,9 @@ once there; until then input changes are ignored. See [ENTITY_SETTINGS.md](ENTIT
 ## Settings
 
 Template `select` / `number` entities with `optimistic: true` and `restore_value: true`; boot
-lambdas read them. Network mode applies live, Modbus settings on the next reboot.
+lambdas read them. Modbus settings apply on the next reboot. `Network mode` is the exception: it
+restores nothing of its own and shows what `network_config` has stored, and the mode applies
+live; a changed address waits for a reboot.
 
 Per-relay and per-input settings are a separate mechanism — JSON files on the user storage
 partition rather than preferences — because there is one record per entity and they are meant to
@@ -161,6 +172,17 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   without YAML filters, appends a `binary_sensor::Filter` at run time, and keys every stored
   record on `fnv1_hash(object_id) == EntityBase::get_object_id_hash()`, an equality upstream does
   not promise.
+- `components/network_config` force-defines `USE_WIFI_MANUAL_IP` and `USE_ETHERNET_MANUAL_IP` so
+  both `set_manual_ip()` setters are compiled in for a YAML that declares no `manual_ip:`, and it
+  treats ESPHome's own saved WiFi credentials as an inbox rather than a store: at setup and every
+  five seconds after, it reads both preference keys `WiFiComponent::start()` can pick, takes what
+  the captive portal left there into its record, then writes a blob of another length over them,
+  which upstream's `load()` reads as absent. The poll is what saves credentials entered during a
+  session, which the next firmware's config-version key could no longer find. Without any of it,
+  `start()` would replace the whole station list with that one network. The list is reinstalled
+  right after `enable()` returns, and `wifi:` must carry
+  `enable_on_boot: false` for that window to exist at all; a final-validate check in the component
+  insists on it, and on neither interface carrying a `manual_ip:`.
 - `components/config_base` schedules its debounced save with a named string timeout and flushes
   from `on_shutdown()`.
 - `components/bindings` subscribes once per input with `add_full_state_callback` and never

@@ -63,6 +63,20 @@ wifi:
 captive_portal:
   id: captive_portal_id
 
+# The stored network settings — the mode, the WiFi networks and each interface's
+# address — applied at boot and edited over the device API. Needs the keeper of
+# the storage package.
+external_components:
+  - source: ${components}
+    components: [network_config]
+
+network_config:
+  id: network_config_id
+  config_json_id: config_json_keeper
+  network_mode_select_id: network_mode
+  wifi_id: wifi_id
+  ethernet_id: ethernet_id
+
 globals:
   - id: network_mode_applied
     type: bool
@@ -92,19 +106,20 @@ select:
       sorting_weight: 0
     entity_category: config
     optimistic: true
-    restore_value: true
+    # No restore_value: network_config publishes the stored mode at setup.
     initial_option: "Ethernet"
     options:
       - "Auto"
       - "Ethernet"
       - "WiFi"
     on_value:
-      # The restored value fires before the interfaces exist; on_boot applies it.
+      # The stored mode is published before the interfaces exist; on_boot applies it.
       - if:
           condition:
             lambda: 'return id(network_mode_applied);'
           then:
-            - script.execute: apply_network_mode
+            - lambda: 'id(network_config_id).set_network_type_from_select(i);'
+            - component.update: ip
 
 script:
   # SSID: the device name as shown on the main page. Password: the last four
@@ -121,19 +136,7 @@ script:
 
   - id: apply_network_mode
     then:
-      - lambda: |-
-          // Option index: 0 Auto, 1 Ethernet, 2 WiFi.
-          const size_t mode = id(network_mode).active_index().value_or(0);
-          if (mode == 2) {
-            id(ethernet_id).disable();
-          } else {
-            id(ethernet_id).enable();
-          }
-          if (mode == 1) {
-            id(wifi_id).disable();
-          } else {
-            id(wifi_id).enable();
-          }
+      - lambda: 'id(network_config_id).apply_mode();'
       - component.update: ip
 
   # An empty-SSID record still counts as a configured network, so clear by length.

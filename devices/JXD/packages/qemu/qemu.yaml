@@ -30,9 +30,9 @@ sensor:
   - id: !extend poe_voltage
     update_interval: never
 
-# QEMU models no radio. "Ethernet" is the only mode that never touches the WiFi
-# stack, and a mode restored from emulated NVS would call esp_wifi_init().
+# QEMU models no radio. Ethernet, what the stored settings default to, is the only
+# mode that never touches the WiFi stack; without on_value a pick on the display
+# cannot store another one and make every later boot call esp_wifi_init().
 select:
   - id: !extend network_mode
-    restore_value: false
-    initial_option: "Ethernet"
+    on_value: !remove

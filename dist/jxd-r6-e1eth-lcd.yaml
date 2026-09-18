@@ -58,6 +58,13 @@ external_components:
       ref: master
       path: components
     components:
+      - network_config
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
       - filesystem_storage_abstract
       - littlefs_storage
       - config_base
@@ -866,7 +873,6 @@ select:
       sorting_weight: 0
     entity_category: config
     optimistic: true
-    restore_value: true
     initial_option: Ethernet
     options:
       - Auto
@@ -877,7 +883,8 @@ select:
           condition:
             lambda: return id(network_mode_applied);
           then:
-            - script.execute: apply_network_mode
+            - lambda: id(network_config_id).set_network_type_from_select(i);
+            - component.update: ip
 interval:
   - interval: 1s
     then:
@@ -1139,6 +1146,12 @@ wifi:
     - component.update: ip
 captive_portal:
   id: captive_portal_id
+network_config:
+  id: network_config_id
+  config_json_id: config_json_keeper
+  network_mode_select_id: network_mode
+  wifi_id: wifi_id
+  ethernet_id: ethernet_id
 script:
   - id: set_wifi_ap
     then:
@@ -1151,19 +1164,7 @@ script:
           id(wifi_id).set_ap(ap);
   - id: apply_network_mode
     then:
-      - lambda: |-
-          // Option index: 0 Auto, 1 Ethernet, 2 WiFi.
-          const size_t mode = id(network_mode).active_index().value_or(0);
-          if (mode == 2) {
-            id(ethernet_id).disable();
-          } else {
-            id(ethernet_id).enable();
-          }
-          if (mode == 1) {
-            id(wifi_id).disable();
-          } else {
-            id(wifi_id).enable();
-          }
+      - lambda: id(network_config_id).apply_mode();
       - component.update: ip
   - id: reset_wifi
     then:
