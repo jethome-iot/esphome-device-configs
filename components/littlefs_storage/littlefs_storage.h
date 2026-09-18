@@ -18,7 +18,7 @@ class LittleFSStorage : public filesystem_storage_abstract::FilesystemStorageAbs
   void set_format_if_mount_failed(bool format) { this->format_if_mount_failed_ = format; }
 
   // Wipes the partition at the next boot. Call after global_preferences->reset(): it erases NVS.
-  bool request_format();
+  bool request_format() override;
 
   bool is_mounted() const override { return this->mounted_; }
   const std::string &get_base_path() const override { return this->base_path_; }

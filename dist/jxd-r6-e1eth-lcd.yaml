@@ -1179,6 +1179,7 @@ web_auth:
   id: web_auth_credentials
 web_device_dashboard:
   board_info_id: board_info
+  storage_id: user_storage
 web_file_browser:
   storage_id: user_storage
 display:

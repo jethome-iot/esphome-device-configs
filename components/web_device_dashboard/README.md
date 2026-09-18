@@ -22,17 +22,27 @@ web_server:
 
 web_device_dashboard:
   board_info_id: board_info   # optional: the jethome_board_info to report
+  storage_id: user_storage    # optional: the mount a factory reset wipes
 ```
 
-The one option, `board_info_id`, names a `jethome_board_info`; with it `/api/device/info` carries
-the identity the firmware read from the CPU board's EEPROM. The handler registers on the shared
-`web_server_base` ahead of `web_server`'s, so `/` is the dashboard and `web_server`'s own page is
-not reachable; its REST routes, `/events` and its `auth:` stay as they are, and the dashboard uses
-them for entity state and control and for the log. On a firmware with an `auth:` block the page
-and every route here are behind it, so the browser asks for the credentials before the page
-loads. The Automations and Files screens talk to `web_automation_editor` and `web_file_browser`
-at their default `url_prefix` (`/automation-editor`, `/files`), baked into the page at build
-time; without those components the screens have nothing to show.
+`board_info_id` names a `jethome_board_info`; with it `/api/device/info` carries the identity the
+firmware read from the CPU board's EEPROM. `storage_id` names a `filesystem_storage_abstract`
+mount: `/api/device/system/factory-reset` wipes it, and `/api/device/capabilities` reports it.
+Both are optional and no route disappears without them — `/api/device/info` omits the board
+block, and a factory reset clears only the stored settings.
+
+The Files and Automations screens need no option of their own: the component reads the
+`url_prefix` of a `web_file_browser` and a `web_automation_editor` off the config and reports
+whichever of them this firmware has in `/api/device/capabilities`.
+
+The handler registers on the shared `web_server_base` ahead of `web_server`'s, so `/` is the
+dashboard and `web_server`'s own page is not reachable; its REST routes, `/events` and its
+`auth:` stay as they are, and the dashboard uses them for entity state and control and for the
+log. On a firmware with an `auth:` block the page and every route here are behind it, so the
+browser asks for the credentials before the page loads. The page still reaches the Automations
+and Files screens at the prefixes baked into it at build time (`/automation-editor`, `/files`),
+and shows them whether or not the firmware serves them; reading `/api/device/capabilities`
+instead is a change in the dashboard repository.
 
 ## Updating the page
 
@@ -52,6 +62,42 @@ failure `{"success": false, "error"}`. The same contract, machine-readable:
 | GET | `/api/device/info` | `{"name", "base_mac_address", "mac_address", "version"}`; with `board_info_id` also `serial_number`, `device_model`, `hw_revision` and `board` — what `jethome_board_info` read, verbatim, plus the chip's eFuses |
 | GET | `/api/device/status` | `{"ha_connected", "uptime_s", "reset_reason", "connection_type", "rssi", "ip_address", "reboot_required"}` |
 | GET | `/api/device/network` | `{"hostname", "connection_type", "ip_address", "gateway", "subnet", "dns1", "dns2", "ssid", "rssi", "ethernet_connected"}` |
+| GET | `/api/device/capabilities` | what this firmware has, below |
+| POST | `/api/device/system/reboot` | restart, nothing cleared |
+| POST | `/api/device/system/factory-reset` | clear the stored settings and restart, wiping the storage on the way back up (with a `storage_id`) |
+| POST | `/api/device/system/rollback` | boot the other app slot — the firmware this one replaced |
+
+### Capabilities
+
+`/api/device/capabilities` answers which screens a client can draw and which routes exist. It
+is meant to be read once on load; the embedded page does not read it yet. A key is there only
+when the capability is, so the test is `if (caps.files)`; one that has no detail to carry is
+`true`. `reboot` and `factory_reset` are
+always there, the latter with `clears_storage` — whether a reset also takes the uploaded files
+and the automation rules with it. `rollback` names the other app slot and the ESPHome version
+of the image in it; that version is what a confirmation dialog should show, because after one
+rollback the other slot is the *newer* firmware. It is absent on a board that has never been
+updated over the air. `storage`, `files`, `automations`, `entity_settings` and `board_info`
+follow the components the firmware was built with. `storage` says what the mount is, not how
+full it is: usage is live and this route is read once, so the byte counts stay in the file
+API's own `info`.
+
+### System actions
+
+All three take `{"confirm": true, "confirm_token": "DD:EE:FF"}` — the last three octets of
+`/api/device/info`'s `base_mac_address`, in either case. Not `mac_address`, which on a build
+with Ethernet is a different MAC; the `403` says so. Without `confirm` the answer is `400`.
+This is a guard against a stray POST from a page the browser happens to load, not an
+authorization scheme: whatever reaches the port and can read `/api/device/info` can send it.
+Put the routes behind the `web_server:` `auth:` block if that matters.
+
+Each answers before it acts, so the caller gets its answer. A factory reset does what
+**Settings → Factory reset** on the display does, in the same order; the files it takes are
+gone once the device is back, not when it answers. A rollback selects the
+other app slot, checking the image while the request is still open — a slot that is not whole
+is a `500` here rather than a device that comes back unchanged — and the firmware it boots gets
+one monitored boot: if it fails before it marks itself good, the bootloader returns to this
+one. `503` means there is nothing to roll back to.
 
 With a [`web_auth`](../web_auth/README.md), the web server's own credentials; without one
 these routes are `404`:
@@ -82,6 +128,8 @@ mirror. Nothing in this repository builds or type-checks them.
 
 `tests/components/web_device_dashboard/` drives the handler on the host through the
 `web_server_base` stand-in: the URLs it claims, the route table and its method matrix, the body
-accumulation and its 4 KiB cap, and the JSON every route answers with. Out of reach there is the
-ESP-IDF half — the `Allow` header, URL decoding, the reset reason and the IP lookups, the eFuse
-block, and a live WiFi or Ethernet link.
+accumulation and its 4 KiB cap, the JSON every route answers with, the confirmation the system
+actions take, and a factory reset wiping a stand-in storage and the preferences before it
+restarts. Out of reach there is the ESP-IDF half — the `Allow` header, URL decoding, the reset
+reason and the IP lookups, the eFuse block, a live WiFi or Ethernet link, the real reboot, the
+LittleFS format, and the `esp_ota_*` calls behind the rollback, which the tests stand in for.

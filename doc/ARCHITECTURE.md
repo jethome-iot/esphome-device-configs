@@ -58,7 +58,9 @@ boundaries; everything else is local to its file.
   ahead of `web_server`'s own. Entity state and control go through `web_server`'s REST and
   `/events`, the Files screen through `web_file_browser` at `/files`, the Automations screen
   through `web_automation_editor` at `/automation-editor`; both prefixes are baked into the page
-  at build time.
+  at build time and reported at run time by `/api/device/capabilities`. Its `storage_id` is
+  `user_storage`, which is what `/api/device/system/factory-reset` wipes — the same wipe the
+  menu's Factory reset does.
 
 ## Boot order
 
@@ -129,7 +131,12 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
 - `components/web_device_dashboard` owns `/` only by registering first: it sets up at
   `setup_priority::WIFI - 0.5`, just ahead of `web_server`'s `WIFI - 1`, and `web_server_base`
   asks its handlers in registration order. `web_server` therefore runs without `local: true`:
-  the page it would embed is never served.
+  the page it would embed is never served. Its `to_code` also reads the validated config of
+  `web_file_browser` and `web_automation_editor` out of `CORE.config` to report their prefixes,
+  and `/api/device/system/rollback` picks the slot with `esp_ota_get_next_update_partition`,
+  reads its `esp_app_desc_t` and hands it to `esp_ota_set_boot_partition`. That the bootloader
+  then guards the boot is ESPHome's doing: `esp32`'s `enable_ota_rollback` defaults on wherever
+  `ota:` and `safe_mode` are present, and `safe_mode` is what marks a boot good.
 - `components/web_auth` replaces the two `const char *` upstream's `WebServerBase` keeps and
   never copies, so the strings it hands over must outlive every request and the setters are
   called again after each change. It also needs a compiled `auth:` block to exist at all:

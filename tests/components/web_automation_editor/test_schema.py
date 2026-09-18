@@ -31,7 +31,15 @@ class UrlPrefix(unittest.TestCase):
                 editor.url_prefix(value)
 
     def test_what_is_not_a_path_is_refused(self):
-        for value in ("/ed itor", "/editor?x", "/editor#top", "/edi\ttor"):
+        for value in (
+            "/ed itor",
+            "/editor?x",
+            "/editor#top",
+            "/edi\ttor",
+            "/edi\\tor",
+            "/%2e%2e/editor",
+            "/\u0440\u0435\u0434\u0430\u043a\u0442\u043e\u0440",
+        ):
             with (
                 self.subTest(value=value),
                 self.assertRaisesRegex(cv.Invalid, "url_prefix must be a URL path"),

@@ -17,6 +17,8 @@ class FakeStorage : public filesystem_storage_abstract::FilesystemStorageAbstrac
   bool is_mounted() const override { return this->mounted; }
   const std::string &get_base_path() const override { return this->path; }
   const char *get_filesystem_type() const override { return "Directory"; }
+  // Never called here: a factory reset is the dashboard's and the menu's business.
+  bool request_format() override { return false; }
 };
 
 // Every error and warning the process logs. Registered once: the logger keeps its listeners.

@@ -1,5 +1,7 @@
 """JSON API for the automations component at <url_prefix>/api/*; the dashboard's editor is its client."""
 
+import re
+
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import web_server_base
@@ -19,13 +21,25 @@ WebAutomationEditor = web_automation_editor_ns.class_(
 )
 
 
+# What a browser leaves alone in a path segment.
+_SEGMENT = re.compile(r"[A-Za-z0-9._~-]+")
+
+
 def url_prefix(value):
     # The routes hang off "<prefix>/api/", so the prefix is one leading slash and no trailing one.
     value = cv.string_strict(value).strip("/")
     if not value:
         raise cv.Invalid("url_prefix must name a path below the server root")
-    if any(c.isspace() or c in "?#" for c in value):
-        raise cv.Invalid("url_prefix must be a URL path: no spaces, '?' or '#'")
+    # A browser resolves dot segments, folds backslashes into slashes and percent-encodes the
+    # rest before sending; the handler matches literally, so a rewritten prefix is unreachable.
+    for segment in value.split("/"):
+        if segment in ("", ".", ".."):
+            raise cv.Invalid("url_prefix must not contain empty or dot path segments")
+        if not _SEGMENT.fullmatch(segment):
+            raise cv.Invalid(
+                "url_prefix must be a URL path a browser sends unchanged: "
+                "letters, digits, '-', '.', '_' and '~'"
+            )
     return "/" + value
 
 

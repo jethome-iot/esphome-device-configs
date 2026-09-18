@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 #include <ArduinoJson.h>
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -10,6 +11,8 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/config_json/config_json.h"
 #include "esphome/components/config_json/settings_base_json.h"
+#include "esphome/components/dir_storage/dir_storage.h"
+#include "esphome/components/host/preferences.h"
 #include "esphome/components/jethome_board_info/jethome_board_info.h"
 #include "esphome/components/logger/logger.h"
 #include "esphome/components/host/preferences.h"
@@ -18,8 +21,20 @@
 #include "esphome/components/web_device_dashboard/web_device_dashboard.h"
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
+#include "esphome/core/preferences.h"
 
 namespace esphome::web_device_dashboard::testing {
+
+// The preferences a factory reset clears. The generated setup would have installed the host
+// backend before anything asked for a preference; main.cpp never runs that setup. The prefs
+// directory goes next to the test binary rather than into $HOME.
+inline void install_preferences() {
+  [[maybe_unused]] static const bool ONCE = [] {
+    setenv("ESPHOME_PREFDIR", ".prefs", 0);
+    host::setup_preferences();
+    return true;
+  }();
+}
 
 // What check_method_ logs: off ESP32 the Allow value never reaches a header, so the warning is
 // the only place a test can read it. Registered once: the logger keeps its listeners.
@@ -280,7 +295,8 @@ static const char *const UPDATE_RELAY_1 = R"({"type":"switch","source_name":"rel
 static const char *const DELETE_RELAY_1 = R"({"type":"switch","source_name":"relay_1","action":"delete"})";
 
 // The dashboard with its request-scoped body state in reach: the buffer is protected, and
-// handleRequest releases it before it returns.
+// handleRequest releases it before it returns. The system actions are held back too --
+// App.safe_reboot() would end the process, and a host build has no second app slot.
 class TestDashboard : public WebDeviceDashboard {
  public:
   using WebDeviceDashboard::route_for_;
@@ -291,6 +307,28 @@ class TestDashboard : public WebDeviceDashboard {
   size_t body_total() const { return this->body_total_; }
   size_t body_received() const { return this->body_received_; }
   bool body_too_large() const { return this->body_too_large_; }
+
+  // The deferred half of a system action runs in the loop call right after the request
+  // instead of half a second later, so a test can see it happen.
+  void act_without_waiting() { this->action_delay_ms_ = 0; }
+
+  int restarts{0};
+  int rollbacks{0};
+  // What rollback_target_() answers while stub_rollback is set; without it the build's own
+  // answer stands, which off ESP32 is "nothing to roll back to".
+  bool stub_rollback{false};
+  RollbackTarget rollback;
+  const char *rollback_error{nullptr};
+
+ protected:
+  void restart_() override { this->restarts++; }
+  RollbackTarget rollback_target_() const override {
+    return this->stub_rollback ? this->rollback : WebDeviceDashboard::rollback_target_();
+  }
+  const char *select_rollback_(const RollbackTarget & /*target*/) override {
+    this->rollbacks++;
+    return this->rollback_error;
+  }
 };
 
 // The dashboard behind the harness's web_server_base stand-in, reached exactly as a request
@@ -299,12 +337,12 @@ class Dashboard : public ::testing::Test {
  protected:
   void SetUp() override {
     entities();
+    install_preferences();
     config_json::global_config_json_keeper = &store().keeper;
     store().sw.forget();
     store().bs.forget();
     store().other.forget();
     // A device that has never had its credentials changed; the auth cases store their own.
-    host::setup_preferences();
     global_preferences->sync();
     global_preferences->reset();
     global_preferences->sync();
@@ -313,8 +351,12 @@ class Dashboard : public ::testing::Test {
     this->auth->set_preference_hash(fnv1_hash("test_auth"));
     this->auth->setup();
 
+    this->storage.set_base_path(".storage");
+    this->storage.setup();
     this->dashboard = std::make_unique<TestDashboard>(&this->base);
     this->dashboard->set_board_info(&this->board);
+    this->dashboard->set_storage(&this->storage);
+    this->dashboard->act_without_waiting();
     this->dashboard->setup();
     LogCapture::instance().clear();
   }
@@ -350,6 +392,14 @@ class Dashboard : public ::testing::Test {
     return this->call(HTTP_POST, url, body, chunk);
   }
 
+  // What the system routes take, with the token this same API publishes: the last three
+  // octets of the MAC /api/device/info reports.
+  std::string confirmation(const char *token = nullptr) {
+    const std::string mac = this->get("/api/device/info")["base_mac_address"].as<std::string>();
+    const std::string value = token != nullptr ? token : mac.substr(mac.size() - 8);
+    return R"({"confirm":true,"confirm_token":")" + value + R"("})";
+  }
+
   bool claims(const std::string &url) {
     AsyncWebServerRequest request(HTTP_GET, url);
     return this->dashboard->canHandle(&request);
@@ -370,6 +420,7 @@ class Dashboard : public ::testing::Test {
   web_server_base::WebServerBase base;
   FakeBoard board;
   std::unique_ptr<web_auth::WebAuth> auth;
+  dir_storage::DirStorage storage;
   std::unique_ptr<TestDashboard> dashboard;
 };
 
