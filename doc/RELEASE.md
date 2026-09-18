@@ -115,5 +115,5 @@ job.
 
 ```bash
 esphome -s version <version> compile <config.yaml>
-# images land in .esphome/build/<name>/.pioenvs/<name>/firmware.{factory,ota}.bin
+# images land in <config-dir>/.esphome/build/<name>/build/firmware.{factory,ota}.bin
 ```
