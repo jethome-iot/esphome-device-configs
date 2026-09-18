@@ -237,6 +237,9 @@ jobs:
       matrix: ${{ fromJson(needs.resolve.outputs.matrix) }}
     env:
       FW_VERSION: ${{ needs.resolve.outputs.version }}
+      # Same budget as the CI build job: two rolling generations must not
+      # crowd the shared quota at the toolchain entries' expense.
+      CCACHE_MAXSIZE: 1G
     steps:
       - uses: actions/checkout@v7
 
@@ -258,10 +261,54 @@ jobs:
           key: toolchains-${{ hashFiles('requirements.txt') }}
           restore-keys: toolchains-
 
+      # Same compile cache as CI, keyed on the config path; written from
+      # dev only — a save under a tag ref is scoped to a tag nothing reads.
+      - name: Restore ccache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ matrix.config }}--${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ccache-${{ matrix.config }}--
+
+      - name: Ensure ccache
+        # The stock GitHub-hosted toolset is the baseline the workflows may
+        # rely on; the self-hosted image may add tools — probe, its version wins.
+        run: |
+          if command -v ccache >/dev/null 2>&1; then
+            echo "ccache already on PATH: $(ccache --version | head -1)"
+            exit 0
+          fi
+          sudo apt-get install -y --no-install-recommends ccache \
+            || { sudo apt-get update \
+                 && sudo apt-get install -y --no-install-recommends ccache; }
+
       # The version reaches the firmware through its `version` substitution, so
       # no config file is touched at build time.
       - name: Compile
-        run: esphome -s version "$FW_VERSION" compile "${{ matrix.config }}"
+        run: |
+          export CCACHE_DIR="$HOME/.cache/ccache"
+          export CCACHE_COMPILERCHECK=content
+          ccache --zero-stats > /dev/null
+          esphome -s version "$FW_VERSION" compile "${{ matrix.config }}"
+
+      - name: ccache stats
+        if: ${{ !cancelled() }}
+        run: |
+          export CCACHE_DIR="$HOME/.cache/ccache"
+          {
+            echo '### ccache'
+            echo '```text'
+            ccache --show-stats
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save ccache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ matrix.config }}--${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Stage firmware images
         run: |
