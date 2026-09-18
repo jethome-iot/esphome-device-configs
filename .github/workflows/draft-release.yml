@@ -55,30 +55,34 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          # One rolling draft, workflow-owned: stale ones are deleted, this
-          # version's is recreated so the notes cover latest master. The
-          # listing goes through a file so its failure fails the step (a
-          # process substitution would swallow it), and each candidate is
-          # re-inspected via the API status line: only an HTTP 200 that still
-          # says draft is deleted, 404 means already gone, anything else
-          # aborts instead of guessing.
+          # One rolling draft. Drafts carry no git tag, so the by-tag
+          # endpoint cannot see them: re-check and delete by release ID.
           DRAFTS=$(mktemp)
           gh api --paginate "repos/$REPO/releases" \
-            --jq '.[] | select(.draft) | .tag_name' > "$DRAFTS"
-          while read -r tag; do
-            RESP=$(gh api -i "repos/$REPO/releases/tags/$tag" 2>/dev/null || true)
+            --jq '.[] | select(.draft) | [.id, .tag_name] | @tsv' > "$DRAFTS"
+          while IFS=$'\t' read -r id tag; do
+            RESP=$(gh api -i "repos/$REPO/releases/$id" 2>/dev/null || true)
             CODE=$(printf '%s\n' "$RESP" | sed -n '1s|^HTTP[^ ]* \([0-9][0-9][0-9]\).*|\1|p')
             case "$CODE" in
               200) ;;
               404) continue ;;
               *)
-                echo "::error::cannot inspect release $tag (HTTP ${CODE:-none}) — refusing to continue"
+                echo "::error::cannot inspect release $tag (id $id, HTTP ${CODE:-none}) — refusing to continue"
                 exit 1
                 ;;
             esac
             if printf '%s\n' "$RESP" | tr -d '\r' | awk 'f{print} /^$/{f=1}' | jq -e .draft >/dev/null; then
               echo "Deleting stale release draft $tag"
-              gh release delete "$tag" --repo "$REPO" --yes
+              # 404 = a concurrent run deleted it first.
+              RESP=$(gh api -i -X DELETE "repos/$REPO/releases/$id" 2>/dev/null || true)
+              CODE=$(printf '%s\n' "$RESP" | sed -n '1s|^HTTP[^ ]* \([0-9][0-9][0-9]\).*|\1|p')
+              case "$CODE" in
+                200|204|404) ;;
+                *)
+                  echo "::error::cannot delete draft $tag (HTTP ${CODE:-none})"
+                  exit 1
+                  ;;
+              esac
             fi
           done < "$DRAFTS"
 

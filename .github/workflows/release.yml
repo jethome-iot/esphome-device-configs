@@ -517,28 +517,31 @@ jobs:
             # annotated tag is what a retry resolves to, and gh release
             # create happily reuses a tag that already exists.
             record_version_tag
-            # Drafts reserve no git tag, so a dispatch allocates the same
-            # number the rolling draft carries. Shipping into an unpublished
-            # draft would leave the server live while the GitHub release
-            # stays private — delete the workflow-owned draft and publish a
-            # real release instead. The API status line separates 404 (no
-            # release yet — the normal dispatch path) from transport
-            # failures, which abort instead of guessing.
-            RESP=$(gh api -i "repos/$REPO/releases/tags/$TAG" 2>/dev/null || true)
-            CODE=$(printf '%s\n' "$RESP" | sed -n '1s|^HTTP[^ ]* \([0-9][0-9][0-9]\).*|\1|p')
-            case "$CODE" in
-              200)
-                if printf '%s\n' "$RESP" | tr -d '\r' | awk 'f{print} /^$/{f=1}' | jq -e .draft >/dev/null; then
-                  echo "Deleting the release draft holding $TAG"
-                  gh release delete "$TAG" --repo "$REPO" --yes
-                fi
-                ;;
-              404) : ;; # no release yet — created below
-              *)
-                echo "::error::cannot inspect release $TAG (HTTP ${CODE:-none}) — refusing to touch the draft"
-                exit 1
-                ;;
-            esac
+            # A dispatch allocates the number the rolling draft carries;
+            # drafts are invisible to the by-tag endpoint, so match the tag
+            # in the listing and delete the draft before publishing.
+            # shellcheck disable=SC2016  # $t is a jq variable, not shell
+            # -s merges the paginated pages into one array; no match emits
+            # nothing, more than one fails.
+            ROW=$(gh api --paginate "repos/$REPO/releases" \
+              | jq -sr --arg t "$TAG" \
+                'add | [.[] | select(.tag_name == $t)]
+                 | if length > 1 then error("multiple releases for " + $t)
+                   elif length == 1 then (.[0] | [.id, .draft] | @tsv)
+                   else empty end')
+            if [ -n "$ROW" ] && [ "$(printf '%s' "$ROW" | cut -f2)" = "true" ]; then
+              echo "Deleting the release draft holding $TAG"
+              # 404 = a concurrent draft refresh deleted it first.
+              RESP=$(gh api -i -X DELETE "repos/$REPO/releases/$(printf '%s' "$ROW" | cut -f1)" 2>/dev/null || true)
+              CODE=$(printf '%s\n' "$RESP" | sed -n '1s|^HTTP[^ ]* \([0-9][0-9][0-9]\).*|\1|p')
+              case "$CODE" in
+                200|204|404) ;;
+                *)
+                  echo "::error::cannot delete the draft (HTTP ${CODE:-none})"
+                  exit 1
+                  ;;
+              esac
+            fi
             NOTES="ESPHome $ESPHOME firmware $FW_VERSION, built from $SHA."
             PRERELEASE_FLAG=""
             if [ "$CHANNEL" = "nightly" ]; then PRERELEASE_FLAG="--prerelease"; fi
