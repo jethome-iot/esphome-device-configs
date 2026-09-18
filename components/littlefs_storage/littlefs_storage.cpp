@@ -9,14 +9,12 @@ namespace esphome::littlefs_storage {
 
 static const char *const TAG = "littlefs_storage";
 
-// Own namespace, not ESPHome's "esphome": the record has to be written after the preferences
-// erase and must not look like a preference to anything else.
+// Not ESPHome's "esphome" namespace: the record is written after the preferences erase.
 static const char *const NVS_NAMESPACE = "littlefs";
 static const char *const NVS_KEY_WIPE = "wipe";
 
 void LittleFSStorage::setup() {
-  // Before the mount, so the wipe cannot pull the filesystem out from under an open file:
-  // no component has set up yet and the web server does not exist.
+  // Before the mount: nothing has set up yet, so nothing can hold a file on what this erases.
   if (this->format_requested_()) {
     ESP_LOGI(TAG, "Wiping '%s' as the factory reset asked", this->partition_label_.c_str());
     esp_err_t err = esp_littlefs_format(this->partition_label_.c_str());
@@ -60,8 +58,7 @@ void LittleFSStorage::dump_config() {
 }
 
 bool LittleFSStorage::request_format() {
-  // global_preferences->reset() deinitialises NVS on its way out; init is a no-op when it is
-  // already up, which is the case on the way in from setup().
+  // reset() deinitialises NVS on its way out; init is a no-op when it is already up.
   esp_err_t err = nvs_flash_init();
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "NVS unavailable, cannot record the wipe: %s", esp_err_to_name(err));
@@ -105,7 +102,7 @@ void LittleFSStorage::clear_format_request_() {
     err = nvs_commit(handle);
   nvs_close(handle);
   if (err != ESP_OK) {
-    // Left standing, the record would wipe the partition again at every boot.
+    // Left standing, it would wipe the partition at every boot.
     ESP_LOGE(TAG, "Cannot clear the wipe record: %s", esp_err_to_name(err));
   }
 }
