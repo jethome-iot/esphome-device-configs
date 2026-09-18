@@ -1,5 +1,5 @@
 # The firmwares this repository builds. The single source of truth for CI
-# (.github/workflows/build.yml) and releases (.github/workflows/release.yml).
+# (.github/workflows/ci.yml) and releases (.github/workflows/release.yml).
 #
 # config - device config path, relative to the repository root.
 # device - slug level in the fw.jethome.com hierarchy
