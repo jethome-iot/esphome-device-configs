@@ -12,6 +12,12 @@ JetHome DIN-rail automation controller with display. For a proprietary firmware 
 
 **Configuration file**: `devices/JXD/jxd-r6-e1eth-lcd.yaml`
 
+### JXD-R6-E1ETH
+
+The same controller without the OLED display: everything the LCD variant carries except the display, its pages and menu, and the front-panel buttons.
+
+**Configuration file**: `devices/JXD/jxd-r6-e1eth.yaml`
+
 ## JXD-R6-E1ETH-LCD Features
 
 The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the following capabilities:

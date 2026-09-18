@@ -1,16 +1,17 @@
-# JXD-R6-E1ETH-LCD: DIN-rail controller, 6 relays, 6 inputs, OLED, Ethernet + WiFi.
+# JXD-R6-E1ETH: DIN-rail controller, 6 relays, 6 inputs, Ethernet + WiFi.
+# The JXD-R6-E1ETH-LCD minus everything the OLED brings: display, pages,
+# menu, buttons, display auto-off.
 
 substitutions:
-  name: "jxd-r6-e1eth-lcd"
-  friendly_name: JXD-R6-E1ETH-LCD
+  name: "jxd-r6-e1eth"
+  friendly_name: JXD-R6-E1ETH
   version: 1.0.0
   # The slug this model publishes under on fw.jethome.com; ${name} is the user's to rename.
-  fw_device: jxd-r6-e1eth-lcd
+  fw_device: jxd-r6-e1eth
   # Paths relative to this file.
   assets: ../../assets
   components: ../../components
   boards: packages/boards
-  display: packages/display
   features: packages/features
 
 packages:
@@ -21,7 +22,6 @@ packages:
   # Features: buses, sensors, services.
   automation_editor: !include ${features}/automation-editor.yaml
   automations: !include ${features}/automations.yaml
-  display_off: !include ${features}/display-off.yaml
   entity_settings: !include ${features}/entity-settings.yaml
   firmware_update: !include ${features}/firmware-update.yaml
   i2c: !include ${features}/i2c.yaml
@@ -36,24 +36,12 @@ packages:
   web_device_dashboard: !include ${features}/web-device-dashboard.yaml
   web_file_browser: !include ${features}/web-file-browser.yaml
 
-  # Display: pages, menu and buttons.
-  blank_page: !include ${display}/blank-page.yaml
-  network_icons: !include ${display}/network-icons.yaml
-  buttons: !include ${display}/buttons.yaml
-  display: !include ${display}/display.yaml
-  menu: !include ${display}/menu.yaml
-  menu_firmware: !include ${display}/menu-firmware.yaml
-  menu_items: !include ${display}/menu-items-network.yaml
-  menu_serial: !include ${display}/menu-serial.yaml
-  status_page: !include ${display}/status-page.yaml
-  time_page: !include ${display}/time-page.yaml
-
 esphome:
   name: ${name}
   name_add_mac_suffix: true
   friendly_name: ${friendly_name}
   project:
-    name: JetHome.JXD-R6-E1ETH-LCD
+    name: JetHome.JXD-R6-E1ETH
     version: ${version}
   on_boot:
     # Restores the stored timezone and reads the RTC once I2C is up.
@@ -64,5 +52,5 @@ esphome:
 
 # The self-contained copy in dist/ that the ESPHome Builder imports.
 dashboard_import:
-  package_import_url: github://jethome-iot/esphome-device-configs/dist/jxd-r6-e1eth-lcd.yaml@master
+  package_import_url: github://jethome-iot/esphome-device-configs/dist/jxd-r6-e1eth.yaml@master
   import_full_config: true
