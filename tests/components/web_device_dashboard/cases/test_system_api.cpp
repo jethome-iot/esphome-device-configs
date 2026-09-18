@@ -28,9 +28,10 @@ TEST_F(Dashboard, CapabilitiesReportsWhatThisFirmwareHas) {
   EXPECT_EQ(reply["storage"]["type"].as<std::string>(), "Directory");
   EXPECT_EQ(reply["storage"]["base_path"].as<std::string>(), ".storage");
   EXPECT_TRUE(reply["storage"]["mounted"].as<bool>());
-  // A storage that reports no usage keeps the byte counts off the wire rather than sending
-  // zeroes that read as an empty disk.
-  EXPECT_TRUE(reply["storage"]["total_bytes"].isUnbound());
+  // How full the mount is belongs to the file API's own `info`: that is live, and this route
+  // is read once.
+  for (const char *key : {"total_bytes", "used_bytes", "free_bytes"})
+    EXPECT_TRUE(reply["storage"][key].isUnbound()) << key;
   EXPECT_TRUE(reply["board_info"].as<bool>());
 }
 
@@ -53,17 +54,6 @@ TEST_F(Dashboard, CapabilitiesNamesTheScreensThisFirmwareServes) {
   Reply with = this->get(CAPABILITIES);
   EXPECT_EQ(with["files"]["url_prefix"].as<std::string>(), "/files");
   EXPECT_EQ(with["automations"]["url_prefix"].as<std::string>(), "/automation-editor");
-}
-
-TEST_F(Dashboard, CapabilitiesCarriesTheStorageUsageWhenTheMountReportsOne) {
-  this->storage.info.total_bytes = 4128768;
-  this->storage.info.used_bytes = 65536;
-  this->storage.info.free_bytes = 4063232;
-  this->storage.info.valid = true;
-  Reply reply = this->get(CAPABILITIES);
-  EXPECT_EQ(reply["storage"]["total_bytes"].as<size_t>(), 4128768u);
-  EXPECT_EQ(reply["storage"]["used_bytes"].as<size_t>(), 65536u);
-  EXPECT_EQ(reply["storage"]["free_bytes"].as<size_t>(), 4063232u);
 }
 
 TEST_F(Dashboard, CapabilitiesSaysWhenTheStorageDidNotMount) {

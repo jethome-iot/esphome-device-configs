@@ -28,7 +28,8 @@ web_device_dashboard:
 `board_info_id` names a `jethome_board_info`; with it `/api/device/info` carries the identity the
 firmware read from the CPU board's EEPROM. `storage_id` names a `filesystem_storage_abstract`
 mount: `/api/device/system/factory-reset` wipes it, and `/api/device/capabilities` reports it.
-Both are optional, and each route says so rather than disappearing.
+Both are optional and no route disappears without them — `/api/device/info` omits the board
+block, and a factory reset clears only the stored settings.
 
 The Files and Automations screens need no option of their own: the component reads the
 `url_prefix` of a `web_file_browser` and a `web_automation_editor` off the config and reports
@@ -77,7 +78,9 @@ and the automation rules with it. `rollback` names the other app slot and the ES
 of the image in it; that version is what a confirmation dialog should show, because after one
 rollback the other slot is the *newer* firmware. It is absent on a board that has never been
 updated over the air. `storage`, `files`, `automations`, `entity_settings` and `board_info`
-follow the components the firmware was built with.
+follow the components the firmware was built with. `storage` says what the mount is, not how
+full it is: usage is live and this route is read once, so the byte counts stay in the file
+API's own `info`.
 
 ### System actions
 

@@ -274,17 +274,14 @@ export interface ConfirmPayload {
 
 // --- Capabilities ---
 
-/** The mount the Files screen browses and a factory reset wipes. */
+/** The mount the Files screen browses and a factory reset wipes. What it is, not how full
+ *  it is: for live usage call `info` on the file API at `Capabilities.files.url_prefix`. */
 export interface StorageCapability {
   /** `"LittleFS"` on a device; whatever the storage component calls itself. */
   type: string
   base_path: string
   /** False when the partition failed to mount: the Files screen has nothing to show. */
   mounted: boolean
-  /** All three absent on a storage that cannot report its usage. */
-  total_bytes?: number
-  used_bytes?: number
-  free_bytes?: number
 }
 
 /**

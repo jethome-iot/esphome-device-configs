@@ -582,16 +582,12 @@ void WebDeviceDashboard::handle_capabilities_(AsyncWebServerRequest *request) {
 #ifdef USE_WEB_DEVICE_DASHBOARD_STORAGE
     if (this->storage_ != nullptr) {
       factory_reset["clears_storage"] = true;
+      // What the mount is, not how full it is: usage is live, this route is read once, and
+      // web_file_browser's own `info` already answers it from the same getter.
       JsonObject storage = root["storage"].to<JsonObject>();
       storage["type"] = this->storage_->get_filesystem_type();
       storage["base_path"] = this->storage_->get_base_path();
       storage["mounted"] = this->storage_->is_mounted();
-      const auto info = this->storage_->get_storage_info();
-      if (info.valid) {
-        storage["total_bytes"] = info.total_bytes;
-        storage["used_bytes"] = info.used_bytes;
-        storage["free_bytes"] = info.free_bytes;
-      }
     }
 #endif
     const RollbackTarget target = this->rollback_target_();

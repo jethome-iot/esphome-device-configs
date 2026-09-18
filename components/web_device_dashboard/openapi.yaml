@@ -1017,9 +1017,6 @@ components:
           type: LittleFS
           base_path: /littlefs
           mounted: true
-          total_bytes: 4128768
-          used_bytes: 65536
-          free_bytes: 4063232
         files:
           url_prefix: /files
         automations:
@@ -1031,7 +1028,11 @@ components:
     StorageCapability:
       type: object
       required: [type, base_path, mounted]
-      description: The mount the Files screen browses and a factory reset wipes.
+      description: >-
+        The mount the Files screen browses and a factory reset wipes: what it is,
+        not how full it is. Usage is live and this route is read once, so the
+        byte counts stay where they are already answered — `info` on the file API
+        at `files.url_prefix`.
       properties:
         type:
           type: string
@@ -1045,12 +1046,6 @@ components:
           description: >-
             False when the partition failed to mount; the Files screen then has
             nothing to show.
-        total_bytes:
-          type: integer
-        used_bytes:
-          type: integer
-        free_bytes:
-          type: integer
 
     EntityIndex:
       type: object
