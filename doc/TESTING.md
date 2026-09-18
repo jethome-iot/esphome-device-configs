@@ -38,9 +38,12 @@ tests/
     jethome_manifest/
     jethome_update/           # test_schema.py alone: the entity needs ota.http_request, which
                               # upstream refuses on the host platform
+    virtual_display/          # test_schema.py alone: the C++ includes <esp_http_server.h>,
+                              # which the host platform has no header for
     web_auth/
     web_automation_editor/
     web_device_dashboard/
+    web_file_browser/
 ```
 
 ## Adding a suite for a new component

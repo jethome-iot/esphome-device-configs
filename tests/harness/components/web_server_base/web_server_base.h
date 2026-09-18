@@ -9,8 +9,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdarg>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <utility>
 #include <vector>
@@ -36,12 +38,38 @@ class AsyncWebServerResponse {
  public:
   AsyncWebServerResponse(int code, std::string content_type, const char *data, size_t size)
       : code(code), content_type(std::move(content_type)), body(data, size) {}
+  // Sent through a base pointer, and deleted through one by AsyncWebServerRequest::send().
+  virtual ~AsyncWebServerResponse() = default;
   void addHeader(const char *name, const char *value) { this->headers.emplace_back(name, value); }  // NOLINT
 
   int code;
   std::string content_type;
   std::string body;
   std::vector<std::pair<std::string, std::string>> headers;
+};
+
+// A response a handler prints into instead of handing over whole, as web_server_idf's: the
+// body grows in place and is sent like any other response.
+class AsyncResponseStream : public AsyncWebServerResponse {
+ public:
+  explicit AsyncResponseStream(const char *content_type) : AsyncWebServerResponse(200, content_type, "", 0) {}
+
+  void print(const char *str) { this->body.append(str); }
+  void print(const std::string &str) { this->body.append(str); }
+  void printf(const char *fmt, ...) __attribute__((format(printf, 2, 3))) {  // NOLINT(cert-dcl50-cpp)
+    va_list args;
+    va_start(args, fmt);
+    const int length = vsnprintf(nullptr, 0, fmt, args);
+    va_end(args);
+    if (length <= 0)
+      return;
+    std::string str;
+    str.resize(length);
+    va_start(args, fmt);
+    vsnprintf(&str[0], length + 1, fmt, args);
+    va_end(args);
+    this->print(str);
+  }
 };
 
 class AsyncWebServerRequest {
@@ -82,6 +110,10 @@ class AsyncWebServerRequest {
   AsyncWebServerResponse *beginResponse(int code, const char *content_type, const uint8_t *data, size_t size) {
     // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
     return new AsyncWebServerResponse(code, content_type, reinterpret_cast<const char *>(data), size);
+  }
+  // NOLINTNEXTLINE(readability-identifier-naming)
+  AsyncResponseStream *beginResponseStream(const char *content_type) {
+    return new AsyncResponseStream(content_type);  // NOLINT(cppcoreguidelines-owning-memory)
   }
   void send(AsyncWebServerResponse *response) {
     this->send(response->code, response->content_type.c_str());
