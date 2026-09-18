@@ -55,13 +55,15 @@ std::string resolve_url(const std::string &source_url, const std::string &url) {
 bool parse_manifest(const uint8_t *data, size_t len, const std::string &channel, const std::string &source_url,
                     update::UpdateInfo &info) {
   return json::parse_json(data, len, [&](JsonObject root) -> bool {
-    if (!root[ESPHOME_F("latest_firmware")].is<JsonObject>()) {
+    // Bound to a local: GCC's -Wdangling-reference fires on a range-for over the subscript temporary.
+    JsonObjectConst slots = root[ESPHOME_F("latest_firmware")].as<JsonObjectConst>();
+    if (slots.isNull()) {
       ESP_LOGE(TAG, "Manifest has no latest_firmware");
       return false;
     }
 
     JsonVariantConst firmware;
-    for (JsonPairConst slot : root[ESPHOME_F("latest_firmware")].as<JsonObjectConst>()) {
+    for (JsonPairConst slot : slots) {
       if (is_channel_slot(slot.key().c_str(), channel)) {
         firmware = slot.value();
         break;
