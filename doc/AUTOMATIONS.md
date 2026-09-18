@@ -23,7 +23,8 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
 
 Rules are `/littlefs/automations/<name>.json` on the LittleFS partition from
 `features/storage.yaml`, one file per rule, named after the rule. Two rules cannot share a
-name. OTA updates keep the files.
+name. OTA updates keep the files; **Settings → Factory reset → Confirm** on the display
+formats the partition, so the rules go with it.
 
 Entities are named by object id, so renaming a relay, an input or a temperature sensor leaves
 the rules that used it unbuilt — the boot log says which, and their files are kept exactly as

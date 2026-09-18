@@ -191,7 +191,12 @@ graphical_display_menu:
                 - lambda: 'id(factory_reset_yes)->set_text("Confirm - OK");'
                 - delay: 1s
                 - lambda: |-
+                    // The partition is wiped at the next boot; the record has to outlive
+                    // the preferences erase, which takes all of NVS.
                     global_preferences->reset();
+                    if (!id(user_storage)->request_format()) {
+                      ESP_LOGE("factory_reset", "Wiping the user partition failed");
+                    }
                     App.safe_reboot();
 
         - type: command
