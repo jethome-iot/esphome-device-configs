@@ -5,5 +5,7 @@ external_components:
     components: [automations]
 
 automations:
+  # Named so the display menu can list the rules.
+  id: automations_engine
   storage: user_storage
   time_id: pcf8563_time
