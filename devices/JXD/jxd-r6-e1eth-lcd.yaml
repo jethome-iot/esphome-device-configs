@@ -40,6 +40,7 @@ packages:
   blank_page: !include ${display}/blank-page.yaml
   buttons: !include ${display}/buttons.yaml
   display: !include ${display}/display.yaml
+  firmware_page: !include ${display}/firmware-page.yaml
   menu: !include ${display}/menu.yaml
   menu_firmware: !include ${display}/menu-firmware.yaml
   menu_items: !include ${display}/menu-items-network.yaml
