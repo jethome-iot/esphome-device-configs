@@ -313,8 +313,10 @@ jobs:
       - name: Stage firmware images
         run: |
           STEM="${{ matrix.name }}"
-          # ESPHome builds next to the config: devices/<family>/.esphome/.
-          SRC="$(dirname "${{ matrix.config }}")/.esphome/build/${STEM}/.pioenvs/${STEM}"
+          # ESPHome builds next to the config and copies the final images to
+          # <config-dir>/.esphome/build/<name>/build/ (.pioenvs holds only
+          # the intermediate artifacts).
+          SRC="$(dirname "${{ matrix.config }}")/.esphome/build/${STEM}/build"
           mkdir firmware
           cp "${SRC}/firmware.factory.bin" "firmware/${STEM}-${FW_VERSION}-factory.bin"
           cp "${SRC}/firmware.ota.bin" "firmware/${STEM}-${FW_VERSION}-ota.bin"

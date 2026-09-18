@@ -32,7 +32,7 @@ SKIP=build-dist pre-commit run --all-files # what the CI lint job runs
 ```
 
 Build output lands next to the config:
-`devices/JXD/.esphome/build/<name>/.pioenvs/<name>/firmware.{factory,ota}.bin`.
+`devices/JXD/.esphome/build/<name>/build/firmware.{factory,ota}.bin`.
 
 CI compiles with `TZ=Etc/UTC`: the `homeassistant` time platform bakes the build host's zone into
 the firmware.
