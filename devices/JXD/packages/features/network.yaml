@@ -136,17 +136,14 @@ script:
           }
       - component.update: ip
 
-  # save_wifi_sta("", "") stores a valid empty-SSID record instead of clearing:
-  # has_sta() stays true, so the AP waits out its timeout and the empty SSID
-  # matches any open network. Upstream loads the record only at the length it
-  # wrote, so a shorter one reads as absent. Both of its keys (see the hash in
-  # WiFiComponent::start) are cleared: which one it uses depends on whether a
-  # network is compiled into the wifi: block.
+  # An empty-SSID record still counts as a configured network, so clear by length.
   - id: reset_wifi
     then:
       - logger.log: 'Reset WiFi creds'
       - lambda: |-
-          const uint32_t keys[] = {88491487, App.get_config_version_hash()};
+          // Both keys WiFiComponent::start can pick, the literal being its own.
+          constexpr uint32_t WIFI_PREF_KEY_NO_COMPILED_NETWORK = 88491487;
+          const uint32_t keys[] = {WIFI_PREF_KEY_NO_COMPILED_NETWORK, App.get_config_version_hash()};
           uint8_t cleared = 0;
           for (uint32_t key : keys) {
             auto pref = global_preferences->make_preference(sizeof(cleared), key);
