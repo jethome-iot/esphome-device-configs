@@ -11,7 +11,7 @@ font:
   - file: ${assets}/fonts/spleen-12x24.bdf
     id: big_label_font
 
-# The link icons and the `link_icon` expression come with packages/features/network.yaml.
+# The link icons and the `link_icon` expression come with network-icons.yaml.
 image:
   - platform: file
     file: ${assets}/res/ha.svg

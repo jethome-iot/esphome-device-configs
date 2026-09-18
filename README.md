@@ -66,8 +66,9 @@ tests/                      # Google Test suites, one per component under tests/
 ```
 
 Each device config sets `assets: ../../assets`, `components: ../../components`,
-`boards: packages/boards`, `features: packages/features` and `display: packages/display`, all
-relative to the device config: it lists its packages as `!include ${features}/…`, and the
+`boards: packages/boards` and `features: packages/features`, all relative to the device
+config; display-carrying ones add `display: packages/display`. It lists its packages as
+`!include ${features}/…`, and the
 packages reference fonts and icons as `${assets}/fonts/…` and external components as
 `source: ${components}`.
 
