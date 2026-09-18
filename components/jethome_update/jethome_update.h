@@ -59,6 +59,9 @@ class JethomeUpdate final : public update::UpdateEntity, public PollingComponent
   // The channel whose image update_info_ describes, which an install keeps hold of.
   std::string offered_channel_;
 
+  // An install asked for while a check was on the wire, started once that check is back.
+  bool install_pending_{false};
+
   static void update_task(void *params);
 #ifdef USE_ESP32
   TaskHandle_t update_task_handle_{nullptr};

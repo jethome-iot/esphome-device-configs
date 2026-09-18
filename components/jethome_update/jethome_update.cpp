@@ -196,9 +196,14 @@ void JethomeUpdate::finish_check_(CheckResult *result) {
   this->update_task_handle_ = nullptr;
 #endif
 
-  // An install started while this check ran owns the entity now.
+  // An install started while this check ran owns the entity now, and it was waiting for the
+  // wire this check held.
   if (this->state_ == update::UPDATE_STATE_INSTALLING) {
     delete result;
+    if (this->install_pending_) {
+      this->install_pending_ = false;
+      this->ota_parent_->flash();
+    }
     return;
   }
 
@@ -243,6 +248,14 @@ void JethomeUpdate::perform(bool force) {
 
   this->ota_parent_->set_md5(this->update_info.md5);
   this->ota_parent_->set_url(this->update_info.firmware_url);
+
+#ifdef USE_ESP32
+  if (this->update_task_handle_ != nullptr) {
+    // A check is on the wire; the image download starts when it comes back.
+    this->install_pending_ = true;
+    return;
+  }
+#endif
   // Flash in the next loop
   this->defer([this]() { this->ota_parent_->flash(); });
 }
