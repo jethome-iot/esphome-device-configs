@@ -40,6 +40,7 @@ external_components:
       - config_json
       - i2c_eeprom
       - jethome_board_info
+      - web_auth
       - web_device_dashboard
   - source: ../../harness/components
     components: [dir_storage, web_server_base, web_server]
@@ -70,9 +71,18 @@ jethome_board_info:
   id: board
   eeprom_id: eeprom
 
-web_server: {}
+# auth: is what makes USE_WEBSERVER_AUTH exist, and web_auth is what makes the credentials
+# route exist; the suite covers both halves of the pair.
+web_server:
+  auth:
+    type: digest
+    username: admin
+    password: hunter2
 
 web_server_base: {}
+
+web_auth:
+  id: test_auth
 
 # board_info_id sets USE_WEB_DEVICE_DASHBOARD_BOARD_INFO, so /api/device/info carries the board.
 web_device_dashboard:

@@ -24,6 +24,7 @@ TEST_F(Dashboard, LooksEveryRouteUpByItsName) {
   EXPECT_EQ(info->id, RouteId::INFO);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/status")->id, RouteId::STATUS);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/network")->id, RouteId::NETWORK);
+  EXPECT_EQ(this->dashboard->route_for_("/api/device/auth")->id, RouteId::AUTH);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/entities")->id, RouteId::ENTITIES);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/entity-settings")->id, RouteId::ENTITY_SETTINGS);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/entity-settings-meta")->id, RouteId::ENTITY_SETTINGS_META);

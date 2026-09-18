@@ -22,6 +22,7 @@ tests/
     components/
       dir_storage           # test-only storage backend: a directory on the host
       display_menu_host     # test-only key that pulls display_menu_base into a host build
+      web_server            # stand-in for upstream's, which builds for ESP platforms only
       web_server_base       # stand-in for upstream's, so HTTP handlers run on the host
   components/
     automations/
@@ -37,7 +38,9 @@ tests/
     jethome_manifest/
     jethome_update/           # test_schema.py alone: the entity needs ota.http_request, which
                               # upstream refuses on the host platform
+    web_auth/
     web_automation_editor/
+    web_device_dashboard/
 ```
 
 ## Adding a suite for a new component

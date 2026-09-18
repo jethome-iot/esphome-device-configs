@@ -79,8 +79,8 @@ bool JetHomeBoardInfo::read_header_() {
       ESP_LOGE(TAG, "Unsupported header version: %u", this->data_.version);
       return false;
     case HeaderStatus::BAD_CRC:
-      ESP_LOGE(TAG, "CRC32 mismatch: computed=0x%08X stored=0x%08X", compute_crc32(buf, CRC_DATA_SIZE),
-               this->data_.crc32);
+      ESP_LOGE(TAG, "CRC32 mismatch: computed=0x%08X stored=0x%08X",
+               static_cast<unsigned>(compute_crc32(buf, CRC_DATA_SIZE)), static_cast<unsigned>(this->data_.crc32));
       return false;
   }
   return false;

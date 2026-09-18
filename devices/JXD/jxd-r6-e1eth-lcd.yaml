@@ -32,6 +32,7 @@ packages:
   temperature: !include ${features}/temperature.yaml
   uarts: !include ${features}/uarts.yaml
   vin_measure: !include ${features}/vin-measure.yaml
+  web_auth: !include ${features}/web-auth.yaml
   web_device_dashboard: !include ${features}/web-device-dashboard.yaml
   web_file_browser: !include ${features}/web-file-browser.yaml
 
