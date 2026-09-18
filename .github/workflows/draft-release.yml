@@ -55,11 +55,8 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          # One rolling draft, workflow-owned: stale ones are deleted, this
-          # version's is recreated so the notes cover latest master. Drafts
-          # carry no git tag, so releases/tags/<tag> cannot see them — re-check
-          # each by the release ID the listing already carries, delete by ID;
-          # 404 means gone meanwhile, anything else aborts.
+          # One rolling draft. Drafts carry no git tag, so the by-tag
+          # endpoint cannot see them: re-check and delete by release ID.
           DRAFTS=$(mktemp)
           gh api --paginate "repos/$REPO/releases" \
             --jq '.[] | select(.draft) | [.id, .tag_name] | @tsv' > "$DRAFTS"
@@ -76,7 +73,16 @@ jobs:
             esac
             if printf '%s\n' "$RESP" | tr -d '\r' | awk 'f{print} /^$/{f=1}' | jq -e .draft >/dev/null; then
               echo "Deleting stale release draft $tag"
-              gh api -X DELETE "repos/$REPO/releases/$id"
+              # 404 = a concurrent run deleted it first.
+              RESP=$(gh api -i -X DELETE "repos/$REPO/releases/$id" 2>/dev/null || true)
+              CODE=$(printf '%s\n' "$RESP" | sed -n '1s|^HTTP[^ ]* \([0-9][0-9][0-9]\).*|\1|p')
+              case "$CODE" in
+                200|204|404) ;;
+                *)
+                  echo "::error::cannot delete draft $tag (HTTP ${CODE:-none})"
+                  exit 1
+                  ;;
+              esac
             fi
           done < "$DRAFTS"
 
