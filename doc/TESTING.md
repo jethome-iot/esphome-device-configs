@@ -15,7 +15,7 @@ python tests/run.py automations -- --gtest_filter='Storage.*'
 
 ```
 tests/
-  run.py                    # finds tests/components/*/test.yaml, builds and runs each
+  run.py                    # finds the suites under tests/components/, builds and runs each
   harness/
     main.cpp                # upstream's tests/components/main.cpp: runs the tests instead of setup()
     environment.cpp         # constructs App, which that setup would have done
@@ -35,6 +35,9 @@ tests/
     entity_config/
     i2c_eeprom/
     jethome_board_info/
+    jethome_manifest/
+    jethome_update/           # test_schema.py alone: the entity needs ota.http_request, which
+                              # upstream refuses on the host platform
     web_auth/
     web_automation_editor/
     web_device_dashboard/
@@ -48,7 +51,8 @@ tests/
    needs, and declare at least the entities the cases will register.
 2. `tests/components/<name>/cases/`: the tests, in `esphome::<name>::testing`, as upstream's.
 3. `tests/components/<name>/test_*.py` for the schema: what a bad config is refused with.
-4. Nothing else: `run.py` and CI pick the directory up.
+4. Nothing else: `run.py` and CI pick the directory up. A component the host platform cannot
+   build gets a directory with `test_*.py` and no `test.yaml`; the runner then skips the build.
 
 ## Rules every suite lives by
 

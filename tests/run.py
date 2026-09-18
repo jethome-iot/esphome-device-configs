@@ -16,6 +16,11 @@ def binary_for(config: Path) -> Path:
     return config.parent / ".esphome" / "build" / name / ".pioenvs" / name / "program"
 
 
+def has_tests(component: Path) -> bool:
+    """A suite is a host build, Python tests, or both."""
+    return (component / "test.yaml").is_file() or any(component.glob("test_*.py"))
+
+
 def run_python_tests(component: Path) -> bool:
     """Schema and validator tests next to the cases, if the suite has any."""
     if not any(component.glob("test_*.py")):
@@ -37,10 +42,13 @@ def run_python_tests(component: Path) -> bool:
 
 
 def run_component(component: Path, gtest_args: list[str]) -> bool:
-    config = component / "test.yaml"
     print(f"=== {component.name}", flush=True)
     if not run_python_tests(component):
         return False
+    config = component / "test.yaml"
+    if not config.is_file():
+        # A component the host platform cannot build is tested from Python alone.
+        return True
     subprocess.run(
         [sys.executable, "-m", "esphome", "compile", config.name],
         check=True,
@@ -71,12 +79,10 @@ def main() -> int:
     if args:
         components = [COMPONENTS / name for name in args]
     else:
-        components = sorted(
-            p for p in COMPONENTS.iterdir() if (p / "test.yaml").is_file()
-        )
-    missing = [c.name for c in components if not (c / "test.yaml").is_file()]
+        components = sorted(p for p in COMPONENTS.iterdir() if has_tests(p))
+    missing = [c.name for c in components if not has_tests(c)]
     if missing:
-        print(f"no test.yaml under tests/components/ for: {', '.join(missing)}")
+        print(f"no tests under tests/components/ for: {', '.join(missing)}")
         return 2
     failed = [c.name for c in components if not run_component(c, gtest_args)]
     if failed:

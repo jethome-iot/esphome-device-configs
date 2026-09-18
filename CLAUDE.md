@@ -15,7 +15,7 @@ generated files and runs the pre-commit hooks.
 | build, flash, lint, regenerate, push, bump ESPHome, or wonder about style | [doc/DEVELOPMENT.md](doc/DEVELOPMENT.md) |
 | edit a package: shared ids, boot order, settings, temperature slots, Modbus map, upstream-coupled code | [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) |
 | touch `dist/`, `dashboard_import`, assets, or add a device | [doc/DIST.md](doc/DIST.md) |
-| touch CI, firmware versions, channels, publishing | [doc/RELEASE.md](doc/RELEASE.md) |
+| touch CI, firmware versions, channels, publishing, or how a device updates itself | [doc/RELEASE.md](doc/RELEASE.md) |
 | run a device config in the emulator, or touch the QEMU overlays | [doc/QEMU.md](doc/QEMU.md) |
 | change how Dallas sensors get their slots | [doc/ONEWIRE_WORKFLOW.md](doc/ONEWIRE_WORKFLOW.md) |
 | use or change the HTTP file API over the user partition | [components/web_file_browser/README.md](components/web_file_browser/README.md) |

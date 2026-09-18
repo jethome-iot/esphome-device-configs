@@ -26,9 +26,9 @@ boundaries; everything else is local to its file.
   `features/web-device-dashboard.yaml` for `/api/device/info`.
 - `display1` and `main_page` come from `display/display.yaml`; the other pages attach with
   `id: !extend display1`. `display_menu` (`display/menu.yaml`) exposes `info_submenu` and
-  `menu_settings_id` as extension points that `menu-items-network.yaml` and
-  `menu-serial.yaml` fill via `!extend`; their rows follow the device config's package order
-  unless a `weight` moves them, and rows added from C++ at boot come after all of them. A
+  `menu_settings_id` as extension points that `menu-items-network.yaml`, `menu-serial.yaml`
+  and `menu-firmware.yaml` fill via `!extend`; their rows follow the device config's package
+  order unless a `weight` moves them, and rows added from C++ at boot come after all of them. A
   submenu may be empty, and `info_submenu`, `relays_menu` and `inputs_menu` declare no rows of
   their own: the last two are filled at boot from the `relays` / `inputs` vectors, so the menu
   follows whatever the board package put there. `temperatures_menu` gets a `Temp N` submenu per

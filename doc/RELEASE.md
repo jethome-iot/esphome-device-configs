@@ -101,6 +101,33 @@ server is never fed from an unpublished draft.
 - `supported_devices`: the device slug; the `latest` pointer moves only on
   `release` channel uploads (manual runs control it with `update_latest`)
 
+## Updates on the device
+
+A firmware built here checks fw.jethome.com for a newer build of its own device
+slug and installs it over HTTPS. Three entities:
+
+| Entity | What it does |
+| --- | --- |
+| `Firmware update` | The version the server offers and the button that installs it; checks every 6 hours on its own |
+| `Firmware channel` | `release` or `nightly` — the channel the check reads, kept across reboots |
+| `Check for updates` | Checks now instead of waiting for the next poll; offline it does nothing |
+
+The check reads `https://fw.jethome.com/api/devices/<device>/info`, where `<device>`
+is the config's `fw_device` substitution — the slug from `firmwares.yaml`, not the
+name the device was imported under — and offers the `esp.ota` image of the selected
+channel whenever its version differs from the one the firmware was built with.
+Prereleases go to `nightly`, full releases to `release`; picking a channel the
+pipeline has never published to leaves the entity in an error state, with the
+channel the manifest lacked named in the log.
+
+The display carries the same under **Settings → Firmware**: the running and the offered
+version, the channel, a check, and an install behind a confirmation.
+
+The wiring is `devices/JXD/packages/features/firmware-update.yaml` with its menu rows in
+`devices/JXD/packages/display/menu-firmware.yaml`, and both are left out of `dist/`: a
+firmware built from the imported config is the user's own, not one this pipeline publishes
+([dist/ and new devices](DIST.md)).
+
 ## Secrets
 
 | Secret | Purpose |
