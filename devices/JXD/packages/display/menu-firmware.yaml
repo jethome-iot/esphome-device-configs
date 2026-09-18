@@ -1,0 +1,72 @@
+# Settings → Firmware: the update entity of features/firmware-update.yaml on the display.
+# Left out of dist/ with that package (EXCLUDED_PACKAGES in scripts/build-dist.py), because
+# the rows drive it.
+graphical_display_menu:
+  items:
+    - id: !extend menu_settings_id
+      items:
+        # 10: commissioning, next to Modbus; the rows that erase or reboot stay below.
+        - type: menu
+          text: "Firmware"
+          weight: 10
+          items:
+            - type: label
+              text: "Running:"
+
+            # A version is as wide as the row in the 7x14 font, so these two are not
+            # indented the way the Info values are.
+            - type: label
+              text: !lambda 'return ESPHOME_PROJECT_VERSION;'
+
+            - type: label
+              text: "Offered:"
+
+            - type: label
+              text: !lambda |-
+                switch (id(firmware_update).state) {
+                  case update::UPDATE_STATE_NO_UPDATE:
+                    return std::string("Up to date");
+                  case update::UPDATE_STATE_AVAILABLE:
+                    return id(firmware_update).update_info.latest_version;
+                  case update::UPDATE_STATE_INSTALLING:
+                    return std::string("Installing...");
+                  default:
+                    // Nothing checked yet, or the last check failed.
+                    return std::string("Unknown");
+                }
+
+            - type: select
+              text: "Channel"
+              select: firmware_channel
+
+            # The answer lands in the Offered row above; the next key press draws it.
+            - type: command
+              text: "Check now"
+              on_value:
+                - lambda: id(firmware_update).check();
+
+            - type: menu
+              text: "Install update"
+              items:
+                - type: label
+                  text: !lambda |-
+                    switch (id(firmware_update).state) {
+                      case update::UPDATE_STATE_AVAILABLE:
+                        return std::string("Install now?");
+                      case update::UPDATE_STATE_INSTALLING:
+                        return std::string("Installing...");
+                      default:
+                        return std::string("Nothing to install");
+                    }
+
+                - type: command
+                  text: "Confirm"
+                  id: firmware_install_yes
+                  # Confirmed the way the other destructive rows are: the row says OK, then
+                  # the install starts. perform() ignores a press with nothing on offer.
+                  on_value:
+                    - lambda: |-
+                        if (id(firmware_update).state == update::UPDATE_STATE_AVAILABLE)
+                          id(firmware_install_yes)->set_text("Confirm - OK");
+                    - delay: 1s
+                    - lambda: id(firmware_update).perform(false);

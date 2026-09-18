@@ -42,8 +42,9 @@ MANIFEST_NAME = "firmwares.yaml"
 # Packages the imported copy does not get, each with the substitutions that exist only for it.
 # `firmware_update` checks the version the firmware was built with, and a config built from
 # dist/ carries the placeholder version: it would offer JetHome's own build forever, and
-# installing that would replace the user's own firmware.
-EXCLUDED_PACKAGES = {"firmware_update": ("fw_device",)}
+# installing that would replace the user's own firmware. `menu_firmware` is that entity on
+# the display, so it leaves with it.
+EXCLUDED_PACKAGES = {"firmware_update": ("fw_device",), "menu_firmware": ()}
 
 
 def device_configs() -> list[Path]:

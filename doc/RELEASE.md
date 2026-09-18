@@ -120,9 +120,13 @@ Prereleases go to `nightly`, full releases to `release`; picking a channel the
 pipeline has never published to leaves the entity in an error state, with the
 channel the manifest lacked named in the log.
 
-The wiring is `devices/JXD/packages/features/firmware-update.yaml`, and it is left out
-of `dist/`: a firmware built from the imported config is the user's own, not one
-this pipeline publishes ([dist/ and new devices](DIST.md)).
+The display carries the same under **Settings → Firmware**: the running and the offered
+version, the channel, a check, and an install behind a confirmation.
+
+The wiring is `devices/JXD/packages/features/firmware-update.yaml` with its menu rows in
+`devices/JXD/packages/display/menu-firmware.yaml`, and both are left out of `dist/`: a
+firmware built from the imported config is the user's own, not one this pipeline publishes
+([dist/ and new devices](DIST.md)).
 
 ## Secrets
 
