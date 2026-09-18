@@ -106,6 +106,22 @@ TEST(Manifest, RefusesAManifestWithoutFirmware) {
   EXPECT_TRUE(log().has_error("no latest_firmware"));
 }
 
+TEST(Manifest, RefusesAManifestWhoseFirmwareIsNotAnObject) {
+  for (const char *slots : {R"("none")", "null", "42", "[]"}) {
+    const std::string manifest = std::string(R"({"latest_firmware": )") + slots + "}";
+    update::UpdateInfo info;
+    EXPECT_FALSE(parse(manifest, "release", info)) << slots;
+    EXPECT_TRUE(log().has_error("no latest_firmware")) << slots;
+  }
+}
+
+// An empty slot list is a manifest, just not one that serves this channel.
+TEST(Manifest, RefusesAnEmptySlotListForTheChannel) {
+  update::UpdateInfo info;
+  EXPECT_FALSE(parse(R"({"latest_firmware": {}})", "release", info));
+  EXPECT_TRUE(log().has_error("no 'release' firmware"));
+}
+
 TEST(Manifest, RefusesWhatIsNotJson) {
   update::UpdateInfo info;
   EXPECT_FALSE(parse("<html>404</html>", "release", info));
