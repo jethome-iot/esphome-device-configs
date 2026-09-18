@@ -62,9 +62,6 @@ bool parse_manifest(const uint8_t *data, size_t len, const std::string &channel,
       return false;
     }
 
-    // Named: the proxy `root[...]` returns dies at the end of the expression, and GCC warns
-    // about iterating it directly even though the object itself points into the document.
-    JsonObjectConst slots = root[ESPHOME_F("latest_firmware")].as<JsonObjectConst>();
     JsonVariantConst firmware;
     for (JsonPairConst slot : slots) {
       if (is_channel_slot(slot.key().c_str(), channel)) {
