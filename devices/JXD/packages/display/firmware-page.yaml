@@ -1,7 +1,5 @@
-# The install screen of features/firmware-update.yaml: the version being written, how far it
-# has got, and what is left behind when it fails. It hangs off the OTA component rather than
-# the menu row, so an install from Home Assistant or the dashboard puts it up too. Left out of
-# dist/ with that package (EXCLUDED_PACKAGES in scripts/build-dist.py), whose entity it reads.
+# The install screen, over the entity of features/firmware-update.yaml. It hangs off the OTA
+# component rather than the menu row, so an install from Home Assistant or the dashboard shows it.
 
 globals:
   # The percentage the page draws, -1 until the first report. The entity's own progress is a
@@ -16,6 +14,7 @@ ota:
     # The download blocks the main loop for its whole run, so nothing draws on its own between
     # these hooks: the page goes up before the first byte, and each report redraws it.
     on_begin:
+      - script.stop: firmware_page_timeout
       - lambda: |-
           id(firmware_install_pct) = -1;
           id(display_off_s) = 0;
@@ -27,16 +26,21 @@ ota:
       - component.update: display1
     on_error:
       # An install that worked reboots; this one stays on screen until a key press or the
-      # timeout below, so it is not what the device is left showing.
+      # script's timeout, so it is not what the device is left showing.
       - lambda: id(display_off_s) = 0;
+      - script.execute: firmware_page_timeout
+
+script:
+  # Restarted by each failed attempt, so the page always gets its own half minute.
+  - id: firmware_page_timeout
+    mode: restart
+    then:
       - delay: 30s
-      # A later install may own the page by now.
       - lambda: |-
           if (id(display1).get_active_page() == id(firmware_page) &&
               id(firmware_update).state != update::UPDATE_STATE_INSTALLING)
             id(display1).show_page(id(main_page));
 
-script:
   # Every button handler runs this last, which is what takes a key press off the failed page.
   - id: !extend check_blank_page
     then:
