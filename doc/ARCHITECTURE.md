@@ -116,7 +116,7 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
 
 - `components/display_menu_base` and `components/graphical_display_menu` are copies of
   upstream's, carrying `right_for_menu_enter`, the `display_menu.back` action, `fill_row`,
-  item `weight` and submenus that may be empty;
+  item `weight`, `fit_text` and submenus that may be empty;
   naming them in `external_components` shadows the built-in ones. Every changed hunk is marked
   `JetHome:` and `scripts/vendored-diff.py` prints the whole patch against the pinned ESPHome.
   Dropping the two names from `external_components` builds the upstream components instead.

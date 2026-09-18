@@ -13,6 +13,8 @@
 #include "esphome/components/switch/switch.h"
 #endif
 
+#include <functional>  // JetHome (fit_text)
+#include <string>      // JetHome (fit_text)
 #include <vector>
 #include "esphome/core/log.h"
 
@@ -185,5 +187,11 @@ class MenuItemCustom final : public MenuItemEditable {
   CallbackManager<void()> on_next_callbacks_{};
   CallbackManager<void()> on_prev_callbacks_{};
 };
+
+/// JetHome: fold text the user wrote into a row label that the font can always draw. A code
+/// point `can_draw` turns down becomes `?`, and so does a byte that is not valid UTF-8 — the
+/// font stops drawing a row at one. The result is cut to `chars` characters, not bytes.
+/// Meant to be called once, when the row is built.
+std::string fit_text(const std::string &text, size_t chars, const std::function<bool(uint32_t)> &can_draw);
 
 }  // namespace esphome::display_menu_base

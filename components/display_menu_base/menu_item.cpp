@@ -200,4 +200,38 @@ void MenuItemCustom::on_next_() { this->on_next_callbacks_.call(); }
 
 void MenuItemCustom::on_prev_() { this->on_prev_callbacks_.call(); }
 
+// JetHome (fit_text): a row label for text the device did not author. As strict as the font's
+// own decoder, which stops drawing a row the moment it meets a sequence it refuses.
+std::string fit_text(const std::string &text, size_t chars, const std::function<bool(uint32_t)> &can_draw) {
+  // The shortest code point each lead length may carry; anything below it is an overlong form.
+  static const uint32_t SHORTEST[] = {0, 0, 0x80, 0x800, 0x10000};
+  std::string out;
+  size_t i = 0;
+  while (i < text.size() && chars-- > 0) {
+    const auto lead = static_cast<unsigned char>(text[i]);
+    size_t len = lead < 0x80             ? 1
+                 : (lead & 0xE0) == 0xC0 ? 2
+                 : (lead & 0xF0) == 0xE0 ? 3
+                 : (lead & 0xF8) == 0xF0 ? 4
+                                         : 0;
+    // Whole is whether the bytes form one code point at all; valid is whether it is one the
+    // font's decoder would accept. A refused code point is still one character of the name.
+    bool whole = len > 0 && i + len <= text.size() && lead != 0;
+    uint32_t code_point = lead;
+    if (whole && len > 1) {
+      code_point = lead & (0xFF >> (len + 1));
+      for (size_t k = 1; k < len; k++) {
+        const auto next = static_cast<unsigned char>(text[i + k]);
+        whole = whole && (next & 0xC0) == 0x80;
+        code_point = (code_point << 6) | (next & 0x3F);
+      }
+    }
+    const bool valid = whole && (len == 1 || (code_point >= SHORTEST[len] && code_point <= 0x10FFFF &&
+                                              (code_point < 0xD800 || code_point > 0xDFFF)));
+    out += valid && can_draw(code_point) ? text.substr(i, len) : "?";
+    i += whole ? len : 1;
+  }
+  return out;
+}
+
 }  // namespace esphome::display_menu_base

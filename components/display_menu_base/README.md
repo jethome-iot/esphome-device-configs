@@ -1,7 +1,8 @@
 # display_menu_base
 
 Upstream's `display_menu_base` with a back action, a switch for what the "right" input does, a
-`weight` that orders the rows of a menu, and submenus that may be empty. Listing it in
+`weight` that orders the rows of a menu, submenus that may be empty, and `fit_text` for a row
+labelled with text the device did not author. Listing it in
 `external_components` shadows the copy that ships with ESPHome; everything else about the
 component is upstream's.
 
@@ -68,3 +69,11 @@ lambda at boot.
 - `back()`: the same, and returns whether it went anywhere. `false` is the case above, which is
   where a config closes the menu itself
 - `is_at_main()`: the root menu is the one on screen
+- `fit_text(text, chars, can_draw)`: a row label for text the user wrote. Code points
+  `can_draw` turns down become `?`, malformed UTF-8 counts as one of those, and the result is
+  cut to `chars` characters — not bytes. Call it when the row is built, not while drawing:
+
+  ```cpp
+  auto *font = id(menu_font);
+  row->set_text(fit_text(name, 12, [font](uint32_t cp) { return font->find_glyph(cp) != nullptr; }));
+  ```

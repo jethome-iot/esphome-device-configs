@@ -725,21 +725,19 @@ esphome:
               }
               return -1;  // removed since boot
             };
-            // The value is appended to the row text and the row is clipped at the panel
-            // edge, so a long name would push On / Off off the screen.
-            auto fit = [](const std::string &text, size_t chars) {
-              size_t i = 0;
-              while (i < text.size() && chars-- > 0) {
-                for (i++; i < text.size() && (static_cast<unsigned char>(text[i]) & 0xC0) == 0x80; i++) {
-                }
-              }
-              return text.substr(0, i);
+            // A rule name is the one text on this screen the user wrote, so it is the one the
+            // font may not carry; cutting keeps a long one off the value column.
+            auto *menu_font = id(f7x14_mod2);
+            auto fit = [menu_font](const std::string &text, size_t chars) {
+              return fit_text(text, chars, [menu_font](uint32_t code_point) {
+                return menu_font->find_glyph(code_point) != nullptr;
+              });
             };
-            // A cut name is no longer known to be unique — two rules may start alike — so a row
-            // that had to cut one carries the rule's id, the one the editor and the log use.
+            // Cut or stood in for, a name may no longer read uniquely, so those rows carry
+            // the rule's id — the one the editor and the log use.
             auto label = [&fit](const automations::AutomationConfig &config) {
               const std::string cut = fit(config.name, 12);
-              if (cut.size() == config.name.size())
+              if (cut == config.name)
                 return cut;
               const std::string tag = " #" + std::to_string(config.id);
               return fit(config.name, 12 - tag.size()) + tag;
