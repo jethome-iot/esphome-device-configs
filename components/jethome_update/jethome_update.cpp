@@ -239,7 +239,17 @@ void JethomeUpdate::finish_check_(CheckResult *result) {
 }
 
 void JethomeUpdate::perform(bool force) {
+  // `force` reinstalls an image the last check validated; it is not a way past an install that
+  // is already running, nor a way to flash an offer the entity does not have.
+  if (this->state_ == update::UPDATE_STATE_INSTALLING) {
+    ESP_LOGW(TAG, "Install already in progress");
+    return;
+  }
   if (this->state_ != update::UPDATE_STATE_AVAILABLE && !force) {
+    return;
+  }
+  if (this->update_info_.firmware_url.empty() || this->update_info_.md5.empty()) {
+    ESP_LOGW(TAG, "No firmware to install; check for updates first");
     return;
   }
 
