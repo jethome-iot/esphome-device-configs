@@ -18,9 +18,14 @@ export function storageKey(name: string): string {
     )
     .join('')
   let key = folded.replace(/_+/g, '_').replace(/^_+|_+$/g, '')
-  // The device's LittleFS filename budget, cut on a character boundary.
+  // The device's LittleFS filename budget. Back off over continuation bytes to
+  // find the boundary: dropping decoded U+FFFD would also eat a real one.
   const bytes = new TextEncoder().encode(key)
-  if (bytes.length > 48) key = new TextDecoder().decode(bytes.slice(0, 48)).replace(/�+$/, '')
+  if (bytes.length > 48) {
+    let cut = 48
+    while (cut > 0 && ((bytes[cut] as number) & 0xc0) === 0x80) cut--
+    key = new TextDecoder().decode(bytes.subarray(0, cut))
+  }
   return key.replace(/_+$/, '') || 'automation'
 }
 
