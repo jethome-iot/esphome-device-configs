@@ -1169,7 +1169,15 @@ script:
     then:
       - logger.log: Reset WiFi creds
       - lambda: |-
-          id(wifi_id).save_wifi_sta("", "");
+          const uint32_t keys[] = {88491487, App.get_config_version_hash()};
+          uint8_t cleared = 0;
+          for (uint32_t key : keys) {
+            auto pref = global_preferences->make_preference(sizeof(cleared), key);
+            pref.save(&cleared);
+          }
+          if (!global_preferences->sync()) {
+            ESP_LOGE("reset_wifi", "Clearing the WiFi credentials failed");
+          }
           App.safe_reboot();
   - id: setup_time
     then:

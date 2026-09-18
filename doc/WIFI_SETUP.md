@@ -48,8 +48,9 @@ configured or stored:
 ## Changing the network later
 
 **From the display menu.** **Settings → Reset WiFi creds → Confirm** clears the stored
-credentials and reboots; the access point is back within 90 seconds, and you
-reconfigure through the captive portal as above.
+credentials and reboots; with no credentials compiled into the firmware the device comes
+back with no network stored, so the access point is up at once and you reconfigure
+through the captive portal as above.
 
 **By factory reset.** **Settings → Factory reset → Confirm** clears the stored preferences,
 credentials included, formats the user partition, and reboots into AP mode.

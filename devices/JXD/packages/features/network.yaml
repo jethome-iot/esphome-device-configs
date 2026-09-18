@@ -136,11 +136,25 @@ script:
           }
       - component.update: ip
 
+  # save_wifi_sta("", "") stores a valid empty-SSID record instead of clearing:
+  # has_sta() stays true, so the AP waits out its timeout and the empty SSID
+  # matches any open network. Upstream loads the record only at the length it
+  # wrote, so a shorter one reads as absent. Both of its keys (see the hash in
+  # WiFiComponent::start) are cleared: which one it uses depends on whether a
+  # network is compiled into the wifi: block.
   - id: reset_wifi
     then:
       - logger.log: 'Reset WiFi creds'
       - lambda: |-
-          id(wifi_id).save_wifi_sta("", "");
+          const uint32_t keys[] = {88491487, App.get_config_version_hash()};
+          uint8_t cleared = 0;
+          for (uint32_t key : keys) {
+            auto pref = global_preferences->make_preference(sizeof(cleared), key);
+            pref.save(&cleared);
+          }
+          if (!global_preferences->sync()) {
+            ESP_LOGE("reset_wifi", "Clearing the WiFi credentials failed");
+          }
           App.safe_reboot();
 
 esphome:
