@@ -524,9 +524,14 @@ jobs:
             # unpublished draft would leave the server live while the GitHub
             # release stays private. The listing failing fails the step.
             # shellcheck disable=SC2016  # $t is a jq variable, not shell
+            # -s merges the paginated pages into one array; no match emits
+            # nothing, more than one fails.
             ROW=$(gh api --paginate "repos/$REPO/releases" \
-              --jq --arg t "$TAG" \
-              '[.[] | select(.tag_name == $t)] | if length > 1 then error("multiple releases for " + $t) else (.[0] | [.id, .draft] | @tsv) end')
+              | jq -sr --arg t "$TAG" \
+                'add | [.[] | select(.tag_name == $t)]
+                 | if length > 1 then error("multiple releases for " + $t)
+                   elif length == 1 then (.[0] | [.id, .draft] | @tsv)
+                   else empty end')
             if [ -n "$ROW" ] && [ "$(printf '%s' "$ROW" | cut -f2)" = "true" ]; then
               echo "Deleting the release draft holding $TAG"
               gh api -X DELETE "repos/$REPO/releases/$(printf '%s' "$ROW" | cut -f1)"
