@@ -61,3 +61,6 @@ graphical_display_menu:
                 - lambda: 'id(wifi_reset_yes)->set_text("Confirm - OK");'
                 - delay: 1s
                 - script.execute: reset_wifi
+                # Nothing reboots the row back to its label any more.
+                - delay: 3s
+                - lambda: 'id(wifi_reset_yes)->set_text("Confirm");'

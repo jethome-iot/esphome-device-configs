@@ -1182,7 +1182,12 @@ script:
           if (!ok) {
             ESP_LOGE("reset_wifi", "Clearing the WiFi credentials failed");
           }
-          App.safe_reboot();
+          id(wifi_id).clear_sta();
+          // Restarting the radio is what raises the AP; in Ethernet mode there is none to raise.
+          if (!id(wifi_id).is_disabled()) {
+            id(wifi_id).disable();
+            id(wifi_id).enable();
+          }
   - id: setup_time
     then:
       - lambda: |-
@@ -1531,6 +1536,8 @@ graphical_display_menu:
                 - lambda: id(wifi_reset_yes)->set_text("Confirm - OK");
                 - delay: 1s
                 - script.execute: reset_wifi
+                - delay: 3s
+                - lambda: id(wifi_reset_yes)->set_text("Confirm");
     - id: !extend 'info_submenu'
       items:
         - type: label

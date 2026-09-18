@@ -154,7 +154,12 @@ script:
           if (!ok) {
             ESP_LOGE("reset_wifi", "Clearing the WiFi credentials failed");
           }
-          App.safe_reboot();
+          id(wifi_id).clear_sta();
+          // Restarting the radio is what raises the AP; in Ethernet mode there is none to raise.
+          if (!id(wifi_id).is_disabled()) {
+            id(wifi_id).disable();
+            id(wifi_id).enable();
+          }
 
 esphome:
   on_boot:
