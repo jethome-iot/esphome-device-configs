@@ -1169,8 +1169,25 @@ script:
     then:
       - logger.log: Reset WiFi creds
       - lambda: |-
-          id(wifi_id).save_wifi_sta("", "");
-          App.safe_reboot();
+          // Both keys WiFiComponent::start can pick, the literal being its own.
+          constexpr uint32_t WIFI_PREF_KEY_NO_COMPILED_NETWORK = 88491487;
+          const uint32_t keys[] = {WIFI_PREF_KEY_NO_COMPILED_NETWORK, App.get_config_version_hash()};
+          uint8_t cleared = 0;
+          bool ok = true;
+          for (uint32_t key : keys) {
+            auto pref = global_preferences->make_preference(sizeof(cleared), key);
+            ok = pref.save(&cleared) && ok;
+          }
+          ok = global_preferences->sync() && ok;
+          if (!ok) {
+            ESP_LOGE("reset_wifi", "Clearing the WiFi credentials failed");
+          }
+          id(wifi_id).clear_sta();
+          // Restarting the radio is what raises the AP; in Ethernet mode there is none to raise.
+          if (!id(wifi_id).is_disabled()) {
+            id(wifi_id).disable();
+            id(wifi_id).enable();
+          }
   - id: setup_time
     then:
       - lambda: |-
@@ -1519,6 +1536,8 @@ graphical_display_menu:
                 - lambda: id(wifi_reset_yes)->set_text("Confirm - OK");
                 - delay: 1s
                 - script.execute: reset_wifi
+                - delay: 3s
+                - lambda: id(wifi_reset_yes)->set_text("Confirm");
     - id: !extend 'info_submenu'
       items:
         - type: label

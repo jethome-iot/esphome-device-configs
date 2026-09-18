@@ -48,8 +48,10 @@ configured or stored:
 ## Changing the network later
 
 **From the display menu.** **Settings → Reset WiFi creds → Confirm** clears the stored
-credentials and reboots; the access point is back within 90 seconds, and you
-reconfigure through the captive portal as above.
+credentials and restarts the radio, without rebooting. With no credentials compiled into the
+firmware nothing is left to join, so in `WiFi` or `Auto` mode the access point is back within a
+second or two and you reconfigure through the captive portal as above; in `Ethernet` mode WiFi
+stays off until you switch the mode.
 
 **By factory reset.** **Settings → Factory reset → Confirm** clears the stored preferences,
 credentials included, formats the user partition, and reboots into AP mode.
