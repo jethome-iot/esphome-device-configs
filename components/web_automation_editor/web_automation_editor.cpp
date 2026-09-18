@@ -111,7 +111,8 @@ void WebAutomationEditor::handleBody(AsyncWebServerRequest *request, uint8_t *da
 void WebAutomationEditor::handleRequest(AsyncWebServerRequest *request) {
   const std::string url = this->url_(request);
   const Route *route = this->route_for_(url);
-  ESP_LOGD(TAG, "%s", url.c_str());
+  // Verbose, not debug: the editor polls the rule list and entities every few seconds.
+  ESP_LOGV(TAG, "Handling request: %s", url.c_str());
   // The buffer is this request's only if it is complete and sized for it.
   if (this->body_total_ != request->contentLength() || this->body_received_ != this->body_total_)
     this->reset_body_();

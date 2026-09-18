@@ -59,7 +59,8 @@ bool WebFileBrowser::canHandle(AsyncWebServerRequest *request) const {
 void WebFileBrowser::handleRequest(AsyncWebServerRequest *request) {
   const std::string url = this->url_(request);
 
-  ESP_LOGD(TAG, "Handling request: %s", url.c_str());
+  // Verbose, not debug: the dashboard polls info and list every few seconds.
+  ESP_LOGV(TAG, "Handling request: %s", url.c_str());
 
   const Route *route = route_for(url, this->url_prefix_);
   if (route == nullptr) {
