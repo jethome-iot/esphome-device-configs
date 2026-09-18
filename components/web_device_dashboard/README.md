@@ -41,8 +41,7 @@ dashboard and `web_server`'s own page is not reachable; its REST routes, `/event
 log. On a firmware with an `auth:` block the page and every route here are behind it, so the
 browser asks for the credentials before the page loads. The page still reaches the Automations
 and Files screens at the prefixes baked into it at build time (`/automation-editor`, `/files`),
-and shows them whether or not the firmware serves them; reading `/api/device/capabilities`
-instead is a change in the dashboard repository.
+and shows them whether or not the firmware serves them.
 
 ## Updating the page
 
@@ -70,7 +69,7 @@ failure `{"success": false, "error"}`. The same contract, machine-readable:
 ### Capabilities
 
 `/api/device/capabilities` answers which screens a client can draw and which routes exist. It
-is meant to be read once on load; the embedded page does not read it yet. A key is there only
+is meant to be read once on load. A key is there only
 when the capability is, so the test is `if (caps.files)`; one that has no detail to carry is
 `true`. `reboot` and `factory_reset` are
 always there, the latter with `clears_storage` — whether a reset also takes the uploaded files
@@ -81,6 +80,12 @@ updated over the air. `storage`, `files`, `automations`, `entity_settings` and `
 follow the components the firmware was built with. `storage` says what the mount is, not how
 full it is: usage is live and this route is read once, so the byte counts stay in the file
 API's own `info`.
+
+The embedded page reads this on its **Settings → System** tab and will not draw the tab
+without it: a firmware old enough to answer `404` here gets a message saying so rather than
+buttons that cannot work. It uses `factory_reset.clears_storage` to say whether a reset takes
+the uploaded files with it, and `rollback` to name the slot it would boot — with no key there,
+the action stays disabled instead of offering a `503`.
 
 ### System actions
 
