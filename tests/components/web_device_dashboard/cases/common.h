@@ -371,11 +371,19 @@ class Dashboard : public ::testing::Test {
   // What the loop task does between two requests: run what handleRequest deferred.
   static void loop() { App.scheduler.call(millis()); }
 
+  // The Host every case is addressed to; a page on another site says so by carrying an Origin
+  // that is not this.
+  static constexpr const char *HOST = "device.local";
+
   // One request through the server, the way web_server_idf delivers it: a raw body in @p chunk
   // sized pieces through handleBody, then handleRequest. A form body never reaches handleBody.
+  // @p origin is what a page on another site would carry; nullptr is a client that sends none.
   Reply call(http_method method, const std::string &url, const std::string &body = "", size_t chunk = 512,
-             const std::string &content_type = "application/json") {
+             const std::string &content_type = "application/json", const char *origin = nullptr) {
     AsyncWebServerRequest request(method, url, body, content_type);
+    request.set_header("Host", HOST);
+    if (origin != nullptr)
+      request.set_header("Origin", origin);
     Reply reply;
     reply.claimed = this->base.get_server()->dispatch(request, chunk);
     reply.code = request.response_code;

@@ -44,6 +44,7 @@ tests/
     web_automation_editor/
     web_device_dashboard/
     web_file_browser/
+    web_origin_guard/
 ```
 
 ## Adding a suite for a new component

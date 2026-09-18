@@ -5,6 +5,7 @@
 #include "esphome/core/log.h"
 #include "esphome/components/web_server_base/web_server_base.h"
 #include "esphome/components/filesystem_storage_abstract/filesystem_storage_abstract.h"
+#include "esphome/components/web_origin_guard/web_origin_guard.h"
 #include "routes.h"
 #include <string>
 
@@ -44,6 +45,9 @@ class WebFileBrowser : public AsyncWebHandler, public Component {
  protected:
   web_server_base::WebServerBase *base_;
   filesystem_storage_abstract::FilesystemStorageAbstract *storage_;
+  // What is registered on the server: the server never reaches this handler directly, so a
+  // cross-origin request is refused before /write can open a file.
+  web_origin_guard::WebOriginGuard guard_{this};
   std::string url_prefix_{"/files"};
 
   // Upload state. upload_error_ carries the failure from handleUpload() (which

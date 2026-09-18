@@ -30,7 +30,7 @@ static const unsigned MAX_RECURSION_DEPTH = 8;
 
 void WebFileBrowser::setup() {
   this->base_->init();
-  this->base_->add_handler(this);
+  this->base_->add_handler(&this->guard_);
 }
 
 void WebFileBrowser::dump_config() {

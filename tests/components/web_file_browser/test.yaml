@@ -25,7 +25,7 @@ logger:
 
 external_components:
   - source: ../../../components
-    components: [filesystem_storage_abstract, web_file_browser]
+    components: [filesystem_storage_abstract, web_file_browser, web_origin_guard]
   - source: ../../harness/components
     components: [dir_storage, web_server_base]
 

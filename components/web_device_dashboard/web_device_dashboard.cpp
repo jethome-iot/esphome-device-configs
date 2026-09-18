@@ -74,7 +74,7 @@ static const Route ROUTES[] = {
 
 void WebDeviceDashboard::setup() {
   this->base_->init();
-  this->base_->add_handler(this);
+  this->base_->add_handler(&this->guard_);
 }
 
 void WebDeviceDashboard::dump_config() {
@@ -524,17 +524,22 @@ static bool says_json(const optional<std::string> &content_type) {
   return type.compare(first, type.find_last_not_of(" \t") - first + 1, "application/json") == 0;
 }
 
+// Every route that reads a JSON body demands the type that names one. No HTML form can send it,
+// so a page on another site cannot steer a browser's cached credentials at these routes even
+// where the request carries no Origin for web_origin_guard to judge.
+bool WebDeviceDashboard::require_json_(AsyncWebServerRequest *request) {
+  if (says_json(request->get_header("Content-Type")))
+    return true;
+  this->send_error_(request, 415, "Expected Content-Type: application/json");
+  return false;
+}
+
 // POST {"username", "password"}. The new pair is checked here and applied from the loop task,
 // so this request still answers under the old one and the browser is asked for the new one on
 // the page's next call.
 void WebDeviceDashboard::handle_auth_set_(AsyncWebServerRequest *request) {
-  // A type no HTML form can send, so no page on another site can aim one here and have the
-  // browser attach the credentials it has cached; the way back from this route is a trip to
-  // the device's display menu.
-  if (!says_json(request->get_header("Content-Type"))) {
-    this->send_error_(request, 415, "Expected Content-Type: application/json");
+  if (!this->require_json_(request))
     return;
-  }
   if (this->body_too_large_) {
     this->send_error_(request, 413, "Request body over 4 KiB");
     return;
@@ -628,6 +633,8 @@ void WebDeviceDashboard::handle_capabilities_(AsyncWebServerRequest *request) {
 // device rather than having followed a link. Not the active MAC: on a build with Ethernet
 // that is a different one, and the answer names which is meant.
 bool WebDeviceDashboard::check_confirm_(AsyncWebServerRequest *request) {
+  if (!this->require_json_(request))
+    return false;
   if (this->body_too_large_) {
     this->send_error_(request, 413, "Request body over 4 KiB");
     return false;
@@ -826,6 +833,8 @@ void WebDeviceDashboard::handle_entity_settings_get_(AsyncWebServerRequest *requ
 
 // POST {"type": ..., "source_name": ..., "settings": {...}} or {"type", "source_name", "action": "delete"}.
 void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *request) {
+  if (!this->require_json_(request))
+    return;
   if (this->body_too_large_) {
     this->send_error_(request, 413, "Request body over 4 KiB");
     return;

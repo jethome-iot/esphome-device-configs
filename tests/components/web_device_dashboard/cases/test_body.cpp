@@ -79,17 +79,24 @@ TEST_F(Dashboard, ALeftoverBodyIsNotServedToTheNextRequest) {
   EXPECT_TRUE(this->dashboard->body().empty());
 }
 
+// A Content-Length that happens to match the leftover's announced total is not enough to make
+// the leftover this request's: how many bytes actually arrived is what tells them apart. The
+// leftover left here is a whole, applicable record, so serving it would show up as the relay
+// being set and not merely as a different status.
 TEST_F(Dashboard, ALeftoverBodyOfTheSameLengthIsNotServedEither) {
-  const std::string body = UPDATE_RELAY_1;
-  this->feed(body, 8, 16);
-  ASSERT_EQ(this->dashboard->body_total(), body.size());
+  const std::string announced = std::string(UPDATE_RELAY_1) + std::string(32, ' ');
+  this->feed(announced, 512, std::string(UPDATE_RELAY_1).size());
+  ASSERT_EQ(this->dashboard->body(), UPDATE_RELAY_1);
+  ASSERT_EQ(this->dashboard->body_total(), announced.size());
 
-  // A form body is parsed into parameters and never reaches handleBody, so the counters
-  // entering handleRequest are the leftover's while the Content-Length matches it.
-  Reply reply = this->call(HTTP_POST, "/api/device/entity-settings", std::string(body.size(), 'a'), 512,
-                           "application/x-www-form-urlencoded");
-  EXPECT_EQ(reply.code, 400);
-  EXPECT_EQ(reply.error(), "Invalid JSON");
+  // Straight to handleRequest with no body delivered, as a request whose own body never
+  // reached handleBody arrives: same Content-Length, a type this API reads, and a buffer still
+  // holding the record.
+  AsyncWebServerRequest request(HTTP_POST, "/api/device/entity-settings", std::string(announced.size(), 'a'),
+                                "application/json");
+  this->dashboard->handleRequest(&request);
+  EXPECT_EQ(request.response_code, 400);
+  EXPECT_EQ(request.response_body, R"({"success":false,"error":"Invalid JSON"})");
   EXPECT_EQ(store().sw.report(), "");
 }
 

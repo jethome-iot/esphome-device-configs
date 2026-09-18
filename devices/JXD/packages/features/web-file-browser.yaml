@@ -3,7 +3,7 @@
 # which the CPU board package provides.
 external_components:
   - source: ${components}
-    components: [web_file_browser]
+    components: [web_file_browser, web_origin_guard]
 
 web_file_browser:
   storage_id: user_storage

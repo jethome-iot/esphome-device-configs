@@ -2,6 +2,6 @@
 # the dashboard's editor and curl use. Details: components/web_automation_editor/README.md
 external_components:
   - source: ${components}
-    components: [web_automation_editor]
+    components: [web_automation_editor, web_origin_guard]
 
 web_automation_editor:

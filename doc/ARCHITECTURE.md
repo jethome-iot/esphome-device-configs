@@ -140,6 +140,14 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   reads its `esp_app_desc_t` and hands it to `esp_ota_set_boot_partition`. That the bootloader
   then guards the boot is ESPHome's doing: `esp32`'s `enable_ota_rollback` defaults on wherever
   `ota:` and `safe_mode` are present, and `safe_mode` is what marks a boot good.
+- `components/web_origin_guard` duplicates `web_server::WebServer::is_request_origin_allowed_`
+  rather than calling it: the check is private to a component our handlers do not share, and it
+  would not cover `web_server`'s own OTA handler at `/update` in any case. Its catch-all sits in
+  front of every handler only because it sets up at `setup_priority::WIFI`, above `web_server`
+  and ours at `WIFI - 1` and above the web_server OTA platform at `AFTER_WIFI`, and it writes
+  its `403` through `httpd_resp_*` because `AsyncWebServerRequest::send()` maps every status it
+  does not know to a 500. That last coupling is `web_device_dashboard`'s and
+  `web_file_browser`'s too, and it is why both carry a `send_status_` of their own.
 - `components/web_auth` replaces the two `const char *` upstream's `WebServerBase` keeps and
   never copies, so the strings it hands over must outlive every request and the setters are
   called again after each change. It also needs a compiled `auth:` block to exist at all:

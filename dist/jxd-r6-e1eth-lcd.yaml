@@ -37,6 +37,7 @@ external_components:
       path: components
     components:
       - web_automation_editor
+      - web_origin_guard
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -83,6 +84,7 @@ external_components:
       path: components
     components:
       - web_device_dashboard
+      - web_origin_guard
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -90,6 +92,7 @@ external_components:
       path: components
     components:
       - web_file_browser
+      - web_origin_guard
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git

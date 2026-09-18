@@ -12,7 +12,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [littlefs_storage, web_file_browser]
+    components: [littlefs_storage, web_file_browser, web_origin_guard]
 
 web_server:
   port: 80
@@ -46,9 +46,11 @@ The handler registers on the shared `web_server_base`, so it answers on the same
 alike. Those credentials come from the `web_server:` block and from nowhere else: with no
 `web_server:`, or no `auth:` in it, the whole partition is readable and writable by anything
 that can reach the port. The configs in this repository set them, and
-[`web_auth`](../web_auth/README.md) lets the device replace the pair. Method enforcement is not
-a substitute — it keeps a mutating route out of reach of an
-`<img src>`, but a cross-site form can still POST.
+[`web_auth`](../web_auth/README.md) lets the device replace the pair. Credentials alone do not
+settle it: a browser attaches them to whatever a page on another site makes it fetch, so every
+route here is also behind [`web_origin_guard`](../web_origin_guard/README.md), which answers
+`403` to a request whose `Origin` is not the `Host` it was sent to. Clients that send no
+`Origin` — `curl`, `scripts/device-files.py` — are unaffected.
 
 ## REST
 

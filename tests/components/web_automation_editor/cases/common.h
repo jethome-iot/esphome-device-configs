@@ -69,6 +69,7 @@ class TestEditor : public WebAutomationEditor {
 struct Reply {
   bool claimed{false};
   int code{0};
+  std::string type;
   std::string body;
   JsonDocument json;
 
@@ -130,15 +131,20 @@ class Editor : public ::testing::Test {
     return names;
   }
 
+  // @p origin is what a page on another site would carry; nullptr is a client that sends none.
   Reply call(http_method method, const std::string &route, const std::string &body = "",
-             const std::string &content_type = "application/json") {
+             const std::string &content_type = "application/json", const char *origin = nullptr) {
     AsyncWebServerRequest request(method, "/automation-editor/api/" + route, body, content_type);
+    request.set_header("Host", HOST);
+    if (origin != nullptr)
+      request.set_header("Origin", origin);
     Reply reply;
     reply.claimed = this->base.get_server()->dispatch(request);
     reply.code = request.response_code;
+    reply.type = request.response_type;
     reply.body = request.response_body;
     EXPECT_LE(request.responses, 1) << route << " was answered twice";
-    if (!reply.body.empty())
+    if (!reply.body.empty() && reply.type == "application/json")
       EXPECT_EQ(deserializeJson(reply.json, reply.body), DeserializationError::Ok) << reply.body;
     return reply;
   }
@@ -151,6 +157,10 @@ class Editor : public ::testing::Test {
     EXPECT_EQ(reply.code, 200) << reply.body;
     return reply["id"] | 0;
   }
+
+  // The Host every case is addressed to; a page on another site says so by carrying an Origin
+  // that is not this.
+  static constexpr const char *HOST = "device.local";
 
   dir_storage::DirStorage backend;
   TestEngine *engine{nullptr};

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <ArduinoJson.h>
+#include "esphome/components/web_origin_guard/web_origin_guard.h"
 #include "esphome/components/web_server_base/web_server_base.h"
 #include "esphome/core/component.h"
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
@@ -84,6 +85,8 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   std::string url_(AsyncWebServerRequest *request) const;
   const Route *route_for_(const std::string &url) const;
   bool check_method_(AsyncWebServerRequest *request, const Route &route);
+  /// Answers 415 itself when the request does not say its body is JSON.
+  bool require_json_(AsyncWebServerRequest *request);
   void reset_body_();
   void handle_page_(AsyncWebServerRequest *request);
   void handle_info_(AsyncWebServerRequest *request);
@@ -121,6 +124,8 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   void send_status_(AsyncWebServerRequest *request, const char *status, const char *allow, const char *body);
 
   web_server_base::WebServerBase *base_;
+  // What is registered on the server; this handler is only ever reached through it.
+  web_origin_guard::WebOriginGuard guard_{this};
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
   jethome_board_info::JetHomeBoardInfo *board_{nullptr};
 #endif

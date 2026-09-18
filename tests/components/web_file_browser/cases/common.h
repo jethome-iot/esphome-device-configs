@@ -77,6 +77,14 @@ class Browser : public ::testing::Test {
     return stat(path.c_str(), &st) == 0;
   }
 
+  // A file already on the mount, for a case about what must not happen to it.
+  void write_file(const std::string &name, const std::string &content) const {
+    FILE *file = fopen((this->base_path() + "/" + name).c_str(), "wb");
+    ASSERT_NE(file, nullptr);
+    ASSERT_EQ(fwrite(content.data(), 1, content.size(), file), content.size());
+    ASSERT_EQ(fclose(file), 0);
+  }
+
   std::string contents(const std::string &path) const {
     std::string out;
     FILE *file = fopen(path.c_str(), "rb");
@@ -99,21 +107,32 @@ class Browser : public ::testing::Test {
     return reply;
   }
 
-  Reply call(http_method method, const std::string &target, const std::string &body = "") {
+  Reply call(http_method method, const std::string &target, const std::string &body = "",
+             const char *origin = nullptr) {
     AsyncWebServerRequest request(method, target, body);
+    this->add_origin_(request, origin);
     return answer(request, this->base.get_server()->dispatch(request));
   }
   Reply get(const std::string &target) { return this->call(HTTP_GET, target); }
   Reply post(const std::string &target) { return this->call(HTTP_POST, target); }
 
-  // The multipart reader's calls for one file: the harness stand-in parses no multipart body,
-  // so the parts go to the handler the way web_server_idf hands them over.
-  Reply upload(const std::string &target, const std::string &filename, std::string content) {
+  // The multipart reader's one file part, handed over the way web_server_idf hands it over.
+  Reply upload(const std::string &target, const std::string &filename, const std::string &content,
+               const char *origin = nullptr) {
     AsyncWebServerRequest request(HTTP_POST, target, "", "multipart/form-data");
-    this->browser->handleUpload(&request, filename, 0, reinterpret_cast<uint8_t *>(content.data()), content.size(),
-                                true);
-    this->browser->handleRequest(&request);
-    return answer(request, true);
+    request.set_upload(filename, content);
+    this->add_origin_(request, origin);
+    return answer(request, this->base.get_server()->dispatch(request));
+  }
+
+  // The Host every case is addressed to; a request from a page on another site says so by
+  // carrying an Origin that is not this.
+  static constexpr const char *HOST = "device.local";
+
+  static void add_origin_(AsyncWebServerRequest &request, const char *origin) {
+    request.set_header("Host", HOST);
+    if (origin != nullptr)
+      request.set_header("Origin", origin);
   }
 
   TestStorage storage;

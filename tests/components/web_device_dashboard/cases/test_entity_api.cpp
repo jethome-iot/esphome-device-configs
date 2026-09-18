@@ -89,6 +89,17 @@ TEST_F(Dashboard, APostWithoutATypeIsRefused) {
   }
 }
 
+// The same type check the system routes and the credentials take: a cross-site form's body
+// never reads as this API's JSON.
+TEST_F(Dashboard, APostRefusesABodyThatDoesNotSayItIsJson) {
+  for (const char *type : {"text/plain", "text/plain;charset=UTF-8", "", "application/x-www-form-urlencoded"}) {
+    Reply reply = this->call(HTTP_POST, "/api/device/entity-settings", UPDATE_RELAY_1, 512, type);
+    EXPECT_EQ(reply.code, 415) << type;
+    EXPECT_EQ(reply.error(), "Expected Content-Type: application/json") << type;
+  }
+  EXPECT_EQ(store().sw.report(), "");
+}
+
 TEST_F(Dashboard, APostWhoseSettingsIsNotAnObjectIsRefused) {
   store().sw.seed("relay_1", true);
   for (const char *body : {R"({"type":"switch","source_name":"relay_1","settings":"yes"})",

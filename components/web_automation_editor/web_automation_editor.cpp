@@ -60,7 +60,7 @@ static std::string config_json(const automations::AutomationConfig &config) {
 
 void WebAutomationEditor::setup() {
   this->base_->init();
-  this->base_->add_handler(this);
+  this->base_->add_handler(&this->guard_);
 }
 
 void WebAutomationEditor::dump_config() {

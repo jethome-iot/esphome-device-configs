@@ -16,6 +16,14 @@ info:
     path containing `..` is rejected. Form fields are read from an urlencoded
     body first and from the query string second.
 
+    A request whose `Origin` header is not the `Host` it was sent to is answered
+    `403` before it reaches a route: the credentials a browser has cached for
+    this device cannot be steered here from a page on another site. That refusal
+    is `text/plain`, not one of the JSON envelopes below — it is the server
+    turning the request away, not a route answering it. Clients that send no
+    `Origin` — `curl`, a script, a Home Assistant `rest_command` — are
+    unaffected.
+
 servers:
   - url: http://{host}:{port}{prefix}
     description: A device on the local network.
