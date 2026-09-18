@@ -36,17 +36,20 @@ std::string resolve_url(const std::string &source_url, const std::string &url) {
   if (url.empty() || url.compare(0, 7, "http://") == 0 || url.compare(0, 8, "https://") == 0)
     return url;
 
-  const size_t scheme = source_url.find("//");
-  if (url.compare(0, 2, "//") == 0)
-    return source_url.substr(0, scheme == std::string::npos ? 0 : scheme) + url;
+  // A query or a fragment is not part of the manifest's path.
+  const std::string base = source_url.substr(0, source_url.find_first_of("?#"));
 
-  const size_t host_end = scheme == std::string::npos ? source_url.find('/') : source_url.find('/', scheme + 2);
+  const size_t scheme = base.find("//");
+  if (url.compare(0, 2, "//") == 0)
+    return base.substr(0, scheme == std::string::npos ? 0 : scheme) + url;
+
+  const size_t host_end = scheme == std::string::npos ? base.find('/') : base.find('/', scheme + 2);
   if (url[0] == '/')
-    return source_url.substr(0, host_end) + url;
+    return base.substr(0, host_end) + url;
   // A manifest URL that is the bare server has no directory to resolve against.
   if (host_end == std::string::npos)
-    return source_url + "/" + url;
-  return source_url.substr(0, source_url.rfind('/') + 1) + url;
+    return base + "/" + url;
+  return base.substr(0, base.rfind('/') + 1) + url;
 }
 
 bool parse_manifest(const uint8_t *data, size_t len, const std::string &channel, const std::string &source_url,

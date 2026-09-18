@@ -136,6 +136,11 @@ TEST(Url, TakesTheServerItselfWhenTheSourceHasNoPath) {
   EXPECT_EQ(resolve_url("https://fw.jethome.com", "a.bin"), "https://fw.jethome.com/a.bin");
 }
 
+TEST(Url, IgnoresAQueryAndFragmentOfTheManifestUrl) {
+  EXPECT_EQ(resolve_url("https://fw.jethome.com/api/info?next=/old", "a.bin"), "https://fw.jethome.com/api/a.bin");
+  EXPECT_EQ(resolve_url("https://fw.jethome.com/api/info#top", "/a.bin"), "https://fw.jethome.com/a.bin");
+}
+
 TEST(Url, LeavesAnEmptyUrlAlone) { EXPECT_EQ(resolve_url(SOURCE, ""), ""); }
 
 }  // namespace esphome::jethome_manifest::testing

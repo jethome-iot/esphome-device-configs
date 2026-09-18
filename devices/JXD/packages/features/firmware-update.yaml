@@ -29,10 +29,9 @@ select:
     initial_option: release
     options: [release, nightly]
     on_value:
-      # Nothing is known about the new channel until it is asked; offline this does nothing.
-      - lambda: |-
-          id(firmware_update).set_channel(x);
-          id(firmware_update).check();
+      # Switching drops what the old channel offered and asks the new one, unless an install
+      # is under way; offline the check does nothing.
+      - lambda: id(firmware_update).set_channel(x);
 
 button:
   - platform: template

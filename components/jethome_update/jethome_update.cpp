@@ -64,7 +64,9 @@ void JethomeUpdate::set_channel(const std::string &channel) {
   if (channel == this->channel_)
     return;
   this->channel_ = channel;
-  if (this->state_ == update::UPDATE_STATE_UNKNOWN)
+  // Mid-install the entity describes the image being written; nothing here may touch it, and the
+  // next poll picks the new channel up. Before the first check there is nothing to drop either.
+  if (this->state_ == update::UPDATE_STATE_INSTALLING || this->state_ == update::UPDATE_STATE_UNKNOWN)
     return;
 
   // What the last check found was the other channel's; installing it now would be the wrong image.
@@ -72,6 +74,7 @@ void JethomeUpdate::set_channel(const std::string &channel) {
   this->state_ = update::UPDATE_STATE_UNKNOWN;
   this->status_clear_error();
   this->publish_state();
+  this->update();
 }
 
 void JethomeUpdate::update() {
@@ -176,6 +179,12 @@ void JethomeUpdate::finish_check_(CheckResult *result) {
 #ifdef USE_ESP32
   this->update_task_handle_ = nullptr;
 #endif
+
+  // An install started while this check ran owns the entity now.
+  if (this->state_ == update::UPDATE_STATE_INSTALLING) {
+    delete result;
+    return;
+  }
 
   // The select can move the channel while a check is in flight; that answer is the old
   // channel's, and its image must not be offered under the new one.
