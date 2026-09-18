@@ -313,8 +313,9 @@ jobs:
       - name: Stage firmware images
         run: |
           STEM="${{ matrix.name }}"
-          # ESPHome builds next to the config: devices/<family>/.esphome/.
-          SRC="$(dirname "${{ matrix.config }}")/.esphome/build/${STEM}/.pioenvs/${STEM}"
+          # ESPHome builds next to the config; the final images land in
+          # <config-dir>/.esphome/build/<name>/build/.
+          SRC="$(dirname "${{ matrix.config }}")/.esphome/build/${STEM}/build"
           mkdir firmware
           cp "${SRC}/firmware.factory.bin" "firmware/${STEM}-${FW_VERSION}-factory.bin"
           cp "${SRC}/firmware.ota.bin" "firmware/${STEM}-${FW_VERSION}-ota.bin"
@@ -401,15 +402,15 @@ jobs:
         id: pointer
         if: env.FW_CHANNEL == 'release'
         env:
+          GH_TOKEN: ${{ github.token }}
           FW_VERSION: ${{ env.FW_VERSION }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # grep -vF drops the peeled ^{} duplicate refs; a fixed string —
-          # an escaped-brace sed address is an invalid interval for GNU sed.
-          MAXTAG=$(git ls-remote --tags "https://github.com/$REPO" 'refs/tags/*' |
-            sed 's|.*refs/tags/||' |
-            { grep -vF '{}$' || true; } |
+          # The repo is private: an anonymous ls-remote cannot authenticate,
+          # so the tag list comes through the authenticated API.
+          MAXTAG=$(gh api --paginate "repos/$REPO/git/matching-refs/tags/" \
+            --jq '.[] | .ref | ltrimstr("refs/tags/")' |
             { grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1)
           if [ -n "$MAXTAG" ] && [ "$FW_VERSION" != "$MAXTAG" ] &&
             [ "$(printf '%s\n%s\n' "$FW_VERSION" "$MAXTAG" | sort -V | head -n1)" = "$FW_VERSION" ]; then
