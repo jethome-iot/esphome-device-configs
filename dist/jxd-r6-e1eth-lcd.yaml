@@ -735,11 +735,20 @@ esphome:
               }
               return text.substr(0, i);
             };
+            // A cut name is no longer known to be unique — two rules may start alike — so a row
+            // that had to cut one carries the rule's id, the one the editor and the log use.
+            auto label = [&fit](const automations::AutomationConfig &config) {
+              const std::string cut = fit(config.name, 12);
+              if (cut.size() == config.name.size())
+                return cut;
+              const std::string tag = " #" + std::to_string(config.id);
+              return fit(config.name, 12 - tag.size()) + tag;
+            };
             for (const auto &config : engine->configs().get_all_configs()) {
               const uint32_t rule_id = config.id;
               auto *pending = new int(-1);  // the choice being edited; -1 outside editing
               auto *row = new MenuItemCustom();
-              row->set_text(fit(config.name, 12));
+              row->set_text(label(config));
               row->set_value_lambda([=](const MenuItem *) {
                 const int state = *pending >= 0 ? *pending : state_of(rule_id);
                 return std::string(state < 0 ? "--" : state > 0 ? "On" : "Off");

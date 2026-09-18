@@ -33,7 +33,8 @@ written until the entity is back.
 ## On the display
 
 **Automations** lists the rules the device loaded at boot, one row each, with `On` or `Off` in
-the value column; a long name is cut so the state stays on the row. CENTER opens a row,
+the value column; a name too long for the row is cut and carries the rule's id, because a cut
+name may no longer be the only one that reads that way. CENTER opens a row,
 LEFT / RIGHT flips it, and the choice is applied when the row closes — with CENTER or BACK, or
 when the menu goes away under HOME or the display-off timer.
 
