@@ -54,8 +54,16 @@ void JethomeUpdate::on_ota_state(ota::OTAState state, float progress, uint8_t er
     this->update_info_.progress = progress;
     this->publish_state();
   } else if (state == ota::OTAState::OTA_ABORT || state == ota::OTAState::OTA_ERROR) {
-    this->state_ = update::UPDATE_STATE_AVAILABLE;
     this->status_set_error(LOG_STR("Failed to install firmware"));
+    // The channel moved while the install ran, so what it carried is not on offer any more.
+    if (this->offered_channel_ != this->channel_) {
+      this->update_info_ = {};
+      this->state_ = update::UPDATE_STATE_UNKNOWN;
+      this->publish_state();
+      this->update();
+      return;
+    }
+    this->state_ = update::UPDATE_STATE_AVAILABLE;
     this->publish_state();
   }
 }
@@ -64,20 +72,28 @@ void JethomeUpdate::set_channel(const std::string &channel) {
   if (channel == this->channel_)
     return;
   this->channel_ = channel;
-  // Mid-install the entity describes the image being written; nothing here may touch it, and the
-  // next poll picks the new channel up. Before the first check there is nothing to drop either.
-  if (this->state_ == update::UPDATE_STATE_INSTALLING || this->state_ == update::UPDATE_STATE_UNKNOWN)
+  // Mid-install the entity describes the image being written; nothing here may touch it, and
+  // the end of that install picks the change up.
+  if (this->state_ == update::UPDATE_STATE_INSTALLING)
     return;
 
   // What the last check found was the other channel's; installing it now would be the wrong image.
   this->update_info_ = {};
   this->state_ = update::UPDATE_STATE_UNKNOWN;
   this->status_clear_error();
+  // Codegen sets the configured channel before any of this runs.
+  if (!this->is_ready())
+    return;
   this->publish_state();
   this->update();
 }
 
 void JethomeUpdate::update() {
+  if (this->state_ == update::UPDATE_STATE_INSTALLING) {
+    // The OTA download owns the HTTP stack and the memory for as long as it runs.
+    ESP_LOGD(TAG, "Install in progress, skipping update check");
+    return;
+  }
   if (!network::is_connected()) {
     ESP_LOGD(TAG, "Network not connected, skipping update check");
     return;
@@ -205,6 +221,7 @@ void JethomeUpdate::finish_check_(CheckResult *result) {
   const bool announce = available && this->state_ != update::UPDATE_STATE_AVAILABLE;
 
   this->update_info_ = std::move(result->info);
+  this->offered_channel_ = this->checking_channel_;
   this->state_ = available ? update::UPDATE_STATE_AVAILABLE : update::UPDATE_STATE_NO_UPDATE;
   delete result;  // Safe: a moved-from UpdateInfo is still good to destroy
 

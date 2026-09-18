@@ -56,6 +56,8 @@ class JethomeUpdate final : public update::UpdateEntity, public PollingComponent
   // The channel the running check reads: on ESP32 it runs in a task, and set_channel() writes
   // channel_ from the main loop.
   std::string checking_channel_;
+  // The channel whose image update_info_ describes, which an install keeps hold of.
+  std::string offered_channel_;
 
   static void update_task(void *params);
 #ifdef USE_ESP32
