@@ -1361,9 +1361,6 @@ display:
 font:
   - file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/fonts/7x14-mod2.bdf
     id: f7x14_mod2
-    glyphsets:
-      - GF_Latin_Kernel
-      - GF_Cyrillic_Core
   - file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/fonts/6x12.bdf
     id: f6x12
   - file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/fonts/5x7.bdf

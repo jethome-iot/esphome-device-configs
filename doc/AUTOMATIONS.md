@@ -30,19 +30,6 @@ Entities are named by object id, so renaming a relay, an input or a temperature 
 the rules that used it unbuilt — the boot log says which, and their files are kept exactly as
 written until the entity is back.
 
-## On the display
-
-**Automations** lists the rules the device loaded at boot, one row each, with `On` or `Off` in
-the value column; a name too long for the row is cut and carries the rule's id, because a cut
-name may no longer be the only one that reads that way. CENTER opens a row,
-LEFT / RIGHT flips it, and the choice is applied when the row closes — with CENTER or BACK, or
-when the menu goes away under HOME or the display-off timer.
-
-A rule whose entities are gone cannot be written, so its row springs back to what its file says.
-A rule added or removed over HTTP after boot shows at the next reboot; until then a removed one
-keeps a row that reads `--` and does nothing. With no rules the section holds a single
-`No automations` row.
-
 ## Over HTTP
 
 `features/automation-editor.yaml` serves the rules on the web server port under
