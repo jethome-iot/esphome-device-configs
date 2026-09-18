@@ -178,11 +178,14 @@ graphical_display_menu:
                 - lambda: 'id(factory_reset_yes)->set_text("Confirm - OK");'
                 - delay: 1s
                 - lambda: |-
-                    // Rules and uploaded files live on the partition, not in preferences.
-                    if (!id(user_storage)->format()) {
+                    // Rules and uploaded files live on the partition, not in preferences, and
+                    // the partition is wiped on the way back up: formatting it here would take
+                    // the filesystem from under the file API mid-request. After the preferences
+                    // erase, which takes the whole NVS partition and the record with it.
+                    global_preferences->reset();
+                    if (!id(user_storage)->request_format()) {
                       ESP_LOGE("factory_reset", "Wiping the user partition failed");
                     }
-                    global_preferences->reset();
                     App.safe_reboot();
 
         - type: command

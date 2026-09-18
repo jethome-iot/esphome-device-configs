@@ -694,11 +694,6 @@ bool AutomationStorage::save_automation_to_file_(const AutomationConfig &config)
   // Written beside the target and renamed over it: a write that fails or loses power leaves
   // the old file whole. The close is where a full filesystem shows up.
   const std::string tmp = filepath + ".tmp";
-  filesystem_storage_abstract::FilesystemStorageAbstract::Access use(this->storage_backend_);
-  if (!use) {
-    ESP_LOGW(TAG, "Storage is being formatted: not saving '%s'", config.name.c_str());
-    return false;
-  }
   FILE *file = fopen(tmp.c_str(), "w");
   if (file == nullptr) {
     ESP_LOGE(TAG, "Failed to open '%s' for writing", tmp.c_str());
@@ -718,9 +713,6 @@ bool AutomationStorage::save_automation_to_file_(const AutomationConfig &config)
 
 bool AutomationStorage::delete_file_(const std::string &filename) {
   const std::string filepath = this->get_folder_path_() + "/" + filename;
-  filesystem_storage_abstract::FilesystemStorageAbstract::Access use(this->storage_backend_);
-  if (!use)
-    return false;
   if (remove(filepath.c_str()) == 0) {
     ESP_LOGD(TAG, "Deleted automation file: %s", filepath.c_str());
     return true;

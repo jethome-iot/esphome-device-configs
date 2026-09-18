@@ -61,13 +61,6 @@ bool SettingsBaseJson::save_to_file(filesystem_storage_abstract::FilesystemStora
     ESP_LOGE(TAG, "Storage backend is null");
     return false;
   }
-  // A factory reset wipes the partition and reboots, and the reboot itself flushes settings:
-  // without this the file would be written back onto the filesystem that was just cleared.
-  filesystem_storage_abstract::FilesystemStorageAbstract::Access use(storage);
-  if (!use) {
-    ESP_LOGW(TAG, "Storage is being formatted: not saving %s settings", this->get_key());
-    return false;
-  }
   std::string full_path = storage->get_base_path() + "/" + dir_path + "/" + this->get_key() + ".json";
 
   JsonDocument doc;

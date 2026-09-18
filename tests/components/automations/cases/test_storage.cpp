@@ -610,16 +610,4 @@ TEST_F(Storage, StopsAt255Rules) {
   EXPECT_EQ(files().size(), 255u);
 }
 
-// A rule saved after the storage was latched off would land on the filesystem a factory
-// reset is about to format.
-TEST_F(Storage, AStorageWithAccessDisabledKeepsNoNewRule) {
-  boot();
-  backend.disable_access();
-  log().clear();
-  // The rule still runs from RAM until the reboot, as it does for any failed save.
-  EXPECT_NE(engine->add_automation(rule(PRESS_RELAY_1)), 0u);
-  EXPECT_TRUE(files().empty());
-  EXPECT_TRUE(log().has(log().warnings, "Storage is being formatted"));
-}
-
 }  // namespace esphome::automations::testing

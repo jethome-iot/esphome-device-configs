@@ -20,9 +20,6 @@
 namespace esphome {
 namespace web_file_browser {
 
-// One call into the storage, refused once a format has latched the filesystem off.
-using StorageAccess = filesystem_storage_abstract::FilesystemStorageAbstract::Access;
-
 static const char *const TAG = "web_file_browser";
 
 // How deep delete/copy may recurse. Both run on the 4352-byte esp_http_server
@@ -142,12 +139,6 @@ void WebFileBrowser::handleUpload(AsyncWebServerRequest *request, const std::str
     return;
   }
 
-  StorageAccess use(this->storage_);
-  if (!use) {
-    this->abandon_transfers_();
-    return;
-  }
-
   this->upload_seen_ = true;
 
   // The reader announces a new file with an empty chunk and then repeats index 0
@@ -240,11 +231,6 @@ void WebFileBrowser::handleBody(AsyncWebServerRequest *request, uint8_t *data, s
   const Route *route = route_for(this->url_(request), this->url_prefix_);
   if (route == nullptr || route->id != RouteId::WRITE)
     return;
-  StorageAccess use(this->storage_);
-  if (!use) {
-    this->abandon_transfers_();
-    return;
-  }
   if (index == 0) {
     this->write_seen_ = true;
     this->write_error_.clear();
@@ -294,15 +280,7 @@ void WebFileBrowser::handle_list_request_(AsyncWebServerRequest *request) {
     return;
   }
 
-  DIR *dir = nullptr;
-  {
-    StorageAccess use(this->storage_);
-    if (!use) {
-      this->send_json_error_(request, "Storage is being formatted", 503);
-      return;
-    }
-    dir = opendir(full_path.c_str());
-  }
+  DIR *dir = opendir(full_path.c_str());
   if (!dir) {
     this->send_json_error_(request, "Failed to open directory");
     return;
@@ -315,7 +293,7 @@ void WebFileBrowser::handle_list_request_(AsyncWebServerRequest *request) {
   auto buffer = std::unique_ptr<char[]>(new (std::nothrow) char[OUT_CHUNK + 1]);
   if (buffer == nullptr) {
     ESP_LOGE(TAG, "Out of memory listing '%s'", full_path.c_str());
-    this->close_dir_(dir);
+    closedir(dir);
     this->send_json_error_(request, "Out of memory", 500);
     return;
   }
@@ -350,55 +328,40 @@ void WebFileBrowser::handle_list_request_(AsyncWebServerRequest *request) {
   put("[", 1);
 
   bool first = true;
-  bool abandoned = false;
-  int read_errno = 0;
+  struct dirent *entry;
 
-  while (sent) {
-    std::string name;
-    bool is_dir = false;
-    size_t size = 0;
-    time_t mtime = 0;
-    {
-      // One claim per entry, around the two filesystem calls only: put() below sends and
-      // yields, and the name is copied out because the dirent lives in the directory a
-      // format frees.
-      StorageAccess use(this->storage_);
-      if (!use) {
-        abandoned = true;
-        break;
-      }
-      // Same readdir() caveat as the recursive helpers: nullptr means both
-      // end-of-directory and read error, and only errno tells them apart.
+  // Same readdir() caveat as the recursive helpers: nullptr means both
+  // end-of-directory and read error, and only errno tells them apart.
+  errno = 0;
+  while (sent && (entry = readdir(dir)) != nullptr) {
+    // Skip . and ..
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
       errno = 0;
-      struct dirent *entry = readdir(dir);
-      if (entry == nullptr) {
-        read_errno = errno;
-        break;
-      }
-      // Skip . and ..
-      if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
-        continue;
-      name = entry->d_name;
-
-      std::string entry_path = full_path + "/" + name;
-      struct stat st;
-      if (stat(entry_path.c_str(), &st) == 0) {
-        is_dir = S_ISDIR(st.st_mode);
-        size = st.st_size;
-        // esp_littlefs reports -1 for an entry without a timestamp (every
-        // directory); 0 says "none" without reading as a date.
-        mtime = st.st_mtime > 0 ? st.st_mtime : 0;
-      } else {
-        // Listed anyway, as a file of unknown size: readdir() just said the name
-        // exists, and the name is what keeps a client from writing over it.
-        ESP_LOGW(TAG, "Failed to stat '%s': errno=%d (%s)", entry_path.c_str(), errno, strerror(errno));
-      }
+      continue;
     }
 
     if (!first) {
       put(",", 1);
     }
     first = false;
+
+    std::string entry_path = full_path + "/" + entry->d_name;
+    struct stat st;
+    bool is_dir = false;
+    size_t size = 0;
+    time_t mtime = 0;
+
+    if (stat(entry_path.c_str(), &st) == 0) {
+      is_dir = S_ISDIR(st.st_mode);
+      size = st.st_size;
+      // esp_littlefs reports -1 for an entry without a timestamp (every
+      // directory); 0 says "none" without reading as a date.
+      mtime = st.st_mtime > 0 ? st.st_mtime : 0;
+    } else {
+      // Listed anyway, as a file of unknown size: readdir() just said the name
+      // exists, and the name is what keeps a client from writing over it.
+      ESP_LOGW(TAG, "Failed to stat '%s': errno=%d (%s)", entry_path.c_str(), errno, strerror(errno));
+    }
 
     // Room for the widest size_t and time_t the format can produce.
     char meta[128];
@@ -407,21 +370,16 @@ void WebFileBrowser::handle_list_request_(AsyncWebServerRequest *request) {
     static const char NAME[] = R"({"name":")";
     put(NAME, sizeof(NAME) - 1);
     char esc[JSON_ESCAPE_MAX];
-    for (const char *c = name.c_str(); *c != '\0'; c++) {
+    for (const char *c = entry->d_name; *c != '\0'; c++) {
       put(esc, json_escape_char(esc, *c));
     }
     put(meta, strlen(meta));
+    // Last in the body: put() sends, and a socket call of its own sets errno.
+    errno = 0;
   }
 
-  if (!abandoned && !this->close_dir_(dir))
-    abandoned = true;
-  // A format freed the directory under this listing: it was let go of instead of closed, and
-  // the body is left unterminated so a short listing cannot read as a complete one.
-  if (abandoned) {
-    ESP_LOGW(TAG, "Storage is being formatted: abandoning the listing of '%s'", full_path.c_str());
-    httpd_sess_trigger_close(req->handle, httpd_req_to_sockfd(req));
-    return;
-  }
+  int read_errno = errno;
+  closedir(dir);
 
   if (!sent) {
     httpd_resp_send_chunk(req, nullptr, 0);
@@ -497,15 +455,7 @@ void WebFileBrowser::handle_download_request_(AsyncWebServerRequest *request) {
     return;
   }
 
-  FILE *file = nullptr;
-  {
-    StorageAccess use(this->storage_);
-    if (!use) {
-      this->send_json_error_(request, "Storage is being formatted", 503);
-      return;
-    }
-    file = fopen(full_path.c_str(), "rb");
-  }
+  FILE *file = fopen(full_path.c_str(), "rb");
   if (!file) {
     this->send_json_error_(request, "Failed to open file", 404);
     return;
@@ -522,7 +472,7 @@ void WebFileBrowser::handle_download_request_(AsyncWebServerRequest *request) {
   auto buffer = std::unique_ptr<uint8_t[]>(new (std::nothrow) uint8_t[CHUNK_SIZE]);
   if (buffer == nullptr) {
     ESP_LOGE(TAG, "Out of memory serving '%s'", full_path.c_str());
-    this->close_file_(file);
+    fclose(file);
     this->send_json_error_(request, "Out of memory", 500);
     return;
   }
@@ -536,31 +486,16 @@ void WebFileBrowser::handle_download_request_(AsyncWebServerRequest *request) {
   httpd_resp_set_hdr(req, "Content-Disposition", disposition.c_str());
 
   bool complete = true;
-  bool abandoned = false;
   while (true) {
-    size_t read_bytes = 0;
-    {
-      // Claimed for the read alone, and re-claimed after every yield below: a format frees
-      // this handle, so the loop has to stop before the next fread rather than after it,
-      // and a claim held across the send would hold the format off for a client that has
-      // stopped reading.
-      StorageAccess use(this->storage_);
-      if (!use) {
-        ESP_LOGW(TAG, "Storage is being formatted: abandoning the download of '%s'", full_path.c_str());
+    size_t read_bytes = fread(buffer.get(), 1, CHUNK_SIZE, file);
+    if (read_bytes == 0) {
+      // A read error leaves feof() clear and the position indeterminate, so
+      // looping on feof() alone would spin here forever.
+      if (ferror(file) != 0) {
+        ESP_LOGE(TAG, "Failed to read '%s' while downloading", full_path.c_str());
         complete = false;
-        abandoned = true;
-        break;
       }
-      read_bytes = fread(buffer.get(), 1, CHUNK_SIZE, file);
-      if (read_bytes == 0) {
-        // A read error leaves feof() clear and the position indeterminate, so
-        // looping on feof() alone would spin here forever.
-        if (ferror(file) != 0) {
-          ESP_LOGE(TAG, "Failed to read '%s' while downloading", full_path.c_str());
-          complete = false;
-        }
-        break;
-      }
+      break;
     }
     if (httpd_resp_send_chunk(req, reinterpret_cast<const char *>(buffer.get()), read_bytes) != ESP_OK) {
       ESP_LOGE(TAG, "Failed to send chunk");
@@ -579,23 +514,13 @@ void WebFileBrowser::handle_download_request_(AsyncWebServerRequest *request) {
     httpd_sess_trigger_close(req->handle, httpd_req_to_sockfd(req));
   }
 
-  // Freed by the format along with everything else it was holding.
-  if (!abandoned)
-    this->close_file_(file);
+  fclose(file);
 #else
   this->send_json_error_(request, "Not supported on this platform");
 #endif
 }
 
 void WebFileBrowser::handle_upload_request_(AsyncWebServerRequest *request) {
-  // Before the discard_upload_() below, as in the /write handler: a format frees the handle
-  // a cut-off transfer left open, and closing it afterwards is a write through freed memory.
-  StorageAccess use(this->storage_);
-  if (!use) {
-    this->abandon_transfers_();
-    this->send_json_error_(request, "Storage is being formatted", 503);
-    return;
-  }
   // Upload itself is handled in the handleUpload callback, which has already run
   // for every chunk by the time we get here.
   std::string error = this->upload_error_;
@@ -639,38 +564,25 @@ void WebFileBrowser::handle_read_request_(AsyncWebServerRequest *request) {
     return;
   }
 
-  // Not a memory bound any more — an editor that has to load the answer is the
-  // limit. Keep it in step with README.md.
-  static const long MAX_READ_SIZE = 1024 * 1024;
-
-  FILE *file = nullptr;
-  long file_size = -1;
-  {
-    // One claim for the open and the size behind it: a format landing between the two
-    // would free the handle under the seek.
-    StorageAccess use(this->storage_);
-    if (!use) {
-      this->send_json_error_(request, "Storage is being formatted", 503);
-      return;
-    }
-    file = fopen(full_path.c_str(), "rb");
-    if (file != nullptr) {
-      fseek(file, 0, SEEK_END);
-      file_size = ftell(file);
-      fseek(file, 0, SEEK_SET);
-    }
-  }
+  FILE *file = fopen(full_path.c_str(), "rb");
   if (!file) {
     this->send_json_error_(request, "Failed to open file", 404);
     return;
   }
+
+  // Not a memory bound any more — an editor that has to load the answer is the
+  // limit. Keep it in step with README.md.
+  static const long MAX_READ_SIZE = 1024 * 1024;
+  fseek(file, 0, SEEK_END);
+  long file_size = ftell(file);
+  fseek(file, 0, SEEK_SET);
   if (file_size < 0) {
-    this->close_file_(file);
+    fclose(file);
     this->send_json_error_(request, "Failed to read file");
     return;
   }
   if (file_size > MAX_READ_SIZE) {
-    this->close_file_(file);
+    fclose(file);
     this->send_json_error_(request, "File too large to edit");
     return;
   }
@@ -685,7 +597,7 @@ void WebFileBrowser::handle_read_request_(AsyncWebServerRequest *request) {
   auto buffer = std::unique_ptr<char[]>(new (std::nothrow) char[READ_CHUNK + OUT_CHUNK]);
   if (buffer == nullptr) {
     ESP_LOGE(TAG, "Out of memory reading '%s'", full_path.c_str());
-    this->close_file_(file);
+    fclose(file);
     this->send_json_error_(request, "Out of memory", 500);
     return;
   }
@@ -707,31 +619,18 @@ void WebFileBrowser::handle_read_request_(AsyncWebServerRequest *request) {
   bool sent = send_chunk(PREFIX, sizeof(PREFIX) - 1);
 
   size_t used = 0;
-  bool abandoned = false;
   while (sent) {
-    size_t read_bytes = 0;
-    {
-      // As in the download path: the claim covers the read, not the escaping and sending
-      // that follow it.
-      StorageAccess use(this->storage_);
-      if (!use) {
-        ESP_LOGW(TAG, "Storage is being formatted: abandoning the read of '%s'", full_path.c_str());
+    size_t read_bytes = fread(in, 1, READ_CHUNK, file);
+    if (read_bytes == 0) {
+      // A read error leaves feof() clear and the position indeterminate, so
+      // looping on feof() alone would spin here forever. It also ends the body
+      // without its closing quote: an envelope that parses would hand the editor
+      // a short file to save back.
+      if (ferror(file) != 0) {
+        ESP_LOGE(TAG, "Failed to read '%s'", full_path.c_str());
         sent = false;
-        abandoned = true;
-        break;
       }
-      read_bytes = fread(in, 1, READ_CHUNK, file);
-      if (read_bytes == 0) {
-        // A read error leaves feof() clear and the position indeterminate, so
-        // looping on feof() alone would spin here forever. It also ends the body
-        // without its closing quote: an envelope that parses would hand the editor
-        // a short file to save back.
-        if (ferror(file) != 0) {
-          ESP_LOGE(TAG, "Failed to read '%s'", full_path.c_str());
-          sent = false;
-        }
-        break;
-      }
+      break;
     }
     sent = json_escape_chunk(in, read_bytes, out, OUT_CHUNK, used, send_chunk);
     // Yield to prevent watchdog timeout on large files
@@ -749,9 +648,7 @@ void WebFileBrowser::handle_read_request_(AsyncWebServerRequest *request) {
   // can be told once the first chunk has gone out.
   httpd_resp_send_chunk(req, nullptr, 0);
 
-  // See the download path: the format took the handle with it.
-  if (!abandoned)
-    this->close_file_(file);
+  fclose(file);
 #else
   this->send_json_error_(request, "Not supported on this platform");
 #endif
@@ -761,13 +658,6 @@ void WebFileBrowser::handle_read_request_(AsyncWebServerRequest *request) {
 // body never reaches handleBody, so create the empty file here.
 void WebFileBrowser::handle_write_request_(AsyncWebServerRequest *request) {
 #ifdef USE_ESP32
-  // Before the fclose() below: a format frees the handle this request left open.
-  StorageAccess use(this->storage_);
-  if (!use) {
-    this->abandon_transfers_();
-    this->send_json_error_(request, "Storage is being formatted", 503);
-    return;
-  }
   std::string error = this->write_error_;
   bool seen = this->write_seen_;
   this->write_error_.clear();
@@ -811,11 +701,6 @@ void WebFileBrowser::handle_write_request_(AsyncWebServerRequest *request) {
 
 void WebFileBrowser::handle_delete_request_(AsyncWebServerRequest *request) {
 #ifdef USE_ESP32
-  StorageAccess use(this->storage_);
-  if (!use) {
-    this->send_json_error_(request, "Storage is being formatted", 503);
-    return;
-  }
   if (!request->hasParam("path")) {
     this->send_json_error_(request, "Missing path parameter");
     return;
@@ -875,11 +760,6 @@ void WebFileBrowser::handle_delete_request_(AsyncWebServerRequest *request) {
 
 void WebFileBrowser::handle_mkdir_request_(AsyncWebServerRequest *request) {
 #ifdef USE_ESP32
-  StorageAccess use(this->storage_);
-  if (!use) {
-    this->send_json_error_(request, "Storage is being formatted", 503);
-    return;
-  }
   if (!request->hasParam("path")) {
     this->send_json_error_(request, "Missing path parameter");
     return;
@@ -913,11 +793,6 @@ void WebFileBrowser::handle_mkdir_request_(AsyncWebServerRequest *request) {
 
 void WebFileBrowser::handle_rename_request_(AsyncWebServerRequest *request) {
 #ifdef USE_ESP32
-  StorageAccess use(this->storage_);
-  if (!use) {
-    this->send_json_error_(request, "Storage is being formatted", 503);
-    return;
-  }
   if (!request->hasParam("old_path")) {
     this->send_json_error_(request, "Missing old_path parameter");
     return;
@@ -975,11 +850,6 @@ void WebFileBrowser::handle_rename_request_(AsyncWebServerRequest *request) {
 
 void WebFileBrowser::handle_copy_request_(AsyncWebServerRequest *request) {
 #ifdef USE_ESP32
-  StorageAccess use(this->storage_);
-  if (!use) {
-    this->send_json_error_(request, "Storage is being formatted", 503);
-    return;
-  }
   if (!request->hasParam("old_path")) {
     this->send_json_error_(request, "Missing old_path parameter");
     return;
@@ -1178,7 +1048,7 @@ bool WebFileBrowser::delete_recursive_(const std::string &path, unsigned depth) 
   // Delete all contents first. Same readdir() caveat as copy_recursive_: only errno
   // separates end-of-directory from a read error, and this is also copy's rollback.
   errno = 0;
-  while (!this->storage_->access_disabled() && (entry = readdir(dir)) != nullptr) {
+  while ((entry = readdir(dir)) != nullptr) {
     // Skip . and ..
     if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
       errno = 0;
@@ -1212,11 +1082,6 @@ bool WebFileBrowser::delete_recursive_(const std::string &path, unsigned depth) 
     ESP_LOGE(TAG, "Failed to read directory '%s' while deleting: errno=%d (%s)", path.c_str(), errno, strerror(errno));
     success = false;
   }
-
-  // A format frees the open directory along with the files: let go of it rather than
-  // walk or close it.
-  if (this->storage_->access_disabled())
-    return false;
 
   closedir(dir);
 
@@ -1265,13 +1130,6 @@ bool WebFileBrowser::copy_file_(const std::string &src, const std::string &dst) 
   bool success = true;
 
   while (true) {
-    // The loop yields below, so the latch is re-read every pass: once a format has taken
-    // the filesystem, both handles are already freed — walk away without closing them.
-    StorageAccess use(this->storage_);
-    if (!use) {
-      ESP_LOGW(TAG, "Storage is being formatted: abandoning the copy of '%s'", src.c_str());
-      return false;
-    }
     size_t read_bytes = fread(buffer.get(), 1, CHUNK_SIZE, in);
 
     if (read_bytes > 0 && fwrite(buffer.get(), 1, read_bytes, out) != read_bytes) {
@@ -1338,7 +1196,7 @@ bool WebFileBrowser::copy_recursive_(const std::string &src, const std::string &
   // only errno tells them apart. Without this a failed read would end the loop
   // quietly and report a half-copied tree as "Copied successfully".
   errno = 0;
-  while (!this->storage_->access_disabled() && (entry = readdir(dir)) != nullptr) {
+  while ((entry = readdir(dir)) != nullptr) {
     // Skip . and ..
     if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
       errno = 0;
@@ -1375,10 +1233,6 @@ bool WebFileBrowser::copy_recursive_(const std::string &src, const std::string &
     success = false;
   }
 
-  // See delete_recursive_: the directory handle is gone with the format.
-  if (this->storage_->access_disabled())
-    return false;
-
   closedir(dir);
 
   // Roll the partial tree back: a full filesystem is the usual cause, and a
@@ -1394,46 +1248,7 @@ bool WebFileBrowser::copy_recursive_(const std::string &src, const std::string &
 #endif
 }
 
-#ifdef USE_ESP32
-bool WebFileBrowser::close_file_(FILE *file) {
-  StorageAccess use(this->storage_);
-  if (!use)
-    return false;
-  fclose(file);
-  return true;
-}
-
-bool WebFileBrowser::close_dir_(DIR *dir) {
-  StorageAccess use(this->storage_);
-  if (!use)
-    return false;
-  closedir(dir);
-  return true;
-}
-#endif
-
-// Everything a transfer was holding when a format latched the filesystem off. The handles
-// are freed by the format, so they are dropped rather than closed, and the request that
-// owns them fails.
-void WebFileBrowser::abandon_transfers_() {
-  this->upload_file_ = nullptr;
-  this->write_file_ = nullptr;
-  this->upload_path_.clear();
-  this->upload_active_ = false;
-  this->upload_written_ = 0;
-  this->upload_created_ = false;
-  this->upload_error_ = "Storage is being formatted";
-  this->write_error_ = "Storage is being formatted";
-}
-
 void WebFileBrowser::discard_upload_() {
-  // A format took the filesystem and the handle with it: there is nothing left to close
-  // or remove, and following either would be a write through freed memory.
-  if (this->storage_->access_disabled()) {
-    this->abandon_transfers_();
-    return;
-  }
-
   if (this->upload_file_ != nullptr) {
     fclose(this->upload_file_);
     this->upload_file_ = nullptr;
