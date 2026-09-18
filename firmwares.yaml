@@ -11,3 +11,7 @@ firmwares:
   - config: devices/JXD/jxd-r6-e1eth-lcd.yaml
     device: jxd-r6-e1eth-lcd
     upload: true
+
+  - config: devices/JXD/jxd-r6-e1eth.yaml
+    device: jxd-r6-e1eth
+    upload: true

@@ -12,6 +12,12 @@ JetHome DIN-rail automation controller with display. For a proprietary firmware 
 
 **Configuration file**: `devices/JXD/jxd-r6-e1eth-lcd.yaml`
 
+### JXD-R6-E1ETH
+
+The same controller without the OLED display: everything the LCD variant carries except the display, its pages and menu, and the front-panel buttons.
+
+**Configuration file**: `devices/JXD/jxd-r6-e1eth.yaml`
+
 ## JXD-R6-E1ETH-LCD Features
 
 The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the following capabilities:
@@ -51,7 +57,8 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
 
 ```
 devices/JXD/
-  jxd-r6-e1eth-lcd.yaml     # device config
+  jxd-r6-e1eth-lcd.yaml     # device config, OLED variant
+  jxd-r6-e1eth.yaml         # device config, displayless variant
   packages/                 # boards, features, display, qemu
 assets/
   fonts/  res/
@@ -60,8 +67,9 @@ tests/                      # Google Test suites, one per component under tests/
 ```
 
 Each device config sets `assets: ../../assets`, `components: ../../components`,
-`boards: packages/boards`, `features: packages/features` and `display: packages/display`, all
-relative to the device config: it lists its packages as `!include ${features}/…`, and the
+`boards: packages/boards` and `features: packages/features`, all relative to the device
+config; display-carrying ones add `display: packages/display`. It lists its packages as
+`!include ${features}/…`, and the
 packages reference fonts and icons as `${assets}/fonts/…` and external components as
 `source: ${components}`.
 
