@@ -215,6 +215,146 @@ paths:
         "503":
           $ref: "#/components/responses/AuthNotReady"
 
+  /capabilities:
+    get:
+      tags: [read]
+      operationId: getCapabilities
+      summary: What this firmware has.
+      description: >-
+        Which screens the page can draw and which routes exist. A key is present
+        only when the capability is, so the test is `if (caps.files)`; one that
+        has no detail to carry is `true`. Read once on load, not polled — only
+        the rollback slot can change, and only across a firmware update. A `404`
+        here is a firmware from before this route, not a device without
+        capabilities.
+      responses:
+        "200":
+          description: The capabilities.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Capabilities"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /system/reboot:
+    post:
+      tags: [write]
+      operationId: reboot
+      summary: Restart the device.
+      description: >-
+        Answers first and restarts half a second later, so the answer reaches the
+        caller. Nothing is cleared: settings and files are as they were.
+      requestBody:
+        $ref: "#/components/requestBodies/Confirmation"
+      responses:
+        "200":
+          description: Rebooting.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+              example:
+                success: true
+                message: Rebooting
+        "400":
+          $ref: "#/components/responses/NotConfirmed"
+        "403":
+          $ref: "#/components/responses/WrongToken"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+
+  /system/factory-reset:
+    post:
+      tags: [write]
+      operationId: factoryReset
+      summary: Clear the stored settings and restart.
+      description: >-
+        The same reset as **Settings → Factory reset** on the display: the
+        stored settings are cleared, then the device restarts and wipes the user
+        partition on its way back up when the firmware has one — `capabilities`
+        `factory_reset.clears_storage` says so, and that is what the
+        confirmation dialog has to warn about. Answers before any of it happens,
+        and the files are gone once the device is back, not when it answers.
+      requestBody:
+        $ref: "#/components/requestBodies/Confirmation"
+      responses:
+        "200":
+          description: Resetting.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+              example:
+                success: true
+                message: Factory reset, rebooting
+        "400":
+          $ref: "#/components/responses/NotConfirmed"
+        "403":
+          $ref: "#/components/responses/WrongToken"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+
+  /system/rollback:
+    post:
+      tags: [write]
+      operationId: rollback
+      summary: Boot the other app slot.
+      description: >-
+        Selects the other app slot for the next boot and restarts. That is the
+        firmware this one replaced — until a rollback makes the newer one the
+        other slot, which is why `capabilities` reports the slot's version and a
+        confirmation should show it. Available only when `capabilities` carries
+        `rollback`; the slot is read back and checked while the request is open,
+        so an image that is not whole is an error here rather than a device that
+        comes back unchanged. The rolled-into firmware gets one monitored boot:
+        if it fails before it marks itself good, the bootloader returns to this
+        one.
+      requestBody:
+        $ref: "#/components/requestBodies/Confirmation"
+      responses:
+        "200":
+          description: Rolling back.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+              example:
+                success: true
+                message: Rolling back, rebooting
+        "400":
+          $ref: "#/components/responses/NotConfirmed"
+        "403":
+          $ref: "#/components/responses/WrongToken"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "500":
+          description: The slot could not be selected; the message is the ESP-IDF error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: ESP_ERR_OTA_VALIDATE_FAILED
+        "503":
+          description: >-
+            There is no other app slot, or nothing has been written to it — a
+            board that has never been updated over the air.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: No firmware to roll back to
+
   /entities:
     get:
       tags: [read]
@@ -401,6 +541,14 @@ components:
         type: string
       example: switch
 
+  requestBodies:
+    Confirmation:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ConfirmRequest"
+
   responses:
     MethodNotAllowed:
       description: Wrong HTTP method for this route.
@@ -449,6 +597,34 @@ components:
           example:
             success: false
             error: Not found
+    NotConfirmed:
+      description: The body is not a JSON object, or does not set `confirm` to true.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: "'confirm' must be true"
+    WrongToken:
+      description: >-
+        `confirm_token` is missing, or is not this device's. Nothing happened.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: "'confirm_token' must be the last three octets of base_mac_address"
+    BodyTooLarge:
+      description: The body is over the 4 KiB cap.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Request body over 4 KiB
     NoStore:
       description: >-
         This firmware has no `config_json` store, so the settings routes do not
@@ -734,6 +910,143 @@ components:
         ssid: null
         rssi: null
         ethernet_connected: true
+
+    ConfirmRequest:
+      type: object
+      required: [confirm, confirm_token]
+      description: >-
+        A guard against a stray POST, not an authorization scheme: whatever
+        reaches the port and can read `/info` can send it.
+      properties:
+        confirm:
+          type: boolean
+          enum: [true]
+        confirm_token:
+          type: string
+          description: >-
+            The last three octets of `/info`'s `base_mac_address`, as it prints
+            them. Matched in either case. Not `mac_address`, which on a build
+            with Ethernet is a different MAC.
+          pattern: "^[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}$"
+          example: "DD:EE:FF"
+
+    Capabilities:
+      type: object
+      required: [reboot, factory_reset]
+      properties:
+        reboot:
+          type: boolean
+          enum: [true]
+          description: "`/system/reboot` is served. Always there: every device can reboot."
+        factory_reset:
+          type: object
+          required: [clears_storage]
+          description: "`/system/factory-reset` is served."
+          properties:
+            clears_storage:
+              type: boolean
+              description: >-
+                Whether the reset also wipes the user partition, i.e. whether
+                uploaded files and automation rules survive it.
+        rollback:
+          type: object
+          required: [partition]
+          description: >-
+            The firmware `/system/rollback` would boot. Absent when the other app
+            slot holds no image, which is also when that route is `503`.
+          properties:
+            partition:
+              type: string
+              description: The slot's partition label.
+              example: app1
+            version:
+              type: string
+              description: >-
+                That image's ESPHome version, the same string `/info` reports as
+                `version` for the running one. What a confirmation should show:
+                after one rollback the other slot holds the newer firmware.
+              example: 2026.8.1
+            project_name:
+              type: string
+        storage:
+          $ref: "#/components/schemas/StorageCapability"
+        files:
+          type: object
+          required: [url_prefix]
+          description: >-
+            The firmware serves the file API the Files screen uses. Absent
+            without a `web_file_browser`.
+          properties:
+            url_prefix:
+              type: string
+              example: /files
+        automations:
+          type: object
+          required: [url_prefix]
+          description: >-
+            The firmware serves the automations API the Automations screen uses.
+            Absent without a `web_automation_editor`.
+          properties:
+            url_prefix:
+              type: string
+              example: /automation-editor
+        entity_settings:
+          type: object
+          required: [types]
+          description: >-
+            The firmware has a `config_json` store, so the `/entity-settings`
+            routes exist. Absent otherwise, and then those routes are `404`.
+          properties:
+            types:
+              type: array
+              items:
+                type: string
+              example: [switch, binary_sensor]
+        board_info:
+          type: boolean
+          enum: [true]
+          description: "`/info` carries the CPU board's EEPROM identity."
+      example:
+        reboot: true
+        factory_reset:
+          clears_storage: true
+        rollback:
+          partition: app1
+          version: 2026.8.1
+          project_name: jethome.jxd-r6-e1eth-lcd
+        storage:
+          type: LittleFS
+          base_path: /littlefs
+          mounted: true
+        files:
+          url_prefix: /files
+        automations:
+          url_prefix: /automation-editor
+        entity_settings:
+          types: [switch, binary_sensor]
+        board_info: true
+
+    StorageCapability:
+      type: object
+      required: [type, base_path, mounted]
+      description: >-
+        The mount the Files screen browses and a factory reset wipes: what it is,
+        not how full it is. Usage is live and this route is read once, so the
+        byte counts stay where they are already answered — `info` on the file API
+        at `files.url_prefix`.
+      properties:
+        type:
+          type: string
+          description: What the storage component calls its filesystem.
+          example: LittleFS
+        base_path:
+          type: string
+          example: /littlefs
+        mounted:
+          type: boolean
+          description: >-
+            False when the partition failed to mount; the Files screen then has
+            nothing to show.
 
     EntityIndex:
       type: object

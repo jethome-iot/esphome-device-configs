@@ -25,6 +25,16 @@ class DirStorage : public filesystem_storage_abstract::FilesystemStorageAbstract
   const std::string &get_base_path() const override { return this->base_path_; }
   const char *get_filesystem_type() const override { return "Directory"; }
 
+  // What a factory reset calls. Nothing is wiped: the tests are about the request reaching
+  // the storage, not about POSIX.
+  bool request_format() override {
+    this->format_requests++;
+    return this->format_result;
+  }
+
+  int format_requests{0};
+  bool format_result{true};
+
  protected:
   std::string base_path_;
   bool mounted_{false};

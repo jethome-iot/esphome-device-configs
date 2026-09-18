@@ -6,7 +6,7 @@ How firmware gets built, versioned and published, and what runs where.
 
 | Workflow | When | What it does |
 | --- | --- | --- |
-| Build (`build.yml`) | push to `dev` or `master`, every PR, manual | Discovers firmwares in `firmwares.yaml`, validates then compiles each with the pinned ESPHome, runs the component tests, verifies `dist/` is current, runs lint; `ci-ok` aggregates the lot into the one check branch protection requires |
+| Build (`ci.yml`) | push to `dev` or `master`, every PR, manual | Discovers firmwares in `firmwares.yaml`, validates then compiles each with the pinned ESPHome, runs the component tests, verifies `dist/` is current, runs lint; `ci-ok` aggregates the lot into the one check branch protection requires |
 | Release (`release.yml`) | a release is published (incl. prerelease), manual dispatch | Compiles every firmware, attaches binaries to the GitHub release, uploads the `upload: true` ones to fw.jethome.com |
 | ESPHome release check (`esphome-release-check.yml`) | weekly, manual | On a new upstream ESPHome release: compiles every firmware with it and opens an issue with the results — the go/no-go for the dependabot bump |
 | Draft release (`draft-release.yml`) | push to `master`, manual | Refreshes the rolling draft release tagged with the next version — publish it to build and ship |

@@ -30,8 +30,9 @@ web_file_browser:
   storage_id: user_storage
 ```
 
-The firmwares in this repository format the mount on a factory reset (**Settings → Factory
-reset → Confirm** in the display menu): uploaded files do not survive one.
+The firmwares in this repository format the mount on a factory reset — **Settings → Factory
+reset → Confirm** in the display menu, or `POST /api/device/system/factory-reset`: uploaded
+files do not survive one.
 
 ## Options
 

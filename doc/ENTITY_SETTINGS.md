@@ -35,8 +35,8 @@ keyed by its object_id:
 ```
 
 They can be edited by hand on the partition; the format and what happens to a damaged file are
-in [components/config_json](../components/config_json/README.md). A factory reset from the menu
-formats the partition, so these files go with it.
+in [components/config_json](../components/config_json/README.md). A factory reset — from the
+menu or over the API — formats the partition, so these files go with it.
 
 ## Configuration
 
