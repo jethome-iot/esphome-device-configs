@@ -10,7 +10,9 @@ http_request:
   timeout: 10s
 
 ota:
+  # Named so display/firmware-page.yaml can hang the install screen off it.
   - platform: http_request
+    id: firmware_ota
 
 update:
   - platform: jethome_update

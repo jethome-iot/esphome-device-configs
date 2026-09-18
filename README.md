@@ -72,7 +72,7 @@ the device. Those packages live under the family's `packages/`, split by role:
 | -------------------- | -------- |
 | `packages/boards/`   | Platform and the chips sitting on each board — `jxd-cpu-e1eth.yaml` (ESP32, api/ota/logger/web_server, TMP102, LED, the identity EEPROM) and `jxd-d6-r6-rev1.2.yaml` (PCA9554 expander, 6 relays, 6 inputs, DS2484 1-Wire bridge) |
 | `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `entity-settings`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network`, `web-auth`, `web-device-dashboard`, `web-file-browser`, `automations`, `automation-editor`, `firmware-update` |
-| `packages/display/`  | Display, pages, menu and buttons — `display.yaml`, `menu.yaml`, `buttons.yaml`, `menu-items-network.yaml`, `menu-serial.yaml`, `menu-firmware.yaml` |
+| `packages/display/`  | Display, pages, menu and buttons — `display.yaml`, `menu.yaml`, `buttons.yaml`, `menu-items-network.yaml`, `menu-serial.yaml`, `menu-firmware.yaml`, `firmware-page.yaml` |
 | `packages/qemu/`     | Overlays that `scripts/qemu.sh` layers over the real config to run it in the emulator — never part of a firmware build |
 
 Shared code and tooling stay at the repository root:
@@ -197,8 +197,9 @@ esphome run devices/JXD/jxd-r6-e1eth-lcd.yaml --device <IP_ADDRESS>
 
 ## Display UI Overview
 
-Four pages plus a menu. The main page is what you get at boot and after HOME; everything
-else is one button away from it.
+Five pages plus a menu. The main page is what you get at boot and after HOME; everything
+else is one button away from it, except the firmware install page, which the device puts up
+on its own.
 
 ### Main Page
 
@@ -230,6 +231,18 @@ temperature column.
 Current date and time from the hardware RTC.
 
 **Getting here**: RIGHT from the main page.
+
+### Firmware Install Page
+
+<img src="doc/images/jxd-r6-firmware-page-ui.svg" width="400" alt="Firmware Install Page">
+
+Up while a firmware image is being written, whatever asked for it — the menu, Home Assistant
+or the dashboard: the version being installed, how far it has got and a progress bar. The
+screen does not blank while an install runs, and the device reboots into the new firmware as
+soon as the image is in. An install that fails says so instead and leaves the running firmware
+untouched; any button then takes the page away, and it leaves on its own after half a minute.
+
+**Getting here**: no button leads here; an install starting puts it up.
 
 ### Menu
 
