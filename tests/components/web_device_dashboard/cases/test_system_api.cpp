@@ -118,7 +118,7 @@ TEST_F(Dashboard, SystemActionsNeedAConfirmation) {
   }
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
-  EXPECT_EQ(this->storage.formats, 0);
+  EXPECT_EQ(this->storage.format_requests, 0);
   EXPECT_EQ(this->dashboard->rollbacks, 0);
 }
 
@@ -138,7 +138,7 @@ TEST_F(Dashboard, SystemActionsRefuseAnotherDevicesToken) {
   }
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
-  EXPECT_EQ(this->storage.formats, 0);
+  EXPECT_EQ(this->storage.format_requests, 0);
   EXPECT_EQ(this->dashboard->rollbacks, 0);
 }
 
@@ -170,7 +170,7 @@ TEST_F(Dashboard, SystemActionsRefuseABodyOverTheCap) {
   }
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
-  EXPECT_EQ(this->storage.formats, 0);
+  EXPECT_EQ(this->storage.format_requests, 0);
   EXPECT_EQ(this->dashboard->rollbacks, 0);
 }
 
@@ -187,7 +187,7 @@ TEST_F(Dashboard, RebootAnswersBeforeItReboots) {
   EXPECT_EQ(this->dashboard->restarts, 1);
 }
 
-TEST_F(Dashboard, FactoryResetWipesTheStorageAndThePreferencesThenReboots) {
+TEST_F(Dashboard, FactoryResetClearsThePreferencesAndAsksForTheWipeThenReboots) {
   ESPPreferenceObject pref = global_preferences->make_preference<uint32_t>(0x5eedU);
   uint32_t saved = 42;
   ASSERT_TRUE(pref.save(&saved));
@@ -195,22 +195,23 @@ TEST_F(Dashboard, FactoryResetWipesTheStorageAndThePreferencesThenReboots) {
   Reply reply = this->post(FACTORY_RESET, this->confirmation());
   EXPECT_EQ(reply.code, 200);
   EXPECT_EQ(reply.message(), "Factory reset, rebooting");
-  EXPECT_EQ(this->storage.formats, 0);
+  EXPECT_EQ(this->storage.format_requests, 0);
 
   this->loop();
-  EXPECT_EQ(this->storage.formats, 1);
-  // Wiped before the reboot: the shutdown behind it writes the settings back out.
   uint32_t back = 0;
   EXPECT_FALSE(pref.load(&back));
+  // Asked for after the preferences went, because clearing them takes all of NVS with it,
+  // and the partition is wiped at the next boot.
+  EXPECT_EQ(this->storage.format_requests, 1);
   EXPECT_EQ(this->dashboard->restarts, 1);
 }
 
-TEST_F(Dashboard, AFactoryResetThatCannotWipeTheStorageStillResetsAndReboots) {
+TEST_F(Dashboard, AFactoryResetThatCannotAskForTheWipeStillResetsAndReboots) {
   this->storage.format_result = false;
   Reply reply = this->post(FACTORY_RESET, this->confirmation());
   EXPECT_EQ(reply.code, 200);
   this->loop();
-  EXPECT_EQ(this->storage.formats, 1);
+  EXPECT_EQ(this->storage.format_requests, 1);
   EXPECT_TRUE(LogCapture::instance().has_error("Wiping the user partition failed"));
   EXPECT_EQ(this->dashboard->restarts, 1);
 }
@@ -220,7 +221,7 @@ TEST_F(Dashboard, AFactoryResetOnAFirmwareWithNoStorageJustClearsThePreferences)
   Reply reply = this->post(FACTORY_RESET, this->confirmation());
   EXPECT_EQ(reply.code, 200);
   this->loop();
-  EXPECT_EQ(this->storage.formats, 0);
+  EXPECT_EQ(this->storage.format_requests, 0);
   EXPECT_EQ(this->dashboard->restarts, 1);
 }
 

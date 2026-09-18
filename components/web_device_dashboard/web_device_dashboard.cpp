@@ -736,24 +736,24 @@ const char *WebDeviceDashboard::select_rollback_(const RollbackTarget & /*target
 void WebDeviceDashboard::restart_() { App.safe_reboot(); }
 
 // Both wait the answer out on the loop task: the server task is still holding the socket this
-// was asked on, and a format takes the filesystem away from everything using it.
+// was asked on.
 void WebDeviceDashboard::reboot_() {
   this->set_timeout(this->action_delay_ms_, [this]() { this->restart_(); });
 }
 
-// The three steps the display menu's Factory reset takes, in that order: the shutdown behind
-// safe_reboot() writes the settings out, so the partition has to be wiped before it runs.
+// The steps the display menu's Factory reset takes, in that order: the preferences erase
+// takes all of NVS with it, so the record asking for the wipe has to be written after it.
+// The partition itself is wiped at the next boot, before anything mounts it.
 void WebDeviceDashboard::factory_reset_() {
   this->set_timeout(this->action_delay_ms_, [this]() {
+    global_preferences->reset();
 #ifdef USE_WEB_DEVICE_DASHBOARD_STORAGE
-    if (this->storage_ != nullptr && !this->storage_->format())
+    if (this->storage_ != nullptr && !this->storage_->request_format())
       ESP_LOGE(TAG, "Wiping the user partition failed");
 #endif
-    global_preferences->reset();
     this->restart_();
   });
 }
-
 
 #ifdef USE_CONFIG_JSON
 template<typename T> static void write_entity_index(JsonObject root, const char *type, const T &entities) {
