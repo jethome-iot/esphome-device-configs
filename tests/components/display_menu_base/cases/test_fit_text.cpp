@@ -121,6 +121,17 @@ TEST(FitText, ASequenceTheFontWouldRefuseStandsInEvenWhenItDecodesToAGlyph) {
   EXPECT_EQ(fit_text("\xF7\xBF\xBF\xBF", 4, draws_anything), "?");  // past the last plane
 }
 
+// A sequence that starts well and breaks late is still one character's worth of name: it must
+// not spend a row's budget on one `?` per byte it did carry.
+TEST(FitText, ABrokenSequenceCostsOneCharacter) {
+  EXPECT_EQ(fit_text("\xF0\x9F\x92"
+                     "abc",
+                     4, draws_anything),
+            "?abc");                                        // three of four bytes, then a letter
+  EXPECT_EQ(fit_text("\xE0\x81", 4, draws_anything), "?");  // two of three, then the end
+  EXPECT_EQ(fit_text("\xF0\x9F", 1, draws_anything), "?");
+}
+
 // The point of the whole function: whatever comes out, the font draws all of it.
 TEST(FitText, EverythingItReturnsIsDrawable) {
   const std::vector<std::string> nasty{
@@ -131,7 +142,8 @@ TEST(FitText, EverythingItReturnsIsDrawable) {
       "\xF7\xBF\xBF\xBF",
       "\xF0\x9F\x92\xA1",
       "\xFF\xFE",
-      "\xC1\x41bc",
+      "\xC1\x41"
+      "bc",
       "\xD0",
       std::string("a\0b", 3),
       "20°C",

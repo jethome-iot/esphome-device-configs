@@ -214,22 +214,22 @@ std::string fit_text(const std::string &text, size_t chars, const std::function<
                  : (lead & 0xF0) == 0xE0 ? 3
                  : (lead & 0xF8) == 0xF0 ? 4
                                          : 0;
-    // Whole is whether the bytes form one code point at all; valid is whether it is one the
-    // font's decoder would accept. A refused code point is still one character of the name.
-    bool whole = len > 0 && i + len <= text.size() && lead != 0;
+    // However far the sequence got: a broken one still stands for the bytes it did carry and
+    // leaves the byte that broke it to be read on its own, so one `?` is one intended character.
+    size_t taken = 1;
     uint32_t code_point = lead;
-    if (whole && len > 1) {
+    if (len > 1) {
       code_point = lead & (0xFF >> (len + 1));
-      for (size_t k = 1; k < len; k++) {
-        const auto next = static_cast<unsigned char>(text[i + k]);
-        whole = whole && (next & 0xC0) == 0x80;
-        code_point = (code_point << 6) | (next & 0x3F);
+      while (taken < len && i + taken < text.size() && (static_cast<unsigned char>(text[i + taken]) & 0xC0) == 0x80) {
+        code_point = (code_point << 6) | (static_cast<unsigned char>(text[i + taken]) & 0x3F);
+        taken++;
       }
     }
-    const bool valid = whole && (len == 1 || (code_point >= SHORTEST[len] && code_point <= 0x10FFFF &&
-                                              (code_point < 0xD800 || code_point > 0xDFFF)));
+    const bool valid = len > 0 && taken == len && lead != 0 &&
+                       (len == 1 || (code_point >= SHORTEST[len] && code_point <= 0x10FFFF &&
+                                     (code_point < 0xD800 || code_point > 0xDFFF)));
     out += valid && can_draw(code_point) ? text.substr(i, len) : "?";
-    i += whole ? len : 1;
+    i += taken;
   }
   return out;
 }
