@@ -28,12 +28,11 @@ boundaries; everything else is local to its file.
   `id: !extend display1`. `display_menu` (`display/menu.yaml`) exposes `info_submenu` and
   `menu_settings_id` as extension points that `menu-items-network.yaml` and
   `menu-serial.yaml` fill via `!extend`; their rows follow the device config's package order
-  unless a `weight` moves them — the Serial rows carry one to stay last under `Info` — and rows
-  added from C++ at boot come after all of them. `info_submenu` declares no rows of its own,
-  and an empty submenu is allowed: a config that leaves both of those packages out still
-  builds and ships an `Info` row that opens nothing, where it used to fail the build.
-  `temperatures_menu` gets a `Temp N` submenu per slot up to the last bound one at boot; a
-  freed slot's submenu only says `Free slot`.
+  unless a `weight` moves them, and rows added from C++ at boot come after all of them. A
+  submenu may be empty, and `info_submenu`, `relays_menu` and `inputs_menu` declare no rows of
+  their own: the last two are filled at boot from the `relays` / `inputs` vectors, so the menu
+  follows whatever the board package put there. `temperatures_menu` gets a `Temp N` submenu per
+  slot up to the last bound one at boot; a freed slot's submenu only says `Free slot`.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
   and expanded inside the main-page lambda in `display/display.yaml`. Package substitutions share
   one namespace with the device config's.
@@ -68,7 +67,7 @@ boundaries; everything else is local to its file.
 | Priority | What runs |
 | --- | --- |
 | 800 | fill the `relays` / `inputs` vectors |
-| 700 | push the stored Modbus address, baud rate, parity and stop bits into `jxm_uart2`; add the settings rows to the Nth `Relay N` / `Input N` submenu for the Nth entry of those vectors — by position, so a `weight` on one of those submenus would bind its rows to the wrong entity |
+| 700 | push the stored Modbus address, baud rate, parity and stop bits into `jxm_uart2`; build a submenu per entry of those vectors, named after the entity, with its settings rows |
 | 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); restore the timezone and read the RTC (`setup_time`, called from the device config). `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
 | 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created. `board_info` reads the EEPROM here too, once `eeprom_cpu` (600) has answered |
 | 500 | add a `Temp N` submenu per bound slot to the Temperatures menu |
@@ -111,8 +110,8 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
 ## Coupled to upstream internals
 
 - `components/display_menu_base` and `components/graphical_display_menu` are copies of
-  upstream's, carrying `right_for_menu_enter`, the `display_menu.back` action, `fill_row`, the
-  `weight` that sorts each `items:` list during validation, and submenus that may be empty;
+  upstream's, carrying `right_for_menu_enter`, the `display_menu.back` action, `fill_row`,
+  item `weight` and submenus that may be empty;
   naming them in `external_components` shadows the built-in ones. Every changed hunk is marked
   `JetHome:` and `scripts/vendored-diff.py` prints the whole patch against the pinned ESPHome.
   Dropping the two names from `external_components` builds the upstream components instead.
