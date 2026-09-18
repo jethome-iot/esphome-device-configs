@@ -64,7 +64,7 @@ failure `{"success": false, "error"}`. The same contract, machine-readable:
 | GET | `/api/device/network` | `{"hostname", "connection_type", "ip_address", "gateway", "subnet", "dns1", "dns2", "ssid", "rssi", "ethernet_connected"}` |
 | GET | `/api/device/capabilities` | what this firmware has, below |
 | POST | `/api/device/system/reboot` | restart, nothing cleared |
-| POST | `/api/device/system/factory-reset` | wipe the storage (with a `storage_id`) and the stored settings, then restart |
+| POST | `/api/device/system/factory-reset` | clear the stored settings and restart, wiping the storage on the way back up (with a `storage_id`) |
 | POST | `/api/device/system/rollback` | boot the other app slot — the firmware this one replaced |
 
 ### Capabilities
@@ -92,7 +92,8 @@ authorization scheme: whatever reaches the port and can read `/api/device/info` 
 Put the routes behind the `web_server:` `auth:` block if that matters.
 
 Each answers before it acts, so the caller gets its answer. A factory reset does what
-**Settings → Factory reset** on the display does, in the same order. A rollback selects the
+**Settings → Factory reset** on the display does, in the same order; the files it takes are
+gone once the device is back, not when it answers. A rollback selects the
 other app slot, checking the image while the request is still open — a slot that is not whole
 is a `500` here rather than a device that comes back unchanged — and the firmware it boots gets
 one monitored boot: if it fails before it marks itself good, the bootloader returns to this

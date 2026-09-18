@@ -1,5 +1,7 @@
 """JSON file API at <url_prefix>/* over a filesystem_storage_abstract mount; the dashboard's Files screen is its client."""
 
+import re
+
 import esphome.codegen as cg
 import esphome.config_validation as cv
 import esphome.final_validate as fv
@@ -17,18 +19,26 @@ CONF_STORAGE_ID = "storage_id"
 CONF_URL_PREFIX = "url_prefix"
 
 
+# What a browser leaves alone in a path segment.
+_SEGMENT = re.compile(r"[A-Za-z0-9._~-]+")
+
+
 def url_prefix(value):
     # Validated here, not in to_code: web_device_dashboard reads it off the config to report
     # the Files screen in /api/device/capabilities, and a client builds URLs from it.
     value = cv.string_strict(value).strip("/")
     if not value:
         raise cv.Invalid("url_prefix must name a path below the server root")
-    if any(c.isspace() or c in "?#" for c in value):
-        raise cv.Invalid("url_prefix must be a URL path: no spaces, '?' or '#'")
-    # A browser resolves these away before it sends the request and the handler matches the
-    # prefix literally, so a route named with one could never be reached.
-    if any(segment in ("", ".", "..") for segment in value.split("/")):
-        raise cv.Invalid("url_prefix must not contain empty or dot path segments")
+    # A browser resolves dot segments, folds backslashes into slashes and percent-encodes the
+    # rest before sending; the handler matches literally, so a rewritten prefix is unreachable.
+    for segment in value.split("/"):
+        if segment in ("", ".", ".."):
+            raise cv.Invalid("url_prefix must not contain empty or dot path segments")
+        if not _SEGMENT.fullmatch(segment):
+            raise cv.Invalid(
+                "url_prefix must be a URL path a browser sends unchanged: "
+                "letters, digits, '-', '.', '_' and '~'"
+            )
     return "/" + value
 
 

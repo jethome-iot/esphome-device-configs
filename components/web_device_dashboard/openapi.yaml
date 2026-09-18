@@ -272,11 +272,12 @@ paths:
       operationId: factoryReset
       summary: Clear the stored settings and restart.
       description: >-
-        The same reset as **Settings → Factory reset** on the display: the user
-        partition is wiped when the firmware has one — `capabilities`
+        The same reset as **Settings → Factory reset** on the display: the
+        stored settings are cleared, then the device restarts and wipes the user
+        partition on its way back up when the firmware has one — `capabilities`
         `factory_reset.clears_storage` says so, and that is what the
-        confirmation dialog has to warn about — then the preferences are cleared
-        and the device restarts. Answers before any of it happens.
+        confirmation dialog has to warn about. Answers before any of it happens,
+        and the files are gone once the device is back, not when it answers.
       requestBody:
         $ref: "#/components/requestBodies/Confirmation"
       responses:

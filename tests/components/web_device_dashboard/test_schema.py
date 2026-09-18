@@ -121,17 +121,23 @@ class ServedScreens(unittest.TestCase):
                 self.assertEqual(config[dashboard.CONF_URL_PREFIX], "/somewhere")
 
     def test_a_prefix_that_is_not_a_path_below_the_root_is_refused(self):
-        # A dot or an empty segment is resolved away by the browser before the request is
-        # sent, so a prefix carrying one names a route nothing can reach.
+        # Every one of these is rewritten by the browser before the request is sent, so a
+        # prefix carrying it names a route nothing can reach.
         for value in (
             "",
             "/",
             "with space",
             "q?x",
+            "top#x",
             ".",
             "..",
             "files/../other",
             "a//b",
+            "%2e%2e/other",
+            "%2e/other",
+            "files\\other",
+            "caf\u00e9",
+            "a{b}",
         ):
             for name, extra in self.CONFIGS.items():
                 module = importlib.import_module(f"esphome.components.{name}")
