@@ -57,7 +57,8 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
 
 ```
 devices/JXD/
-  jxd-r6-e1eth-lcd.yaml     # device config
+  jxd-r6-e1eth-lcd.yaml     # device config, OLED variant
+  jxd-r6-e1eth.yaml         # device config, displayless variant
   packages/                 # boards, features, display, qemu
 assets/
   fonts/  res/
