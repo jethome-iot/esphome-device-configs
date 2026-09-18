@@ -165,9 +165,5 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   from `on_shutdown()`.
 - `components/bindings` subscribes once per input with `add_full_state_callback` and never
   unsubscribes: upstream has no callback removal, so rebinding goes through its own table.
-- `features/network.yaml` clears the WiFi credentials by storing a shorter record over both
-  preference keys `WiFiComponent::start()` can pick, which upstream's `load()` then reads as
-  absent. `save_wifi_sta("", "")` cannot do it: an empty SSID is still a configured network.
-  Turning on `fast_connect` would add a third key holding the remembered BSSID.
 
 Re-check each of these on every ESPHome bump.
