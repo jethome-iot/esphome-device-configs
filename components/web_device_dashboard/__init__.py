@@ -9,7 +9,7 @@ from esphome.core import CORE
 
 CODEOWNERS = ["@jethome-iot"]
 DEPENDENCIES = ["web_server_base", "web_server"]
-AUTO_LOAD = ["web_origin_guard"]
+AUTO_LOAD = ["web_origin_guard", "loop_job"]
 
 CONF_BOARD_INFO_ID = "board_info_id"
 CONF_STORAGE_ID = "storage_id"

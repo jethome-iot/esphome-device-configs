@@ -73,6 +73,7 @@ static const Route ROUTES[] = {
 // clang-format on
 
 void WebDeviceDashboard::setup() {
+  this->dispatcher_.capture_loop_task();
   this->base_->init();
   this->base_->add_handler(&this->guard_);
 }
@@ -844,8 +845,8 @@ void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *requ
     this->send_error_(request, 503, "Config JSON keeper not available");
     return;
   }
-  // Checked before anything is applied: an accepted change that only lives in RAM would be
-  // gone at the next reboot, and the device would have answered that it had kept it.
+  // Asked here as well as on the loop task below, where the answer is the one that counts:
+  // a device that cannot write has nothing to say about the rest of the request.
   if (!keeper->can_save()) {
     this->send_error_(request, 503, "Settings storage unavailable");
     return;
@@ -867,12 +868,6 @@ void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *requ
     this->send_error_(request, 400, "'settings' must be an object");
     return;
   }
-  auto *settings = keeper->get_settings(type);
-  if (settings == nullptr) {
-    this->send_error_(request, 404, "Settings type not found");
-    return;
-  }
-
   const char *action = doc["action"];
   // Anything else here is a typo, not an update: the caller asked for something this API
   // does not have.
@@ -880,29 +875,59 @@ void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *requ
     this->send_error_(request, 400, "'action' must be 'delete'");
     return;
   }
-  if (action != nullptr) {
-    void *record = settings->can_delete(doc.as<JsonObject>());
-    if (record == nullptr) {
-      this->send_error_(request, 400, "Cannot delete: record not found");
-      return;
-    }
-    if (settings->delete_record(record))
-      keeper->save(type);
-    this->send_success_(request, "Entity was removed");
-    return;
-  }
 
-  void *record = settings->update_record_from_json(doc.as<JsonObject>());
-  if (record == nullptr) {
-    this->send_error_(request, 400, "Failed to update settings record");
+  // The record list, the keeper's save timer and the entities all belong to the loop task —
+  // the display menu walks the same vector on every redraw — and this runs on the HTTP
+  // server's. The check and the write go over together: split, the answer would describe a
+  // device that had already moved on. `doc` outlives the call because run_on_loop blocks.
+  int code = 0;
+  const char *message = nullptr;
+  const bool wrote = this->dispatcher_.run_on_loop(this, [&]() {
+    auto *settings = keeper->get_settings(type);
+    if (settings == nullptr) {
+      code = 404;
+      message = "Settings type not found";
+      return false;
+    }
+    // Asked before anything is applied: an accepted change that only lives in RAM would be
+    // gone at the next reboot, and the device would have answered that it had kept it.
+    if (!keeper->can_save()) {
+      code = 503;
+      message = "Settings storage unavailable";
+      return false;
+    }
+    if (action != nullptr) {
+      void *record = settings->can_delete(doc.as<JsonObject>());
+      if (record == nullptr) {
+        code = 400;
+        message = "Cannot delete: record not found";
+        return false;
+      }
+      if (settings->delete_record(record))
+        keeper->save(type);
+      message = "Entity was removed";
+      return true;
+    }
+    if (settings->update_record_from_json(doc.as<JsonObject>()) == nullptr) {
+      code = 400;
+      message = "Failed to update settings record";
+      return false;
+    }
+    keeper->save(type);
+    ESP_LOGI(TAG, "Entity settings updated for type '%s'", type);
+    // The whole type, not the record just written: applying one is the settings type's own
+    // business and nothing here knows which entities a record reaches.
+    settings->apply();
+    message = "Settings updated";
+    return true;
+  });
+
+  if (!wrote) {
+    // No code means the loop task never took the job: nothing was changed and nothing will be.
+    this->send_error_(request, code == 0 ? 503 : code, code == 0 ? "Device busy" : message);
     return;
   }
-  keeper->save(type);
-  ESP_LOGI(TAG, "Entity settings updated for type '%s'", type);
-  this->send_success_(request, "Settings updated");
-  // Entities are driven from the loop task, not the server's. The whole type is applied
-  // rather than this record: a delete arriving first would free the record under the defer.
-  this->defer([settings]() { settings->apply(); });
+  this->send_success_(request, message);
 }
 
 // GET /api/device/entity-settings-meta: the form fields per settings type.

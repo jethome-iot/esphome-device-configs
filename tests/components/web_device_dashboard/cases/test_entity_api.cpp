@@ -159,11 +159,11 @@ TEST_F(Dashboard, APostUpdatesTheRecordAndSchedulesTheSave) {
   EXPECT_TRUE(store().keeper.is_save_pending());
 }
 
-TEST_F(Dashboard, TheRecordIsAppliedFromTheLoopAndNotFromTheServer) {
+TEST_F(Dashboard, TheRecordIsAppliedAsPartOfTheWrite) {
   ASSERT_EQ(this->post("/api/device/entity-settings", UPDATE_RELAY_1).code, 200);
-  // Entities are driven from the loop task: the answer goes out before anything is applied.
-  EXPECT_TRUE(store().sw.applied.empty());
-  this->loop();
+  // The whole write runs on the loop task, apply included, so the answer describes a device
+  // that has already changed. A host build has one task and reaches this inline; the crossing
+  // itself is ESP32-only and is checked in QEMU.
   EXPECT_EQ(store().sw.applied, std::vector<std::string>{"relay_1"});
 }
 

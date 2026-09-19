@@ -172,6 +172,9 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   not promise.
 - `components/config_base` schedules its debounced save with a named string timeout and flushes
   from `on_shutdown()`.
+- `components/loop_job` reaches into `App.scheduler.set_timeout()` because `Component::defer()`
+  is protected and the owner is not the dispatcher, and it takes the scheduler at its word that
+  another task may schedule into it.
 - `components/bindings` subscribes once per input with `add_full_state_callback` and never
   unsubscribes: upstream has no callback removal, so rebinding goes through its own table.
 

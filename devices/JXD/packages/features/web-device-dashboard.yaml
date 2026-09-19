@@ -3,7 +3,7 @@
 # in components/web_device_dashboard/dashboard_index.h.
 external_components:
   - source: ${components}
-    components: [web_device_dashboard, web_origin_guard]
+    components: [web_device_dashboard, web_origin_guard, loop_job]
 
 web_device_dashboard:
   # The EEPROM identity to report.

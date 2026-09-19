@@ -6,6 +6,7 @@
 #include <vector>
 #include "automation_config.h"
 #include "esphome/components/filesystem_storage_abstract/filesystem_storage_abstract.h"
+#include "esphome/components/loop_job/loop_job.h"
 #include "esphome/core/component.h"
 #include "esphome/core/optional.h"
 #include "esphome/core/time.h"
@@ -114,7 +115,7 @@ class AutomationStorage : public Component {
   uint32_t next_id_{1};
   time::RealTimeClock *rtc_{nullptr};
   optional<ESPTime> last_check_;
-  void *loop_task_{nullptr};
+  loop_job::LoopDispatcher dispatcher_;
   // Above zero while a rule is being driven: an edit then would pull the rule from under it.
   uint8_t dispatching_{0};
 

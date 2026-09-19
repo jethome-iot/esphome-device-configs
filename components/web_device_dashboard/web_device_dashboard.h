@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <ArduinoJson.h>
+#include "esphome/components/loop_job/loop_job.h"
 #include "esphome/components/web_origin_guard/web_origin_guard.h"
 #include "esphome/components/web_server_base/web_server_base.h"
 #include "esphome/core/component.h"
@@ -126,6 +127,8 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   web_server_base::WebServerBase *base_;
   // What is registered on the server; this handler is only ever reached through it.
   web_origin_guard::WebOriginGuard guard_{this};
+  // A request arrives on the HTTP server's own task; a write goes over to the loop task.
+  loop_job::LoopDispatcher dispatcher_;
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
   jethome_board_info::JetHomeBoardInfo *board_{nullptr};
 #endif

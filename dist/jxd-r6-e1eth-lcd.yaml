@@ -45,6 +45,7 @@ external_components:
       path: components
     components:
       - automations
+      - loop_job
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -85,6 +86,7 @@ external_components:
     components:
       - web_device_dashboard
       - web_origin_guard
+      - loop_job
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
