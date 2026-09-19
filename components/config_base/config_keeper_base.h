@@ -29,9 +29,18 @@ template<typename TDerived, typename TSettings> class ConfigKeeperBase : public 
       this->settings_list_.push_back(settings);
   }
 
+  // False when nothing written from here would reach flash: setup() failed, so there is no
+  // filesystem under the keeper and the scheduler drops a failed component's timeouts. A
+  // caller that can report a failure asks first, before it changes anything in RAM.
+  bool can_save() const { return !this->is_failed(); }
+
   // Debounced: several calls inside the delay end in one write.
   void save() {
     auto *derived = static_cast<TDerived *>(this);
+    if (!this->can_save()) {
+      ESP_LOGE(derived->get_log_tag(), "Storage unavailable: the change lasts until the next reboot only");
+      return;
+    }
     this->cancel_timeout(derived->get_timeout_name());
     this->save_pending_ = true;
     this->set_timeout(derived->get_timeout_name(), this->save_delay_ms_, [this]() {
@@ -116,6 +125,10 @@ template<typename TDerived, typename TSettings> class ConfigKeeperBase : public 
 
   void save_all_() {
     auto *derived = static_cast<TDerived *>(this);
+    // on_shutdown() comes through here at every reboot, and save() has already said its piece:
+    // without a mount this would only mkdir and fopen into nothing.
+    if (!this->can_save())
+      return;
     bool has_dirty = false;
     for (auto *settings : this->settings_list_) {
       if (settings != nullptr && settings->is_dirty()) {
@@ -135,6 +148,8 @@ template<typename TDerived, typename TSettings> class ConfigKeeperBase : public 
 
   void save_one_(const char *key) {
     auto *derived = static_cast<TDerived *>(this);
+    if (!this->can_save())
+      return;
     TSettings *settings = this->get_settings(key);
     if (settings == nullptr) {
       ESP_LOGW(derived->get_log_tag(), "Settings '%s' not found", key);

@@ -1480,7 +1480,7 @@ graphical_display_menu:
                     // the preferences erase, which takes all of NVS.
                     global_preferences->reset();
                     if (!id(user_storage)->request_format()) {
-                      ESP_LOGE("factory_reset", "Wiping the user partition failed");
+                      ESP_LOGE("factory_reset", "The user partition was not wiped and will not be");
                     }
                     App.safe_reboot();
         - type: command

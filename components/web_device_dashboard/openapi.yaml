@@ -670,14 +670,23 @@ components:
             success: false
             error: Settings type not found
     StoreNotReady:
-      description: The `config_json` store has not come up.
+      description: >-
+        The `config_json` store has not come up. A write also answers this when
+        the store is there but its filesystem never mounted: nothing it accepted
+        would outlive the reboot, so nothing is accepted.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
-          example:
-            success: false
-            error: Config JSON keeper not available
+          examples:
+            missing:
+              value:
+                success: false
+                error: Config JSON keeper not available
+            unwritable:
+              value:
+                success: false
+                error: Settings storage unavailable
 
   schemas:
     DeviceInfo:

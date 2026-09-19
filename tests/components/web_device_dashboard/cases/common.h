@@ -212,6 +212,8 @@ class TestSettings : public config_json::SettingsBaseJsonTyped<TestSettings, Tes
 // points at the keeper, and nothing here runs the scheduler to the end of that timeout.
 struct Store {
   config_json::ConfigJsonKeeper keeper;
+  // The same settings behind a keeper whose setup() failed: nothing it is handed reaches flash.
+  config_json::ConfigJsonKeeper failed;
   TestSettings sw{"switch"};
   TestSettings bs{"binary_sensor"};
   // A type the entity index has no branch for: only switch and binary_sensor are listed.
@@ -221,9 +223,12 @@ struct Store {
 inline Store &store() {
   static Store *instance = [] {
     auto *s = new Store();
-    s->keeper.add_settings(&s->sw);
-    s->keeper.add_settings(&s->bs);
-    s->keeper.add_settings(&s->other);
+    for (config_json::ConfigJsonKeeper *k : {&s->keeper, &s->failed}) {
+      k->add_settings(&s->sw);
+      k->add_settings(&s->bs);
+      k->add_settings(&s->other);
+    }
+    s->failed.mark_failed();
     return s;
   }();
   return *instance;

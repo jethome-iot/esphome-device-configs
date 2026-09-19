@@ -254,13 +254,15 @@ TEST_F(Dashboard, FactoryResetClearsThePreferencesAndAsksForTheWipeThenReboots) 
   EXPECT_EQ(this->dashboard->restarts, 1);
 }
 
-TEST_F(Dashboard, AFactoryResetThatCannotAskForTheWipeStillResetsAndReboots) {
+// False is the backend's last word: it could neither record the request nor wipe on the spot,
+// so nothing will retry. The reset still finishes, because the preferences are already gone.
+TEST_F(Dashboard, AFactoryResetWhoseStorageCouldNotWipeSaysSoAndStillReboots) {
   this->storage.format_result = false;
   Reply reply = this->post(FACTORY_RESET, this->confirmation());
   EXPECT_EQ(reply.code, 200);
   this->loop();
   EXPECT_EQ(this->storage.format_requests, 1);
-  EXPECT_TRUE(LogCapture::instance().has_error("Wiping the user partition failed"));
+  EXPECT_TRUE(LogCapture::instance().has_error("The user partition was not wiped and will not be"));
   EXPECT_EQ(this->dashboard->restarts, 1);
 }
 

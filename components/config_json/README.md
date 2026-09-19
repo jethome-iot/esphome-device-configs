@@ -49,6 +49,13 @@ not written either, and stays dirty — nothing is dirty, so the boot writes not
 and a file that is corrupt for an unrelated reason is not overwritten by mistake. A save writes
 `<key>.json.tmp` and renames it over the file, so a power cut mid-save keeps the last good copy.
 
+## When the mount is not there
+
+The keeper fails at setup and stays read-only for the run: every save is refused with an error
+in the log rather than queued, and nothing is written at shutdown either. Ask `can_save()`
+before offering an edit — `web_device_dashboard` answers `503` on it, the display menu's rows
+change the live value and log that it will not survive the reboot.
+
 ## Boot order
 
 The keeper sets up at `HARDWARE + 5` and loads every file. Each type then declares an
@@ -61,3 +68,4 @@ in `entity_config`, i.e. after the load and before the entities set themselves u
 - `save_immediate()`, `save_immediate("<key>")`: write now
 - `is_save_pending()`, `cancel_pending_save()`
 - `reset_all()`: clear every type and write at once
+- `can_save()`: false when the mount failed, so nothing written here would survive a reboot

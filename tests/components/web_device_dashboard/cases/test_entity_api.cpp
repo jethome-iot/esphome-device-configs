@@ -73,6 +73,16 @@ TEST_F(Dashboard, EntitySettingsIsUnavailableWithoutAKeeper) {
   EXPECT_EQ(write.error(), "Config JSON keeper not available");
 }
 
+// A keeper that is there but cannot write: applying the change would answer 200 for something
+// the next reboot drops, so the write is refused and nothing is applied.
+TEST_F(Dashboard, EntitySettingsRefusesAWriteAKeeperCannotPersist) {
+  config_json::global_config_json_keeper = &store().failed;
+  Reply write = this->post("/api/device/entity-settings", UPDATE_RELAY_1);
+  EXPECT_EQ(write.code, 503);
+  EXPECT_EQ(write.error(), "Settings storage unavailable");
+  EXPECT_EQ(store().sw.size(), 0u);
+}
+
 TEST_F(Dashboard, APostOfSomethingThatIsNotAnObjectIsRefused) {
   for (const char *body : {"not json", "[]", "\"switch\"", "42"}) {
     Reply reply = this->post("/api/device/entity-settings", body);

@@ -149,6 +149,7 @@ class BinarySensorSettingsJson
     return this->get_record(sensor, record) && record.inverted;
   }
 
+  // As in the switch: nowhere to report a keeper that cannot write, so it only logs.
   void set_inverted(binary_sensor::BinarySensor *sensor, bool inverted) {
     this->apply_record_(this->make_record(sensor, inverted));
     if (config_json::global_config_json_keeper != nullptr)

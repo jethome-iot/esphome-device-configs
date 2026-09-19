@@ -18,11 +18,15 @@ void LittleFSStorage::setup() {
   if (this->format_requested_()) {
     ESP_LOGI(TAG, "Wiping '%s' as the factory reset asked", this->partition_label_.c_str());
     esp_err_t err = esp_littlefs_format(this->partition_label_.c_str());
-    if (err == ESP_OK) {
-      this->clear_format_request_();
-    } else {
-      ESP_LOGE(TAG, "Wipe failed, retrying on the next boot: %s", esp_err_to_name(err));
+    if (err != ESP_OK) {
+      // Mounting now would serve the files the reset promised to erase, on a device that came
+      // up on its factory credentials. The request stays recorded, so the next boot retries.
+      ESP_LOGE(TAG, "Wipe failed, leaving '%s' unmounted until a boot manages it: %s", this->partition_label_.c_str(),
+               esp_err_to_name(err));
+      this->mark_failed(LOG_STR("The factory reset could not wipe the storage"));
+      return;
     }
+    this->clear_format_request_();
   }
 
   esp_vfs_littlefs_conf_t conf = {};
@@ -35,10 +39,11 @@ void LittleFSStorage::setup() {
   if (ret != ESP_OK) {
     if (ret == ESP_ERR_NOT_FOUND) {
       ESP_LOGE(TAG, "Partition '%s' not found", this->partition_label_.c_str());
+      this->mark_failed(LOG_STR("Storage partition not found"));
     } else {
       ESP_LOGE(TAG, "Mount failed: %s", esp_err_to_name(ret));
+      this->mark_failed(LOG_STR("The storage partition could not be mounted"));
     }
-    this->mark_failed();
     return;
   }
   this->mounted_ = true;
@@ -58,27 +63,39 @@ void LittleFSStorage::dump_config() {
 }
 
 bool LittleFSStorage::request_format() {
+  esp_err_t err = this->record_format_request_();
+  if (err == ESP_OK)
+    return true;
+
+  // An unrecorded request is never retried, and the caller reboots in a moment into a device
+  // whose credentials went with the preferences: wipe here instead, slow as it is. The library
+  // formats the live mount unlocked and frees every open file struct without closing it, so a
+  // file another task holds at this instant is a crash, not an EBADF. Tolerable only because
+  // the wipe itself still happens and the caller reboots either way.
+  ESP_LOGE(TAG, "Cannot record the wipe (%s); wiping '%s' now", esp_err_to_name(err), this->partition_label_.c_str());
+  err = esp_littlefs_format(this->partition_label_.c_str());
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Wipe failed, '%s' is left as it was: %s", this->partition_label_.c_str(), esp_err_to_name(err));
+    return false;
+  }
+  ESP_LOGI(TAG, "Wiped '%s'", this->partition_label_.c_str());
+  return true;
+}
+
+esp_err_t LittleFSStorage::record_format_request_() {
   // reset() deinitialises NVS on its way out; init is a no-op when it is already up.
   esp_err_t err = nvs_flash_init();
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "NVS unavailable, cannot record the wipe: %s", esp_err_to_name(err));
-    return false;
-  }
+  if (err != ESP_OK)
+    return err;
   nvs_handle_t handle;
   err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Cannot record the wipe: %s", esp_err_to_name(err));
-    return false;
-  }
+  if (err != ESP_OK)
+    return err;
   err = nvs_set_u8(handle, NVS_KEY_WIPE, 1);
   if (err == ESP_OK)
     err = nvs_commit(handle);
   nvs_close(handle);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Cannot record the wipe: %s", esp_err_to_name(err));
-    return false;
-  }
-  return true;
+  return err;
 }
 
 bool LittleFSStorage::format_requested_() {

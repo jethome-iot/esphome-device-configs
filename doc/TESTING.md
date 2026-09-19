@@ -38,6 +38,7 @@ tests/
     jethome_manifest/
     jethome_update/           # test_schema.py alone: the entity needs ota.http_request, which
                               # upstream refuses on the host platform
+    littlefs_storage/         # test_schema.py alone: the C++ is ESP-IDF only
     virtual_display/          # test_schema.py alone: the C++ includes <esp_http_server.h>,
                               # which the host platform has no header for
     web_auth/

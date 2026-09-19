@@ -756,7 +756,7 @@ void WebDeviceDashboard::factory_reset_() {
     global_preferences->reset();
 #ifdef USE_WEB_DEVICE_DASHBOARD_STORAGE
     if (this->storage_ != nullptr && !this->storage_->request_format())
-      ESP_LOGE(TAG, "Wiping the user partition failed");
+      ESP_LOGE(TAG, "The user partition was not wiped and will not be");
 #endif
     this->restart_();
   });
@@ -842,6 +842,12 @@ void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *requ
   auto *keeper = config_json::global_config_json_keeper;
   if (keeper == nullptr) {
     this->send_error_(request, 503, "Config JSON keeper not available");
+    return;
+  }
+  // Checked before anything is applied: an accepted change that only lives in RAM would be
+  // gone at the next reboot, and the device would have answered that it had kept it.
+  if (!keeper->can_save()) {
+    this->send_error_(request, 503, "Settings storage unavailable");
     return;
   }
   JsonDocument doc = json::parse_json(this->body_);
