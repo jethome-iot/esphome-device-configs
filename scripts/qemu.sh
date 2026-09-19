@@ -502,7 +502,9 @@ do_stop() {
 # Which host port a running instance forwards: `list` is where the caller is sent
 # after a clash, and the command line is the only place the ports are recorded.
 hostfwd_port() {
-  printf '%s' "$1" |
+  # Trailing space: the pattern wants a non-digit after the port, and the last
+  # argument of the command line has nothing after it.
+  printf '%s ' "$1" |
     sed -n "s/.*hostfwd=tcp:127\.0\.0\.1:\([0-9]\{1,\}\)-:$2[^0-9].*/\1/p"
 }
 
@@ -518,7 +520,8 @@ do_list() {
       info "$d"
       continue
     fi
-    cmdline=$(tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" || true)
+    # ps, not /proc, for the reason qemu_pids_for() gives.
+    cmdline=$(ps -ww -p "$pid" -o args= 2>/dev/null || true)
     http=$(hostfwd_port "$cmdline" 80)
     api=$(hostfwd_port "$cmdline" 6053)
     ota=$(hostfwd_port "$cmdline" 3232)
