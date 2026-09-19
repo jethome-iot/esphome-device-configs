@@ -97,7 +97,9 @@ class AutomationStorage : public Component {
   bool load_automation_from_file_(const std::string &filepath);
   bool fits_a_file_(const AutomationConfig &config) const;
   bool save_automation_to_file_(const AutomationConfig &config);
-  bool delete_file_(const std::string &filename);
+  void delete_file_(const std::string &filename);
+  // Seam: no host filesystem lets a test refuse one file, and that is the case worth testing.
+  virtual bool remove_file_(const std::string &filepath);
   std::vector<bool> resolve_duplicates_();
   void normalize_filenames_(const std::vector<bool> &changed);
   int find_automation_index_by_id_(uint32_t id);

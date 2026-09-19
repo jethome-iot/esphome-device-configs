@@ -711,14 +711,24 @@ bool AutomationStorage::save_automation_to_file_(const AutomationConfig &config)
   return true;
 }
 
-bool AutomationStorage::delete_file_(const std::string &filename) {
+bool AutomationStorage::remove_file_(const std::string &filepath) { return remove(filepath.c_str()) == 0; }
+
+void AutomationStorage::delete_file_(const std::string &filename) {
   const std::string filepath = this->get_folder_path_() + "/" + filename;
-  if (remove(filepath.c_str()) == 0) {
+  if (this->remove_file_(filepath)) {
     ESP_LOGD(TAG, "Deleted automation file: %s", filepath.c_str());
-    return true;
+    return;
   }
+  // Gone already — someone deleted it over the file API — and there is nothing to drop.
+  // Writing here would put a file the loader refuses back under a name nothing can reuse.
+  if (!file_exists(filepath))
+    return;
+  // Blank it: left whole, the loader reads it back at the next boot and the rule this call
+  // was dropping returns — beside its rename as a second copy, or from the dead.
   ESP_LOGW(TAG, "Failed to delete file: %s", filepath.c_str());
-  return false;
+  FILE *blank = fopen(filepath.c_str(), "w");
+  if (blank == nullptr || fclose(blank) != 0)
+    ESP_LOGE(TAG, "Failed to blank stale automation file: %s", filepath.c_str());
 }
 
 // The folder is writable by hand, so ids and names are re-established from what was loaded.
@@ -836,14 +846,7 @@ void AutomationStorage::normalize_filenames_(const std::vector<bool> &changed) {
                canonical[i].c_str());
       if (vacating)
         continue;
-      const std::string filepath = folder_path + "/" + from;
-      if (remove(filepath.c_str()) != 0) {
-        // Blank it: loaded again it would be renamed to a fresh copy every boot.
-        ESP_LOGW(TAG, "Failed to delete stale automation file: %s", filepath.c_str());
-        FILE *blank = fopen(filepath.c_str(), "w");
-        if (blank != nullptr)
-          fclose(blank);
-      }
+      this->delete_file_(from);
     }
   }
 }
