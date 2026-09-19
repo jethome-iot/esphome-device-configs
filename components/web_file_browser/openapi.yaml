@@ -74,10 +74,12 @@ paths:
       operationId: listDirectory
       summary: Directory contents, in creation order.
       description: >-
-        A bare JSON array, not the success envelope. The listing streams through
-        a fixed buffer; if a read fails after the first chunk has gone out, the
-        array is left unclosed so a truncated listing cannot parse as a complete
-        short one.
+        A bare JSON array, not the success envelope. A name whose bytes are not
+        valid UTF-8 is listed with U+FFFD in their place, so the array stays a
+        JSON text; the name on the device is unchanged, and the other routes
+        still want the real one. The listing streams through a fixed buffer; if
+        a read fails after the first chunk has gone out, the array is left
+        unclosed so a truncated listing cannot parse as a complete short one.
       parameters:
         - name: path
           in: query
@@ -111,10 +113,13 @@ paths:
       operationId: readFile
       summary: File contents as a JSON string.
       description: >-
-        The file is escaped and streamed as the `content` field. Refused above
-        1 MB (`File too large to edit`) — a limit about the editor on the other
-        end, not the device heap. Use `/download` for binary or larger files. If
-        the read fails partway, the JSON is left unterminated so it cannot parse.
+        The file is escaped and streamed as the `content` field. Bytes that are
+        not valid UTF-8 come back as U+FFFD, so the answer is always a JSON text
+        but a file that is not text does not survive the round trip. Refused
+        above 1 MB (`File too large to edit`) — a limit about the editor on the
+        other end, not the device heap. Use `/download` for binary or larger
+        files. If the read fails partway, the JSON is left unterminated so it
+        cannot parse.
       parameters:
         - $ref: "#/components/parameters/PathQueryRequired"
       responses:

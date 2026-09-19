@@ -82,6 +82,10 @@ the connection (`download`), so an incomplete answer cannot pass for a complete 
 `delete` and `copy` recurse at most eight directory levels — a deeper tree is an error before
 anything is removed, not a smashed web server stack.
 
+JSON is UTF-8, so `read` and `list` answer U+FFFD for bytes of a file or a name that are not:
+what comes back is a valid JSON text, but not what is on the device, and saving it back through
+`write` would replace those bytes. `download` is the route for a file that is not text.
+
 A firmware with an `auth:` block wants the credentials on every one of these; `--digest -u`
 covers what the configs in this repository build.
 
