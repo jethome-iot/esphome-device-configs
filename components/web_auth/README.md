@@ -29,10 +29,12 @@ ESP32 the block must also say `type: digest`.
 
 A new pair applies to the next request: no restart, and the request that sets it still answers.
 The browser asks for the new credentials as soon as the page makes its next call. The pair is
-stored before it is applied, from the main loop task, so a device that cannot write its flash
-keeps serving the old one and says so in the log. A username is
-up to 32 characters and a password up to 64, both printable ASCII, and a username may not
-contain `:`, `"` or `\`.
+stored before it is applied, from the main loop task: a device that cannot write its flash keeps
+serving the old pair, says so in the log and raises the component's error status, which is where
+the failure shows once the request has been answered. Flash is flushed for the whole device at
+once, so a failure there is not always this record's — a pair that reads back as stored is
+applied. A username is up to 32 characters and a password up to 64, both printable ASCII, and a
+username may not contain `:`, `"` or `\`.
 
 Everything the shared web server carries is behind the same credentials — the dashboard, the
 file manager, the automation editor and `web_server`'s own REST API and `/events`. The ESPHome
@@ -51,4 +53,5 @@ While the device still serves the factory password it says so in the boot log an
 
 `tests/components/web_auth/` covers the configuration refusals on the host and, through the
 `web_server_base` stand-in, what reaches the server: the stored pair at boot, the compiled
-default when nothing is stored, and which credentials are refused.
+default when nothing is stored, which credentials are refused, and what a store that fails
+leaves in force.
