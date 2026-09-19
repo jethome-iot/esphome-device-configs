@@ -21,11 +21,21 @@ boundaries; everything else is local to its file.
   status page, the menu and the Modbus map read the temperatures through it (`used_slots()`,
   `slot_name(slot)`, `sensor(slot)`, `temperature(slot)`), and `forget_temperatures` (a script)
   clears slots.
+- `board_info` (`boards/jxd-cpu-e1eth.yaml`) is the `jethome_board_info` component over the
+  CPU board's EEPROM `eeprom_cpu`; `display/menu-serial.yaml` reads it for the Serial row and
+  `features/web-device-dashboard.yaml` for `/api/device/info`.
 - `display1` and `main_page` come from `display/display.yaml`; the other pages attach with
   `id: !extend display1`. `display_menu` (`display/menu.yaml`) exposes `info_submenu` and
-  `menu_settings_id` as extension points that `menu-items-network.yaml` fills via `!extend`;
-  `temperatures_menu` gets a `Temp N` submenu per slot up to the last bound one at boot; a
-  freed slot's submenu only says `Free slot`.
+  `menu_settings_id` as extension points that `menu-items-network.yaml`, `menu-serial.yaml`
+  and `menu-firmware.yaml` fill via `!extend`; their rows follow the device config's package
+  order unless a `weight` moves them, and rows added from C++ at boot come after all of them. A
+  submenu may be empty, and `info_submenu`, `relays_menu` and `inputs_menu` declare no rows of
+  their own: the last two are filled at boot from the `relays` / `inputs` vectors, so the menu
+  follows whatever the board package put there. `temperatures_menu` gets a `Temp N` submenu per
+  slot up to the last bound one at boot; a freed slot's submenu only says `Free slot`.
+  `automations_menu` is filled at boot with a row per loaded rule, or one `No automations` row.
+- `automations_engine` (`features/automations.yaml`) is the rule engine; `display/menu.yaml`
+  reads `configs()` for the Automations rows and calls `set_enable_automation` from them.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
   and expanded inside the main-page lambda in `display/display.yaml`. Package substitutions share
   one namespace with the device config's.
@@ -33,6 +43,27 @@ boundaries; everything else is local to its file.
   (`display/display.yaml`), which every button handler runs last.
 - `user_storage` (`features/storage.yaml`) is the LittleFS partition mounted at `/littlefs`; code
   that keeps files checks `id(user_storage).is_mounted()` and writes below `get_base_path()`.
+  `web_file_browser` (`features/web-file-browser.yaml`) serves the same mount over HTTP under
+  `/files`, on the `web_server` port and with its credentials, so anything written there is also
+  reachable from the network. The `automations` component (`features/automations.yaml`) keeps its
+  rules there and takes its clock from `pcf8563_time`; `web_automation_editor`
+  (`features/automation-editor.yaml`) edits those rules under `/automation-editor/api`.
+- `config_json_keeper` (`features/storage.yaml`) owns the JSON settings files on that partition
+  for any component that registers a settings type with it.
+- `switch_settings` and `binary_sensor_settings` (`features/entity-settings.yaml`) are the
+  settings objects the menu's Relay N and Input N rows call. Those two ids are set explicitly: a
+  generated id cannot be named from a lambda.
+- `web_auth_credentials` (`features/web-auth.yaml`) holds the credentials the web server checks.
+  The `auth:` block in the same file is the factory pair; a pair set through the dashboard is
+  kept in the device's flash preferences and replaces it from the next request on, so a factory
+  reset from the display menu brings `admin` / `admin` back.
+- `web_device_dashboard` (`features/web-device-dashboard.yaml`) is the page at `/`, registered
+  ahead of `web_server`'s own. Entity state and control go through `web_server`'s REST and
+  `/events`, the Files screen through `web_file_browser` at `/files`, the Automations screen
+  through `web_automation_editor` at `/automation-editor`; both prefixes are baked into the page
+  at build time and reported at run time by `/api/device/capabilities`. Its `storage_id` is
+  `user_storage`, which is what `/api/device/system/factory-reset` wipes — the same wipe the
+  menu's Factory reset does.
 
 ## Boot order
 
@@ -41,15 +72,29 @@ boundaries; everything else is local to its file.
 | Priority | What runs |
 | --- | --- |
 | 800 | fill the `relays` / `inputs` vectors |
-| 700 | push the stored Modbus address, baud rate, parity and stop bits into `jxm_uart2` |
+| 700 | push the stored Modbus address, baud rate, parity and stop bits into `jxm_uart2`; build a submenu per entry of those vectors, named after the entity, with its settings rows |
 | 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); restore the timezone and read the RTC (`setup_time`, called from the device config). `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
-| 500 | add a `Temp N` submenu per bound slot to the Temperatures menu |
+| 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created. `board_info` reads the EEPROM here too, once `eeprom_cpu` (600) has answered |
+| 500 | add a `Temp N` submenu per bound slot to the Temperatures menu; add a row per loaded rule to the Automations menu |
 | 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
+
+`littlefs_storage` mounts at 810, so the rule files are readable by the time `automations` loads
+them. A wipe a factory reset asked for runs just before that mount; a wipe that fails leaves the
+partition unmounted and the request standing, so the next boot tries again.
+Entity settings ride on `setup_priority` instead, ahead of every `on_boot` block: the
+`config_json` keeper loads the files at `HARDWARE + 5`, and one apply component per settings type
+pushes the values into the entities at `HARDWARE + 1`, before the switches and binary sensors set
+themselves up. `bindings` sets up at `DATA`, after every entity, and drives the `Follow` relays
+once there; until then input changes are ignored. See [ENTITY_SETTINGS.md](ENTITY_SETTINGS.md).
 
 ## Settings
 
 Template `select` / `number` entities with `optimistic: true` and `restore_value: true`; boot
 lambdas read them. Network mode applies live, Modbus settings on the next reboot.
+
+Per-relay and per-input settings are a separate mechanism — JSON files on the user storage
+partition rather than preferences — because there is one record per entity and they are meant to
+be readable and editable on the partition. See [ENTITY_SETTINGS.md](ENTITY_SETTINGS.md).
 
 ## Temperature slots
 
@@ -70,13 +115,67 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
 
 ## Coupled to upstream internals
 
-- The BACK button (`display/buttons.yaml`) reaches `DisplayMenuComponent`'s protected
-  `leave_menu_` and `finish_editing_` through pointer-to-member casts.
+- `components/display_menu_base` and `components/graphical_display_menu` are copies of
+  upstream's, carrying `right_for_menu_enter`, the `display_menu.back` action, `fill_row`,
+  item `weight` and submenus that may be empty;
+  naming them in `external_components` shadows the built-in ones. Every changed hunk is marked
+  `JetHome:` and `scripts/vendored-diff.py` prints the whole patch against the pinned ESPHome.
+  Dropping the two names from `external_components` builds the upstream components instead.
 - `components/dallas_scan` creates entities at runtime: codegen reserves their places in the
   entity tables (`CORE.register_platform_component`) and registers the device class and unit
   strings, C++ then calls the four-argument `App.register_sensor` and
   `web_server::WebServer::add_entity_config`. The menu rows are `MenuItem`s built by hand.
 - Upstream builds ESP-IDF with `CONFIG_VFS_SUPPORT_DIR` off, so `components/littlefs_storage`
   calls `esp32.require_vfs_dir()` to keep `opendir`/`mkdir` from being stubs.
+- `components/web_file_browser` sits on web-server internals: `/download` writes straight to
+  `esp_http_server` through `AsyncWebServerRequest`'s `httpd_req_t *` conversion, `/upload` takes the
+  multipart reader's two `handleUpload()` calls at index 0 as the start of a transfer, and that
+  multipart branch exists at all only because `ota: - platform: web_server` defines
+  `USE_WEBSERVER_OTA` — which a final-validate check in the component insists on.
+- `components/web_device_dashboard` owns `/` only by registering first: it sets up at
+  `setup_priority::WIFI - 0.5`, just ahead of `web_server`'s `WIFI - 1`, and `web_server_base`
+  asks its handlers in registration order. `web_server` therefore runs without `local: true`:
+  the page it would embed is never served. Its `to_code` also reads the validated config of
+  `web_file_browser` and `web_automation_editor` out of `CORE.config` to report their prefixes,
+  and `/api/device/system/rollback` picks the slot with `esp_ota_get_next_update_partition`,
+  reads its `esp_app_desc_t` and hands it to `esp_ota_set_boot_partition`. That the bootloader
+  then guards the boot is ESPHome's doing: `esp32`'s `enable_ota_rollback` defaults on wherever
+  `ota:` and `safe_mode` are present, and `safe_mode` is what marks a boot good.
+- `components/web_origin_guard` duplicates `web_server::WebServer::is_request_origin_allowed_`
+  rather than calling it: the check is private to a component our handlers do not share, and it
+  would not cover `web_server`'s own OTA handler at `/update` in any case. Its catch-all sits in
+  front of every handler only because it sets up at `setup_priority::WIFI`, above `web_server`
+  and ours at `WIFI - 1` and above the web_server OTA platform at `AFTER_WIFI`, and it writes
+  its `403` through `httpd_resp_*` because `AsyncWebServerRequest::send()` maps every status it
+  does not know to a 500. That last coupling is `web_device_dashboard`'s and
+  `web_file_browser`'s too, and it is why both carry a `send_status_` of their own.
+- `components/web_auth` replaces the two `const char *` upstream's `WebServerBase` keeps and
+  never copies, so the strings it hands over must outlive every request and the setters are
+  called again after each change. It also needs a compiled `auth:` block to exist at all:
+  `add_handler()` decides once, at registration, whether a handler gets the authentication
+  middleware, and without credentials at that moment none is installed. A final-validate check
+  in the component insists on the block.
+- `components/virtual_display` (emulator only, see [QEMU.md](QEMU.md)) renders through
+  `DisplayBuffer`'s protected `init_internal_` / `do_update_` and serves its endpoints as a
+  `web_server_base` handler, setting the 405 status line through ESP-IDF's
+  `httpd_resp_set_status` because the IDF response layer maps no such code.
+- `components/automations` names entities by `fnv1_hash` of their object id and walks
+  `App.get_binary_sensors()` / `get_sensors()` / `get_switches()` itself, so the hash and
+  `EntityBase::get_object_id_to` are part of the on-disk rule format.
+- `tests/harness/main.cpp` is upstream's `tests/components/main.cpp`: the writer keeps what is
+  outside its marker comments and puts the generated setup code into `original_setup()`, which
+  is never called. `App` sizes its entity lists from the YAML and drops a registration past
+  that, so each `tests/components/<name>/test.yaml` declares at least what its cases register.
+- `components/entity_config` force-defines `USE_BINARY_SENSOR_FILTER` so the filter chain compiles
+  without YAML filters, appends a `binary_sensor::Filter` at run time, and keys every stored
+  record on `fnv1_hash(object_id) == EntityBase::get_object_id_hash()`, an equality upstream does
+  not promise.
+- `components/config_base` schedules its debounced save with a named string timeout and flushes
+  from `on_shutdown()`.
+- `components/loop_job` reaches into `App.scheduler.set_timeout()` because `Component::defer()`
+  is protected and the owner is not the dispatcher, and it takes the scheduler at its word that
+  another task may schedule into it.
+- `components/bindings` subscribes once per input with `add_full_state_callback` and never
+  unsubscribes: upstream has no callback removal, so rebinding goes through its own table.
 
 Re-check each of these on every ESPHome bump.

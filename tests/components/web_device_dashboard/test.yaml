@@ -1,0 +1,110 @@
+# Google Test binary for components/web_device_dashboard, built through esphome compile by
+# tests/run.py. The harness main.cpp replaces the generated one, so nothing declared here is
+# ever set up: the sections exist to get the sources compiled and the USE_* defines set. The
+# tests build their own dashboard and drive it over the harness's web_server_base stand-in,
+# exactly as a request off the socket would reach it.
+esphome:
+  name: web-device-dashboard-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+      # The Allow header is set through the ESP-IDF handle; off ESP32 the value only reaches
+      # check_method_'s warning, which the tests read through a log listener.
+      - -DUSE_LOG_LISTENERS
+      - -DESPHOME_LOG_MAX_LISTENERS=1
+
+host:
+
+logger:
+  level: DEBUG
+
+# host: auto-loads network, and the host IPAddress grows the is_set() that /status and /network
+# call only with IPv6 on. Nothing here opens a socket.
+network:
+  enable_ipv6: true
+
+external_components:
+  - source: ../../../components
+    components:
+      - filesystem_storage_abstract
+      - config_base
+      - config_json
+      - i2c_eeprom
+      - jethome_board_info
+      - web_auth
+      - web_device_dashboard
+      - web_origin_guard
+      - loop_job
+  - source: ../../harness/components
+    components: [dir_storage, web_server_base, web_server]
+  # web_device_dashboard depends on web_server for the entity REST API its page calls, and
+  # upstream builds that for ESP platforms only.
+
+dir_storage:
+  id: test_storage
+  path: .storage
+
+# The entity routes are compiled only with USE_CONFIG_JSON, so the keeper is declared here.
+# The tests register their own settings types with it; nothing is loaded or saved.
+config_json:
+  storage: test_storage
+
+# Only so i2c_eeprom and jethome_board_info validate on the host; nothing opens the bus, and
+# the tests fill the board's fields themselves.
+i2c:
+  - id: bus
+    device: /dev/i2c-0
+
+i2c_eeprom:
+  - id: eeprom
+    size: 64KB
+    address: 0x54
+
+jethome_board_info:
+  id: board
+  eeprom_id: eeprom
+
+# auth: is what makes USE_WEBSERVER_AUTH exist, and web_auth is what makes the credentials
+# route exist; the suite covers both halves of the pair.
+web_server:
+  auth:
+    type: digest
+    username: admin
+    password: hunter2
+
+web_server_base: {}
+
+web_auth:
+  id: test_auth
+
+# board_info_id sets USE_WEB_DEVICE_DASHBOARD_BOARD_INFO, so /api/device/info carries the board;
+# storage_id sets USE_WEB_DEVICE_DASHBOARD_STORAGE, so the factory reset has a mount to wipe.
+web_device_dashboard:
+  board_info_id: board
+  storage_id: test_storage
+
+# App sizes its entity lists from what is declared here and silently drops a registration past
+# that, so this is at least what cases/common.h registers.
+binary_sensor:
+  - platform: template
+    id: in_1_unused
+    name: "In 1"
+
+switch:
+  - platform: template
+    id: relay_1_unused
+    name: "Relay 1"
+    optimistic: true
+  - platform: template
+    id: hidden_unused
+    name: "Hidden"
+    optimistic: true

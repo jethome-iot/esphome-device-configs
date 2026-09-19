@@ -1,72 +1,30 @@
+external_components:
+  - source: ${components}
+    components: [display_menu_base, graphical_display_menu]
+
 graphical_display_menu:
   id: display_menu
   display: display1
   font: f7x14_mod2
   mode: joystick
   active: false
+  # The highlight spans the row, and RIGHT no longer opens a submenu: it is the
+  # value key, ENTER is the one that descends.
+  fill_row: true
+  right_for_menu_enter: false
   on_redraw:
     then:
       - component.update: display1
   items:
+    # A Relay N / Input N submenu per entry of the relays / inputs vectors is added at
+    # boot (esphome: on_boot below); both are empty until then.
     - type: menu
       text: "Relays"
-      items:
-        - type: switch
-          text: "Relay 1"
-          switch: relay_1
-          immediate_edit: true
-
-        - type: switch
-          text: "Relay 2"
-          switch: relay_2
-          immediate_edit: true
-
-        - type: switch
-          text: "Relay 3"
-          switch: relay_3
-          immediate_edit: true
-
-        - type: switch
-          text: "Relay 4"
-          switch: relay_4
-          immediate_edit: true
-
-        - type: switch
-          text: "Relay 5"
-          switch: relay_5
-          immediate_edit: true
-
-        - type: switch
-          text: "Relay 6"
-          switch: relay_6
-          immediate_edit: true
+      id: relays_menu
 
     - type: menu
       text: "Inputs"
-      items:
-        - type: label
-          text: !lambda |-
-            return id(input_1).state ? "Input 1: ON" : "Input 1: OFF";
-
-        - type: label
-          text: !lambda |-
-            return id(input_2).state ? "Input 2: ON" : "Input 2: OFF";
-
-        - type: label
-          text: !lambda |-
-            return id(input_3).state ? "Input 3: ON" : "Input 3: OFF";
-
-        - type: label
-          text: !lambda |-
-            return id(input_4).state ? "Input 4: ON" : "Input 4: OFF";
-
-        - type: label
-          text: !lambda |-
-            return id(input_5).state ? "Input 5: ON" : "Input 5: OFF";
-
-        - type: label
-          text: !lambda |-
-            return id(input_6).state ? "Input 6: ON" : "Input 6: OFF";
+      id: inputs_menu
 
     # A Temp N submenu per slot up to the last bound one is added at boot (esphome:
     # on_boot below); a freed slot's submenu only says Free slot.
@@ -81,6 +39,11 @@ graphical_display_menu:
               return str_sprintf("%s: --", s->get_name().c_str());
             return str_sprintf("%s: %.1f°C", s->get_name().c_str(), s->state);
 
+    # A row per loaded rule is added at boot (esphome: on_boot below).
+    - type: menu
+      text: "Automations"
+      id: automations_menu
+
     - type: menu
       text: "Info"
       id: info_submenu
@@ -89,6 +52,8 @@ graphical_display_menu:
     - type: menu
       text: "Settings"
       id: menu_settings_id
+      # Weights, not the package order, group these by what a row does: unweighted
+      # everyday settings, 10 commissioning, 20 erases data, 30+ the whole device.
       items:
         - type: select
           text: "Display off"
@@ -96,6 +61,7 @@ graphical_display_menu:
 
         - type: menu
           text: "Modbus"
+          weight: 10
           items:
             - type: label
               text: "Applied on reboot"
@@ -119,6 +85,7 @@ graphical_display_menu:
 
         - type: menu
           text: "Temp sensors"
+          weight: 20
           items:
             - type: label
               text: "Forget all?"
@@ -134,6 +101,7 @@ graphical_display_menu:
 
         - type: menu
           text: "Factory reset"
+          weight: 40
           items:
             - type: label
               text: "Factory reset?"
@@ -145,16 +113,97 @@ graphical_display_menu:
                 - lambda: 'id(factory_reset_yes)->set_text("Confirm - OK");'
                 - delay: 1s
                 - lambda: |-
+                    // The partition is wiped at the next boot; the record has to outlive
+                    // the preferences erase, which takes all of NVS.
                     global_preferences->reset();
+                    if (!id(user_storage)->request_format()) {
+                      ESP_LOGE("factory_reset", "The user partition was not wiped and will not be");
+                    }
                     App.safe_reboot();
 
         - type: command
           text: "Reboot device"
+          weight: 30
           on_value:
             - lambda: 'App.safe_reboot();'
 
 esphome:
   on_boot:
+    # After the board has filled `relays` / `inputs` (800). A settings row is opened with
+    # CENTER, stepped with LEFT / RIGHT and closed with CENTER or BACK; the choice is applied
+    # when it closes.
+    - priority: 700
+      then:
+        - lambda: |-
+            using namespace display_menu_base;
+            using Field = entity_config::SwitchSettingsJson::Field;
+            auto add_row = [](MenuItemMenu *menu, const char *text, std::function<size_t()> count,
+                              std::function<std::string(int)> label, std::function<int()> index,
+                              std::function<void(size_t)> set) {
+              auto *pending = new int(-1);  // the choice being edited; -1 outside editing
+              auto *row = new MenuItemCustom();
+              row->set_text(std::string(text));
+              row->set_value_lambda([=](const MenuItem *) { return label(*pending >= 0 ? *pending : index()); });
+              row->add_on_enter_callback([=]() { *pending = index(); });
+              row->add_on_next_callback([=]() { *pending = (*pending + 1) % static_cast<int>(count()); });
+              row->add_on_prev_callback([=]() {
+                const int n = count();
+                *pending = *pending < 0 ? n - 1 : (*pending + n - 1) % n;
+              });
+              row->add_on_leave_callback([=]() {
+                if (*pending >= 0 && *pending != index())
+                  set(*pending);
+                *pending = -1;
+              });
+              menu->add_item(row);
+            };
+            // Each submenu is built next to its entity, so nothing binds its rows by position.
+            auto *sws = id(switch_settings);
+            for (auto *sw : id(relays)) {
+              auto *menu = new MenuItemMenu();
+              menu->set_text([sw](const MenuItem *) {
+                return sw->get_name().str() + (sw->state ? " (On)" : " (Off)");
+              });
+              auto *state_row = new MenuItemSwitch();
+              state_row->set_text(std::string("State"));
+              state_row->set_switch_variable(sw);
+              state_row->set_on_text("On");
+              state_row->set_off_text("Off");
+              state_row->set_immediate_edit(true);
+              menu->add_item(state_row);
+
+              auto field_row = [&](const char *text, Field field) {
+                add_row(menu, text, [sws, field]() { return sws->option_count(field); },
+                        [sws, sw, field](int index) { return sws->option_label(sw, field, index); },
+                        [sws, sw, field]() { return sws->option_index(sw, field); },
+                        [sws, sw, field](size_t index) { sws->set_option(sw, field, index); });
+              };
+              field_row("Inverted", Field::INVERTED);
+              field_row("Start mode", Field::RESTORE_MODE);
+              field_row("Bind to", Field::BINDING_INPUT);
+              field_row("Binding", Field::BINDING_MODE);
+              id(relays_menu)->add_item(menu);
+            }
+
+            auto *bss = id(binary_sensor_settings);
+            for (auto *input : id(inputs)) {
+              auto *menu = new MenuItemMenu();
+              menu->set_text([input](const MenuItem *) {
+                return input->get_name().str() + (input->state ? " (On)" : " (Off)");
+              });
+              auto *state_row = new MenuItem(MENU_ITEM_LABEL);
+              state_row->set_text([input](const MenuItem *) {
+                return std::string(input->state ? "State (On)" : "State (Off)");
+              });
+              menu->add_item(state_row);
+
+              add_row(menu, "Inverted", []() { return 2; },
+                      [](int index) { return index == 1 ? "Yes" : "No"; },
+                      [bss, input]() { return bss->is_inverted(input) ? 1 : 0; },
+                      [bss, input](size_t index) { bss->set_inverted(input, index == 1); });
+              id(inputs_menu)->add_item(menu);
+            }
+
     # After dallas_scan (600) has created the sensors.
     - priority: 500
       then:
@@ -205,4 +254,74 @@ esphome:
                 menu->add_item(confirm);
               }
               id(temperatures_menu)->add_item(menu);
+            }
+
+    # After the engine has loaded the rules (setup priority DATA - 1). The list is the one
+    # boot found: a rule added over HTTP afterwards shows after a reboot.
+    - priority: 500
+      then:
+        - lambda: |-
+            using namespace display_menu_base;
+            auto *engine = id(automations_engine);
+            // A row holds the rule's id, not a pointer: add and remove move the configs.
+            auto state_of = [engine](uint32_t rule_id) {
+              for (const auto &config : engine->configs().get_all_configs()) {
+                if (config.id == rule_id)
+                  return config.enabled ? 1 : 0;
+              }
+              return -1;  // removed since boot
+            };
+            // The value is appended to the row text and the row is clipped at the panel
+            // edge, so a long name would push On / Off off the screen.
+            auto fit = [](const std::string &text, size_t chars) {
+              size_t i = 0;
+              while (i < text.size() && chars-- > 0) {
+                for (i++; i < text.size() && (static_cast<unsigned char>(text[i]) & 0xC0) == 0x80; i++) {
+                }
+              }
+              return text.substr(0, i);
+            };
+            // A cut name is no longer known to be unique — two rules may start alike — so a row
+            // that had to cut one carries the rule's id, the one the editor and the log use.
+            auto label = [&fit](const automations::AutomationConfig &config) {
+              const std::string cut = fit(config.name, 12);
+              if (cut.size() == config.name.size())
+                return cut;
+              const std::string tag = " #" + std::to_string(config.id);
+              return fit(config.name, 12 - tag.size()) + tag;
+            };
+            for (const auto &config : engine->configs().get_all_configs()) {
+              const uint32_t rule_id = config.id;
+              auto *pending = new int(-1);  // the choice being edited; -1 outside editing
+              auto *row = new MenuItemCustom();
+              row->set_text(label(config));
+              row->set_value_lambda([=](const MenuItem *) {
+                const int state = *pending >= 0 ? *pending : state_of(rule_id);
+                return std::string(state < 0 ? "--" : state > 0 ? "On" : "Off");
+              });
+              row->add_on_enter_callback([=]() { *pending = state_of(rule_id); });
+              auto flip = [=]() {
+                if (*pending >= 0)
+                  *pending = 1 - *pending;
+              };
+              row->add_on_next_callback(flip);
+              row->add_on_prev_callback(flip);
+              row->add_on_leave_callback([=]() {
+                const int current = state_of(rule_id);
+                bool persisted = false;
+                // Only on a change to a rule still there: the engine rewrites the rule's file on
+                // every call. A rule naming an entity that is gone is never written, so put the
+                // live state back rather than leave the row promising what a reboot would undo.
+                if (*pending >= 0 && current >= 0 && *pending != current &&
+                    engine->set_enable_automation(rule_id, *pending > 0, &persisted) && !persisted)
+                  engine->set_enable_automation(rule_id, *pending == 0);
+                *pending = -1;
+              });
+              id(automations_menu)->add_item(row);
+            }
+            if (id(automations_menu)->items_size() == 0) {
+              // An empty submenu cannot be entered, so the row would do nothing at all.
+              auto *note = new MenuItem(MENU_ITEM_LABEL);
+              note->set_text("No automations");
+              id(automations_menu)->add_item(note);
             }

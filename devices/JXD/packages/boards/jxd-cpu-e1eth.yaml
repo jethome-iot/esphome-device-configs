@@ -24,13 +24,27 @@ ota:
 preferences:
   flash_write_interval: 5s
 
+external_components:
+  - source: ${components}
+    components: [i2c_eeprom, jethome_board_info]
+
+i2c_eeprom:
+  - id: eeprom_cpu
+    size: 64KB
+    address: 0x54
+
+# The board's identity, as the factory wrote it.
+jethome_board_info:
+  id: board_info
+  eeprom_id: eeprom_cpu
+
 logger:
   level: debug
 
 web_server:
   port: 80
   version: 3
-  local: true
+  # No local: true. web_device_dashboard owns /, so the page it would embed is never served.
   sorting_groups:
     - id: group_relays
       name: "Relays"

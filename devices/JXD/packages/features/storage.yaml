@@ -1,11 +1,16 @@
-# A LittleFS partition for data that must survive OTA updates. Changing the
-# partition table needs a USB flash: OTA keeps the table it finds.
+# A LittleFS partition for data that must survive OTA updates, and the JSON settings
+# store on it. Changing the partition table needs a USB flash: OTA keeps the table it
+# finds.
 external_components:
   - source: ${components}
-    components: [filesystem_storage_abstract, littlefs_storage]
+    components: [filesystem_storage_abstract, littlefs_storage, config_base, config_json]
 
 littlefs_storage:
   id: user_storage
   partition_label: littlefs
   partition_size: 4MB
   base_path: /littlefs
+
+config_json:
+  id: config_json_keeper
+  storage: user_storage

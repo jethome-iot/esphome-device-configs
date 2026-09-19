@@ -6,7 +6,7 @@ How firmware gets built, versioned and published, and what runs where.
 
 | Workflow | When | What it does |
 | --- | --- | --- |
-| Build (`build.yml`) | push to `dev` or `master`, every PR, manual | Discovers firmwares in `firmwares.yaml`, compiles each with the pinned ESPHome, verifies `dist/` is current, runs lint |
+| Build (`ci.yml`) | push to `dev` or `master`, every PR, manual | Discovers firmwares in `firmwares.yaml`, validates then compiles each with the pinned ESPHome, runs the component tests, verifies `dist/` is current, runs lint; `ci-ok` aggregates the lot into the one check branch protection requires |
 | Release (`release.yml`) | a release is published (incl. prerelease), manual dispatch | Compiles every firmware, attaches binaries to the GitHub release, uploads the `upload: true` ones to fw.jethome.com |
 | ESPHome release check (`esphome-release-check.yml`) | weekly, manual | On a new upstream ESPHome release: compiles every firmware with it and opens an issue with the results — the go/no-go for the dependabot bump |
 | Draft release (`draft-release.yml`) | push to `master`, manual | Refreshes the rolling draft release tagged with the next version — publish it to build and ship |
@@ -100,6 +100,38 @@ server is never fed from an unpublished draft.
 - hash: md5 (the server serves it as `info.md5` for OTA updates)
 - `supported_devices`: the device slug; the `latest` pointer moves only on
   `release` channel uploads (manual runs control it with `update_latest`)
+
+## Updates on the device
+
+A firmware built here checks fw.jethome.com for a newer build of its own device
+slug and installs it over HTTPS. Three entities:
+
+| Entity | What it does |
+| --- | --- |
+| `Firmware update` | The version the server offers and the button that installs it; checks every 6 hours on its own |
+| `Firmware channel` | `release` or `nightly` — the channel the check reads, kept across reboots |
+| `Check for updates` | Checks now instead of waiting for the next poll; offline it does nothing |
+
+The check reads `https://fw.jethome.com/api/devices/<device>/info`, where `<device>`
+is the config's `fw_device` substitution — the slug from `firmwares.yaml`, not the
+name the device was imported under — and offers the `esp.ota` image of the selected
+channel whenever its version differs from the one the firmware was built with.
+Prereleases go to `nightly`, full releases to `release`; picking a channel the
+pipeline has never published to leaves the entity in an error state, with the
+channel the manifest lacked named in the log.
+
+The display carries the same under **Settings → Firmware**: the running and the offered
+version, the channel, a check, and an install behind a confirmation. An install started
+anywhere — that row, Home Assistant, the dashboard — takes the screen over until the device
+reboots into the new firmware: the version being written, the percentage and a progress bar,
+and no blanking while it runs. An install that fails says so on the same screen, leaves the
+running firmware in place, and gives the screen back on the next button press.
+
+The wiring is `devices/JXD/packages/features/firmware-update.yaml` with its menu rows in
+`devices/JXD/packages/display/menu-firmware.yaml` and its install screen in
+`devices/JXD/packages/display/firmware-page.yaml`, and all three are left out of `dist/`: a
+firmware built from the imported config is the user's own, not one this pipeline publishes
+([dist/ and new devices](DIST.md)).
 
 ## Secrets
 

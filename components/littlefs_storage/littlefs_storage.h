@@ -1,5 +1,6 @@
 #pragma once
 
+#include <esp_err.h>
 #include <string>
 #include "esphome/components/filesystem_storage_abstract/filesystem_storage_abstract.h"
 #include "esphome/core/component.h"
@@ -17,7 +18,9 @@ class LittleFSStorage : public filesystem_storage_abstract::FilesystemStorageAbs
   void set_base_path(const std::string &path) { this->base_path_ = path; }
   void set_format_if_mount_failed(bool format) { this->format_if_mount_failed_ = format; }
 
-  bool format();
+  // Wipes the partition at the next boot, or right away when the request cannot be recorded.
+  // Call after global_preferences->reset(): it erases NVS.
+  bool request_format() override;
 
   bool is_mounted() const override { return this->mounted_; }
   const std::string &get_base_path() const override { return this->base_path_; }
@@ -25,6 +28,12 @@ class LittleFSStorage : public filesystem_storage_abstract::FilesystemStorageAbs
   filesystem_storage_abstract::StorageInfo get_storage_info() const override;
 
  protected:
+  // The NVS record a requested wipe leaves behind, cleared only once the format succeeded:
+  // an interrupted wipe retries at the next boot.
+  esp_err_t record_format_request_();
+  bool format_requested_();
+  void clear_format_request_();
+
   std::string partition_label_;
   std::string base_path_;
   bool format_if_mount_failed_{true};

@@ -1,0 +1,13 @@
+# The web UI at /: overview, entities and their settings, automations, the log
+# and the file manager. Built from jethome-devices-web-dashboard and embedded
+# in components/web_device_dashboard/dashboard_index.h.
+external_components:
+  - source: ${components}
+    components: [web_device_dashboard, web_origin_guard, loop_job]
+
+web_device_dashboard:
+  # The EEPROM identity to report.
+  board_info_id: board_info
+  # What a factory reset over the API wipes, and what /api/device/capabilities reports as the
+  # device's storage. Needs the storage package.
+  storage_id: user_storage
