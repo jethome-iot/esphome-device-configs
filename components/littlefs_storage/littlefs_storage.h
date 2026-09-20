@@ -1,11 +1,16 @@
 #pragma once
 
 #include <esp_err.h>
+#include <cstdint>
 #include <string>
 #include "esphome/components/filesystem_storage_abstract/filesystem_storage_abstract.h"
 #include "esphome/core/component.h"
 
 namespace esphome::littlefs_storage {
+
+/// What the NVS record says. Three outcomes, not two: a record that cannot be read is not the
+/// same answer as one that says no wipe was asked for.
+enum class WipeRequest : uint8_t { NONE, PENDING, UNKNOWN };
 
 class LittleFSStorage : public filesystem_storage_abstract::FilesystemStorageAbstract {
  public:
@@ -31,7 +36,9 @@ class LittleFSStorage : public filesystem_storage_abstract::FilesystemStorageAbs
   // The NVS record a requested wipe leaves behind, cleared only once the format succeeded:
   // an interrupted wipe retries at the next boot.
   esp_err_t record_format_request_();
-  bool format_requested_();
+  /// NONE only when NVS answered that there is no request: an unreadable record is UNKNOWN,
+  /// because a standing one would otherwise read as no request at all.
+  WipeRequest format_requested_();
   /// False when the record still stands, in which case a mount would take data the next boot
   /// erases. Erasing a key that is not there counts as cleared.
   bool clear_format_request_();

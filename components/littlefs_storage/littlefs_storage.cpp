@@ -14,8 +14,17 @@ static const char *const NVS_NAMESPACE = "littlefs";
 static const char *const NVS_KEY_WIPE = "wipe";
 
 void LittleFSStorage::setup() {
+  const WipeRequest requested = this->format_requested_();
+  if (requested == WipeRequest::UNKNOWN) {
+    // Not the same as no request: one may be standing, and mounting on it would serve the
+    // files a reset promised to erase, on a device that came up on its factory credentials —
+    // the preferences it reset live in the NVS that just failed to answer.
+    ESP_LOGE(TAG, "Leaving '%s' unmounted until a boot can read the wipe record", this->partition_label_.c_str());
+    this->mark_failed(LOG_STR("The factory reset record could not be read"));
+    return;
+  }
   // Before the mount: nothing has set up yet, so nothing can hold a file on what this erases.
-  if (this->format_requested_()) {
+  if (requested == WipeRequest::PENDING) {
     ESP_LOGI(TAG, "Wiping '%s' as the factory reset asked", this->partition_label_.c_str());
     esp_err_t err = esp_littlefs_format(this->partition_label_.c_str());
     if (err != ESP_OK) {
@@ -106,16 +115,32 @@ esp_err_t LittleFSStorage::record_format_request_() {
   return err;
 }
 
-bool LittleFSStorage::format_requested_() {
-  if (nvs_flash_init() != ESP_OK)
-    return false;
+WipeRequest LittleFSStorage::format_requested_() {
+  esp_err_t err = nvs_flash_init();
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Cannot reach NVS to read the wipe record: %s", esp_err_to_name(err));
+    return WipeRequest::UNKNOWN;
+  }
   nvs_handle_t handle;
-  if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) != ESP_OK)
-    return false;
+  err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
+  // Only a wipe request ever writes this namespace, so on a device that never asked for one
+  // there is nothing to open. That is the answer, not a fault.
+  if (err == ESP_ERR_NVS_NOT_FOUND)
+    return WipeRequest::NONE;
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Cannot open the wipe record: %s", esp_err_to_name(err));
+    return WipeRequest::UNKNOWN;
+  }
   uint8_t pending = 0;
-  esp_err_t err = nvs_get_u8(handle, NVS_KEY_WIPE, &pending);
+  err = nvs_get_u8(handle, NVS_KEY_WIPE, &pending);
   nvs_close(handle);
-  return err == ESP_OK && pending != 0;
+  if (err == ESP_ERR_NVS_NOT_FOUND)
+    return WipeRequest::NONE;
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Cannot read the wipe record: %s", esp_err_to_name(err));
+    return WipeRequest::UNKNOWN;
+  }
+  return pending != 0 ? WipeRequest::PENDING : WipeRequest::NONE;
 }
 
 bool LittleFSStorage::clear_format_request_() {

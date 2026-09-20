@@ -79,10 +79,13 @@ boundaries; everything else is local to its file.
 | 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
 
 `littlefs_storage` mounts at 810, so the rule files are readable by the time `automations` loads
-them. A wipe a factory reset asked for runs just before that mount; a wipe that fails, or one
-that cannot erase its own request afterwards, leaves the partition unmounted and the request
-standing, so the next boot tries again. Mounting on a standing request would take the files
-written during that boot and erase them at the next, saying nothing either time.
+them. A wipe a factory reset asked for runs just before that mount. Three things leave the
+partition unmounted with the request as it was, so the next boot tries again: a record NVS
+cannot be read at all, a wipe that fails, and a wipe that cannot erase its own request
+afterwards. An unreadable record is not "no wipe was asked for" — mounting on one serves the
+files the reset promised to erase, on a device that came up on its factory credentials —
+and mounting on a standing one takes the files written during that boot and erases them at
+the next, saying nothing either time.
 Entity settings ride on `setup_priority` instead, ahead of every `on_boot` block: the
 `config_json` keeper loads the files at `HARDWARE + 5`, and one apply component per settings type
 pushes the values into the entities at `HARDWARE + 1`, before the switches and binary sensors set
