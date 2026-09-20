@@ -4,6 +4,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -52,6 +53,21 @@ class TestEngine : public automations::AutomationStorage {
   void forget() {
     this->automations_.clear();
     this->config_storage_.clear();
+  }
+
+  // A host build has one task, so every job runs inline and a handler that read the list where
+  // it stands would answer exactly like one that handed the read over. What crossed is counted
+  // here instead, and `loop_busy` refuses a job the way the dispatcher does when the loop task
+  // never gets to it. What this cannot reach is the crossing itself -- the dispatcher takes its
+  // on-loop-task branch here; the handshake is `tests/components/loop_job/`.
+  int jobs{0};
+  bool loop_busy{false};
+
+  bool run_on_loop(std::function<bool()> &&job) override {
+    this->jobs++;
+    if (this->loop_busy)
+      return false;
+    return automations::AutomationStorage::run_on_loop(std::move(job));
   }
 };
 

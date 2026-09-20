@@ -42,7 +42,15 @@ class AutomationStorage : public Component {
   /// Names collide by sanitized filename; `exclude_id` never blocks itself.
   bool is_name_taken(const std::string &name, uint32_t exclude_id = 0) const;
 
+  /// The loaded configs. They belong to the loop task, which the mutators above and a rule's
+  /// own dispatch run on: a caller on another task reads them through run_on_loop().
   const AutomationConfigStorage &configs() const { return this->config_storage_; }
+
+  /// Runs @p job on the loop task and blocks until it answers, for a reader that is not the
+  /// loop — an ESP-IDF HTTP handler runs on the server's task. False when the loop never got
+  /// to it, and then the job did not run and never will.
+  /// Virtual so the unit tests, which have one task, can count what crosses and refuse it.
+  virtual bool run_on_loop(std::function<bool()> &&job);
 
   void set_time_source(time::RealTimeClock *rtc) { this->rtc_ = rtc; }
   void set_folder_path(const std::string &path) { this->folder_path_ = path; }

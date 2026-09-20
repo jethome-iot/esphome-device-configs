@@ -62,6 +62,8 @@ class WebAutomationEditor : public AsyncWebHandler, public Component {
   void handle_entities_(AsyncWebServerRequest *request);
   void handle_schema_(AsyncWebServerRequest *request);
   void send_error_(AsyncWebServerRequest *request, const std::string &message, int code = 400);
+  // For a read or a write the loop task did not take: nothing happened, and it can be asked again.
+  void send_busy_(AsyncWebServerRequest *request);
   void send_success_(AsyncWebServerRequest *request, const char *message, uint32_t id = 0);
   // For the statuses AsyncWebServerRequest::send() does not know and would turn into a 500.
   void send_status_(AsyncWebServerRequest *request, const char *status, const char *allow, const char *body);

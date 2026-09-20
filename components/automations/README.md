@@ -114,6 +114,12 @@ callback, say) they refuse and return false.
 - `reset_all()`: remove every rule and its file
 - `is_name_taken(name, exclude_id = 0)`: names collide by file name
 - `configs()`: the loaded `AutomationConfig`s, including the ones that did not build
+- `run_on_loop(job)`: runs `job` on the loop task and blocks; `false` when the loop never got to it
+
+`configs()` and `is_name_taken()` read the list where it lives, so they are for the loop task —
+a mutator called from a lambda there reallocates it under a reader on any other. A caller that
+is not the loop task reads through `run_on_loop`, together with whatever it decides from the
+read, so that its answer describes one state of the list.
 
 ## Testing
 

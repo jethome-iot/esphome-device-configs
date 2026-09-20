@@ -240,6 +240,15 @@ void AutomationStorage::check_time_() {
 
 // --- Mutators: any task in, loop task does the work ---
 
+bool AutomationStorage::run_on_loop(std::function<bool()> &&job) {
+  // A failed component is not scheduled, so a deferred job would only wait out the timeout.
+  // Its mutators refuse for that same reason, so nothing can move the list under a reader
+  // that runs where it stands.
+  if (this->is_failed())
+    return job();
+  return this->dispatcher_.run_on_loop(this, std::move(job));
+}
+
 bool AutomationStorage::run_on_loop_(std::function<bool()> &&job) {
   // The scheduler drops deferred items of a failed component, so a cross-task call would wait
   // out the dispatcher's timeout and an inline one would edit state that never reaches flash.

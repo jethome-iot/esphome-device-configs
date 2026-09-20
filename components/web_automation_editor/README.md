@@ -48,6 +48,10 @@ answers `403` to a request whose `Origin` is not the `Host` it was sent to. Clie
 Routes match on the exact URL path under `<url_prefix>/api/`, and each answers the one method
 below: anything else is `405` with an `Allow` header.
 
+Every route that touches the rules runs its whole read or write on the loop task, which owns
+them, and answers `503 Service Unavailable` when the loop does not get to it within five
+seconds. Nothing was read or written then, and the call can simply be made again.
+
 | Method | Path | |
 |---|---|---|
 | GET | `list` | `{"automations": [{"id", "name", "enabled", "trigger_count", "action_count", "else_action_count", "mode"}, ...]}` |
