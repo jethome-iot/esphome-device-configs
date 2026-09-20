@@ -26,7 +26,15 @@ void LittleFSStorage::setup() {
       this->mark_failed(LOG_STR("The factory reset could not wipe the storage"));
       return;
     }
-    this->clear_format_request_();
+    if (!this->clear_format_request_()) {
+      // Mounting now would take the files the user writes during this boot and erase them at
+      // the next, which still finds the request standing — and say nothing either time. The
+      // partition is already empty, so a boot that manages to clear the record loses nothing.
+      ESP_LOGE(TAG, "Wipe recorded as still pending, leaving '%s' unmounted until a boot clears it",
+               this->partition_label_.c_str());
+      this->mark_failed(LOG_STR("The factory reset could not clear its own record"));
+      return;
+    }
   }
 
   esp_vfs_littlefs_conf_t conf = {};
@@ -110,18 +118,26 @@ bool LittleFSStorage::format_requested_() {
   return err == ESP_OK && pending != 0;
 }
 
-void LittleFSStorage::clear_format_request_() {
+bool LittleFSStorage::clear_format_request_() {
   nvs_handle_t handle;
-  if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) != ESP_OK)
-    return;
-  esp_err_t err = nvs_erase_key(handle, NVS_KEY_WIPE);
+  esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Cannot clear the wipe record: %s", esp_err_to_name(err));
+    return false;
+  }
+  err = nvs_erase_key(handle, NVS_KEY_WIPE);
+  // Gone is the state this asks for, however it got there.
+  if (err == ESP_ERR_NVS_NOT_FOUND)
+    err = ESP_OK;
   if (err == ESP_OK)
     err = nvs_commit(handle);
   nvs_close(handle);
   if (err != ESP_OK) {
     // Left standing, it would wipe the partition at every boot.
     ESP_LOGE(TAG, "Cannot clear the wipe record: %s", esp_err_to_name(err));
+    return false;
   }
+  return true;
 }
 
 filesystem_storage_abstract::StorageInfo LittleFSStorage::get_storage_info() const {

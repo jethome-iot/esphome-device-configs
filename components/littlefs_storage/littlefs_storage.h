@@ -32,7 +32,9 @@ class LittleFSStorage : public filesystem_storage_abstract::FilesystemStorageAbs
   // an interrupted wipe retries at the next boot.
   esp_err_t record_format_request_();
   bool format_requested_();
-  void clear_format_request_();
+  /// False when the record still stands, in which case a mount would take data the next boot
+  /// erases. Erasing a key that is not there counts as cleared.
+  bool clear_format_request_();
 
   std::string partition_label_;
   std::string base_path_;
