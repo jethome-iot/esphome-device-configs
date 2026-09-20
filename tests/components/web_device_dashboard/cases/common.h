@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -319,6 +320,13 @@ class TestDashboard : public WebDeviceDashboard {
 
   int restarts{0};
   int rollbacks{0};
+  // A host build has one task, so every job runs inline and a handler that read the records
+  // where they stand would answer exactly like one that handed the read over. What crossed is
+  // counted here instead, and `loop_busy` refuses a job the way the dispatcher does when the
+  // loop task never gets to it. What this cannot reach is the crossing itself -- the dispatcher
+  // takes its on-loop-task branch here; the handshake is `tests/components/loop_job/`.
+  int jobs{0};
+  bool loop_busy{false};
   // What rollback_target_() answers while stub_rollback is set; without it the build's own
   // answer stands, which off ESP32 is "nothing to roll back to".
   bool stub_rollback{false};
@@ -333,6 +341,12 @@ class TestDashboard : public WebDeviceDashboard {
   const char *select_rollback_(const RollbackTarget & /*target*/) override {
     this->rollbacks++;
     return this->rollback_error;
+  }
+  bool run_on_loop_(std::function<bool()> &&job) override {
+    this->jobs++;
+    if (this->loop_busy)
+      return false;
+    return WebDeviceDashboard::run_on_loop_(std::move(job));
   }
 };
 

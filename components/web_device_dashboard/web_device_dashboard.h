@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <ArduinoJson.h>
 #include "esphome/components/loop_job/loop_job.h"
@@ -111,6 +112,11 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   /// nullptr once the next boot is the rolled-back slot, else why it is not.
   virtual const char *select_rollback_(const RollbackTarget &target);
   virtual void restart_();
+  /// Hands @p job to the loop task, which owns the entity records, and waits for it. False
+  /// when the loop never got to it: the job did not run and never will.
+  /// Virtual for the same reason: a host build has one task, so nothing crosses on its own
+  /// and only a stand-in can refuse a job or count what was handed over.
+  virtual bool run_on_loop_(std::function<bool()> &&job);
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
   void write_board_(JsonObject root);
 #endif

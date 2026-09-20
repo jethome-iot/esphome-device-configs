@@ -743,6 +743,10 @@ const char *WebDeviceDashboard::select_rollback_(const RollbackTarget & /*target
 
 void WebDeviceDashboard::restart_() { App.safe_reboot(); }
 
+bool WebDeviceDashboard::run_on_loop_(std::function<bool()> &&job) {
+  return this->dispatcher_.run_on_loop(this, std::move(job));
+}
+
 // Both wait the answer out on the loop task: the server task is still holding the socket this
 // was asked on.
 void WebDeviceDashboard::reboot_() {
@@ -812,23 +816,39 @@ void WebDeviceDashboard::handle_entity_settings_get_(AsyncWebServerRequest *requ
     return;
   }
   const std::string type = request->getParam("type")->value();
-  auto *settings = keeper->get_settings(type.c_str());
-  if (settings == nullptr) {
-    this->send_error_(request, 404, "Settings type not found");
+  const bool one = request->hasParam("source_name");
+  const std::string source_name = one ? request->getParam("source_name")->value() : std::string();
+
+  // The record list belongs to the loop task — a settings row on the display appends to it —
+  // and this runs on the HTTP server's. The whole response is built there: a record read here
+  // could be one the menu has just reallocated away.
+  std::string json;
+  int code = 0;
+  const char *message = nullptr;
+  const bool read = this->run_on_loop_([&]() {
+    auto *settings = keeper->get_settings(type.c_str());
+    if (settings == nullptr) {
+      code = 404;
+      message = "Settings type not found";
+      return false;
+    }
+    JsonDocument doc;
+    JsonObject root = doc.to<JsonObject>();
+    root["type"] = type;
+    if (one) {
+      settings->write_json_single(root, config_json::SETTINGS_FILE_VERSION, source_name.c_str());
+    } else {
+      settings->write_json(root, config_json::SETTINGS_FILE_VERSION);
+    }
+    serializeJson(doc, json);
+    return true;
+  });
+
+  if (!read) {
+    // No code means the loop task never took the job: there is nothing to answer with.
+    this->send_error_(request, code == 0 ? 503 : code, code == 0 ? "Device busy" : message);
     return;
   }
-
-  JsonDocument doc;
-  JsonObject root = doc.to<JsonObject>();
-  root["type"] = type;
-  if (request->hasParam("source_name")) {
-    const std::string source_name = request->getParam("source_name")->value();
-    settings->write_json_single(root, config_json::SETTINGS_FILE_VERSION, source_name.c_str());
-  } else {
-    settings->write_json(root, config_json::SETTINGS_FILE_VERSION);
-  }
-  std::string json;
-  serializeJson(doc, json);
   request->send(200, "application/json", json.c_str());
 }
 
@@ -882,7 +902,7 @@ void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *requ
   // device that had already moved on. `doc` outlives the call because run_on_loop blocks.
   int code = 0;
   const char *message = nullptr;
-  const bool wrote = this->dispatcher_.run_on_loop(this, [&]() {
+  const bool wrote = this->run_on_loop_([&]() {
     auto *settings = keeper->get_settings(type);
     if (settings == nullptr) {
       code = 404;
