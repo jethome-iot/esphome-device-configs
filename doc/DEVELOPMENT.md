@@ -130,6 +130,11 @@ Every pull request opens on an issue and says which one in its body:
 | `Closes #N` | this pull request finishes the issue |
 | `Part of #N` | one of several; the issue stays open |
 
+GitHub acts on those keywords only when the pull request targets the default branch. On one
+that targets `master` the line still records which issue the work belongs to, but nothing
+closes the issue: that is done by hand when the pull request merges, because the later merge
+into `dev` never reconsiders a pull request body it did not carry.
+
 A pull request with nothing behind it is one nobody agreed to. When something else turns out to
 need doing mid-change and does not belong in the change at hand, file it and link it instead of
 widening the pull request.
