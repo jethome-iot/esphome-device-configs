@@ -7,9 +7,14 @@ assignees: ''
 ---
 
 <!--
-In English. Set one type label: type:feature, type:refactor, type:docs or type:chore.
-If this belongs to an epic, add "Part of #N" below.
+In English. If this belongs to an epic, add "Part of #N" below.
+
+Setting a label takes triage access, which not every author has, so name the type on the line
+below instead and whoever triages applies the matching `type:` label. If you do have the access,
+set the label as well.
 -->
+
+Type: feature | refactor | docs | chore
 
 ## What
 

@@ -150,8 +150,8 @@ Two axes, each with its own prefix so the list groups them and neither is mistak
 **`type:`** — one per issue. The bug and epic templates carry theirs, so an issue filed from
 either arrives with it. The task template covers the four kinds that are left and cannot: a
 label is set at filing only by someone with triage access, which an outside contributor does
-not have. So on those, the type is whatever the author could set, and otherwise the first thing
-whoever triages the issue does.
+not have. It asks for the type on a line of its own instead, so applying the label is the first
+thing triage does and it never has to guess which one.
 
 | | |
 | --- | --- |
