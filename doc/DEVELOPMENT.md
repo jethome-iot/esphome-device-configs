@@ -110,7 +110,7 @@ The issue is where the work is described and agreed; the pull request only carri
 review finding that is not fixed in the pull request it was raised on is filed as its own issue
 before that pull request is called done, so nothing real is left behind in a comment thread.
 
-A milestone is an **epic issue**, labelled `epic` — not the GitHub Milestones feature. It carries
+A milestone is an **epic issue**, labelled `type:epic` — not the GitHub Milestones feature. It carries
 the list of its children as a task list, and each child links back to it. The state of a
 milestone is then one page, and it is the same kind of object as everything else, so it takes
 discussion and links like everything else.
