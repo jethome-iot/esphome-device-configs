@@ -116,6 +116,14 @@ is that merge. A squashed one would be worse than the ceremony — it drops the 
 records `master` as an ancestor of `dev`, and every conflict already resolved comes back at the
 next merge.
 
+**Merge, do not squash, in either direction when the branch was cut from `dev`** — a release
+branch is. Squashing replaces its history with one new commit, so `dev` stops being an ancestor
+of what landed, and the next back-merge sees the same content arriving from two directions and
+conflicts on every file the release touched. #49 was squashed into `master`; the back-merge
+after it came to sixty-five conflicting files, none of them a real disagreement. A branch cut
+from `master` — most pull requests that target it — carries no such history and may be squashed
+freely.
+
 ## Issues and pull requests
 
 Every change starts as an issue — a feature, a bug, a refactor, a documentation fix, a chore.
