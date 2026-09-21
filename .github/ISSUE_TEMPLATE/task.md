@@ -6,7 +6,10 @@ labels: ''
 assignees: ''
 ---
 
-<!-- In English. If this belongs to an epic, add "Part of #N" below. -->
+<!--
+In English. Set one type label: type:feature, type:refactor, type:docs or type:chore.
+If this belongs to an epic, add "Part of #N" below.
+-->
 
 ## What
 

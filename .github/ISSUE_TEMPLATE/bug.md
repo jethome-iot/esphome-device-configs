@@ -2,7 +2,7 @@
 name: Bug
 about: Something behaves differently from what it says it does
 title: ''
-labels: bug
+labels: 'type:bug'
 assignees: ''
 ---
 

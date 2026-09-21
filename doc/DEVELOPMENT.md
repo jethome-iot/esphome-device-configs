@@ -126,7 +126,50 @@ A pull request with nothing behind it is one nobody agreed to. When something el
 need doing mid-change and does not belong in the change at hand, file it and link it instead of
 widening the pull request.
 
-Templates for all three kinds of issue, and for the pull request, are in `.github/`.
+Templates for all three kinds of issue, and for the pull request, are in `.github/`. The bug and
+epic templates carry their `type:` label; the task template asks for one, because it covers the
+four kinds that are neither.
+
+### Labels
+
+Three axes, each with its own prefix so the list groups them and none is mistaken for another.
+
+**`type:`** — one per issue, set when it is filed.
+
+| | |
+| --- | --- |
+| `type:bug` | behaves differently from what it says it does |
+| `type:feature` | something the firmware or the tooling cannot do yet |
+| `type:refactor` | the same behaviour in a better shape |
+| `type:docs` | the README, `doc/`, a component's README, comments |
+| `type:chore` | CI, dependencies, tooling, housekeeping |
+| `type:epic` | a milestone, above |
+
+**`status:`** — at most one, and only for what nothing else records. An issue carrying none is
+one nobody has looked at yet.
+
+| | |
+| --- | --- |
+| `status:needs-decision` | waiting on a developer to decide something |
+| `status:ready` | decided and described; anyone can take it |
+| `status:blocked` | waiting on something outside this repository |
+
+There is deliberately no label for in progress, in review or done. An assignee, a linked pull
+request and a closed issue already say those three, and a label that repeats what something else
+records is a label that can come to disagree with it.
+
+`status:needs-decision` is the one with teeth:
+
+- Anyone may set it, but the issue then has to say **what** is being decided and what the
+  options are. A gate with no question inside it is a stall.
+- Only a developer takes it off, and the way to take it off is to write the decision in the
+  issue — so the decision is on the record where the work is, not in a chat.
+- **No pull request opens on an issue that carries it.** That rule is what makes the label mean
+  anything; without it the label is a sticker.
+
+The remaining labels are not about issues at all: `dependencies`, `github_actions` and `python`
+are Dependabot's, `ready-to-merge` says a pull request's review converged, and `good first issue`
+and `help wanted` are the two GitHub itself surfaces.
 
 ## Style
 

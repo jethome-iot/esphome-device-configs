@@ -2,7 +2,7 @@
 name: Epic
 about: A milestone — the issue everything in it links back to
 title: ''
-labels: epic
+labels: 'type:epic'
 assignees: ''
 ---
 

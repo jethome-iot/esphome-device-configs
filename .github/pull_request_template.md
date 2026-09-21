@@ -1,6 +1,7 @@
 <!--
 Every pull request opens on an issue. Keep one of the two lines below and delete the other.
-The rules are in doc/DEVELOPMENT.md, "Issues and pull requests". Write in English.
+No pull request opens on an issue carrying status:needs-decision: the decision goes into the
+issue first. The rules are in doc/DEVELOPMENT.md, "Issues and pull requests". In English.
 -->
 
 Closes #

@@ -29,11 +29,17 @@ The tree itself is in the README, "Repository Layout".
 
 ## Always
 
-- Work is tracked in issues. Every change starts as one, and every pull request says which it
-  is for — `Closes #N`, or `Part of #N` when it is one of several. A finding you do not fix in
-  the change at hand is filed as its own issue before you report that change done, not left in
-  a comment or a scratch note. A milestone is an epic issue labelled `epic`, which its children
-  link back to. The rules are in [doc/DEVELOPMENT.md](doc/DEVELOPMENT.md).
+- Work is tracked in issues. Every change starts as one, carrying a `type:` label, and every
+  pull request says which it is for — `Closes #N`, or `Part of #N` when it is one of several. A
+  finding you do not fix in the change at hand is filed as its own issue before you report that
+  change done, not left in a comment or a scratch note. A milestone is an epic issue labelled
+  `type:epic`, which its children link back to.
+- `status:needs-decision` on an issue means a developer has to decide something before anyone
+  writes code for it: **do not open a pull request on it**. Set it yourself, on the issue you
+  are working from or on one you file, whenever you hit a choice that is the user's to make —
+  and say in the issue what is being decided and what the options are, because a gate with no
+  question inside it only stalls. The labels and the rest of the rules are in
+  [doc/DEVELOPMENT.md](doc/DEVELOPMENT.md).
 - English for everything that lands in the repository: issues, pull requests, commit messages,
   code comments, README and `doc/`.
 - `dist/` and `assets/res/` are generated (`scripts/build-dist.py`, `scripts/build-icons.py`).
