@@ -109,7 +109,23 @@ themselves, whatever only affects what `master` publishes, and the rules everyth
 held to. `master` is then merged back into `dev` with a merge commit, so the two never drift
 and nothing has to be applied twice.
 
-Build runs on every push to either branch, and everything lands through a pull request.
+Build runs on every push to either branch. Changes land through a pull request, which `master`
+requires and `dev` deliberately does not: the merge back from `master` goes straight into `dev`,
+and requiring a pull request for it would put one in front of every release whose only content
+is that merge. A squashed one would be worse than the ceremony — it drops the merge commit that
+records `master` as an ancestor of `dev`, and every conflict already resolved comes back at the
+next merge.
+
+**Merge, do not squash, whenever a pull request carries `dev`'s history into `master`** — the
+release promotion does, a release branch being cut from `dev`. Squashing replaces that history
+with one new commit, so `dev` stops being an ancestor of what landed, and the next back-merge
+sees the same content arriving from two directions and conflicts on every file the release
+touched. #49 was squashed; the back-merge after it came to sixty-five conflicting files, none
+of them a real disagreement. The back-merge itself is the same rule read the other way.
+
+Everything else may be squashed freely, because its history outlives nothing: a feature branch
+merged into `dev`, or one cut from `master` and merged back into it, which is most of what
+targets `master` — #52 and #55 included.
 
 ## Issues and pull requests
 

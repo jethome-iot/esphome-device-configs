@@ -200,6 +200,8 @@ jobs:
           if gh issue list --state open --search "$TITLE in:title" --repo "$GITHUB_REPOSITORY" | grep -q .; then
             echo "::warning::an open issue for $LATEST already exists, not duplicating it"
           else
+            # Every issue carries a type; this one is the go/no-go for a dependency bump.
+            # No status: whether the bump is taken is for whoever triages it to decide.
             gh issue create --repo "$GITHUB_REPOSITORY" \
-              --title "$TITLE" --body-file issue.md
+              --title "$TITLE" --body-file issue.md --label "type:chore"
           fi
