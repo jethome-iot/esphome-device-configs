@@ -1,0 +1,301 @@
+#pragma once
+
+// Host stand-in for upstream's web_server_base: the request, handler and server classes an
+// HTTP handler is written against, driven by a test instead of a socket. Only what the
+// components under test use, with web_server_idf's shapes and dispatch order.
+
+#include "esphome/core/defines.h"
+#include "esphome/core/optional.h"
+
+#include <algorithm>
+#include <cctype>
+#include <cstdarg>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace esphome {
+
+enum http_method { HTTP_DELETE = 0, HTTP_GET = 1, HTTP_HEAD = 2, HTTP_POST = 3, HTTP_PUT = 4 };
+
+class AsyncWebParameter {
+ public:
+  AsyncWebParameter(std::string name, std::string value) : name_(std::move(name)), value_(std::move(value)) {}
+  const std::string &name() const { return this->name_; }
+  const std::string &value() const { return this->value_; }
+
+ protected:
+  std::string name_;
+  std::string value_;
+};
+
+// A response begun before it is sent, as web_server_idf's: the status and content type are set
+// when it is begun, the body only when it is sent.
+class AsyncWebServerResponse {
+ public:
+  AsyncWebServerResponse(int code, std::string content_type, const char *data, size_t size)
+      : code(code), content_type(std::move(content_type)), body(data, size) {}
+  // Sent through a base pointer, and deleted through one by AsyncWebServerRequest::send().
+  virtual ~AsyncWebServerResponse() = default;
+  void addHeader(const char *name, const char *value) { this->headers.emplace_back(name, value); }  // NOLINT
+
+  int code;
+  std::string content_type;
+  std::string body;
+  std::vector<std::pair<std::string, std::string>> headers;
+};
+
+// A response a handler prints into instead of handing over whole, as web_server_idf's: the
+// body grows in place and is sent like any other response.
+class AsyncResponseStream : public AsyncWebServerResponse {
+ public:
+  explicit AsyncResponseStream(const char *content_type) : AsyncWebServerResponse(200, content_type, "", 0) {}
+
+  void print(const char *str) { this->body.append(str); }
+  void print(const std::string &str) { this->body.append(str); }
+  void printf(const char *fmt, ...) __attribute__((format(printf, 2, 3))) {  // NOLINT(cert-dcl50-cpp)
+    va_list args;
+    va_start(args, fmt);
+    const int length = vsnprintf(nullptr, 0, fmt, args);
+    va_end(args);
+    if (length <= 0)
+      return;
+    std::string str;
+    str.resize(length);
+    va_start(args, fmt);
+    vsnprintf(&str[0], length + 1, fmt, args);
+    va_end(args);
+    this->print(str);
+  }
+};
+
+class AsyncWebServerRequest {
+ public:
+  // @p target is the path with its query string. A form-encoded body becomes parameters, as
+  // web_server_idf reads it; any other body reaches the handler through handleBody.
+  AsyncWebServerRequest(http_method method, const std::string &target, std::string body = "",
+                        std::string content_type = "application/json")
+      : method_(method), body_(std::move(body)), content_type_(std::move(content_type)) {
+    const size_t query = target.find('?');
+    this->path_ = target.substr(0, query);
+    if (query != std::string::npos)
+      this->add_params_(target.substr(query + 1));
+    if (this->is_form())
+      this->add_params_(this->body_);
+  }
+
+  http_method method() const { return this->method_; }
+  std::string url() const { return this->path_; }
+  size_t contentLength() const { return this->body_.size(); }                  // NOLINT(readability-identifier-naming)
+  bool hasParam(const char *name) { return this->getParam(name) != nullptr; }  // NOLINT
+  bool hasParam(const std::string &name) { return this->getParam(name.c_str()) != nullptr; }  // NOLINT
+  AsyncWebParameter *getParam(const char *name) {  // NOLINT(readability-identifier-naming)
+    for (auto &param : this->params_) {
+      if (param.name() == name)
+        return &param;
+    }
+    return nullptr;
+  }
+  AsyncWebParameter *getParam(const std::string &name) { return this->getParam(name.c_str()); }  // NOLINT
+  void send(int code, const char *content_type = nullptr, const char *content = nullptr) {
+    this->responses++;
+    this->response_code = code;
+    this->response_type = content_type == nullptr ? "" : content_type;
+    this->response_body = content == nullptr ? "" : content;
+  }
+  // NOLINTNEXTLINE(readability-identifier-naming)
+  AsyncWebServerResponse *beginResponse(int code, const char *content_type, const uint8_t *data, size_t size) {
+    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
+    return new AsyncWebServerResponse(code, content_type, reinterpret_cast<const char *>(data), size);
+  }
+  // NOLINTNEXTLINE(readability-identifier-naming)
+  AsyncResponseStream *beginResponseStream(const char *content_type) {
+    return new AsyncResponseStream(content_type);  // NOLINT(cppcoreguidelines-owning-memory)
+  }
+  void send(AsyncWebServerResponse *response) {
+    this->send(response->code, response->content_type.c_str());
+    this->response_body = response->body;
+    this->response_headers = std::move(response->headers);
+    delete response;  // NOLINT(cppcoreguidelines-owning-memory)
+  }
+
+  /// A header this request carries beyond its Content-Type. Setting the same name twice
+  /// replaces it, as a second header line of the same name would not accumulate here.
+  /// Content-Type set this way is returned by get_header(), but the constructor's is what
+  /// decides is_form() and whether the body was parsed into parameters -- set it there.
+  void set_header(const std::string &name, const std::string &value) {
+    for (auto &header : this->headers_) {
+      if (header_is(header.first, name.c_str())) {
+        header.second = value;
+        return;
+      }
+    }
+    this->headers_.emplace_back(name, value);
+  }
+
+  /// The header, or an empty optional when the request does not carry it. HTTP names are
+  /// case-insensitive, and upstream's ESP-IDF lookup is too.
+  optional<std::string> get_header(const char *name) const {
+    for (const auto &header : this->headers_) {
+      if (header_is(header.first, name))
+        return header.second;
+    }
+    if (header_is("Content-Type", name) && !this->content_type_.empty())
+      return this->content_type_;
+    return {};
+  }
+
+  /// The one file part of a multipart upload, which reaches a handler through handleUpload
+  /// rather than as a body.
+  void set_upload(const std::string &filename, const std::string &content) {
+    this->upload_filename_ = filename;
+    this->upload_content_ = content;
+    this->has_upload_ = true;
+  }
+  bool has_upload() const { return this->has_upload_; }
+  const std::string &upload_filename() const { return this->upload_filename_; }
+  std::string &upload_content() { return this->upload_content_; }
+
+  const std::string &body() const { return this->body_; }
+  bool is_form() const { return this->content_type_.find("application/x-www-form-urlencoded") != std::string::npos; }
+
+  // What the handler answered. `responses` catches a handler that answered twice.
+  int response_code{0};
+  std::string response_type;
+  std::string response_body;
+  int responses{0};
+  std::vector<std::pair<std::string, std::string>> response_headers;
+
+ protected:
+  static bool header_is(const std::string &name, const char *wanted) {
+    const size_t len = strlen(wanted);
+    return name.size() == len && std::equal(name.begin(), name.end(), wanted, [](char a, char b) {
+             return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+           });
+  }
+
+  void add_params_(const std::string &query) {
+    size_t start = 0;
+    while (start <= query.size()) {
+      size_t end = query.find('&', start);
+      if (end == std::string::npos)
+        end = query.size();
+      const std::string pair = query.substr(start, end - start);
+      const size_t eq = pair.find('=');
+      if (!pair.empty())
+        this->params_.emplace_back(pair.substr(0, eq), eq == std::string::npos ? "" : pair.substr(eq + 1));
+      start = end + 1;
+    }
+  }
+
+  http_method method_;
+  std::string path_;
+  std::string body_;
+  std::string content_type_;
+  std::vector<AsyncWebParameter> params_;
+  std::vector<std::pair<std::string, std::string>> headers_;
+  std::string upload_filename_;
+  std::string upload_content_;
+  bool has_upload_{false};
+};
+
+class AsyncWebHandler {
+ public:
+  virtual ~AsyncWebHandler() {}
+  virtual bool canHandle(AsyncWebServerRequest *request) const { return false; }                        // NOLINT
+  virtual void handleRequest(AsyncWebServerRequest *request) {}                                         // NOLINT
+  virtual void handleUpload(AsyncWebServerRequest *request, const std::string &filename, size_t index,  // NOLINT
+                            uint8_t *data, size_t len, bool final) {}
+  virtual void handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index,  // NOLINT
+                          size_t total) {}
+  virtual bool isRequestHandlerTrivial() const { return true; }  // NOLINT(readability-identifier-naming)
+};
+
+class AsyncWebServer {
+ public:
+  explicit AsyncWebServer(uint16_t port) : port_(port) {}
+  void begin() {}
+  void end() {}
+  void addHandler(AsyncWebHandler *handler) { this->handlers_.push_back(handler); }  // NOLINT
+
+  // The path web_server_idf takes: the first handler that claims the request gets a multipart
+  // file part through handleUpload or a raw body through handleBody in chunks, then
+  // handleRequest. False when no handler claimed it.
+  bool dispatch(AsyncWebServerRequest &request, size_t chunk = 512) {
+    for (auto *handler : this->handlers_) {
+      if (!handler->canHandle(&request))
+        continue;
+      if (request.has_upload()) {
+        std::string &content = request.upload_content();
+        handler->handleUpload(&request, request.upload_filename(), 0, reinterpret_cast<uint8_t *>(&content[0]),
+                              content.size(), true);
+      } else if (!request.is_form()) {
+        std::string body = request.body();
+        for (size_t index = 0; index < body.size(); index += chunk) {
+          const size_t len = std::min(chunk, body.size() - index);
+          handler->handleBody(&request, reinterpret_cast<uint8_t *>(&body[index]), len, index, body.size());
+        }
+      }
+      handler->handleRequest(&request);
+      return true;
+    }
+    return false;
+  }
+
+ protected:
+  uint16_t port_;
+  std::vector<AsyncWebHandler *> handlers_;
+};
+
+namespace web_server_base {
+
+class WebServerBase {
+ public:
+  void init() {
+    this->initialized_++;
+    if (this->server_ != nullptr)
+      return;
+    this->server_ = new AsyncWebServer(this->port_);  // NOLINT(cppcoreguidelines-owning-memory)
+    for (auto *handler : this->handlers_)
+      this->server_->addHandler(handler);
+  }
+  void deinit() {
+    if (this->initialized_ > 0)
+      this->initialized_--;
+  }
+  AsyncWebServer *get_server() const { return this->server_; }
+#ifdef USE_WEBSERVER_AUTH
+  // Upstream keeps the two strings by pointer and never copies them; so does this, so a test
+  // reads back exactly what the component handed over. No middleware: upstream's 401 is the
+  // ESP-IDF server's, and re-implementing it here would only prove the copy right.
+  void set_auth_username(const char *auth_username) { this->auth_username_ = auth_username; }
+  void set_auth_password(const char *auth_password) { this->auth_password_ = auth_password; }
+  const char *get_auth_username() const { return this->auth_username_; }
+  const char *get_auth_password() const { return this->auth_password_; }
+#endif
+  void add_handler(AsyncWebHandler *handler) {
+    this->handlers_.push_back(handler);
+    if (this->server_ != nullptr)
+      this->server_->addHandler(handler);
+  }
+  void add_handler_without_auth(AsyncWebHandler *handler) { this->add_handler(handler); }
+  void set_port(uint16_t port) { this->port_ = port; }
+  uint16_t get_port() const { return this->port_; }
+
+ protected:
+  uint8_t initialized_{0};
+  uint16_t port_{80};
+  AsyncWebServer *server_{nullptr};
+  std::vector<AsyncWebHandler *> handlers_;
+#ifdef USE_WEBSERVER_AUTH
+  const char *auth_username_{nullptr};
+  const char *auth_password_{nullptr};
+#endif
+};
+
+}  // namespace web_server_base
+}  // namespace esphome

@@ -24,9 +24,15 @@ esphome -s version 2026.8.2.0 -s timezone Europe/Berlin compile <config>   # sub
 python scripts/build-dist.py  [--check]    # regenerate / verify dist/ (imports esphome: use the venv)
 python scripts/build-icons.py [--check]    # regenerate / verify assets/res/
 python scripts/firmware-matrix.py build    # CI matrix from firmwares.yaml; also validates the file
+python scripts/vendored-diff.py            # what components/ changed in the ESPHome components it shadows
+python scripts/vendored-diff.py --check    # and whether every hunk of that is still marked
+python tests/run.py [component]            # build every tests/components/*/ suite for the host and run it
 
 pre-commit run --all-files                 # ruff --fix, ruff-format, pyupgrade --py310-plus, yamllint, clang-format, build-icons, build-dist
 SKIP=build-dist pre-commit run --all-files # what the CI lint job runs
+
+./scripts/qemu.sh run jxd-r6-e1eth-lcd --daemon --wait-http 240   # boot it in QEMU, see doc/QEMU.md
+./scripts/qemu.sh stop                                            # and shut it down again
 
 .venv/bin/python scripts/modbus_probe.py --port /dev/ttyUSB2 probe   # walk the Modbus map over RS485
 ```
@@ -39,17 +45,19 @@ the firmware.
 
 ## Before pushing
 
-There is no test suite. The Build workflow is these; run them locally:
+The Build workflow is these; run them locally:
 
-1. `esphome config` for every config in `firmwares.yaml` — the fast schema
-   gate CI runs as the `Validate` jobs; `esphome compile` subsumes it locally
-   (a config that compiles validates)
+1. `esphome config` for every config in `firmwares.yaml` — the fast schema gate CI runs as the
+   `Validate` jobs; `esphome compile` subsumes it locally (a config that compiles validates)
 2. `esphome compile` for every config in `firmwares.yaml`
-3. `python scripts/build-dist.py --check`
-4. `pre-commit run --all-files`
+3. `python tests/run.py`
+4. `python scripts/build-dist.py --check`
+5. `pre-commit run --all-files`
 
-CI aggregates everything into the single `ci-ok` check, which is what branch
-protection requires.
+The tests need no ESP toolchain. What they cover and how to add one: [TESTING.md](TESTING.md).
+
+CI aggregates everything into the single `ci-ok` check, which is what branch protection
+requires.
 
 ## Generated files
 
@@ -57,6 +65,10 @@ protection requires.
   the maps, never the SVGs.
 - `dist/<device>.yaml` — `scripts/build-dist.py`; regenerate and commit after changing anything a
   device config pulls in. Excluded from yamllint. Rules: [DIST.md](DIST.md).
+- `components/web_device_dashboard/dashboard_index.h` — the gzipped dashboard page.
+  `npm run build` in [jethome-devices-web-dashboard](https://github.com/jethome-iot/jethome-devices-web-dashboard)
+  writes `dist/dashboard_index.h`; copy it over this one, or merge the pull request that
+  repository's Release workflow opens.
 
 `firmwares.yaml` must list every device config (`build-dist.py` refuses to run otherwise); it is
 the only input to the Build and Release matrices.
@@ -73,6 +85,13 @@ The pin appears in these files; Dependabot bumps only the first:
 
 After a bump, re-check every entry under "Coupled to upstream internals" in
 [ARCHITECTURE.md](ARCHITECTURE.md): that list is the one that grows, this one would go stale.
+
+`components/display_menu_base` and `components/graphical_display_menu` replace the ESPHome
+components of those names, so a bump does not reach them. Before changing the pin, save
+`scripts/vendored-diff.py` output; after it, copy both directories from the new ESPHome and
+re-apply that patch. Every hunk it prints is marked `JetHome:` in the source, which is what the
+`vendored-diff` pre-commit hook checks — it fails on the un-re-copied tree, so the pin in that
+hook has to move with the others.
 
 Also re-sync `.clang-format` and the `mirrors-clang-format` rev in `.pre-commit-config.yaml` with
 upstream's: a bump can change either the style config or the version it formats with.

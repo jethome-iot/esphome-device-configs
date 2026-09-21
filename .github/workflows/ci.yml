@@ -177,6 +177,74 @@ jobs:
           path: ~/.cache/ccache
           key: ccache-${{ matrix.config }}--${{ github.run_id }}-${{ github.run_attempt }}
 
+  unit-test:
+    name: Unit tests
+    runs-on: [self-hosted, ubuntu-latest]
+    # The run itself is seconds; a stalled engine would otherwise hold the runner for hours.
+    timeout-minutes: 15
+    env:
+      # What the saved archive settles at rather than headroom: the dir is
+      # never wiped, so it fills to this. A full run leaves ~100 MB of objects.
+      CCACHE_MAXSIZE: 256M
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install ESPHome
+        run: pip install -r requirements.txt
+
+      # Compile cache, in a dir of its own: esphome's default sits under
+      # ~/.cache/esphome, which the build job saves whole. Written from dev only.
+      - name: Restore ccache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/ccache-host
+          key: ccache-unit-test--${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ccache-unit-test--
+
+      - name: Ensure ccache
+        # The stock GitHub-hosted toolset is the baseline the workflows may
+        # rely on; the self-hosted image may add tools — probe, its version wins.
+        run: |
+          if command -v ccache >/dev/null 2>&1; then
+            echo "ccache already on PATH: $(ccache --version | head -1)"
+            exit 0
+          fi
+          sudo apt-get install -y --no-install-recommends ccache \
+            || { sudo apt-get update \
+                 && sudo apt-get install -y --no-install-recommends ccache; }
+
+      - name: Run the component tests
+        run: |
+          export CCACHE_DIR="$HOME/.cache/ccache-host"
+          export CCACHE_COMPILERCHECK=content
+          ccache --zero-stats > /dev/null
+          python tests/run.py
+
+      - name: ccache stats
+        if: ${{ !cancelled() }}
+        run: |
+          export CCACHE_DIR="$HOME/.cache/ccache-host"
+          {
+            echo '### ccache'
+            echo '```text'
+            ccache --show-stats
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save ccache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/ccache-host
+          key: ccache-unit-test--${{ github.run_id }}-${{ github.run_attempt }}
+
   dist:
     name: Check dist/ is current
     runs-on: [self-hosted, ubuntu-latest]
@@ -233,7 +301,7 @@ jobs:
   # with zero firmware validated or compiled.
   ci-ok:
     name: ci-ok
-    needs: [discover, validate, build, dist, lint]
+    needs: [discover, validate, build, unit-test, dist, lint]
     if: ${{ !cancelled() }}
     runs-on: [self-hosted, ubuntu-latest]
     steps:

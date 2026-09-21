@@ -1,0 +1,13 @@
+# Per-relay and per-input settings, kept by the config_json store (storage.yaml) and
+# edited from the display menu. Details: doc/ENTITY_SETTINGS.md
+external_components:
+  - source: ${components}
+    components: [entity_config, bindings]
+
+entity_config:
+  settings: [switch, binary_sensor]
+  # Named so the display menu can address them.
+  switch_settings_id: switch_settings
+  binary_sensor_settings_id: binary_sensor_settings
+
+bindings:

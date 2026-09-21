@@ -1,0 +1,567 @@
+openapi: 3.1.0
+
+info:
+  title: web_file_browser HTTP API
+  version: 1.0.0
+  description: >-
+    JSON/REST file API over a `filesystem_storage_abstract` mount, served by the
+    ESPHome `web_file_browser` component on the device's own web server (default
+    prefix `/files`). List, read, write, upload, download, copy, move, delete and
+    mkdir over the LittleFS user partition. ESP-IDF (ESP32) only.
+
+    This document is the wire contract; the TypeScript client and mock in
+    `client/` implement it. Every route answers exactly one HTTP method — any
+    other method is `405` with an `Allow` header. Route names match the URL path
+    exactly, so an unknown name is `404`. Paths are relative to the mount and a
+    path containing `..` is rejected. Form fields are read from an urlencoded
+    body first and from the query string second.
+
+    A request whose `Origin` header is not the `Host` it was sent to is answered
+    `403` before it reaches a route: the credentials a browser has cached for
+    this device cannot be steered here from a page on another site. That refusal
+    is `text/plain`, not one of the JSON envelopes below — it is the server
+    turning the request away, not a route answering it. Clients that send no
+    `Origin` — `curl`, a script, a Home Assistant `rest_command` — are
+    unaffected.
+
+servers:
+  - url: http://{host}:{port}{prefix}
+    description: A device on the local network.
+    variables:
+      host:
+        default: device.local
+      port:
+        default: "80"
+      prefix:
+        default: /files
+        description: The component's `url_prefix`; baked into a dashboard at build time.
+
+# The routes inherit whatever auth the `web_server:` block sets. The configs in
+# this repository set Digest credentials, so that is the shipped default; the
+# empty requirement covers a firmware built without an `auth:` block, where
+# anything that reaches the port may call every route.
+security:
+  - webServerAuth: []
+  - {}
+
+tags:
+  - name: read
+    description: Read-only routes (GET).
+  - name: write
+    description: Mutating routes (POST).
+
+paths:
+  /info:
+    get:
+      tags: [read]
+      operationId: getInfo
+      summary: Filesystem capacity and usage.
+      responses:
+        "200":
+          description: Storage info.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorageInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /list:
+    get:
+      tags: [read]
+      operationId: listDirectory
+      summary: Directory contents, in creation order.
+      description: >-
+        A bare JSON array, not the success envelope. A name whose bytes are not
+        valid UTF-8 is listed with U+FFFD in their place, so the array stays a
+        JSON text; the name on the device is unchanged, and the other routes
+        still want the real one. The listing streams through a fixed buffer; if
+        a read fails after the first chunk has gone out, the array is left
+        unclosed so a truncated listing cannot parse as a complete short one.
+      parameters:
+        - name: path
+          in: query
+          required: false
+          description: Directory to list; defaults to the mount root.
+          schema:
+            type: string
+            default: /
+          example: /config
+      responses:
+        "200":
+          description: Directory entries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FileEntry"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/OutOfMemory"
+
+  /read:
+    get:
+      tags: [read]
+      operationId: readFile
+      summary: File contents as a JSON string.
+      description: >-
+        The file is escaped and streamed as the `content` field. Bytes that are
+        not valid UTF-8 come back as U+FFFD, so the answer is always a JSON text
+        but a file that is not text does not survive the round trip. Refused
+        above 1 MB (`File too large to edit`) — a limit about the editor on the
+        other end, not the device heap. Use `/download` for binary or larger
+        files. If the read fails partway, the JSON is left unterminated so it
+        cannot parse.
+      parameters:
+        - $ref: "#/components/parameters/PathQueryRequired"
+      responses:
+        "200":
+          description: File contents.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/OutOfMemory"
+
+  /download:
+    get:
+      tags: [read]
+      operationId: downloadFile
+      summary: Raw file bytes, streamed.
+      description: >-
+        Streams the file with a `Content-Disposition` header whose filename is
+        percent-encoded (RFC 6266). If the read fails partway, the chunked body
+        is left unterminated and the connection dropped, so a short file cannot
+        arrive as a complete one.
+      parameters:
+        - $ref: "#/components/parameters/PathQueryRequired"
+      responses:
+        "200":
+          description: The file.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+              example: attachment; filename="notes.txt"; filename*=UTF-8''notes.txt
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/OutOfMemory"
+
+  /write:
+    post:
+      tags: [write]
+      operationId: writeFile
+      summary: Create or overwrite a file from the raw request body.
+      description: >-
+        The request body is written verbatim; send it as `application/octet-stream`
+        (or any non-form, non-multipart type). An empty body creates an empty file.
+        A form-encoded or multipart body is refused — it never reaches the raw-body
+        path, so accepting it would truncate the target to empty. `curl` sends
+        `application/x-www-form-urlencoded` by default, so pass `--data-binary` with
+        an explicit `Content-Type`.
+      parameters:
+        - $ref: "#/components/parameters/PathQueryRequired"
+      requestBody:
+        required: false
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          $ref: "#/components/responses/Success"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /upload:
+    post:
+      tags: [write]
+      operationId: uploadFile
+      summary: Create or overwrite a file from a multipart upload.
+      description: >-
+        `multipart/form-data` with a single file part. The destination is the
+        `path` query parameter (full path including the filename); the part's own
+        filename is a fallback. A zero-length part is an error (`No file
+        received`) — use `/write` for an empty file.
+      parameters:
+        - name: path
+          in: query
+          required: false
+          description: >-
+            Destination including the filename, relative to the mount; defaults to
+            the part's own filename. `..` is rejected.
+          schema:
+            type: string
+          example: /config/notes.json
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required: [file]
+      responses:
+        "200":
+          $ref: "#/components/responses/Success"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /delete:
+    post:
+      tags: [write]
+      operationId: deletePath
+      summary: Delete a file or, recursively, a directory.
+      description: >-
+        Recursive for a directory, but refuses the mount root and a tree deeper
+        than eight levels (checked before anything is removed). Fields may also be
+        passed in the query string.
+      parameters:
+        - $ref: "#/components/parameters/PathQuery"
+      requestBody:
+        $ref: "#/components/requestBodies/PathForm"
+      responses:
+        "200":
+          $ref: "#/components/responses/Success"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /mkdir:
+    post:
+      tags: [write]
+      operationId: makeDirectory
+      summary: Create a directory (idempotent, not recursive).
+      description: >-
+        An existing directory is a success. Not recursive: create each parent
+        level first. Fields may also be passed in the query string.
+      parameters:
+        - $ref: "#/components/parameters/PathQuery"
+      requestBody:
+        $ref: "#/components/requestBodies/PathForm"
+      responses:
+        "200":
+          $ref: "#/components/responses/Success"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /rename:
+    post:
+      tags: [write]
+      operationId: renamePath
+      summary: Rename or move a file or directory.
+      description: Fields may also be passed in the query string.
+      parameters:
+        - $ref: "#/components/parameters/OldPathQuery"
+        - $ref: "#/components/parameters/NewPathQuery"
+      requestBody:
+        $ref: "#/components/requestBodies/OldNewForm"
+      responses:
+        "200":
+          $ref: "#/components/responses/Success"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /copy:
+    post:
+      tags: [write]
+      operationId: copyPath
+      summary: Copy a file or, recursively, a directory.
+      description: >-
+        Refuses to copy a path into its own subtree. Recursion is bounded at
+        eight levels. Fields may also be passed in the query string.
+      parameters:
+        - $ref: "#/components/parameters/OldPathQuery"
+        - $ref: "#/components/parameters/NewPathQuery"
+      requestBody:
+        $ref: "#/components/requestBodies/OldNewForm"
+      responses:
+        "200":
+          $ref: "#/components/responses/Success"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+components:
+  securitySchemes:
+    webServerAuth:
+      type: http
+      scheme: digest
+      description: >-
+        Credentials from the `web_server:` `auth:` block. The scheme is fixed at
+        build time; the configs in this repository build Digest. A firmware with a
+        `web_auth` serves the pair stored on the device instead of the compiled
+        one, so a client must be ready for either.
+
+  parameters:
+    PathQueryRequired:
+      name: path
+      in: query
+      required: true
+      description: Path relative to the mount. `..` is rejected.
+      schema:
+        type: string
+      example: /notes.txt
+    PathQuery:
+      name: path
+      in: query
+      required: false
+      description: >-
+        The `path` form field passed in the query string instead; the body wins
+        when both carry it.
+      schema:
+        type: string
+    OldPathQuery:
+      name: old_path
+      in: query
+      required: false
+      description: >-
+        The `old_path` form field passed in the query string instead; the body
+        wins when both carry it.
+      schema:
+        type: string
+    NewPathQuery:
+      name: new_path
+      in: query
+      required: false
+      description: >-
+        The `new_path` form field passed in the query string instead; the body
+        wins when both carry it.
+      schema:
+        type: string
+
+  requestBodies:
+    PathForm:
+      description: The field as an urlencoded form; it may come from the query string instead.
+      required: false
+      content:
+        application/x-www-form-urlencoded:
+          schema:
+            type: object
+            properties:
+              path:
+                type: string
+                description: Path relative to the mount. `..` is rejected.
+            required: [path]
+          example:
+            path: /logs
+    OldNewForm:
+      description: The fields as an urlencoded form; each may come from the query string instead.
+      required: false
+      content:
+        application/x-www-form-urlencoded:
+          schema:
+            type: object
+            properties:
+              old_path:
+                type: string
+              new_path:
+                type: string
+            required: [old_path, new_path]
+          example:
+            old_path: /notes.txt
+            new_path: /logs/notes.txt
+
+  responses:
+    Unauthorized:
+      description: >-
+        The credentials the `web_server:` `auth:` block set — replaced by what a
+        `web_auth` stored — are missing or wrong. The server names the scheme in
+        `WWW-Authenticate`; the body is the HTTP server's, not this API's.
+      headers:
+        WWW-Authenticate:
+          description: The scheme the firmware was built with.
+          schema:
+            type: string
+    Success:
+      description: The operation succeeded.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SuccessEnvelope"
+    BadRequest:
+      description: >-
+        Bad request — missing or invalid path, or the operation failed (e.g.
+        `Cannot delete the mount root`, `Destination already exists`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: The path does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    MethodNotAllowed:
+      description: Wrong HTTP method for this route.
+      headers:
+        Allow:
+          description: The one method this route accepts.
+          schema:
+            type: string
+            enum: [GET, POST]
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Method not allowed
+    OutOfMemory:
+      description: The device could not allocate the streaming buffer.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+
+  schemas:
+    FileEntry:
+      type: object
+      description: One directory entry.
+      required: [name, type, size, mtime]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [file, directory]
+        size:
+          type: integer
+          format: int64
+          description: Bytes; 0 for a directory.
+        mtime:
+          type: integer
+          format: int64
+          description: >-
+            Last write, seconds since the Unix epoch; 0 where the filesystem keeps
+            no timestamp (every directory).
+      example:
+        name: notes.txt
+        type: file
+        size: 1024
+        mtime: 1700000000
+
+    StorageInfo:
+      type: object
+      required: [valid, total, used, free, filesystem]
+      properties:
+        valid:
+          type: boolean
+          description: Whether the mount reported usable capacity figures.
+        total:
+          type: integer
+          format: int64
+        used:
+          type: integer
+          format: int64
+        free:
+          type: integer
+          format: int64
+        filesystem:
+          type: string
+          example: littlefs
+      example:
+        valid: true
+        total: 4194304
+        used: 1085440
+        free: 3108864
+        filesystem: littlefs
+
+    ReadResult:
+      type: object
+      required: [success, content]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        content:
+          type: string
+          description: The file's bytes as a JSON string.
+
+    SuccessEnvelope:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+      example:
+        success: true
+        message: Deleted successfully
+
+    ErrorEnvelope:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: string
+      example:
+        success: false
+        error: Invalid path

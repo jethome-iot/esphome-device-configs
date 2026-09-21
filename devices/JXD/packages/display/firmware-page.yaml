@@ -1,0 +1,93 @@
+# The install screen, over the entity of features/firmware-update.yaml. It hangs off the OTA
+# component rather than the menu row, so an install from Home Assistant or the dashboard shows it.
+
+globals:
+  # The percentage the page draws, -1 until the first report. The entity's own progress is a
+  # tick behind here: the OTA component calls this trigger before the entity's listener.
+  - id: firmware_install_pct
+    type: int
+    initial_value: '-1'
+
+  # Latched when the install starts: the entity drops what it offered if the channel changes,
+  # and the page is about the image actually being written.
+  - id: firmware_install_version
+    type: std::string
+
+ota:
+  - platform: http_request
+    id: !extend firmware_ota
+    # The download blocks the main loop for its whole run, so nothing draws on its own between
+    # these hooks: the page goes up before the first byte, and each report redraws it.
+    on_begin:
+      - script.stop: firmware_page_timeout
+      - lambda: |-
+          id(firmware_install_pct) = -1;
+          id(firmware_install_version) = id(firmware_update).update_info.latest_version;
+          id(display_off_s) = 0;
+          id(display_menu).hide();
+      - display.page.show: firmware_page
+      - component.update: display1
+    on_progress:
+      - lambda: id(firmware_install_pct) = (int) x;
+      - component.update: display1
+    on_error:
+      # An install that worked reboots; this one stays on screen until a key press or the
+      # script's timeout, so it is not what the device is left showing.
+      - lambda: id(display_off_s) = 0;
+      - script.execute: firmware_page_timeout
+
+script:
+  # Restarted by each failed attempt, so the page always gets its own half minute.
+  - id: firmware_page_timeout
+    mode: restart
+    then:
+      - delay: 30s
+      - lambda: |-
+          if (id(display1).get_active_page() == id(firmware_page) &&
+              id(firmware_update).state != update::UPDATE_STATE_INSTALLING)
+            id(display1).show_page(id(main_page));
+
+  # Every button handler runs this last, which is what takes a key press off the failed page.
+  - id: !extend check_blank_page
+    then:
+      - lambda: |-
+          if (id(display1).get_active_page() == id(firmware_page) &&
+              id(firmware_update).state != update::UPDATE_STATE_INSTALLING) {
+            id(display1).show_page(id(main_page));
+          }
+
+display:
+  - platform: ssd1306_i2c
+    id: !extend display1
+    pages:
+      - id: firmware_page
+        lambda: |-
+          auto *fw = id(firmware_update);
+          const bool installing = fw->state == update::UPDATE_STATE_INSTALLING;
+          const int width = it.get_width();
+
+          // The state, then the version latched when the install started.
+          it.print(width / 2, 2, id(f6x12), TextAlign::TOP_CENTER,
+                   installing ? "Update to version:" : "Update failed");
+          // A nightly version (2026.8.2.20260911.1) is wider than the 7x14 font fits across the
+          // screen; a longer one still loses only its tail, not both ends to the centring.
+          const std::string &version = id(firmware_install_version);
+          it.printf(width / 2, 16, version.size() > 18 ? id(f6x12) : id(f7x14_mod2), TextAlign::TOP_CENTER,
+                    "%.21s", version.empty() ? "?" : version.c_str());
+
+          if (!installing) {
+            it.print(width / 2, 36, id(f6x12), TextAlign::TOP_CENTER, "Firmware unchanged");
+            it.print(width / 2, 54, id(f5x7), TextAlign::TOP_CENTER, "Press any key");
+            return;
+          }
+
+          const int pct = id(firmware_install_pct);
+          if (pct < 0) {
+            it.print(width / 2, 33, id(f6x12), TextAlign::TOP_CENTER, "...");
+          } else {
+            it.printf(width / 2, 33, id(f6x12), TextAlign::TOP_CENTER, "%d%%", pct);
+          }
+
+          // The same percentage as a bar, two pixels inside its frame.
+          it.rectangle(4, 48, width - 8, 13);
+          it.filled_rectangle(6, 50, (width - 12) * std::clamp(pct, 0, 100) / 100, 9);

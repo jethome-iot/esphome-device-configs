@@ -33,19 +33,30 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
 - **RTC Time Synchronization**: Hardware RTC with battery backup, synced from Home Assistant or NTP, timezone included
 - **Modbus RTU Server**: Acts as Modbus slave, mapping relays to coils, digital inputs to discrete inputs and temperatures to holding registers
 - **Home Assistant Integration**: Native ESPHome API with automatic entity discovery and OTA updates
+- **Web dashboard** at `http://<device>/`: overview, live entities and their settings, automations, the device log, the file manager and the device settings, served from the firmware ([details](components/web_device_dashboard/README.md))
+- **Firmware updates**: a firmware released from this repository polls fw.jethome.com for the
+  latest build of its channel (`release` or `nightly`) and installs it on request; a config
+  imported into the ESPHome Builder is yours to update ([details](doc/RELEASE.md#updates-on-the-device))
 - **Display Control**: Interactive OLED menu with status, time, relay control, input monitoring, and settings
 - **Dallas Temperature Sensors**: a sensor per DS18B20 found at boot, numbered once and kept across reboots ([details](doc/ONEWIRE_WORKFLOW.md))
-- **User Storage**: a 4 MB LittleFS partition mounted at `/littlefs`, kept across OTA updates
+- **User Storage**: a 4 MB LittleFS partition mounted at `/littlefs`, kept across OTA updates, served over HTTP as a JSON file API under `/files` ([details](components/web_file_browser/README.md))
+- **Runtime Automations**: rules stored on that partition as JSON, loaded at boot and editable without a recompile, over HTTP under `/automation-editor/api` ([details](doc/AUTOMATIONS.md))
+- **Per-entity settings**: each relay's inversion, start mode and the input bound to it, and each
+  input's inversion, set from the display menu and kept on that partition
+  ([details](doc/ENTITY_SETTINGS.md))
+- **Password-protected web server**: `admin` / `admin` out of the factory, changed from the
+  dashboard and kept across reboots ([details](components/web_auth/README.md))
 
 ## Repository Layout
 
 ```
 devices/JXD/
   jxd-r6-e1eth-lcd.yaml     # device config
-  packages/                 # boards, features, display
+  packages/                 # boards, features, display, qemu
 assets/
   fonts/  res/
 components/                 # external components
+tests/                      # Google Test suites, one per component under tests/components/
 ```
 
 Each device config sets `assets: ../../assets`, `components: ../../components`,
@@ -59,18 +70,20 @@ the device. Those packages live under the family's `packages/`, split by role:
 
 | Directory            | Contents |
 | -------------------- | -------- |
-| `packages/boards/`   | Platform and the chips sitting on each board — `jxd-cpu-e1eth.yaml` (ESP32, api/ota/logger/web_server, TMP102, LED) and `jxd-d6-r6-rev1.2.yaml` (PCA9554 expander, 6 relays, 6 inputs, DS2484 1-Wire bridge) |
-| `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network` |
-| `packages/display/`  | Display, pages, menu and buttons — `display.yaml`, `menu.yaml`, `buttons.yaml`, `menu-items-network.yaml` |
+| `packages/boards/`   | Platform and the chips sitting on each board — `jxd-cpu-e1eth.yaml` (ESP32, api/ota/logger/web_server, TMP102, LED, the identity EEPROM) and `jxd-d6-r6-rev1.2.yaml` (PCA9554 expander, 6 relays, 6 inputs, DS2484 1-Wire bridge) |
+| `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `entity-settings`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network`, `web-auth`, `web-device-dashboard`, `web-file-browser`, `automations`, `automation-editor`, `firmware-update` |
+| `packages/display/`  | Display, pages, menu and buttons — `display.yaml`, `menu.yaml`, `buttons.yaml`, `menu-items-network.yaml`, `menu-serial.yaml`, `menu-firmware.yaml`, `firmware-page.yaml` |
+| `packages/qemu/`     | Overlays that `scripts/qemu.sh` layers over the real config to run it in the emulator — never part of a firmware build |
 
 Shared code and tooling stay at the repository root:
 
 | Directory  | Contents |
 | ---------- | -------- |
-| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) and its `filesystem_storage_abstract` base |
-| `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `setup.sh` / `setup.bat` |
+| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `web_device_dashboard` (the web UI at `/` and its device API), `web_auth` (the web server's credentials, changeable at runtime), `web_origin_guard` (the cross-origin refusal every handler on that server answers with), `loop_job` (what a web handler hands the loop task so it does not edit its state from the server's), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), `entity_config` (the per-entity settings) with the `config_base` / `config_json` it is built on, `bindings` (an input driving a relay), `jethome_update` (the firmware update entity) over the `jethome_manifest` parser of the firmware server's answer, and `display_menu_base` with `graphical_display_menu` (upstream's, with the menu options `packages/display/menu.yaml` needs) |
+| `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `device-files.py` (the `web_file_browser` API from a terminal), `qemu.sh` (the emulator), `setup.sh` / `setup.bat` |
 | `dist/`    | Generated self-contained configs the ESPHome Builder imports |
 | `doc/`     | Guides, plus the README's UI mockups in `doc/images/` |
+| `tests/`   | `tests/components/<name>/` is that component's Google Test suite, built for the ESPHome `host` platform and run by `python tests/run.py`; `tests/harness/` is what every suite shares |
 
 The BDF display fonts in `assets/fonts/` come from [IT-Studio-Rech/bdf-fonts](https://github.com/IT-Studio-Rech/bdf-fonts).
 
@@ -184,8 +197,9 @@ esphome run devices/JXD/jxd-r6-e1eth-lcd.yaml --device <IP_ADDRESS>
 
 ## Display UI Overview
 
-Four pages plus a menu. The main page is what you get at boot and after HOME; everything
-else is one button away from it.
+Five pages plus a menu. The main page is what you get at boot and after HOME; everything
+else is one button away from it, except the firmware install page, which the device puts up
+on its own.
 
 ### Main Page
 
@@ -218,15 +232,27 @@ Current date and time from the hardware RTC.
 
 **Getting here**: RIGHT from the main page.
 
+### Firmware Install Page
+
+<img src="doc/images/jxd-r6-firmware-page-ui.svg" width="400" alt="Firmware Install Page">
+
+Up while a firmware image is being written, whatever asked for it — the menu, Home Assistant
+or the dashboard: the version being installed, how far it has got and a progress bar. The
+screen does not blank while an install runs, and the device reboots into the new firmware as
+soon as the image is in. An install that fails says so instead and leaves the running firmware
+untouched; any button then takes the page away, and it leaves on its own after half a minute.
+
+**Getting here**: no button leads here; an install starting puts it up.
+
 ### Menu
 
 <img src="doc/images/jxd-r6-menu-ui.svg" width="400" alt="Menu">
 
-- **Relays** - toggle each of the 6 relays
-- **Inputs** - live state of the 6 digital inputs
+- **Relays** - a submenu per relay: toggle it, and set its inversion, start mode and bound input
+- **Inputs** - a submenu per input: live state and inversion
 - **Temperatures** - temperature sensor readings; a DS18B20 row opens its slot: the ROM address and a forget command
-- **Info** - network information (Ethernet and WiFi IP and MAC addresses, access point password)
-- **Settings** - display auto-off timer, Modbus settings, temperature slots, network mode, WiFi credential reset, factory reset, reboot
+- **Info** - network information (Ethernet and WiFi IP and MAC addresses, access point password), then the serial number from the CPU board's EEPROM (`--` when it holds none)
+- **Settings** - display auto-off timer, Modbus settings, firmware updates (the running and the offered version, the release channel, a check and an install), temperature slots, network mode, WiFi credential reset, reboot; a factory reset clears the stored preferences (WiFi credentials, settings, the temperature slot table) and formats the user partition, taking the automation rules and uploaded files with it
 
 **Getting here**: CENTER from the main page.
 
@@ -251,9 +277,12 @@ page, anything else on the main page.
 
 ## Documentation
 
+- **[Entity Settings](doc/ENTITY_SETTINGS.md)**: What a relay and an input remember across reboots, and where it is kept
+- **[Runtime Automations](doc/AUTOMATIONS.md)**: Rules stored on the device, what they can do and how to test them
 - **[OneWire Temperature Sensors](doc/ONEWIRE_WORKFLOW.md)**: How DS18B20 sensors get their slots, and how to reassign them
 - **[WiFi Setup](doc/WIFI_SETUP.md)**: Provisioning WiFi through the captive portal
 - **[Release Workflow](doc/RELEASE.md)**: CI, channels, firmware versioning, and publishing to fw.jethome.com
+- **[QEMU](doc/QEMU.md)**: Running a device config in the emulator, with the screen and joystick in a browser
 
 ## Modbus RTU Server
 

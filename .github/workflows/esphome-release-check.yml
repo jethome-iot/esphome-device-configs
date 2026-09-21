@@ -20,7 +20,7 @@ permissions:
   issues: write
 
 env:
-  # See build.yml: builds must not depend on the runner's timezone.
+  # See ci.yml: builds must not depend on the runner's timezone.
   TZ: Etc/UTC
 
 jobs:

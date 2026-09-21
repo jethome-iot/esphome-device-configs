@@ -1,0 +1,31 @@
+# Google Test binary for components/loop_job, built through esphome compile by tests/run.py.
+# The harness main.cpp replaces the generated one, so nothing declared here is ever set up:
+# the block exists to get the header compiled. The cases drive the caller/loop handshake by
+# hand, in every order the two tasks can reach it in.
+esphome:
+  name: loop-job-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../../components
+    components: [loop_job]
+  - source: ../../harness/components
+    components: [loop_job_host]
+
+loop_job_host:

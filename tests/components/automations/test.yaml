@@ -1,0 +1,71 @@
+# Google Test binary for components/automations, built through esphome compile
+# by tests/run.py. The harness main.cpp replaces the generated one, so nothing
+# declared here is ever set up: the entities and the engine exist only to get
+# the sources compiled and the USE_* defines set. The tests create their own.
+esphome:
+  name: automations-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+      # The logger keeps listeners only when a component asks for them in
+      # codegen; the tests read the errors and warnings through one.
+      - -DUSE_LOG_LISTENERS
+      - -DESPHOME_LOG_MAX_LISTENERS=1
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../../components
+    components: [filesystem_storage_abstract, automations, loop_job]
+  - source: ../../harness/components
+    components: [dir_storage]
+
+time:
+  - platform: host
+    id: host_time
+    timezone: UTC
+
+dir_storage:
+  id: test_storage
+  path: .storage
+
+automations:
+  storage: test_storage
+  time_id: host_time
+
+# App sizes its entity lists from what is declared here and silently drops a
+# registration past that, so this is at least what cases/common.h registers.
+binary_sensor:
+  - platform: template
+    id: in_1_unused
+    name: "In 1"
+  - platform: template
+    id: in_2_unused
+    name: "In 2"
+
+sensor:
+  - platform: template
+    id: temp_unused
+    name: "Temp"
+
+switch:
+  - platform: template
+    id: relay_1_unused
+    name: "Relay 1"
+    optimistic: true
+  - platform: template
+    id: relay_2_unused
+    name: "Relay 2"
+    optimistic: true

@@ -1,0 +1,11 @@
+# Rules the user edits at run time, stored as JSON files on the LittleFS partition.
+# Details: doc/AUTOMATIONS.md
+external_components:
+  - source: ${components}
+    components: [automations, loop_job]
+
+automations:
+  # Named so the display menu can list the rules.
+  id: automations_engine
+  storage: user_storage
+  time_id: pcf8563_time
