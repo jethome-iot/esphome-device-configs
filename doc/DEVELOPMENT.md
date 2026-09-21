@@ -103,6 +103,31 @@ upstream's: a bump can change either the style config or the version it formats 
 `@master`, so it moves only when `dev` is merged into it for a release. Branch rules keep
 direct commits off both `dev` and `master`: everything lands through pull requests.
 
+## Issues and pull requests
+
+Every change starts as an issue — a feature, a bug, a refactor, a documentation fix, a chore.
+The issue is where the work is described and agreed; the pull request only carries it out. A
+review finding that is not fixed in the pull request it was raised on is filed as its own issue
+before that pull request is called done, so nothing real is left behind in a comment thread.
+
+A milestone is an **epic issue**, labelled `epic` — not the GitHub Milestones feature. It carries
+the list of its children as a task list, and each child links back to it. The state of a
+milestone is then one page, and it is the same kind of object as everything else, so it takes
+discussion and links like everything else.
+
+Every pull request opens on an issue and says which one in its body:
+
+| | |
+| --- | --- |
+| `Closes #N` | this pull request finishes the issue |
+| `Part of #N` | one of several; the issue stays open |
+
+A pull request with nothing behind it is one nobody agreed to. When something else turns out to
+need doing mid-change and does not belong in the change at hand, file it and link it instead of
+widening the pull request.
+
+Templates for all three kinds of issue, and for the pull request, are in `.github/`.
+
 ## Style
 
 - YAML: yamllint — 2-space indent, indented sequences, at most one blank line, no `---`, no
@@ -114,3 +139,6 @@ direct commits off both `dev` and `master`: everything lands through pull reques
   hand, `pre-commit run clang-format --all-files`.
 - Comments say why in a line or two; the longer story goes in the commit message. README and
   `doc/` state behavior and usage, not mechanism.
+- English, everywhere it is written down: issues, pull requests, commit messages, code comments,
+  the README and `doc/`. Whatever language a discussion happens in, what lands in the repository
+  is in one language.

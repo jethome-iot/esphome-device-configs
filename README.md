@@ -83,6 +83,7 @@ Shared code and tooling stay at the repository root:
 | `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `device-files.py` (the `web_file_browser` API from a terminal), `qemu.sh` (the emulator), `setup.sh` / `setup.bat` |
 | `dist/`    | Generated self-contained configs the ESPHome Builder imports |
 | `doc/`     | Guides, plus the README's UI mockups in `doc/images/` |
+| `.github/` | The workflows of [doc/RELEASE.md](doc/RELEASE.md), and the issue and pull request templates of [doc/DEVELOPMENT.md](doc/DEVELOPMENT.md) |
 | `tests/`   | `tests/components/<name>/` is that component's Google Test suite, built for the ESPHome `host` platform and run by `python tests/run.py`; `tests/harness/` is what every suite shares |
 
 The BDF display fonts in `assets/fonts/` come from [IT-Studio-Rech/bdf-fonts](https://github.com/IT-Studio-Rech/bdf-fonts).
@@ -317,9 +318,11 @@ whole map over RS485 for a quick check:
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit issues or pull requests against `dev`
-(`master` is the release branch). Start with [Development](doc/DEVELOPMENT.md) for the setup and
-checks, [Architecture](doc/ARCHITECTURE.md) for how the packages fit together, and
+Contributions are welcome. Every change starts as an issue: open one, then a pull request
+against `dev` that says `Closes #N` or `Part of #N` (`master` is the release branch). Issues,
+pull requests, commit messages and documentation are in English. The rules, with the templates
+in `.github/`, are in [Development](doc/DEVELOPMENT.md) — start there for the setup and checks
+too, then [Architecture](doc/ARCHITECTURE.md) for how the packages fit together and
 [dist/ and new devices](doc/DIST.md) to add a device.
 
 ## License

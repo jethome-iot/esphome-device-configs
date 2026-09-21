@@ -1,0 +1,7 @@
+# A blank issue is still an issue: the rule is that work is tracked, not that it is tracked on a
+# form. The templates make the usual three easy; they do not gate the unusual one.
+blank_issues_enabled: true
+contact_links:
+  - name: Hardware, or the proprietary firmware
+    url: https://jethome.com/
+    about: This repository is the open-source firmware. Anything else goes to JetHome support.
