@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -212,6 +213,8 @@ class TestSettings : public config_json::SettingsBaseJsonTyped<TestSettings, Tes
 // points at the keeper, and nothing here runs the scheduler to the end of that timeout.
 struct Store {
   config_json::ConfigJsonKeeper keeper;
+  // The same settings behind a keeper whose setup() failed: nothing it is handed reaches flash.
+  config_json::ConfigJsonKeeper failed;
   TestSettings sw{"switch"};
   TestSettings bs{"binary_sensor"};
   // A type the entity index has no branch for: only switch and binary_sensor are listed.
@@ -221,9 +224,12 @@ struct Store {
 inline Store &store() {
   static Store *instance = [] {
     auto *s = new Store();
-    s->keeper.add_settings(&s->sw);
-    s->keeper.add_settings(&s->bs);
-    s->keeper.add_settings(&s->other);
+    for (config_json::ConfigJsonKeeper *k : {&s->keeper, &s->failed}) {
+      k->add_settings(&s->sw);
+      k->add_settings(&s->bs);
+      k->add_settings(&s->other);
+    }
+    s->failed.mark_failed();
     return s;
   }();
   return *instance;
@@ -314,6 +320,13 @@ class TestDashboard : public WebDeviceDashboard {
 
   int restarts{0};
   int rollbacks{0};
+  // A host build has one task, so every job runs inline and a handler that read the records
+  // where they stand would answer exactly like one that handed the read over. What crossed is
+  // counted here instead, and `loop_busy` refuses a job the way the dispatcher does when the
+  // loop task never gets to it. What this cannot reach is the crossing itself -- the dispatcher
+  // takes its on-loop-task branch here; the handshake is `tests/components/loop_job/`.
+  int jobs{0};
+  bool loop_busy{false};
   // What rollback_target_() answers while stub_rollback is set; without it the build's own
   // answer stands, which off ESP32 is "nothing to roll back to".
   bool stub_rollback{false};
@@ -328,6 +341,12 @@ class TestDashboard : public WebDeviceDashboard {
   const char *select_rollback_(const RollbackTarget & /*target*/) override {
     this->rollbacks++;
     return this->rollback_error;
+  }
+  bool run_on_loop_(std::function<bool()> &&job) override {
+    this->jobs++;
+    if (this->loop_busy)
+      return false;
+    return WebDeviceDashboard::run_on_loop_(std::move(job));
   }
 };
 
@@ -371,11 +390,19 @@ class Dashboard : public ::testing::Test {
   // What the loop task does between two requests: run what handleRequest deferred.
   static void loop() { App.scheduler.call(millis()); }
 
+  // The Host every case is addressed to; a page on another site says so by carrying an Origin
+  // that is not this.
+  static constexpr const char *HOST = "device.local";
+
   // One request through the server, the way web_server_idf delivers it: a raw body in @p chunk
   // sized pieces through handleBody, then handleRequest. A form body never reaches handleBody.
+  // @p origin is what a page on another site would carry; nullptr is a client that sends none.
   Reply call(http_method method, const std::string &url, const std::string &body = "", size_t chunk = 512,
-             const std::string &content_type = "application/json") {
+             const std::string &content_type = "application/json", const char *origin = nullptr) {
     AsyncWebServerRequest request(method, url, body, content_type);
+    request.set_header("Host", HOST);
+    if (origin != nullptr)
+      request.set_header("Origin", origin);
     Reply reply;
     reply.claimed = this->base.get_server()->dispatch(request, chunk);
     reply.code = request.response_code;

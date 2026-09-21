@@ -1,7 +1,6 @@
 #include "automation_storage.h"
 #include <ArduinoJson.h>
 #include <algorithm>
-#include <atomic>
 #include <cctype>
 #include <cinttypes>
 #include <cstdio>
@@ -11,11 +10,6 @@
 #include "esphome/core/application.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
-
-#ifdef USE_ESP32
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
-#endif
 
 namespace esphome {
 
@@ -33,7 +27,6 @@ static const size_t MAX_FILENAME_BYTES = 48;
 static const size_t MAX_FILE_BYTES = 16384;
 // A cron tick further away than this from the previous one is a clock jump, not elapsed time.
 static const time_t MAX_TIMESTAMP_DRIFT = 900;
-static const uint32_t LOOP_JOB_TIMEOUT_MS = 5000;
 
 // Cut to at most `limit` bytes without splitting a UTF-8 character.
 static std::string truncate_utf8(const std::string &text, size_t limit) {
@@ -83,9 +76,7 @@ static void for_each_rule(uint8_t &depth, std::vector<std::unique_ptr<RuntimeAut
 }
 
 void AutomationStorage::setup() {
-#ifdef USE_ESP32
-  this->loop_task_ = xTaskGetCurrentTaskHandle();
-#endif
+  this->dispatcher_.capture_loop_task();
   if (this->storage_backend_ == nullptr || !this->storage_backend_->is_mounted()) {
     ESP_LOGE(TAG, "Storage not mounted");
     this->mark_failed();
@@ -249,49 +240,30 @@ void AutomationStorage::check_time_() {
 
 // --- Mutators: any task in, loop task does the work ---
 
+bool AutomationStorage::run_on_loop(std::function<bool()> &&job) {
+  // A failed component is not scheduled, so a deferred job would only wait out the timeout.
+  // Its mutators refuse for that same reason, so nothing can move the list under a reader
+  // that runs where it stands.
+  if (this->is_failed())
+    return job();
+  return this->dispatcher_.run_on_loop(this, std::move(job));
+}
+
 bool AutomationStorage::run_on_loop_(std::function<bool()> &&job) {
-  // The scheduler drops deferred items of a failed component, so a cross-task call would
-  // block for LOOP_JOB_TIMEOUT_MS and an inline one would edit state that never reaches flash.
+  // The scheduler drops deferred items of a failed component, so a cross-task call would wait
+  // out the dispatcher's timeout and an inline one would edit state that never reaches flash.
   if (this->is_failed()) {
     ESP_LOGE(TAG, "Automation storage is not available");
     return false;
   }
-#ifdef USE_ESP32
-  if (this->loop_task_ != nullptr && xTaskGetCurrentTaskHandle() != this->loop_task_) {
-    enum class JobState : uint8_t { PENDING, RUNNING, DONE, ABANDONED };
-    struct LoopJob {
-      std::function<bool()> fn;
-      std::atomic<JobState> state{JobState::PENDING};
-      bool result{false};
-    };
-    auto shared = std::make_shared<LoopJob>();
-    shared->fn = std::move(job);
-    this->defer([shared]() {
-      // Only a job still pending may start: an abandoned one has been reported as failed.
-      JobState expected = JobState::PENDING;
-      if (!shared->state.compare_exchange_strong(expected, JobState::RUNNING))
-        return;
-      shared->result = shared->fn();
-      shared->state = JobState::DONE;
-    });
-    for (uint32_t waited = 0; shared->state != JobState::DONE && waited < LOOP_JOB_TIMEOUT_MS; waited += 2)
-      vTaskDelay(pdMS_TO_TICKS(2));
-    JobState expected = JobState::PENDING;
-    if (shared->state.compare_exchange_strong(expected, JobState::ABANDONED)) {
-      ESP_LOGE(TAG, "Loop task did not run the request in time");
+  if (this->dispatcher_.on_loop_task()) {
+    if (this->dispatching_ > 0) {
+      ESP_LOGE(TAG, "Rules cannot be edited from inside a rule's own action");
       return false;
     }
-    // It started at the deadline: it will finish, and the caller gets the truth.
-    while (shared->state != JobState::DONE)
-      vTaskDelay(pdMS_TO_TICKS(2));
-    return shared->result;
+    return job();
   }
-#endif
-  if (this->dispatching_ > 0) {
-    ESP_LOGE(TAG, "Rules cannot be edited from inside a rule's own action");
-    return false;
-  }
-  return job();
+  return this->dispatcher_.run_on_loop(this, std::move(job));
 }
 
 uint32_t AutomationStorage::add_automation(const AutomationConfig &config) {
@@ -711,14 +683,24 @@ bool AutomationStorage::save_automation_to_file_(const AutomationConfig &config)
   return true;
 }
 
-bool AutomationStorage::delete_file_(const std::string &filename) {
+bool AutomationStorage::remove_file_(const std::string &filepath) { return remove(filepath.c_str()) == 0; }
+
+void AutomationStorage::delete_file_(const std::string &filename) {
   const std::string filepath = this->get_folder_path_() + "/" + filename;
-  if (remove(filepath.c_str()) == 0) {
+  if (this->remove_file_(filepath)) {
     ESP_LOGD(TAG, "Deleted automation file: %s", filepath.c_str());
-    return true;
+    return;
   }
+  // Gone already — someone deleted it over the file API — and there is nothing to drop.
+  // Writing here would put a file the loader refuses back under a name nothing can reuse.
+  if (!file_exists(filepath))
+    return;
+  // Blank it: left whole, the loader reads it back at the next boot and the rule this call
+  // was dropping returns — beside its rename as a second copy, or from the dead.
   ESP_LOGW(TAG, "Failed to delete file: %s", filepath.c_str());
-  return false;
+  FILE *blank = fopen(filepath.c_str(), "w");
+  if (blank == nullptr || fclose(blank) != 0)
+    ESP_LOGE(TAG, "Failed to blank stale automation file: %s", filepath.c_str());
 }
 
 // The folder is writable by hand, so ids and names are re-established from what was loaded.
@@ -836,14 +818,7 @@ void AutomationStorage::normalize_filenames_(const std::vector<bool> &changed) {
                canonical[i].c_str());
       if (vacating)
         continue;
-      const std::string filepath = folder_path + "/" + from;
-      if (remove(filepath.c_str()) != 0) {
-        // Blank it: loaded again it would be renamed to a fresh copy every boot.
-        ESP_LOGW(TAG, "Failed to delete stale automation file: %s", filepath.c_str());
-        FILE *blank = fopen(filepath.c_str(), "w");
-        if (blank != nullptr)
-          fclose(blank);
-      }
+      this->delete_file_(from);
     }
   }
 }

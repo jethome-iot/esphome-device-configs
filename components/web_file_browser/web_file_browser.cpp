@@ -30,7 +30,7 @@ static const unsigned MAX_RECURSION_DEPTH = 8;
 
 void WebFileBrowser::setup() {
   this->base_->init();
-  this->base_->add_handler(this);
+  this->base_->add_handler(&this->guard_);
 }
 
 void WebFileBrowser::dump_config() {
@@ -370,10 +370,17 @@ void WebFileBrowser::handle_list_request_(AsyncWebServerRequest *request) {
              static_cast<long long>(mtime));
     static const char NAME[] = R"({"name":")";
     put(NAME, sizeof(NAME) - 1);
-    char esc[JSON_ESCAPE_MAX];
-    for (const char *c = entry->d_name; *c != '\0'; c++) {
-      put(esc, json_escape_char(esc, *c));
+    // A name off the filesystem is only bytes: whatever of it is not valid UTF-8
+    // goes out as U+FFFD, so the listing stays a JSON text.
+    JsonEscapeState escape;
+    auto escaped = [&](const char *data, size_t len) {
+      put(data, len);
+      return sent;
+    };
+    for (const char *c = entry->d_name; sent && *c != '\0'; c++) {
+      json_escape_byte(escape, *c, escaped);
     }
+    json_escape_end(escape, escaped);
     put(meta, strlen(meta));
     // Last in the body: put() sends, and a socket call of its own sets errno.
     errno = 0;
@@ -402,8 +409,8 @@ void WebFileBrowser::handle_list_request_(AsyncWebServerRequest *request) {
   put("]", 1);
 
   if (!streamed) {
-    // No embedded NUL to lose to strlen: json_escape_char turns control bytes
-    // into \u00XX and a directory entry cannot carry one anyway.
+    // No embedded NUL to lose to strlen: the escaper turns control bytes into
+    // \u00XX and a directory entry cannot carry one anyway.
     out[used] = '\0';
     request->send(200, "application/json", out);
     return;
@@ -620,6 +627,7 @@ void WebFileBrowser::handle_read_request_(AsyncWebServerRequest *request) {
   bool sent = send_chunk(PREFIX, sizeof(PREFIX) - 1);
 
   size_t used = 0;
+  JsonEscapeState escape;
   while (sent) {
     size_t read_bytes = fread(in, 1, READ_CHUNK, file);
     if (read_bytes == 0) {
@@ -633,11 +641,16 @@ void WebFileBrowser::handle_read_request_(AsyncWebServerRequest *request) {
       }
       break;
     }
-    sent = json_escape_chunk(in, read_bytes, out, OUT_CHUNK, used, send_chunk);
+    sent = json_escape_chunk(in, read_bytes, out, OUT_CHUNK, used, escape, send_chunk);
     // Yield to prevent watchdog timeout on large files
     vTaskDelay(1);
   }
 
+  if (sent) {
+    // Before the tail goes out: a file that ends inside a UTF-8 sequence still owes
+    // the body its replacement character, and this can fill the buffer to a flush.
+    sent = json_escape_chunk_end(out, OUT_CHUNK, used, escape, send_chunk);
+  }
   if (sent && used > 0) {
     sent = send_chunk(out, used);
   }
@@ -1283,10 +1296,18 @@ std::string WebFileBrowser::json_escape_(const std::string &str) const {
   std::string escaped;
   escaped.reserve(str.length());
 
-  char buf[JSON_ESCAPE_MAX];
+  // Every message here is an ASCII literal, so this is the same append per byte it
+  // has always been; it goes through the state machine so that it stays right if
+  // one ever stops being ASCII.
+  JsonEscapeState state;
+  auto emit = [&escaped](const char *data, size_t size) {
+    escaped.append(data, size);
+    return true;
+  };
   for (char c : str) {
-    escaped.append(buf, json_escape_char(buf, c));
+    json_escape_byte(state, c, emit);
   }
+  json_escape_end(state, emit);
 
   return escaped;
 }

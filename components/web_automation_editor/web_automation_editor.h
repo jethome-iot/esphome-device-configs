@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include "esphome/components/automations/automation_storage.h"
+#include "esphome/components/web_origin_guard/web_origin_guard.h"
 #include "esphome/components/web_server_base/web_server_base.h"
 #include "esphome/core/component.h"
 
@@ -61,6 +62,8 @@ class WebAutomationEditor : public AsyncWebHandler, public Component {
   void handle_entities_(AsyncWebServerRequest *request);
   void handle_schema_(AsyncWebServerRequest *request);
   void send_error_(AsyncWebServerRequest *request, const std::string &message, int code = 400);
+  // For a read or a write the loop task did not take: nothing happened, and it can be asked again.
+  void send_busy_(AsyncWebServerRequest *request);
   void send_success_(AsyncWebServerRequest *request, const char *message, uint32_t id = 0);
   // For the statuses AsyncWebServerRequest::send() does not know and would turn into a 500.
   void send_status_(AsyncWebServerRequest *request, const char *status, const char *allow, const char *body);
@@ -69,6 +72,8 @@ class WebAutomationEditor : public AsyncWebHandler, public Component {
 
   web_server_base::WebServerBase *base_;
   automations::AutomationStorage *storage_;
+  // What is registered on the server; this handler is only ever reached through it.
+  web_origin_guard::WebOriginGuard guard_{this};
   std::string url_prefix_{"/automation-editor"};
   // The server handles one request at a time, so one body buffer is enough. body_total_ is
   // the Content-Length the buffer belongs to: a receive that failed midway never reaches

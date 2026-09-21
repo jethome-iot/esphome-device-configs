@@ -38,6 +38,25 @@ class LogCapture {
   }
 };
 
+// A device whose flash flush reports a failure. Every backend takes the writes a test can
+// make, so the component's own store step is what stands in for a flash that does not.
+class FlakyFlash : public WebAuth {
+ public:
+  using WebAuth::WebAuth;
+
+  // What the next store does: work, or fail the flush with the record either already in
+  // flash — what an unrelated component's failed key looks like from here — or nowhere.
+  enum class Flush { OK, FAILED_RECORD_LANDED, FAILED_RECORD_LOST };
+  Flush flush{Flush::OK};
+
+ protected:
+  bool store_(const StoredCredentials &stored) override {
+    if (this->flush != Flush::FAILED_RECORD_LOST)
+      WebAuth::store_(stored);
+    return this->flush == Flush::OK;
+  }
+};
+
 class WebAuthTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -52,14 +71,20 @@ class WebAuthTest : public ::testing::Test {
 
   // A device coming up: codegen's pair, then whatever was stored. Heap-held, because the
   // server is handed pointers into this object's strings.
-  std::unique_ptr<WebAuth> boot(web_server_base::WebServerBase *base, uint32_t hash = PREF_HASH) {
-    auto auth = std::make_unique<WebAuth>(base);
+  template<typename T> std::unique_ptr<T> boot(std::unique_ptr<T> auth, uint32_t hash = PREF_HASH) {
     auth->set_default_credentials("admin", "hunter2");
     auth->set_preference_hash(hash);
     auth->setup();
     return auth;
   }
+  std::unique_ptr<WebAuth> boot(web_server_base::WebServerBase *base, uint32_t hash = PREF_HASH) {
+    return this->boot(std::make_unique<WebAuth>(base), hash);
+  }
   std::unique_ptr<WebAuth> boot() { return this->boot(&this->base_); }
+  // The same device, with a flash that can be made to fail under it.
+  std::unique_ptr<FlakyFlash> boot_flaky(web_server_base::WebServerBase *base) {
+    return this->boot(std::make_unique<FlakyFlash>(base));
+  }
 
   web_server_base::WebServerBase base_;
 };
@@ -263,6 +288,54 @@ TEST_F(WebAuthTest, ARefusedPairLeavesTheServerAlone) {
   auth->set_credentials("adm:in", "secret");
   EXPECT_EQ(std::string(this->base_.get_auth_username()), "admin");
   EXPECT_EQ(std::string(this->base_.get_auth_password()), "hunter2");
+}
+
+// A pair that never reached flash is not applied either: the route has already answered by
+// the time the store runs, so the log and the error status are all that is left to say so.
+TEST_F(WebAuthTest, APairThatNeverReachedFlashLeavesTheServerAlone) {
+  auto auth = this->boot_flaky(&this->base_);
+  auth->flush = FlakyFlash::Flush::FAILED_RECORD_LOST;
+  auth->set_credentials("operator", "s3cret-phrase");
+
+  EXPECT_EQ(std::string(this->base_.get_auth_username()), "admin");
+  EXPECT_EQ(std::string(this->base_.get_auth_password()), "hunter2");
+  EXPECT_TRUE(auth->is_default());
+  EXPECT_TRUE(auth->status_has_error());
+  EXPECT_TRUE(LogCapture::instance().has("the old ones stay in force"));
+
+  web_server_base::WebServerBase fresh;
+  auto second = this->boot(&fresh);
+  EXPECT_EQ(std::string(fresh.get_auth_username()), "admin");
+}
+
+// The flush reports for every component at once. A failure that belongs to another key
+// leaves this record in flash, and rolling back would put the next boot on credentials the
+// caller was told were not applied.
+TEST_F(WebAuthTest, APairAlreadyInFlashIsAppliedThoughTheFlushFailed) {
+  auto auth = this->boot_flaky(&this->base_);
+  auth->flush = FlakyFlash::Flush::FAILED_RECORD_LANDED;
+  auth->set_credentials("operator", "s3cret-phrase");
+
+  EXPECT_EQ(std::string(this->base_.get_auth_username()), "operator");
+  EXPECT_EQ(std::string(this->base_.get_auth_password()), "s3cret-phrase");
+  EXPECT_FALSE(auth->status_has_error());
+  EXPECT_FALSE(LogCapture::instance().has("the old ones stay in force"));
+
+  web_server_base::WebServerBase fresh;
+  auto second = this->boot(&fresh);
+  EXPECT_EQ(std::string(fresh.get_auth_username()), "operator");
+}
+
+TEST_F(WebAuthTest, AStoreThatWorksTakesTheErrorStatusBackDown) {
+  auto auth = this->boot_flaky(&this->base_);
+  auth->flush = FlakyFlash::Flush::FAILED_RECORD_LOST;
+  auth->set_credentials("operator", "s3cret-phrase");
+  ASSERT_TRUE(auth->status_has_error());
+
+  auth->flush = FlakyFlash::Flush::OK;
+  auth->set_credentials("operator", "s3cret-phrase");
+  EXPECT_FALSE(auth->status_has_error());
+  EXPECT_EQ(std::string(this->base_.get_auth_username()), "operator");
 }
 
 }  // namespace esphome::web_auth::testing

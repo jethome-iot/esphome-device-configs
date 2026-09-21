@@ -73,6 +73,16 @@ TEST_F(Dashboard, EntitySettingsIsUnavailableWithoutAKeeper) {
   EXPECT_EQ(write.error(), "Config JSON keeper not available");
 }
 
+// A keeper that is there but cannot write: applying the change would answer 200 for something
+// the next reboot drops, so the write is refused and nothing is applied.
+TEST_F(Dashboard, EntitySettingsRefusesAWriteAKeeperCannotPersist) {
+  config_json::global_config_json_keeper = &store().failed;
+  Reply write = this->post("/api/device/entity-settings", UPDATE_RELAY_1);
+  EXPECT_EQ(write.code, 503);
+  EXPECT_EQ(write.error(), "Settings storage unavailable");
+  EXPECT_EQ(store().sw.size(), 0u);
+}
+
 TEST_F(Dashboard, APostOfSomethingThatIsNotAnObjectIsRefused) {
   for (const char *body : {"not json", "[]", "\"switch\"", "42"}) {
     Reply reply = this->post("/api/device/entity-settings", body);
@@ -87,6 +97,17 @@ TEST_F(Dashboard, APostWithoutATypeIsRefused) {
     EXPECT_EQ(reply.code, 400) << body;
     EXPECT_EQ(reply.error(), "'type' is required") << body;
   }
+}
+
+// The same type check the system routes and the credentials take: a cross-site form's body
+// never reads as this API's JSON.
+TEST_F(Dashboard, APostRefusesABodyThatDoesNotSayItIsJson) {
+  for (const char *type : {"text/plain", "text/plain;charset=UTF-8", "", "application/x-www-form-urlencoded"}) {
+    Reply reply = this->call(HTTP_POST, "/api/device/entity-settings", UPDATE_RELAY_1, 512, type);
+    EXPECT_EQ(reply.code, 415) << type;
+    EXPECT_EQ(reply.error(), "Expected Content-Type: application/json") << type;
+  }
+  EXPECT_EQ(store().sw.report(), "");
 }
 
 TEST_F(Dashboard, APostWhoseSettingsIsNotAnObjectIsRefused) {
@@ -138,11 +159,11 @@ TEST_F(Dashboard, APostUpdatesTheRecordAndSchedulesTheSave) {
   EXPECT_TRUE(store().keeper.is_save_pending());
 }
 
-TEST_F(Dashboard, TheRecordIsAppliedFromTheLoopAndNotFromTheServer) {
+TEST_F(Dashboard, TheRecordIsAppliedAsPartOfTheWrite) {
   ASSERT_EQ(this->post("/api/device/entity-settings", UPDATE_RELAY_1).code, 200);
-  // Entities are driven from the loop task: the answer goes out before anything is applied.
-  EXPECT_TRUE(store().sw.applied.empty());
-  this->loop();
+  // The whole write runs on the loop task, apply included, so the answer describes a device
+  // that has already changed. A host build has one task and reaches this inline; the crossing
+  // itself is ESP32-only and is checked in QEMU.
   EXPECT_EQ(store().sw.applied, std::vector<std::string>{"relay_1"});
 }
 

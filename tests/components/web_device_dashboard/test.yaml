@@ -42,6 +42,8 @@ external_components:
       - jethome_board_info
       - web_auth
       - web_device_dashboard
+      - web_origin_guard
+      - loop_job
   - source: ../../harness/components
     components: [dir_storage, web_server_base, web_server]
   # web_device_dashboard depends on web_server for the entity REST API its page calls, and

@@ -11,6 +11,7 @@ from esphome.const import CONF_ID
 
 CODEOWNERS = ["@jethome-iot"]
 DEPENDENCIES = ["web_server_base", "automations"]
+AUTO_LOAD = ["web_origin_guard"]
 
 CONF_AUTOMATIONS_ID = "automations_id"
 CONF_URL_PREFIX = "url_prefix"

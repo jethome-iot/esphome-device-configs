@@ -497,6 +497,74 @@ TEST_F(Storage, ARefusedFileIsNeverWrittenOver) {
   EXPECT_EQ(files(), (std::vector<std::string>{"other.json", "porch.json"}));
 }
 
+// A file the flash will not unlink is blanked instead, or the rule it holds is read back at
+// the next boot: beside its own rename as a duplicate, or after a removal that reported done.
+TEST_F(Storage, AFileThatWillNotDeleteIsBlanked) {
+  boot();
+  const uint32_t id = engine->add_automation(rule(R"({"name":"Porch","triggers":[{"source":"startup"}]})"));
+  ASSERT_NE(id, 0u);
+  engine->undeletable.push_back("porch.json");
+
+  ASSERT_TRUE(engine->update_automation(id, rule(R"({"name":"Gate","triggers":[{"source":"startup"}]})")));
+  EXPECT_EQ(files(), (std::vector<std::string>{"gate.json", "porch.json"}));
+  EXPECT_EQ(read("porch.json"), "");
+  EXPECT_TRUE(log().has(log().warnings, "Failed to delete file"));
+
+  reboot();
+  EXPECT_EQ(names(), (std::vector<std::string>{"Gate"}));
+}
+
+// The file API reaches the same partition, so a rule's file can be gone before the engine drops
+// the rule. There is nothing to blank then, and putting an empty file back would take the name
+// away from every rule after it.
+TEST_F(Storage, ARuleWhoseFileIsAlreadyGoneLeavesNoneBehind) {
+  boot();
+  const uint32_t id = engine->add_automation(rule(R"({"name":"Porch","triggers":[{"source":"startup"}]})"));
+  ASSERT_NE(id, 0u);
+  ASSERT_EQ(remove((rules() + "/porch.json").c_str()), 0);
+
+  EXPECT_TRUE(engine->remove_automation(id));
+  EXPECT_TRUE(files(true).empty());
+  EXPECT_NE(engine->add_automation(rule(R"({"name":"Porch","triggers":[{"source":"startup"}]})")), 0u);
+}
+
+TEST_F(Storage, ARuleWhoseFileWillNotDeleteStaysRemoved) {
+  boot();
+  const uint32_t id = engine->add_automation(rule(R"({"name":"Porch","triggers":[{"source":"startup"}]})"));
+  ASSERT_NE(id, 0u);
+  engine->undeletable.push_back("porch.json");
+
+  EXPECT_TRUE(engine->remove_automation(id));
+  EXPECT_EQ(read("porch.json"), "");
+  reboot();
+  EXPECT_TRUE(names().empty());
+}
+
+TEST_F(Storage, ResetLeavesNothingToLoadBack) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(R"({"name":"Porch","triggers":[{"source":"startup"}]})")), 0u);
+  ASSERT_NE(engine->add_automation(rule(R"({"name":"Gate","triggers":[{"source":"startup"}]})")), 0u);
+  engine->undeletable.push_back("porch.json");
+
+  engine->reset_all();
+  EXPECT_EQ(files(), (std::vector<std::string>{"porch.json"}));
+  EXPECT_EQ(read("porch.json"), "");
+  reboot();
+  EXPECT_TRUE(names().empty());
+}
+
+// The boot-time rename goes through the same call, so a stale name cannot come back either.
+TEST_F(Storage, AStaleNameThatWillNotDeleteIsBlankedAtBoot) {
+  write("old_name.json", R"({"id":1,"name":"New Name","triggers":[{"source":"startup"}]})");
+  engine->undeletable.push_back("old_name.json");
+  boot();
+  EXPECT_EQ(files(), (std::vector<std::string>{"new_name.json", "old_name.json"}));
+  EXPECT_EQ(read("old_name.json"), "");
+
+  reboot();
+  EXPECT_EQ(names(), (std::vector<std::string>{"New Name"}));
+}
+
 TEST_F(Storage, SavesLeaveNoHalfWrittenFile) {
   boot();
   ASSERT_NE(engine->add_automation(rule(R"({"name":"Whole","triggers":[{"source":"startup"}]})")), 0u);

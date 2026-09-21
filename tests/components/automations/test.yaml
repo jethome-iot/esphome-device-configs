@@ -28,7 +28,7 @@ logger:
 
 external_components:
   - source: ../../../components
-    components: [filesystem_storage_abstract, automations]
+    components: [filesystem_storage_abstract, automations, loop_job]
   - source: ../../harness/components
     components: [dir_storage]
 

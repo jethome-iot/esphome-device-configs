@@ -114,7 +114,30 @@ TEST_F(Storage, RefusesToRunWithoutAMountedStorage) {
   backend.mounted = false;
   boot();
   EXPECT_TRUE(keeper->is_failed());
+  EXPECT_FALSE(keeper->can_save());
   EXPECT_TRUE(log().has(log().errors, "not mounted"));
+}
+
+// The scheduler drops a failed component's timeouts, so a queued save would vanish in silence.
+TEST_F(Storage, AFailedKeeperSaysSoInsteadOfQueueingASave) {
+  backend.mounted = false;
+  boot();
+  log().clear();
+  settings.update("sw_a", true, 1);
+  keeper->save();
+  EXPECT_FALSE(keeper->is_save_pending());
+  EXPECT_TRUE(log().has(log().errors, "Storage unavailable"));
+}
+
+TEST_F(Storage, AFailedKeeperWritesNothingAtShutdownOrOnDemand) {
+  backend.mounted = false;
+  boot();
+  settings.update("sw_a", true, 1);
+  keeper->save_immediate("test");
+  EXPECT_EQ(size(), -1) << "a save by key reached the filesystem";
+  keeper->on_shutdown();
+  EXPECT_EQ(size(), -1) << "the shutdown flush reached the filesystem";
+  EXPECT_TRUE(files().empty());
 }
 
 TEST_F(Storage, CreatesTheDirectoryAndStartsEmpty) {

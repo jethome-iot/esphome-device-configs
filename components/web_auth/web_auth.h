@@ -65,6 +65,11 @@ class WebAuth : public Component {
  protected:
   // Writes the pair into the slot the server is not holding and hands the new pointers over.
   void publish_(const std::string &username, const std::string &password);
+  // Puts the record in flash and flushes it; false when the flush reported a failure.
+  // Virtual so the host tests can watch a store fail: the backend takes every write.
+  virtual bool store_(const StoredCredentials &stored);
+  // Whether flash holds that record now, read back through the preference.
+  bool flash_holds_(const StoredCredentials &stored);
 
   web_server_base::WebServerBase *base_;
   ESPPreferenceObject pref_;

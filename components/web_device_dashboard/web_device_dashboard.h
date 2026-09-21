@@ -1,8 +1,11 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <ArduinoJson.h>
+#include "esphome/components/loop_job/loop_job.h"
+#include "esphome/components/web_origin_guard/web_origin_guard.h"
 #include "esphome/components/web_server_base/web_server_base.h"
 #include "esphome/core/component.h"
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
@@ -84,6 +87,8 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   std::string url_(AsyncWebServerRequest *request) const;
   const Route *route_for_(const std::string &url) const;
   bool check_method_(AsyncWebServerRequest *request, const Route &route);
+  /// Answers 415 itself when the request does not say its body is JSON.
+  bool require_json_(AsyncWebServerRequest *request);
   void reset_body_();
   void handle_page_(AsyncWebServerRequest *request);
   void handle_info_(AsyncWebServerRequest *request);
@@ -107,6 +112,11 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   /// nullptr once the next boot is the rolled-back slot, else why it is not.
   virtual const char *select_rollback_(const RollbackTarget &target);
   virtual void restart_();
+  /// Hands @p job to the loop task, which owns the entity records, and waits for it. False
+  /// when the loop never got to it: the job did not run and never will.
+  /// Virtual for the same reason: a host build has one task, so nothing crosses on its own
+  /// and only a stand-in can refuse a job or count what was handed over.
+  virtual bool run_on_loop_(std::function<bool()> &&job);
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
   void write_board_(JsonObject root);
 #endif
@@ -121,6 +131,10 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   void send_status_(AsyncWebServerRequest *request, const char *status, const char *allow, const char *body);
 
   web_server_base::WebServerBase *base_;
+  // What is registered on the server; this handler is only ever reached through it.
+  web_origin_guard::WebOriginGuard guard_{this};
+  // A request arrives on the HTTP server's own task; a write goes over to the loop task.
+  loop_job::LoopDispatcher dispatcher_;
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
   jethome_board_info::JetHomeBoardInfo *board_{nullptr};
 #endif

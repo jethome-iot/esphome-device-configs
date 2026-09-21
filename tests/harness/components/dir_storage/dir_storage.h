@@ -11,8 +11,16 @@ class DirStorage : public filesystem_storage_abstract::FilesystemStorageAbstract
  public:
   void setup() override {
     struct stat st;
-    if (stat(this->base_path_.c_str(), &st) != 0 && mkdir(this->base_path_.c_str(), 0755) != 0) {
-      ESP_LOGE("dir_storage", "Cannot create %s", this->base_path_.c_str());
+    if (stat(this->base_path_.c_str(), &st) != 0) {
+      if (mkdir(this->base_path_.c_str(), 0755) != 0) {
+        ESP_LOGE("dir_storage", "Cannot create %s", this->base_path_.c_str());
+        this->mark_failed();
+        return;
+      }
+    } else if (!S_ISDIR(st.st_mode)) {
+      // Reporting a file as mounted would run every filesystem test against a path
+      // that cannot hold one.
+      ESP_LOGE("dir_storage", "%s is not a directory", this->base_path_.c_str());
       this->mark_failed();
       return;
     }

@@ -73,8 +73,9 @@ static const Route ROUTES[] = {
 // clang-format on
 
 void WebDeviceDashboard::setup() {
+  this->dispatcher_.capture_loop_task();
   this->base_->init();
-  this->base_->add_handler(this);
+  this->base_->add_handler(&this->guard_);
 }
 
 void WebDeviceDashboard::dump_config() {
@@ -524,17 +525,22 @@ static bool says_json(const optional<std::string> &content_type) {
   return type.compare(first, type.find_last_not_of(" \t") - first + 1, "application/json") == 0;
 }
 
+// Every route that reads a JSON body demands the type that names one. No HTML form can send it,
+// so a page on another site cannot steer a browser's cached credentials at these routes even
+// where the request carries no Origin for web_origin_guard to judge.
+bool WebDeviceDashboard::require_json_(AsyncWebServerRequest *request) {
+  if (says_json(request->get_header("Content-Type")))
+    return true;
+  this->send_error_(request, 415, "Expected Content-Type: application/json");
+  return false;
+}
+
 // POST {"username", "password"}. The new pair is checked here and applied from the loop task,
 // so this request still answers under the old one and the browser is asked for the new one on
 // the page's next call.
 void WebDeviceDashboard::handle_auth_set_(AsyncWebServerRequest *request) {
-  // A type no HTML form can send, so no page on another site can aim one here and have the
-  // browser attach the credentials it has cached; the way back from this route is a trip to
-  // the device's display menu.
-  if (!says_json(request->get_header("Content-Type"))) {
-    this->send_error_(request, 415, "Expected Content-Type: application/json");
+  if (!this->require_json_(request))
     return;
-  }
   if (this->body_too_large_) {
     this->send_error_(request, 413, "Request body over 4 KiB");
     return;
@@ -628,6 +634,8 @@ void WebDeviceDashboard::handle_capabilities_(AsyncWebServerRequest *request) {
 // device rather than having followed a link. Not the active MAC: on a build with Ethernet
 // that is a different one, and the answer names which is meant.
 bool WebDeviceDashboard::check_confirm_(AsyncWebServerRequest *request) {
+  if (!this->require_json_(request))
+    return false;
   if (this->body_too_large_) {
     this->send_error_(request, 413, "Request body over 4 KiB");
     return false;
@@ -735,6 +743,10 @@ const char *WebDeviceDashboard::select_rollback_(const RollbackTarget & /*target
 
 void WebDeviceDashboard::restart_() { App.safe_reboot(); }
 
+bool WebDeviceDashboard::run_on_loop_(std::function<bool()> &&job) {
+  return this->dispatcher_.run_on_loop(this, std::move(job));
+}
+
 // Both wait the answer out on the loop task: the server task is still holding the socket this
 // was asked on.
 void WebDeviceDashboard::reboot_() {
@@ -749,7 +761,7 @@ void WebDeviceDashboard::factory_reset_() {
     global_preferences->reset();
 #ifdef USE_WEB_DEVICE_DASHBOARD_STORAGE
     if (this->storage_ != nullptr && !this->storage_->request_format())
-      ESP_LOGE(TAG, "Wiping the user partition failed");
+      ESP_LOGE(TAG, "The user partition was not wiped and will not be");
 #endif
     this->restart_();
   });
@@ -804,28 +816,46 @@ void WebDeviceDashboard::handle_entity_settings_get_(AsyncWebServerRequest *requ
     return;
   }
   const std::string type = request->getParam("type")->value();
-  auto *settings = keeper->get_settings(type.c_str());
-  if (settings == nullptr) {
-    this->send_error_(request, 404, "Settings type not found");
+  const bool one = request->hasParam("source_name");
+  const std::string source_name = one ? request->getParam("source_name")->value() : std::string();
+
+  // The record list belongs to the loop task — a settings row on the display appends to it —
+  // and this runs on the HTTP server's. The whole response is built there: a record read here
+  // could be one the menu has just reallocated away.
+  std::string json;
+  int code = 0;
+  const char *message = nullptr;
+  const bool read = this->run_on_loop_([&]() {
+    auto *settings = keeper->get_settings(type.c_str());
+    if (settings == nullptr) {
+      code = 404;
+      message = "Settings type not found";
+      return false;
+    }
+    JsonDocument doc;
+    JsonObject root = doc.to<JsonObject>();
+    root["type"] = type;
+    if (one) {
+      settings->write_json_single(root, config_json::SETTINGS_FILE_VERSION, source_name.c_str());
+    } else {
+      settings->write_json(root, config_json::SETTINGS_FILE_VERSION);
+    }
+    serializeJson(doc, json);
+    return true;
+  });
+
+  if (!read) {
+    // No code means the loop task never took the job: there is nothing to answer with.
+    this->send_error_(request, code == 0 ? 503 : code, code == 0 ? "Device busy" : message);
     return;
   }
-
-  JsonDocument doc;
-  JsonObject root = doc.to<JsonObject>();
-  root["type"] = type;
-  if (request->hasParam("source_name")) {
-    const std::string source_name = request->getParam("source_name")->value();
-    settings->write_json_single(root, config_json::SETTINGS_FILE_VERSION, source_name.c_str());
-  } else {
-    settings->write_json(root, config_json::SETTINGS_FILE_VERSION);
-  }
-  std::string json;
-  serializeJson(doc, json);
   request->send(200, "application/json", json.c_str());
 }
 
 // POST {"type": ..., "source_name": ..., "settings": {...}} or {"type", "source_name", "action": "delete"}.
 void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *request) {
+  if (!this->require_json_(request))
+    return;
   if (this->body_too_large_) {
     this->send_error_(request, 413, "Request body over 4 KiB");
     return;
@@ -833,6 +863,12 @@ void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *requ
   auto *keeper = config_json::global_config_json_keeper;
   if (keeper == nullptr) {
     this->send_error_(request, 503, "Config JSON keeper not available");
+    return;
+  }
+  // Asked here as well as on the loop task below, where the answer is the one that counts:
+  // a device that cannot write has nothing to say about the rest of the request.
+  if (!keeper->can_save()) {
+    this->send_error_(request, 503, "Settings storage unavailable");
     return;
   }
   JsonDocument doc = json::parse_json(this->body_);
@@ -852,12 +888,6 @@ void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *requ
     this->send_error_(request, 400, "'settings' must be an object");
     return;
   }
-  auto *settings = keeper->get_settings(type);
-  if (settings == nullptr) {
-    this->send_error_(request, 404, "Settings type not found");
-    return;
-  }
-
   const char *action = doc["action"];
   // Anything else here is a typo, not an update: the caller asked for something this API
   // does not have.
@@ -865,29 +895,59 @@ void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *requ
     this->send_error_(request, 400, "'action' must be 'delete'");
     return;
   }
-  if (action != nullptr) {
-    void *record = settings->can_delete(doc.as<JsonObject>());
-    if (record == nullptr) {
-      this->send_error_(request, 400, "Cannot delete: record not found");
-      return;
-    }
-    if (settings->delete_record(record))
-      keeper->save(type);
-    this->send_success_(request, "Entity was removed");
-    return;
-  }
 
-  void *record = settings->update_record_from_json(doc.as<JsonObject>());
-  if (record == nullptr) {
-    this->send_error_(request, 400, "Failed to update settings record");
+  // The record list, the keeper's save timer and the entities all belong to the loop task —
+  // the display menu walks the same vector on every redraw — and this runs on the HTTP
+  // server's. The check and the write go over together: split, the answer would describe a
+  // device that had already moved on. `doc` outlives the call because run_on_loop blocks.
+  int code = 0;
+  const char *message = nullptr;
+  const bool wrote = this->run_on_loop_([&]() {
+    auto *settings = keeper->get_settings(type);
+    if (settings == nullptr) {
+      code = 404;
+      message = "Settings type not found";
+      return false;
+    }
+    // Asked before anything is applied: an accepted change that only lives in RAM would be
+    // gone at the next reboot, and the device would have answered that it had kept it.
+    if (!keeper->can_save()) {
+      code = 503;
+      message = "Settings storage unavailable";
+      return false;
+    }
+    if (action != nullptr) {
+      void *record = settings->can_delete(doc.as<JsonObject>());
+      if (record == nullptr) {
+        code = 400;
+        message = "Cannot delete: record not found";
+        return false;
+      }
+      if (settings->delete_record(record))
+        keeper->save(type);
+      message = "Entity was removed";
+      return true;
+    }
+    if (settings->update_record_from_json(doc.as<JsonObject>()) == nullptr) {
+      code = 400;
+      message = "Failed to update settings record";
+      return false;
+    }
+    keeper->save(type);
+    ESP_LOGI(TAG, "Entity settings updated for type '%s'", type);
+    // The whole type, not the record just written: applying one is the settings type's own
+    // business and nothing here knows which entities a record reaches.
+    settings->apply();
+    message = "Settings updated";
+    return true;
+  });
+
+  if (!wrote) {
+    // No code means the loop task never took the job: nothing was changed and nothing will be.
+    this->send_error_(request, code == 0 ? 503 : code, code == 0 ? "Device busy" : message);
     return;
   }
-  keeper->save(type);
-  ESP_LOGI(TAG, "Entity settings updated for type '%s'", type);
-  this->send_success_(request, "Settings updated");
-  // Entities are driven from the loop task, not the server's. The whole type is applied
-  // rather than this record: a delete arriving first would free the record under the defer.
-  this->defer([settings]() { settings->apply(); });
+  this->send_success_(request, message);
 }
 
 // GET /api/device/entity-settings-meta: the form fields per settings type.

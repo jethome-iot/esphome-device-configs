@@ -79,7 +79,13 @@ boundaries; everything else is local to its file.
 | 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
 
 `littlefs_storage` mounts at 810, so the rule files are readable by the time `automations` loads
-them.
+them. A wipe a factory reset asked for runs just before that mount. Three things leave the
+partition unmounted with the request as it was, so the next boot tries again: a record NVS
+cannot be read at all, a wipe that fails, and a wipe that cannot erase its own request
+afterwards. An unreadable record is not "no wipe was asked for" — mounting on one serves the
+files the reset promised to erase, on a device that came up on its factory credentials —
+and mounting on a standing one takes the files written during that boot and erases them at
+the next, saying nothing either time.
 Entity settings ride on `setup_priority` instead, ahead of every `on_boot` block: the
 `config_json` keeper loads the files at `HARDWARE + 5`, and one apply component per settings type
 pushes the values into the entities at `HARDWARE + 1`, before the switches and binary sensors set
@@ -140,6 +146,14 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   reads its `esp_app_desc_t` and hands it to `esp_ota_set_boot_partition`. That the bootloader
   then guards the boot is ESPHome's doing: `esp32`'s `enable_ota_rollback` defaults on wherever
   `ota:` and `safe_mode` are present, and `safe_mode` is what marks a boot good.
+- `components/web_origin_guard` duplicates `web_server::WebServer::is_request_origin_allowed_`
+  rather than calling it: the check is private to a component our handlers do not share, and it
+  would not cover `web_server`'s own OTA handler at `/update` in any case. Its catch-all sits in
+  front of every handler only because it sets up at `setup_priority::WIFI`, above `web_server`
+  and ours at `WIFI - 1` and above the web_server OTA platform at `AFTER_WIFI`, and it writes
+  its `403` through `httpd_resp_*` because `AsyncWebServerRequest::send()` maps every status it
+  does not know to a 500. That last coupling is `web_device_dashboard`'s and
+  `web_file_browser`'s too, and it is why both carry a `send_status_` of their own.
 - `components/web_auth` replaces the two `const char *` upstream's `WebServerBase` keeps and
   never copies, so the strings it hands over must outlive every request and the setters are
   called again after each change. It also needs a compiled `auth:` block to exist at all:
@@ -163,6 +177,9 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   not promise.
 - `components/config_base` schedules its debounced save with a named string timeout and flushes
   from `on_shutdown()`.
+- `components/loop_job` reaches into `App.scheduler.set_timeout()` because `Component::defer()`
+  is protected and the owner is not the dispatcher, and it takes the scheduler at its word that
+  another task may schedule into it.
 - `components/bindings` subscribes once per input with `add_full_state_callback` and never
   unsubscribes: upstream has no callback removal, so rebinding goes through its own table.
 

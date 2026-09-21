@@ -27,23 +27,30 @@ VirtualDisplay = virtual_display_ns.class_(
 )
 
 
-_KEY_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_KEY_NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
+
+# What a browser leaves alone in a path segment.
+_SEGMENT_RE = re.compile(r"[A-Za-z0-9._~-]+")
 
 
 def _validate_key_name(value):
     # A key name is a URL path segment; keep it to characters that survive a URL
     # untouched, so the posted path is the name whatever the client encodes.
     value = cv.string_strict(value)
-    if not _KEY_NAME_RE.match(value):
+    if not _KEY_NAME_RE.fullmatch(value):
         raise cv.Invalid(
             f"Key name {value!r} must be non-empty and use only letters, digits, '_' or '-'"
         )
     return value
 
 
-# None of these survive the trip to canHandle(): url_to() cuts the path at '?',
-# '#' never arrives, and url_decode() rewrites '+' and '%XX' before the compare.
-_URL_PREFIX_REJECTED = "?#+%"
+def _validate_key_names(value):
+    # Checked over the whole mapping, not as a key validator: voluptuous reads a raising
+    # key validator as "no such key" and answers "extra keys not allowed", which says
+    # nothing about the name.
+    for name in value:
+        _validate_key_name(name)
+    return value
 
 
 def _validate_url_prefix(value):
@@ -54,13 +61,17 @@ def _validate_url_prefix(value):
         # A trailing slash would make the sub-paths (/info, /frame, /key/...)
         # unreachable, and the component would look dead but for its page.
         raise cv.Invalid("url_prefix must not be '/' or end with '/'")
-    found = [c for c in _URL_PREFIX_REJECTED if c in value]
-    if found:
-        raise cv.Invalid(
-            f"url_prefix {value!r} must not contain {' or '.join(repr(c) for c in found)}: "
-            "the handler compares a path that has already lost its query and fragment "
-            "and been percent-decoded, so nothing would ever match"
-        )
+    # A browser resolves dot segments, folds backslashes into slashes and percent-encodes
+    # the rest before sending, and canHandle() compares a path url_to() has already cut at
+    # '?' and url_decode() has rewritten: a prefix that travels changed never matches.
+    for segment in value[1:].split("/"):
+        if segment in ("", ".", ".."):
+            raise cv.Invalid("url_prefix must not contain empty or dot path segments")
+        if not _SEGMENT_RE.fullmatch(segment):
+            raise cv.Invalid(
+                f"url_prefix {value!r} must be a URL path a browser sends unchanged: "
+                "letters, digits, '-', '.', '_' and '~'"
+            )
     return value
 
 
@@ -82,8 +93,9 @@ CONFIG_SCHEMA = display.FULL_DISPLAY_SCHEMA.extend(
         # Name -> the binary_sensor the front panel publishes to. The sensor has
         # to be one nothing else drives every loop (a `template` one), or the
         # injected state is overwritten before any automation sees it.
-        cv.Optional(CONF_KEYS): cv.Schema(
-            {_validate_key_name: cv.use_id(binary_sensor.BinarySensor)}
+        cv.Optional(CONF_KEYS): cv.All(
+            cv.Schema({cv.valid: cv.use_id(binary_sensor.BinarySensor)}),
+            _validate_key_names,
         ),
     }
 ).extend(cv.polling_component_schema("200ms"))

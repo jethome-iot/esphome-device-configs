@@ -49,11 +49,13 @@ def run_component(component: Path, gtest_args: list[str]) -> bool:
     if not config.is_file():
         # A component the host platform cannot build is tested from Python alone.
         return True
-    subprocess.run(
+    # A failed build fails its component and lets the rest of the run report too.
+    build = subprocess.run(
         [sys.executable, "-m", "esphome", "compile", config.name],
-        check=True,
         cwd=component,
     )
+    if build.returncode != 0:
+        return False
     env = os.environ.copy()
     # Keep the host preferences out of ~/.esphome, shared with other checkouts.
     env["ESPHOME_PREFDIR"] = str(component / ".prefs")

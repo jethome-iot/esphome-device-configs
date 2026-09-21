@@ -11,7 +11,7 @@ CODEOWNERS = ["@jethome-iot"]
 # time: the cron path holds a RealTimeClock and includes its header even when
 # time_id is left out, so the component is always compiled in.
 DEPENDENCIES = ["filesystem_storage_abstract"]
-AUTO_LOAD = ["json", "time"]
+AUTO_LOAD = ["json", "time", "loop_job"]
 
 CONF_STORAGE = "storage"
 CONF_FOLDER_PATH = "folder_path"

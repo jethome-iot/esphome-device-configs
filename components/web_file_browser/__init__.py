@@ -13,7 +13,7 @@ from esphome.core import CORE
 
 CODEOWNERS = ["@jethome-iot"]
 DEPENDENCIES = ["web_server_base"]
-AUTO_LOAD = ["filesystem_storage_abstract"]
+AUTO_LOAD = ["filesystem_storage_abstract", "web_origin_guard"]
 
 CONF_STORAGE_ID = "storage_id"
 CONF_URL_PREFIX = "url_prefix"

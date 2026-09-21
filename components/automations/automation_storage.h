@@ -6,6 +6,7 @@
 #include <vector>
 #include "automation_config.h"
 #include "esphome/components/filesystem_storage_abstract/filesystem_storage_abstract.h"
+#include "esphome/components/loop_job/loop_job.h"
 #include "esphome/core/component.h"
 #include "esphome/core/optional.h"
 #include "esphome/core/time.h"
@@ -41,7 +42,15 @@ class AutomationStorage : public Component {
   /// Names collide by sanitized filename; `exclude_id` never blocks itself.
   bool is_name_taken(const std::string &name, uint32_t exclude_id = 0) const;
 
+  /// The loaded configs. They belong to the loop task, which the mutators above and a rule's
+  /// own dispatch run on: a caller on another task reads them through run_on_loop().
   const AutomationConfigStorage &configs() const { return this->config_storage_; }
+
+  /// Runs @p job on the loop task and blocks until it answers, for a reader that is not the
+  /// loop — an ESP-IDF HTTP handler runs on the server's task. False when the loop never got
+  /// to it, and then the job did not run and never will.
+  /// Virtual so the unit tests, which have one task, can count what crosses and refuse it.
+  virtual bool run_on_loop(std::function<bool()> &&job);
 
   void set_time_source(time::RealTimeClock *rtc) { this->rtc_ = rtc; }
   void set_folder_path(const std::string &path) { this->folder_path_ = path; }
@@ -97,7 +106,9 @@ class AutomationStorage : public Component {
   bool load_automation_from_file_(const std::string &filepath);
   bool fits_a_file_(const AutomationConfig &config) const;
   bool save_automation_to_file_(const AutomationConfig &config);
-  bool delete_file_(const std::string &filename);
+  void delete_file_(const std::string &filename);
+  // Seam: no host filesystem lets a test refuse one file, and that is the case worth testing.
+  virtual bool remove_file_(const std::string &filepath);
   std::vector<bool> resolve_duplicates_();
   void normalize_filenames_(const std::vector<bool> &changed);
   int find_automation_index_by_id_(uint32_t id);
@@ -112,7 +123,7 @@ class AutomationStorage : public Component {
   uint32_t next_id_{1};
   time::RealTimeClock *rtc_{nullptr};
   optional<ESPTime> last_check_;
-  void *loop_task_{nullptr};
+  loop_job::LoopDispatcher dispatcher_;
   // Above zero while a rule is being driven: an edit then would pull the rule from under it.
   uint8_t dispatching_{0};
 

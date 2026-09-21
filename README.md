@@ -79,10 +79,11 @@ Shared code and tooling stay at the repository root:
 
 | Directory  | Contents |
 | ---------- | -------- |
-| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `web_device_dashboard` (the web UI at `/` and its device API), `web_auth` (the web server's credentials, changeable at runtime), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), `entity_config` (the per-entity settings) with the `config_base` / `config_json` it is built on, `bindings` (an input driving a relay), `jethome_update` (the firmware update entity) over the `jethome_manifest` parser of the firmware server's answer, and `display_menu_base` with `graphical_display_menu` (upstream's, with the menu options `packages/display/menu.yaml` needs) |
+| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `web_device_dashboard` (the web UI at `/` and its device API), `web_auth` (the web server's credentials, changeable at runtime), `web_origin_guard` (the cross-origin refusal every handler on that server answers with), `loop_job` (what a web handler hands the loop task so it does not edit its state from the server's), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), `entity_config` (the per-entity settings) with the `config_base` / `config_json` it is built on, `bindings` (an input driving a relay), `jethome_update` (the firmware update entity) over the `jethome_manifest` parser of the firmware server's answer, and `display_menu_base` with `graphical_display_menu` (upstream's, with the menu options `packages/display/menu.yaml` needs) |
 | `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `device-files.py` (the `web_file_browser` API from a terminal), `qemu.sh` (the emulator), `setup.sh` / `setup.bat` |
 | `dist/`    | Generated self-contained configs the ESPHome Builder imports |
 | `doc/`     | Guides, plus the README's UI mockups in `doc/images/` |
+| `.github/` | The workflows of [doc/RELEASE.md](doc/RELEASE.md), and the issue and pull request templates of [doc/DEVELOPMENT.md](doc/DEVELOPMENT.md) |
 | `tests/`   | `tests/components/<name>/` is that component's Google Test suite, built for the ESPHome `host` platform and run by `python tests/run.py`; `tests/harness/` is what every suite shares |
 
 The BDF display fonts in `assets/fonts/` come from [IT-Studio-Rech/bdf-fonts](https://github.com/IT-Studio-Rech/bdf-fonts).
@@ -317,10 +318,13 @@ whole map over RS485 for a quick check:
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit issues or pull requests against `dev`
-(`master` is the release branch). Start with [Development](doc/DEVELOPMENT.md) for the setup and
-checks, [Architecture](doc/ARCHITECTURE.md) for how the packages fit together, and
-[dist/ and new devices](doc/DIST.md) to add a device.
+Contributions are welcome. Every change starts as an issue: open one, then a pull request that
+says `Closes #N` or `Part of #N`. It targets `dev`, where development happens; `master` is the
+source of truth a release is built from, and only the release machinery and the rules go
+straight there. Issues, pull requests, commit messages and documentation are in English. The
+rules, with the templates in `.github/`, are in [Development](doc/DEVELOPMENT.md) — start there
+for the setup and checks too, then [Architecture](doc/ARCHITECTURE.md) for how the packages fit
+together and [dist/ and new devices](doc/DIST.md) to add a device.
 
 ## License
 

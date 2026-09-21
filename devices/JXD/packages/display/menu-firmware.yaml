@@ -69,4 +69,8 @@ graphical_display_menu:
                         if (id(firmware_update).state == update::UPDATE_STATE_AVAILABLE)
                           id(firmware_install_yes)->set_text("Confirm - OK");
                     - delay: 1s
-                    - lambda: id(firmware_update).perform(false);
+                    # Back to the label first: an install that works reboots, and a failed
+                    # one would otherwise leave the row confirmed for the rest of the run.
+                    - lambda: |-
+                        id(firmware_install_yes)->set_text("Confirm");
+                        id(firmware_update).perform(false);

@@ -60,7 +60,7 @@ static std::string config_json(const automations::AutomationConfig &config) {
 
 void WebAutomationEditor::setup() {
   this->base_->init();
-  this->base_->add_handler(this);
+  this->base_->add_handler(&this->guard_);
 }
 
 void WebAutomationEditor::dump_config() {
@@ -190,23 +190,35 @@ bool WebAutomationEditor::check_method_(AsyncWebServerRequest *request, const Ro
 }
 
 void WebAutomationEditor::handle_list_(AsyncWebServerRequest *request) {
-  JsonDocument doc;
-  JsonArray rows = doc["automations"].to<JsonArray>();
-  for (const auto &config : this->storage_->configs().get_all_configs()) {
-    JsonObject row = rows.add<JsonObject>();
-    row["id"] = config.id;
-    row["name"] = config.name;
-    row["enabled"] = config.enabled;
-    row["trigger_count"] = config.triggers.size();
-    row["action_count"] = config.actions.size();
-    row["else_action_count"] = config.else_actions.size();
-    row["mode"] = automations::EnumUtils::automation_mode_to_string(config.mode);
-  }
   std::string json;
-  serializeJson(doc, json);
+  const bool read = this->storage_->run_on_loop([&]() {
+    JsonDocument doc;
+    JsonArray rows = doc["automations"].to<JsonArray>();
+    for (const auto &config : this->storage_->configs().get_all_configs()) {
+      // The job holds the loop task, so the loop is not feeding the watchdog while this runs --
+      // the same reason the engine's own walks of the rule set feed it.
+      App.feed_wdt();
+      JsonObject row = rows.add<JsonObject>();
+      row["id"] = config.id;
+      row["name"] = config.name;
+      row["enabled"] = config.enabled;
+      row["trigger_count"] = config.triggers.size();
+      row["action_count"] = config.actions.size();
+      row["else_action_count"] = config.else_actions.size();
+      row["mode"] = automations::EnumUtils::automation_mode_to_string(config.mode);
+    }
+    serializeJson(doc, json);
+    return true;
+  });
+  if (!read) {
+    this->send_busy_(request);
+    return;
+  }
   request->send(200, "application/json", json.c_str());
 }
 
+// On the loop task, where the rule list lives: find_ and the handlers' reads of it run inside
+// a job, never here.
 const automations::AutomationConfig *WebAutomationEditor::find_(uint32_t id) const {
   for (const auto &config : this->storage_->configs().get_all_configs()) {
     if (config.id == id)
@@ -219,12 +231,26 @@ void WebAutomationEditor::handle_get_(AsyncWebServerRequest *request) {
   uint32_t id;
   if (!this->read_id_(request, id))
     return;
-  const automations::AutomationConfig *config = this->find_(id);
-  if (config == nullptr) {
-    this->send_error_(request, "Automation not found", 404);
+  std::string json;
+  bool missing = false;
+  const bool read = this->storage_->run_on_loop([&]() {
+    const automations::AutomationConfig *config = this->find_(id);
+    if (config == nullptr) {
+      missing = true;
+      return false;
+    }
+    json = config_json(*config);
+    return true;
+  });
+  if (!read) {
+    if (missing) {
+      this->send_error_(request, "Automation not found", 404);
+    } else {
+      this->send_busy_(request);
+    }
     return;
   }
-  request->send(200, "application/json", config_json(*config).c_str());
+  request->send(200, "application/json", json.c_str());
 }
 
 void WebAutomationEditor::handle_save_(AsyncWebServerRequest *request) {
@@ -248,26 +274,49 @@ void WebAutomationEditor::handle_save_(AsyncWebServerRequest *request) {
     this->send_error_(request, "Failed to parse automation config");
     return;
   }
-  // The engine refuses a taken name too; this is here to answer with the reason.
-  if (this->storage_->is_name_taken(config.name, config.id)) {
-    this->send_error_(request, "An automation named \"" + config.name + "\" already exists");
+  // The checks and the write go over to the loop task together: split, the answer would
+  // describe a list that had already moved on. The mutators marshal themselves, and run
+  // straight through from in here.
+  std::string reason;
+  int code = 400;
+  uint32_t assigned = 0;
+  const bool wrote = this->storage_->run_on_loop([&]() {
+    // The engine refuses a taken name too; this is here to answer with the reason.
+    if (this->storage_->is_name_taken(config.name, config.id)) {
+      reason = "An automation named \"" + config.name + "\" already exists";
+      return false;
+    }
+    if (config.id > 0) {
+      if (this->find_(config.id) == nullptr) {
+        code = 404;
+        reason = "Automation not found";
+        return false;
+      }
+      if (!this->storage_->update_automation(config.id, config)) {
+        reason = "Failed to update automation";
+        return false;
+      }
+      return true;
+    }
+    assigned = this->storage_->add_automation(config);
+    if (assigned == 0) {
+      reason = "Failed to create automation";
+      return false;
+    }
+    return true;
+  });
+
+  if (!wrote) {
+    // An empty reason means the loop task never took the job: nothing was changed.
+    if (reason.empty()) {
+      this->send_busy_(request);
+    } else {
+      this->send_error_(request, reason, code);
+    }
     return;
   }
   if (config.id > 0) {
-    if (this->find_(config.id) == nullptr) {
-      this->send_error_(request, "Automation not found", 404);
-      return;
-    }
-    if (!this->storage_->update_automation(config.id, config)) {
-      this->send_error_(request, "Failed to update automation");
-      return;
-    }
     this->send_success_(request, "Automation updated");
-    return;
-  }
-  const uint32_t assigned = this->storage_->add_automation(config);
-  if (assigned == 0) {
-    this->send_error_(request, "Failed to create automation");
     return;
   }
   this->send_success_(request, "Automation created", assigned);
@@ -277,12 +326,26 @@ void WebAutomationEditor::handle_delete_(AsyncWebServerRequest *request) {
   uint32_t id;
   if (!this->read_id_(request, id))
     return;
-  if (this->find_(id) == nullptr) {
-    this->send_error_(request, "Automation not found", 404);
-    return;
-  }
-  if (!this->storage_->remove_automation(id)) {
-    this->send_error_(request, "Failed to delete automation");
+  std::string reason;
+  int code = 400;
+  const bool removed = this->storage_->run_on_loop([&]() {
+    if (this->find_(id) == nullptr) {
+      code = 404;
+      reason = "Automation not found";
+      return false;
+    }
+    if (!this->storage_->remove_automation(id)) {
+      reason = "Failed to delete automation";
+      return false;
+    }
+    return true;
+  });
+  if (!removed) {
+    if (reason.empty()) {
+      this->send_busy_(request);
+    } else {
+      this->send_error_(request, reason, code);
+    }
     return;
   }
   this->send_success_(request, "Automation deleted");
@@ -291,15 +354,26 @@ void WebAutomationEditor::handle_delete_(AsyncWebServerRequest *request) {
 // Every rule in its stored form, one document at a time: the peak is one rule plus the
 // response, not every rule twice.
 void WebAutomationEditor::handle_export_(AsyncWebServerRequest *request) {
-  std::string json = R"({"version":1,"automations":[)";
-  bool first = true;
-  for (const auto &config : this->storage_->configs().get_all_configs()) {
-    if (!first)
-      json += ',';
-    first = false;
-    json += config_json(config);
+  std::string json;
+  const bool read = this->storage_->run_on_loop([&]() {
+    json = R"({"version":1,"automations":[)";
+    bool first = true;
+    for (const auto &config : this->storage_->configs().get_all_configs()) {
+      // A whole rule each time round, and the job holds the loop task: the longest of these
+      // routes, and the one the watchdog would reach first without this.
+      App.feed_wdt();
+      if (!first)
+        json += ',';
+      first = false;
+      json += config_json(config);
+    }
+    json += "]}";
+    return true;
+  });
+  if (!read) {
+    this->send_busy_(request);
+    return;
   }
-  json += "]}";
   request->send(200, "application/json", json.c_str());
 }
 
@@ -352,6 +426,12 @@ void WebAutomationEditor::send_error_(AsyncWebServerRequest *request, const std:
   std::string json;
   serializeJson(doc, json);
   request->send(code, "application/json", json.c_str());
+}
+
+// By hand, like the other statuses send() does not know: it would go out as a 500, which
+// reads as a device fault rather than a request to make again.
+void WebAutomationEditor::send_busy_(AsyncWebServerRequest *request) {
+  this->send_status_(request, "503 Service Unavailable", nullptr, R"({"success":false,"error":"Device busy"})");
 }
 
 void WebAutomationEditor::send_success_(AsyncWebServerRequest *request, const char *message, uint32_t id) {

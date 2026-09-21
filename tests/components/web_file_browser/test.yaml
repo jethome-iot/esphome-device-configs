@@ -1,0 +1,40 @@
+# Google Test binary for components/web_file_browser, built through esphome compile by
+# tests/run.py. The harness main.cpp replaces the generated one, so nothing declared here is
+# ever set up: the storage and the browser exist only to get the sources compiled and the
+# USE_* defines set. The cases build their own and drive them over the harness's
+# web_server_base stand-in, exactly as a request off the socket would reach them.
+esphome:
+  name: web-file-browser-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../../components
+    components: [filesystem_storage_abstract, web_file_browser, web_origin_guard]
+  - source: ../../harness/components
+    components: [dir_storage, web_server_base]
+
+dir_storage:
+  id: test_storage
+  path: .storage
+
+web_server_base: {}
+
+# The cases set the prefix on the browsers they build; this one only has to validate.
+web_file_browser:
+  storage_id: test_storage

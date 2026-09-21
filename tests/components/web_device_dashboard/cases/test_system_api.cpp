@@ -103,6 +103,54 @@ TEST_F(Dashboard, SystemActionsAnswerPostOnly) {
   EXPECT_EQ(this->dashboard->restarts, 0);
 }
 
+// text/plain is the only one of the three form encodings the server hands on as a raw body, so
+// it is the one a cross-site form would arrive as. The type check refuses it before the
+// confirmation is even read, and no HTML form can send the type that passes.
+TEST_F(Dashboard, SystemActionsRefuseABodyThatDoesNotSayItIsJson) {
+  this->dashboard->stub_rollback = true;
+  this->dashboard->rollback = other_slot();
+  for (const char *url : {REBOOT, FACTORY_RESET, ROLLBACK}) {
+    for (const char *type : {"text/plain", "text/plain;charset=UTF-8", "", "application/x-www-form-urlencoded"}) {
+      Reply reply = this->call(HTTP_POST, url, this->confirmation(), 512, type);
+      EXPECT_EQ(reply.code, 415) << url << " " << type;
+      EXPECT_EQ(reply.error(), "Expected Content-Type: application/json") << url << " " << type;
+    }
+  }
+  this->loop();
+  EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_EQ(this->storage.format_requests, 0);
+  EXPECT_EQ(this->dashboard->rollbacks, 0);
+}
+
+// --- what a page on another site may do with the browser's cached credentials ---
+
+TEST_F(Dashboard, SystemActionsRefuseAPageOnAnotherSite) {
+  this->dashboard->stub_rollback = true;
+  this->dashboard->rollback = other_slot();
+  for (const char *url : {REBOOT, FACTORY_RESET, ROLLBACK}) {
+    // A confirmation this device would otherwise accept: the token is no secret, so the refusal
+    // has to come from the Origin and not from the body.
+    Reply reply = this->call(HTTP_POST, url, this->confirmation(), 512, "application/json", "http://evil.example");
+    EXPECT_TRUE(reply.claimed) << url;
+    EXPECT_EQ(reply.code, 403) << url;
+    EXPECT_EQ(reply.type, "text/plain") << url;
+    EXPECT_EQ(reply.body, "Cross-origin request refused") << url;
+  }
+  this->loop();
+  EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_EQ(this->storage.format_requests, 0);
+  EXPECT_EQ(this->dashboard->rollbacks, 0);
+}
+
+TEST_F(Dashboard, SystemActionsServeTheDevicesOwnPage) {
+  const std::string origin = std::string("http://") + Dashboard::HOST;
+  Reply reply = this->call(HTTP_POST, REBOOT, this->confirmation(), 512, "application/json", origin.c_str());
+  EXPECT_EQ(reply.code, 200);
+  EXPECT_TRUE(reply.success());
+  this->loop();
+  EXPECT_EQ(this->dashboard->restarts, 1);
+}
+
 TEST_F(Dashboard, SystemActionsNeedAConfirmation) {
   this->dashboard->stub_rollback = true;
   this->dashboard->rollback = other_slot();
@@ -206,13 +254,15 @@ TEST_F(Dashboard, FactoryResetClearsThePreferencesAndAsksForTheWipeThenReboots) 
   EXPECT_EQ(this->dashboard->restarts, 1);
 }
 
-TEST_F(Dashboard, AFactoryResetThatCannotAskForTheWipeStillResetsAndReboots) {
+// False is the backend's last word: it could neither record the request nor wipe on the spot,
+// so nothing will retry. The reset still finishes, because the preferences are already gone.
+TEST_F(Dashboard, AFactoryResetWhoseStorageCouldNotWipeSaysSoAndStillReboots) {
   this->storage.format_result = false;
   Reply reply = this->post(FACTORY_RESET, this->confirmation());
   EXPECT_EQ(reply.code, 200);
   this->loop();
   EXPECT_EQ(this->storage.format_requests, 1);
-  EXPECT_TRUE(LogCapture::instance().has_error("Wiping the user partition failed"));
+  EXPECT_TRUE(LogCapture::instance().has_error("The user partition was not wiped and will not be"));
   EXPECT_EQ(this->dashboard->restarts, 1);
 }
 

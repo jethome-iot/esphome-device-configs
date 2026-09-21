@@ -14,7 +14,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [web_device_dashboard]
+    components: [web_device_dashboard, web_origin_guard]
 
 web_server:
   port: 80
@@ -39,7 +39,10 @@ The handler registers on the shared `web_server_base` ahead of `web_server`'s, s
 dashboard and `web_server`'s own page is not reachable; its REST routes, `/events` and its
 `auth:` stay as they are, and the dashboard uses them for entity state and control and for the
 log. On a firmware with an `auth:` block the page and every route here are behind it, so the
-browser asks for the credentials before the page loads. The page still reaches the Automations
+browser asks for the credentials before the page loads, and
+[`web_origin_guard`](../web_origin_guard/README.md) answers `403` to a request whose `Origin` is
+not the `Host` it was sent to, so those credentials cannot be steered here by a page on another
+site. The page still reaches the Automations
 and Files screens at the prefixes baked into it at build time (`/automation-editor`, `/files`),
 and shows them whether or not the firmware serves them.
 
@@ -91,10 +94,13 @@ the action stays disabled instead of offering a `503`.
 
 All three take `{"confirm": true, "confirm_token": "DD:EE:FF"}` — the last three octets of
 `/api/device/info`'s `base_mac_address`, in either case. Not `mac_address`, which on a build
-with Ethernet is a different MAC; the `403` says so. Without `confirm` the answer is `400`.
-This is a guard against a stray POST from a page the browser happens to load, not an
-authorization scheme: whatever reaches the port and can read `/api/device/info` can send it.
-Put the routes behind the `web_server:` `auth:` block if that matters.
+with Ethernet is a different MAC; the `403` says so. Without `confirm` the answer is `400`, and
+without `Content-Type: application/json` a `415`.
+The token is not a secret. It is derived from the MAC, which also ends the device's hostname
+when the configuration sets `name_add_mac_suffix`, and mDNS publishes it besides — anyone who
+can address the device can spell it. It is there so a single stray POST does not reboot a
+device; what keeps other sites out is the `web_server:` `auth:` block and
+[`web_origin_guard`](../web_origin_guard/README.md).
 
 Each answers before it acts, so the caller gets its answer. A factory reset does what
 **Settings → Factory reset** on the display does, in the same order; the files it takes are
@@ -118,8 +124,8 @@ settings too; without one these routes are `404`:
 | Method | Path | |
 |---|---|---|
 | GET | `/api/device/entities` | per settings type, `[{"source_name", "name"}]`: object id and name of every entity of that type |
-| GET | `/api/device/entity-settings?type=switch[&source_name=relay_1]` | the stored records of a type, or one of them |
-| POST | `/api/device/entity-settings` | `{"type", "source_name", "settings": {...}}` updates and applies a record; `{"type", "source_name", "action": "delete"}` removes it |
+| GET | `/api/device/entity-settings?type=switch[&source_name=relay_1]` | the stored records of a type, or one of them. Read on the loop task, which owns the records — `503` when it does not get to it |
+| POST | `/api/device/entity-settings` | `{"type", "source_name", "settings": {...}}` updates and applies a record; `{"type", "source_name", "action": "delete"}` removes it. Needs `Content-Type: application/json`, as every route here that reads a body does |
 | GET | `/api/device/entity-settings-meta` | the form fields of every settings type |
 
 ## client/

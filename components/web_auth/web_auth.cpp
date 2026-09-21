@@ -97,20 +97,41 @@ void WebAuth::set_credentials(const std::string &username, const std::string &pa
   }
 
   // Stored before applied: a write that fails leaves the device serving what it served
-  // before, rather than credentials the next boot would not know about. save() only queues
-  // the record on ESP32 — sync() is what reaches NVS, so it is the call that can fail. It
-  // flushes every component's pending write, so an unrelated failure refuses this change
-  // too; there is no way to tell them apart, and refusing is the safe direction.
+  // before, rather than credentials the next boot would not know about.
   StoredCredentials stored{};
   std::memcpy(stored.username, username.c_str(), username.size());
   std::memcpy(stored.password, password.c_str(), password.size());
-  if (!this->pref_.save(&stored) || !global_preferences->sync()) {
-    ESP_LOGE(TAG, "Storing the credentials failed; the old ones stay in force");
-    return;
+  if (!this->store_(stored)) {
+    // The flush reports for every component at once, so the failure may be another key's
+    // while this record did reach flash. Rolling back then leaves the next boot on a pair
+    // this call declared unapplied, so read it back and follow what flash actually holds.
+    if (!this->flash_holds_(stored)) {
+      // Nothing else carries this outcome: the route has already answered, so the error
+      // status is where an operator and the API can still see the write did not happen.
+      ESP_LOGE(TAG, "Storing the credentials failed; the old ones stay in force");
+      this->status_set_error(LOG_STR("Storing the web credentials failed"));
+      return;
+    }
+    ESP_LOGW(TAG, "Flushing flash failed for another record; the new credentials are stored all the same");
   }
 
+  this->status_clear_error();
   this->publish_(username, password);
   ESP_LOGI(TAG, "Credentials changed for user '%s'", this->username().c_str());
+}
+
+// save() only queues the record on ESP32 — sync() is what reaches NVS, so it is the call
+// that can fail.
+bool WebAuth::store_(const StoredCredentials &stored) {
+  return this->pref_.save(&stored) && global_preferences->sync();
+}
+
+// The flush empties the queue before it reports, so this reads NVS rather than the record
+// still waiting in it. Byte-for-byte: the fields are fixed-width and the struct has no
+// padding, so the record that was written compares equal to nothing else.
+bool WebAuth::flash_holds_(const StoredCredentials &stored) {
+  StoredCredentials readback{};
+  return this->pref_.load(&readback) && std::memcmp(&readback, &stored, sizeof(StoredCredentials)) == 0;
 }
 
 WebAuth::Status WebAuth::status() const {

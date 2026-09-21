@@ -22,6 +22,7 @@ tests/
     components/
       dir_storage           # test-only storage backend: a directory on the host
       display_menu_host     # test-only key that pulls display_menu_base into a host build
+      loop_job_host         # the same for loop_job
       web_server            # stand-in for upstream's, which builds for ESP platforms only
       web_server_base       # stand-in for upstream's, so HTTP handlers run on the host
   components/
@@ -38,9 +39,15 @@ tests/
     jethome_manifest/
     jethome_update/           # test_schema.py alone: the entity needs ota.http_request, which
                               # upstream refuses on the host platform
+    littlefs_storage/         # test_schema.py alone: the C++ is ESP-IDF only
+    loop_job/
+    virtual_display/          # test_schema.py alone: the C++ includes <esp_http_server.h>,
+                              # which the host platform has no header for
     web_auth/
     web_automation_editor/
     web_device_dashboard/
+    web_file_browser/
+    web_origin_guard/
 ```
 
 ## Adding a suite for a new component

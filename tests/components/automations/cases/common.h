@@ -90,7 +90,20 @@ class FakeEngine : public AutomationStorage {
   }
   void with_clock() { this->set_time_source(&this->clock_); }
 
+  // Rule files this engine's filesystem refuses to unlink, by basename: a full or failing
+  // flash does that, and no host filesystem can be made to refuse one file.
+  std::vector<std::string> undeletable;
+
  protected:
+  bool remove_file_(const std::string &filepath) override {
+    for (const std::string &name : this->undeletable) {
+      if (filepath.size() > name.size() &&
+          filepath.compare(filepath.size() - name.size() - 1, name.size() + 1, "/" + name) == 0)
+        return false;
+    }
+    return AutomationStorage::remove_file_(filepath);
+  }
+
   ESPTime clock_now_() override { return this->now == 0 ? ESPTime{} : ESPTime::from_epoch_utc(this->now); }
   FakeClock clock_;
 };

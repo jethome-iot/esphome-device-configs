@@ -309,4 +309,42 @@ TEST_F(Editor, RebootAnswersFirst) {
   EXPECT_EQ(this->editor->reboots, 1);
 }
 
+// --- what a page on another site may do with the browser's cached credentials ---
+
+TEST_F(Editor, RefusesACrossSiteSaveAndKeepsTheRules) {
+  const uint32_t id = this->create(PORCH_LIGHT);
+  ASSERT_NE(id, 0u);
+  const size_t before = this->files().size();
+
+  Reply reply = this->call(HTTP_POST, "save", FAN, "application/json", "http://evil.example");
+  EXPECT_TRUE(reply.claimed);
+  EXPECT_EQ(reply.code, 403);
+  EXPECT_EQ(reply.type, "text/plain");
+  EXPECT_EQ(reply.body, "Cross-origin request refused");
+  EXPECT_EQ(this->files().size(), before);
+  Reply list = this->get("list");
+  ASSERT_EQ(list["automations"].size(), 1u);
+  EXPECT_EQ(list["automations"][0]["id"].as<uint32_t>(), id);
+}
+
+TEST_F(Editor, RefusesACrossSiteDeleteAndReboot) {
+  const uint32_t id = this->create(PORCH_LIGHT);
+  ASSERT_NE(id, 0u);
+
+  Reply removed =
+      this->call(HTTP_POST, "delete?id=" + std::to_string(id), "", "application/json", "http://evil.example");
+  EXPECT_EQ(removed.code, 403);
+  EXPECT_EQ(this->get("list")["automations"].size(), 1u);
+
+  Reply reboot = this->call(HTTP_POST, "reboot", "", "application/json", "http://evil.example");
+  EXPECT_EQ(reboot.code, 403);
+  EXPECT_EQ(this->editor->reboots, 0);
+}
+
+TEST_F(Editor, ServesTheDevicesOwnPage) {
+  Reply reply = this->call(HTTP_POST, "save", PORCH_LIGHT, "application/json", "http://device.local");
+  EXPECT_EQ(reply.code, 200);
+  EXPECT_EQ(this->get("list")["automations"].size(), 1u);
+}
+
 }  // namespace esphome::web_automation_editor::testing

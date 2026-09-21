@@ -458,6 +458,8 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     return record;
   }
 
+  // A menu row has nowhere to report a failure, so a keeper that cannot write is left to say
+  // so in the log; the change still takes effect and is lost at the next reboot.
   void commit_(SwitchSettingsRecord *record) {
     this->mark_dirty();
     this->apply_record_(record);

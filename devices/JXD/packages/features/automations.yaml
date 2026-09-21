@@ -2,7 +2,7 @@
 # Details: doc/AUTOMATIONS.md
 external_components:
   - source: ${components}
-    components: [automations]
+    components: [automations, loop_job]
 
 automations:
   # Named so the display menu can list the rules.
