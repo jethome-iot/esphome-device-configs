@@ -98,10 +98,97 @@ upstream's: a bump can change either the style config or the version it formats 
 
 ## Branches
 
-`dev` is the default branch: pull requests target it, and Build runs on every push to it.
-`master` is the release branch — `dashboard_import` and the asset URLs in `dist/` point at
-`@master`, so it moves only when `dev` is merged into it for a release. Branch rules keep
-direct commits off both `dev` and `master`: everything lands through pull requests.
+`master` is the source of truth: `dashboard_import` and the asset URLs in `dist/` point at
+`@master`, and a release is built from it. `dev` is the default branch and where development
+happens — most pull requests target it, and it reaches `master` when it is merged in for a
+release.
+
+Some pull requests target `master` directly, and the reason is always the same: the change has
+to be true on `master` before the next release rather than after it. The release workflows
+themselves, whatever only affects what `master` publishes, and the rules everything else is
+held to. `master` is then merged back into `dev` with a merge commit, so the two never drift
+and nothing has to be applied twice.
+
+Build runs on every push to either branch, and everything lands through a pull request.
+
+## Issues and pull requests
+
+Every change starts as an issue — a feature, a bug, a refactor, a documentation fix, a chore.
+The issue is where the work is described and agreed; the pull request only carries it out. A
+review finding that is not fixed in the pull request it was raised on is filed as its own issue
+before that pull request is called done, so nothing real is left behind in a comment thread.
+
+A milestone is an **epic issue**, labelled `type:epic` — not the GitHub Milestones feature. It
+carries the list of its children as a task list, and each child links back to it. The state of
+a milestone is then one page, and it is the same kind of object as everything else, so it takes
+discussion and links like everything else.
+
+Every pull request opens on an issue and says which one in its body:
+
+| | |
+| --- | --- |
+| `Closes #N` | this pull request finishes the issue |
+| `Part of #N` | one of several; the issue stays open |
+
+GitHub acts on those keywords only when the pull request targets the default branch. On one
+that targets `master` the line still records which issue the work belongs to, but nothing
+closes the issue: that is done by hand when the pull request merges, because the later merge
+into `dev` never reconsiders a pull request body it did not carry.
+
+A pull request with nothing behind it is one nobody agreed to. When something else turns out to
+need doing mid-change and does not belong in the change at hand, file it and link it instead of
+widening the pull request.
+
+Templates for all three kinds of issue, and for the pull request, are in `.github/`. GitHub
+reads them from the default branch only, so a change to them takes effect when `dev` has it,
+not when `master` does.
+
+### Labels
+
+Two axes, each with its own prefix so the list groups them and neither is mistaken for the other.
+
+**`type:`** — one per issue. The bug and epic templates carry theirs, so an issue filed from
+either arrives with it. The task template covers the four kinds that are left and cannot: a
+label is set at filing only by someone with triage access, which an outside contributor does
+not have. It asks for the type on a line of its own instead, so applying the label is the first
+thing triage does and it never has to guess which one.
+
+| | |
+| --- | --- |
+| `type:bug` | behaves differently from what it says it does |
+| `type:feature` | something the firmware or the tooling cannot do yet |
+| `type:refactor` | the same behaviour in a better shape |
+| `type:docs` | the README, `doc/`, a component's README, comments |
+| `type:chore` | CI, dependencies, tooling, housekeeping |
+| `type:epic` | a milestone, above |
+
+**`status:`** — at most one, and only for what nothing else records. It says what an issue is
+waiting on, not how far along it is, so triage sets one of the three and it stays until the
+issue closes. An issue carrying none is one nobody has triaged yet.
+
+| | |
+| --- | --- |
+| `status:needs-decision` | waiting on a developer to decide something |
+| `status:ready` | waiting on nobody: understood, and free to take while unassigned |
+| `status:blocked` | waiting on something outside this repository |
+
+There is deliberately no label for in progress, in review or done. An assignee, a linked pull
+request and a closed issue already say those three, and a label that repeats what something else
+records is a label that can come to disagree with it. So starting work does not consume
+`status:ready` — the assignee is what changes, and the issue is still waiting on nobody.
+
+`status:needs-decision` is the one with teeth:
+
+- Anyone may set it, but the issue then has to say **what** is being decided and what the
+  options are. A gate with no question inside it is a stall.
+- Only a developer takes it off, and the way to take it off is to write the decision in the
+  issue — so the decision is on the record where the work is, not in a chat.
+- **No pull request opens on an issue that carries it.** That rule is what makes the label mean
+  anything; without it the label is a sticker.
+
+The remaining labels say nothing about what an issue is or where it stands: `dependencies`,
+`github_actions` and `python` are Dependabot's, `ready-to-merge` says a pull request's review
+converged, and `good first issue` and `help wanted` are the two GitHub itself surfaces.
 
 ## Style
 
@@ -114,3 +201,6 @@ direct commits off both `dev` and `master`: everything lands through pull reques
   hand, `pre-commit run clang-format --all-files`.
 - Comments say why in a line or two; the longer story goes in the commit message. README and
   `doc/` state behavior and usage, not mechanism.
+- English, everywhere it is written down: issues, pull requests, commit messages, code comments,
+  the README and `doc/`. Whatever language a discussion happens in, what lands in the repository
+  is in one language.

@@ -12,7 +12,7 @@ generated files and runs the pre-commit hooks.
 
 | Before you… | Read |
 | --- | --- |
-| build, flash, lint, regenerate, push, bump ESPHome, or wonder about style | [doc/DEVELOPMENT.md](doc/DEVELOPMENT.md) |
+| build, flash, lint, regenerate, push, open an issue or a pull request, bump ESPHome, or wonder about style | [doc/DEVELOPMENT.md](doc/DEVELOPMENT.md) |
 | edit a package: shared ids, boot order, settings, temperature slots, Modbus map, upstream-coupled code | [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) |
 | touch `dist/`, `dashboard_import`, assets, or add a device | [doc/DIST.md](doc/DIST.md) |
 | touch CI, firmware versions, channels, publishing, or how a device updates itself | [doc/RELEASE.md](doc/RELEASE.md) |
@@ -29,6 +29,19 @@ The tree itself is in the README, "Repository Layout".
 
 ## Always
 
+- Work is tracked in issues. Every change starts as one, carrying a `type:` label, and every
+  pull request says which it is for — `Closes #N`, or `Part of #N` when it is one of several. A
+  finding you do not fix in the change at hand is filed as its own issue before you report that
+  change done, not left in a comment or a scratch note. A milestone is an epic issue labelled
+  `type:epic`, which its children link back to.
+- `status:needs-decision` on an issue means a developer has to decide something before anyone
+  writes code for it: **do not open a pull request on it**. Set it yourself, on the issue you
+  are working from or on one you file, whenever you hit a choice that is the user's to make —
+  and say in the issue what is being decided and what the options are, because a gate with no
+  question inside it only stalls. The labels and the rest of the rules are in
+  [doc/DEVELOPMENT.md](doc/DEVELOPMENT.md).
+- English for everything that lands in the repository: issues, pull requests, commit messages,
+  code comments, README and `doc/`.
 - `dist/` and `assets/res/` are generated (`scripts/build-dist.py`, `scripts/build-icons.py`).
   Never edit them by hand; regenerate and commit them with the change that made them stale.
 - Don't read `dist/`: it is only the flattened copy of `devices/`, so everything in it is in
