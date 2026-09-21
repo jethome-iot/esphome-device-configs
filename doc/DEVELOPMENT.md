@@ -162,18 +162,20 @@ thing triage does and it never has to guess which one.
 | `type:chore` | CI, dependencies, tooling, housekeeping |
 | `type:epic` | a milestone, above |
 
-**`status:`** — at most one, and only for what nothing else records. An issue carrying none is
-one nobody has looked at yet.
+**`status:`** — at most one, and only for what nothing else records. It says what an issue is
+waiting on, not how far along it is, so triage sets one of the three and it stays until the
+issue closes. An issue carrying none is one nobody has triaged yet.
 
 | | |
 | --- | --- |
 | `status:needs-decision` | waiting on a developer to decide something |
-| `status:ready` | decided and described; anyone can take it |
+| `status:ready` | waiting on nobody: understood, and free to take while unassigned |
 | `status:blocked` | waiting on something outside this repository |
 
 There is deliberately no label for in progress, in review or done. An assignee, a linked pull
 request and a closed issue already say those three, and a label that repeats what something else
-records is a label that can come to disagree with it.
+records is a label that can come to disagree with it. So starting work does not consume
+`status:ready` — the assignee is what changes, and the issue is still waiting on nobody.
 
 `status:needs-decision` is the one with teeth:
 
