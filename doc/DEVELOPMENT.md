@@ -109,7 +109,12 @@ themselves, whatever only affects what `master` publishes, and the rules everyth
 held to. `master` is then merged back into `dev` with a merge commit, so the two never drift
 and nothing has to be applied twice.
 
-Build runs on every push to either branch, and everything lands through a pull request.
+Build runs on every push to either branch. Changes land through a pull request, which `master`
+requires and `dev` deliberately does not: the merge back from `master` goes straight into `dev`,
+and requiring a pull request for it would put one in front of every release whose only content
+is that merge. A squashed one would be worse than the ceremony — it drops the merge commit that
+records `master` as an ancestor of `dev`, and every conflict already resolved comes back at the
+next merge.
 
 ## Issues and pull requests
 
