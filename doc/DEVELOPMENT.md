@@ -132,7 +132,7 @@ four kinds that are neither.
 
 ### Labels
 
-Three axes, each with its own prefix so the list groups them and none is mistaken for another.
+Two axes, each with its own prefix so the list groups them and neither is mistaken for the other.
 
 **`type:`** — one per issue, set when it is filed.
 
