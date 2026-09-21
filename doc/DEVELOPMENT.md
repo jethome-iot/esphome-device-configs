@@ -125,7 +125,7 @@ of them a real disagreement. The back-merge itself is the same rule read the oth
 
 Everything else may be squashed freely, because its history outlives nothing: a feature branch
 merged into `dev`, or one cut from `master` and merged back into it, which is most of what
-targets `master` — #52 and this one included.
+targets `master` — #52 and #55 included.
 
 ## Issues and pull requests
 
