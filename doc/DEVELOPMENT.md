@@ -126,15 +126,19 @@ A pull request with nothing behind it is one nobody agreed to. When something el
 need doing mid-change and does not belong in the change at hand, file it and link it instead of
 widening the pull request.
 
-Templates for all three kinds of issue, and for the pull request, are in `.github/`. The bug and
-epic templates carry their `type:` label; the task template asks for one, because it covers the
-four kinds that are neither.
+Templates for all three kinds of issue, and for the pull request, are in `.github/`. GitHub
+reads them from the default branch only, so a change to them takes effect when `dev` has it,
+not when `master` does.
 
 ### Labels
 
 Two axes, each with its own prefix so the list groups them and neither is mistaken for the other.
 
-**`type:`** — one per issue, set when it is filed.
+**`type:`** — one per issue. The bug and epic templates carry theirs, so an issue filed from
+either arrives with it. The task template covers the four kinds that are left and cannot: a
+label is set at filing only by someone with triage access, which an outside contributor does
+not have. So on those, the type is whatever the author could set, and otherwise the first thing
+whoever triages the issue does.
 
 | | |
 | --- | --- |
@@ -167,9 +171,9 @@ records is a label that can come to disagree with it.
 - **No pull request opens on an issue that carries it.** That rule is what makes the label mean
   anything; without it the label is a sticker.
 
-The remaining labels are not about issues at all: `dependencies`, `github_actions` and `python`
-are Dependabot's, `ready-to-merge` says a pull request's review converged, and `good first issue`
-and `help wanted` are the two GitHub itself surfaces.
+The remaining labels say nothing about what an issue is or where it stands: `dependencies`,
+`github_actions` and `python` are Dependabot's, `ready-to-merge` says a pull request's review
+converged, and `good first issue` and `help wanted` are the two GitHub itself surfaces.
 
 ## Style
 
