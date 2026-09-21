@@ -98,10 +98,18 @@ upstream's: a bump can change either the style config or the version it formats 
 
 ## Branches
 
-`dev` is the default branch: pull requests target it, and Build runs on every push to it.
-`master` is the release branch — `dashboard_import` and the asset URLs in `dist/` point at
-`@master`, so it moves only when `dev` is merged into it for a release. Branch rules keep
-direct commits off both `dev` and `master`: everything lands through pull requests.
+`master` is the source of truth: `dashboard_import` and the asset URLs in `dist/` point at
+`@master`, and a release is built from it. `dev` is the default branch and where development
+happens — most pull requests target it, and it reaches `master` when it is merged in for a
+release.
+
+Some pull requests target `master` directly, and the reason is always the same: the change has
+to be true on `master` before the next release rather than after it. The release workflows
+themselves, whatever only affects what `master` publishes, and the rules everything else is
+held to. `master` is then merged back into `dev` with a merge commit, so the two never drift
+and nothing has to be applied twice.
+
+Build runs on every push to either branch, and everything lands through a pull request.
 
 ## Issues and pull requests
 

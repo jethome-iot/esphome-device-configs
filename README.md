@@ -318,12 +318,13 @@ whole map over RS485 for a quick check:
 
 ## Contributing
 
-Contributions are welcome. Every change starts as an issue: open one, then a pull request
-against `dev` that says `Closes #N` or `Part of #N` (`master` is the release branch). Issues,
-pull requests, commit messages and documentation are in English. The rules, with the templates
-in `.github/`, are in [Development](doc/DEVELOPMENT.md) — start there for the setup and checks
-too, then [Architecture](doc/ARCHITECTURE.md) for how the packages fit together and
-[dist/ and new devices](doc/DIST.md) to add a device.
+Contributions are welcome. Every change starts as an issue: open one, then a pull request that
+says `Closes #N` or `Part of #N`. It targets `dev`, where development happens; `master` is the
+source of truth a release is built from, and only the release machinery and the rules go
+straight there. Issues, pull requests, commit messages and documentation are in English. The
+rules, with the templates in `.github/`, are in [Development](doc/DEVELOPMENT.md) — start there
+for the setup and checks too, then [Architecture](doc/ARCHITECTURE.md) for how the packages fit
+together and [dist/ and new devices](doc/DIST.md) to add a device.
 
 ## License
 
