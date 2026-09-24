@@ -1090,31 +1090,6 @@ modbus_server:
         read_lambda: return id(input_5).state;
       - address: 21
         read_lambda: return id(input_6).state;
-image:
-  - platform: file
-    file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/res/ethernet.svg
-    id: icon_eth
-    type: BINARY
-  - platform: file
-    file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/res/ethernet-off.svg
-    id: icon_eth_off
-    type: BINARY
-  - platform: file
-    file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/res/wifi.svg
-    id: icon_wifi
-    type: BINARY
-  - platform: file
-    file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/res/wifi-off.svg
-    id: icon_wifi_off
-    type: BINARY
-  - platform: file
-    file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/res/ha.svg
-    id: icon_ha
-    type: BINARY
-  - platform: file
-    file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/res/ha-off.svg
-    id: icon_ha_off
-    type: BINARY
 network:
   priority:
     - ethernet
@@ -1381,6 +1356,31 @@ display:
                       "%H:%M:%S", id(pcf8563_time).now());
           it.strftime(width / 2, height / 2 + 8, id(f7x14_mod2), TextAlign::CENTER,
                       "%a, %b %d", id(pcf8563_time).now());
+image:
+  - platform: file
+    file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/res/ethernet.svg
+    id: icon_eth
+    type: BINARY
+  - platform: file
+    file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/res/ethernet-off.svg
+    id: icon_eth_off
+    type: BINARY
+  - platform: file
+    file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/res/wifi.svg
+    id: icon_wifi
+    type: BINARY
+  - platform: file
+    file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/res/wifi-off.svg
+    id: icon_wifi_off
+    type: BINARY
+  - platform: file
+    file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/res/ha.svg
+    id: icon_ha
+    type: BINARY
+  - platform: file
+    file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/res/ha-off.svg
+    id: icon_ha_off
+    type: BINARY
 font:
   - file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/fonts/7x14-mod2.bdf
     id: f7x14_mod2
@@ -1559,10 +1559,10 @@ dashboard_import:
   package_import_url: github://jethome-iot/esphome-device-configs/dist/jxd-r6-e1eth-lcd.yaml@master
   import_full_config: true
 substitutions:
+  timezone: UTC
   link_icon: 'id(ethernet_id).is_connected() ? id(icon_eth) : id(wifi_id).is_connected()
     || id(wifi_id).is_ap_active() ? id(icon_wifi) : (id(network_mode).active_index().value_or(0)
     == 2 ? id(icon_wifi_off) : id(icon_eth_off))'
-  timezone: UTC
   name: jxd-r6-e1eth-lcd
   friendly_name: JXD-R6-E1ETH-LCD
   version: 1.0.0

@@ -1,0 +1,28 @@
+# The main page's link icon. WiFi also stands for the fallback AP; the image
+# component needs a display, so these ride with the display packages.
+substitutions:
+  link_icon: >-
+    id(ethernet_id).is_connected() ? id(icon_eth)
+    : id(wifi_id).is_connected() || id(wifi_id).is_ap_active() ? id(icon_wifi)
+    : (id(network_mode).active_index().value_or(0) == 2 ? id(icon_wifi_off) : id(icon_eth_off))
+
+image:
+  - platform: file
+    file: ${assets}/res/ethernet.svg
+    id: icon_eth
+    type: BINARY
+
+  - platform: file
+    file: ${assets}/res/ethernet-off.svg
+    id: icon_eth_off
+    type: BINARY
+
+  - platform: file
+    file: ${assets}/res/wifi.svg
+    id: icon_wifi
+    type: BINARY
+
+  - platform: file
+    file: ${assets}/res/wifi-off.svg
+    id: icon_wifi_off
+    type: BINARY
