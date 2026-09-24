@@ -3,13 +3,15 @@ name: Release
 # Builds every firmware in firmwares.yaml and ships it. Full releases publish
 # to the `release` channel on fw.jethome.com; prereleases always go to
 # `nightly` while no beta channel exists, and manual runs default to `nightly`
-# too — the release channel is an explicit choice. Every built firmware lands
-# on the GitHub release as an asset; only the `upload: true` ones go to the
-# server.
+# too — the release channel is an explicit choice. Every push to dev builds
+# and publishes a nightly. Every built firmware lands on the GitHub release
+# as an asset; only the `upload: true` ones go to the server.
 
 on:
   release:
     types: [published]
+  push:
+    branches: [dev]
   workflow_dispatch:
     inputs:
       channel:
@@ -33,15 +35,22 @@ on:
 run-name: >-
   ${{ github.event_name == 'release' &&
   format('Release {0}', github.event.release.tag_name) ||
+  github.event_name == 'push' && 'Nightly (dev)' ||
   format('Release dispatch ({0})', inputs.channel) }}
 
 concurrency:
   # Version allocation and the latest pointer are per channel: two runs
   # publishing to one channel must not interleave. Dry runs publish nothing
-  # and get their own group so they never queue behind a publisher.
+  # and get their own group so they never queue behind a publisher. Dev
+  # pushes get their own group too: GitHub keeps a single pending run per
+  # group, so sharing one with publication runs would let a routine push
+  # evict a queued prerelease publication. The cost is a rare version-
+  # allocation race between the two nightly groups, which fails loudly on
+  # the tag push and heals on the next push.
   group: >-
     ${{ github.event_name == 'release' &&
     (github.event.release.prerelease && 'release-nightly' || 'release-release') ||
+    github.event_name == 'push' && 'nightly-dev' ||
     format('release-{0}{1}', inputs.channel, inputs.dry_run && '-dryrun' || '') }}
   cancel-in-progress: false
 
@@ -116,6 +125,13 @@ jobs:
             DO_UPLOAD=true
             CREATE_RELEASE=false
             if [ "$CHANNEL" = release ]; then UPDATE_LATEST=true; else UPDATE_LATEST=false; fi
+          elif [ "$EVENT" = "push" ]; then
+            # Every dev commit is a nightly: published to the nightly channel,
+            # never touching the release channel's latest pointer.
+            CHANNEL=nightly
+            DO_UPLOAD=true
+            CREATE_RELEASE=true
+            UPDATE_LATEST=false
           else
             CHANNEL=$IN_CHANNEL
             DO_UPLOAD=true
