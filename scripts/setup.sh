@@ -26,7 +26,7 @@ echo "Found Python $PYTHON_VERSION"
 PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
 PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
 
-# ESPHome 2026.8.2 declares Requires-Python >=3.12,<3.15
+# ESPHome 2026.9.0 declares Requires-Python >=3.12,<3.15
 if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 12 ]); then
     echo ""
     echo "ERROR: ESPHome requires Python 3.12 or newer"
