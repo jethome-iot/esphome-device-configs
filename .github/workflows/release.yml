@@ -4,8 +4,8 @@ name: Release
 # to the `release` channel on fw.jethome.com; prereleases always go to
 # `nightly` while no beta channel exists, and manual runs default to `nightly`
 # too — the release channel is an explicit choice. Every push to dev builds
-# and publishes a nightly. Every built firmware lands on the GitHub release
-# as an asset; only the `upload: true` ones go to the server.
+# and publishes a nightly to the firmware server only, without a GitHub
+# release.
 
 on:
   release:
@@ -123,11 +123,11 @@ jobs:
             CREATE_RELEASE=false
             if [ "$CHANNEL" = release ]; then UPDATE_LATEST=true; else UPDATE_LATEST=false; fi
           elif [ "$EVENT" = "push" ]; then
-            # Every dev commit is a nightly: published to the nightly channel,
-            # never touching the release channel's latest pointer.
+            # Every dev commit is a nightly on the firmware server only — no
+            # GitHub release, the releases page stays release-channel clean.
             CHANNEL=nightly
             DO_UPLOAD=true
-            CREATE_RELEASE=true
+            CREATE_RELEASE=false
             UPDATE_LATEST=false
           else
             CHANNEL=$IN_CHANNEL
@@ -348,11 +348,15 @@ jobs:
 
   upload-fw:
     name: Upload ${{ matrix.name }}
-    # After assets: the GitHub release and its version tag exist before
-    # anything reaches the firmware server, so a failed asset upload never
-    # leaves a half-published release behind.
-    needs: [resolve, assets]
+    # After assets when it runs: the GitHub release and its version tag exist
+    # before anything reaches the firmware server. Dev nightlies skip assets
+    # (no GitHub release), so the !cancelled() gate keeps this job alive on
+    # the skipped need while still demanding green builds.
+    needs: [resolve, build, assets]
     if: >-
+      !cancelled() &&
+      needs.build.result == 'success' &&
+      (needs.assets.result == 'success' || needs.assets.result == 'skipped') &&
       needs.resolve.outputs.do_upload == 'true' &&
       needs.resolve.outputs.has_uploads == 'true'
     runs-on: [self-hosted, ubuntu-latest]
