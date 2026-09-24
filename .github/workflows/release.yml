@@ -4,8 +4,8 @@ name: Release
 # to the `release` channel on fw.jethome.com; prereleases always go to
 # `nightly` while no beta channel exists, and manual runs default to `nightly`
 # too — the release channel is an explicit choice. Every push to dev builds
-# and publishes a nightly. Every built firmware lands on the GitHub release
-# as an asset; only the `upload: true` ones go to the server.
+# and publishes a nightly to the firmware server only, without a GitHub
+# release.
 
 on:
   release:
