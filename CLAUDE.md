@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ESPHome configurations for JetHome JXD devices. A device is a thin YAML under `devices/` that
 lists packages; the logic is C++ lambdas inside those packages and the external components
-under `components/`; `scripts/` holds the Python tooling. ESPHome is pinned to 2026.8.2. CI
+under `components/`; `scripts/` holds the Python tooling. ESPHome is pinned to 2026.9.0. CI
 compiles every firmware in `firmwares.yaml`, runs the test suites in `tests/`, checks the
 generated files and runs the pre-commit hooks.
 
