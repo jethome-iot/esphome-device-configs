@@ -24,9 +24,10 @@ firmwares:
 ```
 
 Binaries of `upload: false` firmwares ship as GitHub release assets on
-release-event and dispatch runs — they never reach the firmware server, and
-dev nightlies carry no GitHub release at all. `scripts/firmware-matrix.py`
-validates the file and turns it into the workflow matrices.
+release events and non-dry-run dispatches — they never reach the firmware
+server, and dev nightlies carry no GitHub release at all.
+`scripts/firmware-matrix.py` validates the file and turns it into the
+workflow matrices.
 
 ## Channels and versions
 
@@ -86,8 +87,8 @@ server is never fed from an unpublished draft.
 
 ## What lands where
 
-**GitHub release assets** (release-event and dispatch runs) — every built
-firmware, both images; dev nightlies have no GitHub release:
+**GitHub release assets** (release events, non-dry-run dispatches) — every
+built firmware, both images; dev nightlies have no GitHub release:
 
 ```
 <config-stem>-<version>-factory.bin   # merged image for flashing
