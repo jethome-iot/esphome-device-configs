@@ -21,6 +21,8 @@ packages:
   # Features: buses, sensors, services.
   automation_editor: !include ${features}/automation-editor.yaml
   automations: !include ${features}/automations.yaml
+  # Panic-hunt telemetry (issue #60); not part of a release build.
+  diagnostics: !include ${features}/diagnostics.yaml
   display_off: !include ${features}/display-off.yaml
   entity_settings: !include ${features}/entity-settings.yaml
   firmware_update: !include ${features}/firmware-update.yaml

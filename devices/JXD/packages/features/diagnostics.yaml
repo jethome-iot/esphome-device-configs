@@ -1,0 +1,140 @@
+# Telemetry for the panic hunt in issue #60: internal heap, PSRAM, loop time, task
+# stack head-room and a decodable core dump. Diagnostic build only — never released.
+#
+# The stock debug component already measures MALLOC_CAP_INTERNAL for free, block,
+# min_free and fragmentation, and MALLOC_CAP_SPIRAM for psram, so internal
+# exhaustion and PSRAM are separate series without extra code.
+
+# uxTaskGetStackHighWaterMark and xTaskGetHandle; core/helpers.h brings in
+# FreeRTOS.h but not task.h.
+esphome:
+  includes:
+    - "<freertos/task.h>"
+
+esp32:
+  framework:
+    sdkconfig_options:
+      # Trap a task stack overflow at the instruction that overruns the guard
+      # word instead of letting it corrupt whatever sits below the stack.
+      CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK: y
+      # A core dump over the console UART. The flash is fully allocated by
+      # partitions.csv, so a coredump partition would mean repartitioning, which
+      # OTA cannot carry and which would wipe the user partition.
+      CONFIG_ESP_COREDUMP_ENABLE_TO_UART: y
+      CONFIG_ESP_COREDUMP_ENABLE_TO_NONE: n
+      CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF: y
+      CONFIG_ESP_COREDUMP_CHECKSUM_CRC32: y
+      # Dump from its own stack: a stack-overflow panic has none to borrow.
+      CONFIG_ESP_COREDUMP_STACK_SIZE: "1024"
+      # The base64 core is long; let it all reach the console before the reboot.
+      CONFIG_ESP_SYSTEM_PANIC_REBOOT_DELAY_SECONDS: "15"
+
+debug:
+  update_interval: 30s
+
+sensor:
+  - platform: debug
+    free:
+      name: "Heap internal free"
+      id: heap_internal_free
+      web_server:
+        sorting_group_id: group_system
+        sorting_weight: 20
+    block:
+      name: "Heap internal block"
+      id: heap_internal_block
+      web_server:
+        sorting_group_id: group_system
+        sorting_weight: 21
+    min_free:
+      name: "Heap internal min"
+      id: heap_internal_min
+      web_server:
+        sorting_group_id: group_system
+        sorting_weight: 22
+    fragmentation:
+      name: "Heap fragmentation"
+      id: heap_fragmentation
+      web_server:
+        sorting_group_id: group_system
+        sorting_weight: 23
+    psram:
+      name: "PSRAM free"
+      id: psram_free
+      web_server:
+        sorting_group_id: group_system
+        sorting_weight: 24
+    loop_time:
+      name: "Loop time max"
+      id: loop_time_max
+      web_server:
+        sorting_group_id: group_system
+        sorting_weight: 25
+
+  # Head-room left in the loop task. The lambda runs in it, so the handle is null.
+  - platform: template
+    name: "Stack HWM loop"
+    id: stack_hwm_loop
+    unit_of_measurement: B
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    state_class: measurement
+    update_interval: 30s
+    web_server:
+      sorting_group_id: group_system
+      sorting_weight: 26
+    lambda: |-
+      // Bytes, not words: StackType_t is uint8_t on the Xtensa port.
+      return uxTaskGetStackHighWaterMark(nullptr);
+
+  # Head-room left in the ESP-IDF httpd task, which every web handler runs in.
+  # Resolved per update: the task only exists once the web server is up, and a
+  # cached handle would go stale if it ever restarted.
+  - platform: template
+    name: "Stack HWM httpd"
+    id: stack_hwm_httpd
+    unit_of_measurement: B
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    state_class: measurement
+    update_interval: 30s
+    web_server:
+      sorting_group_id: group_system
+      sorting_weight: 27
+    lambda: |-
+      TaskHandle_t httpd = xTaskGetHandle("httpd");
+      if (httpd == nullptr)
+        return {};
+      return uxTaskGetStackHighWaterMark(httpd);
+
+  # A leaked task costs a TCB plus its stack in internal RAM, so the count is a
+  # leak signal in its own right. It also stands in for the scheduler item count,
+  # which 2026.8.2 keeps private (Scheduler::items_); the only way to see that one
+  # is esphome.debug_scheduler, which logs a line per timer and would distort the
+  # loop time this build is measuring.
+  - platform: template
+    name: "Task count"
+    id: task_count
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    state_class: measurement
+    update_interval: 30s
+    web_server:
+      sorting_group_id: group_system
+      sorting_weight: 28
+    lambda: 'return uxTaskGetNumberOfTasks();'
+
+text_sensor:
+  - platform: debug
+    reset_reason:
+      name: "Reset reason"
+      id: reset_reason
+      web_server:
+        sorting_group_id: group_system
+        sorting_weight: 29
+    device:
+      name: "Device info"
+      id: device_info
+      web_server:
+        sorting_group_id: group_system
+        sorting_weight: 30

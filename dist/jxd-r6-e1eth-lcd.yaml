@@ -9,6 +9,13 @@ esp32:
     sdkconfig_options:
       CONFIG_COMPILER_OPTIMIZATION_SPEED: y
       CONFIG_D0WD_PSRAM_CLK_IO: '6'
+      CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK: y
+      CONFIG_ESP_COREDUMP_ENABLE_TO_UART: y
+      CONFIG_ESP_COREDUMP_ENABLE_TO_NONE: n
+      CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF: y
+      CONFIG_ESP_COREDUMP_CHECKSUM_CRC32: y
+      CONFIG_ESP_COREDUMP_STACK_SIZE: '1024'
+      CONFIG_ESP_SYSTEM_PANIC_REBOOT_DELAY_SECONDS: '15'
 psram:
   mode: quad
   speed: 80MHz
@@ -147,6 +154,84 @@ sensor:
       sorting_weight: 1
     update_interval: 20s
     entity_category: diagnostic
+  - platform: debug
+    free:
+      name: Heap internal free
+      id: heap_internal_free
+      web_server:
+        sorting_group_id: group_system
+        sorting_weight: 20
+    block:
+      name: Heap internal block
+      id: heap_internal_block
+      web_server:
+        sorting_group_id: group_system
+        sorting_weight: 21
+    min_free:
+      name: Heap internal min
+      id: heap_internal_min
+      web_server:
+        sorting_group_id: group_system
+        sorting_weight: 22
+    fragmentation:
+      name: Heap fragmentation
+      id: heap_fragmentation
+      web_server:
+        sorting_group_id: group_system
+        sorting_weight: 23
+    psram:
+      name: PSRAM free
+      id: psram_free
+      web_server:
+        sorting_group_id: group_system
+        sorting_weight: 24
+    loop_time:
+      name: Loop time max
+      id: loop_time_max
+      web_server:
+        sorting_group_id: group_system
+        sorting_weight: 25
+  - platform: template
+    name: Stack HWM loop
+    id: stack_hwm_loop
+    unit_of_measurement: B
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    state_class: measurement
+    update_interval: 30s
+    web_server:
+      sorting_group_id: group_system
+      sorting_weight: 26
+    lambda: |-
+      // Bytes, not words: StackType_t is uint8_t on the Xtensa port.
+      return uxTaskGetStackHighWaterMark(nullptr);
+  - platform: template
+    name: Stack HWM httpd
+    id: stack_hwm_httpd
+    unit_of_measurement: B
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    state_class: measurement
+    update_interval: 30s
+    web_server:
+      sorting_group_id: group_system
+      sorting_weight: 27
+    lambda: |-
+      TaskHandle_t httpd = xTaskGetHandle("httpd");
+      if (httpd == nullptr)
+        return {};
+      return uxTaskGetStackHighWaterMark(httpd);
+  - platform: template
+    name: Task count
+    id: task_count
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    state_class: measurement
+    update_interval: 30s
+    web_server:
+      sorting_group_id: group_system
+      sorting_weight: 28
+    lambda: return uxTaskGetNumberOfTasks();
   - platform: adc
     name: VIN voltage
     id: vin_meas
@@ -273,6 +358,19 @@ text_sensor:
     internal: true
     format:
       separator: ' '
+  - platform: debug
+    reset_reason:
+      name: Reset reason
+      id: reset_reason
+      web_server:
+        sorting_group_id: group_system
+        sorting_weight: 29
+    device:
+      name: Device info
+      id: device_info
+      web_server:
+        sorting_group_id: group_system
+        sorting_weight: 30
   - platform: ethernet_info
     ip_address:
       name: Ethernet IP
@@ -788,6 +886,8 @@ esphome:
       then:
         - delay: 200ms
         - script.execute: setup_time
+  includes:
+    - <freertos/task.h>
   name: ${name}
   name_add_mac_suffix: true
   friendly_name: ${friendly_name}
@@ -799,6 +899,8 @@ automations:
   id: automations_engine
   storage: user_storage
   time_id: pcf8563_time
+debug:
+  update_interval: 30s
 select:
   - platform: template
     id: display_off_timer_select
