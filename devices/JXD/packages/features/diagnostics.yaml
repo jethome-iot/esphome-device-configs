@@ -31,6 +31,12 @@ esp32:
       # uxTaskGetSystemState needs it. Without a task table the only way to reach a
       # task's watermark is xTaskGetHandle from outside, which races its deletion.
       CONFIG_FREERTOS_USE_TRACE_FACILITY: y
+      # Fill freed blocks with 0xFE and check every block on each heap operation, so a write
+      # into a block that has already been released aborts where it happens instead of
+      # quietly damaging whatever is allocated there next. It costs loop time, which matters
+      # here only in that it stretches the 2500-loop stuck-EventSource threshold.
+      CONFIG_HEAP_POISONING_COMPREHENSIVE: y
+      CONFIG_HEAP_POISONING_DISABLED: n
 
 debug:
   update_interval: 30s
