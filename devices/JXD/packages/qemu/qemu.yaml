@@ -27,6 +27,8 @@ esp32:
   framework:
     sdkconfig_options:
       CONFIG_HEAP_POISONING_COMPREHENSIVE: y
+      # xTaskGetHandle(), so the trace can name the httpd task and read its stack.
+      CONFIG_FREERTOS_USE_TRACE_FACILITY: y
 
 # Fatal otherwise: with no ADC the conversion never completes and sample()
 # spins with interrupts off until the interrupt watchdog reboots the chip.
@@ -94,8 +96,23 @@ interval:
       - lambda: |-
           multi_heap_info_t internal;
           heap_caps_get_info(&internal, MALLOC_CAP_INTERNAL);
-          ESP_LOGI("heapcsv", "HEAPCSV,%u,%u,%u,%u,%u,%u,%u,%u", (unsigned) millis(),
+          // The httpd task's stack is the other thing that can end a boot in a panic:
+          // CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY is on, and every handler this repo
+          // adds runs on that 4352-byte stack.
+          static TaskHandle_t httpd_task = nullptr;
+          if (httpd_task == nullptr)
+            httpd_task = xTaskGetHandle("httpd");
+          ESP_LOGI("heapcsv", "HEAPCSV,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u", (unsigned) millis(),
                    (unsigned) internal.total_free_bytes, (unsigned) internal.largest_free_block,
                    (unsigned) internal.minimum_free_bytes, (unsigned) internal.total_allocated_bytes,
                    (unsigned) internal.allocated_blocks, (unsigned) internal.free_blocks,
-                   (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+                   (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                   (unsigned) (httpd_task == nullptr ? 0 : uxTaskGetStackHighWaterMark(httpd_task)),
+                   (unsigned) uxTaskGetStackHighWaterMark(nullptr),
+                   (unsigned) uxTaskGetNumberOfTasks());
+
+# The manifest poll runs every 6 h by default, so a leak in the client or in mbedTLS would
+# need a day and a half to show. 30 s turns those six polls into hundreds.
+update:
+  - id: !extend firmware_update
+    update_interval: 30s
