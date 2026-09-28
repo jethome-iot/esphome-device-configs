@@ -26,7 +26,7 @@ static const char *const TAG = "web_file_browser";
 // task stack, where a deeper tree would smash it instead of failing the request.
 // mkdir has no such limit, so delete measures the tree first: an error, not a
 // partial delete.
-static const unsigned MAX_RECURSION_DEPTH = 12;
+static const unsigned MAX_RECURSION_DEPTH = 8;
 
 void WebFileBrowser::setup() {
   this->base_->init();
