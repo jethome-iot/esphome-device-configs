@@ -111,8 +111,9 @@ interval:
                    (unsigned) uxTaskGetStackHighWaterMark(nullptr),
                    (unsigned) uxTaskGetNumberOfTasks());
 
-# The manifest poll runs every 6 h by default, so a leak in the client or in mbedTLS would
-# need a day and a half to show. 30 s turns those six polls into hundreds.
+# The manifest poll runs every 6 h by default. Off here and fired from the "Check for
+# updates" button instead, so a run of N polls is attributable the way a run of N requests
+# is — a 20 KB TLS transient landing inside a settle window would swamp everything else.
 update:
   - id: !extend firmware_update
-    update_interval: 30s
+    update_interval: never
