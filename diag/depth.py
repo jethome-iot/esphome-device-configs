@@ -40,7 +40,7 @@ def main() -> None:
     ap.add_argument("--op", choices=["copy", "delete", "both"], default="both")
     args = ap.parse_args()
 
-    print(f"start: httpd headroom {e2.last_sample().httpd_hw} B of 4352")
+    print(f"start: httpd headroom {e2.last_sample().httpd_hw} B of 8192")
     parts = []
     for level in range(args.max_depth):
         parts.append(f"L{level}")
@@ -72,7 +72,7 @@ def main() -> None:
             break
         s = e2.wait_samples(1, f"depth {depth}")
         print(
-            f"depth {depth}: httpd headroom {s.httpd_hw:5d} B  used {4352 - s.httpd_hw:5d} B  "
+            f"depth {depth}: httpd headroom {s.httpd_hw:5d} B  used {8192 - s.httpd_hw:5d} B  "
             f"free={s.free}  {' '.join(results)}"
         )
 
