@@ -1,0 +1,207 @@
+{
+ "httpd_sess_enum": [
+  "httpd_process_session"
+ ],
+ "httpd_uri": [
+  "_ZN7esphome14web_server_idf14AsyncWebServer20request_post_handlerEP9httpd_req",
+  "_ZN7esphome14web_server_idf14AsyncWebServer15request_handlerEP9httpd_req"
+ ],
+ "_ZN7esphome14web_server_idf14AsyncWebServer24handle_multipart_upload_EP9httpd_reqPKc": [
+  "_ZNK7esphome16web_origin_guard18CrossOriginRefuser9canHandleEPNS_14web_server_idf21AsyncWebServerRequestE",
+  "_ZNK7esphome15web_server_base8internal17MiddlewareHandler9canHandleEPNS_14web_server_idf21AsyncWebServerRequestE",
+  "_ZN7esphome15web_server_base8internal21AuthMiddlewareHandler13handleRequestEPNS_14web_server_idf21AsyncWebServerRequestE"
+ ],
+ "_ZN7esphome14web_server_idf14AsyncWebServer16handle_raw_body_EP9httpd_reqPKc": [
+  "_ZNK7esphome16web_origin_guard18CrossOriginRefuser9canHandleEPNS_14web_server_idf21AsyncWebServerRequestE",
+  "_ZNK7esphome15web_server_base8internal17MiddlewareHandler9canHandleEPNS_14web_server_idf21AsyncWebServerRequestE",
+  "_ZN7esphome15web_server_base8internal21AuthMiddlewareHandler10handleBodyEPNS_14web_server_idf21AsyncWebServerRequestEPhjjj",
+  "_ZN7esphome15web_server_base8internal21AuthMiddlewareHandler13handleRequestEPNS_14web_server_idf21AsyncWebServerRequestE"
+ ],
+ "_ZNK7esphome14web_server_idf14AsyncWebServer16request_handler_EPNS0_21AsyncWebServerRequestE": [
+  "_ZNK7esphome16web_origin_guard18CrossOriginRefuser9canHandleEPNS_14web_server_idf21AsyncWebServerRequestE",
+  "_ZNK7esphome15web_server_base8internal17MiddlewareHandler9canHandleEPNS_14web_server_idf21AsyncWebServerRequestE",
+  "_ZN7esphome15web_server_base8internal21AuthMiddlewareHandler13handleRequestEPNS_14web_server_idf21AsyncWebServerRequestE"
+ ],
+ "_ZNK7esphome15web_server_base8internal17MiddlewareHandler9canHandleEPNS_14web_server_idf21AsyncWebServerRequestE": [
+  "_ZNK7esphome16web_origin_guard14WebOriginGuard9canHandleEPNS_14web_server_idf21AsyncWebServerRequestE"
+ ],
+ "_ZNK7esphome16web_origin_guard14WebOriginGuard9canHandleEPNS_14web_server_idf21AsyncWebServerRequestE": [
+  "_ZNK7esphome16web_file_browser14WebFileBrowser9canHandleEPNS_14web_server_idf21AsyncWebServerRequestE"
+ ],
+ "_ZN7esphome15web_server_base8internal21AuthMiddlewareHandler13handleRequestEPNS_14web_server_idf21AsyncWebServerRequestE": [
+  "_ZN7esphome16web_origin_guard14WebOriginGuard13handleRequestEPNS_14web_server_idf21AsyncWebServerRequestE"
+ ],
+ "_ZN7esphome15web_server_base8internal21AuthMiddlewareHandler10handleBodyEPNS_14web_server_idf21AsyncWebServerRequestEPhjjj": [
+  "_ZN7esphome16web_origin_guard14WebOriginGuard10handleBodyEPNS_14web_server_idf21AsyncWebServerRequestEPhjjj"
+ ],
+ "_ZN7esphome15web_server_base8internal21AuthMiddlewareHandler12handleUploadEPNS_14web_server_idf21AsyncWebServerRequestERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEjPhjb": [
+  "_ZN7esphome16web_origin_guard14WebOriginGuard12handleUploadEPNS_14web_server_idf21AsyncWebServerRequestERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEjPhjb"
+ ],
+ "_ZN7esphome16web_origin_guard14WebOriginGuard13handleRequestEPNS_14web_server_idf21AsyncWebServerRequestE": [
+  "_ZN7esphome16web_file_browser14WebFileBrowser13handleRequestEPNS_14web_server_idf21AsyncWebServerRequestE"
+ ],
+ "_ZN7esphome16web_origin_guard14WebOriginGuard10handleBodyEPNS_14web_server_idf21AsyncWebServerRequestEPhjjj": [
+  "_ZN7esphome16web_file_browser14WebFileBrowser10handleBodyEPNS_14web_server_idf21AsyncWebServerRequestEPhjjj"
+ ],
+ "_ZN7esphome16web_origin_guard14WebOriginGuard12handleUploadEPNS_14web_server_idf21AsyncWebServerRequestERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEjPhjb": [
+  "_ZN7esphome16web_file_browser14WebFileBrowser12handleUploadEPNS_14web_server_idf21AsyncWebServerRequestERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEjPhjb"
+ ],
+ "multipart_parser_execute": [
+  "_ZN7esphome14web_server_idf15MultipartReader15on_header_fieldEP16multipart_parserPKcj",
+  "_ZN7esphome14web_server_idf15MultipartReader15on_header_valueEP16multipart_parserPKcj",
+  "_ZN7esphome14web_server_idf15MultipartReader12on_part_dataEP16multipart_parserPKcj",
+  "_ZN7esphome14web_server_idf15MultipartReader16on_part_data_endEP16multipart_parser"
+ ],
+ "_ZN7esphome14web_server_idf15MultipartReader12on_part_dataEP16multipart_parserPKcj": [
+  "_ZNSt17_Function_handlerIFvPKhjEZN7esphome14web_server_idf14AsyncWebServer24handle_multipart_upload_EP9httpd_reqPKcEUlS1_jE_E9_M_invokeERKSt9_Any_dataOS1_Oj"
+ ],
+ "_ZN7esphome14web_server_idf15MultipartReader16on_part_data_endEP16multipart_parser": [
+  "_ZNSt17_Function_handlerIFvvEZN7esphome14web_server_idf14AsyncWebServer24handle_multipart_upload_EP9httpd_reqPKcEUlvE_E9_M_invokeERKSt9_Any_data"
+ ],
+ "_ZNSt17_Function_handlerIFvPKhjEZN7esphome14web_server_idf14AsyncWebServer24handle_multipart_upload_EP9httpd_reqPKcEUlS1_jE_E9_M_invokeERKSt9_Any_dataOS1_Oj": [
+  "_ZN7esphome15web_server_base8internal21AuthMiddlewareHandler12handleUploadEPNS_14web_server_idf21AsyncWebServerRequestERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEjPhjb"
+ ],
+ "_ZNSt17_Function_handlerIFvvEZN7esphome14web_server_idf14AsyncWebServer24handle_multipart_upload_EP9httpd_reqPKcEUlvE_E9_M_invokeERKSt9_Any_data": [
+  "_ZN7esphome15web_server_base8internal21AuthMiddlewareHandler12handleUploadEPNS_14web_server_idf21AsyncWebServerRequestERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEjPhjb"
+ ],
+ "__sfvwrite_r": [
+  "__swrite"
+ ],
+ "__sflush_r": [
+  "__swrite",
+  "_lseek_r"
+ ],
+ "_fclose_r": [
+  "_close_r"
+ ],
+ "_fopen_r": [
+  "_open_r"
+ ],
+ "_write_r": [
+  "vfs_littlefs_write"
+ ],
+ "_close_r": [
+  "vfs_littlefs_close"
+ ],
+ "_open_r": [
+  "vfs_littlefs_open"
+ ],
+ "_unlink_r": [
+  "vfs_littlefs_unlink"
+ ],
+ "_lseek_r": [
+  "vfs_littlefs_lseek"
+ ],
+ "_fstat_r": [
+  "vfs_littlefs_fstat"
+ ],
+ "lfs_bd_read": [
+  "littlefs_esp_part_read"
+ ],
+ "lfs_bd_flush": [
+  "littlefs_esp_part_write"
+ ],
+ "lfs_bd_prog": [
+  "littlefs_esp_part_write"
+ ],
+ "lfs_bd_erase": [
+  "littlefs_esp_part_erase"
+ ],
+ "lfs_bd_sync$constprop$0": [
+  "littlefs_esp_part_sync"
+ ],
+ "lfs_bd_cmp$constprop$0": [
+  "littlefs_esp_part_read"
+ ],
+ "lfs_bd_crc$constprop$0": [
+  "littlefs_esp_part_read"
+ ],
+ "lfs_dir_getread$constprop$0": [
+  "littlefs_esp_part_read"
+ ],
+ "lfs_dir_traverse$constprop$0": [
+  "lfs_dir_traverse_filter",
+  "lfs_dir_commit_size",
+  "lfs_dir_commit_commit",
+  "lfs_dir_find_match",
+  "lfs_fs_parent_match"
+ ],
+ "lfs_fs_traverse_": [
+  "lfs_ctz_traverse",
+  "lfs_fs_size_count",
+  "lfs_alloc_lookahead"
+ ],
+ "lfs_ctz_traverse": [
+  "lfs_fs_size_count",
+  "lfs_alloc_lookahead"
+ ],
+ "esp_partition_read": [
+  "esp_flash_read"
+ ],
+ "esp_partition_write": [
+  "esp_flash_write"
+ ],
+ "esp_partition_erase_range": [
+  "esp_flash_erase_region"
+ ],
+ "esp_flash_read": [
+  "spi_flash_chip_generic_read",
+  "spiflash_start_core",
+  "spi_flash_op_lock"
+ ],
+ "esp_flash_write": [
+  "spi_flash_chip_generic_write",
+  "spiflash_start_core",
+  "spi_flash_op_lock"
+ ],
+ "esp_flash_erase_region": [
+  "spi_flash_chip_generic_erase_sector",
+  "spi_flash_chip_generic_erase_block",
+  "spi_flash_chip_generic_wait_idle",
+  "spi_flash_chip_generic_yield",
+  "spiflash_start_core",
+  "spi_flash_op_lock"
+ ],
+ "spi_flash_chip_generic_read": [
+  "memspi_host_read"
+ ],
+ "spi_flash_chip_generic_write": [
+  "spi_flash_chip_generic_page_program",
+  "spi_flash_chip_generic_wait_idle",
+  "spi_flash_chip_generic_set_write_protect"
+ ],
+ "spi_flash_chip_generic_page_program": [
+  "memspi_host_program_page"
+ ],
+ "spi_flash_chip_generic_erase_sector": [
+  "memspi_host_erase_sector",
+  "spi_flash_chip_generic_wait_idle",
+  "spi_flash_chip_generic_set_write_protect"
+ ],
+ "spi_flash_chip_generic_erase_block": [
+  "memspi_host_erase_block",
+  "spi_flash_chip_generic_wait_idle",
+  "spi_flash_chip_generic_set_write_protect"
+ ],
+ "memspi_host_read": [
+  "spi_flash_hal_read",
+  "spi_flash_hal_common_command"
+ ],
+ "memspi_host_program_page": [
+  "spi_flash_hal_common_command"
+ ],
+ "memspi_host_erase_sector": [
+  "spi_flash_hal_common_command"
+ ],
+ "memspi_host_erase_block": [
+  "spi_flash_hal_common_command"
+ ],
+ "spi_flash_chip_generic_wait_idle": [
+  "spi_flash_chip_generic_read_reg",
+  "memspi_host_read_status_hs"
+ ],
+ "_ZN7esphome6logger6Logger12log_vprintf_EhPKciS2_St9__va_list": [],
+ "memspi_host_read_status_hs": [
+  "spi_flash_hal_common_command"
+ ]
+}
