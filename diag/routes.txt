@@ -1,0 +1,16 @@
+GET /
+GET /api/device/status
+GET /api/device/network
+GET /api/device/info
+GET /api/device/entities
+GET /api/device/entity-settings?type=switch
+GET /api/device/entity-settings-meta
+GET /api/device/capabilities
+GET /files/info
+GET /files/list?path=/
+GET /automation-editor/api/list
+GET /automation-editor/api/entities
+GET /automation-editor/api/export
+GET /sensor/PCB%20Temp
+GET /switch/Relay%201
+GET /text_sensor/ResetReason
