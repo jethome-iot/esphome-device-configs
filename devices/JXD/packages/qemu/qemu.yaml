@@ -30,9 +30,66 @@ sensor:
   - id: !extend poe_voltage
     update_interval: never
 
+  # Diagnostics for the heap-leak hunt (branch diag/heap-qemu, not for merge). On
+  # ESP32 `free`, `block`, `min_free` and `fragmentation` all read MALLOC_CAP_INTERNAL,
+  # the pool a panic runs out of, while `psram` reads MALLOC_CAP_SPIRAM separately.
+  # Names carry no spaces, so the REST paths need no escaping.
+  - platform: debug
+    free:
+      name: HeapFree
+      id: heap_free
+    block:
+      name: HeapBlock
+      id: heap_block
+    min_free:
+      name: HeapMinFree
+      id: heap_min_free
+    fragmentation:
+      name: HeapFrag
+      id: heap_frag
+    psram:
+      name: PsramFree
+      id: psram_free
+    loop_time:
+      name: LoopTime
+      id: loop_time
+
+debug:
+  id: debug_component
+  update_interval: 2s
+
+text_sensor:
+  - platform: debug
+    device:
+      name: DeviceInfo
+    reset_reason:
+      name: ResetReason
+
 # QEMU models no radio. "Ethernet" is the only mode that never touches the WiFi
 # stack, and a mode restored from emulated NVS would call esp_wifi_init().
 select:
   - id: !extend network_mode
     restore_value: false
     initial_option: "Ethernet"
+
+# mDNS re-reads the MAC constantly and QEMU burns no eFuse, so the "Failed to read a
+# valid MAC address from eFuse" error is the bulk of a run's log — and its own churn on
+# the logger's task buffer. Silenced so a heap trace reads.
+logger:
+  logs:
+    esp32: NONE
+
+# The heap trace, on the UART only: HEAPCSV lines in qemu.log cost no HTTP request, so a
+# "no traffic" control really is one. allocated_blocks is the number that separates a leak
+# from fragmentation.
+interval:
+  - interval: 15s
+    then:
+      - lambda: |-
+          multi_heap_info_t internal;
+          heap_caps_get_info(&internal, MALLOC_CAP_INTERNAL);
+          ESP_LOGI("heapcsv", "HEAPCSV,%u,%u,%u,%u,%u,%u,%u,%u", (unsigned) millis(),
+                   (unsigned) internal.total_free_bytes, (unsigned) internal.largest_free_block,
+                   (unsigned) internal.minimum_free_bytes, (unsigned) internal.total_allocated_bytes,
+                   (unsigned) internal.allocated_blocks, (unsigned) internal.free_blocks,
+                   (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
