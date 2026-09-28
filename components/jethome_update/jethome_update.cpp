@@ -132,6 +132,12 @@ void JethomeUpdate::update_task(void *params) {
   // The entity's state belongs to the main loop, where the API, MQTT and the web server read it.
   this_update->defer([this_update, result]() { this_update->finish_check_(result); });
 
+#ifdef USE_ESP32
+  // Diagnostic (branch diag/heap-qemu, not for merge): read from inside the task, so the
+  // number covers the whole check and there is no race with vTaskDelete freeing the TCB.
+  ESP_LOGI(TAG, "FWTASKSTACK,%u", (unsigned) uxTaskGetStackHighWaterMark(nullptr));
+#endif
+
   UPDATE_RETURN;
 }
 
