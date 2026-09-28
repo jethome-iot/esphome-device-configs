@@ -107,6 +107,44 @@ sensor:
         return {};
       return uxTaskGetStackHighWaterMark(httpd);
 
+  # The deepest the jethome_update poll task got into its 8192 bytes. It runs DNS, TCP,
+  # mbedtls_ssl_handshake and certificate-chain verification there, and it is the only new
+  # code in this release that runs on a device nobody is touching. Read inside the task, so
+  # sampling between polls still returns the worst case rather than nothing.
+  - platform: template
+    name: "Stack HWM update min"
+    id: stack_hwm_update_min
+    unit_of_measurement: B
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    state_class: measurement
+    update_interval: 30s
+    web_server:
+      sorting_group_id: group_system
+      sorting_weight: 31
+    lambda: |-
+      const uint32_t hwm = id(firmware_update)->get_task_stack_hwm_min();
+      if (hwm == UINT32_MAX)
+        return {};
+      return hwm;
+
+  - platform: template
+    name: "Stack HWM update last"
+    id: stack_hwm_update_last
+    unit_of_measurement: B
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    state_class: measurement
+    update_interval: 30s
+    web_server:
+      sorting_group_id: group_system
+      sorting_weight: 32
+    lambda: |-
+      const uint32_t hwm = id(firmware_update)->get_task_stack_hwm_last();
+      if (hwm == 0)
+        return {};
+      return hwm;
+
   # A leaked task costs a TCB plus its stack in internal RAM, so the count is a
   # leak signal in its own right. It also stands in for the scheduler item count,
   # which 2026.8.2 keeps private (Scheduler::items_); the only way to see that one

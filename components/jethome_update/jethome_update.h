@@ -45,6 +45,14 @@ class JethomeUpdate final : public update::UpdateEntity, public PollingComponent
   void set_channel(const std::string &channel);
   const std::string &channel() const { return this->channel_; }
 
+#ifdef USE_ESP32
+  // Diagnostics for issue #60. The poll task runs DNS, TCP, the mbedTLS handshake and
+  // certificate-chain verification on 8192 bytes; these report how close it came to the end.
+  // Read inside the task, so the handle cannot go stale. UINT32_MAX means no poll has run yet.
+  uint32_t get_task_stack_hwm_min() const { return this->task_stack_hwm_min_; }
+  uint32_t get_task_stack_hwm_last() const { return this->task_stack_hwm_last_; }
+#endif
+
  protected:
   void run_check_(CheckResult &result);
   void finish_check_(CheckResult *result);
@@ -65,6 +73,10 @@ class JethomeUpdate final : public update::UpdateEntity, public PollingComponent
   static void update_task(void *params);
 #ifdef USE_ESP32
   TaskHandle_t update_task_handle_{nullptr};
+  // Written by the poll task, read by the loop task; a 32-bit aligned word, so the read is
+  // whole either way and a sample that misses a poll by one cycle costs nothing.
+  uint32_t task_stack_hwm_min_{UINT32_MAX};
+  uint32_t task_stack_hwm_last_{0};
 #endif
   uint8_t initial_check_remaining_{0};
 };

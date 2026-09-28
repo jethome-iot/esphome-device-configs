@@ -1,5 +1,7 @@
 #include "jethome_update.h"
 
+#include <cinttypes>
+
 #include "esphome/core/log.h"
 #include "esphome/core/version.h"
 
@@ -131,6 +133,17 @@ void JethomeUpdate::update_task(void *params) {
 
   // The entity's state belongs to the main loop, where the API, MQTT and the web server read it.
   this_update->defer([this_update, result]() { this_update->finish_check_(result); });
+
+#ifdef USE_ESP32
+  // Issue #60: the watermark covers the whole task, so reading it here catches the deepest
+  // point the TLS handshake and chain verification reached.
+  const uint32_t hwm = uxTaskGetStackHighWaterMark(nullptr);
+  this_update->task_stack_hwm_last_ = hwm;
+  if (hwm < this_update->task_stack_hwm_min_) {
+    this_update->task_stack_hwm_min_ = hwm;
+  }
+  ESP_LOGD(TAG, "Poll task stack head-room: %" PRIu32 " B left of 8192", hwm);
+#endif
 
   UPDATE_RETURN;
 }
