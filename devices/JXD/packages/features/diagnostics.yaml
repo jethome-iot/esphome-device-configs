@@ -35,8 +35,11 @@ esp32:
       # into a block that has already been released aborts where it happens instead of
       # quietly damaging whatever is allocated there next. It costs loop time, which matters
       # here only in that it stretches the 2500-loop stuck-EventSource threshold.
-      CONFIG_HEAP_POISONING_COMPREHENSIVE: y
-      CONFIG_HEAP_POISONING_DISABLED: n
+      # Off for the soak that asks the field question: a release build has no poisoning, so
+      # does the use-after-free in #70 reach a panic on its own, and how long does it take?
+      # Flip these two to reproduce #70 deliberately instead of waiting for it.
+      CONFIG_HEAP_POISONING_COMPREHENSIVE: n
+      CONFIG_HEAP_POISONING_DISABLED: y
 
 debug:
   update_interval: 30s
