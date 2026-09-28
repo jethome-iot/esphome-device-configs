@@ -37,6 +37,12 @@ INSN = re.compile(r"^\s*([0-9a-f]+):\t(\S+)\s*(.*)$")
 TGT = re.compile(r"\b([0-9a-f]{8}) <[^>]+>")
 CALL = re.compile(r"^(call0|call4|call8|call12)\s+[0-9a-f]+ <([^>+]+)(\+0x[0-9a-f]+)?>")
 JMP = re.compile(r"^j(?:\.l)?\s+[0-9a-f]+ <([^>+]+)(\+0x[0-9a-f]+)?>$")
+# `l32r a8, <lit> (4005da7c <esp_rom_md5_init>)`: objdump resolves the literal's
+# value to a symbol, so the `callx8 a8` that follows is a *direct* call in all but
+# encoding -- a ROM entry, an IRAM libc routine, a cross-section thunk.  Without
+# this the graph loses 31 edges out of `authenticate` alone.
+L32R = re.compile(r"^(a\d+),\s*[0-9a-f]+ <[^>]*>\s+\([0-9a-f]+ <([A-Za-z_$][^>+]*)>\)$")
+CALLX = re.compile(r"^(a\d+)$")
 NUM = r"(0x[0-9a-fA-F]+|\d+)"
 ENTRY = re.compile(rf"^a1,\s*{NUM}$")
 SPSUB = re.compile(rf"^a1,\s*a1,\s*-{NUM}$")
@@ -130,8 +136,13 @@ def decode(elf, start, size, seed=()):
 def analyse(name, stream):
     entry, extra, dyn = None, 0, False
     calls, tails, indirect = [], [], 0
+    litcalls, reg = [], {}
     for addr in sorted(stream):
         op, args = stream[addr]
+        if op == "l32r":
+            m = L32R.match(args)
+            reg[args.split(",")[0]] = m.group(2) if m else None
+            continue
         if op == "entry":
             m = ENTRY.match(args)
             if m and entry is None:
@@ -145,7 +156,13 @@ def analyse(name, stream):
         elif op == "movsp" and args.startswith("a1,"):
             dyn = True
         elif op.startswith("callx"):
-            indirect += 1
+            m = CALLX.match(args)
+            tgt = reg.get(m.group(1)) if m else None
+            if tgt and tgt != name:
+                if tgt not in litcalls:
+                    litcalls.append(tgt)
+            else:
+                indirect += 1
         elif op.startswith("call"):
             m = CALL.match(f"{op} {args}")
             if m and m.group(2) != name and m.group(2) not in calls:
@@ -156,7 +173,7 @@ def analyse(name, stream):
                 tails.append(m.group(1))
     return {"entry": entry, "extra_sp": extra, "dyn_sp": dyn,
             "frame": (entry or 0) + extra, "calls": calls, "tails": tails,
-            "indirect": indirect, "insns": len(stream)}
+            "litcalls": litcalls, "indirect": indirect, "insns": len(stream)}
 
 
 def main():

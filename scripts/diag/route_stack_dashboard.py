@@ -8,7 +8,8 @@ each one read out of the disassembly.
 """
 import json,sys,argparse
 SP='/tmp/claude-1000/-home-alexey-dev-esphome-device-configs/bf4965c5-a19f-4694-a820-14d815214413/scratchpad/httpd-stack'
-CG=json.load(open(SP+'/corpus/callgraph.json'))
+CG=json.load(open(SP+'/dashboard/callgraph_lit.json'))
+for _k,_v in CG.items(): _v['calls']=sorted(set(_v['calls'])|set(_v.get('lit',[]))|set(_v.get('tails',[])))
 A={v['addr'].lower():k for k,v in CG.items()}
 def s(addr): return A[addr]
 F=lambda k: CG[k]['frame']
@@ -95,8 +96,11 @@ def run(label, entry_addr, post=False, cut_float=True, extra_cut=()):
         lam=[s(LAMBDA['40104a60']),s(LAMBDA['40104af4'])]
     extra[s('400fad6c')]=lam
     b,p=deepest(root,cut,extra,UNROLL)
+    # same walk with every ESPHome ESP_LOGx from this task cut: separates the routinely
+    # reachable cost from the device-internal error branches that log
+    nb,_=deepest(root,cut|{s('400fc244')},extra,UNROLL)
     print('='*100)
-    print('%-34s prefix=%d  handler_subtree=%d  TOTAL=%d   (stack 4352, hw head-room floor 844)'%(label,pren,b,pren+b))
+    print('%-38s prefix=%4d  subtree=%4d  TOTAL=%4d  free=%5d   | no-log TOTAL=%4d'%(label,pren,b,pren+b,4352-(pren+b),pren+nb))
     for x in pre: print('   %5d  [prefix] %s'%(F(x),D(x)[:120]))
     for sym,f in p:  print('   %5d  %s'%(f,D(sym)[:120]))
     return pren, b, [(D(x),F(x)) for x in pre]+[(D(sym),f) for sym,f in p]
@@ -118,10 +122,11 @@ if __name__=='__main__':
             ('GET /api/device/entity-settings-meta','40106a70',False),
             ('(any 4xx) send_error_','40104a60',False),
             ('(prefix only) canHandle url_','401052a8',False),
+            ('GET /api/device/auth  [503 branch cut]','40104e4c',False),
             ]
     out={}
     for lab,ad,post in ROUTES:
-        pren,b,chain=run(lab,ad,post)
+        pren,b,chain=run(lab,ad,post,extra_cut=([s('40104a60')] if '503 branch cut' in lab else ()))
         out[lab]=(pren,b,pren+b,chain)
     json.dump({k:{'prefix':v[0],'subtree':v[1],'total':v[2],'chain':v[3]} for k,v in out.items()},
-              open(SP+'/dashboard/routes.json','w'),indent=1)
+              open(SP+'/dashboard/routes_lit.json','w'),indent=1)
