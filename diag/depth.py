@@ -45,7 +45,12 @@ def main() -> None:
     for level in range(args.max_depth):
         parts.append(f"L{level}")
         path = "/" + "/".join(parts)
-        S.post(e2.BASE + "/files/mkdir", data={"path": path}, timeout=45)
+        for lvl in range(level + 1):
+            S.post(
+                e2.BASE + "/files/mkdir",
+                data={"path": "/" + "/".join(parts[: lvl + 1])},
+                timeout=45,
+            )
         S.post(
             e2.BASE + f"/files/write?path={path}/f.txt",
             data=b"q" * 32,
@@ -57,7 +62,8 @@ def main() -> None:
         if args.op in ("copy", "both"):
             results.append(op("/files/copy", {"old_path": "/L0", "new_path": "/C0"}, "copy"))
             results.append(op("/files/delete", {"path": "/C0"}, "rm-copy"))
-        if args.op in ("delete", "both") and args.op != "both":
+        if args.op in ("delete", "both"):
+            # The tree is rebuilt on the next round, so deleting it here is the point.
             results.append(op("/files/delete", {"path": "/L0"}, "delete"))
         if not alive():
             print(f"depth {depth}: device stopped answering  ({' '.join(results)})")
