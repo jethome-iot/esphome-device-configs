@@ -21,6 +21,12 @@ ethernet:
 # writes correctly.
 esp32:
   flash_mode: dio
+  # Comprehensive poisoning fills a freed block with 0xFE and checks it on the next
+  # malloc/free, so a write into freed memory is caught where it happens instead of
+  # crashing somewhere else later. It costs speed; this branch is diagnostic.
+  framework:
+    sdkconfig_options:
+      CONFIG_HEAP_POISONING_COMPREHENSIVE: y
 
 # Fatal otherwise: with no ADC the conversion never completes and sample()
 # spins with interrupts off until the interrupt watchdog reboots the chip.
