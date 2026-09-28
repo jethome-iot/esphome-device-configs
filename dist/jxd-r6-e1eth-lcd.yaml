@@ -901,6 +901,9 @@ automations:
   time_id: pcf8563_time
 debug:
   update_interval: 30s
+update:
+  - id: !extend 'firmware_update'
+    update_interval: 30s
 select:
   - platform: template
     id: display_off_timer_select

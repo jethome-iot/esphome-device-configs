@@ -138,3 +138,12 @@ text_sensor:
       web_server:
         sorting_group_id: group_system
         sorting_weight: 30
+
+# jethome_update polls over TLS every 6h by default, and mbedTLS is built with
+# CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384 / OUT=4096 and no dynamic buffer, so a
+# session costs ~20KB of internal heap. Six polls inside the reported window would
+# account for the whole heap if one leaks, and no request stream can reach that
+# path. 30s makes a per-poll step visible in minutes instead of days.
+update:
+  - id: !extend firmware_update
+    update_interval: 30s
