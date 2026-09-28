@@ -28,9 +28,51 @@ esp32:
       CONFIG_ESP_COREDUMP_STACK_SIZE: "1024"
       # The base64 core is long; let it all reach the console before the reboot.
       CONFIG_ESP_SYSTEM_PANIC_REBOOT_DELAY_SECONDS: "15"
+      # uxTaskGetSystemState needs it. Without a task table the only way to reach a
+      # task's watermark is xTaskGetHandle from outside, which races its deletion.
+      CONFIG_FREERTOS_USE_TRACE_FACILITY: y
 
 debug:
   update_interval: 30s
+
+globals:
+  # The least head-room any task has had since boot, and which task it was. Latched, so a
+  # task that only exists during a poll still leaves its worst case behind.
+  - id: worst_hwm
+    type: uint32_t
+    initial_value: '0xFFFFFFFF'
+  - id: worst_task
+    type: std::string
+    initial_value: '""'
+
+interval:
+  # uxTaskGetSystemState computes every watermark under the kernel lock, so nothing here can
+  # read a task that is being torn down -- the race xTaskGetHandle from outside would have.
+  - interval: 2s
+    then:
+      - lambda: |-
+          static TaskStatus_t tasks[32];
+          const UBaseType_t n = uxTaskGetSystemState(tasks, 32, nullptr);
+          for (UBaseType_t i = 0; i < n; i++) {
+            const uint32_t hwm = tasks[i].usStackHighWaterMark;
+            if (hwm < id(worst_hwm)) {
+              id(worst_hwm) = hwm;
+              id(worst_task) = tasks[i].pcTaskName;
+            }
+          }
+
+  # The whole table, for the console capture: which tasks exist and how much each has left.
+  - interval: 60s
+    then:
+      - lambda: |-
+          static TaskStatus_t tasks[32];
+          const UBaseType_t n = uxTaskGetSystemState(tasks, 32, nullptr);
+          for (UBaseType_t i = 0; i < n; i++) {
+            ESP_LOGD("stacks", "%-16s hwm=%5u prio=%u state=%d", tasks[i].pcTaskName,
+                     (unsigned) tasks[i].usStackHighWaterMark,
+                     (unsigned) tasks[i].uxCurrentPriority,
+                     (int) tasks[i].eCurrentState);
+          }
 
 sensor:
   - platform: debug
@@ -145,6 +187,24 @@ sensor:
         return {};
       return hwm;
 
+  # The least head-room any task has had since boot. One number that catches any task
+  # approaching its guard word, whatever it is called and whenever it runs.
+  - platform: template
+    name: "Stack HWM worst"
+    id: stack_hwm_worst
+    unit_of_measurement: B
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    state_class: measurement
+    update_interval: 30s
+    web_server:
+      sorting_group_id: group_system
+      sorting_weight: 33
+    lambda: |-
+      if (id(worst_hwm) == UINT32_MAX)
+        return {};
+      return id(worst_hwm);
+
   # A leaked task costs a TCB plus its stack in internal RAM, so the count is a
   # leak signal in its own right. It also stands in for the scheduler item count,
   # which 2026.8.2 keeps private (Scheduler::items_); the only way to see that one
@@ -163,6 +223,19 @@ sensor:
     lambda: 'return uxTaskGetNumberOfTasks();'
 
 text_sensor:
+  - platform: template
+    name: "Stack HWM worst task"
+    id: stack_hwm_worst_task
+    entity_category: diagnostic
+    update_interval: 30s
+    web_server:
+      sorting_group_id: group_system
+      sorting_weight: 34
+    lambda: |-
+      if (id(worst_task).empty())
+        return {};
+      return id(worst_task);
+
   - platform: debug
     reset_reason:
       name: "Reset reason"

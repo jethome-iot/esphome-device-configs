@@ -16,6 +16,7 @@ esp32:
       CONFIG_ESP_COREDUMP_CHECKSUM_CRC32: y
       CONFIG_ESP_COREDUMP_STACK_SIZE: '1024'
       CONFIG_ESP_SYSTEM_PANIC_REBOOT_DELAY_SECONDS: '15'
+      CONFIG_FREERTOS_USE_TRACE_FACILITY: y
 psram:
   mode: quad
   speed: 80MHz
@@ -254,6 +255,21 @@ sensor:
         return {};
       return hwm;
   - platform: template
+    name: Stack HWM worst
+    id: stack_hwm_worst
+    unit_of_measurement: B
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    state_class: measurement
+    update_interval: 30s
+    web_server:
+      sorting_group_id: group_system
+      sorting_weight: 33
+    lambda: |-
+      if (id(worst_hwm) == UINT32_MAX)
+        return {};
+      return id(worst_hwm);
+  - platform: template
     name: Task count
     id: task_count
     accuracy_decimals: 0
@@ -390,6 +406,18 @@ text_sensor:
     internal: true
     format:
       separator: ' '
+  - platform: template
+    name: Stack HWM worst task
+    id: stack_hwm_worst_task
+    entity_category: diagnostic
+    update_interval: 30s
+    web_server:
+      sorting_group_id: group_system
+      sorting_weight: 34
+    lambda: |-
+      if (id(worst_task).empty())
+        return {};
+      return id(worst_task);
   - platform: debug
     reset_reason:
       name: Reset reason
@@ -680,6 +708,12 @@ globals:
     type: std::vector<switch_::Switch *>
   - id: inputs
     type: std::vector<binary_sensor::BinarySensor *>
+  - id: worst_hwm
+    type: uint32_t
+    initial_value: '0xFFFFFFFF'
+  - id: worst_task
+    type: std::string
+    initial_value: '""'
   - id: display_off_threshold_s
     type: uint32_t
   - id: display_off_s
@@ -933,6 +967,50 @@ automations:
   time_id: pcf8563_time
 debug:
   update_interval: 30s
+interval:
+  - interval: 2s
+    then:
+      - lambda: |-
+          static TaskStatus_t tasks[32];
+          const UBaseType_t n = uxTaskGetSystemState(tasks, 32, nullptr);
+          for (UBaseType_t i = 0; i < n; i++) {
+            const uint32_t hwm = tasks[i].usStackHighWaterMark;
+            if (hwm < id(worst_hwm)) {
+              id(worst_hwm) = hwm;
+              id(worst_task) = tasks[i].pcTaskName;
+            }
+          }
+  - interval: 60s
+    then:
+      - lambda: |-
+          static TaskStatus_t tasks[32];
+          const UBaseType_t n = uxTaskGetSystemState(tasks, 32, nullptr);
+          for (UBaseType_t i = 0; i < n; i++) {
+            ESP_LOGD("stacks", "%-16s hwm=%5u prio=%u state=%d", tasks[i].pcTaskName,
+                     (unsigned) tasks[i].usStackHighWaterMark,
+                     (unsigned) tasks[i].uxCurrentPriority,
+                     (int) tasks[i].eCurrentState);
+          }
+  - interval: 1s
+    then:
+      - lambda: |-
+          if (id(display_off_threshold_s) == 0)
+            return;
+
+          if (id(display_off_s) >= id(display_off_threshold_s)) {
+            id(display_menu).hide();
+            id(display1).show_page(id(blank_page));
+          } else {
+            id(display_off_s)++;
+          }
+  - interval: 2s
+    then:
+      - lambda: |-
+          const bool ap = id(wifi_id).is_ap_active();
+          if (ap != id(ap_was_active)) {
+            id(ap_was_active) = ap;
+            id(ip).update();
+          }
 update:
   - id: !extend 'firmware_update'
     update_interval: 30s
@@ -1020,27 +1098,6 @@ select:
             lambda: return id(network_mode_applied);
           then:
             - script.execute: apply_network_mode
-interval:
-  - interval: 1s
-    then:
-      - lambda: |-
-          if (id(display_off_threshold_s) == 0)
-            return;
-
-          if (id(display_off_s) >= id(display_off_threshold_s)) {
-            id(display_menu).hide();
-            id(display1).show_page(id(blank_page));
-          } else {
-            id(display_off_s)++;
-          }
-  - interval: 2s
-    then:
-      - lambda: |-
-          const bool ap = id(wifi_id).is_ap_active();
-          if (ap != id(ap_was_active)) {
-            id(ap_was_active) = ap;
-            id(ip).update();
-          }
 entity_config:
   settings:
     - switch
