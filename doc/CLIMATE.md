@@ -4,9 +4,9 @@ Thermostats the device runs without a recompile. Each one reads a temperature se
 `Temp N` probe, say — and switches a heating relay, a cooling relay or both, with a hysteresis
 (bang-bang) or a PID control law. Each running thermostat is a climate entity: Home Assistant
 and the web server show it and set its mode and target like any other. Thermostats are
-created, changed, started, stopped and removed while the device runs: over HTTP under
-`/climate-editor/api`, from a lambda, or by writing into the folder by hand and rebooting. The
-file format and the C++ API are in
+created, changed, started, stopped and removed while the device runs, over HTTP under
+`/climate-editor/api` or from a lambda; a file written into their folder by hand is picked up
+at the next boot. The file format and the C++ API are in
 [components/climate_hub/README.md](../components/climate_hub/README.md).
 
 ## What a thermostat does
@@ -80,6 +80,6 @@ python tests/run.py web_climate_editor
 Builds the component for the host platform into a Google Test binary: the control laws, the
 relay timing, the file format, and the whole component over a directory that stands in for the
 flash, with a clock the test moves. The second suite drives every HTTP route through the
-handler, over the real component and a stand-in for the web server. In the emulator, `packages/qemu/climate-plant.yaml` adds a
-`QEMU Room Temperature` sensor that `Relay 1` warms, so a thermostat has a room to control
-([QEMU](QEMU.md)).
+handler, over the real component and a stand-in for the web server. In the emulator,
+`packages/qemu/climate-plant.yaml` adds a `QEMU Room Temperature` sensor that `Relay 1` warms,
+so a thermostat has a room to control ([QEMU](QEMU.md)).

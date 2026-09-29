@@ -80,9 +80,9 @@ and the automation rules with it. `rollback` names the other app slot and the ES
 of the image in it; that version is what a confirmation dialog should show, because after one
 rollback the other slot is the *newer* firmware. It is absent on a board that has never been
 updated over the air. `storage`, `files`, `automations`, `climates`, `entity_settings` and
-`board_info` follow the components the firmware was built with. `storage` says what the mount is, not how
-full it is: usage is live and this route is read once, so the byte counts stay in the file
-API's own `info`.
+`board_info` follow the components the firmware was built with. `storage` says what the mount
+is, not how full it is: usage is live and this route is read once, so the byte counts stay in
+the file API's own `info`.
 
 The embedded page reads this on its **Settings → System** tab and will not draw the tab
 without it: a firmware old enough to answer `404` here gets a message saying so rather than
