@@ -44,6 +44,7 @@ packages:
   display: !include ${display}/display.yaml
   firmware_page: !include ${display}/firmware-page.yaml
   menu: !include ${display}/menu.yaml
+  menu_debug: !include ${display}/menu-debug.yaml
   menu_firmware: !include ${display}/menu-firmware.yaml
   menu_items: !include ${display}/menu-items-network.yaml
   menu_serial: !include ${display}/menu-serial.yaml

@@ -199,6 +199,27 @@ sensor:
     internal: true
     update_interval: 1s
     lambda: return std::max(id(vin_meas).state, id(poe_voltage).state);
+  - platform: debug
+    free:
+      name: Heap free
+      id: debug_heap_free
+      internal: true
+    min_free:
+      name: Heap min free
+      id: debug_heap_min_free
+      internal: true
+    block:
+      name: Heap max block
+      id: debug_heap_max_block
+      internal: true
+    fragmentation:
+      name: Heap fragmentation
+      id: debug_heap_fragmentation
+      internal: true
+    psram:
+      name: PSRAM free
+      id: debug_psram_free
+      internal: true
 switch:
   - platform: gpio
     name: Red led
@@ -1497,6 +1518,32 @@ graphical_display_menu:
           weight: 30
           on_value:
             - lambda: App.safe_reboot();
+    - id: !extend 'menu_settings_id'
+      items:
+        - type: menu
+          text: Debug
+          weight: 50
+          items:
+            - type: label
+              text: !lambda |-
+                const float kb = id(debug_heap_free).state / 1024;
+                return str_sprintf("Heap free:%8s", std::isnan(kb) ? "--" : str_sprintf("%.0f KB", kb).c_str());
+            - type: label
+              text: !lambda |-
+                const float kb = id(debug_heap_min_free).state / 1024;
+                return str_sprintf("Min free:%9s", std::isnan(kb) ? "--" : str_sprintf("%.0f KB", kb).c_str());
+            - type: label
+              text: !lambda |-
+                const float kb = id(debug_heap_max_block).state / 1024;
+                return str_sprintf("Max block:%8s", std::isnan(kb) ? "--" : str_sprintf("%.0f KB", kb).c_str());
+            - type: label
+              text: !lambda |-
+                const float pct = id(debug_heap_fragmentation).state;
+                return str_sprintf("Fragment:%9s", std::isnan(pct) ? "--" : str_sprintf("%.0f %%", pct).c_str());
+            - type: label
+              text: !lambda |-
+                const float kb = id(debug_psram_free).state / 1024;
+                return str_sprintf("PSRAM:%12s", std::isnan(kb) ? "--" : str_sprintf("%.0f KB", kb).c_str());
     - id: !extend 'info_submenu'
       items:
         - type: label
@@ -1562,6 +1609,8 @@ graphical_display_menu:
             auto *board = id(board_info);
             const auto &serial = board->get_device_serial().empty() ? board->get_board_serial() : board->get_device_serial();
             return serial.empty() ? std::string(" --") : " " + serial;
+debug:
+  update_interval: 5s
 dashboard_import:
   package_import_url: github://jethome-iot/esphome-device-configs/dist/jxd-r6-e1eth-lcd.yaml@master
   import_full_config: true

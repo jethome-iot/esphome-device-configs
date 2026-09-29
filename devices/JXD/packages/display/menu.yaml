@@ -53,7 +53,8 @@ graphical_display_menu:
       text: "Settings"
       id: menu_settings_id
       # Weights, not the package order, group these by what a row does: unweighted
-      # everyday settings, 10 commissioning, 20 erases data, 30+ the whole device.
+      # everyday settings, 10 commissioning, 20 erases data, 30 and 40 the whole device,
+      # 50 read-only diagnostics.
       items:
         - type: select
           text: "Display off"

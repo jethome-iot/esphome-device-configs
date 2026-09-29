@@ -1,0 +1,63 @@
+# Settings → Debug: the heap and PSRAM, from the debug component. The sensors are internal,
+# so the panel is the only place they show.
+debug:
+  # The rows show the last published value; 5s keeps them current while someone watches.
+  update_interval: 5s
+
+sensor:
+  - platform: debug
+    free:
+      name: "Heap free"
+      id: debug_heap_free
+      internal: true
+    min_free:
+      name: "Heap min free"
+      id: debug_heap_min_free
+      internal: true
+    block:
+      name: "Heap max block"
+      id: debug_heap_max_block
+      internal: true
+    fragmentation:
+      name: "Heap fragmentation"
+      id: debug_heap_fragmentation
+      internal: true
+    psram:
+      name: "PSRAM free"
+      id: debug_psram_free
+      internal: true
+
+graphical_display_menu:
+  items:
+    - id: !extend menu_settings_id
+      items:
+        # 50: read-only, below every row that changes the device.
+        - type: menu
+          text: "Debug"
+          weight: 50
+          # Values are right-aligned to the 18 columns of the 7x14 font.
+          items:
+            - type: label
+              text: !lambda |-
+                const float kb = id(debug_heap_free).state / 1024;
+                return str_sprintf("Heap free:%8s", std::isnan(kb) ? "--" : str_sprintf("%.0f KB", kb).c_str());
+
+            - type: label
+              text: !lambda |-
+                const float kb = id(debug_heap_min_free).state / 1024;
+                return str_sprintf("Min free:%9s", std::isnan(kb) ? "--" : str_sprintf("%.0f KB", kb).c_str());
+
+            - type: label
+              text: !lambda |-
+                const float kb = id(debug_heap_max_block).state / 1024;
+                return str_sprintf("Max block:%8s", std::isnan(kb) ? "--" : str_sprintf("%.0f KB", kb).c_str());
+
+            - type: label
+              text: !lambda |-
+                const float pct = id(debug_heap_fragmentation).state;
+                return str_sprintf("Fragment:%9s", std::isnan(pct) ? "--" : str_sprintf("%.0f %%", pct).c_str());
+
+            - type: label
+              text: !lambda |-
+                const float kb = id(debug_psram_free).state / 1024;
+                return str_sprintf("PSRAM:%12s", std::isnan(kb) ? "--" : str_sprintf("%.0f KB", kb).c_str());
