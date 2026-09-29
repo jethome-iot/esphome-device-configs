@@ -270,15 +270,21 @@ TEST_F(Report, AWriteThatFailsAtCloseLeavesNoFileAndKeepsTheRecord) {
   EXPECT_EQ(report().clears, 0);
 }
 
-// A directory squatting on crash0.txt: the report is written but cannot take its name.
-TEST_F(Report, AReportThatCannotBeRenamedLeavesNoTemporaryAndKeepsTheRecord) {
+// A directory squatting on the oldest name cannot be removed. Shifting on regardless would make
+// crash1 -> crash2 replace a report still kept, so nothing moves and the record waits.
+TEST_F(Report, AnObstructedRotationMovesNothingAndKeepsTheRecord) {
   crash("0x400D2A1B");
-  report().set_keep(1);
-  ASSERT_TRUE(std::filesystem::create_directories(file(0)));
-  write_file(file(0) + "/inside", "x");
+  ASSERT_EQ(mkdir(dir().c_str(), 0755), 0);
+  for (int i = 0; i < 3; i++)
+    write_file(file(i), "older " + std::to_string(i) + "\n");
+  ASSERT_TRUE(std::filesystem::create_directories(file(3)));
+  write_file(file(3) + "/inside", "x");
   report().setup();
-  EXPECT_TRUE(log().has(ESPHOME_LOG_LEVEL_ERROR, "Cannot rename"));
-  EXPECT_EQ(files(), (std::vector<std::string>{"crash0.txt"}));
+  EXPECT_TRUE(log().has(ESPHOME_LOG_LEVEL_ERROR, "Cannot remove"));
+  EXPECT_EQ(files(), (std::vector<std::string>{"crash0.txt", "crash1.txt", "crash2.txt", "crash3.txt"}))
+      << "crash.tmp stayed";
+  for (int i = 0; i < 3; i++)
+    EXPECT_EQ(read_file(file(i)), "older " + std::to_string(i) + "\n") << "crash" << i;
   EXPECT_EQ(report().clears, 0);
 }
 

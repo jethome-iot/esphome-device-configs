@@ -1,6 +1,7 @@
 #include "crash_report.h"
 
 #include <cctype>
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <sys/stat.h>
@@ -134,16 +135,25 @@ void CrashReport::setup() {
   std::string().swap(this->buffer_);  // needed once per boot
 }
 
-void CrashReport::rotate_() {
+bool CrashReport::rotate_() {
   const std::string dir = this->dir_path_();
-  // Oldest first: keep-1 is dropped, the rest shift up one.
+  // Oldest first: keep-1 is dropped, the rest shift up one, each onto the name the step before
+  // freed. ENOENT is a slot not used yet; anything else stops the shift before a rename can
+  // replace a report still kept.
   std::string oldest = dir + "/crash" + std::to_string(this->keep_ - 1) + ".txt";
-  ::remove(oldest.c_str());
+  if (::remove(oldest.c_str()) != 0 && errno != ENOENT) {
+    ESP_LOGE(TAG, "Cannot remove '%s'", oldest.c_str());
+    return false;
+  }
   for (int i = this->keep_ - 2; i >= 0; i--) {
     std::string from = dir + "/crash" + std::to_string(i) + ".txt";
     std::string to = dir + "/crash" + std::to_string(i + 1) + ".txt";
-    ::rename(from.c_str(), to.c_str());
+    if (::rename(from.c_str(), to.c_str()) != 0 && errno != ENOENT) {
+      ESP_LOGE(TAG, "Cannot move '%s' to '%s'", from.c_str(), to.c_str());
+      return false;
+    }
   }
+  return true;
 }
 
 bool CrashReport::write_report_() {
@@ -168,7 +178,10 @@ bool CrashReport::write_report_() {
     ::remove(tmp.c_str());
     return false;
   }
-  this->rotate_();
+  if (!this->rotate_()) {
+    ::remove(tmp.c_str());
+    return false;
+  }
 
   const std::string path = dir + "/crash0.txt";
   if (::rename(tmp.c_str(), path.c_str()) != 0) {

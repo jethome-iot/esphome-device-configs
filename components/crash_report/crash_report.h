@@ -30,7 +30,7 @@ class CrashReport : public Component {
 
   std::string header_() const;
   bool write_report_();
-  void rotate_();
+  bool rotate_();
   std::string dir_path_() const;
 
   filesystem_storage_abstract::FilesystemStorageAbstract *storage_{nullptr};
