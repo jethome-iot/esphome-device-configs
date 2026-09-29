@@ -1,6 +1,5 @@
-# Copies the panic record ESPHome's crash handler leaves in .noinit onto the user partition at
-# the next boot, so a device that panicked in the field can hand the report back over /files.
-# Prototype for issue #63; not part of the shipped device config.
+# The record of a panic or watchdog reset, written to /littlefs/crash/ at the next boot so
+# /files hands it back. Details: components/crash_report/README.md
 external_components:
   - source: ${components}
     components: [crash_report]

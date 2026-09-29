@@ -32,6 +32,7 @@ tests/
       test_schema.py        # the component's YAML schema, run with unittest by run.py
     bindings/               # the same layout, one suite per component
     config_json/
+    crash_report/
     display_menu_base/
     entity_config/
     i2c_eeprom/
@@ -75,7 +76,9 @@ tests/
   config_json debounce test does. Otherwise a component gives the tests a seam instead: a virtual
   they override, or a step they call.
 - Logger listeners exist only when the YAML asks for them: `test.yaml` carries
-  `-DUSE_LOG_LISTENERS -DESPHOME_LOG_MAX_LISTENERS=1` so a suite can read what was logged.
+  `-DUSE_LOG_LISTENERS -DESPHOME_LOG_MAX_LISTENERS=1` so a suite can read what was logged. A
+  component that requests a listener slot of its own (`crash_report`) gets them from codegen
+  instead, and the hand-set flags would clash with it.
 - An I2C component validates on the host only with an `i2c:` bus that names a `device:`;
   nothing opens it. The suite drives the component over a fake `i2c::I2CBus` of its own.
 - Entity strings (units, device classes, icons) are indices into tables codegen builds from the

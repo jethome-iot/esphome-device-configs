@@ -52,6 +52,13 @@ external_components:
       ref: master
       path: components
     components:
+      - crash_report
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
       - entity_config
       - bindings
   - source:
@@ -806,6 +813,8 @@ automations:
   id: automations_engine
   storage: user_storage
   time_id: pcf8563_time
+crash_report:
+  storage: user_storage
 select:
   - platform: template
     id: display_off_timer_select

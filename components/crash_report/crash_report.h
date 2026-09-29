@@ -23,7 +23,13 @@ class CrashReport : public Component {
   static void on_log(void *instance, uint8_t level, const char *tag, const char *message, size_t len);
 
  protected:
-  void write_report_();
+  // The crash handler behind a seam: it exists only on ESP32, and the host tests stand in for it.
+  virtual bool has_record_();
+  virtual void emit_record_();
+  virtual void clear_record_();
+
+  std::string header_() const;
+  bool write_report_();
   void rotate_();
   std::string dir_path_() const;
 
@@ -32,6 +38,7 @@ class CrashReport : public Component {
   std::string buffer_;
   uint8_t keep_{4};
   bool capturing_{false};
+  bool listening_{false};
 };
 
 }  // namespace esphome::crash_report
