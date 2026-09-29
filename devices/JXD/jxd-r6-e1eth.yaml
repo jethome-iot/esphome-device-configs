@@ -22,6 +22,7 @@ packages:
   # Features: buses, sensors, services.
   automation_editor: !include ${features}/automation-editor.yaml
   automations: !include ${features}/automations.yaml
+  climate_editor: !include ${features}/climate-editor.yaml
   climates: !include ${features}/climates.yaml
   entity_settings: !include ${features}/entity-settings.yaml
   firmware_update: !include ${features}/firmware-update.yaml

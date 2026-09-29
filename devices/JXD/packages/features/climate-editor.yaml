@@ -1,0 +1,8 @@
+# The thermostats over HTTP: the JSON API under /climate-editor/api that the
+# dashboard's editor and curl use. Needs the climates package.
+# Details: components/web_climate_editor/README.md
+external_components:
+  - source: ${components}
+    components: [web_climate_editor, web_origin_guard, loop_job]
+
+web_climate_editor:
