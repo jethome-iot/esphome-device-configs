@@ -1,5 +1,5 @@
-# Settings → Debug: the heap, PSRAM and the last reset reason, from the debug component. The
-# sensors are internal, so the panel is the only place they show.
+# Settings → Debug: the heap and PSRAM, from the debug component. The sensors are internal,
+# so the panel is the only place they show.
 debug:
   # The rows show the last published value; 5s keeps them current while someone watches.
   update_interval: 5s
@@ -27,70 +27,6 @@ sensor:
       id: debug_psram_free
       internal: true
 
-text_sensor:
-  - platform: debug
-    reset_reason:
-      name: "Reset reason"
-      id: debug_reset_reason
-      internal: true
-      # Published from dump_config, just after boot, and again whenever a log client connects;
-      # the reason is the same each time, so only the first adds rows.
-      on_value:
-        - lambda: |-
-            static bool shown = false;
-            if (shown)
-              return;
-            shown = true;
-            // The panel clips at 18 columns and the value keeps the one-column indent of the
-            // Info values: wrap on spaces, and break a longer word, such as a component name,
-            // after a '.', '_' or '/'.
-            const size_t width = 17;
-            std::vector<std::string> lines;
-            std::string line;
-            size_t pos = 0;
-            while (pos < x.size()) {
-              size_t end = x.find(' ', pos);
-              if (end == std::string::npos)
-                end = x.size();
-              std::string word = x.substr(pos, end - pos);
-              pos = end + 1;
-              // A word that has to break anyway starts on the current line where a piece fits.
-              if (word.size() > width && !line.empty() && line.size() + 2 <= width) {
-                const size_t sep = word.find_last_of("._/", width - line.size() - 2);
-                if (sep != std::string::npos) {
-                  line += ' ';
-                  line += word.substr(0, sep + 1);
-                  word.erase(0, sep + 1);
-                }
-              }
-              while (word.size() > width) {
-                if (!line.empty())
-                  lines.push_back(std::move(line));
-                line.clear();
-                const size_t sep = word.find_last_of("._/", width - 1);
-                const size_t cut = sep == std::string::npos ? width : sep + 1;
-                lines.push_back(word.substr(0, cut));
-                word.erase(0, cut);
-              }
-              if (word.empty())
-                continue;
-              if (!line.empty() && line.size() + 1 + word.size() <= width) {
-                line += ' ';
-                line += word;
-              } else {
-                if (!line.empty())
-                  lines.push_back(std::move(line));
-                line = std::move(word);
-              }
-            }
-            if (!line.empty())
-              lines.push_back(std::move(line));
-            for (const auto &text : lines) {
-              auto *row = new display_menu_base::MenuItem(display_menu_base::MENU_ITEM_LABEL);
-              row->set_text(" " + text);
-              id(debug_menu)->add_item(row);
-            }
-
 graphical_display_menu:
   items:
     - id: !extend menu_settings_id
@@ -98,7 +34,6 @@ graphical_display_menu:
         # 50: read-only, below every row that changes the device.
         - type: menu
           text: "Debug"
-          id: debug_menu
           weight: 50
           # Values are right-aligned to the 18 columns of the 7x14 font.
           items:
@@ -126,7 +61,3 @@ graphical_display_menu:
               text: !lambda |-
                 const float kb = id(debug_psram_free).state / 1024;
                 return str_sprintf("PSRAM:%12s", std::isnan(kb) ? "--" : str_sprintf("%.0f KB", kb).c_str());
-
-            # The reason goes under this row once it is known (text_sensor above).
-            - type: label
-              text: "Last reset:"
