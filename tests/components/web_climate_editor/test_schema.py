@@ -1,5 +1,6 @@
 """The component's YAML schema: what it accepts, what it refuses, and with which message."""
 
+import re
 import unittest
 from pathlib import Path
 
@@ -59,30 +60,56 @@ class UrlPrefix(unittest.TestCase):
         ):
             with (
                 self.subTest(value=value),
-                self.assertRaisesRegex(cv.Invalid, "url_prefix must be a URL path"),
-            ):
-                editor.url_prefix(value)
-
-    def test_a_path_web_server_answers_is_refused(self):
-        # The editor claims everything below its prefix; web_server answers these itself.
-        for value, first in (
-            ("/climate", "climate"),
-            ("/switch/editor", "switch"),
-            ("/sensor", "sensor"),
-            ("/events", "events"),
-            ("/update", "update"),
-        ):
-            with (
-                self.subTest(value=value),
                 self.assertRaisesRegex(
                     cv.Invalid,
-                    f"url_prefix must not start with '/{first}': web_server answers that path",
+                    re.escape(
+                        "url_prefix must be a URL path a browser sends unchanged: "
+                        "letters, digits, '-', '.', '_' and '~'"
+                    ),
                 ),
             ):
                 editor.url_prefix(value)
 
+    def test_every_character_a_browser_leaves_alone_is_kept(self):
+        self.assertEqual(editor.url_prefix("/A-z_0.9~x"), "/A-z_0.9~x")
+
+    def test_a_path_web_server_answers_is_refused(self):
+        # The editor claims everything below its prefix; web_server answers these itself.
+        for first in sorted(editor.WEB_SERVER_PATHS):
+            for value in (f"/{first}", f"/{first}/editor"):
+                with (
+                    self.subTest(value=value),
+                    self.assertRaisesRegex(
+                        cv.Invalid,
+                        re.escape(
+                            f"url_prefix must not start with '/{first}': "
+                            "web_server answers that path"
+                        ),
+                    ),
+                ):
+                    editor.url_prefix(value)
+
+    def test_every_path_web_server_answers_is_listed(self):
+        # Its entity domains, its event stream and the files of its own page.
+        for first in (
+            "climate",
+            "switch",
+            "sensor",
+            "events",
+            "update",
+            "0.css",
+            "0.js",
+        ):
+            with self.subTest(first=first):
+                self.assertIn(first, editor.WEB_SERVER_PATHS)
+
+    def test_a_web_server_word_further_down_is_fine(self):
+        for value in ("/ui/climate", "/climates", "/my-switch", "/editor/events"):
+            with self.subTest(value=value):
+                self.assertEqual(editor.url_prefix(value), value)
+
     def test_the_dashboards_api_is_refused(self):
-        for value in ("/api", "/api/device", "/api/device/climate"):
+        for value in ("/api", "api/", "/api/device", "/api/device/climate"):
             with (
                 self.subTest(value=value),
                 self.assertRaisesRegex(
@@ -94,8 +121,12 @@ class UrlPrefix(unittest.TestCase):
                 editor.url_prefix(value)
 
     def test_anything_but_a_string_is_refused(self):
-        with self.assertRaises(cv.Invalid):
-            editor.url_prefix(42)
+        for value in (42, None, True, ["/editor"]):
+            with (
+                self.subTest(value=value),
+                self.assertRaisesRegex(cv.Invalid, "Must be string"),
+            ):
+                editor.url_prefix(value)
 
     def test_the_default_is_the_editor_path(self):
         config = editor.CONFIG_SCHEMA({})
@@ -131,12 +162,26 @@ class FinalValidate(unittest.TestCase):
             },
         )
         self.validate("/climate-editor", {})
+        # A sibling that only shares the first characters is apart too.
+        self.validate("/files-2", {"web_file_browser": {"url_prefix": "/files"}})
+
+    def test_a_component_without_a_prefix_is_skipped(self):
+        # web_automation_editor is absent or not yet validated: nothing to compare with.
+        self.validate(
+            "/climate-editor",
+            {"web_file_browser": None, "web_automation_editor": {"storage_id": "x"}},
+        )
+
+    def test_the_config_passes_through_unchanged(self):
+        config = self.validate("/climate-editor", {})
+        self.assertEqual(config, {editor.CONF_URL_PREFIX: "/climate-editor"})
 
     def test_a_prefix_on_or_below_another_handlers_is_refused(self):
         for ours, component, theirs in (
             ("/files", "web_file_browser", "/files"),
             ("/files/climate", "web_file_browser", "/files"),
             ("/edit", "web_automation_editor", "/edit/rules"),
+            ("/edit/rules/climate", "web_automation_editor", "/edit/rules"),
         ):
             with (
                 self.subTest(ours=ours, component=component),

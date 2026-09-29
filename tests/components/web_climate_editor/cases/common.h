@@ -4,6 +4,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <functional>
@@ -14,6 +15,7 @@
 #include "esphome/components/climate/climate.h"
 #include "esphome/components/climate_hub/climate_hub.h"
 #include "esphome/components/dir_storage/dir_storage.h"
+#include "esphome/components/logger/logger.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
 #include "esphome/components/web_climate_editor/web_climate_editor.h"
@@ -21,6 +23,31 @@
 #include "esphome/core/helpers.h"
 
 namespace esphome::web_climate_editor::testing {
+
+// What the component logged. Registered once: the logger keeps its listeners.
+class LogCapture {
+ public:
+  std::vector<std::string> lines;
+
+  static LogCapture &instance() {
+    static LogCapture *capture = [] {
+      auto *c = new LogCapture();
+      logger::global_logger->add_log_callback(c, &LogCapture::on_log);
+      return c;
+    }();
+    return *capture;
+  }
+  void clear() { this->lines.clear(); }
+  bool has(const char *needle) const {
+    return std::any_of(this->lines.begin(), this->lines.end(),
+                       [needle](const std::string &line) { return line.find(needle) != std::string::npos; });
+  }
+
+ protected:
+  static void on_log(void *self, uint8_t, const char *, const char *message, size_t len) {
+    static_cast<LogCapture *>(self)->lines.emplace_back(message, len);
+  }
+};
 
 class FakeSwitch : public switch_::Switch {
  protected:
@@ -43,6 +70,7 @@ class YamlClimate : public climate::Climate {
 struct Entities {
   sensor::Sensor room;
   sensor::Sensor floor;
+  sensor::Sensor probe;
   FakeSwitch relay1;
   FakeSwitch relay2;
   FakeSwitch hidden;
@@ -55,6 +83,7 @@ inline Entities &entities() {
     // Units are indices into the table codegen builds from test.yaml, where "°C" is the only one.
     App.register_sensor(&e->room, "Room", fnv1_hash("room"), 1u << ENTITY_FIELD_UOM_SHIFT);
     App.register_sensor(&e->floor, "Floor", fnv1_hash("floor"), 1u << ENTITY_FIELD_UOM_SHIFT);
+    App.register_sensor(&e->probe, "Probe", fnv1_hash("probe"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);
     App.register_switch(&e->relay1, "Relay 1", fnv1_hash("relay_1"), 0);
     App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
     App.register_switch(&e->hidden, "Hidden", fnv1_hash("hidden"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);
@@ -73,13 +102,14 @@ inline dir_storage::DirStorage &storage() {
 // handler that read the documents where it stands would answer exactly like one that handed
 // the read over: what crossed is counted here instead, and `loop_busy` refuses a job the way
 // the dispatcher does when the loop task never gets to it. The crossing itself is
-// tests/components/loop_job/.
+// tests/components/loop_job/. `refuse_remove` makes the partition refuse an unlink.
 class TestHub : public climate_hub::ClimateHub {
  public:
   uint32_t ms{100000};
   int jobs{0};
   bool loop_busy{false};
   int resyncs{0};
+  bool refuse_remove{false};
 
   uint32_t now_ms() const override { return this->ms; }
   bool run_on_loop(std::function<bool()> &&job) override {
@@ -89,9 +119,13 @@ class TestHub : public climate_hub::ClimateHub {
     return climate_hub::ClimateHub::run_on_loop(std::move(job));
   }
 
+  // Every climate entity in use, as when App had no room for the whole pool.
+  void take_every_slot() { this->free_.clear(); }
+
   // Back to a hub that has loaded nothing, its pool as setup() left it. App keeps the entities
   // and the sensors keep their callbacks into the hub, so it is reset, never replaced.
   void reset() {
+    this->reset_to_construction_state();
     for (Slot *slot : this->slots_)
       this->stop_(slot);
     this->free_.assign(this->slots_.begin(), this->slots_.end());
@@ -103,10 +137,14 @@ class TestHub : public climate_hub::ClimateHub {
     this->jobs = 0;
     this->loop_busy = false;
     this->resyncs = 0;
+    this->refuse_remove = false;
   }
 
  protected:
   void resync_home_assistant_() override { this->resyncs++; }
+  bool remove_file_(const std::string &path) override {
+    return !this->refuse_remove && climate_hub::ClimateHub::remove_file_(path);
+  }
 };
 
 // One hub for the whole process: its pool registers with App in the first setup(), and App has
@@ -147,6 +185,13 @@ static const char *const LIVING_ROOM =
     R"({"name":"Living Room","kind":"pid","sensor_id":"room","heat":{"relay_id":"relay_1"},"mode":"heat","setpoint":22})";
 static const char *const FLOOR =
     R"({"name":"Floor","kind":"bang_bang","sensor_id":"floor","heat":{"relay_id":"relay_2"},"mode":"heat","setpoint":24})";
+
+// @p json with @p fields put first, e.g. with(LIVING_ROOM, R"("enabled":false)").
+inline std::string with(const char *json, const std::string &fields) {
+  std::string out = json;
+  out.insert(1, fields + ",");
+  return out;
+}
 
 // The editor over the process's hub over a temporary directory, reached through the harness's
 // web_server_base stand-in exactly as a request from the network would reach it.

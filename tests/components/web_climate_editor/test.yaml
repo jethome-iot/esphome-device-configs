@@ -17,6 +17,9 @@ esphome:
       - -fsanitize=undefined
       - -fno-sanitize-recover=all
       - -fno-omit-frame-pointer
+      # dump_config's rows exist only in the log; the cases read them through a listener.
+      - -DUSE_LOG_LISTENERS
+      - -DESPHOME_LOG_MAX_LISTENERS=1
 
 host:
 
@@ -44,7 +47,8 @@ web_climate_editor:
 
 # App sizes its entity lists from what is declared here and silently drops a
 # registration past that, so this is at least what cases/common.h registers: one
-# YAML climate beside the pool, the sensors, the relays and one internal switch.
+# YAML climate beside the pool, the sensors, the relays, one internal sensor and one
+# internal switch.
 # The unit puts "°C" into the generated unit table, where the cases expect it.
 climate:
   - platform: template
@@ -61,6 +65,10 @@ sensor:
     id: floor_unused
     name: "Floor"
     unit_of_measurement: "°C"
+  - platform: template
+    id: probe_unused
+    name: "Probe"
+    internal: true
 
 switch:
   - platform: template

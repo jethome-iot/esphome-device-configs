@@ -6,12 +6,6 @@
 // different message on the device than in development.
 namespace esphome::web_climate_editor::testing {
 
-static std::string with(const char *json, const std::string &fields) {
-  std::string out = json;
-  out.insert(1, fields + ",");
-  return out;
-}
-
 // --- list, get, save ---
 
 TEST_F(Editor, AnEmptyHubListsNothing) {
@@ -74,6 +68,14 @@ TEST_F(Editor, AnEmptyIdCreates) {
   EXPECT_EQ(saved["id"].as<std::string>(), "floor");
 }
 
+// Only a string picks a thermostat to replace: a number is no id, so the save creates.
+TEST_F(Editor, ANumericIdCreates) {
+  Reply saved = this->post("save", with(LIVING_ROOM, R"("id":5)"));
+  ASSERT_EQ(saved.code, 200) << saved.body;
+  EXPECT_EQ(saved.message(), "Thermostat created");
+  EXPECT_EQ(saved["id"].as<std::string>(), "living-room");
+}
+
 TEST_F(Editor, APartialDocumentTakesTheDefaults) {
   Reply saved = this->post("save", R"({"name":"Porch","sensor_id":"room","heat":{"relay_id":"relay_1"}})");
   ASSERT_EQ(saved.code, 200) << saved.body;
@@ -110,6 +112,11 @@ TEST_F(Editor, SaveRefusesWhatItCannotRead) {
            Case{R"({"name":"Up/down","heat":{"relay_id":"relay_1"}})", "application/json", "sensor_id is required"},
            Case{R"({"name":"A","sensor_id":"room","heat":{"relay_id":"relay_1"},"mode":"dry"})", "application/json",
                 "mode must be one of off/heat/cool/heat_cool"},
+           // An entity named by a number is no entity: ArduinoJson would hand over its JSON text.
+           Case{R"({"name":"A","sensor_id":5,"heat":{"relay_id":"relay_1"}})", "application/json",
+                "sensor_id is required"},
+           Case{R"({"name":"A","sensor_id":"room","heat":{"relay_id":7}})", "application/json",
+                "at least one of heat.relay_id / cool.relay_id is required"},
        }) {
     Reply reply = this->call(HTTP_POST, "save", c.body, c.content_type);
     EXPECT_EQ(reply.code, 400) << c.body;
@@ -127,6 +134,22 @@ TEST_F(Editor, SaveRefusesABodyOverEightKiB) {
   EXPECT_TRUE(this->files().empty());
   // The refusal leaves nothing behind for the next request.
   EXPECT_EQ(this->create(LIVING_ROOM), "living-room");
+}
+
+// The cap is the document's size, counted over every chunk the server hands over: 8 KiB is
+// read, a byte more is not.
+TEST_F(Editor, EightKiBIsTheLargestBodySaveReads) {
+  const std::string living_room = LIVING_ROOM;
+  Reply fits = this->post("save", living_room + std::string(8192 - living_room.size(), ' '));
+  EXPECT_EQ(fits.code, 200) << fits.body;
+  EXPECT_EQ(fits["id"].as<std::string>(), "living-room");
+
+  const std::string floor = FLOOR;
+  Reply over = this->post("save", floor + std::string(8193 - floor.size(), ' '));
+  EXPECT_EQ(over.code, 413);
+  EXPECT_EQ(over.type, "application/json");
+  EXPECT_EQ(over.error(), "Request body over 8 KiB");
+  EXPECT_EQ(this->files(), std::vector<std::string>{"living-room.json"});
 }
 
 // Only save reads a body, so only save can be too large for one.
@@ -153,6 +176,18 @@ TEST_F(Editor, ABodyLeftByAFailedReceiveIsNotTheNextRequests) {
   EXPECT_EQ(reply.code, 400);
   EXPECT_EQ(reply.error(), "Empty request body");
   EXPECT_TRUE(this->files().empty());
+}
+
+// What a failed receive left is dropped as soon as the next body starts.
+TEST_F(Editor, ANewBodyReplacesWhatAFailedReceiveLeft) {
+  std::string partial = FLOOR;
+  AsyncWebServerRequest aborted(HTTP_POST, "/climate-editor/api/save", partial);
+  this->editor->handleBody(&aborted, reinterpret_cast<uint8_t *>(&partial[0]), 20, 0, partial.size());
+
+  Reply reply = this->post("save", LIVING_ROOM);
+  ASSERT_EQ(reply.code, 200) << reply.body;
+  EXPECT_EQ(reply["id"].as<std::string>(), "living-room");
+  EXPECT_EQ(this->files(), std::vector<std::string>{"living-room.json"});
 }
 
 TEST_F(Editor, SaveWithAnUnknownIdIsNotFound) {
@@ -239,6 +274,44 @@ TEST_F(Editor, AFileThatCannotBeWrittenIsAServerError) {
   EXPECT_EQ(hub().store().size(), 0u);
 }
 
+TEST_F(Editor, AnUpdateThatCannotBeWrittenChangesNothing) {
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  std::string lounge = with(LIVING_ROOM, R"("id":"living-room")");
+  lounge.replace(lounge.find("Living Room"), 11, "Lounge");
+  storage().set_base_path("/proc/definitely-not-writable");
+  Reply reply = this->post("save", lounge);
+  storage().set_base_path(this->base_path);
+  EXPECT_EQ(reply.code, 500);
+  EXPECT_EQ(reply.error(), "The thermostat's file could not be written");
+  EXPECT_EQ(hub().store().get("living-room")->name, "Living Room");
+  EXPECT_TRUE(hub().is_running("living-room"));
+}
+
+// Stored even when it cannot run, and the answer says why. The pool has an entity for every
+// thermostat the device allows, so this is App having had no room for the whole pool.
+TEST_F(Editor, AThermostatWithNoFreeEntityIsStoredAndTheAnswerSaysSo) {
+  hub().take_every_slot();
+  Reply created = this->post("save", LIVING_ROOM);
+  ASSERT_EQ(created.code, 200) << created.body;
+  EXPECT_EQ(created.message(), "Thermostat created; not started: no free climate entity");
+  EXPECT_EQ(created["id"].as<std::string>(), "living-room");
+  EXPECT_EQ(this->files(), std::vector<std::string>{"living-room.json"});
+  EXPECT_FALSE(hub().is_running("living-room"));
+  EXPECT_EQ(hub().claimed_by("relay_1"), "");
+
+  Reply updated = this->post("save", with(LIVING_ROOM, R"("id":"living-room")"));
+  ASSERT_EQ(updated.code, 200) << updated.body;
+  EXPECT_EQ(updated.message(), "Thermostat updated; not started: no free climate entity");
+
+  ASSERT_EQ(this->post("enable?id=living-room&value=false").code, 200);
+  Reply enabled = this->post("enable?id=living-room&value=true");
+  ASSERT_EQ(enabled.code, 200) << enabled.body;
+  EXPECT_EQ(enabled.message(), "Thermostat enabled; not started: no free climate entity");
+  EXPECT_TRUE(enabled["persisted"].as<bool>());
+  EXPECT_TRUE(hub().store().get("living-room")->enabled);
+  EXPECT_FALSE(hub().is_running("living-room"));
+}
+
 // --- delete ---
 
 TEST_F(Editor, DeleteRemovesTheThermostatAndItsFile) {
@@ -253,6 +326,35 @@ TEST_F(Editor, DeleteRemovesTheThermostatAndItsFile) {
   reply = this->post("delete?id=living-room");
   EXPECT_EQ(reply.code, 404);
   EXPECT_EQ(reply.error(), "Thermostat not found");
+}
+
+// The loader refuses an empty file, so a file the partition will not unlink is emptied and the
+// thermostat stays gone.
+TEST_F(Editor, DeleteEmptiesAFileItCannotRemove) {
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  hub().refuse_remove = true;
+  Reply reply = this->post("delete?id=living-room");
+  ASSERT_EQ(reply.code, 200) << reply.body;
+  EXPECT_EQ(reply.body, R"({"success":true,"message":"Thermostat deleted"})");
+  struct stat info {};
+  ASSERT_EQ(stat((this->folder() + "/living-room.json").c_str(), &info), 0);
+  EXPECT_EQ(info.st_size, 0);
+  EXPECT_EQ(hub().store().get("living-room"), nullptr);
+  EXPECT_EQ(hub().claimed_by("relay_1"), "");
+}
+
+// Gone until the next boot, and the answer says so rather than claim more than happened.
+TEST_F(Editor, DeleteSaysWhenTheThermostatComesBackAtTheNextBoot) {
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root writes a read-only file";
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  ASSERT_EQ(chmod((this->folder() + "/living-room.json").c_str(), 0444), 0);
+  hub().refuse_remove = true;
+  Reply reply = this->post("delete?id=living-room");
+  ASSERT_EQ(reply.code, 200) << reply.body;
+  EXPECT_EQ(reply.message(), "Thermostat deleted; its file could not be removed, so it comes back at the next boot");
+  EXPECT_EQ(hub().store().get("living-room"), nullptr);
+  EXPECT_FALSE(hub().is_running("living-room"));
 }
 
 // An id is a file name: present, and a slug, before anything is looked up.
@@ -342,6 +444,79 @@ TEST_F(Editor, EnableTakesARelayOverOnlyWhenAsked) {
   EXPECT_EQ(again.message(), "Thermostat enabled");
 }
 
+TEST_F(Editor, TakeOverIsReadStrictlyAndActsOnlyOnAStart) {
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  std::string guest = with(LIVING_ROOM, R"("enabled":false)");
+  guest.replace(guest.find("Living Room"), 11, "Guest Room");
+  ASSERT_EQ(this->post("save", guest).code, 200);
+
+  for (const char *bad : {"", "TRUE", "True", "1", "yes", "true "}) {
+    Reply reply = this->post(std::string("enable?id=guest-room&value=true&take_over=") + bad);
+    EXPECT_EQ(reply.code, 400) << "'" << bad << "'";
+    EXPECT_EQ(reply.error(), "Invalid take_over parameter") << "'" << bad << "'";
+  }
+  // Read on a stop too, though a stop takes nothing over.
+  EXPECT_EQ(this->post("enable?id=living-room&value=false&take_over=maybe").error(), "Invalid take_over parameter");
+  EXPECT_TRUE(hub().is_running("living-room"));
+
+  Reply kept = this->post("enable?id=guest-room&value=true&take_over=false");
+  EXPECT_EQ(kept.code, 409);
+  EXPECT_EQ(kept.error(), "\"Relay 1\" is already driven by \"Living Room\"");
+  Reply stopped = this->post("enable?id=guest-room&value=false&take_over=true");
+  EXPECT_EQ(stopped.message(), "Thermostat disabled");
+  EXPECT_TRUE(hub().is_running("living-room"));
+  EXPECT_EQ(hub().claimed_by("relay_1"), "living-room");
+}
+
+static const char *const STUDIO =
+    R"({"name":"Studio","enabled":false,"kind":"pid","sensor_id":"room","heat":{"relay_id":"relay_1"},)"
+    R"("cool":{"relay_id":"relay_2"},"mode":"heat_cool","setpoint":22})";
+
+TEST_F(Editor, TakingTwoRelaysOverNamesEveryThermostatItStopped) {
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  ASSERT_EQ(this->create(FLOOR), "floor");
+  ASSERT_EQ(this->post("save", STUDIO).code, 200);
+
+  Reply reply = this->post("enable?id=studio&value=true&take_over=true");
+  ASSERT_EQ(reply.code, 200) << reply.body;
+  EXPECT_EQ(reply.message(), "Thermostat enabled; \"Living Room\" and \"Floor\" stopped");
+  EXPECT_FALSE(hub().is_running("living-room"));
+  EXPECT_FALSE(hub().is_running("floor"));
+  EXPECT_FALSE(hub().store().get("floor")->enabled);
+  EXPECT_EQ(hub().claimed_by("relay_1"), "studio");
+  EXPECT_EQ(hub().claimed_by("relay_2"), "studio");
+}
+
+TEST_F(Editor, AThermostatHoldingBothRelaysIsNamedOnce) {
+  std::string studio = STUDIO;
+  studio.replace(studio.find(R"("enabled":false)"), 15, R"("enabled":true)");
+  ASSERT_EQ(this->create(studio.c_str()), "studio");
+  std::string attic = STUDIO;
+  attic.replace(attic.find("Studio"), 6, "Attic");
+  ASSERT_EQ(this->post("save", attic).code, 200);
+
+  Reply reply = this->post("enable?id=attic&value=true&take_over=true");
+  ASSERT_EQ(reply.code, 200) << reply.body;
+  EXPECT_EQ(reply.message(), "Thermostat enabled; \"Studio\" stopped");
+  EXPECT_EQ(hub().claimed_by("relay_1"), "attic");
+  EXPECT_EQ(hub().claimed_by("relay_2"), "attic");
+}
+
+// The thermostat starts or stops either way; `persisted` says whether that outlives a reboot.
+TEST_F(Editor, EnableSaysWhenTheFlagDidNotReachTheFile) {
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  storage().set_base_path("/proc/definitely-not-writable");
+  Reply stopped = this->post("enable?id=living-room&value=false");
+  const bool stopped_running = hub().is_running("living-room");
+  Reply started = this->post("enable?id=living-room&value=true");
+  storage().set_base_path(this->base_path);
+
+  EXPECT_EQ(stopped.body, R"({"success":true,"message":"Thermostat disabled","persisted":false})");
+  EXPECT_FALSE(stopped_running);
+  EXPECT_EQ(started.body, R"({"success":true,"message":"Thermostat enabled","persisted":false})");
+  EXPECT_TRUE(hub().is_running("living-room"));
+}
+
 TEST_F(Editor, EnableNeedsTheSensorBeforeItTakesAnythingOver) {
   ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
   std::string attic = with(LIVING_ROOM, R"("enabled":false)");
@@ -400,6 +575,47 @@ TEST_F(Editor, SetpointReadsItsValueStrictly) {
   EXPECT_EQ(reply.error(), "Thermostat not found");
 }
 
+// Every way the client's String(value) or a person may write a decimal.
+TEST_F(Editor, SetpointTakesEveryDecimalNotation) {
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  for (const auto &good : {std::pair<const char *, float>{"2.2E1", 22.f},
+                           {"2.2e+1", 22.f},
+                           {"215e-1", 21.5f},
+                           {"215E-01", 21.5f},
+                           {"0021.50", 21.5f},
+                           {"-0.0", 5.f},
+                           // Past a float's range, and below its smallest step: both still numbers.
+                           {"1e300", 45.f},
+                           {"1e-400", 5.f}}) {
+    Reply reply = this->post(std::string("setpoint?id=living-room&value=") + good.first);
+    EXPECT_EQ(reply.code, 200) << good.first << ": " << reply.body;
+    EXPECT_FLOAT_EQ(hub().store().get("living-room")->setpoint, good.second) << good.first;
+  }
+}
+
+TEST_F(Editor, SetpointRefusesWhatOnlyStartsLikeANumber) {
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  for (const char *bad : {"1e+", "1e-", "e5", "E5", ".e1", "--1", "+-1", "1.2.3", "1e5.5", "0x1p3", "1_000", "infinity",
+                          "-nan", "22\t"}) {
+    Reply reply = this->post(std::string("setpoint?id=living-room&value=") + bad);
+    EXPECT_EQ(reply.code, 400) << "'" << bad << "'";
+    EXPECT_EQ(reply.error(), "Invalid value parameter") << "'" << bad << "'";
+  }
+  EXPECT_FLOAT_EQ(hub().store().get("living-room")->setpoint, 22.f);
+}
+
+// The id before the value, both before the loop task is asked for anything.
+TEST_F(Editor, SetpointReadsItsIdFirst) {
+  hub().jobs = 0;
+  Reply reply = this->post("setpoint?value=20");
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "Missing id parameter");
+  reply = this->post("setpoint?id=Living&value=abc");
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "Invalid id parameter");
+  EXPECT_EQ(hub().jobs, 0);
+}
+
 // --- status ---
 
 TEST_F(Editor, StatusReportsTheControlLoop) {
@@ -453,6 +669,27 @@ TEST_F(Editor, StatusReportsTheControlLoop) {
   EXPECT_FLOAT_EQ(floor["switch_low"].as<float>(), 23.5f);
   EXPECT_FLOAT_EQ(floor["switch_high"].as<float>(), 24.5f);
   EXPECT_TRUE(floor["pid"].isUnbound()) << "only a running PID has terms";
+}
+
+TEST_F(Editor, StatusReportsACoolingThermostat) {
+  ASSERT_EQ(this->create(R"({"name":"Cellar","kind":"pid","sensor_id":"floor","cool":{"relay_id":"relay_2"},)"
+                         R"("mode":"cool","setpoint":12})"),
+            "cellar");
+  hub().loop();
+  entities().floor.publish_state(20.f);
+  hub().ms += 10000;
+  hub().loop();
+
+  Reply reply = this->get("status?id=cellar");
+  ASSERT_EQ(reply.code, 200) << reply.body;
+  JsonObject row = reply["controllers"][0];
+  EXPECT_EQ(row["action"].as<std::string>(), "cooling");
+  EXPECT_FLOAT_EQ(row["heat_duty"].as<float>(), 0.f);
+  EXPECT_GT(row["cool_duty"].as<float>(), 0.f);
+  EXPECT_FALSE(row["heat_relay_on"].as<bool>());
+  EXPECT_TRUE(row["cool_relay_on"].as<bool>());
+  EXPECT_FLOAT_EQ(row["pid"]["error"].as<float>(), -8.f);
+  EXPECT_TRUE(entities().relay2.state);
 }
 
 // A stopped thermostat still shows its room, read off the sensor itself.

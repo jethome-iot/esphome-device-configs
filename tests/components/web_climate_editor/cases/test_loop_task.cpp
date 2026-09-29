@@ -70,19 +70,26 @@ TEST_F(Editor, ALoopThatNeverTakesTheJobAnswersBusyAndChangesNothing) {
   const std::vector<std::pair<const char *, std::function<Reply()>>> calls = {
       {"list", [&] { return this->get("list"); }},
       {"get", [&] { return this->get("get?id=living-room"); }},
+      {"get of a ghost", [&] { return this->get("get?id=ghost"); }},
       {"status", [&] { return this->get("status"); }},
+      {"status of one", [&] { return this->get("status?id=living-room"); }},
       {"entities", [&] { return this->get("entities"); }},
       {"save", [&] { return this->post("save", FLOOR); }},
       {"save of garbage", [&] { return this->post("save", "garbage"); }},
+      {"update", [&] { return this->post("save", R"({"id":"living-room","name":"Lounge"})"); }},
       {"delete", [&] { return this->post("delete?id=living-room"); }},
       {"enable", [&] { return this->post("enable?id=living-room&value=false"); }},
+      {"take over", [&] { return this->post("enable?id=living-room&value=true&take_over=true"); }},
       {"setpoint", [&] { return this->post("setpoint?id=living-room&value=30"); }},
   };
   // clang-format on
   for (const auto &call : calls) {
+    hub().jobs = 0;
     Reply reply = call.second();
     EXPECT_EQ(reply.code, 503) << call.first << ": " << reply.body;
+    EXPECT_EQ(reply.type, "application/json") << call.first;
     EXPECT_EQ(reply.error(), "Device busy") << call.first;
+    EXPECT_EQ(hub().jobs, 1) << call.first << " was not handed over exactly once";
   }
   hub().loop_busy = false;
 
@@ -100,6 +107,28 @@ TEST_F(Editor, ARefusalFoundOnTheLoopTaskKeepsItsOwnStatus) {
     EXPECT_EQ(reply.code, 404) << reply.body;
   }
   EXPECT_EQ(this->post("save", "garbage").code, 400);
+}
+
+// A hub whose storage never mounted runs its jobs in place, since no loop schedules it: the
+// reads still answer, and every write is refused with the hub's own 500.
+TEST_F(Editor, AHubWithoutStorageStillAnswersReadsAndRefusesEveryWrite) {
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  hub().mark_failed();
+
+  Reply list = this->get("list");
+  EXPECT_EQ(list.code, 200) << list.body;
+  EXPECT_EQ(list["count"].as<int>(), 1);
+  for (const char *route : {"get?id=living-room", "status", "status?id=living-room", "entities", "schema"})
+    EXPECT_EQ(this->get(route).code, 200) << route;
+
+  for (Reply reply : {this->post("save", FLOOR), this->post("save", with(LIVING_ROOM, R"("id":"living-room")")),
+                      this->post("delete?id=living-room"), this->post("enable?id=living-room&value=false"),
+                      this->post("setpoint?id=living-room&value=30")}) {
+    EXPECT_EQ(reply.code, 500) << reply.body;
+    EXPECT_EQ(reply.error(), "Thermostat storage is not available");
+  }
+  EXPECT_EQ(this->files(), std::vector<std::string>{"living-room.json"});
+  EXPECT_FLOAT_EQ(hub().store().get("living-room")->setpoint, 22.f);
 }
 
 }  // namespace esphome::web_climate_editor::testing

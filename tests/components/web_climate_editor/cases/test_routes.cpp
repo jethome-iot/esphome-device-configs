@@ -22,8 +22,10 @@ TEST_F(Editor, ANameThatIsNoRouteIsNotFound) {
   for (const char *target :
        {"/climate-editor", "/climate-editor/", "/climate-editor/api", "/climate-editor/api/",
         "/climate-editor/api/list/", "/climate-editor/api/listing", "/climate-editor/api/controllers",
-        "/climate-editor/api/get/living-room", "/climate-editor/index.html"}) {
-    for (http_method method : {HTTP_GET, HTTP_POST}) {
+        "/climate-editor/api/get/living-room", "/climate-editor/index.html", "/climate-editor/api/LIST",
+        "/climate-editor/API/list", "/climate-editor/api//list", "/climate-editor//api/list", "/climate-editor/list"}) {
+    // Unknown before wrong: no method makes a name that is no route a 405.
+    for (http_method method : {HTTP_GET, HTTP_POST, HTTP_PUT, HTTP_DELETE, HTTP_HEAD}) {
       Reply reply = this->request(method, target);
       EXPECT_TRUE(reply.claimed) << target;
       EXPECT_EQ(reply.code, 404) << target;
@@ -64,6 +66,55 @@ TEST_F(Editor, MutatingRoutesArePostOnlyAndTheRestGetOnly) {
   EXPECT_TRUE(this->files().empty());
 }
 
+// Every route against every method the server passes on: its own one gets past the method
+// check, every other one is the same 405 with the one method it takes.
+TEST_F(Editor, EveryRouteAnswersItsOneMethodAndRefusesTheRest) {
+  struct Case {
+    const char *route;
+    http_method method;
+  };
+  for (const Case &c :
+       {Case{"list", HTTP_GET}, Case{"get", HTTP_GET}, Case{"status", HTTP_GET}, Case{"entities", HTTP_GET},
+        Case{"schema", HTTP_GET}, Case{"ping", HTTP_GET}, Case{"save", HTTP_POST}, Case{"delete", HTTP_POST},
+        Case{"enable", HTTP_POST}, Case{"setpoint", HTTP_POST}}) {
+    const char *allow = c.method == HTTP_POST ? "POST" : "GET";
+    for (http_method method : {HTTP_GET, HTTP_POST, HTTP_PUT, HTTP_DELETE, HTTP_HEAD}) {
+      Reply reply = this->call(method, c.route);
+      EXPECT_TRUE(reply.claimed) << c.route;
+      if (method == c.method) {
+        EXPECT_NE(reply.code, 405) << c.route << " " << method;
+        continue;
+      }
+      EXPECT_EQ(reply.code, 405) << c.route << " " << method;
+      EXPECT_EQ(reply.header("Allow"), allow) << c.route << " " << method;
+      EXPECT_EQ(reply.type, "application/json") << c.route << " " << method;
+      EXPECT_EQ(reply.error(), "Method not allowed") << c.route << " " << method;
+    }
+  }
+  EXPECT_TRUE(this->files().empty());
+}
+
+// The CrossOriginRefuser sits at WIFI and has to be registered first, so it sees every request
+// before this handler can claim one.
+TEST_F(Editor, RegistersAfterTheCrossOriginRefuser) {
+  EXPECT_LT(this->editor->get_setup_priority(), setup_priority::WIFI);
+}
+
+// A trivial handler gets no handleBody on the Arduino server, so save would never see a body.
+TEST_F(Editor, KeepsItsBodyBecauseTheHandlerIsNotTrivial) { EXPECT_FALSE(this->editor->isRequestHandlerTrivial()); }
+
+TEST_F(Editor, DumpConfigNamesWhereTheApiIs) {
+  LogCapture::instance().clear();
+  this->editor->dump_config();
+  EXPECT_TRUE(LogCapture::instance().has("API: /climate-editor/api/"));
+
+  WebClimateEditor other(&this->base, &hub());
+  other.set_url_prefix("/thermostats");
+  LogCapture::instance().clear();
+  other.dump_config();
+  EXPECT_TRUE(LogCapture::instance().has("API: /thermostats/api/"));
+}
+
 // --- what a page on another site may do with the browser's cached credentials ---
 
 TEST_F(Editor, RefusesACrossSiteWriteAndChangesNothing) {
@@ -82,6 +133,33 @@ TEST_F(Editor, RefusesACrossSiteWriteAndChangesNothing) {
   EXPECT_EQ(this->files(), std::vector<std::string>{"living-room.json"});
   EXPECT_TRUE(hub().is_running(id));
   EXPECT_FLOAT_EQ(hub().store().get(id)->setpoint, 22.f);
+}
+
+// Reads too: a page on another site has no business learning the thermostats, and the refusal
+// comes before the route is looked at, so it costs the loop task nothing.
+TEST_F(Editor, RefusesACrossSiteReadBeforeItReachesTheLoopTask) {
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  hub().jobs = 0;
+  for (const char *route : {"list", "get?id=living-room", "status", "entities", "schema", "ping", "nothing", "save"}) {
+    for (const char *origin : {"http://evil.example", "null", "http://device.local.evil.example"}) {
+      Reply reply = this->call(HTTP_GET, route, "", "application/json", origin);
+      EXPECT_EQ(reply.code, 403) << route << " from " << origin;
+      EXPECT_EQ(reply.body, "Cross-origin request refused") << route << " from " << origin;
+    }
+  }
+  EXPECT_EQ(hub().jobs, 0);
+}
+
+// The guard drops a refused request's body before it reaches the editor, so nothing of it is
+// left for the next request to read as its own.
+TEST_F(Editor, ARefusedCrossSiteBodyIsNotKept) {
+  const std::string body = LIVING_ROOM;
+  Reply refused = this->call(HTTP_POST, "save", body, "application/json", "http://evil.example");
+  ASSERT_EQ(refused.code, 403);
+  Reply form = this->call(HTTP_POST, "save", std::string(body.size(), 'x'), "application/x-www-form-urlencoded");
+  EXPECT_EQ(form.code, 400);
+  EXPECT_EQ(form.error(), "Empty request body");
+  EXPECT_TRUE(this->files().empty());
 }
 
 TEST_F(Editor, ServesTheDevicesOwnPage) {
