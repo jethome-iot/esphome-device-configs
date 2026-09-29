@@ -254,6 +254,12 @@ TEST_F(Editor, AnEnabledSaveNeedsItsSensorAndRelaysFree) {
   reply = this->post("save", no_relay);
   EXPECT_EQ(reply.code, 400);
   EXPECT_EQ(reply.error(), "No switch \"relay_9\" on this device");
+
+  std::string not_celsius = LIVING_ROOM;
+  not_celsius.replace(not_celsius.find("\"room\""), 6, "\"uptime\"");
+  reply = this->post("save", not_celsius);
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "\"Uptime\" reports s, not °C");
   EXPECT_TRUE(this->files().empty());
 
   // A disabled one may wait for what it names.
@@ -737,7 +743,8 @@ TEST_F(Editor, StatusOfOneNeedsAnIdThatIsThere) {
 
 // --- entities, schema ---
 
-TEST_F(Editor, EntitiesListsWhatIsNotInternalAndWhoHoldsEachRelay) {
+// Only the sensors a thermostat may run on: visible and in °C, so neither Uptime nor Counter.
+TEST_F(Editor, EntitiesListsThermostatInputsAndWhoHoldsEachRelay) {
   ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
   Reply reply = this->get("entities");
   ASSERT_EQ(reply.code, 200);

@@ -128,8 +128,8 @@ paths:
         `max_controllers`; `409` for a name another thermostat or a YAML
         climate answers to, or on a create for a name whose every id is taken
         by a file in the folder; and, for an enabled thermostat, `400` when its
-        sensor or a relay is not on the device, then `409` when a running
-        thermostat holds its relay. While the thermostat storage is not
+        sensor or a relay is not on the device or its sensor does not report
+        °C, then `409` when a running thermostat holds its relay. While the thermostat storage is not
         usable, a body is `500` before it is read.
       requestBody:
         required: true
@@ -227,8 +227,8 @@ paths:
       summary: Start or stop a thermostat, and store the flag.
       description: >-
         Starting refuses like `/save` does for an enabled thermostat: `400` when
-        its sensor or a relay is not on the device, `409` when a running
-        thermostat holds its relay. With `take_over=true` that thermostat is
+        its sensor or a relay is not on the device or its sensor does not report
+        °C, `409` when a running thermostat holds its relay. With `take_over=true` that thermostat is
         stopped and stored as disabled first, in the same step, and the answer
         names it.
       parameters:
@@ -349,7 +349,10 @@ paths:
       tags: [read]
       operationId: listEntities
       summary: The sensors and relays a thermostat may name.
-      description: Internal entities are left out. Each switch says which running thermostat holds it.
+      description: >-
+        Internal entities are left out, and so is a sensor that does not report
+        °C, which no thermostat runs on. Each switch says which running
+        thermostat holds it.
       responses:
         "200":
           description: Entities by domain.
@@ -443,7 +446,7 @@ components:
       description: >-
         Bad request — a missing or malformed parameter, a body that is empty or
         not JSON, a document that breaks a rule, or an enabled thermostat whose
-        sensor or relay is not on the device.
+        sensor or relay is not on the device or whose sensor does not report °C.
       content:
         application/json:
           schema:
@@ -461,6 +464,10 @@ components:
               value:
                 success: false
                 error: No sensor "temp_3" on this device
+            unit:
+              value:
+                success: false
+                error: '"Uptime" reports s, not °C'
     NotFound:
       description: No thermostat has that id, or the path names no route.
       content:
@@ -731,7 +738,7 @@ components:
         sensor_id:
           type: string
           maxLength: 120
-          description: The temperature sensor's object id.
+          description: The object id of a temperature sensor that reports °C.
         update_interval_s:
           type: number
         heat:
@@ -1085,6 +1092,7 @@ components:
                 type: string
               unit:
                 type: string
+                enum: ["°C"]
         switches:
           type: array
           items:

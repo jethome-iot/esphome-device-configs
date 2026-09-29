@@ -12,8 +12,9 @@
 // and only then the lookup (404) and the change itself. Only /save reads a body,
 // so only /save can be 413; the body is read the way ArduinoJson reads it. A
 // document is merged over the defaults and clamped to the parameter table like
-// climate_hub's codec does, a name is checked like the hub checks it, and a relay
-// held by a running thermostat is 409 unless the enable asks to take it over.
+// climate_hub's codec does, a name is checked like the hub checks it, a sensor
+// not in °C is 400, and a relay held by a running thermostat is 409 unless the
+// enable asks to take it over.
 // /status reads a first-order room model per sensor, heated and cooled by the
 // duties of the thermostats bound to it. control() stands in for Home Assistant
 // setting a running thermostat's mode or target through its climate entity.
@@ -41,10 +42,15 @@ const MAX_CONTROLLERS = 8
 // AND cannot silently drift from ../types.ts (a shape change fails tsc here).
 // The entity names are the dashboard mock's, so a claim shows on its Entities page.
 
+// The unit of every setpoint, band and cut-out: a thermostat runs on nothing else.
+const CELSIUS = '°C'
+
+// Every visible sensor on the device; /entities offers only the ones in °C.
 export const seedSensors: BindableSensor[] = [
-  { object_id: 'temp1', name: 'Temp1', unit: '°C' },
-  { object_id: 'temp2', name: 'Temp2', unit: '°C' },
-  { object_id: 'pcb_temp', name: 'PCB Temp', unit: '°C' }
+  { object_id: 'temp1', name: 'Temp1', unit: CELSIUS },
+  { object_id: 'temp2', name: 'Temp2', unit: CELSIUS },
+  { object_id: 'pcb_temp', name: 'PCB Temp', unit: CELSIUS },
+  { object_id: 'uptime', name: 'Uptime', unit: 's' }
 ]
 
 export const seedSwitches: Array<Omit<BindableSwitch, 'claimed_by'>> = [
@@ -667,14 +673,19 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     return 'idle'
   }
 
-  // Why `doc` cannot start: an entity the device does not have (400) or a relay a
-  // running thermostat holds (409). With `takeOver`, the holders come back instead.
+  // Why `doc` cannot start: an entity the device does not have or a sensor not in °C
+  // (400), or a relay a running thermostat holds (409). With `takeOver`, the holders come back instead.
   function bindCheck(
     doc: ControllerDocument,
     takeOver: boolean
   ): { refusal?: MockResult; holders: ControllerDocument[] } {
-    if (!seedSensors.some((s) => s.object_id === doc.sensor_id)) {
+    const sensor = seedSensors.find((s) => s.object_id === doc.sensor_id)
+    if (!sensor) {
       return { refusal: fail(400, `No sensor "${doc.sensor_id}" on this device`), holders: [] }
+    }
+    if (sensor.unit !== CELSIUS) {
+      const unit = sensor.unit === '' ? 'no unit' : sensor.unit
+      return { refusal: fail(400, `"${sensor.name}" reports ${unit}, not ${CELSIUS}`), holders: [] }
     }
     const holders: ControllerDocument[] = []
     for (const relay of relaysOf(doc)) {
@@ -941,7 +952,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
           status: 200,
           body: {
             success: true,
-            sensors: seedSensors.map((s) => ({ ...s })),
+            sensors: seedSensors.filter((s) => s.unit === CELSIUS).map((s) => ({ ...s })),
             switches: seedSwitches.map((s) => ({ ...s, claimed_by: holderOf(s.object_id, '')?.id ?? '' }))
           }
         }

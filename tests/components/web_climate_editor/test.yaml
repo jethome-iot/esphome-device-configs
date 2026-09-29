@@ -49,7 +49,7 @@ web_climate_editor:
 # registration past that, so this is at least what cases/common.h registers: one
 # YAML climate beside the pool, the sensors, the relays, one internal sensor and one
 # internal switch.
-# The unit puts "°C" into the generated unit table, where the cases expect it.
+# The units fill the generated unit table the cases' sensors take theirs from.
 climate:
   - platform: template
     id: hall_unused
@@ -69,6 +69,13 @@ sensor:
     id: probe_unused
     name: "Probe"
     internal: true
+  - platform: template
+    id: uptime_unused
+    name: "Uptime"
+    unit_of_measurement: s
+  - platform: template
+    id: counter_unused
+    name: "Counter"
 
 switch:
   - platform: template

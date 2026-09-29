@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <string>
@@ -71,19 +72,37 @@ struct Entities {
   sensor::Sensor room;
   sensor::Sensor floor;
   sensor::Sensor probe;
+  // Visible, but not in °C: no thermostat input.
+  sensor::Sensor uptime;
+  sensor::Sensor counter;
   FakeSwitch relay1;
   FakeSwitch relay2;
   FakeSwitch hidden;
   YamlClimate hall;
 };
 
+// The entity field that gives `unit`, from the table codegen built out of test.yaml's units;
+// 0, no unit, when test.yaml declares none in it.
+inline uint32_t unit_field(const char *unit) {
+  for (uint32_t index = 1; index <= 0xFF; index++) {
+    const char *known = entity_uom_lookup(static_cast<uint8_t>(index));
+    if (*known == '\0')
+      break;
+    if (strcmp(known, unit) == 0)
+      return index << ENTITY_FIELD_UOM_SHIFT;
+  }
+  return 0;
+}
+
 inline Entities &entities() {
   static Entities *instance = [] {
     auto *e = new Entities();
-    // Units are indices into the table codegen builds from test.yaml, where "°C" is the only one.
-    App.register_sensor(&e->room, "Room", fnv1_hash("room"), 1u << ENTITY_FIELD_UOM_SHIFT);
-    App.register_sensor(&e->floor, "Floor", fnv1_hash("floor"), 1u << ENTITY_FIELD_UOM_SHIFT);
+    const uint32_t celsius = unit_field("°C");
+    App.register_sensor(&e->room, "Room", fnv1_hash("room"), celsius);
+    App.register_sensor(&e->floor, "Floor", fnv1_hash("floor"), celsius);
     App.register_sensor(&e->probe, "Probe", fnv1_hash("probe"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);
+    App.register_sensor(&e->uptime, "Uptime", fnv1_hash("uptime"), unit_field("s"));
+    App.register_sensor(&e->counter, "Counter", fnv1_hash("counter"), 0);
     App.register_switch(&e->relay1, "Relay 1", fnv1_hash("relay_1"), 0);
     App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
     App.register_switch(&e->hidden, "Hidden", fnv1_hash("hidden"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);

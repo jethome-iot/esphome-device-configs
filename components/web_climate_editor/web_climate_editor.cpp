@@ -378,7 +378,8 @@ void WebClimateEditor::handle_entities_(AsyncWebServerRequest *request) {
     JsonArray switches = doc["switches"].to<JsonArray>();
 #ifdef USE_SENSOR
     for (auto *entity : App.get_sensors()) {
-      if (entity->is_internal())
+      // Only what a thermostat may run on: the hub refuses the rest.
+      if (entity->is_internal() || !climate_hub::reports_celsius(*entity))
         continue;
       JsonObject row = sensors.add<JsonObject>();
       row["object_id"] = climate_hub::object_id_of(*entity);

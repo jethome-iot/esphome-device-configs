@@ -62,7 +62,7 @@ seconds. Nothing was read or written then, and the call can simply be made again
 | POST | `enable?id=&value=true\|false[&take_over=true]` | Starts or stops it and stores the flag. `{"success": true, "message", "persisted"}`; `persisted` is `false` when it runs but the flag did not reach flash |
 | POST | `setpoint?id=&value=` | Moves the target, clamped into the thermostat's range, whether it runs or not |
 | GET | `status[?id=]` | `{"success": true, "controllers": [...]}`: per thermostat whether it runs, what it does (`off`, `idle`, `heating`, `cooling`), its fault, the room temperature and its age, the target and range, the bang-bang switching points, the heat and cool duty and relay state, and a running PID's terms. A stopped thermostat still reports its sensor's reading |
-| GET | `entities` | `{"success": true, "sensors": [{"object_id", "name", "unit"}], "switches": [{"object_id", "name", "claimed_by"}]}`; `claimed_by` is the id of the running thermostat that holds the relay, or `""`. Internal entities are left out |
+| GET | `entities` | `{"success": true, "sensors": [{"object_id", "name", "unit"}], "switches": [{"object_id", "name", "claimed_by"}]}`; `claimed_by` is the id of the running thermostat that holds the relay, or `""`. Internal entities are left out, and so is a sensor that does not report °C |
 | GET | `schema` | The kinds, modes and faults, `max_controllers`, `name_max_length`, and every tunable number with its label, unit, default, range, step and hint, grouped as a form shows them: the table the device clamps against |
 | GET | `ping` | `{"status": "ok"}` |
 
@@ -81,8 +81,9 @@ refusals come in this order, and the first one a document meets is the answer:
 3. `409` for a name another thermostat or a YAML climate answers to, compared without case and
    extra spaces or by the entity id both would get (`Room 1` and `Room_1`), and on a create for
    a name whose every id is taken by a file in the folder;
-4. for an enabled thermostat, `400` when its sensor or a relay is not on the device, then `409`
-   when a running thermostat holds its relay: `"Relay 1" is already driven by "Living Room"`.
+4. for an enabled thermostat, `400` when its sensor or a relay is not on the device or its sensor
+   does not report °C (`"Uptime" reports s, not °C`), then `409` when a running thermostat holds
+   its relay: `"Relay 1" is already driven by "Living Room"`.
 5. `413` when the file the document makes would be over 8 KiB, a guard no document within the
    rules reaches.
 
