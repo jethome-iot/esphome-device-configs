@@ -45,6 +45,11 @@ inline sensor::Sensor *find_sensor(const std::string &object_id) {
 #endif
 }
 
+#ifdef USE_SENSOR
+/// Whether `sensor` can feed a thermostat: its setpoints, band and cut-out are in °C.
+inline bool reports_celsius(const sensor::Sensor &sensor) { return sensor.get_unit_of_measurement_ref() == "°C"; }
+#endif
+
 inline switch_::Switch *find_switch(const std::string &object_id) {
 #ifdef USE_SWITCH
   return find_entity<switch_::Switch>(App.get_switches(), object_id);

@@ -87,7 +87,7 @@ component: it would list the entities no thermostat is using.
 | `id`                 | Made from the name when the thermostat is created (`a-z`, `0-9`, single dashes, at most 48; `New` gets `new-2`, since the dashboard opens a blank editor at `new`), then never changes; the file is `<id>.json` |
 | `name`               | 1 to 48 printable ASCII characters, neither `/` nor `\`, trimmed; also the climate entity's name |
 | `kind`               | `bang_bang` (the default) or `pid`                                         |
-| `sensor_id`          | The object id of a temperature sensor, `temp_1` for `Temp 1`; at most 120 characters, the longest an object id gets |
+| `sensor_id`          | The object id of a temperature sensor that reports °C, `temp_1` for `Temp 1`; at most 120 characters, the longest an object id gets |
 | `heat`, `cool`       | `relay_id`: the object id of a switch, `""` for a direction not used; at least one, not the same one twice, at most 120 characters |
 | `mode`               | `off`, `heat`, `cool` or `heat_cool`; a mode needs the relays it drives    |
 | `setpoint`           | The one target, held inside `visual.min_temperature` … `visual.max_temperature` |
@@ -97,8 +97,8 @@ Every number is clamped into its range, and a missing one takes its default: the
 defaults are the table in `param_table.cpp`. A document built in C++ and handed to `create()` or
 `update()` is clamped the same way. A document that breaks a rule above is refused
 whole with a sentence that says which. A thermostat that is to run is created, saved or enabled
-only when its sensor and relays are on the device; a disabled one may name what is not there
-yet.
+only when its sensor and relays are on the device and its sensor reports °C; a disabled one may
+name what is not there yet.
 
 ## Control
 
@@ -171,8 +171,8 @@ The folder is writable by hand, so what it holds is checked at boot:
   rule above is refused and left exactly as it is, and its id is not given to a new thermostat
   (a name whose every id is taken that way is refused);
 - a name another thermostat or a YAML climate already has becomes `<name> 2` and is written back;
-- an enabled thermostat whose sensor or relay is missing, or whose relay another one holds,
-  stays enabled and does not run.
+- an enabled thermostat whose sensor or relay is missing, whose sensor does not report °C, or
+  whose relay another one holds, stays enabled and does not run.
 
 A removal the partition refuses leaves the file empty, so the thermostat does not come back.
 

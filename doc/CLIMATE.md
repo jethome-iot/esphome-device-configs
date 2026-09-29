@@ -1,6 +1,6 @@
 # Thermostats
 
-Thermostats the device runs without a recompile. Each one reads a temperature sensor — a
+Thermostats the device runs without a recompile. Each one reads a temperature sensor in °C — a
 `Temp N` probe, say — and switches a heating relay, a cooling relay or both, with a hysteresis
 (bang-bang) or a PID control law. Each running thermostat is a climate entity: Home Assistant
 and the web server show it and set its mode and target like any other. The file format and the

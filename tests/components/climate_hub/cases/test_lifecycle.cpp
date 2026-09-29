@@ -720,6 +720,38 @@ TEST_F(HubTest, ASensorReadingIsWhatTheSensorSaysNow) {
   EXPECT_TRUE(std::isnan(hub().sensor_reading("hidden"))) << "internal: not the editor's to show";
 }
 
+// The setpoints, the band and the cut-out are in °C: uptime in seconds would be read as degrees.
+TEST_F(HubTest, AnEnabledThermostatNeedsASensorInCelsius) {
+  ASSERT_TRUE(reports_celsius(entities().room)) << "test.yaml gives Room its unit";
+  ClimateConfig config = draft("Boiler");
+  config.sensor_id = "uptime";
+  Result result = hub().create(config);
+  EXPECT_EQ(400, result.code);
+  EXPECT_EQ("\"Uptime\" reports s, not °C", result.error);
+  config.sensor_id = "counter";
+  result = hub().create(config);
+  EXPECT_EQ(400, result.code);
+  EXPECT_EQ("\"Counter\" reports no unit, not °C", result.error);
+  EXPECT_TRUE(list_dir(this->folder()).empty()) << "nothing written";
+
+  config.enabled = false;
+  this->create(config);
+  result = hub().set_enabled("boiler", true);
+  EXPECT_EQ(400, result.code);
+  EXPECT_EQ("\"Counter\" reports no unit, not °C", result.error);
+  EXPECT_FALSE(hub().store().get("boiler")->enabled);
+
+  config.enabled = true;
+  config.sensor_id = "room";
+  ASSERT_TRUE(hub().update("boiler", config).ok);
+  config.sensor_id = "uptime";
+  result = hub().update("boiler", config);
+  EXPECT_EQ(400, result.code);
+  EXPECT_EQ("\"Uptime\" reports s, not °C", result.error);
+  EXPECT_EQ("room", hub().store().get("boiler")->sensor_id) << "the running one is left as it was";
+  EXPECT_TRUE(hub().is_running("boiler"));
+}
+
 // internal: true keeps an entity to the firmware; a thermostat cannot name it either.
 TEST_F(HubTest, AnInternalSensorCannotBeBound) {
   ClimateConfig config = draft("Boiler");

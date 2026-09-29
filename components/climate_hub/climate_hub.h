@@ -82,9 +82,10 @@ class ClimateHub : public Component {
   float sensor_reading(const std::string &sensor_object_id) const;
 
   /// Adds a thermostat. The draft's id is ignored: one is made from the name. Refused with 400
-  /// (a rule broken; enabled, and its sensor or a relay is not on the device), 409 (name taken,
-  /// relay held by a running thermostat, every id the name gives taken), 413 (the file would be
-  /// over CONFIG_MAX_BYTES), 507 (at max_controllers) or 500 (not written).
+  /// (a rule broken; enabled, and its sensor or a relay is not on the device, or its sensor does
+  /// not report °C), 409 (name taken, relay held by a running thermostat, every id the name
+  /// gives taken), 413 (the file would be over CONFIG_MAX_BYTES), 507 (at max_controllers) or
+  /// 500 (not written).
   Result create(ClimateConfig draft);
   /// Replaces a thermostat's document; the id stays. A running one keeps its entity and every
   /// relay it still names. 404 for an unknown id, otherwise as create().
@@ -92,8 +93,9 @@ class ClimateHub : public Component {
   /// Stops and deletes a thermostat.
   Result remove(const std::string &id);
   /// Starts or stops a thermostat and stores the flag. Enabling one whose sensor or relay is not
-  /// on the device is a 400; one whose relay a running thermostat holds is a 409 naming the
-  /// holder, unless `take_over`: the holder is then disabled first.
+  /// on the device, or whose sensor does not report °C, is a 400; one whose relay a running
+  /// thermostat holds is a 409 naming the holder, unless `take_over`: the holder is then
+  /// disabled first.
   Result set_enabled(const std::string &id, bool enabled, bool take_over = false);
   /// Moves the target, clamped into the visual range, running or not.
   Result set_setpoint(const std::string &id, float value);
@@ -144,7 +146,7 @@ class ClimateHub : public Component {
   /// The running thermostat, other than `config` itself, that holds one of its relays, and
   /// which relay.
   std::string holder_of_(const ClimateConfig &config, std::string *relay_id = nullptr) const;
-  /// Whether the sensor and the relays `config` names are on this device.
+  /// Whether the sensor and the relays `config` names are on this device, the sensor in °C.
   bool check_entities_(const ClimateConfig &config, std::string *error) const;
   /// Whether `config` could run now: 400 for a missing entity, 409 for a relay held elsewhere.
   bool check_startable_(const ClimateConfig &config, Result *result) const;

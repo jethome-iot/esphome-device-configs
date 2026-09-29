@@ -412,6 +412,21 @@ TEST_F(HubTest, BootKeepsAThermostatWhoseSensorOrRelayIsGone) {
   EXPECT_EQ(porch, read_file(this->file_of("porch")));
 }
 
+// A file written by hand may name any sensor; one that does not report °C does not start it.
+TEST_F(HubTest, BootKeepsAThermostatWhoseSensorIsNotInCelsius) {
+  const std::string attic = doc("attic", "Attic", "relay_1", true, "uptime");
+  write_file(this->file_of("attic"), attic);
+  LogCapture::instance().clear();
+  this->reboot();
+
+  ASSERT_NE(nullptr, hub().store().get("attic"));
+  EXPECT_TRUE(hub().store().get("attic")->enabled);
+  EXPECT_FALSE(hub().is_running("attic"));
+  EXPECT_EQ("", hub().claimed_by("relay_1")) << "no relay taken";
+  EXPECT_TRUE(LogCapture::instance().has("'attic' not started: sensor 'uptime' reports s, not °C"));
+  EXPECT_EQ(attic, read_file(this->file_of("attic")));
+}
+
 // Bigger than any document the editor writes: refused unread, and left.
 TEST_F(HubTest, BootRefusesAnOversizedFileAndLeavesIt) {
   const std::string big = doc("big", "Big") + std::string(CONFIG_MAX_BYTES, ' ');

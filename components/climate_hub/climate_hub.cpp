@@ -62,6 +62,31 @@ static Result success() {
   return result;
 }
 
+#ifdef USE_SENSOR
+// "<who> reports s, not °C": why a sensor that is there cannot feed a thermostat.
+static std::string not_celsius(const std::string &who, const sensor::Sensor &sensor) {
+  const StringRef unit = sensor.get_unit_of_measurement_ref();
+  return who + " reports " + (unit.empty() ? std::string("no unit") : std::string(unit.c_str(), unit.size())) +
+         ", not °C";
+}
+#endif
+
+// The sensor a thermostat runs on, or nullptr with the reason for the log.
+static sensor::Sensor *find_input(const std::string &sensor_id, std::string *error) {
+  sensor::Sensor *sensor = find_sensor(sensor_id);
+  if (sensor == nullptr) {
+    *error = "sensor '" + sensor_id + "' not found";
+    return nullptr;
+  }
+#ifdef USE_SENSOR
+  if (!reports_celsius(*sensor)) {
+    *error = not_celsius("sensor '" + sensor_id + "'", *sensor);
+    return nullptr;
+  }
+#endif
+  return sensor;
+}
+
 ClimateHub::ClimateHub() { global_climate_hub = this; }
 
 uint32_t ClimateHub::now_ms() const { return millis(); }
@@ -567,10 +592,17 @@ std::string ClimateHub::holder_of_(const ClimateConfig &config, std::string *rel
 }
 
 bool ClimateHub::check_entities_(const ClimateConfig &config, std::string *error) const {
-  if (find_sensor(config.sensor_id) == nullptr) {
+  sensor::Sensor *sensor = find_sensor(config.sensor_id);
+  if (sensor == nullptr) {
     *error = "No sensor \"" + config.sensor_id + "\" on this device";
     return false;
   }
+#ifdef USE_SENSOR
+  if (!reports_celsius(*sensor)) {
+    *error = not_celsius("\"" + std::string(sensor->get_name().c_str()) + "\"", *sensor);
+    return false;
+  }
+#endif
   for (const OutputConfig *out : {&config.heat, &config.cool}) {
     if (out->configured() && find_switch(out->relay_id) == nullptr) {
       *error = "No switch \"" + out->relay_id + "\" on this device";
@@ -696,11 +728,9 @@ void ClimateHub::hand_over_(const std::string &from, Slot *holding, const Climat
 }
 
 bool ClimateHub::start_(ClimateConfig *config, std::string *error) {
-  sensor::Sensor *sensor = find_sensor(config->sensor_id);
-  if (sensor == nullptr) {
-    *error = "sensor '" + config->sensor_id + "' not found";
+  sensor::Sensor *sensor = find_input(config->sensor_id, error);
+  if (sensor == nullptr)
     return false;
-  }
   RelayClaim *heat = nullptr;
   RelayClaim *cool = nullptr;
   if (!this->acquire_claims_(*config, &heat, &cool, error)) {
@@ -724,9 +754,8 @@ bool ClimateHub::start_(ClimateConfig *config, std::string *error) {
 
 bool ClimateHub::restart_(Slot *slot, const std::string &previous_name, std::string *error) {
   ClimateConfig *config = slot->runtime.config();
-  sensor::Sensor *sensor = find_sensor(config->sensor_id);
+  sensor::Sensor *sensor = find_input(config->sensor_id, error);
   if (sensor == nullptr) {
-    *error = "sensor '" + config->sensor_id + "' not found";
     this->stop_(slot);
     return false;
   }

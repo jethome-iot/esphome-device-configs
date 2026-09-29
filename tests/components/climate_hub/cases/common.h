@@ -16,6 +16,7 @@
 #include "esphome/components/climate/climate.h"
 #include "esphome/components/climate_hub/climate_config.h"
 #include "esphome/components/climate_hub/climate_hub.h"
+#include "esphome/components/climate_hub/entity_lookup.h"
 #include "esphome/components/logger/logger.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
@@ -194,6 +195,9 @@ struct Entities {
   sensor::Sensor floor;
   // internal: true in YAML; nothing outside the firmware may name it.
   sensor::Sensor hidden;
+  // Visible, but not in °C: no thermostat input.
+  sensor::Sensor uptime;
+  sensor::Sensor counter;
   FakeSwitch relay1;
   FakeSwitch relay2;
   FakeSwitch relay3;
@@ -202,12 +206,28 @@ struct Entities {
   YamlClimate cellar;
 };
 
+// The entity field that gives `unit`, from the table codegen built out of test.yaml's units;
+// 0, no unit, when test.yaml declares none in it.
+inline uint32_t unit_field(const char *unit) {
+  for (uint32_t index = 1; index <= 0xFF; index++) {
+    const char *known = entity_uom_lookup(static_cast<uint8_t>(index));
+    if (*known == '\0')
+      break;
+    if (strcmp(known, unit) == 0)
+      return index << ENTITY_FIELD_UOM_SHIFT;
+  }
+  return 0;
+}
+
 inline Entities &entities() {
   static Entities *instance = [] {
     auto *e = new Entities();
-    App.register_sensor(&e->room, "Room", fnv1_hash("room"), 0);
-    App.register_sensor(&e->floor, "Floor", fnv1_hash("floor"), 0);
-    App.register_sensor(&e->hidden, "Hidden", fnv1_hash("hidden"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);
+    const uint32_t celsius = unit_field("°C");
+    App.register_sensor(&e->room, "Room", fnv1_hash("room"), celsius);
+    App.register_sensor(&e->floor, "Floor", fnv1_hash("floor"), celsius);
+    App.register_sensor(&e->hidden, "Hidden", fnv1_hash("hidden"), celsius | (1u << ENTITY_FIELD_INTERNAL_SHIFT));
+    App.register_sensor(&e->uptime, "Uptime", fnv1_hash("uptime"), unit_field("s"));
+    App.register_sensor(&e->counter, "Counter", fnv1_hash("counter"), 0);
     App.register_switch(&e->relay1, "Relay 1", fnv1_hash("relay_1"), 0);
     App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
     App.register_switch(&e->relay3, "Relay 3", fnv1_hash("relay_3"), 0);
@@ -240,7 +260,7 @@ inline TestHub &hub() {
 
 inline void reset_entities() {
   Entities &e = entities();
-  for (sensor::Sensor *s : {&e.room, &e.floor, &e.hidden}) {
+  for (sensor::Sensor *s : {&e.room, &e.floor, &e.hidden, &e.uptime, &e.counter}) {
     s->state = NAN;
     s->set_has_state(false);
   }

@@ -42,6 +42,7 @@ climate_hub:
 # App sizes its entity lists from what is declared here and silently drops a
 # registration past that, so this is at least what cases/common.h registers:
 # two YAML climates beside the pool, a sensor for each probe, a switch per relay.
+# The units fill the table the cases' sensors take theirs from.
 climate:
   - platform: template
     id: hall_unused
@@ -57,13 +58,23 @@ sensor:
   - platform: template
     id: room_unused
     name: "Room"
+    unit_of_measurement: "°C"
   - platform: template
     id: floor_unused
     name: "Floor"
+    unit_of_measurement: "°C"
   - platform: template
     id: hidden_unused
     name: "Hidden"
+    unit_of_measurement: "°C"
     internal: true
+  - platform: template
+    id: uptime_unused
+    name: "Uptime"
+    unit_of_measurement: s
+  - platform: template
+    id: counter_unused
+    name: "Counter"
 
 switch:
   - platform: template
