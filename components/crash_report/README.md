@@ -77,7 +77,7 @@ Other core: addr2line -pfiaC -e firmware.elf 0x40081234
 to 16 frames. The record says where the code was, not which task ran or how much heap was left.
 
 A record taken by a different build from the one that wrote the file — an update that crashed
-and was rolled back, say — says `Captured by a different firmware build` and lists the addresses
+and was rolled back, say — says `Captured by a different firmware build` and labels the addresses
 in lowercase with no `addr2line` hint. They belong to the ELF of the build that crashed, which
 the first three lines do not name.
 

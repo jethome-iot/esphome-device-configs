@@ -18,6 +18,9 @@
 #endif
 #ifdef USE_ESP32_CRASH_HANDLER
 #include "esphome/components/esp32/crash_handler.h"
+#elif defined(USE_ESP32)
+// ESPHome leaves its crash handler out whenever Arduino is linked, even as an ESP-IDF component.
+#error "crash_report needs ESPHome's crash handler, which is left out when Arduino is linked"
 #endif
 
 namespace esphome::crash_report {
@@ -150,20 +153,27 @@ bool CrashReport::write_report_() {
     ESP_LOGE(TAG, "Cannot create '%s'", dir.c_str());
     return false;
   }
-  this->rotate_();
-
-  const std::string path = dir + "/crash0.txt";
-  FILE *f = ::fopen(path.c_str(), "wb");
+  // Written aside first: a write that fails must leave the reports already kept where they were.
+  const std::string tmp = dir + "/crash.tmp";
+  FILE *f = ::fopen(tmp.c_str(), "wb");
   if (f == nullptr) {
-    ESP_LOGE(TAG, "Cannot open '%s'", path.c_str());
+    ESP_LOGE(TAG, "Cannot open '%s'", tmp.c_str());
     return false;
   }
   const size_t written = ::fwrite(this->buffer_.data(), 1, this->buffer_.size(), f);
   // LittleFS commits at close, so a full filesystem is reported here.
   const bool ok = ::fclose(f) == 0 && written == this->buffer_.size();
   if (!ok) {
-    ESP_LOGE(TAG, "Failed to write '%s'", path.c_str());
-    ::remove(path.c_str());
+    ESP_LOGE(TAG, "Failed to write '%s'", tmp.c_str());
+    ::remove(tmp.c_str());
+    return false;
+  }
+  this->rotate_();
+
+  const std::string path = dir + "/crash0.txt";
+  if (::rename(tmp.c_str(), path.c_str()) != 0) {
+    ESP_LOGE(TAG, "Cannot rename '%s' to '%s'", tmp.c_str(), path.c_str());
+    ::remove(tmp.c_str());
     return false;
   }
   ESP_LOGW(TAG, "Crash report saved to '%s' (%u bytes)", path.c_str(), static_cast<unsigned>(written));

@@ -103,4 +103,9 @@ inline std::string read_file(const std::string &path) {
   return text.str();
 }
 
+inline void write_file(const std::string &path, const std::string &text) {
+  std::ofstream out(path, std::ios::binary);
+  out << text;
+}
+
 }  // namespace esphome::crash_report::testing

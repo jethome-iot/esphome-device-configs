@@ -212,6 +212,8 @@ TEST_F(Report, AnUnmountedStorageKeepsTheRecord) {
 }
 
 TEST_F(Report, AFolderThatCannotBeCreatedKeepsTheRecord) {
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root ignores the mode bits";
   crash("0x400D2A1B");
   ASSERT_EQ(chmod(backend.path.c_str(), 0555), 0);
   report().setup();
@@ -221,24 +223,35 @@ TEST_F(Report, AFolderThatCannotBeCreatedKeepsTheRecord) {
 }
 
 TEST_F(Report, AFileThatCannotBeOpenedKeepsTheRecordForTheNextBoot) {
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root ignores the mode bits";
   crash("0x400D2A1B");
   ASSERT_EQ(mkdir(dir().c_str(), 0755), 0);
+  write_file(file(0), "older\n");
   ASSERT_EQ(chmod(dir().c_str(), 0555), 0);
   report().setup();
   EXPECT_TRUE(log().has(ESPHOME_LOG_LEVEL_ERROR, "Cannot open"));
-  EXPECT_TRUE(files().empty());
+  EXPECT_EQ(files(), (std::vector<std::string>{"crash0.txt"})) << "the kept report moved";
+  EXPECT_EQ(read_file(file(0)), "older\n");
   EXPECT_EQ(report().clears, 0);
 
   // The next boot finds the record still there and gets it on disk.
   chmod(dir().c_str(), 0755);
   report().setup();
-  EXPECT_EQ(files(), (std::vector<std::string>{"crash0.txt"}));
+  EXPECT_EQ(files(), (std::vector<std::string>{"crash0.txt", "crash1.txt"}));
+  EXPECT_EQ(read_file(file(1)), "older\n");
   EXPECT_EQ(report().clears, 1);
 }
 
 // A full filesystem shows up at close; the size limit stands in for it on the host.
 TEST_F(Report, AWriteThatFailsAtCloseLeavesNoFileAndKeepsTheRecord) {
   crash("0x400D2A1B");
+  ASSERT_EQ(mkdir(dir().c_str(), 0755), 0);
+  std::vector<std::string> kept;
+  for (int i = 0; i < 4; i++) {
+    write_file(file(i), "older " + std::to_string(i) + "\n");
+    kept.push_back("crash" + std::to_string(i) + ".txt");
+  }
   struct rlimit saved {};
   ASSERT_EQ(getrlimit(RLIMIT_FSIZE, &saved), 0);
   auto *previous = signal(SIGXFSZ, SIG_IGN);
@@ -250,7 +263,22 @@ TEST_F(Report, AWriteThatFailsAtCloseLeavesNoFileAndKeepsTheRecord) {
   signal(SIGXFSZ, previous);
 
   EXPECT_TRUE(log().has(ESPHOME_LOG_LEVEL_ERROR, "Failed to write"));
-  EXPECT_TRUE(files().empty()) << "the partial file stayed";
+  // No partial file, and the reports already kept neither shifted nor lost their oldest.
+  EXPECT_EQ(files(), kept);
+  for (int i = 0; i < 4; i++)
+    EXPECT_EQ(read_file(file(i)), "older " + std::to_string(i) + "\n") << "crash" << i;
+  EXPECT_EQ(report().clears, 0);
+}
+
+// A directory squatting on crash0.txt: the report is written but cannot take its name.
+TEST_F(Report, AReportThatCannotBeRenamedLeavesNoTemporaryAndKeepsTheRecord) {
+  crash("0x400D2A1B");
+  report().set_keep(1);
+  ASSERT_TRUE(std::filesystem::create_directories(file(0)));
+  write_file(file(0) + "/inside", "x");
+  report().setup();
+  EXPECT_TRUE(log().has(ESPHOME_LOG_LEVEL_ERROR, "Cannot rename"));
+  EXPECT_EQ(files(), (std::vector<std::string>{"crash0.txt"}));
   EXPECT_EQ(report().clears, 0);
 }
 
