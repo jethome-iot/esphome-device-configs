@@ -82,6 +82,24 @@ TEST(PidCore, ResetDropsTheIntegralButKeepsTheTuning) {
   EXPECT_FLOAT_EQ(0.2f, pid.integral_term()) << "the gain survived, the accumulation did not";
 }
 
+// New limits take a kept integral in at once: clamped only at the next update, it would first
+// move from where it was and land on the limit.
+TEST(PidCore, NewIntegralLimitsClampTheKeptIntegral) {
+  PidCore pid;
+  pid.set_gains(0.f, 0.1f, 0.f);
+  pid.set_integral_limits(-10.f, 10.f);
+  for (int i = 0; i < 4; i++)
+    pid.update(22.f, 20.f, 1.f);
+  ASSERT_FLOAT_EQ(0.8f, pid.integral_term());
+
+  pid.set_integral_limits(-1.f, 0.5f);
+  EXPECT_FLOAT_EQ(0.5f, pid.integral_term());
+  pid.update(20.f, 21.f, 1.f);
+  EXPECT_FLOAT_EQ(0.4f, pid.integral_term());
+  pid.set_integral_limits(0.6f, 1.f);
+  EXPECT_FLOAT_EQ(0.6f, pid.integral_term()) << "and from below";
+}
+
 // Every slot of the pool has a controller from boot, running or not: its smoothing windows
 // take memory only once they are sized, as a controller starts.
 TEST(PidCore, HoldsNoHeapUntilItsWindowsAreSized) {
@@ -158,6 +176,23 @@ TEST(HysteresisCore, CoolsAboveHighAndStopsBelowLow) {
   EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::COOL, 19.f));
   EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::HEAT, 19.f)) << "no heating relay to call on";
   EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::HEAT, 22.f)) << "and too hot is not its to fix in HEAT";
+}
+
+// Nothing latched, as the core starts, after a reset or after an unknown reading, is idle
+// inside the band: off belongs to mode off.
+TEST(HysteresisCore, NothingLatchedInsideTheBandIsIdle) {
+  HysteresisCore hyst;
+  hyst.set_setpoints(20.f, 21.f);
+  hyst.set_directions(true, false);
+  EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::HEAT, 20.5f));
+
+  hyst.update(HubMode::HEAT, 19.f);
+  hyst.reset();
+  EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::HEAT, 20.5f)) << "after a reset";
+  ASSERT_EQ(HubAction::OFF, hyst.update(HubMode::HEAT, NAN));
+  EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::HEAT, 20.5f)) << "after a NaN";
+  ASSERT_EQ(HubAction::OFF, hyst.update(HubMode::OFF, 20.5f));
+  EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::HEAT, 20.5f)) << "after mode off";
 }
 
 // A switching point that is not a number is as unknown as a reading that is not one.

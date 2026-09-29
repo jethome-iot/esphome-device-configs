@@ -38,12 +38,14 @@ class ControllerRuntime {
   RelayClaim *heat_claim() const { return this->heat_claim_; }
   RelayClaim *cool_claim() const { return this->cool_claim_; }
 
-  /// Runs `config` and puts its mode, target and traits on the entity. `last` is the latest
-  /// reading the hub saw arrive from `sensor`: without one the entity shows the sensor's state,
-  /// which may be hours old, and control waits for a reading. Also how a Save applies: the
-  /// claims it keeps carry their relay state and dwell over, the PWM keeps its phase while its
-  /// period stands, and a closed relay keeps the hysteresis latched on it.
-  void start(ClimateConfig *config, sensor::Sensor *sensor, RelayClaim *heat, RelayClaim *cool,
+  /// Runs `config` and puts its mode, target, traits and action on the entity. `last` is the
+  /// latest reading the hub saw arrive from `sensor`: without one the entity shows the sensor's
+  /// state, which may be hours old, and control waits for a reading, sensor_timeout_s from now
+  /// at most. Also how a Save applies: the claims it keeps carry their relay state and dwell
+  /// over, the PWM keeps its phase while its period stands, a closed relay keeps the hysteresis
+  /// latched on it, the PID keeps its state while its law and sensor stand, and so does the
+  /// wait for a first reading while the sensor does.
+  void start(ClimateConfig *config, sensor::Sensor *sensor, RelayClaim *heat, RelayClaim *cool, uint32_t now_ms,
              const Reading &last = Reading{});
   /// Opens both relays through the claims and lets go of them and the document. The entity
   /// reads off, with no temperature.
@@ -60,6 +62,7 @@ class ControllerRuntime {
   /// changed and needs writing.
   bool control(const climate::ClimateCall &call);
 
+  /// OFF only in mode off, on a fault or stopped; otherwise IDLE when neither heating nor cooling.
   HubAction action() const { return this->action_; }
   HubFault fault() const { return this->fault_; }
   bool has_sample() const { return this->has_sample_; }
@@ -73,6 +76,13 @@ class ControllerRuntime {
 
  protected:
   void apply_config_();
+  /// Sets fault_ from the sensor, the reading and the claims; logs a change.
+  void refresh_fault_(uint32_t now_ms);
+  /// What the thermostat is doing until its next pass: the latch, or the PID's duties as the
+  /// mode lets them run.
+  HubAction standing_action_() const;
+  /// Puts `action` on the entity; true when it changed.
+  bool set_action_(HubAction action);
   void run_control_(uint32_t now_ms);
   void drive_outputs_(uint32_t now_ms);
   void all_relays_off_(uint32_t now_ms);
@@ -91,7 +101,11 @@ class ControllerRuntime {
 
   HubAction action_{HubAction::OFF};
   HubFault fault_{HubFault::NONE};
+  // The law the PID state was built under: on a Save, config_ already holds the new one.
+  ControlKind kind_{ControlKind::PID};
   uint32_t last_sample_ms_{0};
+  // Since when the sensor has had its chance to give a first reading.
+  uint32_t waiting_since_ms_{0};
   uint32_t last_control_ms_{0};
   bool has_sample_{false};
   // A pass has run since start(): the next one integrates over the time since.

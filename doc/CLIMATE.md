@@ -12,12 +12,15 @@ C++ API are in [components/climate_hub/README.md](../components/climate_hub/READ
   or cools the other way round. **PID**: drives the relay as a slow PWM, from 0 to 100 % of a
   period of minutes.
 - **Modes**: off, heat, cool, or heat and cool, as far as its relays allow.
-- **Safety**: with no reading yet, a sensor silent for longer than its timeout, or a reading
-  above its cut-out temperature, it opens its relays until that clears. A thermostat that
-  starts on a sensor that has fallen silent shows its last value but does not act on it.
+- **Safety**: it keeps its relays open until its sensor's first reading, and waits for one
+  as long as the sensor timeout before it reports a fault. A sensor silent for longer than its
+  timeout, or a reading above the cut-out temperature, opens the relays until that clears. A
+  thermostat that starts on a sensor that has fallen silent shows its last value but does not
+  act on it.
 - **Relay wear**: a minimum on and off time, 10 s each unless set otherwise, counted from the
   relay's last move, whichever thermostat made it. Saving a thermostat does not restart its
-  cycle.
+  cycle, and a PID keeps what it has learnt unless the Save changes its control law or its
+  sensor.
 - **A relay belongs to the running thermostat.** Switched from anywhere else — the panel,
   Modbus, an automation, Home Assistant — it is put back within a moment. Two thermostats may
   name one relay and take turns, a summer and a winter profile on one boiler; only one of them
@@ -48,6 +51,8 @@ back.
   same entity id (`Room 1` and `Room_1`), nor a thermostat and a climate from the YAML.
 - The room temperature is shown to a tenth of a degree; the target moves in the thermostat's
   own step.
+- A running thermostat that neither heats nor cools shows as idle. Off means mode off, a fault,
+  or a thermostat that is not running.
 
 ## Testing without hardware
 

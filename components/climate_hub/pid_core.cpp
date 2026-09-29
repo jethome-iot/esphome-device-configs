@@ -43,6 +43,16 @@ void PidCore::set_gains(float kp, float ki, float kd) {
 void PidCore::set_integral_limits(float min_integral, float max_integral) {
   this->min_integral_ = min_integral;
   this->max_integral_ = max_integral;
+  // A kept integral moves on from inside the new limits, not from where the old ones left it.
+  this->clamp_integral_();
+  this->integral_term_ = this->accumulated_integral_;
+}
+
+void PidCore::clamp_integral_() {
+  if (!std::isnan(this->min_integral_) && this->accumulated_integral_ < this->min_integral_)
+    this->accumulated_integral_ = this->min_integral_;
+  if (!std::isnan(this->max_integral_) && this->accumulated_integral_ > this->max_integral_)
+    this->accumulated_integral_ = this->max_integral_;
 }
 
 void PidCore::set_samples(int output_samples, int derivative_samples) {
@@ -117,12 +127,7 @@ void PidCore::calculate_proportional_term_() {
 void PidCore::calculate_integral_term_(float dt_s) {
   float new_integral = this->error_ * dt_s * this->ki_;
   this->accumulated_integral_ += this->in_deadband() ? new_integral * this->ki_multiplier_ : new_integral;
-
-  if (!std::isnan(this->min_integral_) && this->accumulated_integral_ < this->min_integral_)
-    this->accumulated_integral_ = this->min_integral_;
-  if (!std::isnan(this->max_integral_) && this->accumulated_integral_ > this->max_integral_)
-    this->accumulated_integral_ = this->max_integral_;
-
+  this->clamp_integral_();
   this->integral_term_ = this->accumulated_integral_;
 }
 

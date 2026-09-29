@@ -704,7 +704,7 @@ bool ClimateHub::start_(ClimateConfig *config, std::string *error) {
     return false;
   }
   const SensorSubscription *sub = this->subscribe_(sensor);
-  slot->runtime.start(config, sensor, heat, cool, sub != nullptr ? sub->last : Reading{});
+  slot->runtime.start(config, sensor, heat, cool, this->now_ms(), sub != nullptr ? sub->last : Reading{});
   this->park_names_like_(config->name, slot);
   slot->entity.show(config->name, this->entity_fields_);
   slot->entity.publish_state();
@@ -733,7 +733,7 @@ bool ClimateHub::restart_(Slot *slot, const std::string &previous_name, std::str
     it = claim->owner() == config->id && claim != heat && claim != cool ? this->let_go_(it, now) : std::next(it);
   }
   const SensorSubscription *sub = this->subscribe_(sensor);
-  slot->runtime.start(config, sensor, heat, cool, sub != nullptr ? sub->last : Reading{});
+  slot->runtime.start(config, sensor, heat, cool, now, sub != nullptr ? sub->last : Reading{});
   if (config->name != previous_name) {
     this->park_names_like_(config->name, slot);
     slot->entity.show(config->name, this->entity_fields_);

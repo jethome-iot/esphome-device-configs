@@ -29,6 +29,7 @@ class SampleWindow {
 class PidCore {
  public:
   void set_gains(float kp, float ki, float kd);
+  /// Also clamps the integral held now.
   void set_integral_limits(float min_integral, float max_integral);
   void set_samples(int output_samples, int derivative_samples);
   void set_deadband(float threshold_low, float threshold_high, float kp_multiplier, float ki_multiplier,
@@ -52,6 +53,7 @@ class PidCore {
   void calculate_proportional_term_();
   void calculate_integral_term_(float dt_s);
   void calculate_derivative_term_(float setpoint, float dt_s);
+  void clamp_integral_();
   void reserve_windows_();
 
   float kp_{0.f};

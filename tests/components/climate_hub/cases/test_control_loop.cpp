@@ -63,8 +63,28 @@ class ControlLoop : public HubTest {
     return config;
   }
 
+  // Every action `entity` publishes from here until the next watch(). Callbacks cannot be
+  // removed and a slot outlives the test, so each entity is hooked once and records only while
+  // it is the one watched.
+  static std::vector<climate::ClimateAction> &watch(HubClimate *entity) {
+    static std::vector<climate::ClimateAction> seen;
+    static HubClimate *watched = nullptr;
+    static std::set<HubClimate *> hooked;
+    seen.clear();
+    watched = entity;
+    if (hooked.insert(entity).second) {
+      entity->add_on_state_callback([entity](climate::Climate &c) {
+        if (watched == entity)
+          seen.push_back(c.action);
+      });
+    }
+    return seen;
+  }
+
   std::string id_;
 };
+
+using Actions = std::vector<climate::ClimateAction>;
 
 }  // namespace
 
@@ -140,6 +160,157 @@ TEST_F(ControlLoop, ModeOffOpensTheRelayAndReportsOff) {
   EXPECT_FALSE(entities().relay1.state);
 }
 
+// Running in a mode other than off, a thermostat that neither heats nor cools is idle, whatever
+// its law: off is for mode off, a fault, or a stopped thermostat.
+TEST_F(ControlLoop, ARunningThermostatThatDoesNothingIsIdle) {
+  for (ControlKind kind : {ControlKind::BANG_BANG, ControlKind::PID}) {
+    SCOPED_TRACE(enums::control_kind_to_string(kind));
+    ClimateConfig config = this->base(kind);
+    config.pid.kp = 0.1f;
+    config.pid.ki = 0.f;
+    this->id_ = this->create(config).id;
+    ControllerRuntime *rt = hub().runtime_of(this->id_);
+    HubClimate *entity = hub().entity_of(this->id_);
+    EXPECT_EQ(climate::CLIMATE_ACTION_IDLE, entity->action) << "as it starts";
+
+    Actions &seen = watch(entity);
+    // On the target, inside the band.
+    entities().room.publish_state(20.5f);
+    tick(200000);
+    EXPECT_EQ(HubAction::IDLE, rt->action());
+    EXPECT_EQ(climate::CLIMATE_ACTION_IDLE, entity->action);
+    EXPECT_EQ(0, std::count(seen.begin(), seen.end(), climate::CLIMATE_ACTION_OFF));
+    EXPECT_FALSE(entities().relay1.state);
+    ASSERT_TRUE(hub().remove(this->id_).ok);
+    reset_entities();
+  }
+}
+
+// A mode change resets the latch; inside the band that leaves the thermostat idle, not off.
+TEST_F(ControlLoop, AModeChangeInsideTheBandIdles) {
+  ControllerRuntime *rt = this->start(with_cooling(this->base(ControlKind::BANG_BANG), true), 20.5f);
+  HubClimate *entity = hub().entity_of(this->id_);
+  tick(200000);
+  ASSERT_EQ(HubAction::IDLE, rt->action());
+
+  call(entity, climate::CLIMATE_MODE_HEAT);
+  tick(201000);
+  EXPECT_EQ(HubAction::IDLE, rt->action());
+  EXPECT_EQ(climate::CLIMATE_ACTION_IDLE, entity->action);
+  call(entity, climate::CLIMATE_MODE_COOL);
+  tick(202000);
+  EXPECT_EQ(HubAction::IDLE, rt->action());
+}
+
+// A mode from Home Assistant is published with the action it leads to, not the one of the mode
+// it replaced: off at once for off, idle until the next pass decides otherwise.
+TEST_F(ControlLoop, AModeChangeShowsItsActionAtOnce) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.mode = HubMode::OFF;
+  ControllerRuntime *rt = this->start(config, 18.f);
+  HubClimate *entity = hub().entity_of(this->id_);
+  tick(200000);
+  ASSERT_EQ(HubAction::OFF, rt->action());
+
+  Actions &seen = watch(entity);
+  call(entity, climate::CLIMATE_MODE_HEAT);
+  EXPECT_EQ(Actions{climate::CLIMATE_ACTION_IDLE}, seen);
+  tick(201000);
+  EXPECT_EQ((Actions{climate::CLIMATE_ACTION_IDLE, climate::CLIMATE_ACTION_HEATING}), seen);
+
+  seen.clear();
+  call(entity, climate::CLIMATE_MODE_OFF);
+  EXPECT_EQ(Actions{climate::CLIMATE_ACTION_OFF}, seen);
+  tick(202000);
+  EXPECT_FALSE(entities().relay1.state);
+  EXPECT_EQ(Actions{climate::CLIMATE_ACTION_OFF}, seen) << "the pass agrees";
+}
+
+// A Save republishes what the thermostat is doing, not "off" until its next pass.
+TEST_F(ControlLoop, ASaveShowsWhatTheThermostatIsDoing) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.safety.max_temperature = 30.f;
+  ControllerRuntime *rt = this->start(config, 18.f);
+  HubClimate *entity = hub().entity_of(this->id_);
+  tick(200000);
+  ASSERT_EQ(HubAction::HEATING, rt->action());
+
+  Actions &seen = watch(entity);
+  config.update_interval_s = 2.f;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  tick(201000);
+  EXPECT_EQ(Actions{climate::CLIMATE_ACTION_HEATING}, seen) << "heating throughout";
+
+  entities().room.publish_state(22.f);
+  tick(203000);
+  ASSERT_EQ(HubAction::IDLE, rt->action());
+  seen.clear();
+  config.update_interval_s = 3.f;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  tick(204000);
+  EXPECT_EQ(Actions{climate::CLIMATE_ACTION_IDLE}, seen) << "idle throughout";
+
+  entities().room.publish_state(35.f);
+  tick(205000);
+  ASSERT_EQ(HubFault::OVERTEMP, rt->fault());
+  seen.clear();
+  LogCapture::instance().clear();
+  config.update_interval_s = 4.f;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  EXPECT_EQ(HubFault::OVERTEMP, rt->fault()) << "the fault stands through the Save";
+  tick(206000);
+  EXPECT_EQ(Actions{climate::CLIMATE_ACTION_OFF}, seen) << "off throughout";
+  EXPECT_FALSE(LogCapture::instance().has("overtemp")) << "and is not reported again";
+}
+
+// A PID in the off half of its PWM period is still heating, and a Save says so.
+TEST_F(ControlLoop, ASaveOfAPidBetweenPulsesShowsHeating) {
+  ClimateConfig config = this->base(ControlKind::PID);
+  config.setpoint = 25.f;
+  config.pid.kp = 0.1f;
+  config.pid.ki = 0.f;
+  config.update_interval_s = 60.f;
+  ControllerRuntime *rt = this->start(config, 20.f);
+  HubClimate *entity = hub().entity_of(this->id_);
+  tick(200000);
+  tick(206000);
+  ASSERT_EQ(HubAction::HEATING, rt->action());
+  ASSERT_FALSE(entities().relay1.state) << "past the half period the relay is open";
+
+  Actions &seen = watch(entity);
+  config.name = "Renamed";
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  tick(207000);
+  EXPECT_EQ(Actions{climate::CLIMATE_ACTION_HEATING}, seen);
+}
+
+// The same for cooling, in cool and in heat and cool.
+TEST_F(ControlLoop, ASaveOfACoolingPidShowsCooling) {
+  for (bool keep_heat : {false, true}) {
+    SCOPED_TRACE(keep_heat ? "heat_cool" : "cool");
+    ClimateConfig config = with_cooling(this->base(ControlKind::PID), keep_heat);
+    config.setpoint = 20.f;
+    config.pid.kp = 0.1f;
+    config.pid.ki = 0.f;
+    config.update_interval_s = 60.f;
+    ControllerRuntime *rt = this->start(config, 25.f);
+    HubClimate *entity = hub().entity_of(this->id_);
+    tick(200000);
+    tick(206000);
+    ASSERT_EQ(HubAction::COOLING, rt->action());
+    ASSERT_FALSE(entities().relay2.state) << "past the half period the relay is open";
+
+    Actions &seen = watch(entity);
+    config.update_interval_s = 30.f;
+    ASSERT_TRUE(hub().update(this->id_, config).ok);
+    tick(207000);
+    EXPECT_EQ(Actions{climate::CLIMATE_ACTION_COOLING}, seen);
+    ASSERT_TRUE(hub().remove(this->id_).ok);
+    reset_entities();
+    hub().ms = 100000;
+  }
+}
+
 // A probe that stops reporting must not leave the heater latched on its last reading.
 TEST_F(ControlLoop, AStaleSensorCutsTheOutput) {
   ClimateConfig config = this->base(ControlKind::BANG_BANG);
@@ -154,12 +325,59 @@ TEST_F(ControlLoop, AStaleSensorCutsTheOutput) {
   EXPECT_EQ(HubAction::OFF, rt->action());
 }
 
-// Until the first sample the thermostat knows nothing, and knowing nothing it does not heat.
-TEST_F(ControlLoop, NoReadingYetIsAStaleSensor) {
-  this->id_ = this->create(this->base(ControlKind::BANG_BANG)).id;
-  tick(200000);
-  EXPECT_EQ(HubFault::SENSOR_STALE, hub().runtime(this->id_)->fault());
+// Until the first sample the thermostat knows nothing, and knowing nothing it does not heat. It
+// waits, idle and without a fault, for as long as the sensor may take to speak.
+TEST_F(ControlLoop, NoReadingYetWaitsOutTheTimeoutWithTheRelaysOpen) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.safety.sensor_timeout_s = 10.f;
+  entities().relay1.turn_on();
+  LogCapture::instance().clear();
+  this->id_ = this->create(config).id;
+  ControllerRuntime *rt = hub().runtime_of(this->id_);
+
+  tick(100000);
+  EXPECT_EQ(HubFault::NONE, rt->fault());
+  EXPECT_EQ(HubAction::IDLE, rt->action());
+  EXPECT_EQ(climate::CLIMATE_ACTION_IDLE, hub().entity_of(this->id_)->action);
+  EXPECT_FALSE(entities().relay1.state) << "no reading, no heating";
+  tick(110000);
+  EXPECT_EQ(HubFault::NONE, rt->fault()) << "the whole timeout, counted from the start";
+  EXPECT_FALSE(LogCapture::instance().has("sensor_stale")) << "waiting is not worth a warning";
+
+  tick(110001);
+  EXPECT_EQ(HubFault::SENSOR_STALE, rt->fault());
+  EXPECT_EQ(HubAction::OFF, rt->action());
+  EXPECT_TRUE(LogCapture::instance().has("sensor_stale"));
   EXPECT_FALSE(entities().relay1.state);
+
+  entities().room.publish_state(18.f);
+  tick(111000);
+  EXPECT_EQ(HubFault::NONE, rt->fault());
+  EXPECT_EQ(HubAction::HEATING, rt->action());
+  EXPECT_TRUE(entities().relay1.state);
+}
+
+// A Save is not a start: it does not give a silent sensor another full timeout. A Save onto
+// another sensor does.
+TEST_F(ControlLoop, TheWaitForAFirstReadingOutlastsASave) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.safety.sensor_timeout_s = 10.f;
+  this->id_ = this->create(config).id;
+  ControllerRuntime *rt = hub().runtime_of(this->id_);
+
+  hub().ms = 108000;
+  config.update_interval_s = 2.f;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  tick(110001);
+  EXPECT_EQ(HubFault::SENSOR_STALE, rt->fault()) << "counted from 100 s, not from the Save";
+
+  config.sensor_id = "floor";
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  EXPECT_EQ(HubFault::NONE, rt->fault()) << "a new sensor gets its own wait";
+  tick(120001);
+  EXPECT_EQ(HubFault::NONE, rt->fault());
+  tick(120002);
+  EXPECT_EQ(HubFault::SENSOR_STALE, rt->fault());
 }
 
 TEST_F(ControlLoop, OvertemperatureCutsTheOutput) {
@@ -225,7 +443,7 @@ TEST_F(ControlLoop, TheLatchDoesNotSurviveAModeChange) {
   call(hub().entity_of(this->id_), climate::CLIMATE_MODE_COOL);
   tick(202000);
   EXPECT_FALSE(rt->heat_relay_on()) << "the heater must not run in COOL";
-  EXPECT_NE(HubAction::HEATING, rt->action());
+  EXPECT_EQ(HubAction::IDLE, rt->action());
 }
 
 // One NaN reading used to leave the integrator NaN for good: every clamp comparison against
@@ -509,7 +727,7 @@ TEST(ControllerRuntimeAlone, AStoppedRuntimeIgnoresEverything) {
   // Running a document that is switched off: the hub never does, but it would not drive either.
   ClimateConfig config = draft("Idle");
   config.enabled = false;
-  rt.start(&config, nullptr, &claim, nullptr);
+  rt.start(&config, nullptr, &claim, nullptr, 2000);
   rt.tick(2000);
   EXPECT_EQ(0, relay.writes);
   EXPECT_EQ(HubAction::OFF, rt.action());
@@ -554,7 +772,9 @@ TEST_F(ControlLoop, AProbeThatLastSaidNothingIsNoReading) {
   ControllerRuntime *rt = hub().runtime_of(this->id_);
   EXPECT_FALSE(rt->has_sample());
   tick(200000);
-  EXPECT_EQ(HubFault::SENSOR_STALE, rt->fault());
+  EXPECT_EQ(HubFault::NONE, rt->fault()) << "waiting, inside the timeout";
+  EXPECT_EQ(HubAction::IDLE, rt->action());
+  EXPECT_FALSE(entities().relay1.state);
 }
 
 // Traits carry two steps: the target's, the thermostat's own, and the room's, which Home
@@ -728,11 +948,99 @@ TEST_F(ControlLoop, ASaveKeepsThePwmPhaseUnlessThePeriodChanges) {
   EXPECT_TRUE(entities().relay1.state) << "a new period begins at the next pass";
 }
 
+// A Save that keeps the law and the sensor keeps what the PID has learnt: a new name or a nudged
+// gain must not dip the room. The next pass integrates from the last one, with the new gains.
+TEST_F(ControlLoop, ASaveKeepsThePidState) {
+  ClimateConfig config = this->base(ControlKind::PID);
+  config.setpoint = 25.f;
+  config.pid.kp = 0.1f;
+  config.pid.ki = 0.01f;
+  config.pid.starting_integral_term = 0.02f;
+  ControllerRuntime *rt = this->start(config, 20.f);
+  tick(200000);
+  tick(201000);
+  tick(202000);
+  // 0.02 to start, then 5 degrees for 2 s at 0.01.
+  ASSERT_NEAR(0.12f, rt->pid().integral_term(), 1e-5f);
+
+  config.name = "Renamed";
+  config.pid.kp = 0.12f;
+  hub().ms = 202500;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  EXPECT_NEAR(0.12f, rt->pid().integral_term(), 1e-5f) << "not back to the starting term";
+  tick(203000);
+  EXPECT_NEAR(0.17f, rt->pid().integral_term(), 1e-5f) << "1 s on from the pass at 202 s";
+  EXPECT_NEAR(5.f * 0.12f + 0.17f, rt->heat_duty(), 1e-4f) << "at the new kp";
+}
+
+// Narrower integral limits take the kept integral in with them at once, not after it has moved.
+TEST_F(ControlLoop, ASaveClampsTheKeptIntegral) {
+  ClimateConfig config = this->base(ControlKind::PID);
+  config.setpoint = 25.f;
+  config.pid.kp = 0.f;
+  config.pid.ki = 0.1f;
+  ControllerRuntime *rt = this->start(config, 20.f);
+  tick(200000);
+  tick(201000);
+  ASSERT_NEAR(0.5f, rt->pid().integral_term(), 1e-5f);
+
+  config.pid.max_integral = 0.3f;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  EXPECT_NEAR(0.3f, rt->pid().integral_term(), 1e-5f);
+  entities().room.publish_state(26.f);
+  tick(202000);
+  EXPECT_NEAR(0.2f, rt->pid().integral_term(), 1e-5f) << "0.3 less 1 degree for 1 s at 0.1";
+}
+
+// What a PID learnt belongs to its law and its sensor: another of either, or a start from
+// stopped, begins again from the starting integral.
+TEST_F(ControlLoop, AnotherLawOrSensorOrAStartResetsThePid) {
+  ClimateConfig config = this->base(ControlKind::PID);
+  config.setpoint = 25.f;
+  config.pid.kp = 0.f;
+  config.pid.ki = 0.01f;
+  config.pid.starting_integral_term = 0.3f;
+  ControllerRuntime *rt = this->start(config, 20.f);
+  tick(200000);
+  tick(201000);
+  ASSERT_NEAR(0.35f, rt->pid().integral_term(), 1e-5f);
+
+  config.sensor_id = "floor";
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  entities().floor.publish_state(20.f);
+  tick(202000);
+  EXPECT_NEAR(0.3f, rt->pid().integral_term(), 1e-5f) << "another sensor";
+  tick(203000);
+  ASSERT_NEAR(0.35f, rt->pid().integral_term(), 1e-5f);
+
+  config.kind = ControlKind::BANG_BANG;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  tick(204000);
+  config.kind = ControlKind::PID;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  tick(205000);
+  EXPECT_NEAR(0.3f, rt->pid().integral_term(), 1e-5f) << "back from the hysteresis";
+  tick(206000);
+  ASSERT_NEAR(0.35f, rt->pid().integral_term(), 1e-5f);
+
+  ASSERT_TRUE(hub().set_enabled(this->id_, false).ok);
+  ASSERT_TRUE(hub().set_enabled(this->id_, true).ok);
+  rt = hub().runtime_of(this->id_);
+  tick(207000);
+  EXPECT_NEAR(0.3f, rt->pid().integral_term(), 1e-5f) << "started from stopped";
+}
+
 // A probe that last spoke a minute ago, beyond its timeout: its value is shown, not acted on.
 TEST_F(ControlLoop, AProbeSilentSinceBeforeTheStartIsStale) {
   ClimateConfig config = this->base(ControlKind::BANG_BANG);
   config.safety.sensor_timeout_s = 10.f;
+  // The hub hears the probe only once a thermostat on it has run.
+  ClimateConfig listener = config;
+  listener.name = "Listener";
+  listener.heat.relay_id = "relay_2";
+  this->create(listener);
   entities().room.publish_state(18.f);
+  ASSERT_TRUE(hub().remove("listener").ok);
   hub().ms += 60000;
   this->id_ = this->create(config).id;
   ControllerRuntime *rt = hub().runtime_of(this->id_);
@@ -745,6 +1053,28 @@ TEST_F(ControlLoop, AProbeSilentSinceBeforeTheStartIsStale) {
   tick(hub().ms + 1000);
   EXPECT_EQ(HubFault::NONE, rt->fault());
   EXPECT_TRUE(entities().relay1.state);
+}
+
+// A reading from before the start is acted on, and the timeout runs from it, not from the start.
+TEST_F(ControlLoop, AReadingFromBeforeTheStartKeepsItsAge) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.safety.sensor_timeout_s = 10.f;
+  ClimateConfig listener = config;
+  listener.name = "Listener";
+  listener.heat.relay_id = "relay_2";
+  this->create(listener);
+  entities().room.publish_state(18.f);
+  ASSERT_TRUE(hub().remove("listener").ok);
+  hub().ms = 105000;
+  this->id_ = this->create(config).id;
+  ControllerRuntime *rt = hub().runtime_of(this->id_);
+
+  tick(109000);
+  EXPECT_EQ(HubFault::NONE, rt->fault());
+  EXPECT_TRUE(entities().relay1.state) << "a reading 9 s old is inside the timeout";
+  tick(110001);
+  EXPECT_EQ(HubFault::SENSOR_STALE, rt->fault()) << "10 s after the reading, 5 s after the start";
+  EXPECT_FALSE(entities().relay1.state);
 }
 
 }  // namespace esphome::climate_hub::testing

@@ -11,12 +11,16 @@ class HysteresisCore {
   void set_setpoints(float low, float high);
   void set_directions(bool supports_heat, bool supports_cool);
 
-  /// NaN anywhere reports OFF rather than IDLE: unknown is not "in range".
+  /// NaN anywhere reports OFF rather than IDLE: unknown is not "in range". Otherwise OFF only
+  /// in mode OFF.
   HubAction update(HubMode mode, float temperature);
 
-  void reset() { this->action_ = HubAction::OFF; }
+  /// Nothing latched: idle inside the band.
+  void reset() { this->action_ = HubAction::IDLE; }
   /// What holds between the switching points until one is crossed.
   void seed(HubAction action) { this->action_ = action; }
+  /// What update() last reported, or the seed.
+  HubAction action() const { return this->action_; }
 
  protected:
   float low_{0.f};
