@@ -35,6 +35,6 @@ to be read before anything is removed.
 ## Checking the behaviour on a device
 
 `events-stall.py` in
-[jethome-devices-utils](https://github.com/jethome-iot/jethome-devices-utils) stalls `/events` clients
+[jxd-devices-utils](https://github.com/jethome-iot/jxd-devices-utils) stalls `/events` clients
 and reports whether the device closes each stalled session itself. It is written to be run against
 both an unfixed and a fixed firmware and to say which it is looking at.
