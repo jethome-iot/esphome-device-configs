@@ -42,13 +42,22 @@ void clamp_output(OutputConfig *out) {
   out->min_off_s = clamp_param("min_off_s", out->min_off_s);
 }
 
+static_assert(ENTITY_ID_MAX_LENGTH == 120, "the sentences below name the limit");
+
 // The rules come in two runs because deserialize() checks the mode word between them: the
 // order is the editor's contract, which reports the first rule a document breaks.
 bool check_wiring(const ClimateConfig &config, std::string *error) {
   if (config.sensor_id.empty())
     return fail(error, "sensor_id is required");
+  // Uncapped, an id could grow the file past what the next boot loads.
+  if (config.sensor_id.size() > ENTITY_ID_MAX_LENGTH)
+    return fail(error, "sensor_id is longer than 120 characters");
   if (!config.heat.configured() && !config.cool.configured())
     return fail(error, "at least one of heat.relay_id / cool.relay_id is required");
+  if (config.heat.relay_id.size() > ENTITY_ID_MAX_LENGTH)
+    return fail(error, "heat.relay_id is longer than 120 characters");
+  if (config.cool.relay_id.size() > ENTITY_ID_MAX_LENGTH)
+    return fail(error, "cool.relay_id is longer than 120 characters");
   // Both directions would share one claim, and the second request each tick would overwrite
   // the first: the controller would run silently inert.
   if (config.heat.configured() && config.heat.relay_id == config.cool.relay_id)
@@ -194,6 +203,20 @@ void ClimateConfig::serialize(JsonObject root) const {
 
   root["mode"] = enums::mode_to_string(this->mode);
   root["setpoint"] = this->setpoint;
+}
+
+EncodeError ClimateConfig::encode(std::string *out, size_t max_bytes, ArduinoJson::Allocator *allocator) const {
+  JsonDocument doc(allocator);
+  this->serialize(doc.to<JsonObject>());
+  // A failed allocation drops members silently; what is left would still serialize.
+  if (doc.overflowed())
+    return EncodeError::NO_MEMORY;
+  if (measureJson(doc) > max_bytes)
+    return EncodeError::TOO_LARGE;
+  std::string json;
+  serializeJson(doc, json);
+  *out = std::move(json);
+  return EncodeError::NONE;
 }
 
 bool ClimateConfig::deserialize(const JsonObject &root, bool require_id, std::string *error) {

@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <string>
 #include "enums.h"
+#include "esphome/core/entity_base.h"
 
 namespace esphome::climate_hub {
 
@@ -14,6 +15,12 @@ static constexpr size_t CONFIG_MAX_BYTES = 8192;
 static constexpr size_t NAME_MAX_LENGTH = 48;
 /// Longest id; `<id>.json.tmp` has to stay inside LittleFS's 64-byte names.
 static constexpr size_t ID_MAX_LENGTH = 48;
+/// Longest sensor_id or relay_id: an object id has one character per byte of the entity's
+/// name, and upstream caps a name at this many bytes.
+static constexpr size_t ENTITY_ID_MAX_LENGTH = ESPHOME_FRIENDLY_NAME_MAX_LEN;
+
+/// Why ClimateConfig::encode() refused.
+enum class EncodeError : uint8_t { NONE, TOO_LARGE, NO_MEMORY };
 
 /// One driven direction. An empty relay_id means the direction is unused.
 struct OutputConfig {
@@ -85,6 +92,11 @@ struct ClimateConfig {
 
   /// Key order is fixed so a golden test can compare byte for byte.
   void serialize(JsonObject root) const;
+
+  /// The file's content. Refused, `out` untouched, when the next boot could not load it back:
+  /// over `max_bytes`, or cut short by an allocation that failed.
+  EncodeError encode(std::string *out, size_t max_bytes = CONFIG_MAX_BYTES,
+                     ArduinoJson::Allocator *allocator = ArduinoJson::detail::DefaultAllocator::instance()) const;
 
   /// Numbers are clamped, a broken rule is refused with a sentence in `error`: the first one
   /// in the editor's order, the name rules last. The name is trimmed, and the setpoint clamped

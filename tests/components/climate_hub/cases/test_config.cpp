@@ -152,6 +152,102 @@ TEST(ClimateConfigJson, OneRelayCannotDriveBothDirections) {
   EXPECT_EQ("heat and cool cannot share one relay", error);
 }
 
+// No object id is longer than upstream lets an entity name be, and an uncapped id could grow
+// the file past what the next boot loads.
+TEST(ClimateConfigJson, AnIdLongerThanAnyObjectIdIsRefused) {
+  const std::string longest(ENTITY_ID_MAX_LENGTH, 'a');
+  const std::string over = longest + "a";
+  auto doc = [](const std::string &sensor, const std::string &heat, const std::string &cool) {
+    return R"({"name":"B","sensor_id":")" + sensor + R"(","heat":{"relay_id":")" + heat + R"("},"cool":{"relay_id":")" +
+           cool + R"("},"mode":"heat"})";
+  };
+  struct Case {
+    std::string json;
+    const char *error;
+  };
+  const Case cases[] = {
+      {doc(over, "r", ""), "sensor_id is longer than 120 characters"},
+      {doc(over, "", ""), "sensor_id is longer than 120 characters"},
+      {doc("s", over, ""), "heat.relay_id is longer than 120 characters"},
+      {doc("s", "r", over), "cool.relay_id is longer than 120 characters"},
+      {doc("s", over, over), "heat.relay_id is longer than 120 characters"},
+  };
+  for (const Case &c : cases) {
+    ClimateConfig parsed;
+    std::string error;
+    EXPECT_FALSE(from_json(c.json, &parsed, &error, false)) << c.json;
+    EXPECT_EQ(c.error, error) << c.json;
+  }
+
+  ClimateConfig parsed;
+  std::string error;
+  EXPECT_TRUE(from_json(doc(longest, longest, std::string(ENTITY_ID_MAX_LENGTH, 'b')), &parsed, &error, false))
+      << error;
+
+  ClimateConfig built = sample();
+  built.cool.relay_id = over;
+  EXPECT_FALSE(built.validate(&error));
+  EXPECT_EQ("cool.relay_id is longer than 120 characters", error);
+}
+
+// Every string at its longest and worst to escape, every number at its widest: the file still
+// fits, so a document the rules accept is one the next boot loads.
+TEST(ClimateConfigJson, TheLargestDocumentTheRulesAllowFitsTheCap) {
+  ClimateConfig c;
+  c.version = 65535;
+  c.id = std::string(ID_MAX_LENGTH, 'a');
+  c.name = std::string(NAME_MAX_LENGTH, '"');
+  c.sensor_id = std::string(ENTITY_ID_MAX_LENGTH, '\0');
+  c.heat.relay_id = std::string(ENTITY_ID_MAX_LENGTH, '\0');
+  c.cool.relay_id = std::string(ENTITY_ID_MAX_LENGTH - 1, '\0') + "x";
+  // The widest a float prints.
+  const float wide = -1.17549435e-38f;
+  c.update_interval_s = c.setpoint = wide;
+  c.heat.period_s = c.heat.min_on_s = c.heat.min_off_s = wide;
+  c.cool.period_s = c.cool.min_on_s = c.cool.min_off_s = wide;
+  c.visual.min_temperature = c.visual.max_temperature = c.visual.step = wide;
+  c.safety.sensor_timeout_s = c.safety.max_temperature = wide;
+  c.bang_bang.below = c.bang_bang.above = wide;
+  PidParams &p = c.pid;
+  p.kp = p.ki = p.kd = p.min_integral = p.max_integral = p.starting_integral_term = wide;
+  p.output_samples = p.derivative_samples = p.deadband_threshold_low = p.deadband_threshold_high = wide;
+  p.deadband_kp_multiplier = p.deadband_ki_multiplier = p.deadband_kd_multiplier = p.deadband_output_samples = wide;
+  std::string error;
+  ASSERT_TRUE(validate_name(c.name, &error)) << error;
+
+  std::string json;
+  ASSERT_EQ(EncodeError::NONE, c.encode(&json));
+  EXPECT_NE(std::string::npos, json.find("\\u0000")) << "the worst escape is the one measured";
+  EXPECT_LT(json.size(), CONFIG_MAX_BYTES / 2) << json;
+}
+
+TEST(ClimateConfigJson, AFileOverTheCapIsNotEncoded) {
+  const std::string golden = GOLDEN;
+  std::string out = "untouched";
+  EXPECT_EQ(EncodeError::TOO_LARGE, sample().encode(&out, golden.size() - 1));
+  EXPECT_EQ("untouched", out);
+  EXPECT_EQ(EncodeError::NONE, sample().encode(&out, golden.size()));
+  EXPECT_EQ(golden, out);
+}
+
+// However far the heap gets, the result is the whole document or a refusal, never a cut one.
+TEST(ClimateConfigJson, ADocumentAFailedAllocationCutIsNotEncoded) {
+  int budget = 0;
+  for (;; budget++) {
+    ASSERT_LT(budget, 1000) << "the whole document never came out";
+    CountdownAllocator allocator(budget);
+    std::string out = "untouched";
+    const EncodeError result = sample().encode(&out, CONFIG_MAX_BYTES, &allocator);
+    if (result == EncodeError::NONE) {
+      EXPECT_EQ(GOLDEN, out);
+      break;
+    }
+    EXPECT_EQ(EncodeError::NO_MEMORY, result) << budget;
+    EXPECT_EQ("untouched", out) << budget;
+  }
+  EXPECT_GT(budget, 1) << "the document needs more than one allocation, so some runs were cut";
+}
+
 // The id becomes a path component, so a hand-edited file must not send the next save
 // somewhere else on the filesystem.
 TEST(ClimateConfigJson, ALoadedIdMustBeASlug) {

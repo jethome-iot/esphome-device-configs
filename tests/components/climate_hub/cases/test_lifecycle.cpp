@@ -449,6 +449,68 @@ TEST_F(HubTest, AFailedCreateLeavesNothingBehind) {
   EXPECT_EQ(4u, hub().free_count());
 }
 
+TEST_F(HubTest, AnIdLongerThanAnyObjectIdIsA400) {
+  ClimateConfig config = draft("Boiler");
+  config.enabled = false;
+  config.sensor_id = std::string(ENTITY_ID_MAX_LENGTH + 1, 'a');
+  Result result = hub().create(config);
+  EXPECT_EQ(400, result.code);
+  EXPECT_EQ("sensor_id is longer than 120 characters", result.error);
+  EXPECT_TRUE(list_dir(this->folder()).empty());
+}
+
+// The next boot refuses a file over the cap, so a Save that would write one writes nothing.
+TEST_F(HubTest, AFileTheNextBootWouldRefuseIsNeverWritten) {
+  ClimateConfig config = draft("Boiler");
+  config.enabled = false;
+  hub().max_file_bytes = 100;
+  Result result = hub().create(config);
+  EXPECT_EQ(413, result.code);
+  EXPECT_EQ("The thermostat's file would be over 8 KiB", result.error);
+  EXPECT_EQ(0u, hub().store().size());
+  EXPECT_TRUE(list_dir(this->folder()).empty());
+
+  hub().max_file_bytes = CONFIG_MAX_BYTES;
+  this->create(config);
+  hub().max_file_bytes = read_file(this->file_of("boiler")).size();
+  ClimateConfig edited = config;
+  edited.setpoint = 24.f;
+  ASSERT_TRUE(hub().update("boiler", edited).ok) << "a file as large as the cap fits";
+  const std::string before = read_file(this->file_of("boiler"));
+  ClimateConfig longer = edited;
+  longer.name = "Boiler room";
+  result = hub().update("boiler", longer);
+  EXPECT_EQ(413, result.code);
+  EXPECT_EQ("Boiler", hub().store().get("boiler")->name);
+  EXPECT_EQ(before, read_file(this->file_of("boiler")));
+  EXPECT_EQ(std::vector<std::string>{"boiler.json"}, list_dir(this->folder()));
+}
+
+// A heap that runs out mid-document would leave a file with keys missing: nothing is written.
+TEST_F(HubTest, ADocumentCutShortByTheHeapIsNeverWritten) {
+  CountdownAllocator empty(0);
+  hub().json_allocator = &empty;
+  Result result = hub().create(draft("Boiler"));
+  EXPECT_EQ(500, result.code);
+  EXPECT_EQ("The thermostat's file could not be written", result.error);
+  EXPECT_EQ(0u, hub().store().size());
+  EXPECT_TRUE(list_dir(this->folder()).empty());
+
+  hub().json_allocator = nullptr;
+  this->create(draft("Boiler"));
+  const std::string before = read_file(this->file_of("boiler"));
+  CountdownAllocator short_heap(3);
+  hub().json_allocator = &short_heap;
+  ClimateConfig edited = draft("Boiler");
+  edited.setpoint = 24.f;
+  result = hub().update("boiler", edited);
+  EXPECT_EQ(500, result.code);
+  EXPECT_FALSE(result.persisted);
+  EXPECT_FLOAT_EQ(21.f, hub().store().get("boiler")->setpoint);
+  EXPECT_EQ(before, read_file(this->file_of("boiler")));
+  hub().json_allocator = nullptr;
+}
+
 // The write goes beside the file and is renamed over it: nothing is left beside it after.
 TEST_F(HubTest, AnAtomicWriteLeavesNoTemporaryFile) {
   this->create(draft("Boiler"));

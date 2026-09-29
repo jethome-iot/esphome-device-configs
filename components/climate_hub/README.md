@@ -87,8 +87,8 @@ component: it would list the entities no thermostat is using.
 | `id`                 | Made from the name when the thermostat is created (`a-z`, `0-9`, single dashes, at most 48; `New` gets `new-2`, since the dashboard opens a blank editor at `new`), then never changes; the file is `<id>.json` |
 | `name`               | 1 to 48 printable ASCII characters, neither `/` nor `\`, trimmed; also the climate entity's name |
 | `kind`               | `bang_bang` (the default) or `pid`                                         |
-| `sensor_id`          | The object id of a temperature sensor, `temp_1` for `Temp 1`              |
-| `heat`, `cool`       | `relay_id`: the object id of a switch, `""` for a direction not used; at least one, and not the same one twice |
+| `sensor_id`          | The object id of a temperature sensor, `temp_1` for `Temp 1`; at most 120 characters, the longest an object id gets |
+| `heat`, `cool`       | `relay_id`: the object id of a switch, `""` for a direction not used; at least one, not the same one twice, at most 120 characters |
 | `mode`               | `off`, `heat`, `cool` or `heat_cool`; a mode needs the relays it drives    |
 | `setpoint`           | The one target, held inside `visual.min_temperature` … `visual.max_temperature` |
 | `bang_bang`          | The switching points sit `below` and `above` the target                   |
@@ -190,9 +190,10 @@ got to it.
 - `sensor_reading(sensor_object_id)`: what a sensor reads now, `NaN` without a reading
 - `create(draft)`, `update(id, doc)`, `remove(id)`, `set_enabled(id, enabled, take_over)`,
   `set_setpoint(id, value)`: each returns a `Result` — `ok`, the HTTP `code` that fits (400,
-  404, 409, 500, 507), an `error` sentence (the one the editor shows), the new `id`, the
-  `holder` of a relay, a `warning` when the thermostat was saved but no climate entity was free
-  to run it, and `persisted`, false when the change is live but did not reach flash
+  404, 409, 413 for a file that would be over 8 KiB, 500, 507), an `error` sentence (the one
+  the editor shows), the new `id`, the `holder` of a relay, a `warning` when the thermostat was
+  saved but no climate entity was free to run it, and `persisted`, false when the change is
+  live but did not reach flash
 - `validate_name(name, &error)`, `is_name_taken(name, exclude_id, &error)`
 
 ## Testing

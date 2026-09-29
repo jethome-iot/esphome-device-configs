@@ -95,14 +95,30 @@ class FakeStorage : public filesystem_storage_abstract::FilesystemStorageAbstrac
   bool request_format() override { return false; }
 };
 
-// The hub with its seams taken: the clock is `ms`, loop jobs and reconnects are counted, and a
-// file can be made undeletable.
+// Hands out `budget` allocations, then refuses every one: a heap that runs out mid-document.
+class CountdownAllocator : public ArduinoJson::Allocator {
+ public:
+  explicit CountdownAllocator(int budget) : budget_(budget) {}
+  void *allocate(size_t size) override { return this->budget_-- > 0 ? malloc(size) : nullptr; }
+  void deallocate(void *ptr) override { free(ptr); }
+  void *reallocate(void *ptr, size_t new_size) override {
+    return this->budget_-- > 0 ? realloc(ptr, new_size) : nullptr;
+  }
+
+ protected:
+  int budget_;
+};
+
+// The hub with its seams taken: the clock is `ms`, loop jobs and reconnects are counted, a file
+// can be made undeletable, and the encoder given a smaller cap or a heap that runs out.
 class TestHub : public ClimateHub {
  public:
   uint32_t ms{100000};
   int loop_jobs{0};
   int resyncs{0};
   std::vector<std::string> undeletable;
+  size_t max_file_bytes{CONFIG_MAX_BYTES};
+  ArduinoJson::Allocator *json_allocator{nullptr};
 
   uint32_t now_ms() const override { return this->ms; }
   bool run_on_loop(std::function<bool()> &&job) override {
@@ -131,6 +147,8 @@ class TestHub : public ClimateHub {
     this->resyncs = 0;
     this->loop_jobs = 0;
     this->undeletable.clear();
+    this->max_file_bytes = CONFIG_MAX_BYTES;
+    this->json_allocator = nullptr;
     this->ha_resync_delay_ms_ = 20;
   }
 
@@ -161,6 +179,11 @@ class TestHub : public ClimateHub {
         return false;
     }
     return ClimateHub::remove_file_(path);
+  }
+  EncodeError encode_(const ClimateConfig &config, std::string *json) const override {
+    if (this->json_allocator == nullptr)
+      return config.encode(json, this->max_file_bytes);
+    return config.encode(json, this->max_file_bytes, this->json_allocator);
   }
 };
 

@@ -25,7 +25,7 @@ namespace esphome::climate_hub {
 /// What a mutator did, for a caller that answers over HTTP.
 struct Result {
   bool ok{false};
-  /// The status that fits: 200, or 400, 404, 409, 500 or 507 on failure.
+  /// The status that fits: 200, or 400, 404, 409, 413, 500 or 507 on failure.
   uint16_t code{200};
   /// On failure, the sentence the editor shows.
   std::string error;
@@ -83,8 +83,8 @@ class ClimateHub : public Component {
 
   /// Adds a thermostat. The draft's id is ignored: one is made from the name. Refused with 400
   /// (a rule broken; enabled, and its sensor or a relay is not on the device), 409 (name taken,
-  /// relay held by a running thermostat, every id the name gives taken), 507 (at
-  /// max_controllers) or 500 (not written).
+  /// relay held by a running thermostat, every id the name gives taken), 413 (the file would be
+  /// over CONFIG_MAX_BYTES), 507 (at max_controllers) or 500 (not written).
   Result create(ClimateConfig draft);
   /// Replaces a thermostat's document; the id stays. A running one keeps its entity and every
   /// relay it still names. 404 for an unknown id, otherwise as create().
@@ -165,7 +165,11 @@ class ClimateHub : public Component {
   std::string folder_() const;
   std::string file_path_(const std::string &id) const;
   bool ensure_folder_();
-  bool save_(const ClimateConfig &config);
+  /// False, nothing written, when the write failed or the next boot could not load the file;
+  /// `too_large` then says whether it was the size.
+  bool save_(const ClimateConfig &config, bool *too_large = nullptr);
+  // Seam: the rules keep every document under the cap, and no host fails one allocation.
+  virtual EncodeError encode_(const ClimateConfig &config, std::string *json) const { return config.encode(json); }
   /// False when the file is still there to be loaded at the next boot.
   bool delete_file_(const std::string &id);
   // Seam: no host filesystem lets a test refuse one unlink.

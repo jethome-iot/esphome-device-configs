@@ -47,6 +47,15 @@ static const char *const NOT_FOUND = "Thermostat not found";
 // The dashboard's editor opens a blank form at /climate/new.
 static const char *const RESERVED_ID = "new";
 
+// A create or update whose file was not written: nothing changed.
+static Result not_saved(bool too_large) {
+  if (too_large)
+    return failure(413, "The thermostat's file would be over 8 KiB");
+  Result result = failure(500, "The thermostat's file could not be written");
+  result.persisted = false;
+  return result;
+}
+
 static Result success() {
   Result result;
   result.ok = true;
@@ -352,11 +361,9 @@ Result ClimateHub::create(ClimateConfig draft) {
   if (draft.enabled && !this->check_startable_(draft, &result))
     return result;
   draft.version = 1;
-  if (!this->save_(draft)) {
-    result = failure(500, "The thermostat's file could not be written");
-    result.persisted = false;
-    return result;
-  }
+  bool too_large = false;
+  if (!this->save_(draft, &too_large))
+    return not_saved(too_large);
 
   ClimateConfig *stored = this->store_.add(draft);
   this->store_.sort_by_id();
@@ -395,11 +402,9 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
   if (doc.enabled && !this->check_startable_(doc, &result))
     return result;
   // Written beside the old file and renamed over it: a failure leaves everything as it was.
-  if (!this->save_(doc)) {
-    result = failure(500, "The thermostat's file could not be written");
-    result.persisted = false;
-    return result;
-  }
+  bool too_large = false;
+  if (!this->save_(doc, &too_large))
+    return not_saved(too_large);
 
   const ClimateConfig previous = *stored;
   Slot *slot = this->slot_for_(id);
@@ -826,15 +831,23 @@ std::string ClimateHub::next_id_(const std::string &name) const {
   return "";
 }
 
-bool ClimateHub::save_(const ClimateConfig &config) {
+bool ClimateHub::save_(const ClimateConfig &config, bool *too_large) {
+  std::string json;
+  const EncodeError encoded = this->encode_(config, &json);
+  if (too_large != nullptr)
+    *too_large = encoded == EncodeError::TOO_LARGE;
+  if (encoded == EncodeError::TOO_LARGE) {
+    ESP_LOGE(TAG, "'%s' not written: over %u bytes", config.id.c_str(), static_cast<unsigned>(CONFIG_MAX_BYTES));
+    return false;
+  }
+  if (encoded == EncodeError::NO_MEMORY) {
+    ESP_LOGE(TAG, "'%s' not written: out of memory", config.id.c_str());
+    return false;
+  }
   if (!this->ensure_folder_()) {
     ESP_LOGE(TAG, "Cannot create '%s'", this->folder_().c_str());
     return false;
   }
-  JsonDocument doc;
-  config.serialize(doc.to<JsonObject>());
-  std::string json;
-  serializeJson(doc, json);
 
   // Written beside the target and renamed over it: a write that fails or loses power leaves
   // the old file whole. The close is where a full filesystem shows up.
