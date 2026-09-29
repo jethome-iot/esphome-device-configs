@@ -130,6 +130,9 @@ class TestHub : public climate_hub::ClimateHub {
       this->stop_(slot);
     this->free_.assign(this->slots_.begin(), this->slots_.end());
     this->claims_.clear();
+    this->relay_history_.clear();
+    for (auto &sub : this->sensor_subs_)
+      sub->last = climate_hub::Reading{};
     this->store_.clear();
     this->dirty_.clear();
     this->cancel_timeout("ha_resync");
