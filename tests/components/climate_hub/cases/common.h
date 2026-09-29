@@ -160,6 +160,8 @@ struct Entities {
   FakeSwitch relay2;
   FakeSwitch relay3;
   YamlClimate hall;
+  // internal: true in YAML; the web server still answers its name.
+  YamlClimate cellar;
 };
 
 inline Entities &entities() {
@@ -172,6 +174,7 @@ inline Entities &entities() {
     App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
     App.register_switch(&e->relay3, "Relay 3", fnv1_hash("relay_3"), 0);
     App.register_climate(&e->hall, "Hall", fnv1_hash("hall"), 0);
+    App.register_climate(&e->cellar, "Cellar", fnv1_hash("cellar"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);
     return e;
   }();
   return *instance;

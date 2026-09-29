@@ -283,7 +283,8 @@ float ClimateHub::sensor_reading(const std::string &sensor_object_id) const {
 }
 
 bool ClimateHub::is_name_taken(const std::string &name, const std::string &exclude_id, std::string *error) const {
-  // Every name another climate answers to: the other thermostats, then the YAML climates.
+  // Every name another climate answers to: the other thermostats, then the YAML climates,
+  // internal ones too, since the web server matches a name whatever the flag.
   std::vector<std::string> others;
   for (const auto &config : this->store_.all()) {
     if (config->id != exclude_id)
@@ -294,7 +295,7 @@ bool ClimateHub::is_name_taken(const std::string &name, const std::string &exclu
     // A running thermostat's own entity is in the list above already, under its document.
     const bool ours = std::any_of(this->slots_.begin(), this->slots_.end(),
                                   [climate](const Slot *slot) { return &slot->entity == climate; });
-    if (!ours && !climate->is_internal())
+    if (!ours)
       others.emplace_back(climate->get_name().c_str());
   }
 #endif

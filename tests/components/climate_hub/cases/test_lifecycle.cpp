@@ -110,6 +110,13 @@ TEST_F(HubTest, AYamlClimatesNameIsRefused) {
   EXPECT_EQ(409, hub().create(draft("HALL")).code) << "same entity id";
 }
 
+// internal: true hides a climate from the lists, not from the web server's name match.
+TEST_F(HubTest, AnInternalYamlClimatesNameIsRefusedToo) {
+  Result result = hub().create(draft("Cellar"));
+  EXPECT_EQ(409, result.code);
+  EXPECT_EQ("\"Cellar\" is already used by another thermostat", result.error);
+}
+
 TEST_F(HubTest, TheNameRulesHold) {
   for (const char *bad : {"a/b", "a\\b", "", "Кухня"}) {
     Result result = hub().create(draft(bad));

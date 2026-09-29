@@ -119,7 +119,7 @@ that keeps a relay leaves it where it is.
 
 A thermostat's name is its entity's name. No two thermostats may share a name, compared without
 case and extra spaces, or two names that give the same entity id (`Room 1` and `Room_1`), and a
-thermostat may not take the name of a climate declared in YAML.
+thermostat may not take the name of a climate declared in YAML, `internal: true` or not.
 
 Home Assistant knows an entity by its name. Renaming a thermostat therefore shows up there as a
 new entity, and the old one becomes unavailable. A thermostat that stops or is removed drops out
