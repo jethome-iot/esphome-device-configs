@@ -142,8 +142,8 @@ one write, and at shutdown.
 The folder is writable by hand, so what it holds is checked at boot:
 
 - at most `max_controllers` files are loaded, in file name order; the rest are left alone;
-- a file whose `id` is not its file name, that is not valid JSON, or that breaks a rule above is
-  refused and left exactly as it is, and its id is not given to a new thermostat;
+- a file whose `id` is not its file name or is `new`, that is not valid JSON, or that breaks a
+  rule above is refused and left exactly as it is, and its id is not given to a new thermostat;
 - a name another thermostat or a YAML climate already has becomes `<name> 2` and is written back;
 - an enabled thermostat whose sensor or relay is missing, or whose relay another one holds,
   stays enabled and does not run.

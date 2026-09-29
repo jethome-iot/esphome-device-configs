@@ -343,6 +343,16 @@ TEST_F(HubTest, BootRefusesABrokenDocumentAndLeavesIt) {
   EXPECT_EQ(not_json, read_file(this->file_of("broken")));
 }
 
+// The dashboard's editor opens a blank form at /climate/new, so a file with that id could never
+// be edited: refused, and left.
+TEST_F(HubTest, BootRefusesTheIdNew) {
+  const std::string text = doc("new", "New");
+  write_file(this->file_of("new"), text);
+  this->reboot();
+  EXPECT_EQ(0u, hub().store().size());
+  EXPECT_EQ(text, read_file(this->file_of("new")));
+}
+
 // An id is loaded once: the same document offered twice is refused the second time.
 TEST_F(HubTest, BootRefusesADuplicateId) {
   write_file(this->file_of("boiler"), doc("boiler", "Boiler"));

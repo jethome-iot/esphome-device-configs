@@ -42,6 +42,8 @@ static Result failure(uint16_t code, std::string error) {
 }
 
 static const char *const NOT_FOUND = "Thermostat not found";
+// The dashboard's editor opens a blank form at /climate/new.
+static const char *const RESERVED_ID = "new";
 
 static Result success() {
   Result result;
@@ -186,6 +188,10 @@ bool ClimateHub::load_file_(const std::string &folder, const std::string &filena
   }
   if (this->store_.get(config.id) != nullptr) {
     ESP_LOGE(TAG, "'%s' refused: id '%s' is loaded already", path.c_str(), config.id.c_str());
+    return false;
+  }
+  if (config.id == RESERVED_ID) {
+    ESP_LOGE(TAG, "'%s' refused: the editor cannot open the id '%s'", path.c_str(), RESERVED_ID);
     return false;
   }
   this->resolve_name_(&config);
@@ -779,8 +785,7 @@ std::string ClimateHub::next_id_(const std::string &name) const {
   const std::string base = slugify_id(name);
   for (unsigned n = 1; n < 1000; n++) {
     const std::string candidate = id_with_suffix(base, n);
-    // The dashboard's editor opens a blank form at /climate/new.
-    if (candidate == "new")
+    if (candidate == RESERVED_ID)
       continue;
     if (this->store_.get(candidate) == nullptr && !file_exists(this->file_path_(candidate)))
       return candidate;
