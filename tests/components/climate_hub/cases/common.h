@@ -23,7 +23,18 @@
 #include "esphome/core/hal.h"
 #include "esphome/core/helpers.h"
 
+#ifdef __SANITIZE_ADDRESS__
+// AddressSanitizer's count of the heap in use; GCC ships no header that declares it.
+extern "C" size_t __sanitizer_get_current_allocated_bytes();
+#endif
+
 namespace esphome::climate_hub::testing {
+
+#ifdef __SANITIZE_ADDRESS__
+// Bytes the process holds on the heap right now. Only the sanitizer's allocator says exactly:
+// glibc counts a small block waiting in its cache as in use.
+inline size_t heap_in_use() { return __sanitizer_get_current_allocated_bytes(); }
+#endif
 
 // Remembers every write; the state follows it like an optimistic template switch.
 class FakeSwitch : public switch_::Switch {

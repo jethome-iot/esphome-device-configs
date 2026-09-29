@@ -1,7 +1,38 @@
 #include "pid_core.h"
+#include <algorithm>
 #include <cmath>
 
 namespace esphome::climate_hub {
+
+void SampleWindow::reserve(size_t samples) {
+  if (samples <= this->values_.size())
+    return;
+  std::vector<float> grown(samples);
+  for (size_t i = 0; i < this->count_; i++)
+    grown[i] = this->values_[(this->head_ + i) % this->values_.size()];
+  this->values_.swap(grown);
+  this->head_ = 0;
+}
+
+float SampleWindow::push_average(float value, size_t samples) {
+  if (samples <= 1) {
+    this->clear();
+    return value;
+  }
+  this->reserve(samples);
+  const size_t capacity = this->values_.size();
+  while (this->count_ >= samples) {
+    this->head_ = (this->head_ + 1) % capacity;
+    this->count_--;
+  }
+  this->values_[(this->head_ + this->count_) % capacity] = value;
+  this->count_++;
+
+  float sum = 0.f;
+  for (size_t i = 0; i < this->count_; i++)
+    sum += this->values_[(this->head_ + i) % capacity];
+  return sum / static_cast<float>(this->count_);
+}
 
 void PidCore::set_gains(float kp, float ki, float kd) {
   this->kp_ = kp;
@@ -17,6 +48,7 @@ void PidCore::set_integral_limits(float min_integral, float max_integral) {
 void PidCore::set_samples(int output_samples, int derivative_samples) {
   this->output_samples_ = output_samples < 1 ? 1 : output_samples;
   this->derivative_samples_ = derivative_samples < 1 ? 1 : derivative_samples;
+  this->reserve_windows_();
 }
 
 void PidCore::set_deadband(float threshold_low, float threshold_high, float kp_multiplier, float ki_multiplier,
@@ -27,6 +59,17 @@ void PidCore::set_deadband(float threshold_low, float threshold_high, float kp_m
   this->ki_multiplier_ = ki_multiplier;
   this->kd_multiplier_ = kd_multiplier;
   this->deadband_output_samples_ = output_samples < 1 ? 1 : output_samples;
+  this->reserve_windows_();
+}
+
+// Sized as a controller starts, so the loop itself allocates nothing; a window of one holds
+// nothing at all.
+void PidCore::reserve_windows_() {
+  if (this->derivative_samples_ > 1)
+    this->derivative_window_.reserve(static_cast<size_t>(this->derivative_samples_));
+  const int output = std::max(this->output_samples_, this->deadband_output_samples_);
+  if (output > 1)
+    this->output_window_.reserve(static_cast<size_t>(output));
 }
 
 void PidCore::reset() {
@@ -37,8 +80,8 @@ void PidCore::reset() {
   this->proportional_term_ = 0.f;
   this->integral_term_ = 0.f;
   this->derivative_term_ = 0.f;
-  this->derivative_list_.clear();
-  this->output_list_.clear();
+  this->derivative_window_.clear();
+  this->output_window_.clear();
 }
 
 // A zero-width deadband (both thresholds 0) can never be inside, which is what switches the
@@ -57,7 +100,7 @@ float PidCore::update(float setpoint, float process_value, float dt_s) {
 
   float output = this->proportional_term_ + this->integral_term_ + this->derivative_term_;
   int samples = this->in_deadband() ? this->deadband_output_samples_ : this->output_samples_;
-  return weighted_average(this->output_list_, output, samples);
+  return this->output_window_.push_average(output, static_cast<size_t>(samples));
 }
 
 void PidCore::calculate_proportional_term_() {
@@ -95,25 +138,10 @@ void PidCore::calculate_derivative_term_(float setpoint, float dt_s) {
   this->previous_setpoint_ = setpoint;
   this->has_previous_setpoint_ = true;
 
-  derivative = weighted_average(this->derivative_list_, derivative, this->derivative_samples_);
+  derivative = this->derivative_window_.push_average(derivative, static_cast<size_t>(this->derivative_samples_));
   this->derivative_term_ = this->kd_ * derivative;
   if (this->in_deadband())
     this->derivative_term_ *= this->kd_multiplier_;
-}
-
-float PidCore::weighted_average(std::deque<float> &list, float new_value, int samples) {
-  if (samples == 1) {
-    list.clear();
-    return new_value;
-  }
-  list.push_front(new_value);
-  while (samples > 0 && list.size() > static_cast<size_t>(samples))
-    list.pop_back();
-
-  float sum = 0.f;
-  for (float v : list)
-    sum += v;
-  return sum / list.size();
 }
 
 }  // namespace esphome::climate_hub

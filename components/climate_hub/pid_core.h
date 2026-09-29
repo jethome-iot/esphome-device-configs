@@ -1,8 +1,27 @@
 #pragma once
 
-#include <deque>
+#include <cstddef>
+#include <vector>
 
 namespace esphome::climate_hub {
+
+/// The newest few values of a series, for a moving average. Storage is taken when a window is
+/// first sized and kept after: every slot of the pool has a controller from boot, and most of
+/// them never run.
+class SampleWindow {
+ public:
+  /// Room for `samples` values, keeping those held; never shrinks.
+  void reserve(size_t samples);
+  /// Adds `value`, keeps the newest `samples` and returns their mean.
+  float push_average(float value, size_t samples);
+  void clear() { this->count_ = 0; }
+
+ protected:
+  // A ring as long as the vector, the oldest value at head_.
+  std::vector<float> values_;
+  size_t head_{0};
+  size_t count_{0};
+};
 
 /// ESPHome's pid control law with the clock lifted out: update() takes dt in seconds, so the
 /// loop is reproducible on the host. Term for term the same as components/pid/pid_controller,
@@ -33,7 +52,7 @@ class PidCore {
   void calculate_proportional_term_();
   void calculate_integral_term_(float dt_s);
   void calculate_derivative_term_(float setpoint, float dt_s);
-  static float weighted_average(std::deque<float> &list, float new_value, int samples);
+  void reserve_windows_();
 
   float kp_{0.f};
   float ki_{0.f};
@@ -60,8 +79,9 @@ class PidCore {
   bool has_previous_setpoint_{false};
   float accumulated_integral_{0.f};
 
-  std::deque<float> derivative_list_;
-  std::deque<float> output_list_;
+  SampleWindow derivative_window_;
+  // Shared by the output averaging inside and outside the deadband, as upstream does.
+  SampleWindow output_window_;
 };
 
 }  // namespace esphome::climate_hub
