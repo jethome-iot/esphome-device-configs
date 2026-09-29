@@ -9,9 +9,10 @@
 #include "routes.h"
 #include <string>
 
-#ifdef USE_ESP32
+#if defined(USE_ESP32) || defined(USE_HOST)
 #include <dirent.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #endif
 
 namespace esphome {

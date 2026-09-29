@@ -255,7 +255,7 @@ paths:
       summary: Delete a file or, recursively, a directory.
       description: >-
         Recursive for a directory, but refuses the mount root and a tree deeper
-        than eight levels (checked before anything is removed). Fields may also be
+        than four levels (checked before anything is removed). Fields may also be
         passed in the query string.
       parameters:
         - $ref: "#/components/parameters/PathQuery"
@@ -325,7 +325,7 @@ paths:
       summary: Copy a file or, recursively, a directory.
       description: >-
         Refuses to copy a path into its own subtree. Recursion is bounded at
-        eight levels. Fields may also be passed in the query string.
+        four levels. Fields may also be passed in the query string.
       parameters:
         - $ref: "#/components/parameters/OldPathQuery"
         - $ref: "#/components/parameters/NewPathQuery"

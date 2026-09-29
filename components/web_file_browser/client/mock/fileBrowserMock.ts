@@ -250,7 +250,7 @@ export function createFileBrowserMockStore(options: FileBrowserMockOptions = {})
   }
 
   /** The device recurses at most this deep into a tree it deletes or copies. */
-  const MAX_DEPTH = 8
+  const MAX_DEPTH = 3
 
   /** Whether a directory sits more than MAX_DEPTH levels below `path`. */
   function tooDeep(path: string): boolean {
