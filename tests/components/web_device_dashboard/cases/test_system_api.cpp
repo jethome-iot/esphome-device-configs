@@ -59,6 +59,17 @@ TEST_F(Dashboard, CapabilitiesNamesTheScreensThisFirmwareServes) {
   EXPECT_EQ(with["climates"]["url_prefix"].as<std::string>(), "/climate-editor");
 }
 
+// Each screen follows its own component: a firmware with the thermostat editor alone offers
+// the Climate screens and nothing else.
+TEST_F(Dashboard, CapabilitiesReportsEachScreenOnItsOwn) {
+  this->dashboard->set_climates_url_prefix("/thermostats");
+  Reply reply = this->get(CAPABILITIES);
+  EXPECT_EQ(reply["climates"]["url_prefix"].as<std::string>(), "/thermostats");
+  EXPECT_EQ(reply["climates"].size(), 1u);
+  EXPECT_TRUE(reply["files"].isUnbound());
+  EXPECT_TRUE(reply["automations"].isUnbound());
+}
+
 TEST_F(Dashboard, CapabilitiesSaysWhenTheStorageDidNotMount) {
   // The Files screen then has nothing to show, and the page has to be able to tell.
   dir_storage::DirStorage unmounted;
