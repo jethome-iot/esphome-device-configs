@@ -41,6 +41,8 @@ static Result failure(uint16_t code, std::string error) {
   return result;
 }
 
+static const char *const NOT_FOUND = "Thermostat not found";
+
 static Result success() {
   Result result;
   result.ok = true;
@@ -275,35 +277,38 @@ float ClimateHub::sensor_reading(const std::string &sensor_object_id) const {
 }
 
 bool ClimateHub::is_name_taken(const std::string &name, const std::string &exclude_id, std::string *error) const {
-  const std::string key = name_key(name);
-  const std::string object_id = object_id_of_name(name);
+  // Every name another climate answers to: the other thermostats, then the YAML climates.
+  std::vector<std::string> others;
   for (const auto &config : this->store_.all()) {
-    if (config->id == exclude_id)
-      continue;
-    if (name_key(config->name) == key) {
-      if (error != nullptr)
-        *error = "a controller named '" + config->name + "' already exists";
-      return true;
-    }
-    if (object_id_of_name(config->name) == object_id) {
-      if (error != nullptr)
-        *error = "'" + name + "' and '" + config->name + "' would share the entity id '" + object_id + "'";
-      return true;
-    }
+    if (config->id != exclude_id)
+      others.push_back(config->name);
   }
 #ifdef USE_CLIMATE
   for (auto *climate : App.get_climates()) {
-    if (climate->is_internal())
-      continue;
+    // A running thermostat's own entity is in the list above already, under its document.
     const bool ours = std::any_of(this->slots_.begin(), this->slots_.end(),
                                   [climate](const Slot *slot) { return &slot->entity == climate; });
-    if (ours || object_id_of(*climate) != object_id)
-      continue;
-    if (error != nullptr)
-      *error = "another climate on this device is named '" + std::string(climate->get_name().c_str()) + "'";
-    return true;
+    if (!ours && !climate->is_internal())
+      others.emplace_back(climate->get_name().c_str());
   }
 #endif
+  const std::string key = name_key(name);
+  for (const std::string &other : others) {
+    if (name_key(other) == key) {
+      if (error != nullptr)
+        *error = "\"" + name + "\" is already used by another thermostat";
+      return true;
+    }
+  }
+  // Home Assistant keys an entity on this id, and drops the second of two that share it.
+  const std::string object_id = object_id_of_name(name);
+  for (const std::string &other : others) {
+    if (object_id_of_name(other) == object_id) {
+      if (error != nullptr)
+        *error = "\"" + name + "\" is too close to \"" + other + "\": both are " + object_id + " to Home Assistant";
+      return true;
+    }
+  }
   return false;
 }
 
@@ -312,7 +317,7 @@ bool ClimateHub::is_name_taken(const std::string &name, const std::string &exclu
 bool ClimateHub::refuse_if_failed_(Result *result) const {
   if (!this->is_failed())
     return false;
-  *result = failure(500, "the thermostat storage is not available");
+  *result = failure(500, "Thermostat storage is not available");
   return true;
 }
 
@@ -326,21 +331,16 @@ Result ClimateHub::create(ClimateConfig draft) {
     return failure(400, error);
   draft.clamp_setpoint();
   if (this->store_.size() >= this->max_controllers_)
-    return failure(507, "controller limit reached: at most " + std::to_string(this->max_controllers_));
+    return failure(507, "This device allows " + std::to_string(this->max_controllers_) +
+                            " thermostats; delete one to add another");
   if (this->is_name_taken(draft.name, "", &error))
     return failure(409, error);
   draft.id = this->next_id_(draft.name);
-  if (draft.enabled) {
-    const std::string holder = this->holder_of_(draft);
-    if (!holder.empty()) {
-      result = failure(409, "a relay it names is held by the running thermostat '" + holder + "'");
-      result.holder = holder;
-      return result;
-    }
-  }
+  if (draft.enabled && !this->check_startable_(draft, &result))
+    return result;
   draft.version = 1;
   if (!this->save_(draft)) {
-    result = failure(500, "could not write the thermostat's file");
+    result = failure(500, "The thermostat's file could not be written");
     result.persisted = false;
     return result;
   }
@@ -367,7 +367,7 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
     return result;
   ClimateConfig *stored = this->store_.get(id);
   if (stored == nullptr)
-    return failure(404, "no such controller");
+    return failure(404, NOT_FOUND);
   std::string error;
   doc.name = trim_name(doc.name);
   if (!doc.validate(&error))
@@ -378,17 +378,11 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
   // The path wins: a Save never re-keys a thermostat.
   doc.id = id;
   doc.version = 1;
-  if (doc.enabled) {
-    const std::string holder = this->holder_of_(doc);
-    if (!holder.empty()) {
-      result = failure(409, "a relay it names is held by the running thermostat '" + holder + "'");
-      result.holder = holder;
-      return result;
-    }
-  }
+  if (doc.enabled && !this->check_startable_(doc, &result))
+    return result;
   // Written beside the old file and renamed over it: a failure leaves everything as it was.
   if (!this->save_(doc)) {
-    result = failure(500, "could not write the thermostat's file");
+    result = failure(500, "The thermostat's file could not be written");
     result.persisted = false;
     return result;
   }
@@ -435,7 +429,7 @@ Result ClimateHub::remove(const std::string &id) {
   if (this->refuse_if_failed_(&result))
     return result;
   if (this->store_.get(id) == nullptr)
-    return failure(404, "no such controller");
+    return failure(404, NOT_FOUND);
   Slot *slot = this->slot_for_(id);
   if (slot != nullptr) {
     this->stop_(slot);
@@ -456,7 +450,7 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
     return result;
   ClimateConfig *stored = this->store_.get(id);
   if (stored == nullptr)
-    return failure(404, "no such controller");
+    return failure(404, NOT_FOUND);
   Slot *slot = this->slot_for_(id);
   result = success();
 
@@ -475,13 +469,15 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
 
   if (slot != nullptr)
     return result;
+  std::string error;
+  if (!this->check_entities_(*stored, &error))
+    return failure(400, error);
   // Taken over in the same job, so the relay is never free for a third party in between.
-  for (std::string holder = this->holder_of_(*stored); !holder.empty(); holder = this->holder_of_(*stored)) {
-    if (!take_over) {
-      result = failure(409, "a relay it names is held by the running thermostat '" + holder + "'");
-      result.holder = holder;
-      return result;
-    }
+  std::string relay_id;
+  for (std::string holder = this->holder_of_(*stored, &relay_id); !holder.empty();
+       holder = this->holder_of_(*stored, &relay_id)) {
+    if (!take_over)
+      return this->relay_held_(relay_id, holder);
     ClimateConfig *held = this->store_.get(holder);
     if (held != nullptr) {
       held->enabled = false;
@@ -502,7 +498,6 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
     result.persisted = this->save_(*stored) && result.persisted;
     this->dirty_.erase(id);
   }
-  std::string error;
   if (this->start_(stored, &error)) {
     this->schedule_ha_resync_();
   } else {
@@ -518,7 +513,7 @@ Result ClimateHub::set_setpoint(const std::string &id, float value) {
     return result;
   ClimateConfig *stored = this->store_.get(id);
   if (stored == nullptr)
-    return failure(404, "no such controller");
+    return failure(404, NOT_FOUND);
   if (std::isnan(value))
     return failure(400, "value must be a number");
   const float target = std::max(stored->visual.min_temperature, std::min(stored->visual.max_temperature, value));
@@ -537,15 +532,60 @@ Result ClimateHub::set_setpoint(const std::string &id, float value) {
 
 // --- Running and stopping ---
 
-std::string ClimateHub::holder_of_(const ClimateConfig &config) const {
+std::string ClimateHub::holder_of_(const ClimateConfig &config, std::string *relay_id) const {
   for (const OutputConfig *out : {&config.heat, &config.cool}) {
     if (!out->configured())
       continue;
     const std::string owner = this->claimed_by(out->relay_id);
-    if (!owner.empty() && owner != config.id)
+    if (!owner.empty() && owner != config.id) {
+      if (relay_id != nullptr)
+        *relay_id = out->relay_id;
       return owner;
+    }
   }
   return "";
+}
+
+bool ClimateHub::check_entities_(const ClimateConfig &config, std::string *error) const {
+  if (find_sensor(config.sensor_id) == nullptr) {
+    *error = "No sensor \"" + config.sensor_id + "\" on this device";
+    return false;
+  }
+  for (const OutputConfig *out : {&config.heat, &config.cool}) {
+    if (out->configured() && find_switch(out->relay_id) == nullptr) {
+      *error = "No switch \"" + out->relay_id + "\" on this device";
+      return false;
+    }
+  }
+  return true;
+}
+
+bool ClimateHub::check_startable_(const ClimateConfig &config, Result *result) const {
+  std::string error;
+  if (!this->check_entities_(config, &error)) {
+    *result = failure(400, error);
+    return false;
+  }
+  std::string relay_id;
+  const std::string holder = this->holder_of_(config, &relay_id);
+  if (holder.empty())
+    return true;
+  *result = this->relay_held_(relay_id, holder);
+  return false;
+}
+
+// Both by the names a person knows them by; the holder's id rides along for a take-over.
+Result ClimateHub::relay_held_(const std::string &relay_id, const std::string &holder) const {
+  std::string relay_name = relay_id;
+#ifdef USE_SWITCH
+  if (switch_::Switch *sw = find_switch(relay_id))
+    relay_name = sw->get_name().c_str();
+#endif
+  const ClimateConfig *held_by = this->store_.get(holder);
+  Result result = failure(
+      409, "\"" + relay_name + "\" is already driven by \"" + (held_by != nullptr ? held_by->name : holder) + "\"");
+  result.holder = holder;
+  return result;
 }
 
 ClimateHub::Slot *ClimateHub::take_free_slot_() {

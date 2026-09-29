@@ -85,7 +85,9 @@ component: it would list the entities no thermostat is using.
 
 Every number is clamped into its range, and a missing one takes its default: the ranges and the
 defaults are the table in `param_table.cpp`. A document that breaks a rule above is refused
-whole with a sentence that says which.
+whole with a sentence that says which. A thermostat that is to run is created, saved or enabled
+only when its sensor and relays are on the device; a disabled one may name what is not there
+yet.
 
 ## Control
 
@@ -157,9 +159,9 @@ got to it.
 - `sensor_reading(sensor_object_id)`: what a sensor reads now, `NaN` without a reading
 - `create(draft)`, `update(id, doc)`, `remove(id)`, `set_enabled(id, enabled, take_over)`,
   `set_setpoint(id, value)`: each returns a `Result` — `ok`, the HTTP `code` that fits (400,
-  404, 409, 500, 507), an `error` sentence, the new `id`, the `holder` of a relay, a `warning`
-  when the thermostat was saved but could not start, and `persisted`, false when the change is
-  live but did not reach flash
+  404, 409, 500, 507), an `error` sentence (the one the editor shows), the new `id`, the
+  `holder` of a relay, a `warning` when the thermostat was saved but no climate entity was free
+  to run it, and `persisted`, false when the change is live but did not reach flash
 - `validate_name(name, &error)`, `is_name_taken(name, exclude_id, &error)`
 
 ## Testing

@@ -196,7 +196,7 @@ TEST(HubFailure, NoStorageMeansNoPoolAndNoChanges) {
 
   Result result = failed.create(draft("Boiler"));
   EXPECT_EQ(500, result.code);
-  EXPECT_EQ("the thermostat storage is not available", result.error);
+  EXPECT_EQ("Thermostat storage is not available", result.error);
   bool ran = false;
   EXPECT_TRUE(failed.run_on_loop([&ran]() {
     ran = true;

@@ -50,11 +50,11 @@ TEST_F(HubTest, CreateRefusesANameAnotherThermostatUses) {
   Result same = hub().create(draft("living   room", "relay_2"));
   EXPECT_FALSE(same.ok);
   EXPECT_EQ(409, same.code);
-  EXPECT_EQ("a controller named 'Living Room' already exists", same.error);
+  EXPECT_EQ("\"living   room\" is already used by another thermostat", same.error);
 
   Result collides = hub().create(draft("Living_Room", "relay_2"));
   EXPECT_EQ(409, collides.code);
-  EXPECT_EQ("'Living_Room' and 'Living Room' would share the entity id 'living_room'", collides.error);
+  EXPECT_EQ("\"Living_Room\" is too close to \"Living Room\": both are living_room to Home Assistant", collides.error);
   EXPECT_EQ(1u, hub().store().size());
 
   this->create(draft("Bathroom", "relay_2"));
@@ -90,7 +90,7 @@ TEST_F(HubTest, ARenameOntoATakenNameIsRefusedButItsOwnNameIsNot) {
 TEST_F(HubTest, AYamlClimatesNameIsRefused) {
   Result result = hub().create(draft("Hall"));
   EXPECT_EQ(409, result.code);
-  EXPECT_EQ("another climate on this device is named 'Hall'", result.error);
+  EXPECT_EQ("\"Hall\" is already used by another thermostat", result.error);
   EXPECT_EQ(409, hub().create(draft("HALL")).code) << "same entity id";
 }
 
@@ -156,7 +156,7 @@ TEST_F(HubTest, TwoRunningThermostatsCannotHoldTheSameRelay) {
   Result second = hub().create(draft("Second", "relay_1"));
   EXPECT_EQ(409, second.code);
   EXPECT_EQ("first", second.holder);
-  EXPECT_EQ("a relay it names is held by the running thermostat 'first'", second.error);
+  EXPECT_EQ("\"Relay 1\" is already driven by \"First\"", second.error);
   EXPECT_EQ(nullptr, hub().store().get("second")) << "nothing written, nothing kept";
   EXPECT_EQ("first", hub().claimed_by("relay_1"));
 }
@@ -267,22 +267,46 @@ TEST_F(HubTest, ASetpointMoveSurvivesAReload) {
   EXPECT_FLOAT_EQ(26.f, hub().store().get("boiler")->setpoint);
 }
 
-TEST_F(HubTest, AMissingSensorLeavesTheDocumentButNotTheEntity) {
-  ClimateConfig bad = draft("Ghost");
-  bad.sensor_id = "no_such_sensor";
-  Result result = this->create(bad);
-  EXPECT_EQ("not started: sensor 'no_such_sensor' not found", result.warning);
+// A thermostat that is to run needs what it names to be there; one that is off may wait for it.
+TEST_F(HubTest, AnEnabledThermostatNeedsItsSensorAndRelays) {
+  ClimateConfig ghost = draft("Ghost");
+  ghost.sensor_id = "no_such_sensor";
+  Result result = hub().create(ghost);
+  EXPECT_EQ(400, result.code);
+  EXPECT_EQ("No sensor \"no_such_sensor\" on this device", result.error);
 
-  EXPECT_NE(nullptr, hub().store().get("ghost")) << "the document is not thrown away";
-  EXPECT_FALSE(hub().is_running("ghost"));
-  EXPECT_EQ(4u, hub().free_count()) << "and it took no slot";
+  result = hub().create(draft("Ghost", "relay_9"));
+  EXPECT_EQ(400, result.code);
+  EXPECT_EQ("No switch \"relay_9\" on this device", result.error);
+  EXPECT_TRUE(list_dir(this->folder()).empty()) << "nothing written";
+
+  ghost.enabled = false;
+  this->create(ghost);
+  EXPECT_EQ(4u, hub().free_count()) << "kept, and it took no slot";
+  result = hub().set_enabled("ghost", true);
+  EXPECT_EQ(400, result.code);
+  EXPECT_EQ("No sensor \"no_such_sensor\" on this device", result.error);
+  EXPECT_FALSE(hub().store().get("ghost")->enabled);
+
+  this->create(draft("Boiler"));
+  ClimateConfig moved = draft("Boiler", "relay_9");
+  result = hub().update("boiler", moved);
+  EXPECT_EQ(400, result.code);
+  EXPECT_EQ("relay_1", hub().store().get("boiler")->heat.relay_id) << "the running one is left as it was";
+  EXPECT_TRUE(hub().is_running("boiler"));
 }
 
-TEST_F(HubTest, AMissingRelayLeavesTheDocumentButNotTheEntity) {
-  Result result = this->create(draft("Ghost", "relay_9"));
-  EXPECT_EQ("not started: relay 'relay_9' not found", result.warning);
-  EXPECT_FALSE(hub().is_running("ghost"));
-  EXPECT_EQ("", hub().claimed_by("relay_9"));
+// Checked before anything is taken over: a refused enable leaves the holder running.
+TEST_F(HubTest, AMissingSensorRefusesATakeOverBeforeItStopsTheHolder) {
+  this->create(draft("Winter", "relay_1"));
+  ClimateConfig summer = draft("Summer", "relay_1");
+  summer.enabled = false;
+  summer.sensor_id = "no_such_sensor";
+  this->create(summer);
+
+  EXPECT_EQ(400, hub().set_enabled("summer", true, true).code);
+  EXPECT_TRUE(hub().is_running("winter"));
+  EXPECT_TRUE(hub().store().get("winter")->enabled);
 }
 
 TEST_F(HubTest, MaxControllersCapsCreation) {
@@ -294,7 +318,7 @@ TEST_F(HubTest, MaxControllersCapsCreation) {
   }
   Result overflow = hub().create(draft("Overflow", "relay_3"));
   EXPECT_EQ(507, overflow.code);
-  EXPECT_EQ("controller limit reached: at most 4", overflow.error);
+  EXPECT_EQ("This device allows 4 thermostats; delete one to add another", overflow.error);
 }
 
 TEST_F(HubTest, ThermostatsReloadFromDiskWithTheirSettings) {

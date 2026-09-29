@@ -86,11 +86,12 @@ struct ClimateConfig {
   /// Key order is fixed so a golden test can compare byte for byte.
   void serialize(JsonObject root) const;
 
-  /// Numbers are clamped, structure is refused with a sentence in `error`. The name is
-  /// trimmed, and the setpoint clamped into the visual range.
+  /// Numbers are clamped, a broken rule is refused with a sentence in `error`: the first one
+  /// in the editor's order, the name rules last. The name is trimmed, and the setpoint clamped
+  /// into the visual range.
   bool deserialize(const JsonObject &root, bool require_id, std::string *error);
 
-  /// The structural rules deserialize() ends with, for a document built in C++.
+  /// The rules deserialize() applies, in its order, for a document built in C++.
   bool validate(std::string *error) const;
 
   /// Holds the setpoint inside the visual range.

@@ -27,13 +27,13 @@ struct Result {
   bool ok{false};
   /// The status that fits: 200, or 400, 404, 409, 500 or 507 on failure.
   uint16_t code{200};
-  /// On failure, a sentence for a person.
+  /// On failure, the sentence the editor shows.
   std::string error;
   /// create(): the id the new thermostat got.
   std::string id;
   /// A 409 over a relay: the id of the running thermostat that holds it.
   std::string holder;
-  /// Saved and enabled but not running, and why: a sensor or a relay that is not there.
+  /// Saved and enabled but not running, and why: no climate entity was free.
   std::string warning;
   /// False when the change is live but did not reach flash, so a reboot undoes it.
   bool persisted{true};
@@ -82,17 +82,17 @@ class ClimateHub : public Component {
   float sensor_reading(const std::string &sensor_object_id) const;
 
   /// Adds a thermostat. The draft's id is ignored: one is made from the name. Refused with 400
-  /// (a rule broken), 409 (name taken, relay held by a running thermostat), 507 (at
-  /// max_controllers) or 500 (not written).
+  /// (a rule broken; enabled, and its sensor or a relay is not on the device), 409 (name taken,
+  /// relay held by a running thermostat), 507 (at max_controllers) or 500 (not written).
   Result create(ClimateConfig draft);
   /// Replaces a thermostat's document; the id stays. A running one keeps its entity and every
   /// relay it still names. 404 for an unknown id, otherwise as create().
   Result update(const std::string &id, ClimateConfig doc);
   /// Stops and deletes a thermostat.
   Result remove(const std::string &id);
-  /// Starts or stops a thermostat and stores the flag. Enabling one whose relay a running
-  /// thermostat holds is a 409 naming the holder, unless `take_over`: the holder is then
-  /// disabled first.
+  /// Starts or stops a thermostat and stores the flag. Enabling one whose sensor or relay is not
+  /// on the device is a 400; one whose relay a running thermostat holds is a 409 naming the
+  /// holder, unless `take_over`: the holder is then disabled first.
   Result set_enabled(const std::string &id, bool enabled, bool take_over = false);
   /// Moves the target, clamped into the visual range, running or not.
   Result set_setpoint(const std::string &id, float value);
@@ -133,8 +133,14 @@ class ClimateHub : public Component {
   bool restart_(Slot *slot, const std::string &previous_name, std::string *error);
   bool acquire_claims_(const ClimateConfig &config, RelayClaim **heat, RelayClaim **cool, std::string *error);
   void release_claims_(const std::string &owner);
-  /// The running thermostat, other than `config` itself, that holds one of its relays.
-  std::string holder_of_(const ClimateConfig &config) const;
+  /// The running thermostat, other than `config` itself, that holds one of its relays, and
+  /// which relay.
+  std::string holder_of_(const ClimateConfig &config, std::string *relay_id = nullptr) const;
+  /// Whether the sensor and the relays `config` names are on this device.
+  bool check_entities_(const ClimateConfig &config, std::string *error) const;
+  /// Whether `config` could run now: 400 for a missing entity, 409 for a relay held elsewhere.
+  bool check_startable_(const ClimateConfig &config, Result *result) const;
+  Result relay_held_(const std::string &relay_id, const std::string &holder) const;
   Slot *slot_for_(const std::string &id) const;
   Slot *take_free_slot_();
   void subscribe_(sensor::Sensor *sensor);

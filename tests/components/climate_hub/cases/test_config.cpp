@@ -229,12 +229,15 @@ TEST(NameRules, WhatANameMayBe) {
     const char *error;
   };
   const Case cases[] = {
-      {"", "name is required"},
-      {std::string(49, 'a'), "name must be at most 48 characters"},
-      {"Up/down", "name must not contain '/' or '\\'"},
-      {"Back\\slash", "name must not contain '/' or '\\'"},
-      {"Кухня", "name must use printable ASCII characters only"},
-      {"Tab\there", "name must use printable ASCII characters only"},
+      {"", "Name is required"},
+      {std::string(49, 'a'), "Name is longer than 48 characters"},
+      {"Up/down", "Name cannot contain '/'"},
+      {"Back\\slash", "Name cannot contain '\\'"},
+      {"Кухня", "Use printable ASCII characters only"},
+      {"Tab\there", "Use printable ASCII characters only"},
+      // The whole name is checked for each rule in turn, not character by character.
+      {"a/b\tc", "Use printable ASCII characters only"},
+      {"a\\b/c", "Name cannot contain '/'"},
   };
   for (const Case &c : cases) {
     EXPECT_FALSE(validate_name(c.name, &error)) << c.name;
@@ -246,9 +249,48 @@ TEST(NameRules, TheDocumentRefusesABrokenName) {
   ClimateConfig parsed;
   std::string error;
   EXPECT_FALSE(from_json(R"({"name":"a/b","sensor_id":"s","heat":{"relay_id":"r"}})", &parsed, &error, false));
-  EXPECT_EQ("name must not contain '/' or '\\'", error);
+  EXPECT_EQ("Name cannot contain '/'", error);
   EXPECT_FALSE(from_json(R"({"name":"   ","sensor_id":"s","heat":{"relay_id":"r"}})", &parsed, &error, false));
+  EXPECT_EQ("Name is required", error);
+}
+
+// The editor reports the first rule a document breaks, in the order its client mirrors: the
+// structure first, the mode word between the ranges and the mode's relays, the name rules last.
+TEST(ClimateConfigJson, TheFirstBrokenRuleIsTheOneReported) {
+  struct Case {
+    const char *json;
+    const char *error;
+  };
+  const Case cases[] = {
+      {R"({"name":"a/b","heat":{"relay_id":"r"}})", "sensor_id is required"},
+      {R"({"name":"a/b","sensor_id":"s","heat":{"relay_id":"r"},"mode":"dry"})",
+       "mode must be one of off/heat/cool/heat_cool"},
+      {R"({"name":"B","heat":{"relay_id":"r"},"mode":"dry"})", "sensor_id is required"},
+      {R"({"name":"B","sensor_id":"s","heat":{"relay_id":"r"},"mode":"dry","pid":{"min_integral":1,"max_integral":-1}})",
+       "pid.max_integral must not be below pid.min_integral"},
+      {R"({"name":"a/b","sensor_id":"s","heat":{"relay_id":"r"},"mode":"cool"})", "mode 'cool' needs cool.relay_id"},
+      {R"({"name":"a/b","kind":"kettle"})", "kind must be 'pid' or 'bang_bang'"},
+  };
+  for (const Case &c : cases) {
+    ClimateConfig parsed;
+    std::string error;
+    EXPECT_FALSE(from_json(c.json, &parsed, &error, false)) << c.json;
+    EXPECT_EQ(c.error, error) << c.json;
+  }
+}
+
+// A number where a string belongs is missing, not its JSON text.
+TEST(ClimateConfigJson, ANumberIsNoName) {
+  ClimateConfig parsed;
+  std::string error;
+  EXPECT_FALSE(from_json(R"({"name":5,"sensor_id":"s","heat":{"relay_id":"r"}})", &parsed, &error, false));
   EXPECT_EQ("name is required", error);
+  EXPECT_FALSE(from_json(R"({"name":"B","sensor_id":5,"heat":{"relay_id":"r"}})", &parsed, &error, false));
+  EXPECT_EQ("sensor_id is required", error);
+  EXPECT_FALSE(from_json(R"({"name":"B","sensor_id":"s","heat":{"relay_id":1}})", &parsed, &error, false));
+  EXPECT_EQ("at least one of heat.relay_id / cool.relay_id is required", error);
+  ASSERT_TRUE(from_json(R"({"id":7,"name":"B","sensor_id":"s","heat":{"relay_id":"r"}})", &parsed, &error, false));
+  EXPECT_EQ("", parsed.id);
 }
 
 // What Home Assistant and every object-id-keyed record know the entity by.
