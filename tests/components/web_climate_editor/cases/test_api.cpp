@@ -532,6 +532,10 @@ TEST_F(Editor, EnableNeedsTheSensorBeforeItTakesAnythingOver) {
 
 // --- setpoint ---
 
+// The stand-in hands a query over undecoded (#90), so each value below is what the handler
+// reads once the device's server has decoded it: a '+' in one was sent as %2B, since a bare
+// '+' decodes to a space.
+
 TEST_F(Editor, SetpointMovesTheTargetRunningOrNot) {
   ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
   Reply reply = this->post("setpoint?id=living-room&value=23.5");
@@ -575,7 +579,7 @@ TEST_F(Editor, SetpointReadsItsValueStrictly) {
   EXPECT_EQ(reply.error(), "Thermostat not found");
 }
 
-// Every way the client's String(value) or a person may write a decimal.
+// Every way a person, or the client's String(value), may write a decimal.
 TEST_F(Editor, SetpointTakesEveryDecimalNotation) {
   ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
   for (const auto &good : {std::pair<const char *, float>{"2.2E1", 22.f},

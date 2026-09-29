@@ -67,10 +67,12 @@ seconds. Nothing was read or written then, and the call can simply be made again
 | GET | `ping` | `{"status": "ok"}` |
 
 `save` reads a raw JSON body, so it needs a `Content-Type` that is not a form:
-`application/json`. A form-encoded body is parsed into fields by the server and answered
-`Empty request body`; a body over 8 KiB is `413`. A missing number takes its default and every
-number is clamped into its range, so a partial document is accepted. The refusals come in this
-order, and the first one a document meets is the answer:
+`application/json`. A form body (`application/x-www-form-urlencoded`, or no `Content-Type` at
+all) is parsed into fields by the server instead: up to 1024 bytes it is answered
+`Empty request body`, and a longer one gets the server's own bare `400` before it reaches this
+API. A JSON body over 8 KiB is `413`. A missing number takes its default and every number is
+clamped into its range, so a partial document is accepted. The refusals come in this order, and
+the first one a document meets is the answer:
 
 1. `400`: the body is empty or not JSON, or the document breaks a rule of the file format — the
    structure first, the name rules last (`Name is required`, `Name cannot contain '/'`, …);
@@ -87,12 +89,15 @@ answer names it: `Thermostat enabled; "Living Room" stopped`.
 An `id` is the thermostat's slug (`a-z`, `0-9`, single dashes, at most 48): a missing one is
 `Missing id parameter`, anything else `Invalid id parameter`. `value` and `take_over` of
 `enable` are `true` or `false` exactly, and `value` of `setpoint` a plain decimal number; `nan`,
-`inf`, hex and padding are refused.
+`inf`, hex and padding are refused. A `+` in it goes as `%2B`: the server decodes a bare `+`
+to a space.
 
 Every failure is `{"success": false, "error"}`, with the sentence an editor shows: `400` for a
 bad request, `404` for an unknown `id` or path, `405` for the wrong method, `409` for a name or
-a relay in use, `413` for an oversized body, `500` when the file could not be written (nothing
-changed then), `503` when the loop was busy and `507` at `max_controllers`. The same contract,
+a relay in use, `413` for an oversized body, `500` when nothing could be written, `503` when the
+loop was busy and `507` at `max_controllers`. A `500` changed nothing: `The thermostat's file
+could not be written`, or `Thermostat storage is not available` when the storage was not usable
+at boot — then every write gets it, a save before its body is even read. The same contract,
 machine-readable: [openapi.yaml](openapi.yaml) (OpenAPI 3.1).
 
 A rename reaches Home Assistant as a new entity, and a thermostat that starts, stops, is removed

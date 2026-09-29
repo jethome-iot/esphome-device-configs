@@ -114,8 +114,11 @@ paths:
         or not, and the id stays. A missing number takes its default and every
         number is clamped into the range `/schema` gives, so a partial document
         is accepted. The body is read raw, so the request needs a `Content-Type`
-        that is not a form: a form-encoded body is parsed into fields by the
-        server and answered `Empty request body`.
+        that is not a form: `application/json`. A form body
+        (`application/x-www-form-urlencoded`, or no `Content-Type` at all) is
+        parsed into fields by the server instead: up to 1024 bytes it is
+        answered `Empty request body`, and a longer one gets the server's own
+        bare `400` before it reaches this API.
 
         The refusals come in this order, and the first one a document meets is
         the answer: `400` for an empty body, a body that is not JSON, or a
@@ -124,7 +127,8 @@ paths:
         `max_controllers`; `409` for a name another thermostat or a YAML
         climate answers to; and, for an enabled thermostat, `400` when its
         sensor or a relay is not on the device, then `409` when a running
-        thermostat holds its relay.
+        thermostat holds its relay. While the thermostat storage is not
+        usable, a body is `500` before it is read.
       requestBody:
         required: true
         content:
@@ -201,6 +205,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/NotWritten"
         "503":
           $ref: "#/components/responses/Busy"
 
@@ -248,6 +254,8 @@ paths:
           $ref: "#/components/responses/MethodNotAllowed"
         "409":
           $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/NotWritten"
         "503":
           $ref: "#/components/responses/Busy"
 
@@ -265,7 +273,10 @@ paths:
         - name: value
           in: query
           required: true
-          description: A plain decimal number, optionally with an exponent; `nan`, `inf`, hex and padding are `400`.
+          description: >-
+            A plain decimal number, optionally with an exponent; `nan`, `inf`,
+            hex and padding are `400`. Send a `+` as `%2B`: the server decodes a
+            bare `+` in the query to a space.
           schema:
             type: string
             pattern: "^[+-]?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?$"
@@ -288,6 +299,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/NotWritten"
         "503":
           $ref: "#/components/responses/Busy"
 
@@ -490,14 +503,23 @@ components:
                 success: false
                 error: '"Relay 1" is already driven by "Living Room"'
     NotWritten:
-      description: The thermostat's file could not be written; nothing changed.
+      description: >-
+        Nothing changed: the thermostat's file could not be written, or the
+        storage the thermostats live on was not usable at boot, and every
+        write is refused until a restart finds it usable.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
-          example:
-            success: false
-            error: The thermostat's file could not be written
+          examples:
+            file:
+              value:
+                success: false
+                error: The thermostat's file could not be written
+            storage:
+              value:
+                success: false
+                error: Thermostat storage is not available
     Busy:
       description: The main loop did not take the request in time. Nothing was read or written; ask again.
       content:
