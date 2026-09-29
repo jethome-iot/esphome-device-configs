@@ -25,7 +25,8 @@ class RelayClaim {
 
   void set_dwell(uint32_t min_on_ms, uint32_t min_off_ms);
 
-  /// Returns what the relay is left at, which lags `want` while a dwell floor still runs.
+  /// Returns what the relay is left at, which lags `want` while a dwell floor still runs. A
+  /// relay something else moved is put back first.
   bool request(bool want, uint32_t now_ms);
 
   /// Safety and teardown path: opens the relay regardless of the min-on floor, and also when
@@ -44,6 +45,8 @@ class RelayClaim {
 
  protected:
   void apply_(bool on, uint32_t now_ms);
+  /// Whether the relay has stayed where it is for its min_on or min_off.
+  bool dwell_over_(uint32_t now_ms) const;
   /// The switch's own state; the claim's belief when there is no switch.
   bool relay_state_() const;
 

@@ -159,6 +159,57 @@ TEST(RelayClaim, TakesTheRelayBackWhenSomethingElseMovedIt) {
   EXPECT_TRUE(claim.state());
 }
 
+// The put-back is a move like any other: the dwell runs from it, not from the claim's last one.
+TEST(RelayClaim, TheDwellCountsFromThePutBack) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.set_dwell(60000, 60000);
+  claim.request(true, 0);
+  relay.turn_off();  // someone else
+
+  EXPECT_TRUE(claim.request(true, 10000));
+  EXPECT_TRUE(claim.request(false, 69999)) << "closed again at 10 s, so min_on runs to 70 s";
+  EXPECT_FALSE(claim.request(false, 70000));
+  EXPECT_FALSE(relay.state);
+}
+
+// Closed from elsewhere inside min_off, on the very tick the demand turns on: it is opened
+// again and min_off starts over, rather than left closed for the rest of the hold while the
+// claim believes it open.
+TEST(RelayClaim, ARelayClosedElsewhereInsideMinOffIsOpenedEvenAsTheDemandTurnsOn) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.set_dwell(0, 60000);
+  claim.request(true, 0);
+  claim.request(false, 1000);
+  relay.turn_on();  // someone else, 1 s into min_off
+
+  EXPECT_FALSE(claim.request(true, 2000));
+  EXPECT_FALSE(relay.state) << "the claim and the switch agree";
+  EXPECT_FALSE(claim.request(true, 61999)) << "opened again at 2 s, so min_off runs to 62 s";
+  EXPECT_FALSE(relay.state);
+  EXPECT_TRUE(claim.request(true, 62000));
+  EXPECT_TRUE(relay.state);
+}
+
+// Closed from elsewhere once min_off is over, as the demand turns on: already where the demand
+// goes, it stays, with no open and close in between.
+TEST(RelayClaim, ARelayMovedWhereTheDemandMayGoStays) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.set_dwell(5000, 5000);
+  claim.request(true, 0);
+  claim.request(false, 5000);
+  relay.turn_on();  // someone else, 5 s after it opened
+  const int writes = relay.writes;
+
+  EXPECT_TRUE(claim.request(true, 10000));
+  EXPECT_TRUE(relay.state);
+  EXPECT_EQ(writes + 1, relay.writes) << "one write that keeps it closed";
+  EXPECT_TRUE(claim.request(false, 14999)) << "min_on runs from 10 s";
+  EXPECT_FALSE(claim.request(false, 15000));
+}
+
 // During a fault the claim already believes the relay open; one closed by hand in the meantime
 // has to be opened again, which only the switch's own state can tell.
 TEST(RelayClaim, ForceOffReopensARelayClosedByHand) {

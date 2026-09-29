@@ -115,7 +115,7 @@ yet.
   while a thermostat was running on that sensor, and the timeout runs from that reading;
   otherwise it waits for the next one.
 - `min_on_s` and `min_off_s` hold a relay closed or open that long after it moved, whichever
-  thermostat moved it; a safety cut-out does not wait for them.
+  thermostat moved it or put it back; a safety cut-out does not wait for them.
 - A Save keeps what the relays are doing: inside the band the relay stays as it was, and the
   PWM keeps its rhythm unless `period_s` changes. Unless it changes `kind` or `sensor_id`, it
   also keeps what a PID has learnt: new gains apply from the next pass, and the integral is

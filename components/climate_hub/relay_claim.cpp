@@ -24,24 +24,20 @@ bool RelayClaim::request(bool want, uint32_t now_ms) {
     this->apply_(want, now_ms);
     return this->state_;
   }
-  // Compared against the switch, not against our own belief: a bang-bang output sits at one
-  // demand for hours, so a relay toggled from elsewhere would otherwise stay wrong until the
-  // demand itself changed.
-  const bool relay_agrees = this->relay_state_() == this->state_;
-  if (want == this->state_ && relay_agrees)
-    return this->state_;
-  if (want == this->state_) {
-    this->apply_(this->state_, this->last_change_ms_);
+  // A relay moved from elsewhere is settled first, against the switch rather than our belief:
+  // it goes back, and its dwell restarts there, since it did move. It stays only where the
+  // demand may take it now anyway.
+  if (this->relay_state_() != this->state_) {
+    this->apply_(want != this->state_ && this->dwell_over_(now_ms) ? want : this->state_, now_ms);
     return this->state_;
   }
-
-  uint32_t held_for = now_ms - this->last_change_ms_;
-  uint32_t floor = this->state_ ? this->min_on_ms_ : this->min_off_ms_;
-  if (held_for < floor)
-    return this->state_;
-
-  this->apply_(want, now_ms);
+  if (want != this->state_ && this->dwell_over_(now_ms))
+    this->apply_(want, now_ms);
   return this->state_;
+}
+
+bool RelayClaim::dwell_over_(uint32_t now_ms) const {
+  return now_ms - this->last_change_ms_ >= (this->state_ ? this->min_on_ms_ : this->min_off_ms_);
 }
 
 void RelayClaim::force_off(uint32_t now_ms) {
