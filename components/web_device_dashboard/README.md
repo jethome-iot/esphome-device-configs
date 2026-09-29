@@ -31,9 +31,9 @@ mount: `/api/device/system/factory-reset` wipes it, and `/api/device/capabilitie
 Both are optional and no route disappears without them — `/api/device/info` omits the board
 block, and a factory reset clears only the stored settings.
 
-The Files and Automations screens need no option of their own: the component reads the
-`url_prefix` of a `web_file_browser` and a `web_automation_editor` off the config and reports
-whichever of them this firmware has in `/api/device/capabilities`.
+The Files, Automations and Climate screens need no option of their own: the component reads
+the `url_prefix` of a `web_file_browser`, a `web_automation_editor` and a `web_climate_editor`
+off the config and reports whichever of them this firmware has in `/api/device/capabilities`.
 
 The handler registers on the shared `web_server_base` ahead of `web_server`'s, so `/` is the
 dashboard and `web_server`'s own page is not reachable; its REST routes, `/events` and its
@@ -79,8 +79,8 @@ always there, the latter with `clears_storage` — whether a reset also takes th
 and the automation rules with it. `rollback` names the other app slot and the ESPHome version
 of the image in it; that version is what a confirmation dialog should show, because after one
 rollback the other slot is the *newer* firmware. It is absent on a board that has never been
-updated over the air. `storage`, `files`, `automations`, `entity_settings` and `board_info`
-follow the components the firmware was built with. `storage` says what the mount is, not how
+updated over the air. `storage`, `files`, `automations`, `climates`, `entity_settings` and
+`board_info` follow the components the firmware was built with. `storage` says what the mount is, not how
 full it is: usage is live and this route is read once, so the byte counts stay in the file
 API's own `info`.
 

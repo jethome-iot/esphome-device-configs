@@ -48,12 +48,15 @@ TEST_F(Dashboard, CapabilitiesNamesTheScreensThisFirmwareServes) {
   Reply without = this->get(CAPABILITIES);
   EXPECT_TRUE(without["files"].isUnbound());
   EXPECT_TRUE(without["automations"].isUnbound());
+  EXPECT_TRUE(without["climates"].isUnbound());
 
   this->dashboard->set_files_url_prefix("/files");
   this->dashboard->set_automations_url_prefix("/automation-editor");
+  this->dashboard->set_climates_url_prefix("/climate-editor");
   Reply with = this->get(CAPABILITIES);
   EXPECT_EQ(with["files"]["url_prefix"].as<std::string>(), "/files");
   EXPECT_EQ(with["automations"]["url_prefix"].as<std::string>(), "/automation-editor");
+  EXPECT_EQ(with["climates"]["url_prefix"].as<std::string>(), "/climate-editor");
 }
 
 TEST_F(Dashboard, CapabilitiesSaysWhenTheStorageDidNotMount) {
