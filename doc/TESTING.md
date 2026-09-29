@@ -46,6 +46,7 @@ tests/
                               # which the host platform has no header for
     web_auth/
     web_automation_editor/
+    web_climate_editor/
     web_device_dashboard/
     web_file_browser/
     web_origin_guard/

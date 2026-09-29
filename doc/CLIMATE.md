@@ -3,8 +3,11 @@
 Thermostats the device runs without a recompile. Each one reads a temperature sensor in °C — a
 `Temp N` probe, say — and switches a heating relay, a cooling relay or both, with a hysteresis
 (bang-bang) or a PID control law. Each running thermostat is a climate entity: Home Assistant
-and the web server show it and set its mode and target like any other. The file format and the
-C++ API are in [components/climate_hub/README.md](../components/climate_hub/README.md).
+and the web server show it and set its mode and target like any other. Thermostats are
+created, changed, started, stopped and removed while the device runs: over HTTP under
+`/climate-editor/api`, from a lambda, or by writing into the folder by hand and rebooting. The
+file format and the C++ API are in
+[components/climate_hub/README.md](../components/climate_hub/README.md).
 
 ## What a thermostat does
 
@@ -37,6 +40,19 @@ under `/files` for instance, is loaded at the next boot.
 A thermostat whose sensor or relay is missing at boot stays on disk, not running, until it is
 back.
 
+## Over HTTP
+
+`features/climate-editor.yaml` serves the thermostats on the web server port under
+`/climate-editor/api`: list them, read, create, change and delete one, start or stop it, move
+its target, and watch what each one is doing. The routes and their contract are in
+[components/web_climate_editor/openapi.yaml](../components/web_climate_editor/openapi.yaml),
+the usage in [its README](../components/web_climate_editor/README.md).
+
+A thermostat that is to run is saved or started only when its sensor and relays are on the
+device, and not while another running thermostat drives its relay: starting it can take the
+relay over instead, which stops the other one and stores it as disabled. A disabled thermostat
+may name a sensor or a relay that is not there yet.
+
 ## Home Assistant
 
 - Home Assistant knows an entity by its name, so **renaming a thermostat makes a new entity
@@ -58,10 +74,12 @@ back.
 
 ```bash
 python tests/run.py climate_hub [-- --gtest_filter='ControlLoop.*']
+python tests/run.py web_climate_editor
 ```
 
 Builds the component for the host platform into a Google Test binary: the control laws, the
 relay timing, the file format, and the whole component over a directory that stands in for the
-flash, with a clock the test moves. In the emulator, `packages/qemu/climate-plant.yaml` adds a
+flash, with a clock the test moves. The second suite drives every HTTP route through the
+handler, over the real component and a stand-in for the web server. In the emulator, `packages/qemu/climate-plant.yaml` adds a
 `QEMU Room Temperature` sensor that `Relay 1` warms, so a thermostat has a room to control
 ([QEMU](QEMU.md)).
