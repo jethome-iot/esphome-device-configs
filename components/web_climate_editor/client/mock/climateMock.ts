@@ -706,7 +706,10 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
 
   function runControl(doc: ControllerDocument, rt: Runtime, t: number) {
     const temp = readingOf(doc.sensor_id)
+    const faulted = rt.fault !== 'none'
     rt.fault = faultOf(doc, rt, t)
+    // The fault zeroed the duties: the next pass is now, not an update_interval_s later.
+    if (faulted && rt.fault === 'none') rt.due = true
     // Waiting for a first reading is no fault, but nothing to act on either.
     if (temp === null || rt.fault !== 'none' || doc.mode === 'off') {
       rt.action = standingAction(doc, rt)
