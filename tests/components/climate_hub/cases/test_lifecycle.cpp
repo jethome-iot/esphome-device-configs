@@ -25,6 +25,14 @@ TEST_F(HubTest, NoThermostatGetsTheIdNew) {
   EXPECT_FALSE(file_exists(this->file_of("new")));
 }
 
+// Keying the file on the id, not the name, is what stops a second thermostat whose name
+// slugifies alike from writing over the first.
+TEST_F(HubTest, NamesThatSlugifyAlikeGetDistinctIds) {
+  EXPECT_EQ("living-room", this->create(draft("Living Room", "relay_1")).id);
+  EXPECT_EQ("living-room-2", this->create(draft("Living-Room", "relay_2")).id);
+  EXPECT_EQ((std::vector<std::string>{"living-room-2.json", "living-room.json"}), list_dir(this->folder()));
+}
+
 TEST_F(HubTest, TheEntityIsReachableThroughApp) {
   this->create(draft("Boiler"));
   HubClimate *entity = hub().entity_of("boiler");

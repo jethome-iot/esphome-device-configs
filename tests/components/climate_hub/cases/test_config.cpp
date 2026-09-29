@@ -333,22 +333,6 @@ TEST(SlugifyId, ASuffixNeverOverrunsTheLimit) {
   EXPECT_EQ(std::string(44, 'a') + "-12", id_with_suffix(dashed, 12));
 }
 
-// "Living Room" and "living room" slugify alike; keying the file on the id rather than the
-// name is what stops the second one silently overwriting the first.
-TEST(ConfigStoreTest, CollidingNamesGetDistinctIds) {
-  ConfigStore store;
-  ClimateConfig a = sample();
-  a.id = store.unique_id_from(slugify_id("Living Room"));
-  store.add(a);
-
-  ClimateConfig b = sample();
-  b.id = store.unique_id_from(slugify_id("living room"));
-  store.add(b);
-
-  EXPECT_EQ("living-room", a.id);
-  EXPECT_EQ("living-room-2", b.id);
-}
-
 // A running thermostat holds a ClimateConfig *; a vector<ClimateConfig> would move them all on
 // the next insert.
 TEST(ConfigStoreTest, PointersSurviveLaterInserts) {

@@ -51,24 +51,4 @@ void ConfigStore::sort_by_id() {
       [](const std::unique_ptr<ClimateConfig> &a, const std::unique_ptr<ClimateConfig> &b) { return a->id < b->id; });
 }
 
-std::string ConfigStore::unique_id_from(const std::string &base) const {
-  for (unsigned n = 1; n < 1000; n++) {
-    std::string candidate = id_with_suffix(base, n);
-    if (this->get(candidate) == nullptr)
-      return candidate;
-  }
-  return id_with_suffix(base, 1000);
-}
-
-bool ConfigStore::is_name_taken(const std::string &name, const std::string &exclude_id) const {
-  const std::string wanted = name_key(name);
-  for (const auto &config : this->configs_) {
-    if (config->id == exclude_id)
-      continue;
-    if (name_key(config->name) == wanted)
-      return true;
-  }
-  return false;
-}
-
 }  // namespace esphome::climate_hub
