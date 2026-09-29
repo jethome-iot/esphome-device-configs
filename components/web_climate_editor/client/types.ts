@@ -88,12 +88,17 @@ export interface ControllerDocument {
 /** A document before the device has given it an id. */
 export type ControllerDraft = Omit<ControllerDocument, 'id' | 'version'> & Partial<Pick<ControllerDocument, 'version'>>
 
+/** `T` with every key optional, in nested objects too. */
+export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
+
 /**
  * What POST /save takes. An absent or empty `id` creates a controller, an existing
- * one replaces that controller's document. Missing keys take the defaults and every
- * number is clamped to the schema's range, so a partial document is accepted too.
+ * one replaces that controller's document. Only `name` and `sensor_id` are required,
+ * and `heat.relay_id` or `cool.relay_id` must name a relay; any other key left out
+ * takes its default, and every number is clamped to the schema's range.
  */
-export type ControllerSaveInput = ControllerDraft & { id?: string }
+export type ControllerSaveInput = DeepPartial<Omit<ControllerDocument, 'id' | 'name' | 'sensor_id'>> &
+  Pick<ControllerDocument, 'name' | 'sensor_id'> & { id?: string }
 
 /** One row of GET /list. The climate entity it drives carries the same `name`. */
 export interface ControllerSummary {
