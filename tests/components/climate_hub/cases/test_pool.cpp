@@ -61,6 +61,21 @@ TEST_F(HubTest, EverySlotIsRegisteredAtSetupAndHiddenUnderThePlaceholder) {
   }
 }
 
+// A reader on the web server's task may pair a name's pointer with the length of the name it
+// had before: the placeholder has to be as long as the longest name, zero-filled.
+TEST_F(HubTest, ThePlaceholderSitsInABufferAsLongAsAName) {
+  this->create(draft("Room 1", "relay_1"));
+  this->create(draft("Kettle", "relay_2"));
+  ASSERT_TRUE(hub().remove("room-1").ok);
+  ASSERT_TRUE(hub().update("kettle", draft("Room_1", "relay_2")).ok);  // parks slot 0
+  for (size_t index : {size_t{0}, hub().slot_count() - 1}) {
+    const char *name = hub().slot_entity(index)->get_name().c_str();
+    ASSERT_STREQ(FREE_SLOT_NAME, name) << index;
+    for (size_t i = std::strlen(name); i <= NAME_MAX_LENGTH; i++)
+      EXPECT_EQ('\0', name[i]) << index << ", byte " << i;
+  }
+}
+
 // Hash 0 at registration: the object id hash comes from the name, as codegen's does, so a record
 // keyed by fnv1_hash(object id) finds the thermostat.
 TEST_F(HubTest, AStartedSlotIsVisibleWithTheNameDerivedHash) {

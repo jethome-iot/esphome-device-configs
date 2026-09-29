@@ -10,7 +10,9 @@ class ClimateHub;
 
 /// The name of a slot no thermostat has had since boot. '/' is the one character no web_server
 /// URL segment can carry, so nothing can address it; an empty name would fall back to the device's.
-static constexpr const char *FREE_SLOT_NAME = "climate_hub/free";
+/// As long as a name buffer and zero-filled, so a reader that pairs this pointer with a longer
+/// name's length stays inside it.
+inline constexpr char FREE_SLOT_NAME[64] = "climate_hub/free";
 
 /// One climate entity of the hub's pool. The hub registers every slot with App in its setup()
 /// and never frees one: a thermostat that starts takes a free slot, one that stops hands it
