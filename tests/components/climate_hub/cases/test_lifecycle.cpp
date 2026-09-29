@@ -17,6 +17,14 @@ TEST_F(HubTest, CreateAssignsASlugWritesAFileAndStartsTheEntity) {
   EXPECT_TRUE(hub().is_running("living-room"));
 }
 
+// The dashboard opens a blank editor at /climate/new, so no thermostat may have that id.
+TEST_F(HubTest, NoThermostatGetsTheIdNew) {
+  EXPECT_EQ("new-2", this->create(draft("New", "relay_1")).id);
+  EXPECT_EQ("new-3", this->create(draft("new!", "relay_2")).id);
+  EXPECT_EQ("newer", this->create(draft("Newer", "relay_3")).id);
+  EXPECT_FALSE(file_exists(this->file_of("new")));
+}
+
 TEST_F(HubTest, TheEntityIsReachableThroughApp) {
   this->create(draft("Boiler"));
   HubClimate *entity = hub().entity_of("boiler");

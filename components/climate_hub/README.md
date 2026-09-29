@@ -74,7 +74,7 @@ component: it would list the entities no thermostat is using.
 
 | Key                  | Values                                                                     |
 | -------------------- | -------------------------------------------------------------------------- |
-| `id`                 | Made from the name when the thermostat is created (`a-z`, `0-9`, single dashes, at most 48), then never changes; the file is `<id>.json` |
+| `id`                 | Made from the name when the thermostat is created (`a-z`, `0-9`, single dashes, at most 48; `New` gets `new-2`, since the dashboard opens a blank editor at `new`), then never changes; the file is `<id>.json` |
 | `name`               | 1 to 48 printable ASCII characters, neither `/` nor `\`, trimmed; also the climate entity's name |
 | `kind`               | `bang_bang` (the default) or `pid`                                         |
 | `sensor_id`          | The object id of a temperature sensor, `temp_1` for `Temp 1`              |

@@ -779,6 +779,9 @@ std::string ClimateHub::next_id_(const std::string &name) const {
   const std::string base = slugify_id(name);
   for (unsigned n = 1; n < 1000; n++) {
     const std::string candidate = id_with_suffix(base, n);
+    // The dashboard's editor opens a blank form at /climate/new.
+    if (candidate == "new")
+      continue;
     if (this->store_.get(candidate) == nullptr && !file_exists(this->file_path_(candidate)))
       return candidate;
   }
