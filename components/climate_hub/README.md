@@ -18,14 +18,24 @@ external_components:
 littlefs_storage:
   id: user_storage
 
+one_wire:
+  - platform: gpio
+    pin: GPIO4
+
 sensor:
   - platform: dallas_temp
     name: "Room"
 
 switch:
   - platform: gpio
-    pin: 12
+    pin: GPIO16
     name: "Boiler"
+
+web_server:
+  version: 3
+  sorting_groups:
+    - id: group_climate
+      name: "Thermostats"
 
 climate_hub:
   storage: user_storage
@@ -131,12 +141,15 @@ Home Assistant knows an entity by its name. Renaming a thermostat therefore show
 new entity, and the old one becomes unavailable. A thermostat that stops or is removed drops out
 of the entity lists; its entity keeps its name, and the web server still answers that name with
 a stopped state, as it does for any `internal: true` entity, until another thermostat takes it.
-One that starts again under that name gets its entity back.
+A command sent to that name is accepted and does nothing. One that starts again under that name
+gets its entity back.
 
-After a thermostat starts, stops, is removed, or changes its name, its relays' directions or its
-temperature range, the device asks Home Assistant to reconnect so that it lists the entities
-again: the whole device is unavailable there for about five seconds. A burst of such edits costs
-one reconnect; a new target, a new mode or new gains cost none.
+The device asks Home Assistant to reconnect, so that it lists the entities again, when a
+thermostat starts or stops (removing a running one stops it), and when a running one is
+renamed, gains or loses its heating or cooling relay, or gets a new temperature range or step:
+the whole device is unavailable there for about five seconds. A burst of such edits costs one
+reconnect. Swapping one relay for another, a new target, mode, band or gains, and any change to
+a thermostat that is not running cost none.
 
 ## Storage
 

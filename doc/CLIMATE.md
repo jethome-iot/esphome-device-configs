@@ -38,10 +38,12 @@ back.
 
 - Home Assistant knows an entity by its name, so **renaming a thermostat makes a new entity
   there** and leaves the old one unavailable; its history and automations stay with the old one.
-- Starting, stopping, removing or renaming a thermostat, or changing its relays or temperature
-  range, makes Home Assistant reconnect so that it sees the change: the whole device shows as
-  unavailable for about five seconds, and a log stream over the API drops and reconnects. A
-  new target or mode never does this.
+- Home Assistant reconnects to see the change when a thermostat starts or stops (removing a
+  running one stops it), and when a running one is renamed, gains or loses its heating or
+  cooling relay, or gets a new temperature range or step: the whole device shows as unavailable
+  for about five seconds, and a log stream over the API drops and reconnects. Swapping one
+  relay for another, a new target, mode, band or gains, and any change to a thermostat that is
+  not running never do this.
 - Names are unique on the device: two thermostats cannot share one, nor two names that give the
   same entity id (`Room 1` and `Room_1`), nor a thermostat and a climate from the YAML.
 - The room temperature is shown to a tenth of a degree; the target moves in the thermostat's
