@@ -179,15 +179,20 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   places (`CORE.register_platform_component`, before any `await` in `to_code`), and `setup()`
   registers a pool of that many through the four-argument `App.register_climate`, each
   internal under the name `climate_hub/free` and in the web server's sorting map already. A
-  thermostat that starts takes a slot, one that stops gives it back. It leans on:
+  thermostat that starts takes a slot, one that stops gives it back, internal again but under
+  its own name. It leans on:
   - `EntityBase::configure_entity_` staying protected and callable from a subclass with this
     signature: the entity calls it again to rename a slot, show it or hide it, with hash 0 so
     the object id derives from the name. Upstream keeps a pointer to the name, not a copy.
   - `is_internal()` being read when the API and the web server list and push, not cached at
-    setup (MQTT caches it, which is one reason the component has no MQTT support).
-  - `web_server` matching a climate by name on its own task, and a `/` never reaching a URL
-    segment, which keeps a free slot unaddressable. The name and the traits change only in
-    `setup()` or in a loop job an HTTP handler waits on, so that task is never mid-read.
+    setup (MQTT caches it, which is one reason the component has no MQTT support). The API
+    reads it when it queues an entity for a client but reads the name and key only when it
+    encodes it, so hiding a slot changes the internal bit alone; the placeholder goes only onto
+    a hidden slot whose name a thermostat is about to take.
+  - `web_server` matching a climate by name on its own task, first match wins, hidden or not,
+    and a `/` never reaching a URL segment, which keeps an unused slot unaddressable. The name
+    and the traits change only in `setup()` or in a loop job an HTTP handler waits on, so that
+    task is never mid-read.
   - `StaticVector::capacity()` for the room check, and `ClimateTraits` built with no custom
     modes, so a copy owns no vector.
   - `api::APIServer::active_clients()`, `APIConnection::send_message(DisconnectRequest)` and

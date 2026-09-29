@@ -117,21 +117,25 @@ TEST_F(HubTest, DeleteRetiresTheEntityEverywhereItCanBeSeen) {
   EXPECT_FALSE(file_exists(this->file_of("boiler")));
   EXPECT_TRUE(entity->is_internal()) << "internal is what drops it from every listing";
   EXPECT_TRUE(entity->is_free());
-  EXPECT_STREQ(FREE_SLOT_NAME, entity->get_name().c_str()) << "the old URL must not still answer";
+  EXPECT_EQ(nullptr, App.get_climate_by_key(fnv1_hash("boiler"))) << "the API cannot address it";
   EXPECT_EQ("", hub().claimed_by("relay_1")) << "the relay is free for the next thermostat";
   EXPECT_EQ(404, hub().remove("boiler").code);
 }
 
-// A freed slot answers the web server's traits() without a document behind it.
+// The web server still answers a removed thermostat's name, as it does any internal entity: with
+// the traits it had and a stopped state, and without a document behind it.
 TEST_F(HubTest, AFreedSlotStillAnswersTraits) {
   this->create(draft("Boiler"));
   HubClimate *entity = hub().entity_of("boiler");
   EXPECT_EQ(2u, entity->get_traits().get_supported_modes().size()) << "off + heat while running";
 
   ASSERT_TRUE(hub().remove("boiler").ok);
+  EXPECT_EQ(entity, web_server_match("Boiler"));
   auto freed = entity->get_traits();
-  EXPECT_EQ(1u, freed.get_supported_modes().size()) << "a free slot offers only off";
-  EXPECT_TRUE(freed.supports_mode(climate::CLIMATE_MODE_OFF));
+  EXPECT_EQ(2u, freed.get_supported_modes().size()) << "the traits it had";
+  EXPECT_EQ(climate::CLIMATE_MODE_OFF, entity->mode);
+  EXPECT_EQ(climate::CLIMATE_ACTION_OFF, entity->action);
+  EXPECT_TRUE(std::isnan(entity->current_temperature));
 }
 
 // A delete that cannot unlink blanks the file, so the loader does not bring the thermostat back.

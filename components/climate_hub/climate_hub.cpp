@@ -588,12 +588,30 @@ Result ClimateHub::relay_held_(const std::string &relay_id, const std::string &h
   return result;
 }
 
-ClimateHub::Slot *ClimateHub::take_free_slot_() {
+ClimateHub::Slot *ClimateHub::take_free_slot_(const std::string &name) {
   if (this->free_.empty())
     return nullptr;
-  Slot *slot = this->free_.front();
-  this->free_.pop_front();
+  const std::string object_id = object_id_of_name(name);
+  auto it = std::find_if(this->free_.begin(), this->free_.end(), [&object_id](const Slot *slot) {
+    return slot->entity.is_named() && object_id_of(slot->entity) == object_id;
+  });
+  if (it == this->free_.end())
+    it = this->free_.begin();
+  Slot *slot = *it;
+  this->free_.erase(it);
   return slot;
+}
+
+void ClimateHub::park_names_like_(const std::string &name, const Slot *keep) {
+  const std::string key = name_key(name);
+  const std::string object_id = object_id_of_name(name);
+  for (Slot *slot : this->slots_) {
+    if (slot == keep || !slot->entity.is_free() || !slot->entity.is_named())
+      continue;
+    const std::string other = slot->entity.get_name().c_str();
+    if (name_key(other) == key || object_id_of_name(other) == object_id)
+      slot->entity.park(this->entity_fields_);
+  }
 }
 
 bool ClimateHub::acquire_claims_(const ClimateConfig &config, RelayClaim **heat, RelayClaim **cool,
@@ -644,7 +662,7 @@ bool ClimateHub::start_(ClimateConfig *config, std::string *error) {
     this->release_claims_(config->id);
     return false;
   }
-  Slot *slot = this->take_free_slot_();
+  Slot *slot = this->take_free_slot_(config->name);
   if (slot == nullptr) {
     this->release_claims_(config->id);
     *error = "no free climate entity";
@@ -652,6 +670,7 @@ bool ClimateHub::start_(ClimateConfig *config, std::string *error) {
   }
   this->subscribe_(sensor);
   slot->runtime.start(config, sensor, heat, cool, this->now_ms());
+  this->park_names_like_(config->name, slot);
   slot->entity.show(config->name, this->entity_fields_);
   slot->entity.publish_state();
   ESP_LOGD(TAG, "'%s' running as climate '%s'", config->id.c_str(), config->name.c_str());
@@ -685,8 +704,10 @@ bool ClimateHub::restart_(Slot *slot, const std::string &previous_name, std::str
   }
   this->subscribe_(sensor);
   slot->runtime.start(config, sensor, heat, cool, now);
-  if (config->name != previous_name)
+  if (config->name != previous_name) {
+    this->park_names_like_(config->name, slot);
     slot->entity.show(config->name, this->entity_fields_);
+  }
   slot->entity.publish_state();
   return true;
 }

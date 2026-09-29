@@ -102,7 +102,7 @@ class FinalValidate(unittest.TestCase):
         self.validate({})
 
     def test_a_web_server_listing_internal_entities_is_refused(self):
-        # It would list the unused thermostat slots, every one under the same placeholder name.
+        # It would list the stopped thermostats and the slots no thermostat has used yet.
         with self.assertRaisesRegex(
             cv.Invalid,
             "climate_hub keeps its unused thermostat entities internal; "

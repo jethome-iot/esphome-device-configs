@@ -121,11 +121,15 @@ case and extra spaces, or two names that give the same entity id (`Room 1` and `
 thermostat may not take the name of a climate declared in YAML.
 
 Home Assistant knows an entity by its name. Renaming a thermostat therefore shows up there as a
-new entity, and the old one becomes unavailable. After a thermostat starts, stops, is removed,
-or changes its name, its relays' directions or its temperature range, the device asks Home
-Assistant to reconnect so that it lists the entities again: the whole device is unavailable
-there for about five seconds. A burst of such edits costs one reconnect; a new target, a new
-mode or new gains cost none.
+new entity, and the old one becomes unavailable. A thermostat that stops or is removed drops out
+of the entity lists; its entity keeps its name, and the web server still answers that name with
+a stopped state, as it does for any `internal: true` entity, until another thermostat takes it.
+One that starts again under that name gets its entity back.
+
+After a thermostat starts, stops, is removed, or changes its name, its relays' directions or its
+temperature range, the device asks Home Assistant to reconnect so that it lists the entities
+again: the whole device is unavailable there for about five seconds. A burst of such edits costs
+one reconnect; a new target, a new mode or new gains cost none.
 
 ## Storage
 

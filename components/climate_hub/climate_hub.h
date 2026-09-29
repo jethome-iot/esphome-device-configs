@@ -142,7 +142,12 @@ class ClimateHub : public Component {
   bool check_startable_(const ClimateConfig &config, Result *result) const;
   Result relay_held_(const std::string &relay_id, const std::string &holder) const;
   Slot *slot_for_(const std::string &id) const;
-  Slot *take_free_slot_();
+  /// The hidden slot that last carried `name` (by object id), so a thermostat back under its
+  /// name gets back its key; otherwise the one freed longest ago.
+  Slot *take_free_slot_(const std::string &name);
+  /// Parks every hidden slot but `keep` whose name `name` is about to take: the web server
+  /// answers the first climate that matches, hidden or not.
+  void park_names_like_(const std::string &name, const Slot *keep);
   void subscribe_(sensor::Sensor *sensor);
   void on_sample_(sensor::Sensor *sensor, float value);
   void on_control_(uint8_t index, const climate::ClimateCall &call);

@@ -79,6 +79,161 @@ TEST_F(HubTest, AStoppedSlotIsHiddenAndRecycledLast) {
   EXPECT_EQ(a, hub().entity_of("e")) << "the freed slot comes round again";
 }
 
+// Upstream checks is_internal() when it queues an entity for an API client, and reads the name
+// and key only when it encodes it, later. A slot renamed in between reached Home Assistant as a
+// climate nobody made, so hiding flips the internal bit and nothing else.
+TEST_F(HubTest, HidingKeepsTheNameAndTheKey) {
+  this->create(draft("Boiler"));
+  HubClimate *entity = hub().entity_of("boiler");
+  const uint32_t key = entity->get_object_id_hash();
+  const char *name = entity->get_name().c_str();
+
+  ASSERT_TRUE(hub().set_enabled("boiler", false).ok);
+  EXPECT_TRUE(entity->is_internal());
+  EXPECT_TRUE(entity->is_free());
+  EXPECT_TRUE(entity->is_named());
+  EXPECT_EQ(name, entity->get_name().c_str()) << "the same bytes";
+  EXPECT_STREQ("Boiler", entity->get_name().c_str());
+  EXPECT_EQ(key, entity->get_object_id_hash());
+  EXPECT_EQ(nullptr, App.get_climate_by_key(key)) << "internal: the API cannot address it";
+  EXPECT_EQ(entity, App.get_climate_by_key(key, true));
+}
+
+// Its last word, while clients still list it: stopped. Then it drops out of every listing.
+TEST_F(HubTest, AStopPublishesTheStoppedStateBeforeHiding) {
+  struct Seen {
+    bool internal;
+    climate::ClimateMode mode;
+    climate::ClimateAction action;
+    float temperature;
+  };
+  // Callbacks cannot be removed and the slot outlives the test: record only while armed.
+  static std::vector<Seen> seen;
+  static bool armed = false;
+  static bool subscribed = false;
+  entities().room.publish_state(18.f);
+  this->create(draft("Boiler"));
+  HubClimate *entity = hub().entity_of("boiler");
+  if (!subscribed) {
+    entity->add_on_state_callback([](climate::Climate &c) {
+      if (armed)
+        seen.push_back({c.is_internal(), c.mode, c.action, c.current_temperature});
+    });
+    subscribed = true;
+  }
+  seen.clear();
+  armed = true;
+  ASSERT_TRUE(hub().set_enabled("boiler", false).ok);
+  armed = false;
+
+  ASSERT_EQ(1u, seen.size());
+  EXPECT_FALSE(seen[0].internal) << "published while still listed";
+  EXPECT_EQ(climate::CLIMATE_MODE_OFF, seen[0].mode);
+  EXPECT_EQ(climate::CLIMATE_ACTION_OFF, seen[0].action);
+  EXPECT_TRUE(std::isnan(seen[0].temperature)) << "a stopped thermostat reads nothing";
+  EXPECT_TRUE(entity->is_internal());
+}
+
+// A thermostat that comes back under a name a hidden slot still carries gets that slot, and with
+// it the key Home Assistant knew, rather than the one first in the queue.
+TEST_F(HubTest, TheSameNameComesBackOnTheSameSlot) {
+  this->create(draft("Boiler", "relay_1"));
+  this->create(draft("Kettle", "relay_2"));
+  HubClimate *boiler = hub().entity_of("boiler");
+  const uint32_t key = boiler->get_object_id_hash();
+
+  ASSERT_TRUE(hub().remove("boiler").ok);
+  this->create(draft("Boiler", "relay_1"));
+  EXPECT_EQ(boiler, hub().entity_of("boiler")) << "not slot 2, first in the queue";
+  EXPECT_EQ(key, boiler->get_object_id_hash());
+
+  // Stopped and started again with another slot first in the queue.
+  ASSERT_TRUE(hub().set_enabled("boiler", false).ok);
+  this->create(draft("Porch", "relay_3"));
+  ASSERT_TRUE(hub().set_enabled("boiler", true).ok);
+  EXPECT_EQ(boiler, hub().entity_of("boiler"));
+
+  // The same object id is the same entity to Home Assistant, whatever the spelling.
+  ASSERT_TRUE(hub().remove("boiler").ok);
+  this->create(draft("BOILER", "relay_1"));
+  EXPECT_EQ(boiler, hub().entity_of("boiler"));
+  EXPECT_STREQ("BOILER", boiler->get_name().c_str());
+}
+
+// A hidden slot keeps its name only while nobody else wants it: the web server answers the first
+// climate by that name, so the new owner would never be reached behind it.
+TEST_F(HubTest, ARenameOntoAHiddenSlotsNameParksThatSlot) {
+  this->create(draft("Room 1", "relay_1"));
+  this->create(draft("Kettle", "relay_2"));
+  HubClimate *hidden = hub().entity_of("room-1");
+  HubClimate *kettle = hub().entity_of("kettle");
+  ASSERT_TRUE(hub().remove("room-1").ok);
+  ASSERT_STREQ("Room 1", hidden->get_name().c_str());
+
+  ASSERT_TRUE(hub().update("kettle", draft("Room_1", "relay_2")).ok);
+  EXPECT_EQ(kettle, hub().entity_of("kettle")) << "a rename stays on its own slot";
+  EXPECT_STREQ(FREE_SLOT_NAME, hidden->get_name().c_str()) << "same object id: room_1";
+  EXPECT_TRUE(hidden->is_internal());
+  EXPECT_FALSE(hidden->is_named());
+  EXPECT_EQ(1u, hidden->get_traits().get_supported_modes().size()) << "a parked slot offers only off";
+  EXPECT_EQ(kettle, web_server_match("Room_1"));
+  EXPECT_EQ(nullptr, web_server_match("Room 1"));
+}
+
+// The same when a thermostat starts under a name that differs from the hidden one only in case
+// and spacing: that is another object id, so another slot, and the hidden one gives way.
+TEST_F(HubTest, AStartOntoAHiddenSlotsNameParksThatSlot) {
+  this->create(draft("Room 1", "relay_1"));
+  HubClimate *hidden = hub().entity_of("room-1");
+  ASSERT_TRUE(hub().remove("room-1").ok);
+
+  this->create(draft("room  1", "relay_1"));
+  HubClimate *started = hub().entity_of("room-1");
+  EXPECT_NE(hidden, started) << "room__1 is not room_1";
+  EXPECT_STREQ(FREE_SLOT_NAME, hidden->get_name().c_str()) << "same name to a person";
+  EXPECT_STREQ("room  1", started->get_name().c_str());
+}
+
+// The placeholder marks a slot nobody has used since boot. Coming and going, renames and a
+// take-over never bring it back: only a collision above does.
+TEST_F(HubTest, ThePlaceholderIsOnlyForSlotsNeverUsed) {
+  std::set<const HubClimate *> used;
+  auto check = [&used](const char *step) {
+    for (const std::string &id : {"a", "b", "c", "d"}) {
+      if (hub().entity_of(id) != nullptr)
+        used.insert(hub().entity_of(id));
+    }
+    for (size_t i = 0; i < hub().slot_count(); i++) {
+      const HubClimate *slot = hub().slot_entity(i);
+      EXPECT_EQ(used.count(slot) != 0, slot->is_named()) << step << ", slot " << i;
+      EXPECT_EQ(used.count(slot) == 0, std::string(FREE_SLOT_NAME) == slot->get_name().c_str())
+          << step << ", slot " << i;
+    }
+  };
+  check("setup");
+  this->create(draft("A", "relay_1"));
+  check("create");
+  ASSERT_TRUE(hub().update("a", draft("Alpha", "relay_1")).ok);
+  check("rename");
+  ASSERT_TRUE(hub().set_enabled("a", false).ok);
+  check("disable");
+  this->create(draft("B", "relay_2"));
+  ClimateConfig c = draft("C", "relay_2");
+  c.enabled = false;
+  this->create(c);
+  check("create more");
+  ASSERT_TRUE(hub().set_enabled("c", true, true).ok);
+  check("take over");
+  ASSERT_TRUE(hub().set_enabled("a", true).ok);
+  check("enable");
+  ASSERT_TRUE(hub().remove("a").ok);
+  this->create(draft("D", "relay_1"));
+  check("remove and create");
+  this->reboot();
+  used.clear();
+  check("reboot");
+}
+
 // However many times thermostats come and go, the entity table does not grow: nothing is
 // registered after setup.
 TEST_F(HubTest, CreateAndDeleteCyclesRegisterNothing) {

@@ -21,11 +21,19 @@ void HubClimate::show(const std::string &name, uint32_t entity_fields) {
   this->configure_entity_(buffer, 0, entity_fields & ~INTERNAL_BIT);
   this->current_name_ = next;
   this->free_ = false;
+  this->named_ = true;
 }
 
 void HubClimate::hide(uint32_t entity_fields) {
+  this->configure_entity_(this->named_ ? this->names_[this->current_name_] : FREE_SLOT_NAME, 0,
+                          entity_fields | INTERNAL_BIT);
+  this->free_ = true;
+}
+
+void HubClimate::park(uint32_t entity_fields) {
   this->configure_entity_(FREE_SLOT_NAME, 0, entity_fields | INTERNAL_BIT);
   this->free_ = true;
+  this->named_ = false;
   this->set_traits(false, false, 5.f, 45.f, 0.5f);
 }
 

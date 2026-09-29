@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <dirent.h>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -72,10 +73,13 @@ class TestHub : public ClimateHub {
   }
 
   // Back to a hub that has not loaded anything, its pool as setup() left it: every slot free,
-  // hidden, in order. App keeps the entities, so they are reused rather than registered again.
+  // hidden under the placeholder, in order. App keeps the entities, so they are reused rather
+  // than registered again.
   void reset() {
-    for (Slot *slot : this->slots_)
+    for (Slot *slot : this->slots_) {
       this->stop_(slot);
+      slot->entity.park(this->entity_fields_);
+    }
     this->free_.assign(this->slots_.begin(), this->slots_.end());
     this->claims_.clear();
     this->store_.clear();
@@ -216,6 +220,15 @@ inline std::vector<std::string> list_dir(const std::string &path) {
 inline std::string object_id(const EntityBase &entity) {
   char buf[OBJECT_ID_MAX_LEN];
   return std::string(entity.get_object_id_to(buf));
+}
+
+// What web_server answers /climate/<name> with: the first climate by that name, hidden or not.
+inline climate::Climate *web_server_match(const std::string &name) {
+  for (auto *climate : App.get_climates()) {
+    if (name == climate->get_name().c_str())
+      return climate;
+  }
+  return nullptr;
 }
 
 inline std::string to_json(const ClimateConfig &config) {
