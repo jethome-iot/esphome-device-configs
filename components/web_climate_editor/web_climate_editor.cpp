@@ -533,6 +533,11 @@ void WebClimateEditor::handle_enable_(AsyncWebServerRequest *request) {
     return;
   if (request->hasParam("take_over") && !this->read_bool_(request, "take_over", take_over))
     return;
+  // Before the lookup below: a failed hub's store is empty, and its answer is this 500, not a 404.
+  if (this->hub_->is_failed()) {
+    this->send_error_(request, STORAGE_UNAVAILABLE, 500);
+    return;
+  }
   std::string json;
   std::string error;
   int code = 400;

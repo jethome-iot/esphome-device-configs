@@ -131,6 +131,18 @@ TEST_F(Editor, AHubWithoutStorageStillAnswersReadsAndRefusesEveryWrite) {
   EXPECT_FLOAT_EQ(hub().store().get("living-room")->setpoint, 22.f);
 }
 
+// A hub that failed at boot loaded nothing: an id it does not know is still the storage's 500.
+TEST_F(Editor, AHubWithoutStorageRefusesAWriteToAnyIdWith500) {
+  hub().mark_failed();
+  for (Reply reply : {this->post("enable?id=ghost&value=true"), this->post("enable?id=ghost&value=false"),
+                      this->post("delete?id=ghost"), this->post("setpoint?id=ghost&value=20")}) {
+    EXPECT_EQ(reply.code, 500) << reply.body;
+    EXPECT_EQ(reply.error(), "Thermostat storage is not available") << reply.body;
+  }
+  // What the request itself gets wrong is still its answer.
+  EXPECT_EQ(this->post("enable?id=ghost").error(), "Missing value parameter");
+}
+
 // In place means on the server task, whose stack is small: a save is refused before its body
 // is parsed, however broken the body is.
 TEST_F(Editor, AHubWithoutStorageRefusesASaveBeforeParsingIt) {
