@@ -99,7 +99,9 @@ yet.
 - A change of mode or target takes effect at the next loop pass, not at the next interval.
 - **Safety.** Before its first reading, when its sensor has been silent for `sensor_timeout_s`,
   and while the reading is above `safety.max_temperature`, a thermostat opens its relays.
-  Mode `off` opens them too.
+  Mode `off` opens them too. A thermostat that starts shows its sensor's last value at once,
+  but acts on it only if it arrived within `sensor_timeout_s` while a thermostat was running
+  on that sensor; otherwise it waits for the next reading.
 - `min_on_s` and `min_off_s` hold a relay closed or open that long after it moved; a safety
   cut-out does not wait for them.
 - The entity reports the room temperature to a tenth of a degree, the target in steps of

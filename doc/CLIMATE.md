@@ -13,7 +13,8 @@ C++ API are in [components/climate_hub/README.md](../components/climate_hub/READ
   period of minutes.
 - **Modes**: off, heat, cool, or heat and cool, as far as its relays allow.
 - **Safety**: with no reading yet, a sensor silent for longer than its timeout, or a reading
-  above its cut-out temperature, it opens its relays until that clears.
+  above its cut-out temperature, it opens its relays until that clears. A thermostat that
+  starts on a sensor that has fallen silent shows its last value but does not act on it.
 - **Relay wear**: a minimum on and off time, 10 s each unless set otherwise.
 - **A relay belongs to the running thermostat.** Switched from anywhere else — the panel,
   Modbus, an automation, Home Assistant — it is put back within a moment. Two thermostats may

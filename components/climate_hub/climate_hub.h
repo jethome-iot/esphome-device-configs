@@ -121,6 +121,8 @@ class ClimateHub : public Component {
   struct SensorSubscription {
     ClimateHub *hub;
     sensor::Sensor *sensor;
+    // What a thermostat that starts on this sensor goes by: the sensor's own state may be old.
+    Reading last;
   };
 
   void build_pool_();
@@ -148,8 +150,8 @@ class ClimateHub : public Component {
   /// Parks every hidden slot but `keep` whose name `name` is about to take: the web server
   /// answers the first climate that matches, hidden or not.
   void park_names_like_(const std::string &name, const Slot *keep);
-  void subscribe_(sensor::Sensor *sensor);
-  void on_sample_(sensor::Sensor *sensor, float value);
+  SensorSubscription *subscribe_(sensor::Sensor *sensor);
+  void on_sample_(SensorSubscription *sub, float value);
   void on_control_(uint8_t index, const climate::ClimateCall &call);
 
   std::string next_id_(const std::string &name) const;

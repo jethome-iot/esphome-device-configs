@@ -677,8 +677,8 @@ bool ClimateHub::start_(ClimateConfig *config, std::string *error) {
     *error = "no free climate entity";
     return false;
   }
-  this->subscribe_(sensor);
-  slot->runtime.start(config, sensor, heat, cool, this->now_ms());
+  const SensorSubscription *sub = this->subscribe_(sensor);
+  slot->runtime.start(config, sensor, heat, cool, sub != nullptr ? sub->last : Reading{});
   this->park_names_like_(config->name, slot);
   slot->entity.show(config->name, this->entity_fields_);
   slot->entity.publish_state();
@@ -711,8 +711,8 @@ bool ClimateHub::restart_(Slot *slot, const std::string &previous_name, std::str
       ++it;
     }
   }
-  this->subscribe_(sensor);
-  slot->runtime.start(config, sensor, heat, cool, now);
+  const SensorSubscription *sub = this->subscribe_(sensor);
+  slot->runtime.start(config, sensor, heat, cool, sub != nullptr ? sub->last : Reading{});
   if (config->name != previous_name) {
     this->park_names_like_(config->name, slot);
     slot->entity.show(config->name, this->entity_fields_);
@@ -734,29 +734,33 @@ void ClimateHub::stop_(Slot *slot) {
   ESP_LOGD(TAG, "'%s' stopped", id.c_str());
 }
 
-void ClimateHub::subscribe_(sensor::Sensor *sensor) {
+ClimateHub::SensorSubscription *ClimateHub::subscribe_(sensor::Sensor *sensor) {
 #ifdef USE_SENSOR
   for (const auto &sub : this->sensor_subs_) {
     if (sub->sensor == sensor)
-      return;
+      return sub.get();
   }
   auto sub = std::make_unique<SensorSubscription>();
   sub->hub = this;
   sub->sensor = sensor;
   SensorSubscription *raw = sub.get();
-  sensor->add_on_state_callback([raw](float value) { raw->hub->on_sample_(raw->sensor, value); });
+  sensor->add_on_state_callback([raw](float value) { raw->hub->on_sample_(raw, value); });
   this->sensor_subs_.push_back(std::move(sub));
+  return raw;
+#else
+  return nullptr;
 #endif
 }
 
-void ClimateHub::on_sample_(sensor::Sensor *sensor, float value) {
+void ClimateHub::on_sample_(SensorSubscription *sub, float value) {
   // A NaN stored as a reading would pass the staleness and over-temperature guards, and one
   // through the integrator would leave it NaN for good.
   if (std::isnan(value))
     return;
   const uint32_t now = this->now_ms();
+  sub->last = Reading{value, now, true};
   for (Slot *slot : this->slots_) {
-    if (slot->runtime.running() && slot->runtime.sensor() == sensor)
+    if (slot->runtime.running() && slot->runtime.sensor() == sub->sensor)
       slot->runtime.on_sample(value, now);
   }
 }

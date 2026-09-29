@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include "climate_config.h"
 #include "duty_cycler.h"
@@ -16,6 +17,13 @@ class Sensor;
 
 namespace esphome::climate_hub {
 
+/// A sensor reading and when it arrived.
+struct Reading {
+  float value{NAN};
+  uint32_t ms{0};
+  bool seen{false};
+};
+
 /// The control loop of one running thermostat, paired for life with one entity of the pool.
 /// Loop task only: the hub starts and stops it, ticks it, and hands it samples and calls.
 class ControllerRuntime {
@@ -31,9 +39,12 @@ class ControllerRuntime {
   RelayClaim *cool_claim() const { return this->cool_claim_; }
 
   /// Runs `config` from a clean control state and puts its mode, target and traits on the
-  /// entity. Also how a Save applies to a running thermostat: the claims it keeps carry their
-  /// relay state and dwell over, and the last sample stands when the sensor did not change.
-  void start(ClimateConfig *config, sensor::Sensor *sensor, RelayClaim *heat, RelayClaim *cool, uint32_t now_ms);
+  /// entity. `last` is the latest reading the hub saw arrive from `sensor`: without one the
+  /// entity shows the sensor's state, which may be hours old, and control waits for a reading.
+  /// Also how a Save applies to a running thermostat: the claims it keeps carry their relay
+  /// state and dwell over.
+  void start(ClimateConfig *config, sensor::Sensor *sensor, RelayClaim *heat, RelayClaim *cool,
+             const Reading &last = Reading{});
   /// Opens both relays through the claims and lets go of them and the document. The entity
   /// reads off, with no temperature.
   void stop(uint32_t now_ms);

@@ -509,7 +509,7 @@ TEST(ControllerRuntimeAlone, AStoppedRuntimeIgnoresEverything) {
   // Running a document that is switched off: the hub never does, but it would not drive either.
   ClimateConfig config = draft("Idle");
   config.enabled = false;
-  rt.start(&config, nullptr, &claim, nullptr, 1000);
+  rt.start(&config, nullptr, &claim, nullptr);
   rt.tick(2000);
   EXPECT_EQ(0, relay.writes);
   EXPECT_EQ(HubAction::OFF, rt.action());
@@ -566,6 +566,25 @@ TEST_F(ControlLoop, TheRoomTemperatureIsShownToATenthWhateverTheTargetStep) {
   auto traits = hub().entity_of(this->id_)->get_traits();
   EXPECT_FLOAT_EQ(1.f, traits.get_visual_target_temperature_step());
   EXPECT_FLOAT_EQ(0.1f, traits.get_visual_current_temperature_step());
+}
+
+// A probe that last spoke a minute ago, beyond its timeout: its value is shown, not acted on.
+TEST_F(ControlLoop, AProbeSilentSinceBeforeTheStartIsStale) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.safety.sensor_timeout_s = 10.f;
+  entities().room.publish_state(18.f);
+  hub().ms += 60000;
+  this->id_ = this->create(config).id;
+  ControllerRuntime *rt = hub().runtime_of(this->id_);
+  EXPECT_FLOAT_EQ(18.f, hub().entity_of(this->id_)->current_temperature);
+
+  tick(hub().ms);
+  EXPECT_EQ(HubFault::SENSOR_STALE, rt->fault());
+  EXPECT_FALSE(entities().relay1.state);
+  entities().room.publish_state(18.f);
+  tick(hub().ms + 1000);
+  EXPECT_EQ(HubFault::NONE, rt->fault());
+  EXPECT_TRUE(entities().relay1.state);
 }
 
 }  // namespace esphome::climate_hub::testing

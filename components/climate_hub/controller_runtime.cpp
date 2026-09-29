@@ -64,8 +64,7 @@ float clamp01(float v) { return std::isnan(v) ? 0.f : (v < 0.f ? 0.f : (v > 1.f 
 }  // namespace
 
 void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, RelayClaim *heat, RelayClaim *cool,
-                              uint32_t now_ms) {
-  const bool same_sensor = this->config_ != nullptr && this->sensor_ == sensor;
+                              const Reading &last) {
   this->config_ = config;
   this->sensor_ = sensor;
   this->heat_claim_ = heat;
@@ -82,17 +81,14 @@ void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, Rel
   this->apply_config_();
   this->entity_->action = climate::CLIMATE_ACTION_OFF;
 
-  if (!same_sensor) {
-    this->has_sample_ = false;
-    this->entity_->current_temperature = NAN;
+  this->has_sample_ = last.seen;
+  this->last_sample_ms_ = last.ms;
+  this->entity_->current_temperature = last.seen ? last.value : NAN;
 #ifdef USE_SENSOR
-    if (sensor != nullptr && sensor->has_state() && !std::isnan(sensor->state)) {
-      this->entity_->current_temperature = sensor->state;
-      this->last_sample_ms_ = now_ms;
-      this->has_sample_ = true;
-    }
+  // Shown, not acted on: a probe that fell silent long ago keeps its last state for good.
+  if (!last.seen && sensor != nullptr && sensor->has_state())
+    this->entity_->current_temperature = sensor->state;
 #endif
-  }
 }
 
 void ControllerRuntime::stop(uint32_t now_ms) {

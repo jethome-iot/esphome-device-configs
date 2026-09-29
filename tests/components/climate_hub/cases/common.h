@@ -120,6 +120,9 @@ class TestHub : public ClimateHub {
     }
     this->free_.assign(this->slots_.begin(), this->slots_.end());
     this->claims_.clear();
+    // The subscriptions stay, as they do on a device; what they heard does not survive a boot.
+    for (auto &sub : this->sensor_subs_)
+      sub->last = Reading{};
     this->store_.clear();
     this->dirty_.clear();
     this->cancel_timeout("ha_resync");
