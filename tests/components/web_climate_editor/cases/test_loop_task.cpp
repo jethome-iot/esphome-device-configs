@@ -110,7 +110,7 @@ TEST_F(Editor, ARefusalFoundOnTheLoopTaskKeepsItsOwnStatus) {
 }
 
 // A hub whose storage never mounted runs its jobs in place, since no loop schedules it: the
-// reads still answer, and every write is refused with the hub's own 500.
+// reads still answer, and every write is refused with the same 500.
 TEST_F(Editor, AHubWithoutStorageStillAnswersReadsAndRefusesEveryWrite) {
   ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
   hub().mark_failed();
@@ -129,6 +129,23 @@ TEST_F(Editor, AHubWithoutStorageStillAnswersReadsAndRefusesEveryWrite) {
   }
   EXPECT_EQ(this->files(), std::vector<std::string>{"living-room.json"});
   EXPECT_FLOAT_EQ(hub().store().get("living-room")->setpoint, 22.f);
+}
+
+// In place means on the server task, whose stack is small: a save is refused before its body
+// is parsed, however broken the body is.
+TEST_F(Editor, AHubWithoutStorageRefusesASaveBeforeParsingIt) {
+  hub().mark_failed();
+  hub().jobs = 0;
+  for (const std::string &body : {std::string(FLOOR), std::string("garbage"), with(LIVING_ROOM, R"("id":"ghost")")}) {
+    Reply reply = this->post("save", body);
+    EXPECT_EQ(reply.code, 500) << body;
+    EXPECT_EQ(reply.error(), "Thermostat storage is not available") << body;
+  }
+  EXPECT_EQ(hub().jobs, 0);
+  // What the request itself gets wrong is still its answer.
+  EXPECT_EQ(this->post("save").error(), "Empty request body");
+  EXPECT_EQ(this->post("save", std::string(9000, 'x')).code, 413);
+  EXPECT_TRUE(this->files().empty());
 }
 
 }  // namespace esphome::web_climate_editor::testing

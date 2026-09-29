@@ -20,6 +20,8 @@ using climate_hub::Result;
 
 static const char *const TAG = "web_climate_editor";
 static const char *const NOT_FOUND = "Thermostat not found";
+// The hub's own words for the same refusal.
+static const char *const STORAGE_UNAVAILABLE = "Thermostat storage is not available";
 
 // clang-format off
 static const Route ROUTES[] = {
@@ -451,6 +453,12 @@ void WebClimateEditor::handle_save_(AsyncWebServerRequest *request) {
   }
   if (this->body_.empty()) {
     this->send_error_(request, "Empty request body");
+    return;
+  }
+  // A failed hub runs a job in place, on this task's small stack, only to refuse the write:
+  // answer before parsing. The hub fails only in its setup, before the server starts.
+  if (this->hub_->is_failed()) {
+    this->send_error_(request, STORAGE_UNAVAILABLE, 500);
     return;
   }
   std::string json;
