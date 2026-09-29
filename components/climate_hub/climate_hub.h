@@ -83,7 +83,8 @@ class ClimateHub : public Component {
 
   /// Adds a thermostat. The draft's id is ignored: one is made from the name. Refused with 400
   /// (a rule broken; enabled, and its sensor or a relay is not on the device), 409 (name taken,
-  /// relay held by a running thermostat), 507 (at max_controllers) or 500 (not written).
+  /// relay held by a running thermostat, every id the name gives taken), 507 (at
+  /// max_controllers) or 500 (not written).
   Result create(ClimateConfig draft);
   /// Replaces a thermostat's document; the id stays. A running one keeps its entity and every
   /// relay it still names. 404 for an unknown id, otherwise as create().
@@ -159,6 +160,7 @@ class ClimateHub : public Component {
   void on_sample_(SensorSubscription *sub, float value);
   void on_control_(uint8_t index, const climate::ClimateCall &call);
 
+  /// A free id made from `name`, "" when every one is taken.
   std::string next_id_(const std::string &name) const;
   std::string folder_() const;
   std::string file_path_(const std::string &id) const;

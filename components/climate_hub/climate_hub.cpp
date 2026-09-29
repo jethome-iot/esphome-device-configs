@@ -27,6 +27,8 @@ static const char *const TAG = "climate_hub";
 static const uint32_t FLUSH_DEBOUNCE_MS = 3000;
 // The renaming search at boot; far more than a pool can collide on.
 static const unsigned MAX_NAME_SUFFIX = 99;
+// The id search at create; files left in the folder count, so it can run out.
+static const unsigned MAX_ID_SUFFIX = 999;
 
 static bool file_exists(const std::string &path) {
   struct stat st;
@@ -344,6 +346,9 @@ Result ClimateHub::create(ClimateConfig draft) {
   if (this->is_name_taken(draft.name, "", &error))
     return failure(409, error);
   draft.id = this->next_id_(draft.name);
+  if (draft.id.empty())
+    return failure(409, "Every id made from \"" + draft.name +
+                            "\" is taken by a file in the thermostat folder; choose another name");
   if (draft.enabled && !this->check_startable_(draft, &result))
     return result;
   draft.version = 1;
@@ -811,14 +816,14 @@ bool ClimateHub::ensure_folder_() {
 // A file the loader refused still holds its id: a new thermostat never writes over it.
 std::string ClimateHub::next_id_(const std::string &name) const {
   const std::string base = slugify_id(name);
-  for (unsigned n = 1; n < 1000; n++) {
+  for (unsigned n = 1; n <= MAX_ID_SUFFIX; n++) {
     const std::string candidate = id_with_suffix(base, n);
     if (candidate == RESERVED_ID)
       continue;
     if (this->store_.get(candidate) == nullptr && !file_exists(this->file_path_(candidate)))
       return candidate;
   }
-  return id_with_suffix(base, 1000);
+  return "";
 }
 
 bool ClimateHub::save_(const ClimateConfig &config) {

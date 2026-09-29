@@ -33,6 +33,22 @@ TEST_F(HubTest, NamesThatSlugifyAlikeGetDistinctIds) {
   EXPECT_EQ((std::vector<std::string>{"living-room-2.json", "living-room.json"}), list_dir(this->folder()));
 }
 
+// Files the loader left alone keep their ids. When they hold every id a name gives, the create
+// is refused rather than written over one of them.
+TEST_F(HubTest, ANameWhoseIdsAreAllTakenIsRefused) {
+  for (unsigned n = 1; n <= 1000; n++)
+    write_file(this->file_of(id_with_suffix("boiler", n)), "left alone");
+
+  Result result = hub().create(draft("Boiler"));
+  EXPECT_EQ(409, result.code);
+  EXPECT_EQ("Every id made from \"Boiler\" is taken by a file in the thermostat folder; choose another name",
+            result.error);
+  EXPECT_EQ(0u, hub().store().size());
+  EXPECT_EQ(4u, hub().free_count());
+  EXPECT_EQ(1000u, list_dir(this->folder()).size());
+  EXPECT_EQ("left alone", read_file(this->file_of("boiler-1000")));
+}
+
 TEST_F(HubTest, TheEntityIsReachableThroughApp) {
   this->create(draft("Boiler"));
   HubClimate *entity = hub().entity_of("boiler");
