@@ -89,6 +89,45 @@ class Platform(unittest.TestCase):
             CORE.data[KEY_CORE][KEY_TARGET_PLATFORM] = PLATFORM_HOST
 
 
+class WebServerSorting(unittest.TestCase):
+    def setUp(self):
+        self.had_web_server = "web_server" in CORE.loaded_integrations
+
+    def tearDown(self):
+        if self.had_web_server:
+            CORE.loaded_integrations.add("web_server")
+        else:
+            CORE.loaded_integrations.discard("web_server")
+
+    def test_a_sorting_group_and_weight_are_taken_like_any_entitys(self):
+        CORE.loaded_integrations.add("web_server")
+        config = climate_hub.CONFIG_SCHEMA(
+            {
+                "storage": "user_storage",
+                "web_server": {
+                    "sorting_group_id": "group_climate",
+                    "sorting_weight": 35,
+                },
+            }
+        )
+        sorting = config["web_server"]
+        self.assertEqual(str(sorting["sorting_group_id"]), "group_climate")
+        self.assertEqual(sorting["sorting_weight"], 35.0)
+        self.assertIn("web_server_id", sorting)
+
+    def test_sorting_without_a_web_server_is_refused(self):
+        CORE.loaded_integrations.discard("web_server")
+        with self.assertRaisesRegex(
+            cv.Invalid, "This option requires component web_server"
+        ):
+            climate_hub.CONFIG_SCHEMA(
+                {
+                    "storage": "user_storage",
+                    "web_server": {"sorting_group_id": "group_climate"},
+                }
+            )
+
+
 class FinalValidate(unittest.TestCase):
     def validate(self, full_config):
         token = fv.full_config.set(full_config)

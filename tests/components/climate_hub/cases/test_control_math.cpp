@@ -24,6 +24,10 @@ TEST(PidCore, IntegralAccumulatesAndIsClamped) {
   EXPECT_FLOAT_EQ(0.4f, pid.integral_term());
   pid.update(22.f, 20.f, 1.f);
   EXPECT_FLOAT_EQ(0.5f, pid.integral_term()) << "clamped at max_integral";
+
+  for (int i = 0; i < 20; i++)
+    pid.update(20.f, 22.f, 1.f);
+  EXPECT_FLOAT_EQ(-1.f, pid.integral_term()) << "and at min_integral, the other way";
 }
 
 TEST(PidCore, NegativeErrorDrivesTheOutputNegative) {
@@ -62,6 +66,8 @@ TEST(PidCore, OutputAveragingSmoothsAcrossSamples) {
   EXPECT_FLOAT_EQ(2.f, pid.update(22.f, 20.f, 1.f));
   // The average of the last two outputs: (2 + 0) / 2.
   EXPECT_FLOAT_EQ(1.f, pid.update(22.f, 22.f, 1.f));
+  // The oldest drops out of the window: (0 + 4) / 2.
+  EXPECT_FLOAT_EQ(2.f, pid.update(22.f, 18.f, 1.f));
 }
 
 TEST(PidCore, ResetDropsTheIntegralButKeepsTheTuning) {
@@ -95,6 +101,28 @@ TEST(HysteresisCore, HeatCoolIdlesBetweenThePoints) {
   EXPECT_EQ(HubAction::HEATING, hyst.update(HubMode::HEAT_COOL, 19.f));
   EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::HEAT_COOL, 21.f));
   EXPECT_EQ(HubAction::COOLING, hyst.update(HubMode::HEAT_COOL, 23.f));
+}
+
+TEST(HysteresisCore, CoolsAboveHighAndStopsBelowLow) {
+  HysteresisCore hyst;
+  hyst.set_setpoints(20.f, 21.f);
+  hyst.set_directions(false, true);
+
+  EXPECT_EQ(HubAction::COOLING, hyst.update(HubMode::COOL, 22.f));
+  EXPECT_EQ(HubAction::COOLING, hyst.update(HubMode::COOL, 20.5f)) << "latched between the points";
+  EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::COOL, 19.f));
+  EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::HEAT, 19.f)) << "no heating relay to call on";
+  EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::HEAT, 22.f)) << "and too hot is not its to fix in HEAT";
+}
+
+// A switching point that is not a number is as unknown as a reading that is not one.
+TEST(HysteresisCore, AMissingSwitchingPointReportsOff) {
+  HysteresisCore hyst;
+  hyst.set_directions(true, true);
+  hyst.set_setpoints(NAN, 21.f);
+  EXPECT_EQ(HubAction::OFF, hyst.update(HubMode::HEAT_COOL, 18.f));
+  hyst.set_setpoints(20.f, NAN);
+  EXPECT_EQ(HubAction::OFF, hyst.update(HubMode::HEAT_COOL, 18.f));
 }
 
 TEST(HysteresisCore, WithoutTheDirectionItOnlyIdles) {

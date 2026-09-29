@@ -8,13 +8,44 @@ namespace esphome::climate_hub::testing {
 namespace {
 
 const char *const DOC = R"({"version":1,"id":"%s","name":"%s","enabled":%s,"kind":"bang_bang",)"
-                        R"("sensor_id":"room","heat":{"relay_id":"%s"},"mode":"heat","setpoint":21})";
+                        R"("sensor_id":"%s","heat":{"relay_id":"%s"},"mode":"heat","setpoint":21})";
 
-std::string doc(const char *id, const char *name, const char *relay = "relay_1", bool enabled = true) {
+std::string doc(const char *id, const char *name, const char *relay = "relay_1", bool enabled = true,
+                const char *sensor = "room") {
   char buf[512];
-  snprintf(buf, sizeof(buf), DOC, id, name, enabled ? "true" : "false", relay);
+  snprintf(buf, sizeof(buf), DOC, id, name, enabled ? "true" : "false", sensor, relay);
   return buf;
 }
+
+// A hub of its own over a fresh folder, beside the process-wide one whose pool already fills
+// App's climates: this one finds no room for a single entity. Never freed, like any component;
+// only its folder goes.
+struct SecondHub {
+  FakeStorage *storage{new FakeStorage()};
+  TestHub *hub{new TestHub()};
+  std::string base;
+
+  explicit SecondHub(const char *name) {
+    testing::hub();
+    entities();
+    mkdir(".storage", 0755);
+    this->base = std::string(".storage/") + name + "-XXXXXX";
+    EXPECT_NE(nullptr, mkdtemp(&this->base[0]));
+    this->storage->path = this->base;
+    this->hub->set_storage(this->storage);
+    this->hub->set_max_controllers(2);
+  }
+  ~SecondHub() {
+    // The one process-wide hub is what the other cases use; this one only borrowed the pointer.
+    global_climate_hub = &testing::hub();
+    const std::string folder = this->base + "/climates";
+    chmod(folder.c_str(), 0755);
+    for (const std::string &name : list_dir(folder))
+      ::remove((folder + "/" + name).c_str());
+    ::remove(folder.c_str());
+    rmdir(this->base.c_str());
+  }
+};
 
 }  // namespace
 
@@ -332,6 +363,133 @@ TEST_F(HubTest, BootStartsOneOfTwoOnTheSameRelay) {
   EXPECT_TRUE(hub().store().get("winter")->enabled) << "still enabled, just not running";
 }
 
+// An enabled thermostat whose sensor or relay is gone stays on flash and enabled, not running,
+// until what it names is back.
+TEST_F(HubTest, BootKeepsAThermostatWhoseSensorOrRelayIsGone) {
+  const std::string attic = doc("attic", "Attic", "relay_1", true, "gone");
+  const std::string porch = R"({"version":1,"id":"porch","name":"Porch","kind":"bang_bang","sensor_id":"room",)"
+                            R"("heat":{"relay_id":"relay_1"},"cool":{"relay_id":"relay_9"},"mode":"heat_cool"})";
+  write_file(this->file_of("attic"), attic);
+  write_file(this->file_of("porch"), porch);
+  LogCapture::instance().clear();
+  this->reboot();
+
+  EXPECT_EQ(2u, hub().store().size());
+  for (const char *id : {"attic", "porch"}) {
+    EXPECT_TRUE(hub().store().get(id)->enabled) << id;
+    EXPECT_FALSE(hub().is_running(id)) << id;
+  }
+  EXPECT_EQ(4u, hub().free_count());
+  EXPECT_EQ("", hub().claimed_by("relay_1")) << "a claim taken on the way is let go";
+  EXPECT_TRUE(LogCapture::instance().has("'attic' not started: sensor 'gone' not found"));
+  EXPECT_TRUE(LogCapture::instance().has("'porch' not started: relay 'relay_9' not found"));
+  EXPECT_EQ(attic, read_file(this->file_of("attic")));
+  EXPECT_EQ(porch, read_file(this->file_of("porch")));
+}
+
+// Bigger than any document the editor writes: refused unread, and left.
+TEST_F(HubTest, BootRefusesAnOversizedFileAndLeavesIt) {
+  const std::string big = doc("big", "Big") + std::string(CONFIG_MAX_BYTES, ' ');
+  write_file(this->file_of("big"), big);
+  this->reboot();
+  EXPECT_EQ(0u, hub().store().size());
+  EXPECT_EQ(big, read_file(this->file_of("big")));
+}
+
+TEST_F(HubTest, BootRefusesAnUnreadableFileAndLeavesIt) {
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root reads anywhere";
+  write_file(this->file_of("locked"), doc("locked", "Locked"));
+  chmod(this->file_of("locked").c_str(), 0000);
+  LogCapture::instance().clear();
+  this->reboot();
+  chmod(this->file_of("locked").c_str(), 0644);
+  EXPECT_EQ(0u, hub().store().size());
+  EXPECT_TRUE(LogCapture::instance().has("Cannot open '" + this->file_of("locked") + "'"));
+}
+
+TEST_F(HubTest, ANameTakenTwiceAtBootCountsOn) {
+  write_file(this->file_of("a"), doc("a", "Boiler", "relay_1", false));
+  write_file(this->file_of("b"), doc("b", "Boiler", "relay_1", false));
+  write_file(this->file_of("c"), doc("c", "boiler", "relay_1", false));
+  this->reboot();
+  EXPECT_EQ("Boiler", hub().store().get("a")->name);
+  EXPECT_EQ("Boiler 2", hub().store().get("b")->name);
+  EXPECT_EQ("boiler 3", hub().store().get("c")->name);
+}
+
+TEST_F(HubTest, ANameThatIsTheSameEntityIdAtBootIsRenamedToo) {
+  write_file(this->file_of("a"), doc("a", "Room 1", "relay_1", false));
+  write_file(this->file_of("b"), doc("b", "Room_1", "relay_1", false));
+  this->reboot();
+  EXPECT_EQ("Room_1 2", hub().store().get("b")->name) << "room_1 to Home Assistant, like Room 1";
+}
+
+// The rename holds for this boot even when it cannot be written back; the log says so, and the
+// next boot renames again. A directory where the temporary file goes refuses it, for root too.
+TEST_F(HubTest, ARenameAtBootThatCannotBeWrittenStillHolds) {
+  const std::string kettle = doc("kettle", "Boiler", "relay_2", false);
+  write_file(this->file_of("boiler"), doc("boiler", "Boiler", "relay_1", false));
+  write_file(this->file_of("kettle"), kettle);
+  ASSERT_EQ(0, mkdir((this->file_of("kettle") + ".tmp").c_str(), 0755));
+  LogCapture::instance().clear();
+  this->reboot();
+
+  EXPECT_EQ("Boiler 2", hub().store().get("kettle")->name);
+  EXPECT_EQ(kettle, read_file(this->file_of("kettle")));
+  EXPECT_TRUE(LogCapture::instance().has("'kettle': the new name was not written"));
+}
+
+// The entity table codegen sized is full, as when YAML and the pool disagree: the hub says so,
+// keeps its documents, and answers every start with why it did not run.
+TEST(HubWithoutRoom, ThermostatsAreKeptButNotRun) {
+  LogCapture::instance().clear();
+  SecondHub second("crowded");
+  TestHub &crowded = *second.hub;
+  const size_t registered = App.get_climates().size();
+
+  crowded.setup();
+  EXPECT_FALSE(crowded.is_failed());
+  EXPECT_EQ(0u, crowded.slot_count());
+  EXPECT_EQ(registered, App.get_climates().size());
+  EXPECT_TRUE(LogCapture::instance().has("No room in the entity table for thermostat 1"));
+
+  const std::string not_started = "not started: no free climate entity";
+  Result created = crowded.create(draft("Boiler"));
+  EXPECT_TRUE(created.ok) << created.error;
+  EXPECT_EQ(not_started, created.warning);
+  EXPECT_FALSE(crowded.is_running("boiler"));
+  EXPECT_EQ("", crowded.claimed_by("relay_1")) << "no claim without an entity to run";
+  EXPECT_EQ(not_started, crowded.set_enabled("boiler", true).warning);
+  ClimateConfig edited = draft("Boiler");
+  edited.setpoint = 23.f;
+  Result updated = crowded.update("boiler", edited);
+  EXPECT_TRUE(updated.ok);
+  EXPECT_EQ(not_started, updated.warning);
+}
+
+// The thermostats folder is a file, or cannot be listed: the hub fails rather than run half a set.
+TEST(HubFailure, AFolderThatIsNotOneFailsTheHub) {
+  SecondHub second("notdir");
+  write_file(second.base + "/climates", "");
+  LogCapture::instance().clear();
+  second.hub->setup();
+  EXPECT_TRUE(second.hub->is_failed());
+  EXPECT_TRUE(LogCapture::instance().has("Cannot create '" + second.base + "/climates'"));
+}
+
+TEST(HubFailure, AFolderThatCannotBeListedFailsTheHub) {
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root reads anywhere";
+  SecondHub second("unlisted");
+  const std::string folder = second.base + "/climates";
+  ASSERT_EQ(0, mkdir(folder.c_str(), 0300));
+  LogCapture::instance().clear();
+  second.hub->setup();
+  EXPECT_TRUE(second.hub->is_failed());
+  EXPECT_TRUE(LogCapture::instance().has("Cannot read '" + folder + "'"));
+}
+
 // A hub over an unmounted storage fails, registers no entity, and refuses every change; a job
 // handed to it runs in place instead of waiting for a loop that never schedules it.
 TEST(HubFailure, NoStorageMeansNoPoolAndNoChanges) {
@@ -352,6 +510,11 @@ TEST(HubFailure, NoStorageMeansNoPoolAndNoChanges) {
   Result result = failed.create(draft("Boiler"));
   EXPECT_EQ(500, result.code);
   EXPECT_EQ("Thermostat storage is not available", result.error);
+  for (const Result &refused : {failed.update("boiler", draft("Boiler")), failed.remove("boiler"),
+                                failed.set_enabled("boiler", true), failed.set_setpoint("boiler", 20.f)}) {
+    EXPECT_EQ(500, refused.code);
+    EXPECT_EQ("Thermostat storage is not available", refused.error);
+  }
   bool ran = false;
   EXPECT_TRUE(failed.run_on_loop([&ran]() {
     ran = true;

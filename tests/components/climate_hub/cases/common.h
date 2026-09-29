@@ -15,6 +15,7 @@
 #include "esphome/components/climate/climate.h"
 #include "esphome/components/climate_hub/climate_config.h"
 #include "esphome/components/climate_hub/climate_hub.h"
+#include "esphome/components/logger/logger.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
 #include "esphome/core/application.h"
@@ -44,6 +45,31 @@ class YamlClimate : public climate::Climate {
     return traits;
   }
   void control(const climate::ClimateCall &) override {}
+};
+
+// Every line the process logs from here on. Registered once: the logger keeps its listeners.
+class LogCapture {
+ public:
+  std::vector<std::string> lines;
+
+  static LogCapture &instance() {
+    static LogCapture *capture = [] {
+      auto *c = new LogCapture();
+      logger::global_logger->add_log_callback(c, &LogCapture::on_log);
+      return c;
+    }();
+    return *capture;
+  }
+  void clear() { this->lines.clear(); }
+  bool has(const std::string &needle) const {
+    return std::any_of(this->lines.begin(), this->lines.end(),
+                       [&needle](const std::string &line) { return line.find(needle) != std::string::npos; });
+  }
+
+ protected:
+  static void on_log(void *self, uint8_t, const char *, const char *message, size_t len) {
+    static_cast<LogCapture *>(self)->lines.emplace_back(message, len);
+  }
 };
 
 // A mounted directory, the way littlefs_storage presents the partition.
@@ -92,6 +118,7 @@ class TestHub : public ClimateHub {
     this->ha_resync_delay_ms_ = 20;
   }
 
+  void register_pool() { this->build_pool_(); }
   HubClimate *slot_entity(size_t index) { return &this->slots_[index]->entity; }
   size_t slot_count() const { return this->slots_.size(); }
   size_t free_count() const { return this->free_.size(); }
@@ -126,6 +153,8 @@ class TestHub : public ClimateHub {
 struct Entities {
   sensor::Sensor room;
   sensor::Sensor floor;
+  // internal: true in YAML; nothing outside the firmware may name it.
+  sensor::Sensor hidden;
   FakeSwitch relay1;
   FakeSwitch relay2;
   FakeSwitch relay3;
@@ -137,6 +166,7 @@ inline Entities &entities() {
     auto *e = new Entities();
     App.register_sensor(&e->room, "Room", fnv1_hash("room"), 0);
     App.register_sensor(&e->floor, "Floor", fnv1_hash("floor"), 0);
+    App.register_sensor(&e->hidden, "Hidden", fnv1_hash("hidden"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);
     App.register_switch(&e->relay1, "Relay 1", fnv1_hash("relay_1"), 0);
     App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
     App.register_switch(&e->relay3, "Relay 3", fnv1_hash("relay_3"), 0);
@@ -151,8 +181,8 @@ inline FakeStorage &storage() {
   return *instance;
 }
 
-// One hub for the whole process: its pool registers with App in the first setup(), and App has
-// room for exactly one pool.
+// One hub for the whole process. App has room for exactly one pool, so this one registers
+// its pool the moment it exists, before any other hub a case builds can take the room.
 inline TestHub &hub() {
   static TestHub *instance = [] {
     auto *h = new TestHub();
@@ -160,6 +190,7 @@ inline TestHub &hub() {
     h->set_folder_path("climates");
     h->set_max_controllers(4);
     h->set_icon_index(1);
+    h->register_pool();
     return h;
   }();
   return *instance;
@@ -167,7 +198,7 @@ inline TestHub &hub() {
 
 inline void reset_entities() {
   Entities &e = entities();
-  for (sensor::Sensor *s : {&e.room, &e.floor}) {
+  for (sensor::Sensor *s : {&e.room, &e.floor, &e.hidden}) {
     s->state = NAN;
     s->set_has_state(false);
   }

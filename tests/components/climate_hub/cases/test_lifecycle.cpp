@@ -494,4 +494,346 @@ TEST_F(HubTest, AStoppedCreateDoesNotReconnect) {
   EXPECT_EQ(0, hub().resyncs);
 }
 
+TEST_F(HubTest, ANaNTargetIsRefused) {
+  ClimateConfig config = draft("Boiler");
+  config.setpoint = NAN;
+  Result result = hub().create(config);
+  EXPECT_EQ(400, result.code);
+  EXPECT_EQ("setpoint must be a number", result.error);
+}
+
+TEST_F(HubTest, AnUpdateNeedsAKnownIdAndAValidDocument) {
+  EXPECT_EQ(404, hub().update("nope", draft("Nope")).code);
+
+  this->create(draft("Boiler"));
+  ClimateConfig broken = draft("Boiler");
+  broken.sensor_id = "";
+  Result result = hub().update("boiler", broken);
+  EXPECT_EQ(400, result.code);
+  EXPECT_EQ("sensor_id is required", result.error);
+  EXPECT_EQ("room", hub().store().get("boiler")->sensor_id);
+}
+
+// A Save carries the enabled flag too, so it is also a way to stop or start a thermostat.
+TEST_F(HubTest, ASaveThatSwitchesAThermostatOffStopsIt) {
+  this->create(draft("Boiler"));
+  HubClimate *entity = hub().entity_of("boiler");
+  pass_resync_delay();
+  hub().resyncs = 0;
+
+  ClimateConfig off = draft("Boiler");
+  off.enabled = false;
+  Result result = hub().update("boiler", off);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_FALSE(hub().is_running("boiler"));
+  EXPECT_TRUE(entity->is_internal());
+  EXPECT_EQ("", hub().claimed_by("relay_1"));
+  pass_resync_delay();
+  EXPECT_EQ(1, hub().resyncs);
+}
+
+TEST_F(HubTest, ASaveThatSwitchesAThermostatOnStartsIt) {
+  ClimateConfig config = draft("Boiler");
+  config.enabled = false;
+  this->create(config);
+
+  Result result = hub().update("boiler", draft("Boiler"));
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("", result.warning);
+  EXPECT_TRUE(hub().is_running("boiler"));
+  EXPECT_EQ("boiler", hub().claimed_by("relay_1"));
+  pass_resync_delay();
+  EXPECT_EQ(1, hub().resyncs);
+}
+
+// Home Assistant lists a climate's name, modes and range: a Save that changes any of them makes
+// it reconnect, and one that changes only state or tuning does not.
+TEST_F(HubTest, HomeAssistantReconnectsForNewModesOrANewRange) {
+  ClimateConfig config = draft("Boiler");
+  this->create(config);
+  pass_resync_delay();
+  hub().resyncs = 0;
+
+  config.mode = HubMode::OFF;
+  config.bang_bang.below = 2.f;
+  config.update_interval_s = 60.f;
+  ASSERT_TRUE(hub().update("boiler", config).ok);
+  pass_resync_delay();
+  EXPECT_EQ(0, hub().resyncs) << "a mode, a band and an interval are no news";
+
+  const std::pair<const char *, void (*)(ClimateConfig &)> changes[] = {
+      {"a new minimum", [](ClimateConfig &c) { c.visual.min_temperature = 10.f; }},
+      {"a new maximum", [](ClimateConfig &c) { c.visual.max_temperature = 30.f; }},
+      {"a new step", [](ClimateConfig &c) { c.visual.step = 1.f; }},
+      {"a cooling relay", [](ClimateConfig &c) { c.cool.relay_id = "relay_2"; }},
+      {"no heating relay", [](ClimateConfig &c) { c.heat.relay_id = ""; }},
+  };
+  for (const auto &change : changes) {
+    change.second(config);
+    ASSERT_TRUE(hub().update("boiler", config).ok) << change.first;
+    const int before = hub().resyncs;
+    pass_resync_delay();
+    EXPECT_EQ(before + 1, hub().resyncs) << change.first;
+  }
+}
+
+// Asking for what already is changes nothing: no write, no restart, no reconnect.
+TEST_F(HubTest, EnablingARunningOrDisablingAStoppedThermostatDoesNothing) {
+  this->create(draft("Boiler", "relay_1"));
+  ClimateConfig off = draft("Kettle", "relay_2");
+  off.enabled = false;
+  this->create(off);
+  HubClimate *entity = hub().entity_of("boiler");
+  pass_resync_delay();
+  hub().resyncs = 0;
+  // A trailing space that any rewrite would drop.
+  for (const char *id : {"boiler", "kettle"})
+    write_file(this->file_of(id), read_file(this->file_of(id)) + " ");
+
+  EXPECT_TRUE(hub().set_enabled("boiler", true).ok);
+  EXPECT_TRUE(hub().set_enabled("kettle", false).ok);
+  EXPECT_EQ(entity, hub().entity_of("boiler"));
+  for (const char *id : {"boiler", "kettle"})
+    EXPECT_EQ(' ', read_file(this->file_of(id)).back()) << id << " was not rewritten";
+  pass_resync_delay();
+  EXPECT_EQ(0, hub().resyncs);
+}
+
+// The editor shows what a thermostat's sensor reads, whether the thermostat runs or not.
+TEST_F(HubTest, ASensorReadingIsWhatTheSensorSaysNow) {
+  EXPECT_TRUE(std::isnan(hub().sensor_reading("no_such_sensor")));
+  EXPECT_TRUE(std::isnan(hub().sensor_reading("room"))) << "no reading yet";
+  entities().room.publish_state(19.5f);
+  EXPECT_FLOAT_EQ(19.5f, hub().sensor_reading("room"));
+  entities().hidden.publish_state(30.f);
+  EXPECT_TRUE(std::isnan(hub().sensor_reading("hidden"))) << "internal: not the editor's to show";
+}
+
+// internal: true keeps an entity to the firmware; a thermostat cannot name it either.
+TEST_F(HubTest, AnInternalSensorCannotBeBound) {
+  ClimateConfig config = draft("Boiler");
+  config.sensor_id = "hidden";
+  Result result = hub().create(config);
+  EXPECT_EQ(400, result.code);
+  EXPECT_EQ("No sensor \"hidden\" on this device", result.error);
+}
+
+// run_on_loop() is how an HTTP handler reaches the hub. With one task, as here, the job runs in
+// place and its answer comes back.
+TEST_F(HubTest, AJobHandedToTheHubRunsAndAnswers) {
+  EXPECT_TRUE(hub().run_on_loop([]() { return true; }));
+  EXPECT_FALSE(hub().run_on_loop([]() { return false; }));
+  EXPECT_EQ(2, hub().loop_jobs);
+}
+
+// After dallas_scan (DATA) has made the probes a thermostat binds, before automations (DATA - 1)
+// so a rule can one day name a thermostat.
+TEST_F(HubTest, TheHubSetsUpBetweenTheProbesAndTheRules) {
+  EXPECT_LT(hub().get_setup_priority(), setup_priority::DATA);
+  EXPECT_GT(hub().get_setup_priority(), setup_priority::DATA - 1.f);
+}
+
+// The icon codegen registered rides in the entity fields, through every rename and hide.
+TEST_F(HubTest, EveryThermostatWearsTheThermostatIcon) {
+  char icon[MAX_ICON_LENGTH];
+  EXPECT_STREQ("mdi:thermostat", hub().slot_entity(0)->get_icon_to(icon)) << "as registered";
+  this->create(draft("Boiler"));
+  HubClimate *entity = hub().entity_of("boiler");
+  EXPECT_STREQ("mdi:thermostat", entity->get_icon_to(icon)) << "shown";
+  ASSERT_TRUE(hub().remove("boiler").ok);
+  EXPECT_STREQ("mdi:thermostat", entity->get_icon_to(icon)) << "hidden";
+}
+
+TEST_F(HubTest, TheConfigDumpSaysWhatEachThermostatIsDoing) {
+  this->create(draft("Boiler", "relay_1"));
+  ClimateConfig off = draft("Kettle", "relay_2");
+  off.enabled = false;
+  this->create(off);
+  write_file(this->file_of("attic"), R"({"version":1,"id":"attic","name":"Attic","kind":"bang_bang",)"
+                                     R"("sensor_id":"gone","heat":{"relay_id":"relay_3"}})");
+  this->reboot();
+
+  LogCapture::instance().clear();
+  hub().dump_config();
+  const LogCapture &log = LogCapture::instance();
+  EXPECT_TRUE(log.has("Folder: " + this->folder()));
+  EXPECT_TRUE(log.has("Thermostats: 3 of 4"));
+  EXPECT_TRUE(log.has("'Boiler' (boiler): pid, running"));
+  EXPECT_TRUE(log.has("'Kettle' (kettle): pid, disabled"));
+  EXPECT_TRUE(log.has("'Attic' (attic): bang_bang, not started"));
+}
+
+// A target that cannot be written stays live; the log says it will not survive a reboot.
+TEST_F(HubTest, ATargetThatCannotBeWrittenStaysLive) {
+  this->create(draft("Boiler"));
+  const std::string before = read_file(this->file_of("boiler"));
+  ASSERT_TRUE(hub().set_setpoint("boiler", 26.f).ok);
+
+  LogCapture::instance().clear();
+  storage().path = "/proc/definitely-not-writable";
+  hub().ms += 3000;
+  hub().loop();
+  storage().path = this->base_;
+
+  EXPECT_FALSE(hub().dirty("boiler")) << "one attempt per change";
+  EXPECT_FLOAT_EQ(26.f, hub().entity_of("boiler")->target_temperature);
+  EXPECT_EQ(before, read_file(this->file_of("boiler")));
+  EXPECT_TRUE(LogCapture::instance().has("'boiler': the new target or mode was not written"));
+}
+
+// Written beside the file and renamed over it: when the rename is what fails, nothing is left
+// beside it either. A directory in the file's place refuses the rename, for root too.
+TEST_F(HubTest, AFailedRenameLeavesNoTemporaryFile) {
+  ClimateConfig config = draft("Boiler");
+  config.enabled = false;
+  this->create(config);
+  ASSERT_EQ(0, ::remove(this->file_of("boiler").c_str()));
+  ASSERT_EQ(0, mkdir(this->file_of("boiler").c_str(), 0755));
+
+  Result result = hub().update("boiler", config);
+  EXPECT_EQ(500, result.code);
+  EXPECT_FALSE(result.persisted);
+  EXPECT_EQ(std::vector<std::string>{"boiler.json"}, list_dir(this->folder()));
+}
+
+// And when not even the temporary file opens, the document is left as it was.
+TEST_F(HubTest, AWriteThatCannotStartChangesNothing) {
+  ClimateConfig config = draft("Boiler");
+  config.enabled = false;
+  this->create(config);
+  ASSERT_EQ(0, mkdir((this->file_of("boiler") + ".tmp").c_str(), 0755));
+
+  config.setpoint = 25.f;
+  Result result = hub().update("boiler", config);
+  EXPECT_EQ(500, result.code);
+  EXPECT_FLOAT_EQ(21.f, hub().store().get("boiler")->setpoint);
+}
+
+// When the partition refuses both the unlink and the blanking, the thermostat is gone from the
+// running device but its file is whole: persisted says so, and the next boot brings it back.
+TEST_F(HubTest, ADeleteThePartitionRefusesEntirelyIsNotPersisted) {
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root writes anywhere";
+  this->create(draft("Boiler"));
+  hub().undeletable.push_back("boiler.json");
+  chmod(this->file_of("boiler").c_str(), 0444);
+  Result removed = hub().remove("boiler");
+  chmod(this->file_of("boiler").c_str(), 0644);
+
+  EXPECT_TRUE(removed.ok);
+  EXPECT_FALSE(removed.persisted);
+  EXPECT_EQ(nullptr, hub().store().get("boiler"));
+  this->reboot();
+  EXPECT_TRUE(hub().is_running("boiler")) << "back from its file";
+}
+
+// A stopped thermostat has no entity: saving or removing it changes its file and nothing that
+// Home Assistant lists.
+TEST_F(HubTest, ASaveOrRemovalOfAStoppedThermostatTouchesOnlyItsFile) {
+  ClimateConfig config = draft("Boiler");
+  config.enabled = false;
+  this->create(config);
+  config.name = "Hot Water";
+  config.setpoint = 24.f;
+
+  ASSERT_TRUE(hub().update("boiler", config).ok);
+  EXPECT_FALSE(hub().is_running("boiler"));
+  EXPECT_EQ(4u, hub().free_count());
+  EXPECT_NE(std::string::npos, read_file(this->file_of("boiler")).find("\"name\":\"Hot Water\""));
+  ASSERT_TRUE(hub().remove("boiler").ok);
+  EXPECT_FALSE(file_exists(this->file_of("boiler")));
+  pass_resync_delay();
+  EXPECT_EQ(0, hub().resyncs);
+}
+
+// Enabled but not running, its sensor gone: switching it off stores the flag and nothing else.
+TEST_F(HubTest, DisablingAThermostatThatCouldNotRunStoresTheFlag) {
+  write_file(this->file_of("attic"), R"({"version":1,"id":"attic","name":"Attic","kind":"bang_bang",)"
+                                     R"("sensor_id":"gone","heat":{"relay_id":"relay_1"}})");
+  this->reboot();
+  ASSERT_FALSE(hub().is_running("attic"));
+
+  Result result = hub().set_enabled("attic", false);
+  EXPECT_TRUE(result.ok);
+  EXPECT_TRUE(result.persisted);
+  EXPECT_FALSE(hub().store().get("attic")->enabled);
+  EXPECT_NE(std::string::npos, read_file(this->file_of("attic")).find("\"enabled\":false"));
+  pass_resync_delay();
+  EXPECT_EQ(0, hub().resyncs);
+}
+
+// A take-over the partition cannot record still happens now; persisted says a reboot undoes it.
+TEST_F(HubTest, ATakeOverThatCannotBeWrittenSaysSo) {
+  this->create(draft("Winter", "relay_1"));
+  ClimateConfig summer = draft("Summer", "relay_1");
+  summer.enabled = false;
+  this->create(summer);
+  for (const char *id : {"winter", "summer"})
+    ASSERT_EQ(0, mkdir((this->file_of(id) + ".tmp").c_str(), 0755));
+
+  Result result = hub().set_enabled("summer", true, true);
+  EXPECT_TRUE(result.ok);
+  EXPECT_FALSE(result.persisted);
+  EXPECT_TRUE(hub().is_running("summer"));
+  EXPECT_FALSE(hub().is_running("winter"));
+
+  this->reboot();
+  EXPECT_TRUE(hub().is_running("winter")) << "the files still say winter";
+  EXPECT_FALSE(hub().is_running("summer"));
+}
+
+// A setpoint that is already the target is no change, so nothing waits to be written.
+TEST_F(HubTest, TheSameTargetOnAStoppedThermostatWritesNothing) {
+  ClimateConfig config = draft("Boiler");
+  config.enabled = false;
+  this->create(config);
+  ASSERT_TRUE(hub().set_setpoint("boiler", 21.f).ok);
+  EXPECT_FALSE(hub().dirty("boiler"));
+  ASSERT_TRUE(hub().set_setpoint("boiler", 22.f).ok);
+  EXPECT_TRUE(hub().dirty("boiler"));
+}
+
+// Each probe's samples reach the thermostats on that probe and no other.
+TEST_F(HubTest, ASampleReachesOnlyTheThermostatsOnItsProbe) {
+  this->create(draft("Lounge", "relay_1"));
+  ClimateConfig floor = draft("Floor Heating", "relay_2");
+  floor.sensor_id = "floor";
+  this->create(floor);
+
+  entities().floor.publish_state(28.f);
+  EXPECT_FLOAT_EQ(28.f, hub().entity_of("floor-heating")->current_temperature);
+  EXPECT_TRUE(std::isnan(hub().entity_of("lounge")->current_temperature));
+  entities().room.publish_state(19.f);
+  EXPECT_FLOAT_EQ(19.f, hub().entity_of("lounge")->current_temperature);
+  EXPECT_FLOAT_EQ(28.f, hub().entity_of("floor-heating")->current_temperature);
+}
+
+// Removed by hand over the file API first: the delete still stands, and nothing comes back.
+TEST_F(HubTest, DeletingAThermostatWhoseFileIsGoneStands) {
+  this->create(draft("Boiler"));
+  ASSERT_EQ(0, ::remove(this->file_of("boiler").c_str()));
+  Result removed = hub().remove("boiler");
+  EXPECT_TRUE(removed.ok);
+  EXPECT_TRUE(removed.persisted);
+  EXPECT_EQ(nullptr, hub().store().get("boiler"));
+}
+
+// A full partition shows up when the file is closed, not when it is written: the Save fails
+// there and leaves nothing beside the file. /dev/full plays the partition.
+TEST_F(HubTest, AFullPartitionIsCaughtWhenTheFileCloses) {
+  if (!file_exists("/dev/full"))
+    GTEST_SKIP() << "no /dev/full";
+  ClimateConfig config = draft("Boiler");
+  config.enabled = false;
+  this->create(config);
+  const std::string before = read_file(this->file_of("boiler"));
+  ASSERT_EQ(0, symlink("/dev/full", (this->file_of("boiler") + ".tmp").c_str()));
+
+  config.setpoint = 25.f;
+  Result result = hub().update("boiler", config);
+  EXPECT_EQ(500, result.code);
+  EXPECT_EQ(before, read_file(this->file_of("boiler")));
+  EXPECT_EQ(std::vector<std::string>{"boiler.json"}, list_dir(this->folder()));
+}
+
 }  // namespace esphome::climate_hub::testing

@@ -55,6 +55,10 @@ sensor:
   - platform: template
     id: floor_unused
     name: "Floor"
+  - platform: template
+    id: hidden_unused
+    name: "Hidden"
+    internal: true
 
 switch:
   - platform: template

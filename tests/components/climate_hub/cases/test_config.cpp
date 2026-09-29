@@ -67,6 +67,21 @@ TEST(ClimateConfigJson, IdIsRequiredOnLoadAndOptionalOnCreate) {
   EXPECT_FALSE(from_json(without_id, &parsed, &error, true));
   EXPECT_EQ("id is required", error);
   EXPECT_TRUE(from_json(without_id, &parsed, &error, false)) << error;
+
+  std::string empty_id = R"({"id":"","name":"Boiler","sensor_id":"room_temp","heat":{"relay_id":"relay_1"}})";
+  EXPECT_FALSE(from_json(empty_id, &parsed, &error, true));
+  EXPECT_EQ("id is required", error);
+}
+
+// A hand-written direction may leave the relay out: the direction is unused, its timing kept.
+TEST(ClimateConfigJson, ADirectionWithoutARelayIsUnused) {
+  ClimateConfig parsed;
+  std::string error;
+  ASSERT_TRUE(from_json(R"({"name":"B","sensor_id":"s","heat":{"relay_id":"r"},"cool":{"period_s":60}})", &parsed,
+                        &error, false))
+      << error;
+  EXPECT_FALSE(parsed.supports_cool());
+  EXPECT_FLOAT_EQ(60.f, parsed.cool.period_s);
 }
 
 // Numbers degrade, structure is refused: a hand edit should cost a clamped gain, not a
@@ -190,6 +205,20 @@ TEST(ClimateConfigJson, SetpointsAreHeldInsideTheVisualRange) {
                      R"("visual":{"min_temperature":10,"max_temperature":30},"setpoint":99})";
   ASSERT_TRUE(from_json(json, &parsed, &error, false)) << error;
   EXPECT_FLOAT_EQ(30.f, parsed.setpoint);
+
+  json = R"({"name":"B","kind":"pid","sensor_id":"s","heat":{"relay_id":"r"},"mode":"heat",)"
+         R"("visual":{"min_temperature":10,"max_temperature":30},"setpoint":2})";
+  ASSERT_TRUE(from_json(json, &parsed, &error, false)) << error;
+  EXPECT_FLOAT_EQ(10.f, parsed.setpoint);
+}
+
+// The editor's schema route serves this table; the codec clamps through it.
+TEST(ParamTable, ANumberOutsideTheTableIsLeftAndANaNTakesTheDefault) {
+  EXPECT_EQ(nullptr, find_param("no_such_param"));
+  EXPECT_FLOAT_EQ(123.f, clamp_param("no_such_param", 123.f));
+  EXPECT_FLOAT_EQ(30.f, clamp_param("update_interval_s", NAN));
+  EXPECT_FLOAT_EQ(1.f, clamp_param("update_interval_s", -5.f));
+  EXPECT_FLOAT_EQ(3600.f, clamp_param("update_interval_s", 1e9f));
 }
 
 // The document keeps the band whatever `kind` says, so going PID and back does not reset it.
@@ -217,6 +246,7 @@ TEST(ClimateConfigJson, TheNameIsTrimmed) {
   ASSERT_TRUE(from_json(R"({"name":"  Boiler \t","sensor_id":"s","heat":{"relay_id":"r"}})", &parsed, &error, false))
       << error;
   EXPECT_EQ("Boiler", parsed.name);
+  EXPECT_EQ("Boiler", trim_name("\n\r\f\vBoiler\t "));
 }
 
 TEST(NameRules, WhatANameMayBe) {
@@ -306,6 +336,8 @@ TEST(NameRules, TheKeyIsTheNameAsAPersonReadsIt) {
   EXPECT_EQ("living room", name_key("  Living   Room "));
   EXPECT_EQ(name_key("LIVING ROOM"), name_key("living room"));
   EXPECT_NE(name_key("Room 1"), name_key("Room_1"));
+  // A YAML climate's name may be anything; its non-ASCII bytes are compared as they are.
+  EXPECT_EQ("\xd0\x9a\xd1\x83\xd1\x85\xd0\xbd\xd1\x8f 1", name_key("\xd0\x9a\xd1\x83\xd1\x85\xd0\xbd\xd1\x8f  1"));
 }
 
 TEST(SlugifyId, ReducesToASafeStem) {
@@ -316,6 +348,8 @@ TEST(SlugifyId, ReducesToASafeStem) {
   EXPECT_EQ("climate", slugify_id("!!!")) << "nothing survived, so the fallback stands";
   EXPECT_EQ("climate", slugify_id(""));
   EXPECT_EQ(48u, slugify_id(std::string(80, 'a')).size());
+  EXPECT_EQ(std::string(47, 'a'), slugify_id(std::string(47, 'a') + " b")) << "a cut never ends on a dash";
+  EXPECT_EQ("2", slugify_id("\xd0\x9a\xd1\x83\xd1\x85\xd0\xbd\xd1\x8f 2")) << "only ASCII letters survive";
 }
 
 // A suffixed id still fits the limit and still passes the slug check on the next boot.
@@ -349,9 +383,10 @@ TEST(ConfigStoreTest, PointersSurviveLaterInserts) {
   EXPECT_EQ("first", held->id);
   EXPECT_EQ(held, store.get("first"));
 
-  store.remove("extra-0");
+  EXPECT_TRUE(store.remove("extra-0"));
   store.sort_by_id();
   EXPECT_EQ("first", held->id) << "and neither an erase nor a sort moves it";
+  EXPECT_FALSE(store.remove("extra-0")) << "gone already";
 }
 
 TEST(ConfigStoreTest, SortsById) {
