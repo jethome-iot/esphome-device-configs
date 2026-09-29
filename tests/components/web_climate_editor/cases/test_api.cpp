@@ -626,7 +626,7 @@ TEST_F(Editor, StatusReportsTheControlLoop) {
   ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
   ASSERT_EQ(this->create(FLOOR), "floor");
 
-  // Before a first reading: no temperature, no age, and the relays open.
+  // Before a first reading: no temperature, no age, and the relays open. Waiting is no fault.
   hub().loop();
   Reply before = this->get("status?id=living-room");
   ASSERT_EQ(before.code, 200) << before.body;
@@ -634,11 +634,13 @@ TEST_F(Editor, StatusReportsTheControlLoop) {
   JsonObject pid = before["controllers"][0];
   EXPECT_TRUE(pid["current_temperature"].isNull());
   EXPECT_TRUE(pid["sensor_age_s"].isNull());
-  EXPECT_EQ(pid["fault"].as<std::string>(), "sensor_stale");
+  EXPECT_EQ(pid["fault"].as<std::string>(), "none");
+  EXPECT_EQ(pid["action"].as<std::string>(), "idle");
+  EXPECT_FALSE(pid["heat_relay_on"].as<bool>());
 
   entities().room.publish_state(18.f);
   entities().floor.publish_state(26.f);
-  // Past the 10 s the relay stays open after the stale pass opened it.
+  // Past the 10 s the relay stays open after the waiting pass opened it.
   hub().ms += 10000;
   hub().loop();
 

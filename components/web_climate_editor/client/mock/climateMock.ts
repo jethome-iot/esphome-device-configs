@@ -532,6 +532,8 @@ const SAMPLE_EVERY_S = 10
 
 interface Runtime {
   boundAt: number
+  /** Since when the sensor has had its chance to give a first reading. */
+  waitingSince: number
   lastControl: number | null
   /** A control call came in: the next pass runs whatever the interval says. */
   due: boolean
@@ -605,22 +607,56 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     return docs.find((d) => d.id !== except && running.has(d.id) && relaysOf(d).includes(relayId))
   }
 
-  // Until its sensor has a reading a bound thermostat is stale, relays open.
-  function bind(doc: ControllerDocument) {
-    const stale = readingOf(doc.sensor_id) === null
-    running.set(doc.id, {
-      boundAt: simulatedTo,
-      lastControl: null,
-      due: false,
+  // ControllerRuntime::start(). `prev` is what a Save replaces: the wait for a first
+  // reading and the duties carry over, the PID too while its law and sensor stand, and
+  // a relay a bang-bang keeps closed keeps its latch.
+  function bind(doc: ControllerDocument, prev?: { doc: ControllerDocument; rt: Runtime }) {
+    const t = simulatedTo
+    const waiting = prev && prev.doc.sensor_id === doc.sensor_id ? prev.rt : null
+    const pid = waiting && prev?.doc.kind === 'pid' && doc.kind === 'pid' ? waiting : null
+    const closed = (dir: 'heat' | 'cool') =>
+      !!prev &&
+      prev.doc[dir].relay_id === doc[dir].relay_id &&
+      relayOn(prev.doc, prev.rt, dir === 'heat' ? prev.rt.heatDuty : prev.rt.coolDuty, prev.doc[dir].period_s, t)
+    const integral = pid
+      ? clamp(pid.integral, doc.pid.min_integral, doc.pid.max_integral)
+      : doc.pid.starting_integral_term
+    const rt: Runtime = {
+      boundAt: t,
+      waitingSince: waiting ? waiting.waitingSince : t,
+      lastControl: pid ? pid.lastControl : null,
+      due: true,
       resetLatch: false,
-      prevError: null,
-      integral: doc.pid.starting_integral_term,
-      action: stale ? 'off' : 'idle',
-      fault: stale ? 'sensor_stale' : 'none',
-      heatDuty: 0,
-      coolDuty: 0,
-      terms: { error: null, proportional: null, integral: null, derivative: null, in_deadband: false }
-    })
+      prevError: pid ? pid.prevError : null,
+      integral,
+      action: closed('heat') && heatAllowed(doc) ? 'heating' : closed('cool') && coolAllowed(doc) ? 'cooling' : 'idle',
+      fault: 'none',
+      heatDuty: prev ? prev.rt.heatDuty : 0,
+      coolDuty: prev ? prev.rt.coolDuty : 0,
+      terms: pid
+        ? { ...pid.terms, integral: round(integral, 3) }
+        : { error: null, proportional: null, integral: null, derivative: null, in_deadband: false }
+    }
+    rt.fault = faultOf(doc, rt, t)
+    rt.action = standingAction(doc, rt)
+    running.set(doc.id, rt)
+  }
+
+  // Silence counts from the start while the sensor has given no reading.
+  function faultOf(doc: ControllerDocument, rt: Runtime, t: number): ClimateHubFault {
+    const temp = readingOf(doc.sensor_id)
+    if (temp === null) return t - rt.waitingSince > doc.safety.sensor_timeout_s * 1000 ? 'sensor_stale' : 'none'
+    return temp > doc.safety.max_temperature ? 'overtemp' : 'none'
+  }
+
+  // What the entity shows until the next pass: off only on a fault or in mode off.
+  function standingAction(doc: ControllerDocument, rt: Runtime): ClimateHubAction {
+    if (rt.fault !== 'none' || doc.mode === 'off') return 'off'
+    if (readingOf(doc.sensor_id) === null) return 'idle'
+    if (doc.kind === 'bang_bang') return rt.resetLatch || rt.action === 'off' ? 'idle' : rt.action
+    if (heatAllowed(doc) && rt.heatDuty > 0) return 'heating'
+    if (coolAllowed(doc) && rt.coolDuty > 0) return 'cooling'
+    return 'idle'
   }
 
   // Why `doc` cannot start: an entity the device does not have (400) or a relay a
@@ -651,9 +687,10 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
 
   function runControl(doc: ControllerDocument, rt: Runtime, t: number) {
     const temp = readingOf(doc.sensor_id)
-    rt.fault = temp === null ? 'sensor_stale' : temp > doc.safety.max_temperature ? 'overtemp' : 'none'
+    rt.fault = faultOf(doc, rt, t)
+    // Waiting for a first reading is no fault, but nothing to act on either.
     if (temp === null || rt.fault !== 'none' || doc.mode === 'off') {
-      rt.action = 'off'
+      rt.action = standingAction(doc, rt)
       rt.heatDuty = 0
       rt.coolDuty = 0
       return
@@ -690,7 +727,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     // Bang-bang: switch at the band's ends, hold the last action in between.
     const low = doc.setpoint - doc.bang_bang.below
     const high = doc.setpoint + doc.bang_bang.above
-    let action: ClimateHubAction = rt.resetLatch ? 'off' : rt.action
+    let action: ClimateHubAction = rt.resetLatch ? 'idle' : rt.action
     rt.resetLatch = false
     if (temp < low) action = heatAllowed(doc) ? 'heating' : 'idle'
     else if (temp > high) action = coolAllowed(doc) ? 'cooling' : 'idle'
@@ -740,6 +777,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     if (typeof call.target === 'number' && !Number.isNaN(call.target)) {
       doc.setpoint = clamp(call.target, doc.visual.min_temperature, doc.visual.max_temperature)
     }
+    // Published with the mode it replaced, the action would say "off" in HEAT until the next pass.
+    rt.action = standingAction(doc, rt)
     rt.due = true
   }
 
@@ -811,12 +850,14 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       if (refusal) return refusal
     }
 
+    const before = find(doc.id)
+    const rt = running.get(doc.id)
     running.delete(doc.id)
     const i = docs.findIndex((d) => d.id === doc.id)
     if (i >= 0) docs[i] = doc
     else docs.push(doc)
     docs.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-    if (doc.enabled) bind(doc)
+    if (doc.enabled) bind(doc, before && rt ? { doc: before, rt } : undefined)
     return ok(updating ? 'Thermostat updated' : 'Thermostat created', { id: doc.id })
   }
 
