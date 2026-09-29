@@ -50,14 +50,20 @@ export function slugify(name: string): string {
   return out || 'climate'
 }
 
+/// Ids a create never gets: the dashboard's editor opens a blank form at
+/// /climate/new, so a thermostat with that id could not be reached.
+export const RESERVED_IDS: ReadonlyArray<string> = ['new']
+
 /// The id a create settles on: `base`, or the first free `<base>-2`, `<base>-3`…,
-/// with `base` shortened so the whole id stays within 48 characters.
+/// with `base` shortened so the whole id stays within 48 characters. A reserved
+/// id counts as taken.
 export function uniqueId(base: string, taken: ReadonlyArray<string>): string {
-  if (!taken.includes(base)) return base
+  const free = (id: string) => !taken.includes(id) && !RESERVED_IDS.includes(id)
+  if (free(base)) return base
   for (let n = 2; ; n++) {
     const suffix = `-${n}`
     const candidate = base.slice(0, 48 - suffix.length).replace(/-+$/, '') + suffix
-    if (!taken.includes(candidate)) return candidate
+    if (free(candidate)) return candidate
   }
 }
 
