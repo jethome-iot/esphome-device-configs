@@ -1,0 +1,1063 @@
+openapi: 3.1.0
+
+info:
+  title: web_climate_editor HTTP API
+  version: 1.0.0
+  description: >-
+    JSON/REST API of the `climate_hub` thermostats, served by the
+    `web_climate_editor` component on the device's own web server (default
+    prefix `/climate-editor`, routes under `<prefix>/api/`). List, read,
+    create, change, start, stop and delete thermostats, move a target, watch
+    the control loop, and discover the sensors and relays a thermostat may
+    name. ESP-IDF (ESP32) only.
+
+    This document is the wire contract; the TypeScript client and mock in
+    `client/` implement it, and `client/types.ts` is where a shape changes
+    first. Every route answers exactly one HTTP method — any other method is
+    `405` with an `Allow` header. Route names match the URL path exactly, and
+    any other path under the prefix is `404`. A POST needs a `Content-Length`,
+    even `0`: ESP-IDF's server answers `411` without one.
+
+    Every route that reads or changes the thermostats runs on the device's
+    main loop, so an answer describes what actually happened; `503` means the
+    loop did not get to the request within five seconds and nothing changed.
+    `/schema` and `/ping` never wait for the loop.
+
+    A request whose `Origin` header is not the `Host` it was sent to is answered
+    `403` before it reaches a route: the credentials a browser has cached for
+    this device cannot be steered here from a page on another site. That refusal
+    is `text/plain`, not one of the JSON envelopes below — it is the server
+    turning the request away, not a route answering it. Clients that send no
+    `Origin` — `curl`, a script, a Home Assistant `rest_command` — are
+    unaffected.
+
+servers:
+  - url: http://{host}:{port}{prefix}/api
+    description: A device on the local network.
+    variables:
+      host:
+        default: device.local
+      port:
+        default: "80"
+      prefix:
+        default: /climate-editor
+        description: The component's `url_prefix`, reported by the device dashboard's `/api/device/capabilities`.
+
+# The routes inherit whatever auth the `web_server:` block sets. The configs in
+# this repository set Digest credentials, so that is the shipped default; the
+# empty requirement covers a firmware built without an `auth:` block, where
+# anything that reaches the port may call every route.
+security:
+  - webServerAuth: []
+  - {}
+
+tags:
+  - name: read
+    description: Read-only routes (GET).
+  - name: write
+    description: Mutating routes (POST).
+
+paths:
+  /list:
+    get:
+      tags: [read]
+      operationId: listThermostats
+      summary: Every thermostat, summarized, sorted by id.
+      responses:
+        "200":
+          description: The thermostats and the firmware's limit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControllersResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /get:
+    get:
+      tags: [read]
+      operationId: getThermostat
+      summary: One thermostat's document, as its file stores it.
+      description: The bare document, not the success envelope; `/save` takes it back as it is.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+      responses:
+        "200":
+          description: The document.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControllerDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /save:
+    post:
+      tags: [write]
+      operationId: saveThermostat
+      summary: Create or replace a thermostat.
+      description: >-
+        `id` absent or `""` creates a thermostat, whose id the device makes from
+        the name; an existing `id` replaces that thermostat's document, renamed
+        or not, and the id stays. A missing number takes its default and every
+        number is clamped into the range `/schema` gives, so a partial document
+        is accepted. The body is read raw, so the request needs a `Content-Type`
+        that is not a form: a form-encoded body is parsed into fields by the
+        server and answered `Empty request body`.
+
+        The refusals come in this order, and the first one a document meets is
+        the answer: `400` for an empty body, a body that is not JSON, or a
+        document that breaks a rule (the structure first, the name rules last);
+        `404` for an unknown `id`, or `507` for a create past
+        `max_controllers`; `409` for a name another thermostat or a YAML
+        climate answers to; and, for an enabled thermostat, `400` when its
+        sensor or a relay is not on the device, then `409` when a running
+        thermostat holds its relay.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ControllerSaveInput"
+      responses:
+        "200":
+          description: >-
+            Created or updated. The message says which; it goes on after a `;`
+            in the rare case the thermostat was saved enabled but no climate
+            entity was free to run it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaveResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          description: The body is over 8 KiB.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Request body over 8 KiB
+        "500":
+          $ref: "#/components/responses/NotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+        "507":
+          description: A create would pass the firmware's `max_controllers`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: This device allows 8 thermostats; delete one to add another
+
+  /delete:
+    post:
+      tags: [write]
+      operationId: deleteThermostat
+      summary: Stop a thermostat and remove its file.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+      responses:
+        "200":
+          description: >-
+            Removed. Should the partition refuse both the removal and blanking
+            the file, the message says the thermostat comes back at the next boot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+              example:
+                success: true
+                message: Thermostat deleted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /enable:
+    post:
+      tags: [write]
+      operationId: enableThermostat
+      summary: Start or stop a thermostat, and store the flag.
+      description: >-
+        Starting refuses like `/save` does for an enabled thermostat: `400` when
+        its sensor or a relay is not on the device, `409` when a running
+        thermostat holds its relay. With `take_over=true` that thermostat is
+        stopped and stored as disabled first, in the same step, and the answer
+        names it.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+        - name: value
+          in: query
+          required: true
+          description: "`true` starts, `false` stops. Nothing else is taken."
+          schema:
+            type: string
+            enum: ["true", "false"]
+        - name: take_over
+          in: query
+          required: false
+          description: "`true` to stop whichever running thermostat holds the relay. Nothing but `true` or `false` is taken."
+          schema:
+            type: string
+            enum: ["true", "false"]
+      responses:
+        "200":
+          description: Started or stopped.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnableResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /setpoint:
+    post:
+      tags: [write]
+      operationId: setSetpoint
+      summary: Move a thermostat's target, running or not.
+      description: >-
+        Clamped into the thermostat's visual range. A running thermostat
+        applies it at once, as a target from Home Assistant; the file follows
+        within three seconds.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+        - name: value
+          in: query
+          required: true
+          description: A plain decimal number, optionally with an exponent; `nan`, `inf`, hex and padding are `400`.
+          schema:
+            type: string
+            pattern: "^[+-]?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?$"
+          example: "21.5"
+      responses:
+        "200":
+          description: Moved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+              example:
+                success: true
+                message: Setpoint updated
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /status:
+    get:
+      tags: [read]
+      operationId: getStatus
+      summary: The control loop of every thermostat, or of one.
+      parameters:
+        - name: id
+          in: query
+          required: false
+          description: One thermostat's id, as `/list` reports it; absent for all of them.
+          schema:
+            $ref: "#/components/schemas/Id"
+      responses:
+        "200":
+          description: Live readings, recomputed per request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /entities:
+    get:
+      tags: [read]
+      operationId: listEntities
+      summary: The sensors and relays a thermostat may name.
+      description: Internal entities are left out. Each switch says which running thermostat holds it.
+      responses:
+        "200":
+          description: Entities by domain.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntitiesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /schema:
+    get:
+      tags: [read]
+      operationId: getSchema
+      summary: What an editor may offer.
+      description: >-
+        The kinds, modes and faults, the firmware's limits, and every tunable
+        number from the table the device clamps a document against, grouped as
+        a form shows them.
+      responses:
+        "200":
+          description: The catalog.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClimateSchema"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /ping:
+    get:
+      tags: [read]
+      operationId: ping
+      summary: Liveness.
+      responses:
+        "200":
+          description: The API answers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+components:
+  securitySchemes:
+    webServerAuth:
+      type: http
+      scheme: digest
+      description: >-
+        Credentials from the `web_server:` `auth:` block. The scheme is fixed at
+        build time; the configs in this repository build Digest. A firmware with a
+        `web_auth` serves the pair stored on the device instead of the compiled
+        one, so a client must be ready for either.
+
+  parameters:
+    IdQuery:
+      name: id
+      in: query
+      required: true
+      description: The thermostat's id, as `/list` reports it. `Missing id parameter` without one, `Invalid id parameter` for anything but a slug.
+      schema:
+        $ref: "#/components/schemas/Id"
+      example: living-room
+
+  responses:
+    Unauthorized:
+      description: >-
+        The credentials the `web_server:` `auth:` block set — replaced by what a
+        `web_auth` stored — are missing or wrong. The server names the scheme in
+        `WWW-Authenticate`; the body is the HTTP server's, not this API's.
+      headers:
+        WWW-Authenticate:
+          description: The scheme the firmware was built with.
+          schema:
+            type: string
+    BadRequest:
+      description: >-
+        Bad request — a missing or malformed parameter, a body that is empty or
+        not JSON, a document that breaks a rule, or an enabled thermostat whose
+        sensor or relay is not on the device.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            parameter:
+              value:
+                success: false
+                error: Invalid id parameter
+            document:
+              value:
+                success: false
+                error: "Name cannot contain '/'"
+            entity:
+              value:
+                success: false
+                error: No sensor "temp_3" on this device
+    NotFound:
+      description: No thermostat has that id, or the path names no route.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            thermostat:
+              value:
+                success: false
+                error: Thermostat not found
+            route:
+              value:
+                success: false
+                error: Unknown endpoint
+    MethodNotAllowed:
+      description: Wrong HTTP method for this route.
+      headers:
+        Allow:
+          description: The one method this route accepts.
+          schema:
+            type: string
+            enum: [GET, POST]
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Method not allowed
+    Conflict:
+      description: >-
+        The name is one another thermostat or a YAML climate answers to, or a
+        running thermostat holds the relay.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            name:
+              value:
+                success: false
+                error: '"living room" is already used by another thermostat'
+            entityId:
+              value:
+                success: false
+                error: '"Room_1" is too close to "Room 1": both are room_1 to Home Assistant'
+            relay:
+              value:
+                success: false
+                error: '"Relay 1" is already driven by "Living Room"'
+    NotWritten:
+      description: The thermostat's file could not be written; nothing changed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: The thermostat's file could not be written
+    Busy:
+      description: The main loop did not take the request in time. Nothing was read or written; ask again.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Device busy
+
+  schemas:
+    Id:
+      type: string
+      description: A slug made from the name at creation, and the file's name; a rename never changes it.
+      pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+      maxLength: 48
+      example: living-room
+
+    Name:
+      type: string
+      description: >-
+        The climate entity's name: 1 to 48 printable ASCII characters, neither
+        `/` nor `\`, surrounding blanks trimmed. Home Assistant knows the entity
+        by it, so a rename is a new entity there.
+      minLength: 1
+      maxLength: 48
+      example: Living Room
+
+    ControlKind:
+      type: string
+      enum: [pid, bang_bang]
+      description: The control law. `bang_bang` is the hysteresis a dashboard may label so.
+
+    Mode:
+      type: string
+      enum: ["off", heat, cool, heat_cool]
+
+    Action:
+      type: string
+      enum: ["off", idle, heating, cooling]
+
+    Fault:
+      type: string
+      enum: [none, sensor_missing, sensor_stale, relay_missing, overtemp]
+
+    OutputConfig:
+      type: object
+      description: One driven direction. An empty `relay_id` means the direction is unused.
+      required: [relay_id, period_s, min_on_s, min_off_s]
+      properties:
+        relay_id:
+          type: string
+          description: The switch's object id.
+        period_s:
+          type: number
+        min_on_s:
+          type: number
+        min_off_s:
+          type: number
+
+    ControllerDocument:
+      type: object
+      description: >-
+        One thermostat, in its file format. Every number has a default and a
+        range, both in `/schema`.
+      required:
+        - version
+        - id
+        - name
+        - enabled
+        - kind
+        - sensor_id
+        - update_interval_s
+        - heat
+        - cool
+        - visual
+        - safety
+        - pid
+        - bang_bang
+        - mode
+        - setpoint
+      properties:
+        version:
+          type: integer
+          enum: [1]
+        id:
+          $ref: "#/components/schemas/Id"
+        name:
+          $ref: "#/components/schemas/Name"
+        enabled:
+          type: boolean
+        kind:
+          $ref: "#/components/schemas/ControlKind"
+        sensor_id:
+          type: string
+          description: The temperature sensor's object id.
+        update_interval_s:
+          type: number
+        heat:
+          $ref: "#/components/schemas/OutputConfig"
+        cool:
+          $ref: "#/components/schemas/OutputConfig"
+        visual:
+          type: object
+          required: [min_temperature, max_temperature, step]
+          properties:
+            min_temperature:
+              type: number
+            max_temperature:
+              type: number
+            step:
+              type: number
+        safety:
+          type: object
+          required: [sensor_timeout_s, max_temperature]
+          properties:
+            sensor_timeout_s:
+              type: number
+            max_temperature:
+              type: number
+        pid:
+          type: object
+          required:
+            - kp
+            - ki
+            - kd
+            - min_integral
+            - max_integral
+            - starting_integral_term
+            - output_samples
+            - derivative_samples
+            - deadband_threshold_low
+            - deadband_threshold_high
+            - deadband_kp_multiplier
+            - deadband_ki_multiplier
+            - deadband_kd_multiplier
+            - deadband_output_samples
+          properties:
+            kp:
+              type: number
+            ki:
+              type: number
+            kd:
+              type: number
+            min_integral:
+              type: number
+            max_integral:
+              type: number
+            starting_integral_term:
+              type: number
+            output_samples:
+              type: number
+            derivative_samples:
+              type: number
+            deadband_threshold_low:
+              type: number
+            deadband_threshold_high:
+              type: number
+            deadband_kp_multiplier:
+              type: number
+            deadband_ki_multiplier:
+              type: number
+            deadband_kd_multiplier:
+              type: number
+            deadband_output_samples:
+              type: number
+        bang_bang:
+          type: object
+          description: The band around the target, as deviations below and above it.
+          required: [below, above]
+          properties:
+            below:
+              type: number
+            above:
+              type: number
+        mode:
+          $ref: "#/components/schemas/Mode"
+        setpoint:
+          type: number
+          description: One target for both laws, held inside the visual range.
+      example:
+        version: 1
+        id: living-room
+        name: Living Room
+        enabled: true
+        kind: bang_bang
+        sensor_id: temp_1
+        update_interval_s: 30
+        heat:
+          relay_id: relay_1
+          period_s: 300
+          min_on_s: 10
+          min_off_s: 10
+        cool:
+          relay_id: ""
+          period_s: 300
+          min_on_s: 10
+          min_off_s: 10
+        visual:
+          min_temperature: 5
+          max_temperature: 45
+          step: 0.5
+        safety:
+          sensor_timeout_s: 300
+          max_temperature: 60
+        pid:
+          kp: 0.6
+          ki: 0.0025
+          kd: 0
+          min_integral: -1
+          max_integral: 1
+          starting_integral_term: 0
+          output_samples: 1
+          derivative_samples: 8
+          deadband_threshold_low: 0
+          deadband_threshold_high: 0
+          deadband_kp_multiplier: 0
+          deadband_ki_multiplier: 0
+          deadband_kd_multiplier: 0
+          deadband_output_samples: 1
+        bang_bang:
+          below: 0.5
+          above: 0.5
+        mode: heat
+        setpoint: 21
+
+    ControllerSaveInput:
+      type: object
+      description: >-
+        What `/save` takes: a document whose keys may be missing, each then
+        taking its default. `name`, `sensor_id` and one relay are needed.
+        `id` absent or `""` creates.
+      required: [name, sensor_id]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+          default: true
+        kind:
+          $ref: "#/components/schemas/ControlKind"
+        sensor_id:
+          type: string
+        update_interval_s:
+          type: number
+        heat:
+          type: object
+        cool:
+          type: object
+        visual:
+          type: object
+        safety:
+          type: object
+        pid:
+          type: object
+        bang_bang:
+          type: object
+        mode:
+          $ref: "#/components/schemas/Mode"
+        setpoint:
+          type: number
+
+    ControllerSummary:
+      type: object
+      required: [id, name, enabled, kind, mode, sensor_id, heat_relay_id, cool_relay_id, running]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        name:
+          type: string
+          description: Also the name of the climate entity it drives.
+        enabled:
+          type: boolean
+        kind:
+          $ref: "#/components/schemas/ControlKind"
+        mode:
+          $ref: "#/components/schemas/Mode"
+        sensor_id:
+          type: string
+        heat_relay_id:
+          type: string
+        cool_relay_id:
+          type: string
+        running:
+          type: boolean
+          description: Enabled, and its sensor and relays were there to run on.
+
+    ControllersResponse:
+      type: object
+      required: [success, count, max_controllers, controllers]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        count:
+          type: integer
+        max_controllers:
+          type: integer
+          description: How many thermostats this firmware has room for.
+        controllers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ControllerSummary"
+      example:
+        success: true
+        count: 1
+        max_controllers: 8
+        controllers:
+          - id: living-room
+            name: Living Room
+            enabled: true
+            kind: pid
+            mode: heat
+            sensor_id: temp_1
+            heat_relay_id: relay_1
+            cool_relay_id: ""
+            running: true
+
+    PidTerms:
+      type: object
+      description: A running PID's last pass; a term is `null` where it is not a number.
+      required: [error, proportional, integral, derivative, in_deadband]
+      properties:
+        error:
+          type: [number, "null"]
+        proportional:
+          type: [number, "null"]
+        integral:
+          type: [number, "null"]
+        derivative:
+          type: [number, "null"]
+        in_deadband:
+          type: boolean
+
+    ControllerStatus:
+      type: object
+      required:
+        - id
+        - running
+        - action
+        - fault
+        - current_temperature
+        - sensor_age_s
+        - setpoint
+        - min_temperature
+        - max_temperature
+        - step
+        - heat_duty
+        - cool_duty
+        - heat_relay_on
+        - cool_relay_on
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        running:
+          type: boolean
+        action:
+          $ref: "#/components/schemas/Action"
+        fault:
+          $ref: "#/components/schemas/Fault"
+        current_temperature:
+          type: [number, "null"]
+          description: The sensor's reading, running or not; `null` without one.
+        sensor_age_s:
+          type: [number, "null"]
+          description: Seconds since the running thermostat's last reading; `null` before one, or when stopped.
+        setpoint:
+          type: number
+        min_temperature:
+          type: number
+        max_temperature:
+          type: number
+        step:
+          type: number
+        switch_low:
+          type: number
+          description: Bang-bang only.
+        switch_high:
+          type: number
+          description: Bang-bang only.
+        heat_duty:
+          type: number
+          minimum: 0
+          maximum: 1
+        cool_duty:
+          type: number
+          minimum: 0
+          maximum: 1
+        heat_relay_on:
+          type: boolean
+        cool_relay_on:
+          type: boolean
+        pid:
+          $ref: "#/components/schemas/PidTerms"
+
+    StatusResponse:
+      type: object
+      required: [success, controllers]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        controllers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ControllerStatus"
+
+    ParamDesc:
+      type: object
+      required: [key, label, unit, group, def, min, max, step, integer, kind, hint]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        unit:
+          type: string
+        group:
+          type: string
+        def:
+          type: number
+        min:
+          type: number
+        max:
+          type: number
+        step:
+          type: number
+        integer:
+          type: boolean
+        kind:
+          type: string
+          enum: ["", pid, bang_bang]
+          description: The law this number belongs to, `""` when both use it.
+        hint:
+          type: string
+
+    ClimateSchema:
+      type: object
+      required: [kinds, modes, faults, max_controllers, name_max_length, params]
+      properties:
+        kinds:
+          type: array
+          items:
+            $ref: "#/components/schemas/ControlKind"
+        modes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Mode"
+        faults:
+          type: array
+          items:
+            $ref: "#/components/schemas/Fault"
+        max_controllers:
+          type: integer
+        name_max_length:
+          type: integer
+          enum: [48]
+        params:
+          type: object
+          description: The tunable numbers by group, in the order a form shows them.
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/ParamDesc"
+
+    EntitiesResponse:
+      type: object
+      required: [success, sensors, switches]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        sensors:
+          type: array
+          items:
+            type: object
+            required: [object_id, name, unit]
+            properties:
+              object_id:
+                type: string
+              name:
+                type: string
+              unit:
+                type: string
+        switches:
+          type: array
+          items:
+            type: object
+            required: [object_id, name, claimed_by]
+            properties:
+              object_id:
+                type: string
+              name:
+                type: string
+              claimed_by:
+                type: string
+                description: The id of the running thermostat that holds the relay, `""` when none does.
+      example:
+        success: true
+        sensors:
+          - object_id: temp_1
+            name: Temp 1
+            unit: °C
+        switches:
+          - object_id: relay_1
+            name: Relay 1
+            claimed_by: living-room
+
+    SaveResponse:
+      type: object
+      required: [success, message, id]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+        id:
+          $ref: "#/components/schemas/Id"
+      example:
+        success: true
+        message: Thermostat created
+        id: living-room
+
+    EnableResponse:
+      type: object
+      required: [success, message, persisted]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+        persisted:
+          type: boolean
+          description: False when the change runs but the flag did not reach flash, so a reboot undoes it.
+      example:
+        success: true
+        message: Thermostat enabled; "Living Room" stopped
+        persisted: true
+
+    SuccessEnvelope:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+
+    ErrorEnvelope:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: string
+          description: A sentence an editor can show as it is.
