@@ -10,16 +10,19 @@
 // It answers the way the device does, in the device's order: an unknown route is
 // 404, the wrong method 405 (before any id is looked at), query parameters 400,
 // and only then the lookup (404) and the change itself. Only /save reads a body,
-// so only /save can be 413. A document is merged over the defaults and clamped to
-// the parameter table like climate_hub's codec does, a name is checked like the
-// hub checks it, and a relay held by a running thermostat is 409 unless the enable
-// asks to take it over. /status reads a first-order room model per sensor, heated
-// and cooled by the duties of the thermostats bound to it.
+// so only /save can be 413; the body is read the way ArduinoJson reads it. A
+// document is merged over the defaults and clamped to the parameter table like
+// climate_hub's codec does, a name is checked like the hub checks it, and a relay
+// held by a running thermostat is 409 unless the enable asks to take it over.
+// /status reads a first-order room model per sensor, heated and cooled by the
+// duties of the thermostats bound to it. control() stands in for Home Assistant
+// setting a running thermostat's mode or target through its climate entity.
 import type {
   BindableSensor,
   BindableSwitch,
   ClimateHubAction,
   ClimateHubFault,
+  ClimateHubMode,
   ClimateSchema,
   ControllerDocument,
   ControllerStatus,
@@ -109,7 +112,7 @@ export const seedParams: ParamDesc[] = [
   param('max_integral', 'Maximum integral', '', 'pid', 'pid', 1, -100, 100, 0.01, false,
     'Ceiling for the accumulated term.'),
   param('starting_integral_term', 'Starting integral', '', 'pid', 'pid', 0, -100, 100, 0.01, false,
-    'Value the accumulated term starts from after a boot or a rebind.'),
+    'Value the accumulated term starts from after a boot or a restart.'),
   param('output_samples', 'Output averaging', 'samples', 'pid', 'pid', 1, 1, 100, 1, true,
     'Number of outputs averaged before the relay sees them. Smooths a noisy sensor.'),
   param('derivative_samples', 'Derivative averaging', 'samples', 'pid', 'pid', 8, 1, 100, 1, true,
@@ -243,6 +246,112 @@ export const seedControllers: ControllerDocument[] = [
   }
 ]
 
+// --- The body ----------------------------------------------------------------
+// ArduinoJson's reading of it, with its error names: blanks, then one value, and
+// whatever follows the value is ignored; a NUL ends the input, and a raw control
+// character inside a string is taken. Stricter than ArduinoJson only where it
+// reads more than JSON (unquoted keys, `+1`, `01`), which no client sends.
+
+// ArduinoJson's default: the eleventh level of nesting is TooDeep.
+const NESTING_LIMIT = 10
+
+function readJson(body: string): { value: unknown } | { error: string } {
+  const nul = body.indexOf('\0')
+  const text = nul < 0 ? body : body.slice(0, nul)
+  let i = 0
+  const stop = (error: string): never => {
+    throw new Error(error)
+  }
+  const blank = () => {
+    while (i < text.length && ' \t\r\n'.includes(text.charAt(i))) i++
+  }
+  // The character at i; running out of input mid-value is IncompleteInput.
+  const next = (): string => (i < text.length ? text.charAt(i) : stop('IncompleteInput'))
+  const expect = (c: string) => {
+    if (next() !== c) stop('InvalidInput')
+    i++
+  }
+
+  function string() {
+    i++
+    for (;;) {
+      const c = next()
+      i++
+      if (c === '"') return
+      if (c === '\\') {
+        const escape = next()
+        i++
+        if (escape === 'u') {
+          for (let k = 0; k < 4; k++) {
+            if (!/[0-9a-fA-F]/.test(next())) stop('InvalidInput')
+            i++
+          }
+        } else if (!'"\\/bfnrt'.includes(escape)) {
+          stop('InvalidInput')
+        }
+      }
+    }
+  }
+
+  function number() {
+    const start = i
+    while (i < text.length && /[0-9+\-.eE]/.test(text.charAt(i))) i++
+    if (!/^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?$/.test(text.slice(start, i))) {
+      stop(i >= text.length ? 'IncompleteInput' : 'InvalidInput')
+    }
+  }
+
+  function value(depth: number) {
+    const c = next()
+    if (c === '{' || c === '[') {
+      if (depth >= NESTING_LIMIT) stop('TooDeep')
+      const close = c === '{' ? '}' : ']'
+      i++
+      blank()
+      if (next() === close) {
+        i++
+        return
+      }
+      for (;;) {
+        if (c === '{') {
+          if (next() !== '"') stop('InvalidInput')
+          string()
+          blank()
+          expect(':')
+          blank()
+        }
+        value(depth + 1)
+        blank()
+        const separator = next()
+        i++
+        if (separator === close) return
+        if (separator !== ',') stop('InvalidInput')
+        blank()
+      }
+    }
+    if (c === '"') return string()
+    if (c === '-' || (c >= '0' && c <= '9')) return number()
+    const word = c === 't' ? 'true' : c === 'f' ? 'false' : c === 'n' ? 'null' : stop('InvalidInput')
+    for (const letter of word) expect(letter)
+  }
+
+  try {
+    blank()
+    if (i >= text.length) return { error: 'EmptyInput' }
+    value(0)
+  } catch (e) {
+    // Only stop() throws in there.
+    return { error: (e as Error).message }
+  }
+  // Escaped for JSON.parse, which refuses what ArduinoJson took.
+  const json = text
+    .slice(0, i)
+    .replace(/"(?:[^"\\]|\\.)*"/g, (literal) =>
+      literal.replace(/[\u0001-\u001f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
+    )
+  return { value: JSON.parse(json) }
+}
+
 // --- The codec ---------------------------------------------------------------
 // climate_hub's deserialize over a blank document: the same refusals in the same
 // order, a wrong-typed value keeps the default, every number is clamped.
@@ -360,6 +469,14 @@ export interface MockResult {
   headers?: Record<string, string>
 }
 
+/** What a client asks of a thermostat's climate entity; either key may be left out. */
+export interface ClimateControlCall {
+  /** Taken only when the thermostat's relays allow it (`off` always), else ignored. */
+  mode?: ClimateHubMode
+  /** Clamped into the thermostat's visual range; NaN is ignored. */
+  target?: number
+}
+
 export interface ClimateMockStore {
   /**
    * Dispatch one API call. `endpoint` is the path AFTER the api base, e.g.
@@ -367,6 +484,14 @@ export interface ClimateMockStore {
    * the raw request body (read by /save only).
    */
   handle(method: string, endpoint: string, search: URLSearchParams, body: string): MockResult
+  /**
+   * A mode or target set through a running thermostat's climate entity, as Home
+   * Assistant or the web server sets it. The thermostat keeps running: its PID
+   * integral and control clock carry on and the next control pass comes at once.
+   * A new mode resets the bang-bang latch, as on the device. False when `id` names
+   * no running thermostat, which has no entity to call.
+   */
+  control(id: string, call: ClimateControlCall): boolean
 }
 
 export interface ClimateMockStoreOptions {
@@ -374,6 +499,11 @@ export interface ClimateMockStoreOptions {
   maxControllers?: number
   /** Clock the room model runs on, in ms. Default Date.now. */
   now?: () => number
+  /**
+   * Names of the device's own climates, from its YAML. A thermostat may not take
+   * one, by name or by the entity id both would get: 409, as on the device.
+   */
+  otherClimates?: string[]
 }
 
 // GET routes read, POST routes change something.
@@ -403,6 +533,10 @@ const SAMPLE_EVERY_S = 10
 interface Runtime {
   boundAt: number
   lastControl: number | null
+  /** A control call came in: the next pass runs whatever the interval says. */
+  due: boolean
+  /** A new mode: the bang-bang latch starts over on the next pass. */
+  resetLatch: boolean
   prevError: number | null
   integral: number
   action: ClimateHubAction
@@ -443,6 +577,8 @@ const NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/
 export function createClimateMockStore(options: ClimateMockStoreOptions = {}): ClimateMockStore {
   const maxControllers = options.maxControllers ?? MAX_CONTROLLERS
   const now = options.now ?? (() => Date.now())
+  // Under ids no slug can be, so no thermostat is ever taken for one of them.
+  const yamlClimates = (options.otherClimates ?? []).map((name, n) => ({ id: `yaml/${n}`, name }))
   const docs: ControllerDocument[] = structuredClone(seedControllers)
   const running = new Map<string, Runtime>()
   const rooms = new Map<string, { temp: number | null; ambient: number }>()
@@ -458,6 +594,12 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     !!doc.heat.relay_id && (doc.mode === 'heat' || doc.mode === 'heat_cool')
   const coolAllowed = (doc: ControllerDocument) =>
     !!doc.cool.relay_id && (doc.mode === 'cool' || doc.mode === 'heat_cool')
+  // The modes the entity advertises: off, and what its relays can do.
+  const modeSupported = (doc: ControllerDocument, mode: ClimateHubMode) =>
+    mode === 'off' ||
+    (mode === 'heat' && !!doc.heat.relay_id) ||
+    (mode === 'cool' && !!doc.cool.relay_id) ||
+    (mode === 'heat_cool' && !!doc.heat.relay_id && !!doc.cool.relay_id)
 
   function holderOf(relayId: string, except: string): ControllerDocument | undefined {
     return docs.find((d) => d.id !== except && running.has(d.id) && relaysOf(d).includes(relayId))
@@ -469,6 +611,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     running.set(doc.id, {
       boundAt: simulatedTo,
       lastControl: null,
+      due: false,
+      resetLatch: false,
       prevError: null,
       integral: doc.pid.starting_integral_term,
       action: stale ? 'off' : 'idle',
@@ -505,7 +649,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     return { holders }
   }
 
-  function control(doc: ControllerDocument, rt: Runtime, t: number) {
+  function runControl(doc: ControllerDocument, rt: Runtime, t: number) {
     const temp = readingOf(doc.sensor_id)
     rt.fault = temp === null ? 'sensor_stale' : temp > doc.safety.max_temperature ? 'overtemp' : 'none'
     if (temp === null || rt.fault !== 'none' || doc.mode === 'off') {
@@ -514,9 +658,10 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       rt.coolDuty = 0
       return
     }
-    if (rt.lastControl !== null && t - rt.lastControl < doc.update_interval_s * 1000) return
+    if (!rt.due && rt.lastControl !== null && t - rt.lastControl < doc.update_interval_s * 1000) return
     const dt = rt.lastControl === null ? 0 : (t - rt.lastControl) / 1000
     rt.lastControl = t
+    rt.due = false
 
     if (doc.kind === 'pid') {
       const pid = doc.pid
@@ -545,10 +690,13 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     // Bang-bang: switch at the band's ends, hold the last action in between.
     const low = doc.setpoint - doc.bang_bang.below
     const high = doc.setpoint + doc.bang_bang.above
-    if (temp < low) rt.action = heatAllowed(doc) ? 'heating' : 'idle'
-    else if (temp > high) rt.action = coolAllowed(doc) ? 'cooling' : 'idle'
-    else if (doc.mode === 'heat_cool' && doc.heat.relay_id && doc.cool.relay_id) rt.action = 'idle'
-    else if (rt.action === 'off') rt.action = 'idle'
+    let action: ClimateHubAction = rt.resetLatch ? 'off' : rt.action
+    rt.resetLatch = false
+    if (temp < low) action = heatAllowed(doc) ? 'heating' : 'idle'
+    else if (temp > high) action = coolAllowed(doc) ? 'cooling' : 'idle'
+    else if (doc.mode === 'heat_cool' && doc.heat.relay_id && doc.cool.relay_id) action = 'idle'
+    else if (action === 'off') action = 'idle'
+    rt.action = action
     rt.heatDuty = rt.action === 'heating' ? 1 : 0
     rt.coolDuty = rt.action === 'cooling' ? 1 : 0
   }
@@ -559,7 +707,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       simulatedTo += STEP_MS
       for (const doc of docs) {
         const rt = running.get(doc.id)
-        if (rt) control(doc, rt, simulatedTo)
+        if (rt) runControl(doc, rt, simulatedTo)
       }
       for (const [sensorId, room] of rooms) {
         if (room.temp === null) continue
@@ -579,6 +727,20 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     if (doc.kind === 'bang_bang' || duty >= 1) return true
     const period = periodS * 1000
     return (t - rt.boundAt) % period < duty * period
+  }
+
+  // ControllerRuntime::control(): a supported mode, a target held in range, and a
+  // control pass at once. Nothing else about the running thermostat changes.
+  function applyControl(doc: ControllerDocument, rt: Runtime, call: ClimateControlCall) {
+    const mode = MODES.find((m) => m === call.mode)
+    if (mode && modeSupported(doc, mode) && mode !== doc.mode) {
+      doc.mode = mode
+      rt.resetLatch = true
+    }
+    if (typeof call.target === 'number' && !Number.isNaN(call.target)) {
+      doc.setpoint = clamp(call.target, doc.visual.min_temperature, doc.visual.max_temperature)
+    }
+    rt.due = true
   }
 
   function statusOf(doc: ControllerDocument, t: number): ControllerStatus {
@@ -625,13 +787,9 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
   function save(body: string): MockResult {
     if (new TextEncoder().encode(body).length > CONFIG_MAX_BYTES) return fail(413, 'Request body over 8 KiB')
     if (!body) return fail(400, 'Empty request body')
-    let raw: unknown
-    try {
-      raw = JSON.parse(body)
-    } catch {
-      return fail(400, 'JSON parse error: InvalidInput')
-    }
-    const decoded = decodeDocument(raw)
+    const parsed = readJson(body)
+    if ('error' in parsed) return fail(400, `JSON parse error: ${parsed.error}`)
+    const decoded = decodeDocument(parsed.value)
     if ('error' in decoded) return fail(400, decoded.error)
     const doc = decoded.doc
     const badName = nameError(doc.name, doc.id, [])
@@ -644,9 +802,10 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     if (!updating && docs.length >= maxControllers) {
       return fail(507, `This device allows ${maxControllers} thermostats; delete one to add another`)
     }
-    const taken = nameError(doc.name, doc.id, docs)
+    const taken = nameError(doc.name, doc.id, [...docs, ...yamlClimates])
     if (taken) return fail(409, taken)
     if (!updating) doc.id = uniqueId(slugify(doc.name), docs.map((d) => d.id))
+    doc.version = 1
     if (doc.enabled) {
       const { refusal } = bindCheck(doc, false)
       if (refusal) return refusal
@@ -705,7 +864,10 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     if (!NUMBER.test(raw) || !Number.isFinite(Number(raw))) return fail(400, 'Invalid value parameter')
     const doc = find(id)
     if (!doc) return fail(404, 'Thermostat not found')
-    doc.setpoint = clamp(Number(raw), doc.visual.min_temperature, doc.visual.max_temperature)
+    // A running thermostat takes it the way Home Assistant's target reaches it.
+    const rt = running.get(id)
+    if (rt) applyControl(doc, rt, { target: Number(raw) })
+    else doc.setpoint = clamp(Number(raw), doc.visual.min_temperature, doc.visual.max_temperature)
     return ok('Setpoint updated')
   }
 
@@ -784,10 +946,19 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     }
   }
 
+  function control(id: string, call: ClimateControlCall): boolean {
+    advance(now())
+    const doc = find(id)
+    const rt = running.get(id)
+    if (!doc || !rt) return false
+    applyControl(doc, rt, call)
+    return true
+  }
+
   // Seeds that are enabled start running, as they would at boot.
   for (const doc of docs) if (doc.enabled) bind(doc)
 
-  return { handle }
+  return { handle, control }
 }
 
 export interface ClimateMockOptions extends ClimateMockStoreOptions {

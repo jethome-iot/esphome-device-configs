@@ -125,8 +125,9 @@ ESP-IDF's server insists on (`411` without it), as a browser's `fetch` does on i
 types, `client/naming.ts` the name rules an editor needs to predict the device (which names are
 refused, which collide, which id a create gets), and `client/mock/climateMock.ts` a
 dependency-free in-memory implementation of the same routes, with a simulated room per sensor,
-for a dev server or unit tests. They are the contract a browser client codes against and they
-live here so they change with the C++ that they mirror. Nothing in this repository builds or
+for a dev server or unit tests; its `control()` sets a running thermostat's mode or target the
+way Home Assistant does. They are the contract a browser client codes against and they live
+here so they change with the C++ that they mirror. Nothing in this repository builds or
 type-checks them yet.
 
 ## Testing
