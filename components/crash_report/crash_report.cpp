@@ -163,7 +163,7 @@ bool CrashReport::write_report_() {
     ESP_LOGE(TAG, "Cannot create '%s'", dir.c_str());
     return false;
   }
-  // Written aside first: a write that fails must leave the reports already kept where they were.
+  // Written aside first, so a write that fails leaves the reports already kept where they were.
   const std::string tmp = dir + "/crash.tmp";
   FILE *f = ::fopen(tmp.c_str(), "wb");
   if (f == nullptr) {
@@ -184,6 +184,7 @@ bool CrashReport::write_report_() {
   }
 
   const std::string path = dir + "/crash0.txt";
+  // Only a flash error fails this, after the shift: the others have moved up and the oldest is gone.
   if (::rename(tmp.c_str(), path.c_str()) != 0) {
     ESP_LOGE(TAG, "Cannot rename '%s' to '%s'", tmp.c_str(), path.c_str());
     ::remove(tmp.c_str());
