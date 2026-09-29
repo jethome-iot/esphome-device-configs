@@ -368,9 +368,9 @@ TEST_F(HubTest, ADisabledThermostatStaysDisabledAcrossAReload) {
   EXPECT_FALSE(hub().is_running("boiler"));
 }
 
-// Nothing can be written below /proc, so the Save fails; the atomic write leaves the old file
-// whole, and nothing else moves either.
-TEST_F(HubTest, AFailedWriteChangesNothing) {
+// Nothing can be created below /proc, so the Save fails before a byte is written, and nothing
+// else moves either.
+TEST_F(HubTest, ASaveThatCannotReachItsFolderChangesNothing) {
   ClimateConfig config = draft("Boiler");
   config.enabled = false;
   this->create(config);
