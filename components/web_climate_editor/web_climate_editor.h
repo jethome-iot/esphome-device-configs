@@ -68,8 +68,6 @@ class WebClimateEditor : public AsyncWebHandler, public Component {
   void answer_(AsyncWebServerRequest *request, bool ran, int code, const std::string &error, const std::string &json);
   void send_json_(AsyncWebServerRequest *request, int code, const std::string &json);
   void send_error_(AsyncWebServerRequest *request, const std::string &message, int code = 400);
-  // For a read or a write the loop task did not take: nothing happened, and it can be asked again.
-  void send_busy_(AsyncWebServerRequest *request);
   // For the statuses AsyncWebServerRequest::send() does not know and would turn into a 500.
   void send_status_(AsyncWebServerRequest *request, const char *status, const char *allow, const char *body);
 

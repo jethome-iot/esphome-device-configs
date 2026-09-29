@@ -82,11 +82,10 @@ static std::string success_json(const std::string &message) {
   return json;
 }
 
-// web_server_idf knows a handful of codes and turns every other one into a 500.
+// web_server_idf knows a handful of codes and turns every other one into a 500. A 405 is
+// written by check_method_, which adds the Allow header.
 static const char *status_line(int code) {
   switch (code) {
-    case 405:
-      return "405 Method Not Allowed";
     case 413:
       return "413 Payload Too Large";
     case 503:
@@ -447,8 +446,7 @@ void WebClimateEditor::handle_schema_(AsyncWebServerRequest *request) {
 
 void WebClimateEditor::handle_save_(AsyncWebServerRequest *request) {
   if (this->body_too_large_) {
-    this->send_status_(request, "413 Payload Too Large", nullptr,
-                       R"({"success":false,"error":"Request body over 8 KiB"})");
+    this->send_error_(request, "Request body over 8 KiB", 413);
     return;
   }
   if (this->body_.empty()) {
@@ -598,7 +596,8 @@ void WebClimateEditor::handle_setpoint_(AsyncWebServerRequest *request) {
 void WebClimateEditor::answer_(AsyncWebServerRequest *request, bool ran, int code, const std::string &error,
                                const std::string &json) {
   if (!ran) {
-    this->send_busy_(request);
+    // Nothing was read or written, so the same call can simply be made again.
+    this->send_error_(request, "Device busy", 503);
   } else if (!error.empty()) {
     this->send_error_(request, error, code);
   } else {
@@ -622,12 +621,6 @@ void WebClimateEditor::send_error_(AsyncWebServerRequest *request, const std::st
   std::string json;
   serializeJson(doc, json);
   this->send_json_(request, code, json);
-}
-
-// By hand, like the other statuses send() does not know: it would go out as a 500, which
-// reads as a device fault rather than a request to make again.
-void WebClimateEditor::send_busy_(AsyncWebServerRequest *request) {
-  this->send_status_(request, "503 Service Unavailable", nullptr, R"({"success":false,"error":"Device busy"})");
 }
 
 void WebClimateEditor::send_status_(AsyncWebServerRequest *request, const char *status, const char *allow,
