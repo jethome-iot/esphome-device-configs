@@ -48,6 +48,8 @@ class ControllerRuntime {
   /// Opens both relays through the claims and lets go of them and the document. The entity
   /// reads off, with no temperature.
   void stop(uint32_t now_ms);
+  /// Lets go of `claim` without touching its relay: another thermostat carries on with it.
+  void release_claim(const RelayClaim *claim);
 
   /// The control loop, with the clock passed in.
   void tick(uint32_t now_ms);

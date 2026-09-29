@@ -568,6 +568,127 @@ TEST_F(ControlLoop, TheRoomTemperatureIsShownToATenthWhateverTheTargetStep) {
   EXPECT_FLOAT_EQ(0.1f, traits.get_visual_current_temperature_step());
 }
 
+// Stopped and started again before min_off ran out: the relay's dwell outlives the claim.
+TEST_F(ControlLoop, ADisableAndEnableInsideMinOffKeepsTheRelayOpen) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.heat.min_off_s = 60.f;
+  this->start(config, 18.f);
+  tick(200000);
+  ASSERT_TRUE(entities().relay1.state);
+
+  ASSERT_TRUE(hub().set_enabled(this->id_, false).ok);
+  ASSERT_FALSE(entities().relay1.state);
+  hub().ms = 210000;
+  ASSERT_TRUE(hub().set_enabled(this->id_, true).ok);
+  ControllerRuntime *rt = hub().runtime_of(this->id_);
+  tick(210000);
+  EXPECT_EQ(HubFault::NONE, rt->fault()) << "the reading the hub saw still counts, at its age";
+  EXPECT_FALSE(entities().relay1.state) << "opened at 200 s, so it stays open until 260 s";
+  tick(259999);
+  EXPECT_FALSE(entities().relay1.state);
+  tick(260000);
+  EXPECT_TRUE(entities().relay1.state);
+}
+
+// Summer taking over a boiler Winter has closed wants it closed too: it changes hands as it is.
+TEST_F(ControlLoop, ATakeOverOfAClosedRelayKeepsItClosed) {
+  ClimateConfig winter = this->base(ControlKind::BANG_BANG);
+  winter.name = "Winter";
+  winter.heat.min_off_s = 60.f;
+  this->start(winter, 18.f);
+  tick(200000);
+  ASSERT_TRUE(entities().relay1.state);
+  ClimateConfig summer = winter;
+  summer.name = "Summer";
+  summer.enabled = false;
+  this->create(summer);
+  const int writes = entities().relay1.writes;
+
+  ASSERT_TRUE(hub().set_enabled("summer", true, true).ok);
+  EXPECT_EQ("summer", hub().claimed_by("relay_1"));
+  EXPECT_TRUE(entities().relay1.state);
+  tick(201000);
+  EXPECT_EQ(HubAction::HEATING, hub().runtime_of("summer")->action());
+  EXPECT_TRUE(entities().relay1.state);
+  EXPECT_EQ(writes, entities().relay1.writes) << "the relay never moved";
+}
+
+// Only what the taker names changes hands, as it is; the holder's other relay opens and is let go.
+TEST_F(ControlLoop, ATakeOverOpensTheHoldersOtherRelay) {
+  ClimateConfig winter = with_cooling(this->base(ControlKind::BANG_BANG), true);
+  winter.name = "Winter";
+  this->start(winter, 23.f);
+  tick(200000);
+  ASSERT_TRUE(entities().relay2.state);
+  ClimateConfig summer = winter;
+  summer.name = "Summer";
+  summer.heat.relay_id = "relay_3";
+  summer.enabled = false;
+  this->create(summer);
+  const int writes = entities().relay2.writes;
+
+  ASSERT_TRUE(hub().set_enabled("summer", true, true).ok);
+  EXPECT_EQ("", hub().claimed_by("relay_1"));
+  EXPECT_FALSE(entities().relay1.state);
+  EXPECT_EQ("summer", hub().claimed_by("relay_2"));
+  tick(201000);
+  EXPECT_EQ(HubAction::COOLING, hub().runtime_of("summer")->action());
+  EXPECT_TRUE(entities().relay2.state);
+  EXPECT_EQ(writes, entities().relay2.writes) << "the cooling relay never moved";
+  EXPECT_FALSE(entities().relay3.state);
+}
+
+// A relay from each of two holders: both change hands in the one take-over, as they are.
+TEST_F(ControlLoop, ATakeOverFromTwoHoldersTakesBothRelays) {
+  ClimateConfig heater = this->base(ControlKind::BANG_BANG);
+  heater.name = "Heater";
+  this->start(heater, 18.f);
+  ClimateConfig cooler = with_cooling(this->base(ControlKind::BANG_BANG), false);
+  cooler.name = "Cooler";
+  this->create(cooler);
+  tick(200000);
+  ASSERT_TRUE(entities().relay1.state);
+  ClimateConfig both = with_cooling(this->base(ControlKind::BANG_BANG), true);
+  both.name = "Both";
+  both.enabled = false;
+  this->create(both);
+  const int writes = entities().relay1.writes;
+
+  ASSERT_TRUE(hub().set_enabled("both", true, true).ok);
+  EXPECT_EQ("both", hub().claimed_by("relay_1"));
+  EXPECT_EQ("both", hub().claimed_by("relay_2"));
+  EXPECT_FALSE(hub().is_running("heater"));
+  EXPECT_FALSE(hub().is_running("cooler"));
+  tick(201000);
+  EXPECT_EQ(HubAction::HEATING, hub().runtime_of("both")->action());
+  EXPECT_TRUE(entities().relay1.state);
+  EXPECT_EQ(writes, entities().relay1.writes) << "the heating relay never moved";
+}
+
+// A Save onto a relay another thermostat opened a moment ago waits out that relay's min_off.
+TEST_F(ControlLoop, ASaveOntoAnotherRelayHonoursThatRelaysLastSwitching) {
+  ClimateConfig other = this->base(ControlKind::BANG_BANG);
+  other.name = "Other";
+  other.heat.relay_id = "relay_2";
+  this->start(other, 18.f);
+  tick(200000);
+  ASSERT_TRUE(entities().relay2.state);
+  ASSERT_TRUE(hub().set_enabled(this->id_, false).ok);
+  ASSERT_FALSE(entities().relay2.state);
+
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.heat.min_off_s = 60.f;
+  this->start(config, 18.f);
+  tick(210000);
+  ASSERT_TRUE(entities().relay1.state);
+  config.heat.relay_id = "relay_2";
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  tick(220000);
+  EXPECT_FALSE(entities().relay2.state) << "relay 2 opened at 200 s";
+  tick(260000);
+  EXPECT_TRUE(entities().relay2.state);
+}
+
 // A probe that last spoke a minute ago, beyond its timeout: its value is shown, not acted on.
 TEST_F(ControlLoop, AProbeSilentSinceBeforeTheStartIsStale) {
   ClimateConfig config = this->base(ControlKind::BANG_BANG);

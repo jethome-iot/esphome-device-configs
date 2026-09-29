@@ -164,6 +164,47 @@ TEST(RelayClaim, ForceOffReopensARelayClosedByHand) {
   EXPECT_EQ(writes + 1, relay.writes) << "an open relay is left alone";
 }
 
+// A claim made after another let the relay go carries on from where that one left it.
+TEST(RelayClaim, ResumesTheDwellOfAnEarlierClaim) {
+  FakeSwitch relay;
+  RelaySwitching last;
+  {
+    RelayClaim before(&relay, "winter");
+    EXPECT_FALSE(before.last_switching(&last)) << "nothing switched yet";
+    before.request(true, 0);
+    before.force_off(1000);
+    ASSERT_TRUE(before.last_switching(&last));
+  }
+  EXPECT_FALSE(last.on);
+  EXPECT_EQ(1000u, last.ms);
+
+  RelayClaim after(&relay, "summer");
+  after.set_dwell(0, 5000);
+  after.resume(last);
+  EXPECT_FALSE(after.request(true, 5999)) << "opened at 1 s, min_off 5 s";
+  EXPECT_TRUE(after.request(true, 6000));
+}
+
+TEST(RelayClaim, AResumedClaimStillCutsOutAtOnce) {
+  FakeSwitch relay;
+  relay.turn_on();
+  RelayClaim claim(&relay, "boiler");
+  claim.set_dwell(60000, 0);
+  claim.resume({true, 0});
+  claim.force_off(10);
+  EXPECT_FALSE(relay.state) << "a safety cut-out cannot wait out a dwell floor";
+}
+
+TEST(RelayClaim, ChangesHandsWithoutMoving) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "winter");
+  claim.request(true, 0);
+  claim.set_owner("summer");
+  EXPECT_EQ("summer", claim.owner());
+  EXPECT_TRUE(claim.request(true, 10));
+  EXPECT_EQ(1, relay.writes);
+}
+
 TEST(RelayClaim, RepeatedIdenticalRequestsDoNotToggleTheRelay) {
   FakeSwitch relay;
   RelayClaim claim(&relay, "boiler");

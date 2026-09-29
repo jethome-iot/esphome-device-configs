@@ -107,6 +107,13 @@ void ControllerRuntime::stop(uint32_t now_ms) {
   this->entity_->current_temperature = NAN;
 }
 
+void ControllerRuntime::release_claim(const RelayClaim *claim) {
+  if (this->heat_claim_ == claim)
+    this->heat_claim_ = nullptr;
+  if (this->cool_claim_ == claim)
+    this->cool_claim_ = nullptr;
+}
+
 void ControllerRuntime::apply_config_() {
   const ClimateConfig &c = *this->config_;
 

@@ -494,6 +494,7 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
       this->dirty_.erase(holder);
     }
     Slot *holding = this->slot_for_(holder);
+    this->hand_over_(holder, holding, *stored);
     if (holding != nullptr) {
       this->stop_(holding);
     } else {
@@ -646,6 +647,9 @@ bool ClimateHub::acquire_claims_(const ClimateConfig &config, RelayClaim **heat,
         return false;
       }
       auto created = std::make_unique<RelayClaim>(sw, config.id);
+      auto last = this->relay_history_.find(out->relay_id);
+      if (last != this->relay_history_.end())
+        created->resume(last->second);
       claim = created.get();
       this->claims_[out->relay_id] = std::move(created);
     }
@@ -655,8 +659,30 @@ bool ClimateHub::acquire_claims_(const ClimateConfig &config, RelayClaim **heat,
 }
 
 void ClimateHub::release_claims_(const std::string &owner) {
+  const uint32_t now = this->now_ms();
   for (auto it = this->claims_.begin(); it != this->claims_.end();)
-    it = it->second->owner() == owner ? this->claims_.erase(it) : std::next(it);
+    it = it->second->owner() == owner ? this->let_go_(it, now) : std::next(it);
+}
+
+ClimateHub::ClaimMap::iterator ClimateHub::let_go_(ClaimMap::iterator it, uint32_t now_ms) {
+  it->second->force_off(now_ms);
+  it->second->last_switching(&this->relay_history_[it->first]);
+  return this->claims_.erase(it);
+}
+
+// A relay both thermostats drive changes hands as it is, so one that both want closed never
+// opens in between; what the holder drives alone goes with the holder.
+void ClimateHub::hand_over_(const std::string &from, Slot *holding, const ClimateConfig &to) {
+  for (const OutputConfig *out : {&to.heat, &to.cool}) {
+    if (!out->configured())
+      continue;
+    auto it = this->claims_.find(out->relay_id);
+    if (it == this->claims_.end() || it->second->owner() != from)
+      continue;
+    if (holding != nullptr)
+      holding->runtime.release_claim(it->second.get());
+    it->second->set_owner(to.id);
+  }
 }
 
 bool ClimateHub::start_(ClimateConfig *config, std::string *error) {
@@ -703,13 +729,8 @@ bool ClimateHub::restart_(Slot *slot, const std::string &previous_name, std::str
   // A relay the document no longer names is opened and let go; the ones it keeps carry on.
   const uint32_t now = this->now_ms();
   for (auto it = this->claims_.begin(); it != this->claims_.end();) {
-    RelayClaim *claim = it->second.get();
-    if (claim->owner() == config->id && claim != heat && claim != cool) {
-      claim->force_off(now);
-      it = this->claims_.erase(it);
-    } else {
-      ++it;
-    }
+    const RelayClaim *claim = it->second.get();
+    it = claim->owner() == config->id && claim != heat && claim != cool ? this->let_go_(it, now) : std::next(it);
   }
   const SensorSubscription *sub = this->subscribe_(sensor);
   slot->runtime.start(config, sensor, heat, cool, sub != nullptr ? sub->last : Reading{});

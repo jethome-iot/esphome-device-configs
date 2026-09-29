@@ -102,8 +102,8 @@ yet.
   Mode `off` opens them too. A thermostat that starts shows its sensor's last value at once,
   but acts on it only if it arrived within `sensor_timeout_s` while a thermostat was running
   on that sensor; otherwise it waits for the next reading.
-- `min_on_s` and `min_off_s` hold a relay closed or open that long after it moved; a safety
-  cut-out does not wait for them.
+- `min_on_s` and `min_off_s` hold a relay closed or open that long after it moved, whichever
+  thermostat moved it; a safety cut-out does not wait for them.
 - The entity reports the room temperature to a tenth of a degree, the target in steps of
   `visual.step`, the mode and what it is doing (heating, cooling, idle, off). Home Assistant
   and the web server can set the mode and the target; a target outside the range is clamped
@@ -115,8 +115,9 @@ A running thermostat holds its relays, and puts one back within a loop pass if a
 moves it — from the panel, over Modbus, from an automation or from Home Assistant. Two
 thermostats may name the same relay and take turns: only one of them can run at a time.
 Starting the second while the first runs is refused, naming the one that holds it, unless it
-takes the relay over, which stops the holder. Stopping a thermostat opens its relays; a Save
-that keeps a relay leaves it where it is.
+takes the relay over, which stops the holder. Stopping a thermostat opens its relays. A Save
+that keeps a relay leaves it where it is, and so does a take-over: a relay both thermostats
+drive changes hands as it is, and the holder's other relays open.
 
 ## Names and Home Assistant
 

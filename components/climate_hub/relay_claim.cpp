@@ -50,6 +50,20 @@ void RelayClaim::force_off(uint32_t now_ms) {
   this->apply_(false, now_ms);
 }
 
+void RelayClaim::resume(const RelaySwitching &last) {
+  this->state_ = last.on;
+  this->last_change_ms_ = last.ms;
+  this->initialized_ = true;
+}
+
+bool RelayClaim::last_switching(RelaySwitching *out) const {
+  if (!this->initialized_)
+    return false;
+  out->on = this->state_;
+  out->ms = this->last_change_ms_;
+  return true;
+}
+
 void RelayClaim::apply_(bool on, uint32_t now_ms) {
   this->state_ = on;
   this->last_change_ms_ = now_ms;

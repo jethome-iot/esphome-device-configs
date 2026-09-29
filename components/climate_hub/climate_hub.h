@@ -124,6 +124,7 @@ class ClimateHub : public Component {
     // What a thermostat that starts on this sensor goes by: the sensor's own state may be old.
     Reading last;
   };
+  using ClaimMap = std::map<std::string, std::unique_ptr<RelayClaim>>;
 
   void build_pool_();
   bool load_();
@@ -135,6 +136,10 @@ class ClimateHub : public Component {
   bool restart_(Slot *slot, const std::string &previous_name, std::string *error);
   bool acquire_claims_(const ClimateConfig &config, RelayClaim **heat, RelayClaim **cool, std::string *error);
   void release_claims_(const std::string &owner);
+  /// Opens the claim's relay, remembers its last switching and drops the claim.
+  ClaimMap::iterator let_go_(ClaimMap::iterator it, uint32_t now_ms);
+  /// Moves the claims `from` holds on relays `to` names over to `to`, relays as they are.
+  void hand_over_(const std::string &from, Slot *holding, const ClimateConfig &to);
   /// The running thermostat, other than `config` itself, that holds one of its relays, and
   /// which relay.
   std::string holder_of_(const ClimateConfig &config, std::string *relay_id = nullptr) const;
@@ -184,7 +189,10 @@ class ClimateHub : public Component {
   // to find it taken again.
   std::deque<Slot *> free_;
   // Keyed on the relay's object id; the owner is the id of the running thermostat.
-  std::map<std::string, std::unique_ptr<RelayClaim>> claims_;
+  ClaimMap claims_;
+  // Each relay's last switching once its claim is gone, by object id: the next claim on it
+  // honours min_on and min_off from there.
+  std::map<std::string, RelaySwitching> relay_history_;
   // One per sensor, kept for the life of the device: upstream has no callback removal.
   std::vector<std::unique_ptr<SensorSubscription>> sensor_subs_;
 

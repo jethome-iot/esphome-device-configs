@@ -11,6 +11,12 @@ class Switch;
 
 namespace esphome::climate_hub {
 
+/// Where a relay last moved to, and when.
+struct RelaySwitching {
+  bool on{false};
+  uint32_t ms{0};
+};
+
 /// Exclusive hold on one relay, with a minimum on and off dwell. The only place in the
 /// component that switches a relay, so contact wear has a single owner.
 class RelayClaim {
@@ -26,8 +32,14 @@ class RelayClaim {
   /// the claim already believes it open but something else closed it.
   void force_off(uint32_t now_ms);
 
+  /// Carries on from a switching an earlier claim on the relay made, dwell and all.
+  void resume(const RelaySwitching &last);
+  /// The last switching this claim made or resumed; false before there is one.
+  bool last_switching(RelaySwitching *out) const;
+
   bool state() const { return this->state_; }
   const std::string &owner() const { return this->owner_; }
+  void set_owner(const std::string &owner) { this->owner_ = owner; }
   switch_::Switch *relay() const { return this->sw_; }
 
  protected:
