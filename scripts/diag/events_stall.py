@@ -5,16 +5,25 @@ Written to be run twice — against the firmware without the fix and against the
 say which of the two it is looking at rather than only pass or fail. Issue #70; the fix is the
 backport of upstream ESPHome PR #17800 in components/web_server_idf.
 
-What breaks without the fix: a client that stops reading had its session object freed while
-esp_http_server still held the pointer, and the socket was never closed. Each occurrence lost about
-8 KB of internal heap and one of the device's seven session slots for good, and the write into the
-released block corrupted whatever took it over, so the device panicked later somewhere unrelated.
+Without the fix, a client that stops reading has its session object freed while esp_http_server
+still holds the pointer, **and the socket is never closed**. That last part is what this measures,
+because it is the difference a client can see from outside:
 
-So there are two observable symptoms, and this checks both after every cycle:
+  closed by the device   After about 20s without send progress the device gives up on a stalled
+                         client. The fixed firmware shuts the socket down, so our end sees EOF. The
+                         unfixed one only marks the session dead and leaves the socket open, so our
+                         end sees nothing.
+  session slots          There are seven. Because the unfixed firmware never closes the socket, a
+                         client that keeps its own end open holds a slot for good — so this run keeps
+                         every stalled client open and watches a fresh /events stop being served.
+  restarts               /api/device/status carries uptime_s and reset_reason; uptime going
+                         backwards means the corruption reached a panic.
 
-  slots   a probe /events must still open. Without the fix the slots run out and it stops opening.
-  reboot  /api/device/status carries uptime_s and reset_reason. Uptime going backwards means the
-          device restarted, and reset_reason says whether it panicked.
+Two things deliberately do *not* decide the verdict. Free heap wanders by ±10 KB on a live device, so
+a per-cycle delta from it is noise — `--sample` is a context column only, and the monotone low-water
+mark (`/sensor/Heap%20internal%20min` on a build with the stock `debug:` component) is the one worth
+passing. And closing our own socket after each cycle lets the unfixed device finish the teardown and
+hand the slot back, which hides the whole thing; that is why the sockets are held instead.
 
     # against the broken firmware — expected to find the bug
     scripts/diag/events_stall.py --base http://10.0.0.5 --auth admin:admin --expect broken
@@ -23,15 +32,11 @@ So there are two observable symptoms, and this checks both after every cycle:
     scripts/diag/events_stall.py --base http://10.0.0.5 --auth admin:admin --expect fixed
 
 Either way the exit status is 0 when the observation matches --expect, so the pair of runs is the
-proof. Without --expect it just reports what it saw. --out writes the run as JSON and --compare
-prints two runs side by side.
+proof. --out writes the run as JSON and --compare prints two runs side by side. A run that cannot
+stall anything reports INCONCLUSIVE and never BROKEN.
 
-A run that cannot stall a client at all — wrong credentials, device already out of slots before it
-started, network in the way — reports INCONCLUSIVE and never BROKEN. Only an observation made after
-a client really was stalled is evidence of anything.
-
-Standard library only. It opens and closes /events and reads /api/device/status; it writes nothing
-to the device and never touches an OTA route.
+Standard library only. It opens and closes /events and reads /api/device/status; it writes nothing to
+the device and never touches an OTA route.
 """
 
 import argparse
@@ -64,7 +69,7 @@ def _digest_fields(header: str) -> dict[str, str]:
 
 
 def _digest_response(user: str, password: str, uri: str, fields: dict[str, str]) -> str:
-    """RFC 7616 MD5 qop=auth. ESPHome's digest is stateless with a fresh nonce per challenge and no
+    """RFC 7616 MD5 qop=auth. ESPHome's digest is stateless, with a fresh nonce per challenge and no
     replay protection, so one challenge can answer several requests."""
     realm, nonce = fields.get("realm", ""), fields.get("nonce", "")
     cnonce = hashlib.md5(f"{nonce}{uri}".encode()).hexdigest()[:16]
@@ -89,10 +94,10 @@ def _digest_response(user: str, password: str, uri: str, fields: dict[str, str])
 
 
 class Device:
-    """JSON reads go through urllib, which answers digest challenges itself. A stalled /events
-    client needs a small receive window and must not read its body, so it gets a connection whose
-    socket is built by hand — SO_RCVBUF has to be set before connect() to shrink the window the
-    device is told about."""
+    """JSON reads go through urllib, which answers digest challenges itself. A stalled /events client
+    needs a small receive window and must not read its body, so it gets a connection whose socket is
+    built by hand — SO_RCVBUF has to be set before connect() to shrink the window the device is told
+    about."""
 
     def __init__(self, base: str, auth: str | None, timeout: float):
         url = urlparse(base)
@@ -101,8 +106,8 @@ class Device:
         self.timeout = timeout
         self.user, _, self.password = (auth or "").partition(":")
         self.challenge: dict[str, str] = {}
-        # An empty ProxyHandler suppresses the default one, which would otherwise send every
-        # request to whatever HTTP_PROXY happens to be set in the environment.
+        # An empty ProxyHandler suppresses the default one, which would otherwise send every request
+        # to whatever HTTP_PROXY happens to be set in the environment.
         handlers: list = [urllib.request.ProxyHandler({})]
         if auth:
             mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
@@ -125,7 +130,9 @@ class Device:
     def status(self) -> dict:
         return self._json(STATUS_PATH)
 
-    def sensor(self, path: str) -> float | None:
+    def sensor(self, path: str | None) -> float | None:
+        if not path:
+            return None
         payload = self._json(path)
         for key in ("value", "state"):
             if key in payload:
@@ -140,6 +147,8 @@ class Device:
     def _connection(self, rcvbuf: int | None) -> http.client.HTTPConnection | None:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         if rcvbuf:
+            # A small receive window is what lets the device wedge mid-send: its connect burst is the
+            # config event, one per sorting group, then every entity.
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, rcvbuf)
         sock.settimeout(self.timeout)
         try:
@@ -182,11 +191,9 @@ class Device:
     ) -> tuple[http.client.HTTPConnection | None, int]:
         """Opens /events without reading the body. The caller owns and closes the connection."""
         for _ in range(2):
-            auth = (
-                _digest_response(self.user, self.password, path, self.challenge)
-                if (self.user and self.challenge)
-                else None
-            )
+            auth = None
+            if self.user and self.challenge:
+                auth = _digest_response(self.user, self.password, path, self.challenge)
             conn = self._connection(rcvbuf)
             if conn is None:
                 return None, 0
@@ -197,12 +204,34 @@ class Device:
                 return None, 0
             if response.status != 401 or not self.user:
                 return conn, response.status
-            # Stale or missing challenge: take a fresh one and try once more.
             response.read()
             conn.close()
             if not self.refresh_challenge(path):
                 return None, 401
         return None, 401
+
+
+def closed_by_device(
+    conn: http.client.HTTPConnection, drain_timeout: float
+) -> bool | None:
+    """Whether the device shut our stalled socket down itself.
+
+    Drains whatever is buffered and then looks for EOF. The fixed firmware closes the session through
+    HTTPD, so EOF arrives; the unfixed one only marks it dead and the socket stays open, so the read
+    times out instead. None means the socket was already gone for some other reason.
+    """
+    sock = conn.sock
+    if sock is None:
+        return None
+    sock.settimeout(drain_timeout)
+    try:
+        while True:
+            if not sock.recv(4096):
+                return True  # EOF: the device closed it
+    except TimeoutError:
+        return False  # still open once everything buffered had been read
+    except OSError:
+        return True  # a reset is the device tearing it down too
 
 
 # ------------------------------------------------------------------------------------------ the run
@@ -220,84 +249,95 @@ def run(device: Device, args) -> dict:
         )
         return {}
 
-    baseline_heap = device.sensor(args.sample) if args.sample else None
     record = {
         "cycles_requested": args.cycles,
         "hold_s": args.hold,
         "uptime_at_start_s": first.get("uptime_s"),
         "reset_reason_at_start": first.get("reset_reason"),
         "sample_path": args.sample,
-        "baseline_heap": baseline_heap,
-        "leak_threshold": args.leak_threshold,
+        "baseline_sample": device.sensor(args.sample),
         "cycles": [],
     }
 
     print(
         f"uptime at start {first.get('uptime_s')}s, reset_reason {first.get('reset_reason')!r}"
     )
-    if baseline_heap is not None:
-        print(f"{args.sample} at start: {baseline_heap:.0f}")
-    print(f"\nStalling {args.cycles} /events clients for {args.hold:.0f}s each\n")
+    if record["baseline_sample"] is not None:
+        print(f"{args.sample} at start: {record['baseline_sample']:.0f}")
+    print(
+        f"\nStalling {args.cycles} clients, holding every one open, {args.hold:.0f}s each\n"
+    )
 
+    held: list = []
     previous_uptime = first.get("uptime_s") or 0
-    for cycle in range(1, args.cycles + 1):
-        stalled, status = device.open_events(args.path, args.rcvbuf)
-        if stalled is None or status != 200:
+    try:
+        for cycle in range(1, args.cycles + 1):
+            stalled, status = device.open_events(args.path, args.rcvbuf)
+            if stalled is None or status != 200:
+                record["cycles"].append(
+                    {"cycle": cycle, "stall_opened": False, "stall_status": status}
+                )
+                print(
+                    f"cycle {cycle:2}: could not open a client to stall (status {status or 'no answer'})"
+                )
+                break
+            held.append(stalled)
+            # Hold without reading: the window closes and the device eventually gives up on it.
+            time.sleep(args.hold)
+
+            device_closed = closed_by_device(stalled, args.drain_timeout)
+            probe, probe_status = device.open_events(args.path, None)
+            if probe is not None:
+                probe.close()
+            state = device.status()
+            uptime = state.get("uptime_s")
+            rebooted = uptime is not None and uptime < previous_uptime
+            if uptime is not None:
+                previous_uptime = uptime
+
             record["cycles"].append(
-                {"cycle": cycle, "stall_opened": False, "stall_status": status}
+                {
+                    "cycle": cycle,
+                    "stall_opened": True,
+                    "device_closed_it": device_closed,
+                    "probe_status": probe_status,
+                    "uptime_s": uptime,
+                    "reset_reason": state.get("reset_reason"),
+                    "rebooted": rebooted,
+                    "sample": device.sensor(args.sample),
+                }
             )
-            print(
-                f"cycle {cycle:2}: could not open a client to stall (status {status or 'no answer'})"
-            )
-            break
-        # Hold it without reading: the receive window closes and the device eventually gives up.
-        time.sleep(args.hold)
-        stalled.close()
-        time.sleep(1.5)
+            closed_word = {True: "closed by device", False: "left open", None: "gone"}[
+                device_closed
+            ]
+            line = f"cycle {cycle:2}: stalled socket {closed_word:<16} probe /events -> {probe_status or 'no answer'}"
+            if rebooted:
+                line += f"  *** REBOOT, reset_reason={state.get('reset_reason')!r} ***"
+            print(line)
+            if rebooted and args.stop_on_reboot:
+                print(
+                    "stopping: the device restarted, which is one of the failures this looks for"
+                )
+                break
+    finally:
+        for conn in held:
+            try:
+                conn.close()
+            except OSError:
+                pass
 
-        probe, probe_status = device.open_events(args.path, None)
-        if probe is not None:
-            probe.close()
-        state = device.status()
-        heap = device.sensor(args.sample) if args.sample else None
-        uptime = state.get("uptime_s")
-        rebooted = uptime is not None and uptime < previous_uptime
-        if uptime is not None:
-            previous_uptime = uptime
-
-        record["cycles"].append(
-            {
-                "cycle": cycle,
-                "stall_opened": True,
-                "probe_status": probe_status,
-                "uptime_s": uptime,
-                "reset_reason": state.get("reset_reason"),
-                "rebooted": rebooted,
-                "heap": heap,
-            }
-        )
-        line = f"cycle {cycle:2}: probe /events -> {str(probe_status) or 'no answer':<9} uptime {uptime}"
-        if heap is not None:
-            line += f"  heap {heap:.0f}"
-        if rebooted:
-            line += f"  *** REBOOT, reset_reason={state.get('reset_reason')!r} ***"
-        print(line)
-        if rebooted and args.stop_on_reboot:
-            print(
-                "stopping: the device restarted, which is one of the failures this looks for"
-            )
-            break
-
-    record["final_heap"] = device.sensor(args.sample) if args.sample else None
+    record["final_sample"] = device.sensor(args.sample)
     return verdict(record)
 
 
 def verdict(record: dict) -> dict:
     cycles = record.get("cycles", [])
     completed = [c for c in cycles if c.get("stall_opened")]
-    reboots = [c for c in cycles if c.get("rebooted")]
+    reboots = [c for c in completed if c.get("rebooted")]
     # Only a probe taken after a client really was stalled says anything about session slots.
     refused = [c for c in completed if c.get("probe_status") != 200]
+    left_open = [c for c in completed if c.get("device_closed_it") is False]
+    shut = [c for c in completed if c.get("device_closed_it") is True]
 
     record["completed_cycles"] = len(completed)
     record["reboots"] = len(reboots)
@@ -305,24 +345,19 @@ def verdict(record: dict) -> dict:
     record["stalling_failed_at_cycle"] = next(
         (c["cycle"] for c in cycles if not c.get("stall_opened")), None
     )
-
-    # The heap is the earliest and most direct symptom: the unfixed firmware never reclaims about
-    # 8 KB per stalled client, so a couple of cycles show it long before the seven slots run out.
-    leaking = False
-    if record.get("baseline_heap") is not None and record.get("final_heap") is not None:
-        record["heap_delta"] = record["final_heap"] - record["baseline_heap"]
-        if (
-            completed and not reboots
-        ):  # a restart resets the heap, so the delta means nothing then
-            record["heap_per_cycle"] = record["heap_delta"] / len(completed)
-            leaking = -record["heap_per_cycle"] >= record["leak_threshold"]
+    record["left_open"] = len(left_open)
+    record["device_closed"] = len(shut)
+    if (
+        record.get("baseline_sample") is not None
+        and record.get("final_sample") is not None
+    ):
+        record["sample_delta"] = record["final_sample"] - record["baseline_sample"]
 
     if not completed:
-        # Nothing was ever stalled, so nothing was tested. Never call this broken.
         record["state"] = "inconclusive"
-    elif reboots or record["slots_lost_at_cycle"] is not None or leaking:
+    elif reboots or record["slots_lost_at_cycle"] is not None or left_open:
         record["state"] = "broken"
-    elif len(completed) == record["cycles_requested"]:
+    elif shut and len(completed) == record["cycles_requested"]:
         record["state"] = "fixed"
     else:
         record["state"] = "inconclusive"
@@ -332,8 +367,10 @@ def verdict(record: dict) -> dict:
 def report(record: dict) -> None:
     print("\n--- what this run saw ---")
     print(
-        f"clients actually stalled:  {record['completed_cycles']}/{record['cycles_requested']}"
+        f"clients actually stalled:                 {record['completed_cycles']}/{record['cycles_requested']}"
     )
+    print(f"stalled sockets the device closed itself: {record['device_closed']}")
+    print(f"stalled sockets left open:                {record['left_open']}")
     if record["slots_lost_at_cycle"] is not None:
         print(
             f"a probe /events stopped being served at cycle {record['slots_lost_at_cycle']}"
@@ -344,31 +381,27 @@ def report(record: dict) -> None:
         print(
             f"could not open a client to stall at cycle {record['stalling_failed_at_cycle']}"
         )
-    print(f"device restarts during the run: {record['reboots']}")
-    if "heap_delta" in record:
+    print(f"device restarts during the run:           {record['reboots']}")
+    if "sample_delta" in record:
         print(
-            f"{record['sample_path']}: {record['baseline_heap']:.0f} -> "
-            f"{record['final_heap']:.0f} ({record['heap_delta']:+.0f})"
-        )
-    if "heap_per_cycle" in record:
-        print(
-            f"per stalled client: {record['heap_per_cycle']:+.0f} B"
-            f"  (the leak this looks for is about -8000; --leak-threshold is {record['leak_threshold']:.0f})"
+            f"{record['sample_path']}: {record['baseline_sample']:.0f} -> "
+            f"{record['final_sample']:.0f} ({record['sample_delta']:+.0f}) — context, not a verdict"
         )
 
     state = record["state"]
     if state == "broken":
         print(
-            "\nBROKEN: stalled clients cost the device session slots, or it restarted while they did."
+            "\nBROKEN: the device left stalled sockets open, lost session slots, or restarted."
+            "\nA socket it never closes is a session object it freed too early."
         )
     elif state == "fixed":
         print(
-            "\nFIXED: every stalled client gave its session slot back and the device never restarted."
+            "\nFIXED: the device closed every stalled session itself and kept serving new ones."
         )
     else:
         print(
             "\nINCONCLUSIVE: not enough clients were stalled to conclude anything. Check the"
-            "\ncredentials and that the device had slots free before the run, then try again."
+            "\ncredentials, and that --hold is longer than the device's 20s stall timeout."
         )
 
 
@@ -385,21 +418,17 @@ def compare(before_path: str, after_path: str) -> int:
             f"{after['completed_cycles']}/{after['cycles_requested']}",
         ),
         (
+            "closed by the device",
+            before.get("device_closed", "-"),
+            after.get("device_closed", "-"),
+        ),
+        ("left open", before.get("left_open", "-"), after.get("left_open", "-")),
+        (
             "slots lost at cycle",
             before["slots_lost_at_cycle"] or "-",
             after["slots_lost_at_cycle"] or "-",
         ),
         ("device restarts", before["reboots"], after["reboots"]),
-        ("heap delta", before.get("heap_delta", "-"), after.get("heap_delta", "-")),
-        (
-            "heap per client",
-            f"{before.get('heap_per_cycle', 0):+.0f}"
-            if "heap_per_cycle" in before
-            else "-",
-            f"{after.get('heap_per_cycle', 0):+.0f}"
-            if "heap_per_cycle" in after
-            else "-",
-        ),
     ]
     width = max(len(r[0]) for r in rows)
     print(f"{'':<{width}}  {'before':>20}  {'after':>20}")
@@ -424,21 +453,29 @@ def main() -> int:
     p.add_argument(
         "--cycles",
         type=int,
-        default=10,
-        help="stalled clients to open and drop; there are 7 slots",
+        default=9,
+        help="stalled clients to open and hold; there are 7 slots",
     )
     p.add_argument(
         "--hold",
         type=float,
-        default=40.0,
-        help="seconds to hold each stalled client. The device gives up after 20s without send progress.",
+        default=45.0,
+        help="seconds to hold each stalled client before judging it. The device gives up after about "
+        "20s without send progress, so leave margin above that.",
     )
     p.add_argument(
         "--rcvbuf", type=int, default=2048, help="SO_RCVBUF; the kernel may round it up"
     )
     p.add_argument(
+        "--drain-timeout",
+        type=float,
+        default=3.0,
+        help="seconds to wait for EOF on a stalled socket",
+    )
+    p.add_argument(
         "--sample",
-        help="a numeric REST getter for the heap column, e.g. /sensor/Heap%%20Free",
+        help="a numeric REST getter for a context column. Prefer the monotone low-water mark, e.g. "
+        "/sensor/Heap%%20internal%%20min — free heap wanders and proves nothing.",
     )
     p.add_argument(
         "--expect",
@@ -456,13 +493,6 @@ def main() -> int:
         nargs=2,
         metavar=("BEFORE", "AFTER"),
         help="compare two --out files and exit",
-    )
-    p.add_argument(
-        "--leak-threshold",
-        type=float,
-        default=2000.0,
-        help="bytes lost per stalled client above which the run is called broken; the unfixed "
-        "firmware loses about 8000 and a fixed one should sit near zero",
     )
     p.add_argument("--timeout", type=float, default=10.0)
     args = p.parse_args()
