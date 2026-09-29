@@ -117,6 +117,9 @@ TEST_F(Editor, SaveRefusesWhatItCannotRead) {
                 "sensor_id is required"},
            Case{R"({"name":"A","sensor_id":"room","heat":{"relay_id":7}})", "application/json",
                 "at least one of heat.relay_id / cool.relay_id is required"},
+           // No object id is longer; an uncapped one could grow the file past what a boot loads.
+           Case{R"({"name":"A","sensor_id":")" + std::string(121, 'a') + R"(","heat":{"relay_id":"relay_1"}})",
+                "application/json", "sensor_id is longer than 120 characters"},
        }) {
     Reply reply = this->call(HTTP_POST, "save", c.body, c.content_type);
     EXPECT_EQ(reply.code, 400) << c.body;
@@ -271,6 +274,16 @@ TEST_F(Editor, AFileThatCannotBeWrittenIsAServerError) {
   storage().set_base_path(this->base_path);
   EXPECT_EQ(reply.code, 500);
   EXPECT_EQ(reply.error(), "The thermostat's file could not be written");
+  EXPECT_EQ(hub().store().size(), 0u);
+}
+
+// The hub never writes a file the next boot would refuse, and the editor says so with a 413.
+TEST_F(Editor, AFileOverTheCapIsNotWritten) {
+  hub().max_file_bytes = 100;
+  Reply reply = this->post("save", LIVING_ROOM);
+  EXPECT_EQ(reply.code, 413);
+  EXPECT_EQ(reply.error(), "The thermostat's file would be over 8 KiB");
+  EXPECT_TRUE(this->files().empty());
   EXPECT_EQ(hub().store().size(), 0u);
 }
 

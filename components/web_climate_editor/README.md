@@ -83,6 +83,8 @@ refusals come in this order, and the first one a document meets is the answer:
    a name whose every id is taken by a file in the folder;
 4. for an enabled thermostat, `400` when its sensor or a relay is not on the device, then `409`
    when a running thermostat holds its relay: `"Relay 1" is already driven by "Living Room"`.
+5. `413` when the file the document makes would be over 8 KiB, a guard no document within the
+   rules reaches.
 
 `enable` refuses the same two ways when it starts a thermostat. With `take_over=true` the
 thermostat holding the relay is stopped and stored as disabled first, in the same step, and the
@@ -96,11 +98,11 @@ to a space.
 
 Every failure is `{"success": false, "error"}`, with the sentence an editor shows: `400` for a
 bad request, `404` for an unknown `id` or path, `405` for the wrong method, `409` for a name or
-a relay in use, `413` for an oversized body, `500` when nothing could be written, `503` when the
-loop was busy and `507` at `max_controllers`. A `500` changed nothing: `The thermostat's file
-could not be written`, or `Thermostat storage is not available` when the storage was not usable
-at boot — then every write gets it, a save before its body is even read. The same contract,
-machine-readable: [openapi.yaml](openapi.yaml) (OpenAPI 3.1).
+a relay in use, `413` for an oversized body or file, `500` when nothing could be written, `503`
+when the loop was busy and `507` at `max_controllers`. A `500` changed nothing: `The
+thermostat's file could not be written`, or `Thermostat storage is not available` when the
+storage was not usable at boot — then every write gets it, a save before its body is even read.
+The same contract, machine-readable: [openapi.yaml](openapi.yaml) (OpenAPI 3.1).
 
 A rename reaches Home Assistant as a new entity, and a thermostat that starts, stops, is removed
 or renamed makes Home Assistant reconnect: [doc/CLIMATE.md](../../doc/CLIMATE.md).

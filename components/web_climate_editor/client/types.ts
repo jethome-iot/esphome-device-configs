@@ -91,14 +91,20 @@ export type ControllerDraft = Omit<ControllerDocument, 'id' | 'version'> & Parti
 /** `T` with every key optional, in nested objects too. */
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
 
+/** A direction that names its relay; its other keys take their defaults. */
+export type DrivenOutputInput = Pick<OutputConfig, 'relay_id'> & DeepPartial<OutputConfig>
+
 /**
  * What POST /save takes. An absent or empty `id` creates a controller, an existing
  * one replaces that controller's document. Only `name` and `sensor_id` are required,
  * and `heat.relay_id` or `cool.relay_id` must name a relay; any other key left out
  * takes its default, and every number is clamped to the schema's range.
  */
-export type ControllerSaveInput = DeepPartial<Omit<ControllerDocument, 'id' | 'name' | 'sensor_id'>> &
-  Pick<ControllerDocument, 'name' | 'sensor_id'> & { id?: string }
+export type ControllerSaveInput = DeepPartial<Omit<ControllerDocument, 'id' | 'name' | 'sensor_id' | 'heat' | 'cool'>> &
+  Pick<ControllerDocument, 'name' | 'sensor_id'> & { id?: string } & (
+    | { heat: DrivenOutputInput; cool?: DeepPartial<OutputConfig> }
+    | { heat?: DeepPartial<OutputConfig>; cool: DrivenOutputInput }
+  )
 
 /** One row of GET /list. The climate entity it drives carries the same `name`. */
 export interface ControllerSummary {
@@ -232,3 +238,6 @@ export const CONFIG_MAX_BYTES = 8192
 
 /** Longest thermostat name, in characters; the same number /schema serves. */
 export const NAME_MAX_LENGTH = 48
+
+/** Longest `sensor_id` or `relay_id`: no object id is longer. */
+export const ENTITY_ID_MAX_LENGTH = 120

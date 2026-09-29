@@ -110,6 +110,7 @@ class TestHub : public climate_hub::ClimateHub {
   bool loop_busy{false};
   int resyncs{0};
   bool refuse_remove{false};
+  size_t max_file_bytes{climate_hub::CONFIG_MAX_BYTES};
 
   uint32_t now_ms() const override { return this->ms; }
   bool run_on_loop(std::function<bool()> &&job) override {
@@ -141,12 +142,16 @@ class TestHub : public climate_hub::ClimateHub {
     this->loop_busy = false;
     this->resyncs = 0;
     this->refuse_remove = false;
+    this->max_file_bytes = climate_hub::CONFIG_MAX_BYTES;
   }
 
  protected:
   void resync_home_assistant_() override { this->resyncs++; }
   bool remove_file_(const std::string &path) override {
     return !this->refuse_remove && climate_hub::ClimateHub::remove_file_(path);
+  }
+  climate_hub::EncodeError encode_(const climate_hub::ClimateConfig &config, std::string *json) const override {
+    return config.encode(json, this->max_file_bytes);
   }
 };
 

@@ -158,14 +158,22 @@ paths:
         "409":
           $ref: "#/components/responses/Conflict"
         "413":
-          description: The body is over 8 KiB.
+          description: >-
+            The body is over 8 KiB, or the file the document makes would be:
+            a guard, since no document within the rules comes near it.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-              example:
-                success: false
-                error: Request body over 8 KiB
+              examples:
+                body:
+                  value:
+                    success: false
+                    error: Request body over 8 KiB
+                file:
+                  value:
+                    success: false
+                    error: The thermostat's file would be over 8 KiB
         "500":
           $ref: "#/components/responses/NotWritten"
         "503":
@@ -580,6 +588,7 @@ components:
       properties:
         relay_id:
           type: string
+          maxLength: 120
           description: The switch's object id.
         period_s:
           type: number
@@ -721,6 +730,7 @@ components:
           $ref: "#/components/schemas/ControlKind"
         sensor_id:
           type: string
+          maxLength: 120
           description: The temperature sensor's object id.
         update_interval_s:
           type: number
@@ -813,6 +823,7 @@ components:
         sensor_id:
           type: string
           minLength: 1
+          maxLength: 120
         update_interval_s:
           type: number
         heat:

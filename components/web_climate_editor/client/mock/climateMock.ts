@@ -30,7 +30,7 @@ import type {
   ParamDesc,
   PidTerms
 } from '../types'
-import { CONFIG_MAX_BYTES, NAME_MAX_LENGTH } from '../types'
+import { CONFIG_MAX_BYTES, ENTITY_ID_MAX_LENGTH, NAME_MAX_LENGTH } from '../types'
 import type { FetchImpl } from '../climateApi'
 import { nameError, slugify, trimName, uniqueId } from '../naming'
 
@@ -370,6 +370,11 @@ function textOf(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
+// The device counts bytes, as ArduinoJson hands the string over.
+function tooLong(id: string): boolean {
+  return new TextEncoder().encode(id).length > ENTITY_ID_MAX_LENGTH
+}
+
 function decodeOutput(raw: unknown, out: ControllerDocument['heat']) {
   const obj = objectOf(raw)
   if (!obj) return
@@ -399,6 +404,7 @@ export function decodeDocument(raw: unknown): { doc: ControllerDocument } | { er
     doc.kind = kind
   }
   if (typeof root.sensor_id !== 'string' || root.sensor_id === '') return { error: 'sensor_id is required' }
+  if (tooLong(root.sensor_id)) return { error: `sensor_id is longer than ${ENTITY_ID_MAX_LENGTH} characters` }
   doc.sensor_id = root.sensor_id
   doc.update_interval_s = clampParam('update_interval_s', numberOr(root.update_interval_s, doc.update_interval_s))
 
@@ -407,6 +413,8 @@ export function decodeDocument(raw: unknown): { doc: ControllerDocument } | { er
   if (!doc.heat.relay_id && !doc.cool.relay_id) {
     return { error: 'at least one of heat.relay_id / cool.relay_id is required' }
   }
+  if (tooLong(doc.heat.relay_id)) return { error: `heat.relay_id is longer than ${ENTITY_ID_MAX_LENGTH} characters` }
+  if (tooLong(doc.cool.relay_id)) return { error: `cool.relay_id is longer than ${ENTITY_ID_MAX_LENGTH} characters` }
   if (doc.heat.relay_id && doc.heat.relay_id === doc.cool.relay_id) {
     return { error: 'heat and cool cannot share one relay' }
   }
