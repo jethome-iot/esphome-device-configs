@@ -13,9 +13,10 @@ because it is the difference a client can see from outside:
                          client. The fixed firmware shuts the socket down, so our end sees EOF. The
                          unfixed one only marks the session dead and leaves the socket open, so our
                          end sees nothing.
-  session slots          There are seven. Because the unfixed firmware never closes the socket, a
-                         client that keeps its own end open holds a slot for good — so this run keeps
-                         every stalled client open and watches a fresh /events stop being served.
+  session slots          A held-open stalled client occupies one. The device tracks about seven
+                         event-source sessions, so this run stays under that: a client opened beyond
+                         the limit gets a socket but never becomes a stalled session, and there is
+                         then nothing for the device to close — which reads as a false "left open".
   restarts               /api/device/status carries uptime_s and reset_reason; uptime going
                          backwards means the corruption reached a panic.
 
@@ -285,7 +286,9 @@ def run(device: Device, args) -> dict:
             # Hold without reading: the window closes and the device eventually gives up on it.
             time.sleep(args.hold)
 
-            device_closed = closed_by_device(stalled, args.drain_timeout)
+            # Deliberately NOT inspected here: reading a stalled socket opens its receive
+            # window, the device resumes sending and the stall timer resets — the check
+            # would destroy what it measures. Every held socket is judged after the run.
             probe, probe_status = device.open_events(args.path, None)
             if probe is not None:
                 probe.close()
@@ -299,7 +302,6 @@ def run(device: Device, args) -> dict:
                 {
                     "cycle": cycle,
                     "stall_opened": True,
-                    "device_closed_it": device_closed,
                     "probe_status": probe_status,
                     "uptime_s": uptime,
                     "reset_reason": state.get("reset_reason"),
@@ -307,10 +309,7 @@ def run(device: Device, args) -> dict:
                     "sample": device.sensor(args.sample),
                 }
             )
-            closed_word = {True: "closed by device", False: "left open", None: "gone"}[
-                device_closed
-            ]
-            line = f"cycle {cycle:2}: stalled socket {closed_word:<16} probe /events -> {probe_status or 'no answer'}"
+            line = f"cycle {cycle:2}: stalled and held   probe /events -> {probe_status or 'no answer'}"
             if rebooted:
                 line += f"  *** REBOOT, reset_reason={state.get('reset_reason')!r} ***"
             print(line)
@@ -320,11 +319,26 @@ def run(device: Device, args) -> dict:
                 )
                 break
     finally:
+        # The device times sessions out in the order they stalled, so a per-cycle look at the newest
+        # socket sees an interleaving, not an answer. What matters is whether it closed them all, so
+        # every held socket is judged here, once the run is over.
+        record["closed_at_end"] = 0
+        record["open_at_end"] = 0
         for conn in held:
+            state = closed_by_device(conn, args.drain_timeout)
+            if state is False:
+                record["open_at_end"] += 1
+            else:
+                record["closed_at_end"] += 1
             try:
                 conn.close()
             except OSError:
                 pass
+        if held:
+            print(
+                f"\nafter the run: the device had closed {record['closed_at_end']} of {len(held)} "
+                f"stalled sockets, {record['open_at_end']} still open"
+            )
 
     record["final_sample"] = device.sensor(args.sample)
     return verdict(record)
@@ -336,8 +350,9 @@ def verdict(record: dict) -> dict:
     reboots = [c for c in completed if c.get("rebooted")]
     # Only a probe taken after a client really was stalled says anything about session slots.
     refused = [c for c in completed if c.get("probe_status") != 200]
-    left_open = [c for c in completed if c.get("device_closed_it") is False]
-    shut = [c for c in completed if c.get("device_closed_it") is True]
+    # Per-cycle counts are kept for the log, but the verdict uses the end-of-run sweep.
+    left_open = record.get("open_at_end", 0)
+    shut = record.get("closed_at_end", 0)
 
     record["completed_cycles"] = len(completed)
     record["reboots"] = len(reboots)
@@ -345,8 +360,8 @@ def verdict(record: dict) -> dict:
     record["stalling_failed_at_cycle"] = next(
         (c["cycle"] for c in cycles if not c.get("stall_opened")), None
     )
-    record["left_open"] = len(left_open)
-    record["device_closed"] = len(shut)
+    record["left_open"] = left_open
+    record["device_closed"] = shut
     if (
         record.get("baseline_sample") is not None
         and record.get("final_sample") is not None
