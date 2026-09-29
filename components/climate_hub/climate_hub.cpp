@@ -312,7 +312,8 @@ std::string ClimateHub::claimed_by(const std::string &relay_object_id) const {
 float ClimateHub::sensor_reading(const std::string &sensor_object_id) const {
 #ifdef USE_SENSOR
   sensor::Sensor *sensor = find_sensor(sensor_object_id);
-  if (sensor != nullptr && sensor->has_state())
+  // Shown as a room temperature, so only a reading in °C.
+  if (sensor != nullptr && sensor->has_state() && reports_celsius(*sensor))
     return sensor->state;
 #endif
   return NAN;

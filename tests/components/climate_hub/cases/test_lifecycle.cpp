@@ -718,6 +718,8 @@ TEST_F(HubTest, ASensorReadingIsWhatTheSensorSaysNow) {
   EXPECT_FLOAT_EQ(19.5f, hub().sensor_reading("room"));
   entities().hidden.publish_state(30.f);
   EXPECT_TRUE(std::isnan(hub().sensor_reading("hidden"))) << "internal: not the editor's to show";
+  entities().uptime.publish_state(3600.f);
+  EXPECT_TRUE(std::isnan(hub().sensor_reading("uptime"))) << "not °C: no room temperature to show";
 }
 
 // The setpoints, the band and the cut-out are in °C: uptime in seconds would be read as degrees.
