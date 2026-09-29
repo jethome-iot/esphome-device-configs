@@ -116,12 +116,12 @@ yet.
   otherwise it waits for the next one.
 - `min_on_s` and `min_off_s` hold a relay closed or open that long after it moved, whichever
   thermostat moved it or put it back; a safety cut-out does not wait for them.
-- A Save keeps what the relays are doing: inside the band the relay stays as it was, and the
-  PWM keeps its rhythm unless `period_s` changes. Unless it changes `kind` or `sensor_id`, it
-  also keeps what a PID has learnt: new gains apply from the next pass, and the integral is
-  clamped into new limits. `starting_integral_term` applies when a thermostat starts and
-  after a Save that changes either. A Save that keeps `sensor_id` does not restart the wait
-  for a first reading.
+- A Save keeps what the thermostat is doing: inside the band a hysteresis thermostat goes on
+  heating, cooling or idling as it was in the modes it still has, and the PWM keeps its rhythm
+  unless `period_s` changes. Unless it changes `kind` or `sensor_id`, it also keeps what a PID
+  has learnt: new gains apply from the next pass, and the integral is clamped into new limits.
+  `starting_integral_term` applies when a thermostat starts and after a Save that changes
+  either. A Save that keeps `sensor_id` does not restart the wait for a first reading.
 - The entity reports the room temperature to a tenth of a degree, the target in steps of
   `visual.step`, the mode and what it is doing: heating, cooling, idle, or off, which only
   mode `off`, a fault or a stopped thermostat shows. Home Assistant and the web server can set

@@ -70,6 +70,8 @@ void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, Rel
   const bool same_sensor = restart && sensor == this->sensor_;
   // What the PID learnt holds for its law and its sensor; a Save that keeps both keeps it.
   const bool keep_pid = same_sensor && this->kind_ == ControlKind::PID && config->kind == ControlKind::PID;
+  // The latch too: a relay min_on holds closed after the latch let it go is not heating.
+  const bool keep_latch = restart && this->kind_ == ControlKind::BANG_BANG && config->kind == ControlKind::BANG_BANG;
   this->config_ = config;
   this->sensor_ = sensor;
   this->heat_claim_ = heat;
@@ -90,10 +92,15 @@ void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, Rel
     this->controlled_ = false;
   }
 
-  // Inside the band the latch decides: reset, it would open a relay that is heating now.
+  // Inside the band the latch decides: reset, it would open a relay that is heating now. A
+  // start or a take-over has no latch of its own and goes by the relays; a direction the mode
+  // no longer drives is dropped, as a mode change through control() drops it.
   const HubMode mode = config->mode;
-  const bool heating = heat != nullptr && heat->state() && (mode == HubMode::HEAT || mode == HubMode::HEAT_COOL);
-  const bool cooling = cool != nullptr && cool->state() && (mode == HubMode::COOL || mode == HubMode::HEAT_COOL);
+  const bool may_heat = heat != nullptr && (mode == HubMode::HEAT || mode == HubMode::HEAT_COOL);
+  const bool may_cool = cool != nullptr && (mode == HubMode::COOL || mode == HubMode::HEAT_COOL);
+  const HubAction latched = this->hysteresis_.action();
+  const bool heating = may_heat && (keep_latch ? latched == HubAction::HEATING : heat->state());
+  const bool cooling = may_cool && (keep_latch ? latched == HubAction::COOLING : cool->state());
   this->hysteresis_.seed(heating ? HubAction::HEATING : (cooling ? HubAction::COOLING : HubAction::IDLE));
 
   this->has_sample_ = last.seen;

@@ -42,9 +42,10 @@ class ControllerRuntime {
   /// latest reading the hub saw arrive from `sensor`: without one the entity shows the sensor's
   /// state, which may be hours old, and control waits for a reading, sensor_timeout_s from now
   /// at most. Also how a Save applies: the claims it keeps carry their relay state and dwell
-  /// over, the PWM keeps its phase while its period stands, a closed relay keeps the hysteresis
-  /// latched on it, the PID keeps its state while its law and sensor stand, and so does the
-  /// wait for a first reading while the sensor does.
+  /// over, the PWM keeps its phase while its period stands, the hysteresis keeps its latch in
+  /// the directions the mode still drives (a start latches on a closed relay instead), the PID
+  /// keeps its state while its law and sensor stand, and so does the wait for a first reading
+  /// while the sensor does.
   void start(ClimateConfig *config, sensor::Sensor *sensor, RelayClaim *heat, RelayClaim *cool, uint32_t now_ms,
              const Reading &last = Reading{});
   /// Opens both relays through the claims and lets go of them and the document. The entity

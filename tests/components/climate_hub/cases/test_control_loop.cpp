@@ -925,6 +925,47 @@ TEST_F(ControlLoop, ASaveInsideTheBandKeepsHeating) {
   EXPECT_TRUE(entities().relay1.state) << "stops above 21, not now";
 }
 
+// The latch let the relay go and min_on still holds it closed: a Save inside the band keeps
+// the latch idle rather than reading the closed relay as heating, so it opens when min_on ends.
+TEST_F(ControlLoop, ASaveInsideTheBandKeepsTheLatchNotTheRelay) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.heat.min_on_s = 60.f;
+  ControllerRuntime *rt = this->start(config, 18.f);
+  tick(200000);
+  ASSERT_TRUE(entities().relay1.state);
+  entities().room.publish_state(21.5f);
+  tick(201000);
+  ASSERT_EQ(HubAction::IDLE, rt->action());
+  entities().room.publish_state(20.5f);
+  tick(202000);
+  ASSERT_TRUE(entities().relay1.state) << "min_on holds it until 260 s";
+
+  config.update_interval_s = 2.f;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  tick(203000);
+  EXPECT_EQ(HubAction::IDLE, rt->action());
+  tick(260000);
+  EXPECT_FALSE(entities().relay1.state) << "not heated on up to 21";
+}
+
+// A Save into a mode that does not drive the latched direction drops it, as control() does.
+TEST_F(ControlLoop, ASaveIntoAnotherModeDropsTheLatch) {
+  ClimateConfig config = with_cooling(this->base(ControlKind::BANG_BANG), true);
+  config.mode = HubMode::HEAT;
+  ControllerRuntime *rt = this->start(config, 18.f);
+  tick(200000);
+  entities().room.publish_state(20.5f);
+  tick(201000);
+  ASSERT_EQ(HubAction::HEATING, rt->action());
+
+  config.mode = HubMode::COOL;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  EXPECT_EQ(HubAction::IDLE, rt->action());
+  tick(202000);
+  EXPECT_FALSE(entities().relay1.state);
+  EXPECT_FALSE(entities().relay2.state);
+}
+
 // The slow PWM keeps its rhythm across a Save; only a new period starts a new one.
 TEST_F(ControlLoop, ASaveKeepsThePwmPhaseUnlessThePeriodChanges) {
   ClimateConfig config = this->base(ControlKind::PID);
