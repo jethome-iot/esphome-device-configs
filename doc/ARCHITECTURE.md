@@ -126,6 +126,11 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   naming them in `external_components` shadows the built-in ones. Every changed hunk is marked
   `JetHome:` and `scripts/vendored-diff.py` prints the whole patch against the pinned ESPHome.
   Dropping the two names from `external_components` builds the upstream components instead.
+- `components/web_server_idf` is a copy of upstream's carrying one backported commit, ESPHome
+  PR #17800, which is not in the pinned release: a stalled `/events` client had its session
+  freed while `esp_http_server` still held the pointer. Every hunk is marked `JetHome:` and
+  `scripts/vendored-diff.py` prints the patch. It exists only until the pin catches up —
+  dropping `web_server_idf` from `external_components` builds the upstream component instead.
 - `components/dallas_scan` creates entities at runtime: codegen reserves their places in the
   entity tables (`CORE.register_platform_component`) and registers the device class and unit
   strings, C++ then calls the four-argument `App.register_sensor` and
