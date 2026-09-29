@@ -55,6 +55,9 @@ web_server:
     - id: group_temperature
       name: "Temperature"
       sorting_weight: 30
+    - id: group_climate
+      name: "Climate"
+      sorting_weight: 35
     - id: group_modbus
       name: "Modbus"
       sorting_weight: 40

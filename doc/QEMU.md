@@ -93,12 +93,13 @@ diagnosing an emulation problem, add `esp32: framework: log_level: DEBUG` to the
 `logger: logs: esp-idf:` cannot bring them back on its own.
 
 The board overlays in `packages/qemu/` replace what hangs off the I2C expanders, pulled in per
-device by `packages/qemu/qemu-<device>.yaml`:
+device by `packages/qemu/qemu-<device>.yaml`, together with a room for the thermostats:
 
 | Overlay | |
 |---|---|
 | `board-d6-r6.yaml` | The six relays and six inputs become `template`, keeping every id, name and automation — a relay then toggles over REST and holds. A `template` input cannot change on its own, so six `internal:` switches publish onto them — unlisted, still drivable by name. With nothing left pointing at the expander it is removed too, which is where most of the log noise went. |
 | `panel-jxd-display.yaml` | The panel becomes a [`virtual_display`](../components/virtual_display/README.md) and the joystick becomes `template` sensors the front panel publishes into. |
+| `climate-plant.yaml` | A room for the thermostats: the `QEMU Room Temperature` sensor warms while `Relay 1` is on and cools towards 15 °C otherwise, since no `Temp N` probe exists here. |
 
 The panel overlay patches the joystick sensors by id, so every button in
 `packages/display/buttons.yaml` needs one.

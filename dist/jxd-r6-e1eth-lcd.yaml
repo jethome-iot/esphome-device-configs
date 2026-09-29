@@ -52,6 +52,14 @@ external_components:
       ref: master
       path: components
     components:
+      - climate_hub
+      - loop_job
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
       - entity_config
       - bindings
   - source:
@@ -132,6 +140,9 @@ web_server:
     - id: group_temperature
       name: Temperature
       sorting_weight: 30
+    - id: group_climate
+      name: Climate
+      sorting_weight: 35
     - id: group_modbus
       name: Modbus
       sorting_weight: 40
@@ -806,6 +817,11 @@ automations:
   id: automations_engine
   storage: user_storage
   time_id: pcf8563_time
+climate_hub:
+  id: climates
+  storage: user_storage
+  web_server:
+    sorting_group_id: group_climate
 select:
   - platform: template
     id: display_off_timer_select
