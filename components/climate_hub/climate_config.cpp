@@ -31,9 +31,15 @@ void deserialize_output(const JsonObject &obj, OutputConfig *out) {
     return;
   if (!obj["relay_id"].isNull())
     out->relay_id = text_of(obj["relay_id"]);
-  out->period_s = clamp_param("period_s", obj["period_s"] | out->period_s);
-  out->min_on_s = clamp_param("min_on_s", obj["min_on_s"] | out->min_on_s);
-  out->min_off_s = clamp_param("min_off_s", obj["min_off_s"] | out->min_off_s);
+  out->period_s = obj["period_s"] | out->period_s;
+  out->min_on_s = obj["min_on_s"] | out->min_on_s;
+  out->min_off_s = obj["min_off_s"] | out->min_off_s;
+}
+
+void clamp_output(OutputConfig *out) {
+  out->period_s = clamp_param("period_s", out->period_s);
+  out->min_on_s = clamp_param("min_on_s", out->min_on_s);
+  out->min_off_s = clamp_param("min_off_s", out->min_off_s);
 }
 
 // The rules come in two runs because deserialize() checks the mode word between them: the
@@ -218,59 +224,48 @@ bool ClimateConfig::deserialize(const JsonObject &root, bool require_id, std::st
     return fail(error, "kind must be 'pid' or 'bang_bang'");
 
   this->sensor_id = text_of(root["sensor_id"]);
-  this->update_interval_s = clamp_param("update_interval_s", root["update_interval_s"] | this->update_interval_s);
+  this->update_interval_s = root["update_interval_s"] | this->update_interval_s;
 
   deserialize_output(root["heat"].as<JsonObject>(), &this->heat);
   deserialize_output(root["cool"].as<JsonObject>(), &this->cool);
 
   JsonObject visual = root["visual"].as<JsonObject>();
   if (!visual.isNull()) {
-    this->visual.min_temperature =
-        clamp_param("visual_min_temperature", visual["min_temperature"] | this->visual.min_temperature);
-    this->visual.max_temperature =
-        clamp_param("visual_max_temperature", visual["max_temperature"] | this->visual.max_temperature);
-    this->visual.step = clamp_param("visual_step", visual["step"] | this->visual.step);
+    this->visual.min_temperature = visual["min_temperature"] | this->visual.min_temperature;
+    this->visual.max_temperature = visual["max_temperature"] | this->visual.max_temperature;
+    this->visual.step = visual["step"] | this->visual.step;
   }
 
   JsonObject safety = root["safety"].as<JsonObject>();
   if (!safety.isNull()) {
-    this->safety.sensor_timeout_s =
-        clamp_param("sensor_timeout_s", safety["sensor_timeout_s"] | this->safety.sensor_timeout_s);
-    this->safety.max_temperature =
-        clamp_param("safety_max_temperature", safety["max_temperature"] | this->safety.max_temperature);
+    this->safety.sensor_timeout_s = safety["sensor_timeout_s"] | this->safety.sensor_timeout_s;
+    this->safety.max_temperature = safety["max_temperature"] | this->safety.max_temperature;
   }
 
   JsonObject pid = root["pid"].as<JsonObject>();
   if (!pid.isNull()) {
-    this->pid.kp = clamp_param("kp", pid["kp"] | this->pid.kp);
-    this->pid.ki = clamp_param("ki", pid["ki"] | this->pid.ki);
-    this->pid.kd = clamp_param("kd", pid["kd"] | this->pid.kd);
-    this->pid.min_integral = clamp_param("min_integral", pid["min_integral"] | this->pid.min_integral);
-    this->pid.max_integral = clamp_param("max_integral", pid["max_integral"] | this->pid.max_integral);
-    this->pid.starting_integral_term =
-        clamp_param("starting_integral_term", pid["starting_integral_term"] | this->pid.starting_integral_term);
-    this->pid.output_samples = clamp_param("output_samples", pid["output_samples"] | this->pid.output_samples);
-    this->pid.derivative_samples =
-        clamp_param("derivative_samples", pid["derivative_samples"] | this->pid.derivative_samples);
-    this->pid.deadband_threshold_low =
-        clamp_param("deadband_threshold_low", pid["deadband_threshold_low"] | this->pid.deadband_threshold_low);
-    this->pid.deadband_threshold_high =
-        clamp_param("deadband_threshold_high", pid["deadband_threshold_high"] | this->pid.deadband_threshold_high);
-    this->pid.deadband_kp_multiplier =
-        clamp_param("deadband_kp_multiplier", pid["deadband_kp_multiplier"] | this->pid.deadband_kp_multiplier);
-    this->pid.deadband_ki_multiplier =
-        clamp_param("deadband_ki_multiplier", pid["deadband_ki_multiplier"] | this->pid.deadband_ki_multiplier);
-    this->pid.deadband_kd_multiplier =
-        clamp_param("deadband_kd_multiplier", pid["deadband_kd_multiplier"] | this->pid.deadband_kd_multiplier);
-    this->pid.deadband_output_samples =
-        clamp_param("deadband_output_samples", pid["deadband_output_samples"] | this->pid.deadband_output_samples);
+    this->pid.kp = pid["kp"] | this->pid.kp;
+    this->pid.ki = pid["ki"] | this->pid.ki;
+    this->pid.kd = pid["kd"] | this->pid.kd;
+    this->pid.min_integral = pid["min_integral"] | this->pid.min_integral;
+    this->pid.max_integral = pid["max_integral"] | this->pid.max_integral;
+    this->pid.starting_integral_term = pid["starting_integral_term"] | this->pid.starting_integral_term;
+    this->pid.output_samples = pid["output_samples"] | this->pid.output_samples;
+    this->pid.derivative_samples = pid["derivative_samples"] | this->pid.derivative_samples;
+    this->pid.deadband_threshold_low = pid["deadband_threshold_low"] | this->pid.deadband_threshold_low;
+    this->pid.deadband_threshold_high = pid["deadband_threshold_high"] | this->pid.deadband_threshold_high;
+    this->pid.deadband_kp_multiplier = pid["deadband_kp_multiplier"] | this->pid.deadband_kp_multiplier;
+    this->pid.deadband_ki_multiplier = pid["deadband_ki_multiplier"] | this->pid.deadband_ki_multiplier;
+    this->pid.deadband_kd_multiplier = pid["deadband_kd_multiplier"] | this->pid.deadband_kd_multiplier;
+    this->pid.deadband_output_samples = pid["deadband_output_samples"] | this->pid.deadband_output_samples;
   }
 
   JsonObject bb = root["bang_bang"].as<JsonObject>();
   if (!bb.isNull()) {
-    this->bang_bang.below = clamp_param("hysteresis_below", bb["below"] | this->bang_bang.below);
-    this->bang_bang.above = clamp_param("hysteresis_above", bb["above"] | this->bang_bang.above);
+    this->bang_bang.below = bb["below"] | this->bang_bang.below;
+    this->bang_bang.above = bb["above"] | this->bang_bang.above;
   }
+  this->clamp_numbers();
 
   if (!check_wiring(*this, error))
     return false;
@@ -285,6 +280,34 @@ bool ClimateConfig::deserialize(const JsonObject &root, bool require_id, std::st
 
 bool ClimateConfig::validate(std::string *error) const {
   return check_wiring(*this, error) && check_mode(*this, error) && validate_name(this->name, error);
+}
+
+void ClimateConfig::clamp_numbers() {
+  this->update_interval_s = clamp_param("update_interval_s", this->update_interval_s);
+  clamp_output(&this->heat);
+  clamp_output(&this->cool);
+  this->visual.min_temperature = clamp_param("visual_min_temperature", this->visual.min_temperature);
+  this->visual.max_temperature = clamp_param("visual_max_temperature", this->visual.max_temperature);
+  this->visual.step = clamp_param("visual_step", this->visual.step);
+  this->safety.sensor_timeout_s = clamp_param("sensor_timeout_s", this->safety.sensor_timeout_s);
+  this->safety.max_temperature = clamp_param("safety_max_temperature", this->safety.max_temperature);
+  PidParams &p = this->pid;
+  p.kp = clamp_param("kp", p.kp);
+  p.ki = clamp_param("ki", p.ki);
+  p.kd = clamp_param("kd", p.kd);
+  p.min_integral = clamp_param("min_integral", p.min_integral);
+  p.max_integral = clamp_param("max_integral", p.max_integral);
+  p.starting_integral_term = clamp_param("starting_integral_term", p.starting_integral_term);
+  p.output_samples = clamp_param("output_samples", p.output_samples);
+  p.derivative_samples = clamp_param("derivative_samples", p.derivative_samples);
+  p.deadband_threshold_low = clamp_param("deadband_threshold_low", p.deadband_threshold_low);
+  p.deadband_threshold_high = clamp_param("deadband_threshold_high", p.deadband_threshold_high);
+  p.deadband_kp_multiplier = clamp_param("deadband_kp_multiplier", p.deadband_kp_multiplier);
+  p.deadband_ki_multiplier = clamp_param("deadband_ki_multiplier", p.deadband_ki_multiplier);
+  p.deadband_kd_multiplier = clamp_param("deadband_kd_multiplier", p.deadband_kd_multiplier);
+  p.deadband_output_samples = clamp_param("deadband_output_samples", p.deadband_output_samples);
+  this->bang_bang.below = clamp_param("hysteresis_below", this->bang_bang.below);
+  this->bang_bang.above = clamp_param("hysteresis_above", this->bang_bang.above);
 }
 
 void ClimateConfig::clamp_setpoint() {

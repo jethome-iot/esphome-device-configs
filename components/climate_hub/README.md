@@ -84,7 +84,8 @@ component: it would list the entities no thermostat is using.
 | `bang_bang`          | The switching points sit `below` and `above` the target                   |
 
 Every number is clamped into its range, and a missing one takes its default: the ranges and the
-defaults are the table in `param_table.cpp`. A document that breaks a rule above is refused
+defaults are the table in `param_table.cpp`. A document built in C++ and handed to `create()` or
+`update()` is clamped the same way. A document that breaks a rule above is refused
 whole with a sentence that says which. A thermostat that is to run is created, saved or enabled
 only when its sensor and relays are on the device; a disabled one may name what is not there
 yet.

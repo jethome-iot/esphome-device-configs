@@ -94,6 +94,10 @@ struct ClimateConfig {
   /// The rules deserialize() applies, in its order, for a document built in C++.
   bool validate(std::string *error) const;
 
+  /// Clamps every tunable number into its range in the param table, NaN to its default, as
+  /// deserialize() does.
+  void clamp_numbers();
+
   /// Holds the setpoint inside the visual range.
   void clamp_setpoint();
 

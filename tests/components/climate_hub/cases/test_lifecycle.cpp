@@ -398,6 +398,32 @@ TEST_F(HubTest, ASaveThatCannotReachItsFolderChangesNothing) {
   EXPECT_EQ(before, read_file(this->file_of("boiler")));
 }
 
+// A document built in C++ gets the ranges the file format has: the control loop converts
+// these to milliseconds and sample counts, where 1e7 s or NaN would be undefined.
+TEST_F(HubTest, NumbersFromCppAreClampedLikeTheFileFormat) {
+  ClimateConfig config = draft("Boiler");
+  config.safety.sensor_timeout_s = 1e7f;
+  config.update_interval_s = NAN;
+  config.heat.min_on_s = -5.f;
+  config.heat.period_s = INFINITY;
+  config.pid.output_samples = 2.6f;
+  this->create(config);
+  const ClimateConfig *stored = hub().store().get("boiler");
+  EXPECT_FLOAT_EQ(86400.f, stored->safety.sensor_timeout_s);
+  EXPECT_FLOAT_EQ(30.f, stored->update_interval_s) << "NaN takes the default";
+  EXPECT_FLOAT_EQ(0.f, stored->heat.min_on_s);
+  EXPECT_FLOAT_EQ(3600.f, stored->heat.period_s);
+  EXPECT_FLOAT_EQ(3.f, stored->pid.output_samples);
+
+  config.safety.sensor_timeout_s = NAN;
+  config.pid.kp = -1.f;
+  ASSERT_TRUE(hub().update("boiler", config).ok);
+  EXPECT_FLOAT_EQ(300.f, stored->safety.sensor_timeout_s);
+  EXPECT_FLOAT_EQ(0.f, stored->pid.kp);
+  EXPECT_NE(std::string::npos, read_file(this->file_of("boiler")).find("\"sensor_timeout_s\":300"));
+  hub().loop();
+}
+
 TEST_F(HubTest, AFailedCreateLeavesNothingBehind) {
   storage().path = "/proc/definitely-not-writable";
   Result result = hub().create(draft("Boiler"));

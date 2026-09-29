@@ -334,6 +334,7 @@ Result ClimateHub::create(ClimateConfig draft) {
     return result;
   std::string error;
   draft.name = trim_name(draft.name);
+  draft.clamp_numbers();
   if (!draft.validate(&error))
     return failure(400, error);
   draft.clamp_setpoint();
@@ -377,6 +378,7 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
     return failure(404, NOT_FOUND);
   std::string error;
   doc.name = trim_name(doc.name);
+  doc.clamp_numbers();
   if (!doc.validate(&error))
     return failure(400, error);
   doc.clamp_setpoint();
