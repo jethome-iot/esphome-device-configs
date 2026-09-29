@@ -126,7 +126,8 @@ paths:
         document that breaks a rule (the structure first, the name rules last);
         `404` for an unknown `id`, or `507` for a create past
         `max_controllers`; `409` for a name another thermostat or a YAML
-        climate answers to; and, for an enabled thermostat, `400` when its
+        climate answers to, or on a create for a name whose every id is taken
+        by a file in the folder; and, for an enabled thermostat, `400` when its
         sensor or a relay is not on the device, then `409` when a running
         thermostat holds its relay. While the thermostat storage is not
         usable, a body is `500` before it is read.
@@ -484,8 +485,9 @@ components:
             error: Method not allowed
     Conflict:
       description: >-
-        The name is one another thermostat or a YAML climate answers to, or a
-        running thermostat holds the relay.
+        The name is one another thermostat or a YAML climate answers to, every
+        id it gives is taken by a file in the folder, or a running thermostat
+        holds the relay.
       content:
         application/json:
           schema:
@@ -503,6 +505,12 @@ components:
               value:
                 success: false
                 error: '"Relay 1" is already driven by "Living Room"'
+            ids:
+              value:
+                success: false
+                error: >-
+                  Every id made from "Boiler" is taken by a file in the
+                  thermostat folder; choose another name
     NotWritten:
       description: >-
         Nothing changed: the thermostat's file could not be written, or the

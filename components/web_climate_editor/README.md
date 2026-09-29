@@ -79,7 +79,8 @@ refusals come in this order, and the first one a document meets is the answer:
    structure first, the name rules last (`Name is required`, `Name cannot contain '/'`, …);
 2. `404` for an `id` no thermostat has, or `507` when a create would pass `max_controllers`;
 3. `409` for a name another thermostat or a YAML climate answers to, compared without case and
-   extra spaces or by the entity id both would get (`Room 1` and `Room_1`);
+   extra spaces or by the entity id both would get (`Room 1` and `Room_1`), and on a create for
+   a name whose every id is taken by a file in the folder;
 4. for an enabled thermostat, `400` when its sensor or a relay is not on the device, then `409`
    when a running thermostat holds its relay: `"Relay 1" is already driven by "Living Room"`.
 
