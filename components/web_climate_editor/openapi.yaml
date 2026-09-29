@@ -511,7 +511,7 @@ components:
   schemas:
     Id:
       type: string
-      description: A slug made from the name at creation, and the file's name; a rename never changes it.
+      description: A slug made from the name at creation, never `new` (`New` gets `new-2`), and the file's name; a rename never changes it.
       pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
       maxLength: 48
       example: living-room
