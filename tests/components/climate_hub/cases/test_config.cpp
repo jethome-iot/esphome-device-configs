@@ -73,6 +73,18 @@ TEST(ClimateConfigJson, IdIsRequiredOnLoadAndOptionalOnCreate) {
   EXPECT_EQ("id is required", error);
 }
 
+// 7.json saying "id": 7 is not a thermostat with the id "7": as<std::string>() would read one.
+TEST(ClimateConfigJson, ALoadedIdMustBeAString) {
+  ClimateConfig parsed;
+  std::string error;
+  for (const char *bad : {"7", "true", R"(["a"])", R"({"a":1})"}) {
+    std::string json = std::string(R"({"id":)") + bad +
+                       R"(,"name":"B","kind":"pid","sensor_id":"s","heat":{"relay_id":"r"},"mode":"heat"})";
+    EXPECT_FALSE(from_json(json, &parsed, &error, true)) << bad;
+    EXPECT_EQ("id is required", error) << bad;
+  }
+}
+
 // A hand-written direction may leave the relay out: the direction is unused, its timing kept.
 TEST(ClimateConfigJson, ADirectionWithoutARelayIsUnused) {
   ClimateConfig parsed;

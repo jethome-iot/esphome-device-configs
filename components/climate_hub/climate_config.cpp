@@ -226,9 +226,9 @@ bool ClimateConfig::deserialize(const JsonObject &root, bool require_id, std::st
   this->version = root["version"] | this->version;
 
   if (require_id) {
-    if (root["id"].isNull() || root["id"].as<std::string>().empty())
+    this->id = text_of(root["id"]);
+    if (this->id.empty())
       return fail(error, "id is required");
-    this->id = root["id"].as<std::string>();
     // The id becomes a path component: a hand-edited file could otherwise send the next save
     // anywhere on the filesystem.
     if (slugify_id(this->id) != this->id)
