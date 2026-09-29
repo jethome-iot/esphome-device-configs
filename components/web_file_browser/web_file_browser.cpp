@@ -22,12 +22,8 @@ namespace web_file_browser {
 
 static const char *const TAG = "web_file_browser";
 
-// The deepest level delete/copy may recurse into, counting the directory named in the
-// request as 0. Both run on the esp_http_server task stack, 4352 bytes today, where
-// hardware completed a five-level copy with 520 bytes left and panicked on a sixth.
-// Four levels holds one of those back for the interrupt frame the panic arrived in.
-// #64 raises that stack; this number is stale once it does. mkdir has no such limit,
-// so delete measures the tree first: an error, not a partial delete.
+// How deep delete/copy may recurse, counting the directory named in the request as 0.
+// Deeper overruns the esp_http_server task stack instead of failing the request.
 static const unsigned MAX_RECURSION_DEPTH = 3;
 
 void WebFileBrowser::setup() {
