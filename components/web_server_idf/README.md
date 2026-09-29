@@ -34,6 +34,7 @@ to be read before anything is removed.
 
 ## Checking the behaviour on a device
 
-`scripts/diag/events_stall.py` stalls and drops `/events` clients and reports whether each one gave its
-session slot back. It is written to be run against both a broken and a fixed firmware and to say which
-it is looking at.
+`events-stall.py` in
+[jethome-devices-utils](https://github.com/jethome-iot/jethome-devices-utils) stalls `/events` clients
+and reports whether the device closes each stalled session itself. It is written to be run against
+both an unfixed and a fixed firmware and to say which it is looking at.
