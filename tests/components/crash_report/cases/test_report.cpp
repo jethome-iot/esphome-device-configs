@@ -1,9 +1,21 @@
 #include "common.h"
 #include <sys/resource.h>
+#include <cerrno>
 #include <csignal>
 #include <cstdio>
 #include <regex>
 #include "esphome/core/application.h"
+
+// Linked with -Wl,--wrap=rename (test.yaml): the rename whose source ends in the armed name fails.
+static const char *fail_rename_from = nullptr;
+extern "C" int __real_rename(const char *from, const char *to);   // NOLINT(bugprone-reserved-identifier)
+extern "C" int __wrap_rename(const char *from, const char *to) {  // NOLINT(bugprone-reserved-identifier)
+  if (fail_rename_from != nullptr && std::string(from).ends_with(fail_rename_from)) {
+    errno = EIO;
+    return -1;
+  }
+  return __real_rename(from, to);
+}
 
 namespace esphome::crash_report::testing {
 
@@ -66,6 +78,7 @@ class Report : public ::testing::Test {
   }
 
   void TearDown() override {
+    fail_rename_from = nullptr;
     chmod(this->backend.path.c_str(), 0755);
     chmod(this->dir().c_str(), 0755);
     std::filesystem::remove_all(this->backend.path);
@@ -285,6 +298,35 @@ TEST_F(Report, AnObstructedRotationMovesNothingAndKeepsTheRecord) {
       << "crash.tmp stayed";
   for (int i = 0; i < 3; i++)
     EXPECT_EQ(read_file(file(i)), "older " + std::to_string(i) + "\n") << "crash" << i;
+  EXPECT_EQ(report().clears, 0);
+}
+
+// crash2 -> crash3 goes through, then crash1 -> crash2 fails: the shift stops there, so every
+// report is still on disk under some name and none was written over.
+TEST_F(Report, AMoveThatFailsStopsTheRotationAndKeepsTheRecord) {
+  crash("0x400D2A1B");
+  ASSERT_EQ(mkdir(dir().c_str(), 0755), 0);
+  for (int i = 0; i < 3; i++)
+    write_file(file(i), "older " + std::to_string(i) + "\n");
+  fail_rename_from = "/crash1.txt";
+  report().setup();
+  EXPECT_TRUE(log().has(ESPHOME_LOG_LEVEL_ERROR, "Cannot move"));
+  EXPECT_EQ(files(), (std::vector<std::string>{"crash0.txt", "crash1.txt", "crash3.txt"}));
+  EXPECT_EQ(read_file(file(0)), "older 0\n");
+  EXPECT_EQ(read_file(file(1)), "older 1\n");
+  EXPECT_EQ(read_file(file(3)), "older 2\n");
+  EXPECT_EQ(report().clears, 0);
+}
+
+TEST_F(Report, AReportThatCannotTakeItsNameLeavesNoTemporaryAndKeepsTheRecord) {
+  crash("0x400D2A1B");
+  ASSERT_EQ(mkdir(dir().c_str(), 0755), 0);
+  write_file(file(0), "older 0\n");
+  fail_rename_from = "/crash.tmp";
+  report().setup();
+  EXPECT_TRUE(log().has(ESPHOME_LOG_LEVEL_ERROR, "Cannot rename"));
+  EXPECT_EQ(files(), (std::vector<std::string>{"crash1.txt"}));
+  EXPECT_EQ(read_file(file(1)), "older 0\n");
   EXPECT_EQ(report().clears, 0);
 }
 

@@ -20,6 +20,8 @@ esphome:
       - -fsanitize=undefined
       - -fno-sanitize-recover=all
       - -fno-omit-frame-pointer
+      # A rename the cases can make fail: only a flash error does that on the device.
+      - -Wl,--wrap=rename
 
 host:
 
