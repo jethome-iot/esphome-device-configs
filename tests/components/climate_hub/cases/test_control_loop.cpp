@@ -689,6 +689,45 @@ TEST_F(ControlLoop, ASaveOntoAnotherRelayHonoursThatRelaysLastSwitching) {
   EXPECT_TRUE(entities().relay2.state);
 }
 
+// A Save while the room sits inside the band carries on heating, as the relay was.
+TEST_F(ControlLoop, ASaveInsideTheBandKeepsHeating) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  ControllerRuntime *rt = this->start(config, 18.f);
+  tick(200000);
+  entities().room.publish_state(20.5f);
+  tick(201000);
+  ASSERT_TRUE(entities().relay1.state);
+
+  config.update_interval_s = 2.f;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  tick(202000);
+  EXPECT_EQ(HubAction::HEATING, rt->action());
+  EXPECT_TRUE(entities().relay1.state) << "stops above 21, not now";
+}
+
+// The slow PWM keeps its rhythm across a Save; only a new period starts a new one.
+TEST_F(ControlLoop, ASaveKeepsThePwmPhaseUnlessThePeriodChanges) {
+  ClimateConfig config = this->base(ControlKind::PID);
+  config.setpoint = 25.f;
+  config.pid.kp = 0.1f;
+  config.pid.ki = 0.f;
+  this->start(config, 20.f);
+  tick(200000);
+  ASSERT_TRUE(entities().relay1.state) << "half of a ten second period, from 200 s";
+
+  config.update_interval_s = 2.f;
+  hub().ms = 203000;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  tick(206000);
+  EXPECT_FALSE(entities().relay1.state) << "6 s into the period that began at 200 s";
+
+  config.heat.period_s = 20.f;
+  hub().ms = 207000;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  tick(208000);
+  EXPECT_TRUE(entities().relay1.state) << "a new period begins at the next pass";
+}
+
 // A probe that last spoke a minute ago, beyond its timeout: its value is shown, not acted on.
 TEST_F(ControlLoop, AProbeSilentSinceBeforeTheStartIsStale) {
   ClimateConfig config = this->base(ControlKind::BANG_BANG);

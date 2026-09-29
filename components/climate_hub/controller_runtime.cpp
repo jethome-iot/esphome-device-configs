@@ -65,6 +65,8 @@ float clamp01(float v) { return std::isnan(v) ? 0.f : (v < 0.f ? 0.f : (v > 1.f 
 
 void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, RelayClaim *heat, RelayClaim *cool,
                               const Reading &last) {
+  // A Save: the PWM keeps its rhythm unless apply_config_() gives it a new period.
+  const bool restart = this->config_ != nullptr;
   this->config_ = config;
   this->sensor_ = sensor;
   this->heat_claim_ = heat;
@@ -75,11 +77,18 @@ void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, Rel
   this->controlled_ = false;
   this->control_due_ = true;
   this->pid_.reset();
-  this->hysteresis_.reset();
-  this->heat_duty_.reset();
-  this->cool_duty_.reset();
+  if (!restart) {
+    this->heat_duty_.reset();
+    this->cool_duty_.reset();
+  }
   this->apply_config_();
   this->entity_->action = climate::CLIMATE_ACTION_OFF;
+
+  // Inside the band the latch decides: reset, it would open a relay that is heating now.
+  const HubMode mode = config->mode;
+  const bool heating = heat != nullptr && heat->state() && (mode == HubMode::HEAT || mode == HubMode::HEAT_COOL);
+  const bool cooling = cool != nullptr && cool->state() && (mode == HubMode::COOL || mode == HubMode::HEAT_COOL);
+  this->hysteresis_.seed(heating ? HubAction::HEATING : (cooling ? HubAction::COOLING : HubAction::OFF));
 
   this->has_sample_ = last.seen;
   this->last_sample_ms_ = last.ms;

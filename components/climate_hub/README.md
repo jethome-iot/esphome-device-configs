@@ -104,6 +104,8 @@ yet.
   on that sensor; otherwise it waits for the next reading.
 - `min_on_s` and `min_off_s` hold a relay closed or open that long after it moved, whichever
   thermostat moved it; a safety cut-out does not wait for them.
+- A Save keeps what the relays are doing: inside the band the relay stays as it was, and the
+  PWM keeps its rhythm unless `period_s` changes.
 - The entity reports the room temperature to a tenth of a degree, the target in steps of
   `visual.step`, the mode and what it is doing (heating, cooling, idle, off). Home Assistant
   and the web server can set the mode and the target; a target outside the range is clamped

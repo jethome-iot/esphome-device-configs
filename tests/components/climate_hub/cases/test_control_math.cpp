@@ -187,6 +187,16 @@ TEST(HysteresisCore, NaNReportsOffNotIdle) {
   EXPECT_EQ(HubAction::OFF, hyst.update(HubMode::HEAT_COOL, NAN));
 }
 
+// Seeded, the latch holds the seeded action until a switching point is crossed.
+TEST(HysteresisCore, ASeededLatchHoldsInsideTheBand) {
+  HysteresisCore hyst;
+  hyst.set_setpoints(20.f, 21.f);
+  hyst.set_directions(true, false);
+  hyst.seed(HubAction::HEATING);
+  EXPECT_EQ(HubAction::HEATING, hyst.update(HubMode::HEAT, 20.5f));
+  EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::HEAT, 21.5f));
+}
+
 TEST(HysteresisCore, ModeOffAlwaysReportsOff) {
   HysteresisCore hyst;
   hyst.set_setpoints(20.f, 21.f);

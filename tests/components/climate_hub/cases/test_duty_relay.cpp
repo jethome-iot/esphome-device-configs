@@ -83,6 +83,21 @@ TEST(DutyCycler, ResyncsOnPhaseAfterAVeryLongGap) {
   EXPECT_FALSE(duty.update(0xF0000000u + 700));
 }
 
+// A Save that keeps the period keeps the rhythm; a new period starts afresh.
+TEST(DutyCycler, OnlyANewPeriodRestartsThePhase) {
+  DutyCycler duty;
+  duty.set_period(1000);
+  duty.set_duty(0.5f);
+  EXPECT_TRUE(duty.update(0));
+  duty.set_period(1000);
+  EXPECT_FALSE(duty.update(600)) << "still the period that began at 0";
+  duty.set_period(2000);
+  EXPECT_TRUE(duty.update(700)) << "a new period begins here";
+  EXPECT_FALSE(duty.update(1700));
+  duty.set_period(0);
+  EXPECT_TRUE(duty.update(1800)) << "a zero period is one millisecond";
+}
+
 TEST(RelayClaim, FirstRequestAppliesImmediately) {
   FakeSwitch relay;
   RelayClaim claim(&relay, "boiler");

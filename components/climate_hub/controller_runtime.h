@@ -38,11 +38,11 @@ class ControllerRuntime {
   RelayClaim *heat_claim() const { return this->heat_claim_; }
   RelayClaim *cool_claim() const { return this->cool_claim_; }
 
-  /// Runs `config` from a clean control state and puts its mode, target and traits on the
-  /// entity. `last` is the latest reading the hub saw arrive from `sensor`: without one the
-  /// entity shows the sensor's state, which may be hours old, and control waits for a reading.
-  /// Also how a Save applies to a running thermostat: the claims it keeps carry their relay
-  /// state and dwell over.
+  /// Runs `config` and puts its mode, target and traits on the entity. `last` is the latest
+  /// reading the hub saw arrive from `sensor`: without one the entity shows the sensor's state,
+  /// which may be hours old, and control waits for a reading. Also how a Save applies: the
+  /// claims it keeps carry their relay state and dwell over, the PWM keeps its phase while its
+  /// period stands, and a closed relay keeps the hysteresis latched on it.
   void start(ClimateConfig *config, sensor::Sensor *sensor, RelayClaim *heat, RelayClaim *cool,
              const Reading &last = Reading{});
   /// Opens both relays through the claims and lets go of them and the document. The entity

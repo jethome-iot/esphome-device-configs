@@ -3,6 +3,15 @@
 
 namespace esphome::climate_hub {
 
+void DutyCycler::set_period(uint32_t period_ms) {
+  if (period_ms < 1)
+    period_ms = 1;
+  if (period_ms == this->period_ms_)
+    return;
+  this->period_ms_ = period_ms;
+  this->started_ = false;
+}
+
 void DutyCycler::set_duty(float duty) {
   if (std::isnan(duty)) {
     this->duty_ = 0.f;

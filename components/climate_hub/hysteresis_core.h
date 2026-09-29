@@ -15,6 +15,8 @@ class HysteresisCore {
   HubAction update(HubMode mode, float temperature);
 
   void reset() { this->action_ = HubAction::OFF; }
+  /// What holds between the switching points until one is crossed.
+  void seed(HubAction action) { this->action_ = action; }
 
  protected:
   float low_{0.f};

@@ -16,7 +16,8 @@ C++ API are in [components/climate_hub/README.md](../components/climate_hub/READ
   above its cut-out temperature, it opens its relays until that clears. A thermostat that
   starts on a sensor that has fallen silent shows its last value but does not act on it.
 - **Relay wear**: a minimum on and off time, 10 s each unless set otherwise, counted from the
-  relay's last move, whichever thermostat made it.
+  relay's last move, whichever thermostat made it. Saving a thermostat does not restart its
+  cycle.
 - **A relay belongs to the running thermostat.** Switched from anywhere else — the panel,
   Modbus, an automation, Home Assistant — it is put back within a moment. Two thermostats may
   name one relay and take turns, a summer and a winter profile on one boiler; only one of them

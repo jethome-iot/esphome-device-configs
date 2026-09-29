@@ -8,7 +8,8 @@ namespace esphome::climate_hub {
 /// output::FloatOutput a PID wants and a relay board does not have.
 class DutyCycler {
  public:
-  void set_period(uint32_t period_ms) { this->period_ms_ = period_ms < 1 ? 1 : period_ms; }
+  /// A new period starts a new phase; the same one keeps the rhythm it has.
+  void set_period(uint32_t period_ms);
   void set_duty(float duty);
   float duty() const { return this->duty_; }
 
