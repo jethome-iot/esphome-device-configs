@@ -1,0 +1,52 @@
+#pragma once
+
+#include <cstdint>
+#include <string>
+
+namespace esphome::climate_hub {
+
+/// Control law. Persisted as a string, so the names are a wire format.
+enum class ControlKind : uint8_t {
+  PID = 0,
+  BANG_BANG,
+};
+
+/// Requested operating mode: climate::ClimateMode minus what a relay pair cannot do.
+enum class HubMode : uint8_t {
+  OFF = 0,
+  HEAT,
+  COOL,
+  HEAT_COOL,
+};
+
+/// What the controller is doing right now.
+enum class HubAction : uint8_t {
+  OFF = 0,
+  IDLE,
+  HEATING,
+  COOLING,
+};
+
+/// Why a controller is not controlling. Reported over HTTP, never persisted.
+enum class HubFault : uint8_t {
+  NONE = 0,
+  SENSOR_MISSING,
+  SENSOR_STALE,
+  RELAY_MISSING,
+  OVERTEMP,
+};
+
+namespace enums {
+
+const char *control_kind_to_string(ControlKind v);
+bool control_kind_from_string(const std::string &s, ControlKind *out);
+
+const char *mode_to_string(HubMode v);
+bool mode_from_string(const std::string &s, HubMode *out);
+
+const char *action_to_string(HubAction v);
+const char *fault_to_string(HubFault v);
+
+}  // namespace enums
+
+}  // namespace esphome::climate_hub

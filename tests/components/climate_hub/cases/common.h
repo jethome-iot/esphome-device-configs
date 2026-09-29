@@ -1,0 +1,297 @@
+#pragma once
+#include <gtest/gtest.h>
+#include <ArduinoJson.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <algorithm>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <dirent.h>
+#include <string>
+#include <thread>
+#include <vector>
+#include "esphome/components/climate/climate.h"
+#include "esphome/components/climate_hub/climate_config.h"
+#include "esphome/components/climate_hub/climate_hub.h"
+#include "esphome/components/sensor/sensor.h"
+#include "esphome/components/switch/switch.h"
+#include "esphome/core/application.h"
+#include "esphome/core/hal.h"
+#include "esphome/core/helpers.h"
+
+namespace esphome::climate_hub::testing {
+
+// Remembers every write; the state follows it like an optimistic template switch.
+class FakeSwitch : public switch_::Switch {
+ public:
+  int writes{0};
+
+ protected:
+  void write_state(bool state) override {
+    this->writes++;
+    this->publish_state(state);
+  }
+};
+
+// A climate the YAML declared: the hub may not hand its name to a thermostat.
+class YamlClimate : public climate::Climate {
+ protected:
+  climate::ClimateTraits traits() override {
+    climate::ClimateTraits traits;
+    traits.add_supported_mode(climate::CLIMATE_MODE_HEAT);
+    return traits;
+  }
+  void control(const climate::ClimateCall &) override {}
+};
+
+// A mounted directory, the way littlefs_storage presents the partition.
+class FakeStorage : public filesystem_storage_abstract::FilesystemStorageAbstract {
+ public:
+  std::string path;
+  bool mounted{true};
+  bool is_mounted() const override { return this->mounted; }
+  const std::string &get_base_path() const override { return this->path; }
+  const char *get_filesystem_type() const override { return "Directory"; }
+  bool request_format() override { return false; }
+};
+
+// The hub with its seams taken: the clock is `ms`, loop jobs and reconnects are counted, and a
+// file can be made undeletable.
+class TestHub : public ClimateHub {
+ public:
+  uint32_t ms{100000};
+  int loop_jobs{0};
+  int resyncs{0};
+  std::vector<std::string> undeletable;
+
+  uint32_t now_ms() const override { return this->ms; }
+  bool run_on_loop(std::function<bool()> &&job) override {
+    this->loop_jobs++;
+    return ClimateHub::run_on_loop(std::move(job));
+  }
+
+  // Back to a hub that has not loaded anything, its pool as setup() left it: every slot free,
+  // hidden, in order. App keeps the entities, so they are reused rather than registered again.
+  void reset() {
+    for (Slot *slot : this->slots_)
+      this->stop_(slot);
+    this->free_.assign(this->slots_.begin(), this->slots_.end());
+    this->claims_.clear();
+    this->store_.clear();
+    this->dirty_.clear();
+    this->cancel_timeout("ha_resync");
+    this->ms = 100000;
+    this->resyncs = 0;
+    this->loop_jobs = 0;
+    this->undeletable.clear();
+    this->ha_resync_delay_ms_ = 20;
+  }
+
+  HubClimate *slot_entity(size_t index) { return &this->slots_[index]->entity; }
+  size_t slot_count() const { return this->slots_.size(); }
+  size_t free_count() const { return this->free_.size(); }
+  size_t sensor_subscriptions() const { return this->sensor_subs_.size(); }
+  HubClimate *entity_of(const std::string &id) {
+    Slot *slot = this->slot_for_(id);
+    return slot == nullptr ? nullptr : &slot->entity;
+  }
+  ControllerRuntime *runtime_of(const std::string &id) {
+    Slot *slot = this->slot_for_(id);
+    return slot == nullptr ? nullptr : &slot->runtime;
+  }
+  const RelayClaim *claim(const std::string &relay) const {
+    auto it = this->claims_.find(relay);
+    return it == this->claims_.end() ? nullptr : it->second.get();
+  }
+  bool dirty(const std::string &id) const { return this->dirty_.count(id) != 0; }
+
+ protected:
+  void resync_home_assistant_() override { this->resyncs++; }
+  bool remove_file_(const std::string &path) override {
+    for (const std::string &name : this->undeletable) {
+      if (path.size() >= name.size() && path.compare(path.size() - name.size(), name.size(), name) == 0)
+        return false;
+    }
+    return ClimateHub::remove_file_(path);
+  }
+};
+
+// The entities the documents under test may name. Registered once: App keeps the pointers for
+// the life of the process, and the hub finds them by object id.
+struct Entities {
+  sensor::Sensor room;
+  sensor::Sensor floor;
+  FakeSwitch relay1;
+  FakeSwitch relay2;
+  FakeSwitch relay3;
+  YamlClimate hall;
+};
+
+inline Entities &entities() {
+  static Entities *instance = [] {
+    auto *e = new Entities();
+    App.register_sensor(&e->room, "Room", fnv1_hash("room"), 0);
+    App.register_sensor(&e->floor, "Floor", fnv1_hash("floor"), 0);
+    App.register_switch(&e->relay1, "Relay 1", fnv1_hash("relay_1"), 0);
+    App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
+    App.register_switch(&e->relay3, "Relay 3", fnv1_hash("relay_3"), 0);
+    App.register_climate(&e->hall, "Hall", fnv1_hash("hall"), 0);
+    return e;
+  }();
+  return *instance;
+}
+
+inline FakeStorage &storage() {
+  static FakeStorage *instance = new FakeStorage();
+  return *instance;
+}
+
+// One hub for the whole process: its pool registers with App in the first setup(), and App has
+// room for exactly one pool.
+inline TestHub &hub() {
+  static TestHub *instance = [] {
+    auto *h = new TestHub();
+    h->set_storage(&storage());
+    h->set_folder_path("climates");
+    h->set_max_controllers(4);
+    h->set_icon_index(1);
+    return h;
+  }();
+  return *instance;
+}
+
+inline void reset_entities() {
+  Entities &e = entities();
+  for (sensor::Sensor *s : {&e.room, &e.floor}) {
+    s->state = NAN;
+    s->set_has_state(false);
+  }
+  for (FakeSwitch *sw : {&e.relay1, &e.relay2, &e.relay3}) {
+    sw->publish_state(false);
+    sw->writes = 0;
+  }
+}
+
+inline std::string read_file(const std::string &path) {
+  FILE *file = fopen(path.c_str(), "r");
+  if (file == nullptr)
+    return "";
+  std::string data;
+  char chunk[256];
+  size_t got;
+  while ((got = fread(chunk, 1, sizeof(chunk), file)) > 0)
+    data.append(chunk, got);
+  fclose(file);
+  return data;
+}
+
+inline void write_file(const std::string &path, const std::string &data) {
+  FILE *file = fopen(path.c_str(), "w");
+  ASSERT_NE(nullptr, file) << path;
+  fwrite(data.data(), 1, data.size(), file);
+  fclose(file);
+}
+
+inline bool file_exists(const std::string &path) {
+  struct stat st;
+  return stat(path.c_str(), &st) == 0;
+}
+
+inline std::vector<std::string> list_dir(const std::string &path) {
+  std::vector<std::string> names;
+  DIR *dir = opendir(path.c_str());
+  if (dir == nullptr)
+    return names;
+  while (struct dirent *entry = readdir(dir)) {
+    std::string name = entry->d_name;
+    if (name != "." && name != "..")
+      names.push_back(name);
+  }
+  closedir(dir);
+  std::sort(names.begin(), names.end());
+  return names;
+}
+
+inline std::string object_id(const EntityBase &entity) {
+  char buf[OBJECT_ID_MAX_LEN];
+  return std::string(entity.get_object_id_to(buf));
+}
+
+inline std::string to_json(const ClimateConfig &config) {
+  JsonDocument doc;
+  config.serialize(doc.to<JsonObject>());
+  std::string out;
+  serializeJson(doc, out);
+  return out;
+}
+
+inline bool from_json(const std::string &json, ClimateConfig *out, std::string *error, bool require_id = true) {
+  JsonDocument doc;
+  if (deserializeJson(doc, json))
+    return false;
+  return out->deserialize(doc.as<JsonObject>(), require_id, error);
+}
+
+inline ClimateConfig draft(const std::string &name, const std::string &relay = "relay_1") {
+  ClimateConfig c;
+  c.name = name;
+  c.kind = ControlKind::PID;
+  c.sensor_id = "room";
+  c.heat.relay_id = relay;
+  c.mode = HubMode::HEAT;
+  return c;
+}
+
+// Every test gets the process-wide hub freshly reset over an empty folder of its own.
+class HubTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    entities();
+    reset_entities();
+    mkdir(".storage", 0755);
+    char folder[] = ".storage/climate-XXXXXX";
+    ASSERT_NE(nullptr, mkdtemp(folder));
+    this->base_ = folder;
+    storage().path = this->base_;
+    storage().mounted = true;
+    hub().reset();
+    hub().setup();
+  }
+
+  void TearDown() override {
+    hub().reset();
+    storage().path = this->base_;
+    for (const std::string &name : list_dir(this->folder()))
+      ::remove((this->folder() + "/" + name).c_str());
+    rmdir(this->folder().c_str());
+    rmdir(this->base_.c_str());
+  }
+
+  // What the next boot sees: the documents on flash, loaded by a hub that knows nothing.
+  void reboot() {
+    hub().on_shutdown();
+    hub().reset();
+    reset_entities();
+    hub().setup();
+  }
+
+  // Lets the wall clock pass the reconnect delay and runs what the scheduler has due.
+  static void pass_resync_delay() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(60));
+    App.scheduler.call(millis());
+  }
+
+  std::string folder() const { return this->base_ + "/climates"; }
+  std::string file_of(const std::string &id) const { return this->folder() + "/" + id + ".json"; }
+
+  Result create(const ClimateConfig &config) {
+    Result result = hub().create(config);
+    EXPECT_TRUE(result.ok) << result.error;
+    return result;
+  }
+
+  std::string base_;
+};
+
+}  // namespace esphome::climate_hub::testing
