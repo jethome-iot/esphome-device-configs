@@ -692,6 +692,36 @@ TEST_F(ControlLoop, AFaultClearsWhenItsCauseDoes) {
   EXPECT_TRUE(entities().relay1.state);
 }
 
+// The cut-out zeroed the duties; with an hour's interval, waiting for the next pass would leave
+// the thermostat off, without a fault, for the rest of the hour.
+TEST_F(ControlLoop, AClearedFaultIsActedOnAtTheNextTick) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.update_interval_s = 3600.f;
+  config.safety.max_temperature = 30.f;
+  config.safety.sensor_timeout_s = 10.f;
+  hub().ms = 200000;
+  ControllerRuntime *rt = this->start(config, 18.f);
+  tick(200000);
+  ASSERT_TRUE(rt->heat_relay_on());
+
+  entities().room.publish_state(35.f);
+  tick(201000);
+  ASSERT_EQ(HubFault::OVERTEMP, rt->fault());
+  entities().room.publish_state(18.f);
+  tick(202000);
+  EXPECT_EQ(HubFault::NONE, rt->fault());
+  EXPECT_EQ(HubAction::HEATING, rt->action()) << "after an over-temperature cut-out";
+  EXPECT_TRUE(entities().relay1.state);
+
+  tick(213000);
+  ASSERT_EQ(HubFault::SENSOR_STALE, rt->fault());
+  entities().room.publish_state(18.f);
+  tick(214000);
+  EXPECT_EQ(HubFault::NONE, rt->fault());
+  EXPECT_EQ(HubAction::HEATING, rt->action()) << "after a stale sensor";
+  EXPECT_TRUE(entities().relay1.state);
+}
+
 // The editor's status card shows how old the last reading is.
 TEST_F(ControlLoop, TheSampleAgeIsReported) {
   this->id_ = this->create(this->base(ControlKind::BANG_BANG)).id;

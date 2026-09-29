@@ -279,6 +279,8 @@ void ControllerRuntime::refresh_fault_(uint32_t now_ms) {
     ESP_LOGW(TAG, "'%s': %s", c.id.c_str(), enums::fault_to_string(fault));
   } else {
     ESP_LOGI(TAG, "'%s': fault cleared", c.id.c_str());
+    // The fault zeroed the duties: waiting out update_interval_s would leave it off for up to an hour.
+    this->control_due_ = true;
   }
   this->fault_ = fault;
 }
