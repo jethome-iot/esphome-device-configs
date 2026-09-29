@@ -131,3 +131,18 @@ scripts/device-files.py shell
 ```
 
 Also `info`, `tree`, `cat`, `write`, `rm`, `mkdir -p`, `mv`, `cp` and `edit`; a directory needs `-r`.
+
+## scripts/diag/copy_depth.py
+
+Checks the recursion limit on a device by walking `copy` down one level at a time and watching
+`/api/device/status` for a restart. Written to be run against a firmware with the old limit and one
+with the new, and to say which it is looking at: on the old one the device panics, on the new one the
+request is refused and the device stays up. It creates and removes directories under the mount, so
+run it against a test board rather than a unit in service.
+
+```sh
+scripts/diag/copy_depth.py --base http://192.168.1.50 --auth admin:admin --expect fixed
+```
+
+QEMU completes far deeper trees than hardware because it never takes the cross-core flash tail, so a
+run in the emulator says nothing about the stack. Hardware is the only gate.
