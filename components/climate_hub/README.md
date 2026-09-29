@@ -101,9 +101,10 @@ yet.
   Mode `off` opens them too.
 - `min_on_s` and `min_off_s` hold a relay closed or open that long after it moved; a safety
   cut-out does not wait for them.
-- The entity reports the room temperature, the target, the mode and what it is doing (heating,
-  cooling, idle, off). Home Assistant and the web server can set the mode and the target; a
-  target outside the range is clamped to it.
+- The entity reports the room temperature to a tenth of a degree, the target in steps of
+  `visual.step`, the mode and what it is doing (heating, cooling, idle, off). Home Assistant
+  and the web server can set the mode and the target; a target outside the range is clamped
+  to it.
 
 ## Relays
 

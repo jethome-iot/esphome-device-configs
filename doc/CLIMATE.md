@@ -41,6 +41,8 @@ back.
   new target or mode never does this.
 - Names are unique on the device: two thermostats cannot share one, nor two names that give the
   same entity id (`Room 1` and `Room_1`), nor a thermostat and a climate from the YAML.
+- The room temperature is shown to a tenth of a degree; the target moves in the thermostat's
+  own step.
 
 ## Testing without hardware
 

@@ -57,7 +57,9 @@ climate::ClimateTraits HubClimate::traits() {
     traits.add_supported_mode(climate::CLIMATE_MODE_HEAT_COOL);
   traits.set_visual_min_temperature(this->min_temperature_);
   traits.set_visual_max_temperature(this->max_temperature_);
-  traits.set_visual_temperature_step(this->step_);
+  traits.set_visual_target_temperature_step(this->step_);
+  // The room to a tenth, whatever step the target moves in.
+  traits.set_visual_current_temperature_step(0.1f);
   return traits;
 }
 

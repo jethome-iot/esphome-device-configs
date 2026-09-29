@@ -557,4 +557,15 @@ TEST_F(ControlLoop, AProbeThatLastSaidNothingIsNoReading) {
   EXPECT_EQ(HubFault::SENSOR_STALE, rt->fault());
 }
 
+// Traits carry two steps: the target's, the thermostat's own, and the room's, which Home
+// Assistant would otherwise round to half a degree.
+TEST_F(ControlLoop, TheRoomTemperatureIsShownToATenthWhateverTheTargetStep) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.visual.step = 1.f;
+  this->start(config, 18.f);
+  auto traits = hub().entity_of(this->id_)->get_traits();
+  EXPECT_FLOAT_EQ(1.f, traits.get_visual_target_temperature_step());
+  EXPECT_FLOAT_EQ(0.1f, traits.get_visual_current_temperature_step());
+}
+
 }  // namespace esphome::climate_hub::testing
