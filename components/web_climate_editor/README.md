@@ -70,9 +70,10 @@ seconds. Nothing was read or written then, and the call can simply be made again
 `application/json`. A form body (`application/x-www-form-urlencoded`, or no `Content-Type` at
 all) is parsed into fields by the server instead: up to 1024 bytes it is answered
 `Empty request body`, and a longer one gets the server's own bare `400` before it reaches this
-API. A JSON body over 8 KiB is `413`. A missing number takes its default and every number is
-clamped into its range, so a partial document is accepted. The refusals come in this order, and
-the first one a document meets is the answer:
+API. A JSON body over 8 KiB is `413`. A missing key, in a nested object too, takes its default
+and every number is clamped into its range, so a partial document is accepted: `name`,
+`sensor_id` and `heat.relay_id` (or `cool.relay_id` with a `mode` that uses it) are enough. The
+refusals come in this order, and the first one a document meets is the answer:
 
 1. `400`: the body is empty or not JSON, or the document breaks a rule of the file format — the
    structure first, the name rules last (`Name is required`, `Name cannot contain '/'`, …);

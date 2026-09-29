@@ -111,10 +111,11 @@ paths:
       description: >-
         `id` absent or `""` creates a thermostat, whose id the device makes from
         the name; an existing `id` replaces that thermostat's document, renamed
-        or not, and the id stays. A missing number takes its default and every
-        number is clamped into the range `/schema` gives, so a partial document
-        is accepted. The body is read raw, so the request needs a `Content-Type`
-        that is not a form: `application/json`. A form body
+        or not, and the id stays. A missing key, in a nested object too, takes
+        its default and every number is clamped into the range `/schema`
+        gives, so a partial document is accepted. The body is read raw, so
+        the request needs a `Content-Type` that is not a form:
+        `application/json`. A form body
         (`application/x-www-form-urlencoded`, or no `Content-Type` at all) is
         parsed into fields by the server instead: up to 1024 bytes it is
         answered `Empty request body`, and a longer one gets the server's own
@@ -565,10 +566,9 @@ components:
       type: string
       enum: [none, sensor_missing, sensor_stale, relay_missing, overtemp]
 
-    OutputConfig:
+    PartialOutputConfig:
       type: object
       description: One driven direction. An empty `relay_id` means the direction is unused.
-      required: [relay_id, period_s, min_on_s, min_off_s]
       properties:
         relay_id:
           type: string
@@ -579,6 +579,104 @@ components:
           type: number
         min_off_s:
           type: number
+
+    OutputConfig:
+      allOf:
+        - $ref: "#/components/schemas/PartialOutputConfig"
+      required: [relay_id, period_s, min_on_s, min_off_s]
+
+    PartialVisualConfig:
+      type: object
+      properties:
+        min_temperature:
+          type: number
+        max_temperature:
+          type: number
+        step:
+          type: number
+
+    VisualConfig:
+      allOf:
+        - $ref: "#/components/schemas/PartialVisualConfig"
+      required: [min_temperature, max_temperature, step]
+
+    PartialSafetyConfig:
+      type: object
+      properties:
+        sensor_timeout_s:
+          type: number
+        max_temperature:
+          type: number
+
+    SafetyConfig:
+      allOf:
+        - $ref: "#/components/schemas/PartialSafetyConfig"
+      required: [sensor_timeout_s, max_temperature]
+
+    PartialPidConfig:
+      type: object
+      properties:
+        kp:
+          type: number
+        ki:
+          type: number
+        kd:
+          type: number
+        min_integral:
+          type: number
+        max_integral:
+          type: number
+        starting_integral_term:
+          type: number
+        output_samples:
+          type: number
+        derivative_samples:
+          type: number
+        deadband_threshold_low:
+          type: number
+        deadband_threshold_high:
+          type: number
+        deadband_kp_multiplier:
+          type: number
+        deadband_ki_multiplier:
+          type: number
+        deadband_kd_multiplier:
+          type: number
+        deadband_output_samples:
+          type: number
+
+    PidConfig:
+      allOf:
+        - $ref: "#/components/schemas/PartialPidConfig"
+      required:
+        - kp
+        - ki
+        - kd
+        - min_integral
+        - max_integral
+        - starting_integral_term
+        - output_samples
+        - derivative_samples
+        - deadband_threshold_low
+        - deadband_threshold_high
+        - deadband_kp_multiplier
+        - deadband_ki_multiplier
+        - deadband_kd_multiplier
+        - deadband_output_samples
+
+    PartialBangBangConfig:
+      type: object
+      description: The band around the target, as deviations below and above it.
+      properties:
+        below:
+          type: number
+        above:
+          type: number
+
+    BangBangConfig:
+      allOf:
+        - $ref: "#/components/schemas/PartialBangBangConfig"
+      required: [below, above]
 
     ControllerDocument:
       type: object
@@ -623,78 +721,13 @@ components:
         cool:
           $ref: "#/components/schemas/OutputConfig"
         visual:
-          type: object
-          required: [min_temperature, max_temperature, step]
-          properties:
-            min_temperature:
-              type: number
-            max_temperature:
-              type: number
-            step:
-              type: number
+          $ref: "#/components/schemas/VisualConfig"
         safety:
-          type: object
-          required: [sensor_timeout_s, max_temperature]
-          properties:
-            sensor_timeout_s:
-              type: number
-            max_temperature:
-              type: number
+          $ref: "#/components/schemas/SafetyConfig"
         pid:
-          type: object
-          required:
-            - kp
-            - ki
-            - kd
-            - min_integral
-            - max_integral
-            - starting_integral_term
-            - output_samples
-            - derivative_samples
-            - deadband_threshold_low
-            - deadband_threshold_high
-            - deadband_kp_multiplier
-            - deadband_ki_multiplier
-            - deadband_kd_multiplier
-            - deadband_output_samples
-          properties:
-            kp:
-              type: number
-            ki:
-              type: number
-            kd:
-              type: number
-            min_integral:
-              type: number
-            max_integral:
-              type: number
-            starting_integral_term:
-              type: number
-            output_samples:
-              type: number
-            derivative_samples:
-              type: number
-            deadband_threshold_low:
-              type: number
-            deadband_threshold_high:
-              type: number
-            deadband_kp_multiplier:
-              type: number
-            deadband_ki_multiplier:
-              type: number
-            deadband_kd_multiplier:
-              type: number
-            deadband_output_samples:
-              type: number
+          $ref: "#/components/schemas/PidConfig"
         bang_bang:
-          type: object
-          description: The band around the target, as deviations below and above it.
-          required: [below, above]
-          properties:
-            below:
-              type: number
-            above:
-              type: number
+          $ref: "#/components/schemas/BangBangConfig"
         mode:
           $ref: "#/components/schemas/Mode"
         setpoint:
@@ -749,15 +782,21 @@ components:
     ControllerSaveInput:
       type: object
       description: >-
-        What `/save` takes: a document whose keys may be missing, each then
-        taking its default. `name`, `sensor_id` and one relay are needed.
+        What `/save` takes: a document whose keys may be missing, nested ones
+        too, each then taking its default. `name` and `sensor_id` are needed,
+        and `heat.relay_id` or `cool.relay_id` must name a relay, not the same
+        one for both. `mode` defaults to `heat`, which needs `heat.relay_id`.
         `id` absent or `""` creates.
       required: [name, sensor_id]
       properties:
+        version:
+          type: integer
+          enum: [1]
         id:
           type: string
         name:
           type: string
+          minLength: 1
         enabled:
           type: boolean
           default: true
@@ -765,24 +804,45 @@ components:
           $ref: "#/components/schemas/ControlKind"
         sensor_id:
           type: string
+          minLength: 1
         update_interval_s:
           type: number
         heat:
-          type: object
+          $ref: "#/components/schemas/PartialOutputConfig"
         cool:
-          type: object
+          $ref: "#/components/schemas/PartialOutputConfig"
         visual:
-          type: object
+          $ref: "#/components/schemas/PartialVisualConfig"
         safety:
-          type: object
+          $ref: "#/components/schemas/PartialSafetyConfig"
         pid:
-          type: object
+          $ref: "#/components/schemas/PartialPidConfig"
         bang_bang:
-          type: object
+          $ref: "#/components/schemas/PartialBangBangConfig"
         mode:
           $ref: "#/components/schemas/Mode"
         setpoint:
           type: number
+      anyOf:
+        - required: [heat]
+          properties:
+            heat:
+              required: [relay_id]
+              properties:
+                relay_id:
+                  minLength: 1
+        - required: [cool]
+          properties:
+            cool:
+              required: [relay_id]
+              properties:
+                relay_id:
+                  minLength: 1
+      example:
+        name: Living Room
+        sensor_id: temp_1
+        heat:
+          relay_id: relay_1
 
     ControllerSummary:
       type: object
