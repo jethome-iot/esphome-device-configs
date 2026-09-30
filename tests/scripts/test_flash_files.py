@@ -139,6 +139,15 @@ class PartitionTable(unittest.TestCase):
         )
         self.assertEqual([p.name for p in parsed], [p[0] for p in PARTITIONS])
 
+    def test_a_table_whose_md5_disagrees_is_refused(self):
+        # A flipped bit in littlefs's offset: without the check it would read the wrong range.
+        table = bytearray(partition_table(PARTITIONS))
+        table[3 * ENTRY.size + 4] ^= 0x01
+        with self.assertRaisesRegex(
+            flash_files.FlashError, "the partition table fails its MD5 check"
+        ):
+            flash_files.find_partition(bytes(table), "littlefs")
+
     def test_a_partition_is_found_by_name(self):
         partition = flash_files.find_partition(partition_table(PARTITIONS), "nvs")
         self.assertEqual(partition, flash_files.Partition("nvs", 0x9000, 0x5000))

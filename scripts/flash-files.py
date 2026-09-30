@@ -17,6 +17,7 @@ import argparse
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
+import hashlib
 import os
 from pathlib import Path
 import posixpath
@@ -34,6 +35,7 @@ TABLE_OFFSET = 0x8000
 TABLE_SIZE = 0xC00
 ENTRY = struct.Struct("<2sBBII16sI")
 ENTRY_MAGIC = b"\xaa\x50"
+MD5_MAGIC = b"\xeb\xeb"
 # esp_littlefs uses the flash erase size as its block size.
 BLOCK_SIZE = 4096
 LITTLEFS_MAGIC = b"littlefs"
@@ -61,8 +63,13 @@ def parse_partition_table(table: bytes) -> list[Partition]:
     partitions = []
     for pos in range(0, len(table) - ENTRY.size + 1, ENTRY.size):
         magic, _, _, offset, size, label, _ = ENTRY.unpack_from(table, pos)
+        if magic == MD5_MAGIC:
+            # The bootloader refuses a table whose digest disagrees; so do we.
+            if table[pos + 16 : pos + 32] != hashlib.md5(table[:pos]).digest():
+                raise FlashError("the partition table fails its MD5 check")
+            break
         if magic != ENTRY_MAGIC:
-            break  # the MD5 entry or the erased tail
+            break  # the erased tail
         name = label.rstrip(b"\0").decode(errors="replace")
         partitions.append(Partition(name, offset, size))
     return partitions
