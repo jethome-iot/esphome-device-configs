@@ -334,6 +334,9 @@ def mtime(fs: LittleFS, path: str) -> int | None:
 
 
 def cmd_dump(args: argparse.Namespace) -> None:
+    # Writing the partition over the image it was cut from would lose the rest of it.
+    if args.image and args.output.exists() and args.output.samefile(args.image):
+        raise FlashError(f"{args.output} is the image being read")
     # Every byte, not just the used blocks: a dump is also the copy of a partition too
     # damaged to walk.
     if args.image:
@@ -363,9 +366,10 @@ def extract_one(
     path: str,
     entry: LFSStat,
     dest: Path,
-    written: set[tuple[int, int]] | None = None,
+    made: dict[tuple[int, int], str] | None = None,
 ) -> None:
-    """written: the host files this extraction made, by device and inode."""
+    """made: the entry behind each host file and directory this extraction created,
+    by device and inode."""
     try:
         # POSIX keeps any bytes through surrogateescape; Windows would turn them into
         # other bytes on the way back.
@@ -377,18 +381,26 @@ def extract_one(
     splits = WINDOWS and any(c in name for c in "\\:")
     if splits or not target.resolve().is_relative_to(dest):
         raise FlashError("not a plain file name on this host")
+    made = {} if made is None else made
+    # On a host that folds case or normalizes names, /A.txt and /a.txt are one file,
+    # and /A/ and /a/ one directory: the entry, and the nearest of its directories
+    # already on the host, must be ones this entry's own path made.
+    parent, own = target.parent, posixpath.dirname(path)
+    while parent != dest and not parent.exists():
+        parent, own = parent.parent, posixpath.dirname(own)
+    for host, own in ((target, path), (parent, own)):
+        other = made.get(file_id(host)) if host.exists() else None
+        if other is not None and other != own:
+            raise FlashError(f"on this host that is {host_name(other, 'replace')}")
     if entry.type == LFSStat.TYPE_DIR:
         target.mkdir(parents=True, exist_ok=True)
+        made[file_id(target)] = path
         return
     target.parent.mkdir(parents=True, exist_ok=True)
-    written = set() if written is None else written
-    # On a host that folds case or normalizes names, /A.txt and /a.txt are one file.
-    if target.exists() and file_id(target) in written:
-        raise FlashError("on this host that is the file another entry was written to")
     with fs.context.checked(), fs.open(path, "rb") as f:
         data = f.read()
     target.write_bytes(data)
-    written.add(file_id(target))
+    made[file_id(target)] = path
     t = mtime(fs, path)
     if t:
         os.utime(target, (t, t))
@@ -402,14 +414,14 @@ def file_id(path: Path) -> tuple[int, int]:
 def cmd_extract(args: argparse.Namespace) -> None:
     dest = args.dest.resolve()
     files = failed = 0
-    written: set[tuple[int, int]] = set()
+    made: dict[tuple[int, int], str] = {}
     with partition_blocks(args) as blocks:
         fs = mount(blocks)
         # A damaged partition is when this runs, so one unreadable entry must not cost
         # the rest.
         for path, entry in walk(fs):
             try:
-                extract_one(fs, path, entry, dest, written)
+                extract_one(fs, path, entry, dest, made)
             except (FlashError, LittleFSError, OSError, ValueError) as e:
                 print(f"error: {host_name(path, 'replace')}: {e}", file=sys.stderr)
                 failed += 1

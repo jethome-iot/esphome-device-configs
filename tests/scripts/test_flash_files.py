@@ -527,11 +527,30 @@ class FileNames(TempDirTestCase):
             self.skipTest("no symlinks here")
         code, out, err = run_main("--image", image, "extract", dest)
         self.assertEqual((code, out), (1, f"1 files to {dest}\n"))
-        self.assertIn(
-            "error: /b.txt: on this host that is the file another entry was written to",
-            err,
-        )
+        self.assertIn("error: /b.txt: on this host that is /a.txt", err)
         self.assertEqual((dest / "a.txt").read_bytes(), b"/a.txt")
+
+    def test_two_directories_the_host_takes_for_one_are_not_merged(self):
+        # /A/ and /a/ on a case-folding host: neither /a/ nor anything in it may land in A.
+        fs = LittleFS(block_size=BLOCK_SIZE, block_count=LFS_BLOCKS)
+        for name in ("/A", "/a", "/a/deeper"):
+            fs.mkdir(name)
+        for name in ("/A/x.txt", "/a/y.txt", "/a/deeper/z.txt"):
+            with fs.open(name, "wb") as f:
+                f.write(name.encode())
+        image = self.write("pair.bin", bytes(fs.context.buffer))
+        dest = self.tmp / "files"
+        dest.mkdir()
+        try:
+            (dest / "a").symlink_to("A")
+        except (OSError, NotImplementedError):
+            self.skipTest("no symlinks here")
+        code, out, err = run_main("--image", image, "extract", dest)
+        self.assertEqual((code, out), (1, f"1 files to {dest}\n"))
+        for name in ("/a", "/a/deeper", "/a/y.txt"):
+            self.assertIn(f"error: {name}: on this host that is /A\n", err)
+        self.assertIn("error: 4 entries could not be extracted", err)
+        self.assertEqual(sorted(os.listdir(dest / "A")), ["x.txt"])
 
     def test_extract_keeps_the_bytes_of_every_name(self):
         dest = self.tmp / "files"
@@ -551,6 +570,19 @@ class Dump(TempDirTestCase):
         self.assertEqual(code, 0)
         self.assertEqual(output.read_bytes(), LFS)
         self.assertEqual(out, f"{LFS_SIZE} bytes to {output}\n")
+
+    def test_the_image_being_read_is_not_written_over(self):
+        # The partition written over its own whole-flash image would lose the rest.
+        image = self.write("flash.bin", FLASH)
+        alias = self.tmp / "alias.bin"
+        os.link(image, alias)
+        for output in (image, alias):
+            with self.subTest(output=output.name):
+                self.assertFails(
+                    ["--image", image, "dump", output],
+                    f"{output} is the image being read",
+                )
+                self.assertEqual(image.read_bytes(), FLASH)
 
     def test_an_unwritable_output_is_an_error(self):
         image = self.write("flash.bin", FLASH)
