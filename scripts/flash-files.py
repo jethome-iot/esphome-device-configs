@@ -43,6 +43,7 @@ DEFAULT_PARTITION = "littlefs"
 # Names are bytes to LittleFS, and the firmware takes any; latin-1 maps each byte to a
 # character and back, and UTF-8 is applied only on the host side.
 NAME_ENCODING = "latin-1"
+WINDOWS = os.name == "nt"
 
 
 class FlashError(Exception):
@@ -184,10 +185,11 @@ def cmd_ls(image: bytes, args: argparse.Namespace) -> None:
 
 
 def extract_one(fs: LittleFS, path: str, entry: LFSStat, dest: Path) -> None:
-    target = dest / host_name(path, "surrogateescape").lstrip("/")
-    # On Windows a name holding \ or : would land outside dest.
-    if not target.resolve().is_relative_to(dest):
-        raise FlashError("the name points outside the destination")
+    name = host_name(path, "surrogateescape")
+    target = dest / name.lstrip("/")
+    # On Windows, \ or : in a name would land outside dest or in an NTFS stream.
+    if (WINDOWS and ":" in name) or not target.resolve().is_relative_to(dest):
+        raise FlashError("not a plain file name on this host")
     if entry.type == LFSStat.TYPE_DIR:
         target.mkdir(parents=True, exist_ok=True)
         return

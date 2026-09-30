@@ -399,6 +399,23 @@ class FileNames(TempDirTestCase):
         paths = [LS_LINE.match(line).group(3) for line in out.splitlines()]
         self.assertEqual(sorted(paths), ["/caf\ufffd.txt", "/привет.txt"])
 
+    def test_a_name_with_a_colon_is_refused_on_windows(self):
+        # There "report.txt:payload" would be written into an NTFS stream of report.txt.
+        fs = LittleFS(block_size=BLOCK_SIZE, block_count=LFS_BLOCKS)
+        for name in ("/report.txt:payload", "/report.txt"):
+            with fs.open(name, "wb") as f:
+                f.write(name.encode())
+        image = self.write("colon.bin", bytes(fs.context.buffer))
+        dest = self.tmp / "files"
+        with mock.patch.object(flash_files, "WINDOWS", True):
+            code, out, err = run_main("--image", image, "extract", dest)
+        self.assertEqual(code, 1)
+        self.assertEqual(out, f"1 files to {dest}\n")
+        self.assertIn(
+            "error: /report.txt:payload: not a plain file name on this host", err
+        )
+        self.assertEqual(os.listdir(dest), ["report.txt"])
+
     def test_extract_keeps_the_bytes_of_every_name(self):
         dest = self.tmp / "files"
         code, _, err = run_main("--image", self.image, "extract", dest)
