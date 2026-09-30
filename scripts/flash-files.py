@@ -187,8 +187,9 @@ def cmd_ls(image: bytes, args: argparse.Namespace) -> None:
 def extract_one(fs: LittleFS, path: str, entry: LFSStat, dest: Path) -> None:
     name = host_name(path, "surrogateescape")
     target = dest / name.lstrip("/")
-    # On Windows, \ or : in a name would land outside dest or in an NTFS stream.
-    if (WINDOWS and ":" in name) or not target.resolve().is_relative_to(dest):
+    # On Windows, \ and : split a name into folders, a drive or an NTFS stream.
+    splits = WINDOWS and any(c in name for c in "\\:")
+    if splits or not target.resolve().is_relative_to(dest):
         raise FlashError("not a plain file name on this host")
     if entry.type == LFSStat.TYPE_DIR:
         target.mkdir(parents=True, exist_ok=True)
