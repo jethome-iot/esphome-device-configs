@@ -195,5 +195,7 @@ rebuild starts from blank flash**; `--fresh` forces the same on demand, and `run
 keeps state across a code change. The padding matters — `truncate` would pad with zeros and
 leave NVS and LittleFS reading garbage instead of blank flash.
 
-With the emulator stopped, `scripts/flash-files.py --image <that file> ls` lists the LittleFS
-files and `extract <dir>` copies them out.
+QEMU reads the image once at start and writes each change the firmware makes back into it as it
+happens, so `scripts/flash-files.py --image <that file> ls` lists the LittleFS files even while
+the emulator runs, and `extract <dir>` copies them out. Change the file only with the emulator
+stopped: a running one never sees the change, and its next writes land on top of it.
