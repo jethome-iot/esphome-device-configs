@@ -791,11 +791,10 @@ esphome:
               row->item.add_on_leave_callback([row, engine, state_of]() {
                 const int current = state_of(row->rule_id);
                 bool persisted = false;
-                // Only on a flip, to a rule still there and not in that state already: the engine
-                // rewrites the rule's file on every call, and an untouched row would undo a change
-                // made over HTTP while it was open. A rule naming an entity that is gone is never
-                // written, so put the live state back rather than leave the row promising what a
-                // reboot would undo.
+                // Only a flip, to a rule still there and not in that state already: each call
+                // rewrites the file, and an untouched row would undo an HTTP change. A rule the
+                // engine will not write (its entity is gone) springs back, or the row would promise
+                // what a reboot undoes.
                 if (row->pending >= 0 && row->pending != row->opened && current >= 0 && row->pending != current &&
                     engine->set_enable_automation(row->rule_id, row->pending > 0, &persisted) && !persisted)
                   engine->set_enable_automation(row->rule_id, row->pending == 0);

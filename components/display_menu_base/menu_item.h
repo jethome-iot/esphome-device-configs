@@ -78,7 +78,8 @@ class MenuItemMenu final : public MenuItem {
     this->items_.push_back(item);
   }
   /// JetHome (clear_items): detaches every item without deleting it, so a submenu can be refilled
-  /// from its own on_enter. One left empty while on screen strands every key.
+  /// from its own on_enter. One left empty while on screen has every key but up / down read past
+  /// its end.
   void clear_items() {
     for (auto *item : this->items_)
       item->set_parent(nullptr);

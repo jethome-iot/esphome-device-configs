@@ -16,6 +16,7 @@ class Refill : public ::testing::Test {
     this->placeholder_.set_text("Nothing");
     this->submenu_.add_on_enter_callback([this]() {
       this->enters_++;
+      this->events_.push_back("open");
       this->refill_();
     });
     this->submenu_.add_on_leave_callback([this]() { this->leaves_++; });
@@ -31,6 +32,8 @@ class Refill : public ::testing::Test {
 
   void refill_() {
     this->submenu_.clear_items();
+    if (this->with_editable_)
+      this->submenu_.add_item(&this->editable_);
     size_t used = 0;
     for (const auto &name : this->names_) {
       if (used == this->pool_.size())
@@ -39,7 +42,7 @@ class Refill : public ::testing::Test {
       row->set_text(name);
       this->submenu_.add_item(row);
     }
-    if (used == 0)
+    if (this->submenu_.items_size() == 0)
       this->submenu_.add_item(&this->placeholder_);
   }
 
@@ -49,6 +52,9 @@ class Refill : public ::testing::Test {
   MenuItemMenu submenu_;
   MenuItem other_{MENU_ITEM_LABEL};
   MenuItem placeholder_{MENU_ITEM_LABEL};
+  MenuItemCustom editable_;
+  bool with_editable_{false};
+  std::vector<std::string> events_;
   std::vector<std::unique_ptr<MenuItem>> pool_;
   std::vector<std::string> names_{"First"};
   RecordingMenu menu_;
@@ -203,6 +209,26 @@ TEST_F(Refill, PoolRowsAreReusedByPosition) {
   EXPECT_EQ(this->pool_.size(), 3u);
   EXPECT_EQ(this->submenu_.get_item(0), first);
   EXPECT_EQ(this->menu_.rows, (std::vector<std::string>{"Alpha", "Beta", "Gamma"}));
+}
+
+// HOME or the display-off timer in the middle of an edit: the row has had its on_leave before
+// the next open refills the submenu under it.
+TEST_F(Refill, AnEditCutShortByHideEndsBeforeTheNextRefill) {
+  this->editable_.set_text("Edit me");
+  this->editable_.add_on_enter_callback([this]() { this->events_.push_back("edit"); });
+  this->editable_.add_on_leave_callback([this]() { this->events_.push_back("done"); });
+  this->with_editable_ = true;
+
+  this->menu_.enter();
+  this->menu_.enter();  // starts editing the first row
+  this->menu_.hide();
+  this->menu_.show_main();
+  this->menu_.enter();
+
+  EXPECT_EQ(this->events_, (std::vector<std::string>{"open", "edit", "done", "open"}));
+  EXPECT_EQ(this->menu_.rows, (std::vector<std::string>{"Edit me", "First"}));
+  this->menu_.back();  // not editing, so this leaves
+  EXPECT_TRUE(this->menu_.is_at_main());
 }
 
 TEST_F(Refill, EveryEnterHasItsLeave) {

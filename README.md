@@ -263,6 +263,7 @@ untouched; any button then takes the page away, and it leaves on its own after h
 - **Relays** - a submenu per relay: toggle it, and set its inversion, start mode and bound input
 - **Inputs** - a submenu per input: live state and inversion
 - **Temperatures** - temperature sensor readings; a DS18B20 row opens its slot: the ROM address and a forget command
+- **Automations** - a row per automation rule showing On or Off: CENTER, LEFT / RIGHT, then CENTER enables or disables it; the list is the rules as they are when the submenu opens (`No automations` when there are none)
 - **Info** - network information (Ethernet and WiFi IP and MAC addresses, access point password), then the serial number from the CPU board's EEPROM (`--` when it holds none)
 - **Settings** - display auto-off timer, Modbus settings, firmware updates (the running and the offered version, the release channel, a check and an install), temperature slots, network mode, WiFi credential reset, reboot; a factory reset clears the stored preferences (WiFi credentials, settings, the temperature slot table) and formats the user partition, taking the automation rules and uploaded files with it
 

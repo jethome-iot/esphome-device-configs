@@ -33,9 +33,9 @@ boundaries; everything else is local to its file.
   their own: the last two are filled at boot from the `relays` / `inputs` vectors, so the menu
   follows whatever the board package put there. `temperatures_menu` gets a `Temp N` submenu per
   slot up to the last bound one at boot; a freed slot's submenu only says `Free slot`.
-  `automations_menu` lists the rules as they stand each time it is opened, a row per rule or one
-  `No automations` row; while it is on screen, a rule added meanwhile waits for the next open
-  and one removed reads `--`.
+  `automations_menu` takes no rows from YAML: each open replaces its rows with one per rule as
+  the rules stand, or one `No automations` row; while it is on screen, a rule added meanwhile
+  waits for the next open and one removed reads `--`.
 - `automations_engine` (`features/automations.yaml`) is the rule engine; `display/menu.yaml`
   reads `configs()` for the Automations rows and calls `set_enable_automation` from them.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
@@ -127,7 +127,7 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
 
 - `components/display_menu_base` and `components/graphical_display_menu` are copies of
   upstream's, carrying `right_for_menu_enter`, the `display_menu.back` action, `fill_row`,
-  item `weight` and submenus that may be empty;
+  item `weight`, submenus that may be empty and `MenuItemMenu::clear_items()`;
   naming them in `external_components` shadows the built-in ones. Every changed hunk is marked
   `JetHome:` and `scripts/vendored-diff.py` prints the whole patch against the pinned ESPHome.
   Dropping the two names from `external_components` builds the upstream components instead.
