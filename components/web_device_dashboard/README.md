@@ -67,7 +67,7 @@ failure `{"success": false, "error"}`. The same contract, machine-readable:
 | GET | `/api/device/capabilities` | what this firmware has, below |
 | POST | `/api/device/system/reboot` | restart, nothing cleared |
 | POST | `/api/device/system/factory-reset` | clear the stored settings and restart, wiping the storage on the way back up (with a `storage_id`) |
-| POST | `/api/device/system/rollback` | boot the other app slot — the firmware this one replaced |
+| POST | `/api/device/system/rollback` | boot the other app slot — after an update, the firmware it replaced |
 
 ### Capabilities
 

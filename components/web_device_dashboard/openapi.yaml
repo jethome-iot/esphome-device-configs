@@ -344,7 +344,10 @@ paths:
         "415":
           $ref: "#/components/responses/UnsupportedMediaType"
         "500":
-          description: The slot could not be selected; the message is the ESP-IDF error.
+          description: >-
+            The slot could not be selected: the ESP-IDF error when its image does
+            not check out, or `The firmware to roll back to is gone` when it stopped
+            being one to go back to after the check.
           content:
             application/json:
               schema:

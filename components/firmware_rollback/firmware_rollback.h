@@ -43,8 +43,9 @@ RollbackTarget evaluate(const OtherSlot &slot);
 /// Reads otadata and the app descriptor, never the image, so any task may ask.
 RollbackTarget rollback_target();
 
-/// Makes @p target the next boot: nullptr on success, else why not. It hashes the whole image,
-/// so call it on the loop task; the caller reboots.
+/// Makes @p target the next boot: nullptr on success, else why not. Two selects must not
+/// overlap, so every caller uses the loop task, which the image hash stalls for a moment; the
+/// caller reboots.
 const char *select_rollback(const RollbackTarget &target);
 
 }  // namespace esphome::firmware_rollback

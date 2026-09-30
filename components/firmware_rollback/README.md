@@ -33,7 +33,7 @@ if (firmware_rollback::select_rollback(target) == nullptr)
 
 After an update over the air, the other slot holds the firmware the update replaced, and a
 rollback boots it. After a rollback it holds the newer firmware, so a second rollback goes
-forward again; `version` says which one it is.
+forward again.
 
 There is nothing to roll back to:
 
@@ -43,6 +43,9 @@ There is nothing to roll back to:
   itself;
 - while a switch is already waiting for its reboot — an update just written, or a rollback
   just selected.
+
+This, and the monitored boot below, take the bootloader's app rollback, which ESPHome builds in
+whenever `ota:` is configured, unless `esp32: advanced: enable_ota_rollback` is off.
 
 ## Selecting
 

@@ -138,7 +138,8 @@ The wiring is `devices/JXD/packages/features/firmware-update.yaml` with its menu
 rollback row among them, in `devices/JXD/packages/display/menu-firmware.yaml` and its install
 screen in `devices/JXD/packages/display/firmware-page.yaml`, and all three are left out of
 `dist/`: a firmware built from the imported config is the user's own, not one this pipeline
-publishes ([dist/ and new devices](DIST.md)). Its dashboard still offers the rollback.
+publishes ([dist/ and new devices](DIST.md)). A config imported from `dist/` still offers the
+rollback on its dashboard.
 
 ## Secrets
 

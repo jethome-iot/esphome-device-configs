@@ -20,7 +20,8 @@ graphical_display_menu:
         - type: menu
           text: "Firmware"
           weight: 10
-          # Also on the way back up from a child, so a failed install or rollback shows.
+          # Also on the way back up from a child, so the Rollback row follows what an install or
+          # a rollback tried there did to the other slot.
           on_enter:
             - lambda: id(firmware_rollback_target) = firmware_rollback::rollback_target();
           items:
