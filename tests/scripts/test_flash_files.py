@@ -530,6 +530,27 @@ class FileNames(TempDirTestCase):
         self.assertIn("error: /b.txt: on this host that is /a.txt", err)
         self.assertEqual((dest / "a.txt").read_bytes(), b"/a.txt")
 
+    def test_the_image_being_read_is_not_extracted_over(self):
+        # Extracting next to the image: an entry of its name, or a link to it, is refused.
+        fs = LittleFS(block_size=BLOCK_SIZE, block_count=LFS_BLOCKS)
+        for name in ("/flash.bin", "/copy.bin", "/other.txt"):
+            with fs.open(name, "wb") as f:
+                f.write(name.encode())
+        packed = flash_image(bytes(fs.context.buffer))
+        dest = self.tmp / "out"
+        dest.mkdir()
+        image = dest / "flash.bin"
+        image.write_bytes(packed)
+        os.link(image, dest / "copy.bin")
+        code, out, err = run_main("--image", image, "extract", dest)
+        self.assertEqual((code, out), (1, f"1 files to {dest}\n"))
+        for name in ("/copy.bin", "/flash.bin"):
+            self.assertIn(
+                f"error: {name}: on this host that is the image being read", err
+            )
+        self.assertEqual(image.read_bytes(), packed)
+        self.assertEqual((dest / "other.txt").read_bytes(), b"/other.txt")
+
     def test_two_directories_the_host_takes_for_one_are_not_merged(self):
         # /A/ and /a/ on a case-folding host: neither /a/ nor anything in it may land in A.
         fs = LittleFS(block_size=BLOCK_SIZE, block_count=LFS_BLOCKS)

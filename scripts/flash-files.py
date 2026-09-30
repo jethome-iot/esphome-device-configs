@@ -369,7 +369,7 @@ def extract_one(
     made: dict[tuple[int, int], str] | None = None,
 ) -> None:
     """made: the entry behind each host file and directory this extraction created,
-    by device and inode."""
+    by device and inode; "" for the image being read."""
     try:
         # POSIX keeps any bytes through surrogateescape; Windows would turn them into
         # other bytes on the way back.
@@ -391,7 +391,8 @@ def extract_one(
     for host, own in ((target, path), (parent, own)):
         other = made.get(file_id(host)) if host.exists() else None
         if other is not None and other != own:
-            raise FlashError(f"on this host that is {host_name(other, 'replace')}")
+            what = host_name(other, "replace") if other else "the image being read"
+            raise FlashError(f"on this host that is {what}")
     if entry.type == LFSStat.TYPE_DIR:
         target.mkdir(parents=True, exist_ok=True)
         made[file_id(target)] = path
@@ -415,6 +416,9 @@ def cmd_extract(args: argparse.Namespace) -> None:
     dest = args.dest.resolve()
     files = failed = 0
     made: dict[tuple[int, int], str] = {}
+    if args.image:
+        # No entry's path is empty, so this stands for the image itself.
+        made[file_id(args.image)] = ""
     with partition_blocks(args) as blocks:
         fs = mount(blocks)
         # A damaged partition is when this runs, so one unreadable entry must not cost
