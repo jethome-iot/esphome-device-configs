@@ -194,3 +194,6 @@ survive restarts. It is rebuilt from the firmware whenever that firmware is newe
 rebuild starts from blank flash**; `--fresh` forces the same on demand, and `run --no-build`
 keeps state across a code change. The padding matters — `truncate` would pad with zeros and
 leave NVS and LittleFS reading garbage instead of blank flash.
+
+With the emulator stopped, `scripts/flash-files.py --image <that file> ls` lists the LittleFS
+files and `extract <dir>` copies them out.

@@ -5,3 +5,6 @@ pre-commit==4.6.2
 # scripts/firmware-matrix.py turns firmwares.yaml into the CI matrices; the
 # Build and Release workflows install this file to get it.
 pyyaml==6.0.3
+
+# scripts/flash-files.py decodes the LittleFS partition it reads off a board.
+littlefs-python==0.19.0
