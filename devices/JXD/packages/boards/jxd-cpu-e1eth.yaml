@@ -1,6 +1,8 @@
 esp32:
   board: esp32dev
   flash_size: 16MB
+  # ESP-IDF runs PSRAM at 80MHz only with the flash at 80MHz; otherwise it silently drops it to 40MHz.
+  flash_frequency: 80MHz
   watchdog_timeout: 60s
   framework:
     type: esp-idf

@@ -3,6 +3,7 @@
 esp32:
   board: esp32dev
   flash_size: 16MB
+  flash_frequency: 80MHz
   watchdog_timeout: 60s
   framework:
     type: esp-idf
