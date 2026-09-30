@@ -197,9 +197,12 @@ jobs:
             requirements.txt
             requirements-dev.txt
 
-      - name: Install ESPHome
-        # requirements-dev.txt carries littlefs-python, which tests/scripts needs.
-        run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Install ESPHome and the dev tooling
+        # requirements-dev.txt carries littlefs-python, which tests/scripts needs. Two
+        # installs, as scripts/setup.sh does: a pin drifting from ESPHome's warns, not fails.
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
       # Compile cache, in a dir of its own: esphome's default sits under
       # ~/.cache/esphome, which the build job saves whole. Written from dev only.

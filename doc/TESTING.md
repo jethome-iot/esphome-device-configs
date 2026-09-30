@@ -16,7 +16,8 @@ python tests/run.py scripts                            # the scripts/ tools alon
 
 ```
 tests/
-  run.py                    # finds the suites under tests/components/, builds and runs each
+  run.py                    # finds the suites under tests/components/, builds and runs each,
+                            # then runs tests/scripts/
   harness/
     main.cpp                # upstream's tests/components/main.cpp: runs the tests instead of setup()
     environment.cpp         # constructs App, which that setup would have done

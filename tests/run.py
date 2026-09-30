@@ -23,7 +23,7 @@ def has_tests(component: Path) -> bool:
 
 
 def run_python_tests(component: Path) -> bool:
-    """Schema and validator tests next to the cases, if the suite has any."""
+    """A component's schema and validator tests next to its cases, or the scripts' tests."""
     if not any(component.glob("test_*.py")):
         return True
     proc = subprocess.run(

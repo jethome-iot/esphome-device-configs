@@ -66,7 +66,8 @@ devices/JXD/
 assets/
   fonts/  res/
 components/                 # external components
-tests/                      # Google Test suites, one per component under tests/components/
+tests/                      # Google Test suites, one per component under tests/components/,
+                            # and the scripts' tests under tests/scripts/
 ```
 
 Each device config sets `assets: ../../assets`, `components: ../../components`,
@@ -95,7 +96,7 @@ Shared code and tooling stay at the repository root:
 | `dist/`    | Generated self-contained configs the ESPHome Builder imports |
 | `doc/`     | Guides, plus the README's UI mockups in `doc/images/` |
 | `.github/` | The workflows of [doc/RELEASE.md](doc/RELEASE.md), and the issue and pull request templates of [doc/DEVELOPMENT.md](doc/DEVELOPMENT.md) |
-| `tests/`   | `tests/components/<name>/` is that component's Google Test suite, built for the ESPHome `host` platform and run by `python tests/run.py`; `tests/harness/` is what every suite shares |
+| `tests/`   | `tests/components/<name>/` is that component's Google Test suite, built for the ESPHome `host` platform and run by `python tests/run.py`; `tests/harness/` is what every suite shares; `tests/scripts/` tests the tools under `scripts/` |
 
 The BDF display fonts in `assets/fonts/` come from [IT-Studio-Rech/bdf-fonts](https://github.com/IT-Studio-Rech/bdf-fonts).
 

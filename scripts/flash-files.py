@@ -39,6 +39,10 @@ BLOCK_SIZE = 4096
 LITTLEFS_MAGIC = b"littlefs"
 # esp_littlefs keeps a file's mtime in this attribute, as a little-endian time_t.
 MTIME_ATTR = "t"
+DEFAULT_PARTITION = "littlefs"
+# Names are bytes to LittleFS, and the firmware takes any; latin-1 maps each byte to a
+# character and back, and UTF-8 is applied only on the host side.
+NAME_ENCODING = "latin-1"
 
 
 class FlashError(Exception):
@@ -58,7 +62,8 @@ def parse_partition_table(table: bytes) -> list[Partition]:
         magic, _, _, offset, size, label, _ = ENTRY.unpack_from(table, pos)
         if magic != ENTRY_MAGIC:
             break  # the MD5 entry or the erased tail
-        partitions.append(Partition(label.rstrip(b"\0").decode(), offset, size))
+        name = label.rstrip(b"\0").decode(errors="replace")
+        partitions.append(Partition(name, offset, size))
     return partitions
 
 
@@ -80,10 +85,15 @@ def is_littlefs(image: bytes) -> bool:
     )
 
 
-def partition_from_image(path: Path, name: str) -> bytes:
+def partition_from_image(path: Path, name: str | None) -> bytes:
     data = path.read_bytes()
     if is_littlefs(data):
+        if name is not None:
+            raise FlashError(
+                f"{path} is a partition dump: it has no table to pick {name!r} from"
+            )
         return data
+    name = name or DEFAULT_PARTITION
     table = data[TABLE_OFFSET : TABLE_OFFSET + TABLE_SIZE]
     try:
         partition = find_partition(table, name)
@@ -95,21 +105,23 @@ def partition_from_image(path: Path, name: str) -> bytes:
     return data[partition.offset : end]
 
 
-def esptool_read(port: str, baud: int, offset: int, size: int, after: str) -> bytes:
+def esptool_read(port: str, baud: int, offset: int, size: int) -> bytes:
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "flash.bin"
         cmd = [sys.executable, "-m", "esptool", "--port", port, "--baud", str(baud)]
-        cmd += ["--after", after, "read-flash", hex(offset), hex(size), str(out)]
-        if subprocess.run(cmd).returncode != 0:
+        # Back to the firmware after every read, so nothing that fails leaves the board
+        # sitting in its bootloader.
+        cmd += ["--after", "hard-reset", "read-flash", hex(offset), hex(size), str(out)]
+        # Keep esptool's progress off stdout, which carries the listing.
+        if subprocess.run(cmd, stdout=sys.stderr).returncode != 0:
             raise FlashError(f"esptool could not read {size:#x} bytes at {offset:#x}")
         return out.read_bytes()
 
 
-def partition_from_board(port: str, baud: int, name: str) -> bytes:
-    # Stay in the bootloader between the two reads rather than boot the firmware twice.
-    table = esptool_read(port, baud, TABLE_OFFSET, TABLE_SIZE, "no-reset")
-    partition = find_partition(table, name)
-    return esptool_read(port, baud, partition.offset, partition.size, "hard-reset")
+def partition_from_board(port: str, baud: int, name: str | None) -> bytes:
+    table = esptool_read(port, baud, TABLE_OFFSET, TABLE_SIZE)
+    partition = find_partition(table, name or DEFAULT_PARTITION)
+    return esptool_read(port, baud, partition.offset, partition.size)
 
 
 def mount(image: bytes) -> LittleFS:
@@ -117,13 +129,23 @@ def mount(image: bytes) -> LittleFS:
         context=UserContext(buffer=bytearray(image)),
         block_size=BLOCK_SIZE,
         block_count=0,  # from the superblock
+        filename_encoding=NAME_ENCODING,
         mount=False,
     )
     try:
         fs.mount()
     except LittleFSError as e:
+        if is_littlefs(image):
+            raise FlashError(f"the LittleFS is damaged or cut short: {e}") from None
         raise FlashError(f"no LittleFS on the partition: {e}") from None
+    size = fs.block_count * BLOCK_SIZE
+    if size > len(image):
+        raise FlashError(f"truncated: {len(image)} bytes of a {size}-byte filesystem")
     return fs
+
+
+def host_name(path: str, errors: str) -> str:
+    return path.encode(NAME_ENCODING).decode("utf-8", errors)
 
 
 def walk(fs: LittleFS, top: str = "/") -> Iterator[tuple[str, LFSStat]]:
@@ -157,25 +179,43 @@ def cmd_ls(image: bytes, args: argparse.Namespace) -> None:
         t = mtime(fs, path)
         when = datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M:%S") if t else ""
         size = "" if is_dir else entry.size
-        print(f"{size:>9}  {when:19}  {path}{'/' if is_dir else ''}")
+        name = host_name(path, "replace") + ("/" if is_dir else "")
+        print(f"{size:>9}  {when:19}  {name}")
+
+
+def extract_one(fs: LittleFS, path: str, entry: LFSStat, dest: Path) -> None:
+    target = dest / host_name(path, "surrogateescape").lstrip("/")
+    # On Windows a name holding \ or : would land outside dest.
+    if not target.resolve().is_relative_to(dest):
+        raise FlashError("the name points outside the destination")
+    if entry.type == LFSStat.TYPE_DIR:
+        target.mkdir(parents=True, exist_ok=True)
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with fs.open(path, "rb") as f:
+        target.write_bytes(f.read())
+    t = mtime(fs, path)
+    if t:
+        os.utime(target, (t, t))
 
 
 def cmd_extract(image: bytes, args: argparse.Namespace) -> None:
     fs = mount(image)
-    files = 0
+    dest = args.dest.resolve()
+    files = failed = 0
+    # A damaged partition is when this runs, so one unreadable entry must not cost the rest.
     for path, entry in walk(fs):
-        target = args.dest / path.lstrip("/")
-        if entry.type == LFSStat.TYPE_DIR:
-            target.mkdir(parents=True, exist_ok=True)
+        try:
+            extract_one(fs, path, entry, dest)
+        except (FlashError, LittleFSError, OSError, ValueError) as e:
+            print(f"error: {host_name(path, 'replace')}: {e}", file=sys.stderr)
+            failed += 1
             continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with fs.open(path, "rb") as f:
-            target.write_bytes(f.read())
-        t = mtime(fs, path)
-        if t:
-            os.utime(target, (t, t))
-        files += 1
+        if entry.type != LFSStat.TYPE_DIR:
+            files += 1
     print(f"{files} files to {args.dest}")
+    if failed:
+        raise FlashError(f"{failed} entries could not be extracted")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -185,9 +225,12 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument(
         "--image", type=Path, help="a dump saved by `dump`, or a whole-flash image"
     )
-    parser.add_argument("--baud", type=int, default=921600)
     parser.add_argument(
-        "--partition", default="littlefs", help="partition label (default littlefs)"
+        "--baud", type=int, default=921600, help="esptool's baud rate (default 921600)"
+    )
+    parser.add_argument(
+        "--partition",
+        help=f"partition label in a whole-flash image or on a board (default {DEFAULT_PARTITION})",
     )
     sub = parser.add_subparsers(dest="command", metavar="command", required=True)
 

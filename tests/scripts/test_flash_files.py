@@ -164,16 +164,46 @@ class PartitionTable(unittest.TestCase):
 class ImageSource(TempDirTestCase):
     def test_a_raw_dump_is_returned_as_is(self):
         path = self.write("littlefs.bin", LFS)
-        self.assertEqual(flash_files.partition_from_image(path, "littlefs"), LFS)
+        self.assertEqual(flash_files.partition_from_image(path, None), LFS)
 
     def test_a_raw_dump_is_recognised_by_either_superblock(self):
         # Power lost mid-erase can leave block 0 blank; block 1 of the pair still has it.
         dump = b"\xff" * BLOCK_SIZE + LFS[BLOCK_SIZE:]
         path = self.write("littlefs.bin", dump)
-        self.assertEqual(flash_files.partition_from_image(path, "littlefs"), dump)
+        self.assertEqual(flash_files.partition_from_image(path, None), dump)
+
+    def test_partition_is_refused_for_a_raw_dump(self):
+        # It has no table, so a label cannot be honoured; silently dumping LittleFS would lie.
+        path = self.write("littlefs.bin", LFS)
+        self.assertFails(
+            ["--image", path, "--partition", "nvs", "dump", self.tmp / "nvs.bin"],
+            f"{path} is a partition dump: it has no table to pick 'nvs' from",
+        )
+        self.assertFalse((self.tmp / "nvs.bin").exists())
+
+    def test_a_truncated_dump_is_refused(self):
+        # All of its metadata sits in the superblock pair, so it still mounts.
+        fs = LittleFS(block_size=BLOCK_SIZE, block_count=LFS_BLOCKS)
+        with fs.open("/a.txt", "wb") as f:
+            f.write(b"a")
+        path = self.write("littlefs.bin", bytes(fs.context.buffer)[: 2 * BLOCK_SIZE])
+        for command in (["ls"], ["extract", self.tmp / "files"]):
+            with self.subTest(command=command[0]):
+                self.assertFails(
+                    ["--image", path, *command],
+                    f"truncated: {2 * BLOCK_SIZE} bytes of a {LFS_SIZE}-byte filesystem",
+                )
+
+    def test_a_filesystem_that_does_not_mount_is_called_damaged(self):
+        # The superblock is there, the directories it points at are not.
+        path = self.write("littlefs.bin", LFS[: 3 * BLOCK_SIZE])
+        self.assertFails(
+            ["--image", path, "ls"], "the LittleFS is damaged or cut short"
+        )
 
     def test_a_whole_flash_image_yields_exactly_the_partition(self):
         path = self.write("flash.bin", FLASH)
+        self.assertEqual(flash_files.partition_from_image(path, None), LFS)
         self.assertEqual(flash_files.partition_from_image(path, "littlefs"), LFS)
 
     def test_partition_picks_another_label(self):
@@ -288,7 +318,9 @@ class Extract(TempDirTestCase):
         self.assertEqual(list((self.dest / "empty").iterdir()), [])
 
     def test_nothing_else_is_written(self):
-        written = {"/" + str(p.relative_to(self.dest)) for p in self.dest.rglob("*")}
+        written = {
+            "/" + p.relative_to(self.dest).as_posix() for p in self.dest.rglob("*")
+        }
         self.assertEqual(written, set(DIRS) | set(FILES))
 
     def test_the_mtime_is_applied_where_the_file_has_one(self):
@@ -325,6 +357,57 @@ class DamagedMtime(TempDirTestCase):
         self.assertEqual((dest / "past-9999.txt").read_bytes(), b"past-9999")
 
 
+class ExtractPastFailures(TempDirTestCase):
+    """A damaged partition is what extract is for, so one bad entry must not cost the rest."""
+
+    def test_the_other_files_are_still_extracted(self):
+        dest = self.tmp / "files"
+        # A directory where a file belongs: that one write fails, the rest must not.
+        (dest / "version.txt").mkdir(parents=True)
+        code, out, err = run_main(
+            "--image", self.write("littlefs.bin", LFS), "extract", dest
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(out, f"{len(FILES) - 1} files to {dest}\n")
+        self.assertTrue(err.startswith("error: /version.txt: "), err)
+        self.assertIn("error: 1 entries could not be extracted", err)
+        for path, data in FILES.items():
+            if path != "/version.txt":
+                self.assertEqual((dest / path.lstrip("/")).read_bytes(), data, path)
+
+
+class FileNames(TempDirTestCase):
+    """LittleFS names are bytes; the firmware stores whatever a client sent."""
+
+    UTF8 = "/привет.txt".encode()
+    LATIN1 = b"/caf\xe9.txt"
+
+    def setUp(self):
+        super().setUp()
+        # latin-1 hands the raw bytes to LittleFS unchanged.
+        fs = LittleFS(
+            block_size=BLOCK_SIZE, block_count=LFS_BLOCKS, filename_encoding="latin-1"
+        )
+        for name in (self.UTF8, self.LATIN1):
+            with fs.open(name.decode("latin-1"), "wb") as f:
+                f.write(name)
+        self.image = self.write("littlefs.bin", bytes(fs.context.buffer))
+
+    def test_ls_shows_utf8_names_and_marks_the_rest(self):
+        code, out, err = run_main("--image", self.image, "ls")
+        self.assertEqual((code, err), (0, ""))
+        paths = [LS_LINE.match(line).group(3) for line in out.splitlines()]
+        self.assertEqual(sorted(paths), ["/caf\ufffd.txt", "/привет.txt"])
+
+    def test_extract_keeps_the_bytes_of_every_name(self):
+        dest = self.tmp / "files"
+        code, _, err = run_main("--image", self.image, "extract", dest)
+        self.assertEqual((code, err), (0, ""))
+        for name in (self.UTF8, self.LATIN1):
+            with open(os.fsencode(dest) + name, "rb") as f:
+                self.assertEqual(f.read(), name)
+
+
 class Dump(TempDirTestCase):
     def test_dump_writes_the_partition(self):
         output = self.tmp / "littlefs.bin"
@@ -349,9 +432,11 @@ class FakeEsptool:
         self.fail_call = fail_call
         self.interrupt_call = interrupt_call
         self.calls = []
+        self.to_stderr = []
 
     def __call__(self, cmd, *args, **kwargs):
         self.calls.append(cmd)
+        self.to_stderr.append(kwargs.get("stdout") is sys.stderr)
         if len(self.calls) == self.interrupt_call:
             raise KeyboardInterrupt
         if len(self.calls) == self.fail_call:
@@ -385,7 +470,7 @@ class BoardSource(TempDirTestCase):
         with mock.patch.object(flash_files.subprocess, "run", side_effect=esptool):
             self.assertFails(["--port", self.PORT, *argv], message)
 
-    def test_the_table_is_read_in_the_bootloader_then_the_partition_with_a_reset(self):
+    def test_the_table_then_the_partition_each_read_ending_in_a_reset(self):
         esptool = FakeEsptool(FLASH)
         output = self.tmp / "littlefs.bin"
         code, _, err = self.run_board(esptool, "--baud", "115200", "dump", output)
@@ -393,10 +478,12 @@ class BoardSource(TempDirTestCase):
         self.assertEqual(
             esptool.reads(),
             [
-                ("0x8000", "0xc00", "no-reset"),
+                ("0x8000", "0xc00", "hard-reset"),
                 (hex(LFS_OFFSET), hex(LFS_SIZE), "hard-reset"),
             ],
         )
+        # stdout carries the listing; esptool's progress goes to stderr.
+        self.assertEqual(esptool.to_stderr, [True, True])
         for cmd in esptool.calls:
             self.assertEqual(cmd[:3], [sys.executable, "-m", "esptool"])
             self.assertEqual(cmd[cmd.index("--port") + 1], self.PORT)
@@ -426,7 +513,8 @@ class BoardSource(TempDirTestCase):
             ["--partition", "spiffs", "ls"],
             "no partition named 'spiffs'; the table has nvs, otadata, app0, littlefs",
         )
-        self.assertEqual(len(esptool.calls), 1)
+        # The one read has already put the board back into its firmware.
+        self.assertEqual(esptool.reads(), [("0x8000", "0xc00", "hard-reset")])
 
     def test_an_erased_partition_has_no_littlefs(self):
         for command in (["ls"], ["extract", self.tmp / "files"]):
