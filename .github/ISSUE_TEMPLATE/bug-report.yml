@@ -1,0 +1,58 @@
+name: Bug report
+description: The firmware does something it should not, or fails to do what it should
+labels: ['type:bug']
+body:
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: The model, as on its label. If the bug is not about a device (the tooling, the build), write n/a here and in the version.
+      placeholder: JXD-R6-E1ETH-LCD
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build
+    attributes:
+      label: Whose build
+      options:
+        - JetHome's — as shipped, flashed from a release, or updated on the device
+        - My own — the imported config, built in ESPHome Builder
+        - Not about a device
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Firmware version
+      description: The Firmware line on the device's page in Home Assistant, copied whole, or Settings → Firmware on the device's display.
+      placeholder: 2026.8.2.0 (ESPHome 2026.8.2)
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happens
+    attributes:
+      label: What happens
+      description: What you saw, and when. If you know where in the code it comes from, add the file and line.
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-should-happen
+    attributes:
+      label: What should happen
+
+  - type: textarea
+    id: how-to-reproduce
+    attributes:
+      label: How to reproduce
+      description: The steps, and how the device is set up — what is wired to it, and how it reaches the network and Home Assistant.
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The log around the moment it happens, from the device's web page (open its address in a browser) or from Logs in ESPHome Builder. Paste it unchanged.
+      render: text
