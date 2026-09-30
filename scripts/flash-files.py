@@ -358,8 +358,20 @@ def cmd_ls(args: argparse.Namespace) -> None:
             print(f"{size:>9}  {when:19}  {name}")
 
 
-def extract_one(fs: LittleFS, path: str, entry: LFSStat, dest: Path) -> None:
-    name = host_name(path, "surrogateescape")
+def extract_one(
+    fs: LittleFS,
+    path: str,
+    entry: LFSStat,
+    dest: Path,
+    written: set[tuple[int, int]] | None = None,
+) -> None:
+    """written: the host files this extraction made, by device and inode."""
+    try:
+        # POSIX keeps any bytes through surrogateescape; Windows would turn them into
+        # other bytes on the way back.
+        name = host_name(path, "strict" if WINDOWS else "surrogateescape")
+    except UnicodeDecodeError:
+        raise FlashError("not UTF-8, which this host cannot name a file") from None
     target = dest / name.lstrip("/")
     # On Windows, \ and : split a name into folders, a drive or an NTFS stream.
     splits = WINDOWS and any(c in name for c in "\\:")
@@ -369,24 +381,35 @@ def extract_one(fs: LittleFS, path: str, entry: LFSStat, dest: Path) -> None:
         target.mkdir(parents=True, exist_ok=True)
         return
     target.parent.mkdir(parents=True, exist_ok=True)
+    written = set() if written is None else written
+    # On a host that folds case or normalizes names, /A.txt and /a.txt are one file.
+    if target.exists() and file_id(target) in written:
+        raise FlashError("on this host that is the file another entry was written to")
     with fs.context.checked(), fs.open(path, "rb") as f:
         data = f.read()
     target.write_bytes(data)
+    written.add(file_id(target))
     t = mtime(fs, path)
     if t:
         os.utime(target, (t, t))
 
 
+def file_id(path: Path) -> tuple[int, int]:
+    st = path.stat()
+    return st.st_dev, st.st_ino
+
+
 def cmd_extract(args: argparse.Namespace) -> None:
     dest = args.dest.resolve()
     files = failed = 0
+    written: set[tuple[int, int]] = set()
     with partition_blocks(args) as blocks:
         fs = mount(blocks)
         # A damaged partition is when this runs, so one unreadable entry must not cost
         # the rest.
         for path, entry in walk(fs):
             try:
-                extract_one(fs, path, entry, dest)
+                extract_one(fs, path, entry, dest, written)
             except (FlashError, LittleFSError, OSError, ValueError) as e:
                 print(f"error: {host_name(path, 'replace')}: {e}", file=sys.stderr)
                 failed += 1

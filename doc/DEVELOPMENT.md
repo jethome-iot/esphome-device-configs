@@ -26,7 +26,7 @@ python scripts/build-icons.py [--check]    # regenerate / verify assets/res/
 python scripts/firmware-matrix.py build    # CI matrix from firmwares.yaml; also validates the file
 python scripts/vendored-diff.py            # what components/ changed in the ESPHome components it shadows
 python scripts/vendored-diff.py --check    # and whether every hunk of that is still marked
-python tests/run.py [component]            # build every tests/components/*/ suite for the host and run it, then tests/scripts/
+python tests/run.py [component]            # build every tests/components/*/ suite for the host and run it, then tests/scripts/ when none is named
 
 pre-commit run --all-files                 # ruff --fix, ruff-format, pyupgrade --py310-plus, yamllint, clang-format, build-icons, build-dist
 SKIP=build-dist pre-commit run --all-files # what the CI lint job runs

@@ -501,6 +501,38 @@ class FileNames(TempDirTestCase):
             self.assertIn(f"error: {name}: not a plain file name on this host", err)
         self.assertEqual(os.listdir(dest), ["report.txt"])
 
+    def test_a_name_that_is_not_utf8_is_refused_on_windows(self):
+        # Windows would store it as other bytes, and a write back would carry those.
+        dest = self.tmp / "files"
+        with mock.patch.object(flash_files, "WINDOWS", True):
+            code, out, err = run_main("--image", self.image, "extract", dest)
+        self.assertEqual((code, out), (1, f"1 files to {dest}\n"))
+        self.assertIn(
+            "error: /caf\ufffd.txt: not UTF-8, which this host cannot name a file", err
+        )
+        self.assertEqual(os.listdir(dest), ["привет.txt"])
+
+    def test_two_entries_the_host_takes_for_one_file_are_not_merged(self):
+        # A case-folding host makes /a.txt and /A.txt one file; a link in DEST stands in.
+        fs = LittleFS(block_size=BLOCK_SIZE, block_count=LFS_BLOCKS)
+        for name in ("/a.txt", "/b.txt"):
+            with fs.open(name, "wb") as f:
+                f.write(name.encode())
+        image = self.write("pair.bin", bytes(fs.context.buffer))
+        dest = self.tmp / "files"
+        dest.mkdir()
+        try:
+            (dest / "b.txt").symlink_to("a.txt")
+        except (OSError, NotImplementedError):
+            self.skipTest("no symlinks here")
+        code, out, err = run_main("--image", image, "extract", dest)
+        self.assertEqual((code, out), (1, f"1 files to {dest}\n"))
+        self.assertIn(
+            "error: /b.txt: on this host that is the file another entry was written to",
+            err,
+        )
+        self.assertEqual((dest / "a.txt").read_bytes(), b"/a.txt")
+
     def test_extract_keeps_the_bytes_of_every_name(self):
         dest = self.tmp / "files"
         code, _, err = run_main("--image", self.image, "extract", dest)
