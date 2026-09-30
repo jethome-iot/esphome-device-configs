@@ -95,6 +95,7 @@ external_components:
       - web_device_dashboard
       - web_origin_guard
       - loop_job
+      - firmware_rollback
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git

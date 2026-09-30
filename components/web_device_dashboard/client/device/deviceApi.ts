@@ -20,8 +20,9 @@ export interface DeviceApi {
    *  user partition when `capabilities.factory_reset.clears_storage`. */
   factoryReset(confirm: ConfirmPayload): Promise<MutationResponse>
   /** POST /system/rollback — requires a confirmation. Boots the other app slot, the one
-   *  `capabilities.rollback` describes; `503` without one, `500` when that slot turns out
-   *  not to hold a whole image. */
+   *  `capabilities.rollback` describes; `503` without one or when the device is too busy to
+   *  take it (`Device busy`, nothing selected), `500` when that slot turns out not to hold a
+   *  whole image. */
   rollback(confirm: ConfirmPayload): Promise<MutationResponse>
 }
 

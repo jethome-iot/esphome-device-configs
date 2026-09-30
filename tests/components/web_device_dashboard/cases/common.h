@@ -332,15 +332,17 @@ class TestDashboard : public WebDeviceDashboard {
   bool stub_rollback{false};
   RollbackTarget rollback;
   const char *rollback_error{nullptr};
+  // Hands the select to firmware_rollback, which off ESP32 always refuses.
+  bool real_select{false};
 
  protected:
   void restart_() override { this->restarts++; }
   RollbackTarget rollback_target_() const override {
     return this->stub_rollback ? this->rollback : WebDeviceDashboard::rollback_target_();
   }
-  const char *select_rollback_(const RollbackTarget & /*target*/) override {
+  const char *select_rollback_(const RollbackTarget &target) override {
     this->rollbacks++;
-    return this->rollback_error;
+    return this->real_select ? WebDeviceDashboard::select_rollback_(target) : this->rollback_error;
   }
   bool run_on_loop_(std::function<bool()> &&job) override {
     this->jobs++;

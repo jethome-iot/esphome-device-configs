@@ -51,6 +51,10 @@ class MinimalConfig(unittest.TestCase):
         # Why the host suite stands web_server in: upstream builds it for ESP platforms only.
         self.assertEqual(dashboard.DEPENDENCIES, ["web_server_base", "web_server"])
 
+    def test_the_rollback_comes_from_its_own_component(self):
+        # The display menu's Rollback row asks the same one, so the two cannot disagree.
+        self.assertIn("firmware_rollback", dashboard.AUTO_LOAD)
+
 
 class BoardInfoId(unittest.TestCase):
     def test_it_resolves_to_the_board_component(self):

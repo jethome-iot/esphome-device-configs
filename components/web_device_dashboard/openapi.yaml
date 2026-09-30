@@ -227,9 +227,9 @@ paths:
         Which screens the page can draw and which routes exist. A key is present
         only when the capability is, so the test is `if (caps.files)`; one that
         has no detail to carry is `true`. Read once on load, not polled — only
-        the rollback slot can change, and only across a firmware update. A `404`
-        here is a firmware from before this route, not a device without
-        capabilities.
+        `rollback` can change: an update, a failed update and a rollback each
+        change it. A `404` here is a firmware from before this route, not a
+        device without capabilities.
       responses:
         "200":
           description: The capabilities.
@@ -354,15 +354,22 @@ paths:
                 error: ESP_ERR_OTA_VALIDATE_FAILED
         "503":
           description: >-
-            There is no other app slot, or nothing has been written to it — a
-            board that has never been updated over the air.
+            Nothing to roll back to — `capabilities` carries no `rollback` — or
+            the device was too busy to take the request; then nothing was
+            selected, and asking again may succeed.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-              example:
-                success: false
-                error: No firmware to roll back to
+              examples:
+                unavailable:
+                  value:
+                    success: false
+                    error: No firmware to roll back to
+                busy:
+                  value:
+                    success: false
+                    error: Device busy
 
   /entities:
     get:
@@ -983,8 +990,12 @@ components:
           type: object
           required: [partition]
           description: >-
-            The firmware `/system/rollback` would boot. Absent when the other app
-            slot holds no image, which is also when that route is `503`.
+            The firmware `/system/rollback` would boot: after an update, the
+            firmware it replaced; after a rollback, the newer one. Absent when
+            there is nothing to go back to — a board flashed over serial, an
+            update that failed or was interrupted, a firmware the bootloader
+            already rolled back from because it crashed, or a switch still
+            waiting for its reboot — which is also when that route is `503`.
           properties:
             partition:
               type: string
@@ -999,6 +1010,8 @@ components:
               example: 2026.8.1
             project_name:
               type: string
+              description: The name that image was built under, the device's node name.
+              example: jxd-r6-e1eth-lcd
         storage:
           $ref: "#/components/schemas/StorageCapability"
         files:
@@ -1044,7 +1057,7 @@ components:
         rollback:
           partition: app1
           version: 2026.8.1
-          project_name: jethome.jxd-r6-e1eth-lcd
+          project_name: jxd-r6-e1eth-lcd
         storage:
           type: LittleFS
           base_path: /littlefs
