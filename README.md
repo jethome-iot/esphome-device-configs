@@ -351,5 +351,5 @@ This project is open-source.
 
 For issues related to:
 
-- **Open-source firmware**: Use GitHub issues in this repository
+- **Open-source firmware**: [open an issue](https://github.com/jethome-iot/esphome-device-configs/issues/new/choose) here — a bug report or a feature request
 - **Hardware or proprietary firmware**: Contact [JetHome support](mailto:sales@jethome.com)
