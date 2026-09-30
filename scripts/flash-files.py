@@ -36,6 +36,7 @@ TABLE_SIZE = 0xC00
 ENTRY = struct.Struct("<2sBBII16sI")
 ENTRY_MAGIC = b"\xaa\x50"
 MD5_MAGIC = b"\xeb\xeb"
+ERASED_MAGIC = b"\xff\xff"
 # esp_littlefs uses the flash erase size as its block size.
 BLOCK_SIZE = 4096
 LITTLEFS_MAGIC = b"littlefs"
@@ -69,7 +70,11 @@ def parse_partition_table(table: bytes) -> list[Partition]:
                 raise FlashError("the partition table fails its MD5 check")
             break
         if magic != ENTRY_MAGIC:
-            break  # the erased tail
+            # Past the first entry, anything but the erased tail is damage, as the
+            # bootloader sees it.
+            if partitions and magic != ERASED_MAGIC:
+                raise FlashError("the partition table is damaged")
+            break
         name = label.rstrip(b"\0").decode(errors="replace")
         partitions.append(Partition(name, offset, size))
     return partitions

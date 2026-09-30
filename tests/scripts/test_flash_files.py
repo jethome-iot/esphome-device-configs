@@ -148,6 +148,15 @@ class PartitionTable(unittest.TestCase):
         ):
             flash_files.find_partition(bytes(table), "littlefs")
 
+    def test_a_damaged_entry_before_the_md5_is_refused(self):
+        # Ending the table there would skip the digest and trust the entries before it.
+        table = bytearray(partition_table(PARTITIONS))
+        table[2 * ENTRY.size] ^= 0x01
+        with self.assertRaisesRegex(
+            flash_files.FlashError, "the partition table is damaged"
+        ):
+            flash_files.find_partition(bytes(table), "nvs")
+
     def test_a_partition_is_found_by_name(self):
         partition = flash_files.find_partition(partition_table(PARTITIONS), "nvs")
         self.assertEqual(partition, flash_files.Partition("nvs", 0x9000, 0x5000))
