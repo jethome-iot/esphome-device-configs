@@ -47,6 +47,8 @@ LITTLEFS_SUBTYPES = {0x82, LITTLEFS_SUBTYPE}
 # esp_littlefs uses the flash erase size as its block size.
 BLOCK_SIZE = 4096
 LITTLEFS_MAGIC = b"littlefs"
+# What esp_littlefs writes; it cannot mount a newer one, and formats the partition instead.
+FIRMWARE_DISK_VERSION = 0x00020001
 # esp_littlefs keeps a file's mtime in this attribute, as a little-endian time_t.
 MTIME_ATTR = "t"
 DEFAULT_PARTITION = "littlefs"
@@ -71,12 +73,15 @@ class Partition:
     size: int
     type: int = DATA_TYPE
     subtype: int = LITTLEFS_SUBTYPE
+    encrypted: bool = False
 
 
 def parse_partition_table(table: bytes) -> list[Partition]:
     partitions = []
     for pos in range(0, len(table) - ENTRY.size + 1, ENTRY.size):
-        magic, type_, subtype, offset, size, label, _ = ENTRY.unpack_from(table, pos)
+        magic, type_, subtype, offset, size, label, flags = ENTRY.unpack_from(
+            table, pos
+        )
         if magic == MD5_MAGIC:
             # The bootloader refuses a table whose digest disagrees; so do we.
             if table[pos + 16 : pos + 32] != hashlib.md5(table[:pos]).digest():
@@ -89,7 +94,9 @@ def parse_partition_table(table: bytes) -> list[Partition]:
                 raise FlashError("the partition table is damaged")
             break
         name = label.rstrip(b"\0").decode(errors="replace")
-        partitions.append(Partition(name, offset, size, type_, subtype))
+        partitions.append(
+            Partition(name, offset, size, type_, subtype, bool(flags & 1))
+        )
     return partitions
 
 
@@ -140,16 +147,20 @@ def partition_from_image(path: Path, name: str | None) -> bytes:
 
 
 class Board:
-    """One esptool connection for the whole command, ending in a reset into the firmware
-    whatever happened, so nothing that fails leaves the board sitting in its bootloader."""
+    """One esptool connection for the whole command. Once the board has answered, the
+    command ends in a reset into its firmware whatever happened, so nothing that fails
+    leaves it sitting in its bootloader."""
 
     def __init__(self, port: str, baud: int) -> None:
         # Imported here: only the board needs esptool, and it comes with ESPHome.
         from esptool import cmds
+        from esptool.loader import ESPLoader
         from esptool.util import FatalError
 
         self.cmds, self.fatal = cmds, FatalError
-        self.esp = self.call(cmds.detect_chip, port)
+        # As esptool's own CLI: a rate below the ROM loader's is used from the start.
+        rate = min(baud, ESPLoader.ESP_ROM_BAUD)
+        self.esp = self.call(cmds.detect_chip, port, baud=rate)
         try:
             self.esp = self.call(cmds.run_stub, self.esp)
             if baud > self.esp.ESP_ROM_BAUD:
@@ -182,7 +193,10 @@ class Board:
         )
 
     def write(self, offset: int, data: bytes) -> None:
-        self.call(self.cmds.write_flash, self.esp, [(offset, data)])
+        # LittleFS's first bytes can pass for an app image header, which esptool then
+        # refuses to write; force skips that check, check_writable does the ones that
+        # matter here.
+        self.call(self.cmds.write_flash, self.esp, [(offset, data)], force=True)
 
     def close(self) -> None:
         try:
@@ -210,6 +224,10 @@ class Blocks(UserContext):
         self.failure: BaseException | None = None
 
     def block(self, n: int) -> bytes:
+        # A superblock claiming more blocks than the partition has must not send reads
+        # into the flash after it; past the end reads as erased.
+        if n >= self.size // BLOCK_SIZE:
+            return b""
         if n not in self.cache:
             self.cache[n] = self.fetch(n)
         return self.cache[n]
@@ -386,6 +404,7 @@ def pack(source: Path, size: int) -> bytes:
         block_size=BLOCK_SIZE,
         block_count=size // BLOCK_SIZE,
         filename_encoding=NAME_ENCODING,
+        disk_version=FIRMWARE_DISK_VERSION,
     )
     for path in sorted(source.rglob("*")):
         parts = path.relative_to(source).parts
@@ -419,6 +438,12 @@ def build_image(source: Path, size: int) -> bytes:
     image = pack(source, size) if source.is_dir() else source.read_bytes()
     # The firmware formats a partition it cannot mount, so nothing goes out that would not.
     fs = mount(image_blocks(image), where=f"in {source}")
+    version = fs.fs_stat().disk_version
+    if version > FIRMWARE_DISK_VERSION:
+        raise FlashError(
+            f"{source}: LittleFS disk version {version >> 16}.{version & 0xFFFF}, "
+            "newer than the firmware mounts"
+        )
     fs_size = fs.block_count * BLOCK_SIZE
     if len(image) != size or fs_size != size:
         raise FlashError(
@@ -434,13 +459,28 @@ def check_writable(partition: Partition) -> None:
             f"{partition.name!r} is not a partition LittleFS lives in "
             f"(type {partition.type:#04x}, subtype {partition.subtype:#04x})"
         )
+    if partition.encrypted:
+        raise FlashError(
+            f"{partition.name!r} is encrypted: the firmware would read what is written "
+            "there as noise"
+        )
+    # Flash is erased a sector at a time: anything else would take its neighbours along.
+    if partition.offset % BLOCK_SIZE or partition.offset < TABLE_OFFSET + BLOCK_SIZE:
+        raise FlashError(
+            f"{partition.name!r} at {partition.offset:#x} does not start on a sector "
+            "past the partition table"
+        )
 
 
 def cmd_write(args: argparse.Namespace) -> None:
+    if not args.source.exists():
+        raise FlashError(f"{args.source}: no such file or directory")
     if args.image:
         data = args.image.read_bytes()
         partition = locate_in_image(args.image, data, args.partition)
-        check_writable(partition)
+        # A dump is the partition alone, with no flash layout around it to check.
+        if not is_littlefs(data):
+            check_writable(partition)
         image = build_image(args.source, partition.size)
         with args.image.open("r+b") as f:
             f.seek(partition.offset)
@@ -486,7 +526,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser(
         "write", help="replace the whole partition with a directory or a saved dump"
     )
-    p.add_argument("source", type=Path, help="a directory, or an image `dump` saved")
+    p.add_argument("source", type=Path, help="a directory, or an image saved by `dump`")
     p.set_defaults(func=cmd_write)
     return parser
 

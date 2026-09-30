@@ -6,5 +6,5 @@ pre-commit==4.6.2
 # Build and Release workflows install this file to get it.
 pyyaml==6.0.3
 
-# scripts/flash-files.py decodes the LittleFS partition it reads off a board.
+# scripts/flash-files.py reads and packs the LittleFS partition of a board.
 littlefs-python==0.19.0

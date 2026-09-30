@@ -201,7 +201,7 @@ class Writable(unittest.TestCase):
             # The number means something else under another type.
             (APP, 0x83, False),
         ):
-            partition = flash_files.Partition("p", 0, LFS_SIZE, type_, subtype)
+            partition = flash_files.Partition("p", LFS_OFFSET, LFS_SIZE, type_, subtype)
             with self.subTest(type=type_, subtype=subtype):
                 if writable:
                     flash_files.check_writable(partition)
@@ -212,6 +212,36 @@ class Writable(unittest.TestCase):
                     f"\\(type {type_:#04x}, subtype {subtype:#04x}\\)$",
                 ):
                     flash_files.check_writable(partition)
+
+    def test_an_encrypted_partition_is_not_written(self):
+        # esptool refuses plain data there only without force, which the write passes.
+        partition = flash_files.Partition("p", LFS_OFFSET, LFS_SIZE, encrypted=True)
+        with self.assertRaisesRegex(flash_files.FlashError, "^'p' is encrypted"):
+            flash_files.check_writable(partition)
+
+    def test_a_partition_off_a_sector_or_over_the_table_is_not_written(self):
+        # Erasing it would take a neighbour's sector, or the table itself, along.
+        for offset in (LFS_OFFSET + 0x100, 0x8000, 0x0):
+            partition = flash_files.Partition("p", offset, LFS_SIZE)
+            with (
+                self.subTest(offset=hex(offset)),
+                self.assertRaisesRegex(
+                    flash_files.FlashError,
+                    f"^'p' at {offset:#x} does not start on a sector past the partition table$",
+                ),
+            ):
+                flash_files.check_writable(partition)
+        flash_files.check_writable(flash_files.Partition("p", 0x9000, LFS_SIZE))
+
+    def test_the_encrypted_flag_is_read_from_the_table(self):
+        table = bytearray(partition_table(PARTITIONS))
+        # The flags word closes each 32-byte entry; bit 0 is "encrypted".
+        table[3 * ENTRY.size + 28] |= 0x01
+        table[4 * ENTRY.size + 16 :] = b"\xff" * (len(table) - 4 * ENTRY.size - 16)
+        md5 = hashlib.md5(bytes(table[: 4 * ENTRY.size])).digest()
+        table[4 * ENTRY.size + 16 : 4 * ENTRY.size + 32] = md5
+        parsed = flash_files.parse_partition_table(bytes(table))
+        self.assertEqual([p.encrypted for p in parsed], [False, False, False, True])
 
 
 class ImageSource(TempDirTestCase):
@@ -572,6 +602,8 @@ class FakeEsptool:
         self.error = error or FatalError("Timed out waiting for packet header")
         self.ops = []
         self.written = []
+        self.write_options = []
+        self.connect_baud = None
 
     def op(self, name: str, *args, esp: FakeChip | None = None) -> None:
         # The ROM loader reads at a crawl and changes the rate another way.
@@ -584,7 +616,8 @@ class FakeEsptool:
             # A fresh traceback each time: one error serves a run of subtests.
             raise self.error.with_traceback(None)
 
-    def detect_chip(self, port: str, *args, **kwargs) -> FakeChip:
+    def detect_chip(self, port: str, baud: int = 115200, *args, **kwargs) -> FakeChip:
+        self.connect_baud = baud
         self.op("detect", port)
         return FakeChip(self)
 
@@ -602,6 +635,7 @@ class FakeEsptool:
         return bytes(self.flash[address : address + size])
 
     def write_flash(self, esp, addr_data, **kwargs) -> None:
+        self.write_options.append(kwargs)
         for address, data in addr_data:
             self.op("write", address, len(data), esp=esp)
             self.written.append((address, bytes(data)))
@@ -612,15 +646,21 @@ class FakeEsptool:
 
     @contextlib.contextmanager
     def installed(self):
-        with mock.patch.multiple(
-            esptool_cmds,
-            detect_chip=self.detect_chip,
-            run_stub=self.run_stub,
-            attach_flash=self.attach_flash,
-            read_flash=self.read_flash,
-            write_flash=self.write_flash,
-            reset_chip=self.reset_chip,
-        ):
+        # Specced on the real functions: a call esptool's signatures no longer take fails.
+        fakes = {
+            name: mock.create_autospec(
+                getattr(esptool_cmds, name), side_effect=getattr(self, name)
+            )
+            for name in (
+                "detect_chip",
+                "run_stub",
+                "attach_flash",
+                "read_flash",
+                "write_flash",
+                "reset_chip",
+            )
+        }
+        with mock.patch.multiple(esptool_cmds, **fakes):
             yield
 
     def blocks_read(self) -> list[int]:
@@ -692,6 +732,15 @@ class BoardSession(BoardTestCase):
                     esptool.ops[:4],
                     [("detect", PORT), ("stub",), ("attach",), TABLE_READ],
                 )
+                # A rate below the ROM loader's is the one to connect at.
+                self.assertEqual(esptool.connect_baud, baud)
+
+    def test_a_faster_rate_is_reached_from_the_rom_loaders(self):
+        esptool = FakeEsptool(FLASH)
+        self.run_board_ok(esptool, "ls")
+        self.assertEqual(
+            (esptool.connect_baud, esptool.ops[2]), (115200, ("baud", BAUD))
+        )
 
     def test_every_command_ends_in_one_reset_then_the_port_closed(self):
         source = make_source(self.tmp / "src")
@@ -809,6 +858,22 @@ class BoardSession(BoardTestCase):
 
 
 class BoardRead(BoardTestCase):
+    def test_a_superblock_claiming_more_than_the_partition_reads_nothing_past_it(self):
+        # partition_size shrunk with no reformat: the tail chain runs on past the end,
+        # into whatever the flash holds after it.
+        fs = LittleFS(block_size=BLOCK_SIZE, block_count=4 * LFS_BLOCKS)
+        for i in range(30):
+            fs.mkdir(f"/d{i:02}")
+        whole = bytes(fs.context.buffer)
+        esptool = FakeEsptool(flash_image(whole[:LFS_SIZE]) + whole[LFS_SIZE:])
+        code, out, err = self.run_board(esptool, "ls")
+        self.assertEqual((code, out), (1, ""))
+        self.assertRegex(script_lines(err), "truncated|damaged or cut short")
+        end = LFS_OFFSET + LFS_SIZE
+        for op in esptool.ops:
+            if op[0] == "read" and op != TABLE_READ:
+                self.assertTrue(LFS_OFFSET <= op[1] and op[1] + op[2] <= end, op)
+
     def test_dump_reads_the_table_then_the_whole_partition_with_progress(self):
         esptool = FakeEsptool(FLASH)
         output = self.tmp / "littlefs.bin"
@@ -1112,6 +1177,28 @@ class WriteRefused(TempDirTestCase):
                 path = self.write(name, data)
                 self.assertRefused(path, message.format(path))
 
+    def test_a_dump_in_a_newer_disk_version_is_refused(self):
+        # esp_littlefs mounts disk version 2.1 at most, and formats anything newer.
+        newer = LittleFS(block_size=BLOCK_SIZE, block_count=LFS_BLOCKS).fs_stat()
+        newer = newer._replace(disk_version=0x00020002)
+        with mock.patch.object(LittleFS, "fs_stat", lambda fs: newer):
+            path = self.write("newer.bin", LFS)
+            self.assertRefused(
+                path,
+                f"{path}: LittleFS disk version 2.2, newer than the firmware mounts",
+            )
+
+    def test_a_directory_is_packed_in_the_firmwares_disk_version(self):
+        image = self.write("flash.bin", FLASH)
+        self.run_ok("--image", image, "write", make_source(self.tmp / "src"))
+        written = LittleFS(
+            context=flash_files.image_blocks(image.read_bytes()[LFS_OFFSET:]),
+            block_size=BLOCK_SIZE,
+            block_count=0,
+            mount=True,
+        )
+        self.assertEqual(written.fs_stat().disk_version, 0x00020001)
+
     def test_a_dump_of_another_size_is_refused(self):
         bigger = LittleFS(block_size=BLOCK_SIZE, block_count=2 * LFS_BLOCKS)
         smaller = LittleFS(block_size=BLOCK_SIZE, block_count=LFS_BLOCKS // 2)
@@ -1247,6 +1334,20 @@ class BoardWrite(BoardTestCase):
             [*OPEN, TABLE_READ, ("write", LFS_OFFSET, LFS_SIZE), *CLOSE],
         )
         self.assertEqual(out, f"{self.source} to 'littlefs' at {LFS_OFFSET:#x}\n")
+
+    def test_the_write_skips_the_app_image_check(self):
+        # A LittleFS block 0 whose revision count starts 0xE9 reads to esptool as an app
+        # image header for another chip, and it refuses that without force.
+        esptool = FakeEsptool(FLASH)
+        self.run_board_ok(esptool, "write", self.source)
+        self.assertEqual(esptool.write_options, [{"force": True}])
+
+    def test_a_missing_source_is_refused_before_the_board_is_touched(self):
+        esptool = FakeEsptool(FLASH)
+        code, out, err = self.run_board(esptool, "write", self.tmp / "absent")
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("absent: no such file or directory", script_lines(err))
+        self.assertEqual(esptool.ops, [])
 
     def test_what_is_written_reads_back_as_the_directory(self):
         esptool = FakeEsptool(FLASH)
