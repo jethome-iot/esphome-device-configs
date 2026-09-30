@@ -196,6 +196,7 @@ keeps state across a code change. The padding matters — `truncate` would pad w
 leave NVS and LittleFS reading garbage instead of blank flash.
 
 QEMU reads the image once at start and writes each change the firmware makes back into it as it
-happens, so `scripts/flash-files.py --image <that file> ls` lists the LittleFS files even while
-the emulator runs, and `extract <dir>` copies them out. Change the file only with the emulator
-stopped: a running one never sees the change, and its next writes land on top of it.
+happens. `scripts/flash-files.py --image <that file> ls` lists the LittleFS files and
+`extract <dir>` copies them out; a read while the emulator runs can catch a write half done, so
+stop it first for a copy you rely on. Change the file only with the emulator stopped: a running
+one never sees the change, and its next writes land on top of it.
