@@ -1,0 +1,38 @@
+name: Community issues
+
+# An issue whose author cannot write to this repository gets the `community`
+# label: the filter for what outside users filed, and the line agents do not
+# act across before a developer has triaged it (doc/DEVELOPMENT.md, Labels).
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  label:
+    name: Mark an issue from outside the team
+    # A bot opens issues here only if the team installed its app. Issues the
+    # workflows open with GITHUB_TOKEN never start a run at all.
+    if: github.event.issue.user.type != 'Bot'
+    # GitHub-hosted, unlike the other workflows: anyone can start this one by
+    # opening an issue.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label the issue unless its author is on the team
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUTHOR: ${{ github.event.issue.user.login }}
+          NUMBER: ${{ github.event.issue.number }}
+        run: |
+          # Not author_association: it reports an org member whose membership
+          # is private as CONTRIBUTOR. A failed lookup labels the issue too.
+          role=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$AUTHOR/permission" --jq .role_name) || role=
+          case "$role" in
+            admin | maintain | write | triage)
+              echo "$AUTHOR has the $role role: not labelling" ;;
+            *)
+              gh issue edit "$NUMBER" --repo "$GITHUB_REPOSITORY" --add-label community ;;
+          esac

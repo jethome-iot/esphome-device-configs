@@ -1,0 +1,52 @@
+name: Bug report
+description: The firmware does something it should not, or fails to do what it should
+labels: ['type:bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the open-source ESPHome firmware. A hardware fault, or a problem with JetHome's own firmware, goes to [JetHome support](https://jethome.com/).
+
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: The model, as on its label. For a bug in the tooling rather than on a device, write n/a.
+      placeholder: JXD-R6-E1ETH-LCD
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Firmware version
+      description: On the display under Settings → Firmware, on the device's page in Home Assistant, or at the top of the boot log.
+      placeholder: 2026.8.2.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happens
+    attributes:
+      label: What happens
+      description: If you know where in the code it comes from, the file and line or the HTTP route.
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-should-happen
+    attributes:
+      label: What should happen
+
+  - type: textarea
+    id: how-to-reproduce
+    attributes:
+      label: How to reproduce
+      description: The steps, and how the device is set up — what is wired to it, and how it reaches the network and Home Assistant.
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The device log around the moment it happens. It is shown as code, so paste it as it is.
+      render: text

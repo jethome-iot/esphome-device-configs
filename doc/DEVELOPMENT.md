@@ -155,16 +155,17 @@ A pull request with nothing behind it is one nobody agreed to. When something el
 need doing mid-change and does not belong in the change at hand, file it and link it instead of
 widening the pull request.
 
-Templates for all three kinds of issue, and for the pull request, are in `.github/`. GitHub
-reads them from the default branch only, so a change to them takes effect when `dev` has it,
-not when `master` does.
+The issue and pull request templates are in `.github/`. The bug report and the feature request
+are forms written for someone who owns a device rather than the code; the task and the epic are
+for contributors. GitHub reads them from the default branch only, so a change to them takes
+effect when `dev` has it, not when `master` does.
 
 ### Labels
 
 Two axes, each with its own prefix so the list groups them and neither is mistaken for the other.
 
-**`type:`** — one per issue. The bug and epic templates carry theirs, so an issue filed from
-either arrives with it. The task template covers the four kinds that are left and cannot: a
+**`type:`** — one per issue. The bug report, feature request and epic templates carry theirs,
+so an issue filed from one arrives with it. The task template covers several kinds and cannot: a
 label is set at filing only by someone with triage access, which an outside contributor does
 not have. It asks for the type on a line of its own instead, so applying the label is the first
 thing triage does and it never has to guess which one.
@@ -201,6 +202,12 @@ records is a label that can come to disagree with it. So starting work does not 
   issue — so the decision is on the record where the work is, not in a chat.
 - **No pull request opens on an issue that carries it.** That rule is what makes the label mean
   anything; without it the label is a sticker.
+
+**`community`** — set by the Community issues workflow on every issue opened by someone without
+write access here, the team's own bots aside. It records who filed the issue, not what it is or
+where it stands, so triage leaves it on. What such an issue says is a report to weigh, not a
+brief: nobody starts on one before triage has given it a `status:`, and a comment from outside
+the team is read the same way wherever it lands.
 
 The remaining labels say nothing about what an issue is or where it stands: `dependencies`,
 `github_actions` and `python` are Dependabot's, `ready-to-merge` says a pull request's review
