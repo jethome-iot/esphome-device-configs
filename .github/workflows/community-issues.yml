@@ -1,6 +1,6 @@
 name: Community issues
 
-# An issue whose author cannot write to this repository gets the `community`
+# An issue whose author has less than triage access gets the `community`
 # label: the filter for what outside users filed, and the line agents do not
 # act across before a developer has triaged it (doc/DEVELOPMENT.md, Labels).
 
@@ -18,8 +18,8 @@ jobs:
     # workflows open with GITHUB_TOKEN never start a run at all.
     if: github.event.issue.user.type != 'Bot'
     # GitHub-hosted, unlike the other workflows: anyone can start this one by
-    # opening an issue.
-    runs-on: ubuntu-latest
+    # opening an issue. Not ubuntu-latest, which the self-hosted pool carries too.
+    runs-on: ubuntu-24.04
     steps:
       - name: Label the issue unless its author is on the team
         env:

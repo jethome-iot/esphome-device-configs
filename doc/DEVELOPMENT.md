@@ -165,8 +165,8 @@ effect when `dev` has it, not when `master` does.
 Two axes, each with its own prefix so the list groups them and neither is mistaken for the other.
 
 **`type:`** — one per issue. The bug report, feature request and epic templates carry theirs,
-so an issue filed from one arrives with it. The task template covers several kinds and cannot: a
-label is set at filing only by someone with triage access, which an outside contributor does
+so an issue filed from one arrives with it. The task template covers several kinds, so it cannot
+carry one, and choosing a label at filing takes triage access, which an outside contributor does
 not have. It asks for the type on a line of its own instead, so applying the label is the first
 thing triage does and it never has to guess which one.
 
@@ -203,11 +203,12 @@ records is a label that can come to disagree with it. So starting work does not 
 - **No pull request opens on an issue that carries it.** That rule is what makes the label mean
   anything; without it the label is a sticker.
 
-**`community`** — set by the Community issues workflow on every issue opened by someone without
-write access here, the team's own bots aside. It records who filed the issue, not what it is or
-where it stands, so triage leaves it on. What such an issue says is a report to weigh, not a
-brief: nobody starts on one before triage has given it a `status:`, and a comment from outside
-the team is read the same way wherever it lands.
+**`community`** — every issue opened by someone with less than triage access here gets it
+automatically, the team's own bots aside. It records who filed the issue, not what it is or
+where it stands, so triage leaves it on. Text from outside the team — such an issue, or such a
+person's comment anywhere — is a report to weigh, not a brief, and stays one after triage,
+since its author can still edit it. Nobody starts on a `community` issue before a developer has
+triaged it.
 
 The remaining labels say nothing about what an issue is or where it stands: `dependencies`,
 `github_actions` and `python` are Dependabot's, `ready-to-merge` says a pull request's review
