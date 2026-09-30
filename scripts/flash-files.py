@@ -413,7 +413,10 @@ def file_id(path: Path) -> tuple[int, int]:
 
 
 def cmd_extract(args: argparse.Namespace) -> None:
-    dest = args.dest.resolve()
+    try:
+        dest = args.dest.resolve()
+    except RuntimeError as e:
+        raise FlashError(f"{args.dest}: {e}") from None
     files = failed = 0
     made: dict[tuple[int, int], str] = {}
     if args.image:
@@ -426,7 +429,8 @@ def cmd_extract(args: argparse.Namespace) -> None:
         for path, entry in walk(fs):
             try:
                 extract_one(fs, path, entry, dest, made)
-            except (FlashError, LittleFSError, OSError, ValueError) as e:
+            # RuntimeError: Python 3.12's resolve() on a symlink loop in DEST.
+            except (FlashError, LittleFSError, OSError, ValueError, RuntimeError) as e:
                 print(f"error: {host_name(path, 'replace')}: {e}", file=sys.stderr)
                 failed += 1
                 continue

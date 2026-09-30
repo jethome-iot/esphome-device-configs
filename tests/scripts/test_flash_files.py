@@ -530,6 +530,27 @@ class FileNames(TempDirTestCase):
         self.assertIn("error: /b.txt: on this host that is /a.txt", err)
         self.assertEqual((dest / "a.txt").read_bytes(), b"/a.txt")
 
+    def test_a_symlink_loop_in_dest_costs_only_its_entry(self):
+        # Python 3.12 reports the loop as RuntimeError, 3.13 as OSError.
+        fs = LittleFS(block_size=BLOCK_SIZE, block_count=LFS_BLOCKS)
+        for name in ("/loop", "/ok.txt"):
+            with fs.open(name, "wb") as f:
+                f.write(name.encode())
+        image = self.write("loop.bin", bytes(fs.context.buffer))
+        dest = self.tmp / "files"
+        dest.mkdir()
+        try:
+            (dest / "loop").symlink_to("loop")
+            (self.tmp / "round").symlink_to("round")
+        except (OSError, NotImplementedError):
+            self.skipTest("no symlinks here")
+        code, out, err = run_main("--image", image, "extract", dest)
+        self.assertEqual((code, out), (1, f"1 files to {dest}\n"))
+        self.assertIn("error: /loop: ", err)
+        self.assertEqual((dest / "ok.txt").read_bytes(), b"/ok.txt")
+        # DEST itself a loop: nothing to extract into, said as an error.
+        self.assertFails(["--image", image, "extract", self.tmp / "round"], "round")
+
     def test_the_image_being_read_is_not_extracted_over(self):
         # Extracting next to the image: an entry of its name, or a link to it, is refused.
         fs = LittleFS(block_size=BLOCK_SIZE, block_count=LFS_BLOCKS)
