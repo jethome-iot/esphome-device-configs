@@ -48,6 +48,7 @@ boundaries; everything else is local to its file.
   reachable from the network. The `automations` component (`features/automations.yaml`) keeps its
   rules there and takes its clock from `pcf8563_time`; `web_automation_editor`
   (`features/automation-editor.yaml`) edits those rules under `/automation-editor/api`.
+  `crash_report` (`features/crash-report.yaml`) writes the last panic's record to `crash/` there.
 - `config_json_keeper` (`features/storage.yaml`) owns the JSON settings files on that partition
   for any component that registers a settings type with it.
 - `switch_settings` and `binary_sensor_settings` (`features/entity-settings.yaml`) are the
@@ -86,6 +87,8 @@ afterwards. An unreadable record is not "no wipe was asked for" — mounting on 
 files the reset promised to erase, on a device that came up on its factory credentials —
 and mounting on a standing one takes the files written during that boot and erases them at
 the next, saying nothing either time.
+`crash_report` sets up at 809, right after the mount and ahead of the `config_json` keeper at
+`HARDWARE + 5`, and writes the previous boot's crash record there.
 Entity settings ride on `setup_priority` instead, ahead of every `on_boot` block: the
 `config_json` keeper loads the files at `HARDWARE + 5`, and one apply component per settings type
 pushes the values into the entities at `HARDWARE + 1`, before the switches and binary sensors set
@@ -187,5 +190,12 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   another task may schedule into it.
 - `components/bindings` subscribes once per input with `add_full_state_callback` and never
   unsubscribes: upstream has no callback removal, so rebinding goes through its own table.
+- `components/crash_report` takes the crash record the one way upstream hands it out, as log
+  lines: it checks `esp32::crash_handler_has_data()`, catches what `esp32::crash_handler_log()`
+  prints through a logger listener (`logger.request_log_listener()`, `add_log_callback`), then
+  calls `esp32::crash_handler_clear()`. The file carries the formatted lines tagged
+  `esp32.crash`, cut after the first `]: ` and stripped of colour codes, so the tag, the log
+  line layout and `crash_handler_log()`'s wording are part of the report format the decoder
+  reads.
 
 Re-check each of these on every ESPHome bump.
