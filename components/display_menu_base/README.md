@@ -1,9 +1,9 @@
 # display_menu_base
 
 Upstream's `display_menu_base` with a back action, a switch for what the "right" input does, a
-`weight` that orders the rows of a menu, and submenus that may be empty. Listing it in
-`external_components` shadows the copy that ships with ESPHome; everything else about the
-component is upstream's.
+`weight` that orders the rows of a menu, submenus that may be empty, and a way to empty one from
+a lambda. Listing it in `external_components` shadows the copy that ships with ESPHome;
+everything else about the component is upstream's.
 
 ```yaml
 external_components:
@@ -49,14 +49,15 @@ binary_sensor:
 Every `items:` list is sorted by weight on its own, while the config is validated — so a weight
 also orders rows that another package appended to the same list with `!extend`, whatever the
 package order is. It reaches only the rows written in YAML: what a lambda adds with `add_item()`
-at boot lands at the end of the list, after every weighted row, in the order it was added.
+lands at the end of the list, after every weighted row, in the order it was added.
 
 ## Empty submenus
 
 A `type: menu` item may leave `items:` out or leave it empty; the top-level `items:` still needs
 at least one row. An empty submenu is drawn as an ordinary row, but "enter" (and "right") on it
 does nothing: it only opens once something has filled it — another package via `!extend`, or a
-lambda at boot.
+lambda. A submenu emptied with `clear_items()` is refused the same way, and its `on_enter` does
+not run.
 
 ## Actions
 
@@ -68,3 +69,8 @@ lambda at boot.
 - `back()`: the same, and returns whether it went anywhere. `false` is the case above, which is
   where a config closes the menu itself
 - `is_at_main()`: the root menu is the one on screen
+- `clear_items()`, on a `type: menu` item: takes every row out of the submenu without deleting
+  any; the rows stay the caller's, and `add_item()` puts them back. A submenu can refill itself
+  this way from its own `on_enter`, and then opens on the first of the new rows. Leave at least
+  one row in a submenu that is on screen, and refill only one with no submenus of its own:
+  coming back from one of those runs `on_enter` too, with the cursor where it was

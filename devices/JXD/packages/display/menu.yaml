@@ -39,7 +39,7 @@ graphical_display_menu:
               return str_sprintf("%s: --", s->get_name().c_str());
             return str_sprintf("%s: %.1f°C", s->get_name().c_str(), s->state);
 
-    # A row per loaded rule is added at boot (esphome: on_boot below).
+    # A row per rule, rebuilt each time the submenu opens (esphome: on_boot below).
     - type: menu
       text: "Automations"
       id: automations_menu
@@ -256,8 +256,9 @@ esphome:
               id(temperatures_menu)->add_item(menu);
             }
 
-    # After the engine has loaded the rules (setup priority DATA - 1). The list is the one
-    # boot found: a rule added over HTTP afterwards shows after a reboot.
+    # After the engine has loaded the rules (setup priority DATA - 1). The rows are rebuilt each
+    # time the submenu opens and stay put while it is on screen, where the cursor and an edit
+    # point into them: a rule added meanwhile shows at the next open, one removed reads --.
     - priority: 500
       then:
         - lambda: |-
@@ -269,7 +270,7 @@ esphome:
                 if (config.id == rule_id)
                   return config.enabled ? 1 : 0;
               }
-              return -1;  // removed since boot
+              return -1;  // removed since the submenu was opened
             };
             // The value is appended to the row text and the row is clipped at the panel
             // edge, so a long name would push On / Off off the screen.
@@ -283,45 +284,71 @@ esphome:
             };
             // A cut name is no longer known to be unique — two rules may start alike — so a row
             // that had to cut one carries the rule's id, the one the editor and the log use.
-            auto label = [&fit](const automations::AutomationConfig &config) {
+            auto label = [fit](const automations::AutomationConfig &config) {
               const std::string cut = fit(config.name, 12);
               if (cut.size() == config.name.size())
                 return cut;
               const std::string tag = " #" + std::to_string(config.id);
               return fit(config.name, 12 - tag.size()) + tag;
             };
-            for (const auto &config : engine->configs().get_all_configs()) {
-              const uint32_t rule_id = config.id;
-              auto *pending = new int(-1);  // the choice being edited; -1 outside editing
-              auto *row = new MenuItemCustom();
-              row->set_text(label(config));
-              row->set_value_lambda([=](const MenuItem *) {
-                const int state = *pending >= 0 ? *pending : state_of(rule_id);
+            // Rows are reused by position and never deleted: a callback larger than a pointer
+            // is never freed, so a deleted row would leak its closures on every open.
+            struct Row {
+              MenuItemCustom item;
+              uint32_t rule_id{0};
+              int pending{-1};  // the choice being edited; -1 outside editing
+              int opened{-1};   // the rule's state when the edit began
+            };
+            auto make_row = [engine, state_of]() {
+              auto *row = new Row();
+              row->item.set_value_lambda([row, state_of](const MenuItem *) {
+                int state = state_of(row->rule_id);  // a rule gone mid-edit reads -- too
+                if (state >= 0 && row->pending >= 0)
+                  state = row->pending;
                 return std::string(state < 0 ? "--" : state > 0 ? "On" : "Off");
               });
-              row->add_on_enter_callback([=]() { *pending = state_of(rule_id); });
-              auto flip = [=]() {
-                if (*pending >= 0)
-                  *pending = 1 - *pending;
-              };
-              row->add_on_next_callback(flip);
-              row->add_on_prev_callback(flip);
-              row->add_on_leave_callback([=]() {
-                const int current = state_of(rule_id);
-                bool persisted = false;
-                // Only on a change to a rule still there: the engine rewrites the rule's file on
-                // every call. A rule naming an entity that is gone is never written, so put the
-                // live state back rather than leave the row promising what a reboot would undo.
-                if (*pending >= 0 && current >= 0 && *pending != current &&
-                    engine->set_enable_automation(rule_id, *pending > 0, &persisted) && !persisted)
-                  engine->set_enable_automation(rule_id, *pending == 0);
-                *pending = -1;
+              row->item.add_on_enter_callback([row, state_of]() {
+                row->pending = row->opened = state_of(row->rule_id);
               });
-              id(automations_menu)->add_item(row);
-            }
-            if (id(automations_menu)->items_size() == 0) {
-              // An empty submenu cannot be entered, so the row would do nothing at all.
-              auto *note = new MenuItem(MENU_ITEM_LABEL);
-              note->set_text("No automations");
-              id(automations_menu)->add_item(note);
-            }
+              auto flip = [row]() {
+                if (row->pending >= 0)
+                  row->pending = 1 - row->pending;
+              };
+              row->item.add_on_next_callback(flip);
+              row->item.add_on_prev_callback(flip);
+              row->item.add_on_leave_callback([row, engine, state_of]() {
+                const int current = state_of(row->rule_id);
+                bool persisted = false;
+                // Only on a flip, to a rule still there and not in that state already: the engine
+                // rewrites the rule's file on every call, and an untouched row would undo a change
+                // made over HTTP while it was open. A rule naming an entity that is gone is never
+                // written, so put the live state back rather than leave the row promising what a
+                // reboot would undo.
+                if (row->pending >= 0 && row->pending != row->opened && current >= 0 && row->pending != current &&
+                    engine->set_enable_automation(row->rule_id, row->pending > 0, &persisted) && !persisted)
+                  engine->set_enable_automation(row->rule_id, row->pending == 0);
+                row->pending = -1;
+              });
+              return row;
+            };
+            auto *menu = id(automations_menu);
+            auto *pool = new std::vector<Row *>();
+            // An empty submenu cannot be entered, so the row would do nothing at all.
+            auto *none = new MenuItem(MENU_ITEM_LABEL);
+            none->set_text("No automations");
+            auto rebuild = [engine, menu, pool, none, make_row, label]() {
+              menu->clear_items();
+              size_t used = 0;
+              for (const auto &config : engine->configs().get_all_configs()) {
+                if (used == pool->size())
+                  pool->push_back(make_row());
+                Row *row = (*pool)[used++];
+                row->rule_id = config.id;
+                row->item.set_text(label(config));
+                menu->add_item(&row->item);
+              }
+              if (used == 0)
+                menu->add_item(none);
+            };
+            rebuild();  // before the first open: an empty submenu cannot be entered to rebuild it
+            menu->add_on_enter_callback(rebuild);

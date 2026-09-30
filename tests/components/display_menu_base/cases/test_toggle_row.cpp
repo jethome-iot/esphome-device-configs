@@ -6,16 +6,19 @@ namespace esphome::display_menu_base::testing {
 
 // The Automations rows are MenuItemCustom two-state toggles: the flip is held in a pending
 // value and applied when the edit ends, because applying it per keypress would rewrite the
-// rule's file on every press. This pins that contract, not any one menu that uses it.
+// rule's file on every press. Only a flip is applied, so a row cannot write the state it opened
+// on back over a change made elsewhere. This pins that contract, not any one menu that uses it.
 class ToggleRow : public ::testing::Test {
  protected:
   void SetUp() override {
     this->row_.set_text("Porch light");
     this->row_.set_value_lambda([this](const MenuItem *) {
-      const int state = this->pending_ >= 0 ? this->pending_ : this->state_of_();
+      int state = this->state_of_();
+      if (state >= 0 && this->pending_ >= 0)
+        state = this->pending_;
       return std::string(state < 0 ? "--" : state > 0 ? "On" : "Off");
     });
-    this->row_.add_on_enter_callback([this]() { this->pending_ = this->state_of_(); });
+    this->row_.add_on_enter_callback([this]() { this->pending_ = this->opened_ = this->state_of_(); });
     auto flip = [this]() {
       if (this->pending_ >= 0)
         this->pending_ = 1 - this->pending_;
@@ -24,7 +27,8 @@ class ToggleRow : public ::testing::Test {
     this->row_.add_on_prev_callback(flip);
     this->row_.add_on_leave_callback([this]() {
       const int current = this->state_of_();
-      if (this->pending_ >= 0 && current >= 0 && this->pending_ != current && this->set_enabled_(this->pending_ > 0))
+      if (this->pending_ >= 0 && this->pending_ != this->opened_ && current >= 0 && this->pending_ != current &&
+          this->set_enabled_(this->pending_ > 0))
         this->set_enabled_(this->pending_ == 0);
       this->pending_ = -1;
     });
@@ -50,6 +54,7 @@ class ToggleRow : public ::testing::Test {
   bool gone_{false};
   bool write_refused_{false};
   int pending_{-1};
+  int opened_{-1};
   int writes_{0};
 };
 
@@ -117,7 +122,8 @@ TEST_F(ToggleRow, HidingTheMenuAppliesTheChoiceOnce) {
   EXPECT_EQ(this->writes_, 1);
 }
 
-// A rule removed over HTTP leaves its row behind: it reads `--` and every key is inert.
+// A rule removed over HTTP while the list is on screen leaves its row behind until the next
+// open: it reads `--` and every key is inert.
 TEST_F(ToggleRow, ARowWhoseRuleIsGoneIsInert) {
   this->gone_ = true;
 
@@ -140,6 +146,47 @@ TEST_F(ToggleRow, ARuleThatGoesMidEditIsNotWrittenBack) {
   this->gone_ = true;
   this->menu_.enter();
 
+  EXPECT_EQ(this->writes_, 0);
+}
+
+// Nor does the row keep showing the choice it can no longer apply.
+TEST_F(ToggleRow, ARuleThatGoesMidEditReadsDashes) {
+  this->menu_.enter();
+  this->menu_.right();
+  ASSERT_EQ(this->value(), "On");
+
+  this->gone_ = true;
+
+  EXPECT_EQ(this->value(), "--");
+  this->menu_.right();
+  EXPECT_EQ(this->value(), "--");
+
+  this->menu_.enter();
+
+  EXPECT_EQ(this->writes_, 0);
+  EXPECT_EQ(this->value(), "--");
+}
+
+// The rule is enabled over HTTP while the row sits open on Off: closing it untouched must not
+// write that Off back.
+TEST_F(ToggleRow, AnUntouchedRowDoesNotUndoAChangeMadeWhileItWasOpen) {
+  this->menu_.enter();
+  this->stored_ = true;
+  this->menu_.enter();
+
+  EXPECT_TRUE(this->stored_);
+  EXPECT_EQ(this->writes_, 0);
+  EXPECT_EQ(this->value(), "On");
+}
+
+// The flip and a change made elsewhere agree: the rule is already where the row would put it.
+TEST_F(ToggleRow, AFlipToWhereTheRuleAlreadyIsWritesNothing) {
+  this->menu_.enter();
+  this->menu_.right();
+  this->stored_ = true;
+  this->menu_.enter();
+
+  EXPECT_TRUE(this->stored_);
   EXPECT_EQ(this->writes_, 0);
 }
 
