@@ -193,10 +193,16 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
-      - name: Install ESPHome
-        run: pip install -r requirements.txt
+      - name: Install ESPHome and the dev tooling
+        # requirements-dev.txt carries littlefs-python, which tests/scripts needs. Two
+        # installs, as scripts/setup.sh does: a pin drifting from ESPHome's warns, not fails.
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
       # Compile cache, in a dir of its own: esphome's default sits under
       # ~/.cache/esphome, which the build job saves whole. Written from dev only.

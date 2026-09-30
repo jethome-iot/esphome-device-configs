@@ -2,20 +2,22 @@
 
 Every component with tests has a Google Test suite under `tests/components/<name>/`, built for
 ESPHome's `host` platform by `esphome compile`, so nothing here needs an ESP toolchain.
-`tests/run.py` finds the suites and builds and runs each one; CI does the same in the
-`unit-test` job.
+`tests/run.py` finds the suites and builds and runs each one, then the Python tests of the
+tools under `scripts/`; CI does the same in the `unit-test` job.
 
 ```bash
 python tests/run.py                                    # every suite
 python tests/run.py automations                        # one component
 python tests/run.py automations -- --gtest_filter='Storage.*'
+python tests/run.py scripts                            # the scripts/ tools alone
 ```
 
 ## Layout
 
 ```
 tests/
-  run.py                    # finds the suites under tests/components/, builds and runs each
+  run.py                    # finds the suites under tests/components/, builds and runs each,
+                            # then runs tests/scripts/
   harness/
     main.cpp                # upstream's tests/components/main.cpp: runs the tests instead of setup()
     environment.cpp         # constructs App, which that setup would have done
@@ -49,6 +51,7 @@ tests/
     web_device_dashboard/
     web_file_browser/
     web_origin_guard/
+  scripts/                    # unittest cases for the tools under scripts/, test_<script>.py each
 ```
 
 ## Adding a suite for a new component

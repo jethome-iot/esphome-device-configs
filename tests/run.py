@@ -1,4 +1,4 @@
-"""Build and run the Google Test binaries under tests/components/. Usage: python tests/run.py [component ...] [-- gtest args]"""
+"""Build and run the Google Test binaries under tests/components/, and the Python tests of scripts/. Usage: python tests/run.py [component | scripts ...] [-- gtest args]"""
 
 import os
 import subprocess
@@ -9,6 +9,7 @@ import yaml
 
 HERE = Path(__file__).resolve().parent
 COMPONENTS = HERE / "components"
+SCRIPTS = HERE / "scripts"
 
 
 def binary_for(config: Path) -> Path:
@@ -22,7 +23,7 @@ def has_tests(component: Path) -> bool:
 
 
 def run_python_tests(component: Path) -> bool:
-    """Schema and validator tests next to the cases, if the suite has any."""
+    """A component's schema and validator tests next to its cases, or the scripts' tests."""
     if not any(component.glob("test_*.py")):
         return True
     proc = subprocess.run(
@@ -79,12 +80,15 @@ def main() -> int:
         split = args.index("--")
         args, gtest_args = args[:split], args[split + 1 :]
     if args:
-        components = [COMPONENTS / name for name in args]
+        components = [
+            SCRIPTS if name == "scripts" else COMPONENTS / name for name in args
+        ]
     else:
         components = sorted(p for p in COMPONENTS.iterdir() if has_tests(p))
+        components.append(SCRIPTS)
     missing = [c.name for c in components if not has_tests(c)]
     if missing:
-        print(f"no tests under tests/components/ for: {', '.join(missing)}")
+        print(f"no tests under tests/ for: {', '.join(missing)}")
         return 2
     failed = [c.name for c in components if not run_component(c, gtest_args)]
     if failed:
