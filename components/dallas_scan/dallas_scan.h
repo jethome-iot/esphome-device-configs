@@ -96,6 +96,7 @@ class DallasScan : public PollingComponent {
   bool uses_file_() const;
   bool can_save_() const;
   bool save_table_();
+  bool store_for_reboot_();
 
   one_wire::OneWireBus *bus_{nullptr};
   const char *name_prefix_{"Temp"};

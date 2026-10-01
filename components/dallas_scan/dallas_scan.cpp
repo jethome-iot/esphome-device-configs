@@ -306,14 +306,30 @@ void DallasScan::forget(int slot) {
     ESP_LOGW(TAG, "Nothing to forget: the slot is empty or taken by a YAML sensor");
     return;
   }
-  // The reboot comes next, so a preference has to reach flash now; a reboot after a failed
-  // write would bring the slot back without a word.
-  if (!this->save_table_() || !(this->uses_file_() || global_preferences->sync())) {
+  // A reboot after a failed write would bring the slot back without a word.
+  if (!this->store_for_reboot_()) {
     this->slots_ = before;
     ESP_LOGE(TAG, "The slot table was not written: nothing is forgotten");
     return;
   }
   App.safe_reboot();
+}
+
+// The reboot comes next, so the table has to be on flash now rather than queued.
+bool DallasScan::store_for_reboot_() {
+  if (!this->save_table_())
+    return false;
+  if (this->uses_file_() || global_preferences->sync())
+    return true;
+  // The flush reports for every record at once, so the failure may be another one's. It has
+  // emptied the queue, so this reads what flash holds.
+  std::vector<uint64_t> stored(this->slots_.size(), 0);
+  if (this->pref_.load(reinterpret_cast<uint8_t *>(stored.data()), stored.size() * sizeof(uint64_t)) &&
+      stored == this->slots_) {
+    ESP_LOGW(TAG, "Flushing flash failed for another record; the slot table is stored all the same");
+    return true;
+  }
+  return false;
 }
 
 bool DallasScan::uses_file_() const {

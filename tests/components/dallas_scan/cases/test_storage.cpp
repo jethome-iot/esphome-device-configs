@@ -294,13 +294,15 @@ TEST_F(ForgetDeathTest, OnlyAForgetWritesOverAFileThatDidNotLoad) {
 
 // --- storage: nvs ---
 
+static std::string prefs_path() {
+  const char *prefdir = getenv("ESPHOME_PREFDIR");
+  return std::string(prefdir != nullptr ? prefdir : ".prefs") + "/" + App.get_name().c_str() + ".prefs";
+}
+
 // The table as the host preferences file holds it after a sync, empty when it is not there.
 static std::vector<uint64_t> stored_table(size_t slots) {
-  const char *prefdir = getenv("ESPHOME_PREFDIR");
-  const std::string path =
-      std::string(prefdir != nullptr ? prefdir : ".prefs") + "/" + App.get_name().c_str() + ".prefs";
   std::vector<uint64_t> table;
-  FILE *fp = fopen(path.c_str(), "rb");
+  FILE *fp = fopen(prefs_path().c_str(), "rb");
   if (fp == nullptr)
     return table;
   uint32_t key;
@@ -332,6 +334,19 @@ TEST_F(ForgetDeathTest, ForgetInPreferencesSyncsTheTableAndReboots) {
   EXPECT_FORGET_REBOOTS(scan, 0);
   EXPECT_EQ(stored_table(4), (std::vector<uint64_t>{0, ROM_B, 0, 0}));
   EXPECT_TRUE(this->files().empty());
+}
+
+// The flush reports for every record at once. On the host a record lives in memory from save()
+// on, so a flush that cannot write the file is the case where another record failed and this
+// one is on flash: the read-back finds the new table and the forget goes ahead.
+TEST_F(ForgetDeathTest, AFailedFlushWithTheTableOnFlashStillReboots) {
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root writes a read-only file";
+  DallasScan &scan = this->boot_nvs({ROM_A, ROM_B});
+  ASSERT_TRUE(global_preferences->sync());
+  ASSERT_EQ(chmod(prefs_path().c_str(), 0444), 0);
+  EXPECT_FORGET_REBOOTS(scan, 0);
+  chmod(prefs_path().c_str(), 0644);
 }
 
 }  // namespace esphome::dallas_scan::testing
