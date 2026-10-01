@@ -61,7 +61,7 @@ class FirmwareRollback : public Component {
   bool available() const { return this->target_.available(); }
   const RollbackTarget &target() const { return this->target_; }
   /// select_rollback() on the held target: nullptr on success, and the caller reboots; else why
-  /// not, with the target read again, since the slot is not what it was.
+  /// not, with the target read again, since a refusal may mean the slot changed.
   const char *rollback();
 
  protected:

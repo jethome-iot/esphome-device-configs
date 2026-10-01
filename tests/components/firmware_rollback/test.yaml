@@ -21,6 +21,17 @@ esphome:
       # dump_config cases read the config lines through one.
       - -DUSE_LOG_LISTENERS
       - -DESPHOME_LOG_MAX_LISTENERS=1
+  # Compile-only, as the harness never runs the generated setup: all three, written without an id.
+  on_boot:
+    - firmware_rollback.refresh:
+    - if:
+        condition:
+          firmware_rollback.is_available:
+        then:
+          - firmware_rollback.rollback:
+              on_error:
+                - delay: 1s
+                - lambda: ESP_LOGW("test", "%s", x.c_str());
 
 host:
 

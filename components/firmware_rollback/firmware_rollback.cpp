@@ -94,7 +94,11 @@ const char *select_rollback(const RollbackTarget &target) {
     error = err == ESP_OK ? nullptr : esp_err_to_name(err);
   }
   if (error != nullptr) {
-    ESP_LOGE(TAG, "Rollback to '%s' failed: %s", target.partition.c_str(), error);
+    if (target.available()) {
+      ESP_LOGE(TAG, "Rollback to '%s' failed: %s", target.partition.c_str(), error);
+    } else {
+      ESP_LOGE(TAG, "Rollback failed: %s", error);
+    }
     return error;
   }
   ESP_LOGW(TAG, "Rolling back to '%s'", target.partition.c_str());

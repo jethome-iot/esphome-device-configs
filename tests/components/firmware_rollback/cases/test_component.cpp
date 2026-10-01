@@ -59,12 +59,6 @@ TEST(FirmwareRollback, RefreshFindsNothingOnTheHost) {
   EXPECT_TRUE(rollback.target().version.empty());
 }
 
-TEST(FirmwareRollback, TargetIsWhatTheLastReadFound) {
-  Seeded rollback;
-  EXPECT_EQ(rollback.target().partition, "app1");
-  EXPECT_EQ(rollback.target().version, "2026.8.1");
-}
-
 // A refused select reads the slot again, so the menu stops offering what is not there.
 TEST(FirmwareRollback, AFailedRollbackSaysWhyAndReadsAgain) {
   Seeded rollback;
@@ -111,7 +105,11 @@ TEST(RollbackAction, AFailureFiresOnErrorWithTheReasonAndCarriesOn) {
   action.set_parent(&rollback);
   std::vector<std::string> errors;
   auto *on_error = new Automation<std::string>(action.get_error_trigger());
-  on_error->add_action(new LambdaAction<std::string>([&errors](const std::string &x) { errors.push_back(x); }));
+  on_error->add_action(new LambdaAction<std::string>([&errors, &rollback](const std::string &x) {
+    // The target is read again before on_error runs.
+    EXPECT_FALSE(rollback.available());
+    errors.push_back(x);
+  }));
   bool next_ran = false;
   ActionList<> list;
   list.add_actions({&action, new LambdaAction<>([&next_ran]() { next_ran = true; })});

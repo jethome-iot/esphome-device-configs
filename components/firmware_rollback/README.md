@@ -1,10 +1,11 @@
 # firmware_rollback
 
 Boots the firmware in the other app slot: says whether there is one worth going back to, and
-makes it the next boot. Declare it with an `id` and drive it from YAML with the actions below;
-[`web_device_dashboard`](../web_device_dashboard/README.md) auto-loads it for
-`/api/device/system/rollback`, so the dashboard and a display menu give the same answer. ESP32
-only.
+makes it the next boot. Drive it from YAML with the actions and the condition below. The `id` is
+optional everywhere, the declaration included, as there is only one instance;
+[`web_device_dashboard`](../web_device_dashboard/README.md) auto-loads it without one for
+`/api/device/system/rollback`. The dashboard and a display menu answer by the same rule: the
+dashboard reads the slot on each request, the instance answers from its last read. ESP32 only.
 
 ```yaml
 external_components:
@@ -19,7 +20,7 @@ firmware_rollback:
   id: rollback
 ```
 
-## Actions
+## Actions and condition
 
 ```yaml
 # Read the other slot again.
@@ -46,15 +47,14 @@ does when it opens.
 
 `firmware_rollback.rollback` checks the slot again and, on success, reboots into it; the actions
 after it do not run. On failure nothing is selected, the instance reads the slot again, and
-`on_error` runs with the reason in `x`, a `std::string`; the actions after it run too.
-
-The `id` may be left out of all three: there is only one instance.
+`on_error` runs with the reason in `x`, a `std::string`; the actions after it run too. Inside
+`on_error` only `x` is available, not the arguments of the automation around it.
 
 ## C++
 
-For lambdas, the instance gives the same answers: `id(rollback).available()`, and
-`id(rollback).target()` with the slot's `partition`, `version` and `project_name`. The free
-functions read and select without going through it:
+For lambdas, which reach the instance by its `id`, it gives the same answers:
+`id(rollback).available()`, and `id(rollback).target()` with the slot's `partition`, `version`
+and `project_name`. The free functions read and select without going through it:
 
 ```cpp
 // Anywhere, on any task: reads the slot's header, never the image.

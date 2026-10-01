@@ -1,4 +1,4 @@
-"""The component's YAML schema: an id and nothing else, only where there is an app slot, and
+"""The component's YAML schema: an id and setup_priority, only where there is an app slot, and
 the actions and the condition that drive it."""
 
 import unittest
@@ -95,11 +95,15 @@ class Automations(unittest.TestCase):
 
     # The one instance, as upstream's actions find a component declared once.
     def test_each_works_without_an_id(self):
+        # None is the bare `- firmware_rollback.refresh:`.
         for name, schema in SCHEMAS.items():
-            with self.subTest(name=name):
-                config = schema({})
-                self.assertIsNone(config["id"].id)
-                self.assertEqual(config["id"].type, firmware_rollback.FirmwareRollback)
+            for value in ({}, None):
+                with self.subTest(name=name, value=value):
+                    config = schema(value)
+                    self.assertIsNone(config["id"].id)
+                    self.assertEqual(
+                        config["id"].type, firmware_rollback.FirmwareRollback
+                    )
 
     def test_each_refuses_an_unknown_key(self):
         for name, schema in SCHEMAS.items():

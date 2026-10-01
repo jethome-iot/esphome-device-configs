@@ -28,7 +28,7 @@ boundaries; everything else is local to its file.
   `id: !extend display1`. `display_menu` (`display/menu.yaml`) exposes `info_submenu` and
   `menu_settings_id` as extension points that `menu-items-network.yaml`, `menu-serial.yaml`
   and `menu-firmware.yaml` fill via `!extend` (`firmware_rollback_id`, the instance the
-  Rollback row reads, is declared in `menu-firmware.yaml`); their rows follow the device config's
+  Rollback row reads, is local to `menu-firmware.yaml`); their rows follow the device config's
   package order unless a `weight` moves them, and rows added from C++ at boot come after all of
   them. A submenu may be empty, and `info_submenu`, `relays_menu` and `inputs_menu` declare no
   rows of their own: the last two are filled at boot from the `relays` / `inputs` vectors, so the
