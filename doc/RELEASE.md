@@ -65,7 +65,7 @@ at build time.
    Release → Run workflow**:
    - `dry_run` on: builds everything, uploads artifacts, touches nothing;
    - `dry_run` off and `channel: release` (the dispatch default is `nightly`
-     — the safe side: it never moves the release channel's `latest` pointer):
+     — the safe side: it never touches the release channel's `latest` pointer):
      the workflow computes the version, creates the GitHub release, attaches
      all binaries, and uploads the `upload: true` firmwares to the server.
 5. A full release tag must be `<esphome>` (workflow picks the next
@@ -102,8 +102,10 @@ built firmware, both images; dev nightlies have no GitHub release:
 - hierarchy `JetHome.jxd.firmware.esphome.<device>.<channel>`
 - image types `esp.bin` (factory) and `esp.ota` (OTA)
 - hash: md5 (the server serves it as `info.md5` for OTA updates)
-- `supported_devices`: the device slug; the `latest` pointer moves only on
-  `release` channel uploads (manual runs control it with `update_latest`)
+- `supported_devices`: the device slug; the factory-image upload advances
+  the channel's `latest` pointer (the OTA upload never does), no channel's
+  pointer moves backward, and manual release publications can opt out with
+  `update_latest`
 
 ## Updates on the device
 
