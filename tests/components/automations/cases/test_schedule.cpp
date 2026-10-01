@@ -373,6 +373,24 @@ TEST_F(ScheduleRule, ABusyRuleIsOfferedTheStateUntilItTakesIt) {
   EXPECT_EQ(e.relay1.writes, 2);
 }
 
+TEST_F(ScheduleRule, AFullParallelRuleIsOfferedTheStateUntilASlotFrees) {
+  adopt(R"({"name":"Full","mode":"parallel","triggers":[
+      {"source":"schedule","windows":[{"from":"08:00","to":"08:01"}]},
+      {"source":"input","type":"press","object_id":"in_1"}],
+      "actions":[{"source":"switch","type":"follow","object_id":"relay_1"},{"source":"delay","delay_ms":120000}]})");
+  boot_at(at(0, 8, 0));
+  for (int i = 0; i < 7; i++) {
+    engine.rule(0)->on_binary_sensor(&e.in1, true);
+    engine.rule(0)->on_binary_sensor(&e.in1, false);
+  }
+  ASSERT_EQ(engine.delays.size(), 8u);
+  run_until(at(0, 8, 1, 5));
+  EXPECT_TRUE(e.relay1.state);  // all eight runs still wait
+  ASSERT_TRUE(engine.fire_next());
+  run_until(at(0, 8, 1, 6));
+  EXPECT_FALSE(e.relay1.state);
+}
+
 TEST_F(ScheduleRule, ARestartingRuleTakesTheEdgeAtOnce) {
   adopt(
       R"({"name":"Restart","mode":"restart","triggers":[{"source":"schedule","windows":[{"from":"08:00","to":"08:01"}]}],
