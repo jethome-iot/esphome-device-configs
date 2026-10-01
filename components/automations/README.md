@@ -83,9 +83,10 @@ outside them. With `follow` it is a relay's whole timetable in one rule:
 ]}
 ```
 
-It fires with `on` where a window starts and `off` where it ends, and with the current state
-whenever its rule starts: at boot once the clock is valid, and when the rule is added, changed or
-enabled — so the relay is right again after a power cut. A rule still running in `single` mode
+It fires whenever that state changes — `on` as the time enters the windows, `off` as it leaves
+them, nothing where two windows meet — and with the current state whenever its rule starts: at
+boot once the clock is valid, and when the rule is added, changed or enabled. So the relay is
+right again after a power cut. A rule still running in `single` mode
 takes the state as soon as it finishes. A relay switched by hand stays so until the next window
 edge. Actions other than `follow` run on every one of these, `on` and `off` alike.
 
