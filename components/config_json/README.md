@@ -43,8 +43,8 @@ partition. Unknown keys, in the document and in a record, are ignored; a record 
 is logged and dropped, the rest of the file still loads; of two records for the same entity the
 later one wins, with a warning.
 
-A file that is missing, empty, larger than 64 KiB or not parseable leaves the type at its
-compiled defaults and is left on disk untouched; a type that would serialize past that limit is
+A file that is missing, will not open, is empty, larger than 64 KiB or not parseable leaves the
+type at its compiled defaults and is left on disk untouched; a type that would serialize past that limit is
 not written either, and stays dirty — nothing is dirty, so the boot writes nothing
 and a file that is corrupt for an unrelated reason is not overwritten by mistake. A save writes
 `<key>.json.tmp` and renames it over the file, so a power cut mid-save keeps the last good copy.
