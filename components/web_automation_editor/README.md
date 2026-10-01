@@ -69,8 +69,9 @@ seconds. Nothing was read or written then, and the call can simply be made again
 `Empty request body`; a body over 16 KiB, the engine's own ceiling on a rule file, is `413`. A
 name another rule already owns — names collide by file name, so `Porch light` and `porch-LIGHT`
 are one — is refused with the reason, and the engine's own refusals (a rule limit reached, a
-file the loader had refused under that name, a call from inside a running rule) come back as
-`Failed to create automation` / `Failed to update automation`.
+file the loader had refused under that name, a `condition` trigger with no condition, a call
+from inside a running rule) come back as `Failed to create automation` / `Failed to update
+automation`.
 
 Every failure is `{"success": false, "error"}`: `400` for a bad request (an `id` that is missing
 or not a plain non-zero number included), `404` for an `id` no

@@ -72,6 +72,29 @@ export const seedAutomations: AutomationConfig[] = [
       { source: 'switch', type: 'follow', object_id: 'porch_light', invert: false },
       { source: 'switch', type: 'follow', object_id: 'relay_3', invert: true }
     ]
+  },
+  {
+    // A latch: the door turns relay 3 on, it holds itself on, motion lets it go.
+    id: 4,
+    name: 'Relay 3 latches on the door',
+    enabled: true,
+    mode: 'restart',
+    triggers: [{ source: 'condition' }],
+    condition: {
+      type: 'or',
+      conditions: [
+        { type: 'input', object_id: 'front_door', state: 'true' },
+        {
+          type: 'and',
+          conditions: [
+            { type: 'switch', object_id: 'relay_3', state: 'true' },
+            { type: 'input', object_id: 'motion', state: 'false' }
+          ]
+        }
+      ]
+    },
+    actions: [{ source: 'switch', type: 'turn_on', object_id: 'relay_3' }],
+    else_actions: [{ source: 'switch', type: 'turn_off', object_id: 'relay_3' }]
   }
 ]
 
@@ -97,10 +120,12 @@ export const seedSchema: AutomationSchema = {
     { type: 'temperature', subtypes: ['above', 'below', 'range'] },
     { type: 'cron', subtypes: [] },
     { type: 'startup', subtypes: [] },
-    { type: 'switch', subtypes: ['turn_on', 'turn_off', 'state_change'] }
+    { type: 'switch', subtypes: ['turn_on', 'turn_off', 'state_change'] },
+    { type: 'condition', subtypes: [] }
   ],
   conditions: [
     { type: 'input' },
+    { type: 'switch' },
     { type: 'temperature', subtypes: ['above', 'below', 'range'] },
     { type: 'and' },
     { type: 'or' },
@@ -133,7 +158,7 @@ function validAction(a: AutomationAction): boolean {
 }
 
 function validCondition(c: AutomationCondition): boolean {
-  if (c.type === 'input') return typeof c.object_id === 'string'
+  if (c.type === 'input' || c.type === 'switch') return typeof c.object_id === 'string'
   if (c.type === 'temperature') {
     return knownType(seedSchema.conditions as Array<{ type: string; subtypes?: string[] }>, c.type, c.temperature_type)
   }
@@ -155,6 +180,12 @@ function validRule(cfg: unknown): cfg is AutomationSaveInput {
     (c.else_actions === undefined || (Array.isArray(c.else_actions) && c.else_actions.every(validAction))) &&
     (c.condition === undefined || validCondition(c.condition))
   )
+}
+
+// What the engine refuses to build after the words have parsed: the device answers
+// that as a failed create or update, not as a parse error.
+function buildable(cfg: AutomationConfig): boolean {
+  return cfg.condition !== undefined || !cfg.triggers.some((t) => t.source === 'condition')
 }
 
 // The device's id parameter: the whole value, decimal, non-zero.
@@ -266,8 +297,14 @@ export function createAutomationMockStore(): AutomationMockStore {
           if (i < 0) {
             return { status: 404, body: { success: false, error: 'Automation not found' } }
           }
+          if (!buildable(cfg)) {
+            return { status: 400, body: { success: false, error: 'Failed to update automation' } }
+          }
           automations[i] = normalizeStoredCron({ ...cfg })
           return { status: 200, body: { success: true, message: 'Automation updated' } }
+        }
+        if (!buildable(cfg)) {
+          return { status: 400, body: { success: false, error: 'Failed to create automation' } }
         }
         const id = nextId++
         automations.push(normalizeStoredCron({ ...cfg, id }))

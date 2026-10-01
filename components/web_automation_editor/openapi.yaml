@@ -111,8 +111,9 @@ paths:
         `Empty request body`. Names collide by file name (`Porch light` and
         `porch-LIGHT` are one), and a name another rule owns is refused with the
         reason. The engine's own refusals — the rule limit, a file the loader had
-        refused under that name, a call from inside a running rule — come back as
-        `Failed to create automation` / `Failed to update automation`.
+        refused under that name, a `condition` trigger with no condition, a call
+        from inside a running rule — come back as `Failed to create automation` /
+        `Failed to update automation`.
       requestBody:
         required: true
         content:
@@ -428,7 +429,11 @@ components:
       properties:
         source:
           type: string
-          enum: [input, switch, temperature, cron, startup]
+          enum: [input, switch, temperature, cron, startup, condition]
+          description: >-
+            `condition` takes no other field: it fires when the rule's condition
+            changes, and once when the rule starts watching, carrying the result. A
+            rule with it and no `condition` is refused.
         type:
           type: string
           description: >-
@@ -459,13 +464,13 @@ components:
       properties:
         type:
           type: string
-          enum: [input, temperature, and, or, xor]
+          enum: [input, switch, temperature, and, or, xor]
         object_id:
           type: string
         state:
           type: string
           enum: ["true", "false"]
-          description: For `input`.
+          description: For `input` and `switch`; absent is `"true"`.
         temperature_type:
           type: string
           enum: [above, below, range]

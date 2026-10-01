@@ -33,10 +33,12 @@ static const char *const SCHEMA = R"({
     {"type": "temperature", "subtypes": ["above", "below", "range"]},
     {"type": "cron", "subtypes": []},
     {"type": "startup", "subtypes": []},
-    {"type": "switch", "subtypes": ["turn_on", "turn_off", "state_change"]}
+    {"type": "switch", "subtypes": ["turn_on", "turn_off", "state_change"]},
+    {"type": "condition", "subtypes": []}
   ],
   "conditions": [
     {"type": "input"},
+    {"type": "switch"},
     {"type": "temperature", "subtypes": ["above", "below", "range"]},
     {"type": "and"},
     {"type": "or"},
