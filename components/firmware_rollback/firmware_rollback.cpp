@@ -1,12 +1,14 @@
 #include "firmware_rollback.h"
 #include <cstring>
+#include "esphome/core/log.h"
 #ifdef USE_ESP32
 #include <esp_image_format.h>
 #include <esp_ota_ops.h>
-#include "esphome/core/log.h"
 #endif
 
 namespace esphome::firmware_rollback {
+
+static const char *const TAG = "firmware_rollback";
 
 // The width of esp_app_desc_t's version and project_name.
 static constexpr size_t DESC_FIELD_LEN = 32;
@@ -37,8 +39,6 @@ RollbackTarget evaluate(const OtherSlot &slot) {
 }
 
 #ifdef USE_ESP32
-static const char *const TAG = "firmware_rollback";
-
 static_assert(static_cast<uint32_t>(SlotState::NEW) == ESP_OTA_IMG_NEW);
 static_assert(static_cast<uint32_t>(SlotState::PENDING_VERIFY) == ESP_OTA_IMG_PENDING_VERIFY);
 static_assert(static_cast<uint32_t>(SlotState::VALID) == ESP_OTA_IMG_VALID);
@@ -105,5 +105,25 @@ RollbackTarget rollback_target() { return {}; }
 
 const char *select_rollback(const RollbackTarget & /*target*/) { return "Rollback needs an ESP32"; }
 #endif
+
+void FirmwareRollback::setup() { this->refresh(); }
+
+void FirmwareRollback::dump_config() {
+  ESP_LOGCONFIG(TAG, "Firmware Rollback:");
+  if (this->target_.available()) {
+    ESP_LOGCONFIG(TAG, "  Other slot: %s, version %s", this->target_.partition.c_str(), this->target_.version.c_str());
+  } else {
+    ESP_LOGCONFIG(TAG, "  Other slot: nothing to roll back to");
+  }
+}
+
+void FirmwareRollback::refresh() { this->target_ = rollback_target(); }
+
+const char *FirmwareRollback::rollback() {
+  const char *error = select_rollback(this->target_);
+  if (error != nullptr)
+    this->refresh();
+  return error;
+}
 
 }  // namespace esphome::firmware_rollback

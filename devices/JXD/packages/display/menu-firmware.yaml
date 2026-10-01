@@ -5,12 +5,9 @@ external_components:
   - source: ${components}
     components: [firmware_rollback]
 
+# Holds the other slot as read when Firmware opens, not on every redraw.
 firmware_rollback:
-
-globals:
-  # Read when Firmware opens, not on every redraw.
-  - id: firmware_rollback_target
-    type: firmware_rollback::RollbackTarget
+  id: firmware_rollback_id
 
 graphical_display_menu:
   items:
@@ -23,7 +20,7 @@ graphical_display_menu:
           # Also on the way back up from a child, so the Rollback row follows what an install or
           # a rollback tried there did to the other slot.
           on_enter:
-            - lambda: id(firmware_rollback_target) = firmware_rollback::rollback_target();
+            - firmware_rollback.refresh: firmware_rollback_id
           items:
             - type: label
               text: "Running:"
@@ -90,19 +87,19 @@ graphical_display_menu:
                         id(firmware_install_yes)->set_text("Confirm");
                         id(firmware_update).perform(false);
 
-            # Availability only; select_rollback() checks the target again on Confirm, and a
-            # press with nothing to restore does nothing.
+            # Availability only; the rollback checks the target again on Confirm, and a press
+            # with nothing to restore does nothing.
             - type: menu
               text: !lambda |-
-                return std::string(id(firmware_rollback_target).available() ? "Rollback (ready)"
-                                                                            : "Rollback (none)");
+                return std::string(id(firmware_rollback_id).available() ? "Rollback (ready)"
+                                                                        : "Rollback (none)");
               on_leave:
                 - lambda: id(firmware_rollback_yes)->set_text("Confirm");
               items:
                 - type: label
                   text: !lambda |-
-                    return std::string(id(firmware_rollback_target).available() ? "Roll back now?"
-                                                                                : "Nothing to restore");
+                    return std::string(id(firmware_rollback_id).available() ? "Roll back now?"
+                                                                            : "Nothing to restore");
 
                 - type: command
                   text: "Confirm"
@@ -110,14 +107,13 @@ graphical_display_menu:
                   on_value:
                     - if:
                         condition:
-                          lambda: return id(firmware_rollback_target).available();
+                          firmware_rollback.is_available: firmware_rollback_id
                         then:
                           - lambda: id(firmware_rollback_yes)->set_text("Confirm - OK");
                           # Drawn before the image check below stalls the loop.
                           - delay: 1s
-                          - lambda: |-
-                              if (firmware_rollback::select_rollback(id(firmware_rollback_target)) == nullptr) {
-                                App.safe_reboot();
-                              } else {
-                                id(firmware_rollback_yes)->set_text("Confirm - failed");
-                              }
+                          # Reboots once the other slot is selected.
+                          - firmware_rollback.rollback:
+                              id: firmware_rollback_id
+                              on_error:
+                                - lambda: id(firmware_rollback_yes)->set_text("Confirm - failed");

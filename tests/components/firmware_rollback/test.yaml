@@ -1,7 +1,8 @@
 # Google Test binary for components/firmware_rollback, built through esphome compile by
 # tests/run.py. The harness main.cpp replaces the generated one, so nothing declared here is
-# ever set up: the sections exist to get the sources compiled. Only the rule that decides is
-# here; what feeds it is esp_ota_* and exists only on ESP32.
+# ever set up: the sections exist to get the sources compiled. The rule that decides, and the
+# instance and its automations over the host build's answers; what feeds them is esp_ota_* and
+# exists only on ESP32.
 esphome:
   name: firmware-rollback-test
   includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
@@ -16,6 +17,10 @@ esphome:
       - -fsanitize=undefined
       - -fno-sanitize-recover=all
       - -fno-omit-frame-pointer
+      # The logger keeps listeners only when a component asks for them in codegen; the
+      # dump_config cases read the config lines through one.
+      - -DUSE_LOG_LISTENERS
+      - -DESPHOME_LOG_MAX_LISTENERS=1
 
 host:
 

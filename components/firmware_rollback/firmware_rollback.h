@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include "esphome/core/component.h"
 
 namespace esphome::firmware_rollback {
 
@@ -47,5 +48,24 @@ RollbackTarget rollback_target();
 /// overlap, so every caller uses the loop task, which the image hash stalls for a moment; the
 /// caller reboots.
 const char *select_rollback(const RollbackTarget &target);
+
+/// The rollback for YAML: holds the target as last read, so a menu row or a condition asks
+/// without touching the flash.
+class FirmwareRollback : public Component {
+ public:
+  void setup() override;
+  void dump_config() override;
+
+  /// Reads the other slot again; available() and target() answer from what this read.
+  void refresh();
+  bool available() const { return this->target_.available(); }
+  const RollbackTarget &target() const { return this->target_; }
+  /// select_rollback() on the held target: nullptr on success, and the caller reboots; else why
+  /// not, with the target read again, since the slot is not what it was.
+  const char *rollback();
+
+ protected:
+  RollbackTarget target_;
+};
 
 }  // namespace esphome::firmware_rollback
