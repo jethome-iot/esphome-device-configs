@@ -294,6 +294,7 @@ void DallasScan::forget(int slot) {
     ESP_LOGE(TAG, "Storage unavailable: nothing is forgotten");
     return;
   }
+  const auto before = this->slots_;
   bool changed = false;
   for (size_t i = 0; i < this->slots_.size(); i++) {
     if ((slot >= 0 && (size_t) slot != i) || this->pinned_[i] || this->slots_[i] == 0)
@@ -305,9 +306,22 @@ void DallasScan::forget(int slot) {
     ESP_LOGW(TAG, "Nothing to forget: the slot is empty or taken by a YAML sensor");
     return;
   }
-  this->save_table_();
-  global_preferences->sync();
+  // The reboot comes next, so a preference has to reach flash now; a reboot after a failed
+  // write would bring the slot back without a word.
+  if (!this->save_table_() || !(this->uses_file_() || global_preferences->sync())) {
+    this->slots_ = before;
+    ESP_LOGE(TAG, "The slot table was not written: nothing is forgotten");
+    return;
+  }
   App.safe_reboot();
+}
+
+bool DallasScan::uses_file_() const {
+#ifdef USE_DALLAS_SCAN_FILE
+  return this->file_ != nullptr;
+#else
+  return false;
+#endif
 }
 
 bool DallasScan::can_save_() const {
@@ -318,22 +332,24 @@ bool DallasScan::can_save_() const {
   return true;
 }
 
-void DallasScan::save_table_() {
+bool DallasScan::save_table_() {
 #ifdef USE_DALLAS_SCAN_FILE
   if (this->file_ != nullptr) {
     if (!this->can_save_()) {
       ESP_LOGE(TAG, "Storage unavailable: the slots last until the next reboot");
-      return;
+      return false;
     }
     this->file_->set_table(this->slots_);
     this->keeper_->ensure_config_dir();
-    this->file_->save_to_file(this->keeper_->get_storage(), this->keeper_->get_config_dir());
-    return;
+    return this->file_->save_to_file(this->keeper_->get_storage(), this->keeper_->get_config_dir());
   }
 #endif
   const size_t bytes = this->slots_.size() * sizeof(uint64_t);
-  if (!this->pref_.save(reinterpret_cast<const uint8_t *>(this->slots_.data()), bytes))
+  if (!this->pref_.save(reinterpret_cast<const uint8_t *>(this->slots_.data()), bytes)) {
     ESP_LOGE(TAG, "Saving the slot table failed");
+    return false;
+  }
+  return true;
 }
 
 void DallasScan::dump_config() {

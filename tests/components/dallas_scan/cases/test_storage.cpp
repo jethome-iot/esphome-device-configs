@@ -216,6 +216,21 @@ TEST_F(FileStorage, AForgetThatWouldChangeNothingNeitherWritesNorReboots) {
   EXPECT_EQ(this->read(), text);
 }
 
+// A reboot after a failed write would bring the slot back without a word.
+TEST_F(FileStorage, AForgetWhoseWriteFailsKeepsTheSlotAndDoesNotReboot) {
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root writes into a read-only folder";
+  this->write(slot_file({{1, HEX_A}, {2, HEX_B}}));
+  DallasScan &scan = this->boot({ROM_A, ROM_B});
+  const std::string text = this->read();
+  ASSERT_EQ(chmod(this->dir().c_str(), 0555), 0);
+  scan.forget(0);  // a reboot here fails the run
+  chmod(this->dir().c_str(), 0755);
+  EXPECT_EQ(scan.address(0), ROM_A);
+  EXPECT_TRUE(this->log().has(this->log().errors, "nothing is forgotten"));
+  EXPECT_EQ(this->read(), text);
+}
+
 TEST_F(FileStorage, DumpConfigNamesTheFile) {
   DallasScan &scan = this->boot({ROM_A});
   this->log().clear();

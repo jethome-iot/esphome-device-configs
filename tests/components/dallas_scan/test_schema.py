@@ -47,7 +47,7 @@ class Defaults(unittest.TestCase):
 
     def test_the_bus_is_found_without_being_named(self):
         bus = validate({})["one_wire_id"]
-        self.assertEqual(bus.type, "one_wire::OneWireBus")
+        self.assertEqual(str(bus.type), "one_wire::OneWireBus")
         self.assertFalse(bus.is_declaration)
 
 
@@ -129,7 +129,9 @@ class Storage(unittest.TestCase):
     def test_the_keeper_may_be_named(self):
         config = validate({"storage": "file", "config_json_id": "settings"})
         self.assertEqual(config["config_json_id"].id, "settings")
-        self.assertEqual(config["config_json_id"].type, "config_json::ConfigJsonKeeper")
+        self.assertEqual(
+            str(config["config_json_id"].type), "config_json::ConfigJsonKeeper"
+        )
         self.assertNotIn("config_json_id", validate({"storage": "file"}))
 
 

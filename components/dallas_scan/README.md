@@ -95,7 +95,8 @@ address, the later one wins; an address that is not a Dallas temperature sensor 
 A file that is there but cannot be read leaves the table empty for that boot and is not written
 over: the devices take slots in bus order until the next reboot, and only a forget replaces the
 file. When the partition does not mount, the same happens without a file. The two storages do
-not share anything: switching from one to the other numbers the devices again in bus order.
+not share anything: the first switch to the other one numbers the devices again in bus order,
+and switching back finds the table that storage held last.
 
 ## Forgetting
 

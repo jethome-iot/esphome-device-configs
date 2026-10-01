@@ -93,8 +93,9 @@ class DallasScan : public PollingComponent {
   void update_status_();
   bool read_scratch_pad_(uint64_t address, uint8_t *scratch_pad);
   float to_celsius_(uint64_t address, const uint8_t *scratch_pad) const;
+  bool uses_file_() const;
   bool can_save_() const;
-  void save_table_();
+  bool save_table_();
 
   one_wire::OneWireBus *bus_{nullptr};
   const char *name_prefix_{"Temp"};
