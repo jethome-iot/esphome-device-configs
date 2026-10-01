@@ -102,9 +102,10 @@ built firmware, both images; dev nightlies have no GitHub release:
 - hierarchy `JetHome.jxd.firmware.esphome.<device>.<channel>`
 - image types `esp.bin` (factory) and `esp.ota` (OTA)
 - hash: md5 (the server serves it as `info.md5` for OTA updates)
-- `supported_devices`: the device slug; every upload advances its own
-  channel's `latest` pointer, and no channel's pointer ever moves backward
-  (manual runs control the release channel's with `update_latest`)
+- `supported_devices`: the device slug; the factory-image upload advances
+  the channel's `latest` pointer (the OTA upload never does), no channel's
+  pointer moves backward, and manual release publications can opt out with
+  `update_latest`
 
 ## Updates on the device
 
