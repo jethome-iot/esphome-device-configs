@@ -73,6 +73,10 @@ static const std::vector<std::pair<const char *, const char *>> REFUSED = {
      R"({"name":"Bad Cond Type","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"condition":{"type":"inupt","object_id":"in_2","state":"true"},"actions":[]})"},
     {"badcron.json",
      R"({"id":90,"name":"Bad Cron","triggers":[{"source":"cron","cron":"99 * * * * *","cron_preset":"custom"}],"actions":[]})"},
+    {"badday.json",
+     R"({"name":"Bad Day","triggers":[{"source":"schedule","windows":[{"days":["Mon"],"from":"08:00","to":"20:00"}]}],"actions":[]})"},
+    {"badwindow.json",
+     R"({"name":"Bad Window","triggers":[{"source":"schedule","windows":[{"from":"08:00","to":"08:00"}]}],"actions":[]})"},
     {"badsource.json",
      R"({"name":"Bad Source","triggers":[{"source":"inupt","type":"press","object_id":"in_1"}],"actions":[]})"},
     {"badsub.json",
@@ -271,6 +275,8 @@ TEST_F(Storage, LoadsTheFolderAndRepairsIt) {
   EXPECT_TRUE(log().has(log().errors, "Missing temperature_type"));
   EXPECT_TRUE(log().has(log().errors, "Condition 'and' has no members"));
   EXPECT_TRUE(log().has(log().errors, "Invalid cron '99 * * * * *'"));
+  EXPECT_TRUE(log().has(log().errors, "Unknown day 'Mon'"));
+  EXPECT_TRUE(log().has(log().errors, "A schedule window from 08:00 to 08:00 is empty"));
   EXPECT_TRUE(log().has(log().errors, "JSON parse error in"));
   EXPECT_TRUE(log().has(log().errors, "Automation 'Orphan': trigger cannot be built"));
   EXPECT_TRUE(log().has(log().warnings, "Not writing 'Orphan'"));
@@ -635,6 +641,45 @@ TEST_F(Storage, StartupRulesFireOnceTheEngineIsUp) {
   boot();
   engine->rule(0)->on_startup();  // what setup() defers until every component is up
   EXPECT_TRUE(e.relay1.state);
+}
+
+TEST_F(Storage, AScheduleIsAppliedAtBootAndOnEveryEdit) {
+  static const time_t MONDAY_10 = 1770026400;  // 2026-02-02 10:00 UTC
+  static const char *const SHOP =
+      R"({"id":1,"name":"Shop","triggers":[{"source":"schedule","windows":[{"from":"08:00","to":"20:00"}]}],"actions":[{"source":"switch","type":"follow","object_id":"relay_1"}]})";
+  write("shop.json", SHOP);
+  boot();
+  engine->dump_config();
+  engine->now = MONDAY_10;
+  engine->tick();
+  EXPECT_TRUE(e.relay1.state);
+
+  // Power back at 21:00 with the relay restored on: the first tick sets it right.
+  reboot();
+  engine->now = MONDAY_10 + 11 * 3600;
+  engine->tick();
+  EXPECT_FALSE(e.relay1.state);
+
+  // A hand switch holds until the rule is saved again.
+  e.relay1.turn_on();
+  engine->now++;
+  engine->tick();
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_TRUE(engine->update_automation(id_of("Shop"), rule(SHOP)));
+  engine->now++;
+  engine->tick();
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_NE(read("shop.json").find(R"("days":["mon","tue","wed","thu","fri","sat","sun"],"from":"08:00","to":"20:00")"),
+            std::string::npos);
+
+  // A new rule applies at the next tick.
+  ASSERT_NE(
+      engine->add_automation(rule(
+          R"({"name":"Night","triggers":[{"source":"schedule","windows":[{"from":"20:00","to":"06:00"}]}],"actions":[{"source":"switch","type":"follow","object_id":"relay_2"}]})")),
+      0u);
+  engine->now++;
+  engine->tick();
+  EXPECT_TRUE(e.relay2.state);
 }
 
 TEST_F(Storage, RulesCannotBeEditedFromInsideTheirOwnAction) {

@@ -1,5 +1,7 @@
 #include "automation_config.h"
 #include <algorithm>
+#include <cstdio>
+#include <cstring>
 #include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
 #include "entity_lookup.h"
@@ -202,6 +204,92 @@ static bool deserialize_cron_field(const std::string &field, uint8_t min_val, ui
   return true;
 }
 
+// Indexed by ESPTime::day_of_week - 1; files list the days Monday first.
+static const char *const DAY_NAMES[7] = {"sun", "mon", "tue", "wed", "thu", "fri", "sat"};
+static const uint8_t MONDAY_FIRST[7] = {1, 2, 3, 4, 5, 6, 0};
+
+static std::string clock_string(uint16_t minutes) {
+  char text[8];
+  snprintf(text, sizeof(text), "%02u:%02u", minutes / 60u, minutes % 60u);
+  return text;
+}
+
+// "HH:MM" on the 24-hour clock, into minutes since midnight. 24:00 is an end only.
+static bool read_clock(const JsonObject &obj, const char *key, bool end, uint16_t &out) {
+  if (!obj[key].is<const char *>()) {
+    ESP_LOGE(TAG, "Missing %s", key);
+    return false;
+  }
+  const char *text = obj[key].as<const char *>();
+  auto digit = [text](size_t i) { return text[i] >= '0' && text[i] <= '9'; };
+  if (strlen(text) == 5 && digit(0) && digit(1) && text[2] == ':' && digit(3) && digit(4)) {
+    const unsigned hour = (text[0] - '0') * 10 + (text[1] - '0');
+    const unsigned minute = (text[3] - '0') * 10 + (text[4] - '0');
+    if (minute < 60 && (hour < 24 || (end && hour == 24 && minute == 0))) {
+      out = hour * 60 + minute;
+      return true;
+    }
+  }
+  ESP_LOGE(TAG, "Invalid %s '%s': expected HH:MM from 00:00 to %s", key, text, end ? "24:00" : "23:59");
+  return false;
+}
+
+// Absent means every day. An empty list would never apply: refused, like a cron field that
+// matches nothing.
+static bool read_days(const JsonObject &obj, uint8_t &out) {
+  if (obj["days"].isNull()) {
+    out = ScheduleWindow::EVERY_DAY;
+    return true;
+  }
+  if (!obj["days"].is<JsonArray>()) {
+    ESP_LOGE(TAG, "Invalid days: expected a list");
+    return false;
+  }
+  out = 0;
+  JsonArray days = obj["days"].as<JsonArray>();
+  for (JsonVariant day : days) {
+    const char *name = day.is<const char *>() ? day.as<const char *>() : "";
+    int index = -1;
+    for (int i = 0; i < 7; i++) {
+      if (strcmp(DAY_NAMES[i], name) == 0)
+        index = i;
+    }
+    if (index < 0) {
+      ESP_LOGE(TAG, "Unknown day '%s': expected mon, tue, wed, thu, fri, sat or sun", name);
+      return false;
+    }
+    out |= 1 << index;
+  }
+  if (out == 0) {
+    ESP_LOGE(TAG, "A schedule window has no days");
+    return false;
+  }
+  return true;
+}
+
+static bool read_window(const JsonObject &obj, ScheduleWindow &out) {
+  if (!read_days(obj, out.days) || !read_clock(obj, "from", false, out.from) || !read_clock(obj, "to", true, out.to))
+    return false;
+  if (out.from == out.to) {
+    ESP_LOGE(TAG, "A schedule window from %s to %s is empty", clock_string(out.from).c_str(),
+             clock_string(out.to).c_str());
+    return false;
+  }
+  return true;
+}
+
+std::string ScheduleWindow::describe() const {
+  std::string text;
+  for (uint8_t day : MONDAY_FIRST) {
+    if (this->days & (1 << day)) {
+      if (!text.empty())
+        text += ",";
+      text += DAY_NAMES[day];
+    }
+  }
+  return text + " " + clock_string(this->from) + "-" + clock_string(this->to);
+}
+
 TriggerConfig::TriggerConfig() : source(SourceTrigger::NONE) { memset(&params, 0, sizeof(params)); }
 
 std::string TriggerConfig::cron_string() const {
@@ -240,6 +328,20 @@ void TriggerConfig::serialize(JsonObject &obj) const {
       if (cron_preset.has_value())
         obj["cron_preset"] = EnumUtils::cron_preset_to_string(*cron_preset);
       break;
+    case SourceTrigger::SCHEDULE: {
+      JsonArray windows = obj["windows"].to<JsonArray>();
+      for (const auto &window : schedule_windows) {
+        JsonObject window_obj = windows.add<JsonObject>();
+        JsonArray days = window_obj["days"].to<JsonArray>();
+        for (uint8_t day : MONDAY_FIRST) {
+          if (window.days & (1 << day))
+            days.add(DAY_NAMES[day]);
+        }
+        window_obj["from"] = clock_string(window.from);
+        window_obj["to"] = clock_string(window.to);
+      }
+      break;
+    }
     case SourceTrigger::STARTUP:
     default:
       // Startup carries no extra parameters.
@@ -337,6 +439,21 @@ bool TriggerConfig::deserialize(const JsonObject &obj) {
         if (!parse_enum(obj, "cron_preset", EnumUtils::string_to_cron_preset, EnumUtils::cron_preset_to_string, preset))
           return false;
         cron_preset = preset;
+      }
+      break;
+    }
+    case SourceTrigger::SCHEDULE: {
+      schedule_windows.clear();
+      if (!obj["windows"].is<JsonArray>() || obj["windows"].size() == 0) {
+        ESP_LOGE(TAG, "A schedule needs at least one window");
+        return false;
+      }
+      JsonArray windows = obj["windows"].as<JsonArray>();
+      for (JsonVariant window_obj : windows) {
+        ScheduleWindow window;
+        if (!read_window(window_obj.as<JsonObject>(), window))
+          return false;
+        schedule_windows.push_back(window);
       }
       break;
     }

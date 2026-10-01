@@ -49,12 +49,16 @@ struct CompiledTrigger {
   std::bitset<32> days_of_month;
   std::bitset<13> months;
   std::bitset<8> days_of_week;
+  std::vector<ScheduleWindow> windows;
   // Edge detection: the value was on the far side of the threshold (or outside the range).
   bool armed{true};
   bool pressed{false};
   uint32_t press_start{0};
+  // The state a schedule last handed its rule; none until the rule has taken one.
+  optional<bool> reported;
 
   bool cron_matches(const ESPTime &time) const;
+  bool schedule_on(const ESPTime &time) const;
 };
 
 // Resolve one config item against the registered entities. Free functions so the unit tests
@@ -97,7 +101,8 @@ class RuntimeAutomation {
 
   RuntimeAutomation(AutomationStorage *engine, const AutomationConfig &config);
 
-  void fire_(bool has_state, bool state);
+  // False when the rule did not take the trigger: disabled, or busy for its mode.
+  bool fire_(bool has_state, bool state);
   void step_(uint32_t token);
   Run *find_run_(uint32_t token);
   void finish_run_(uint32_t token);

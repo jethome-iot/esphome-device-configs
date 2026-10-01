@@ -125,6 +125,24 @@ bool CompiledTrigger::cron_matches(const ESPTime &time) const {
          this->days_of_month[time.day_of_month] && this->months[time.month] && this->days_of_week[time.day_of_week];
 }
 
+bool CompiledTrigger::schedule_on(const ESPTime &time) const {
+  if (!time.is_valid())
+    return false;
+  const uint16_t minute = time.hour * 60 + time.minute;
+  const uint8_t today = 1 << (time.day_of_week - 1);
+  // A window that runs past midnight is still on in the morning after the day it started.
+  const uint8_t yesterday = time.day_of_week == 1 ? 1 << 6 : 1 << (time.day_of_week - 2);
+  for (const auto &window : this->windows) {
+    if (window.from < window.to) {
+      if ((window.days & today) && window.from <= minute && minute < window.to)
+        return true;
+    } else if (((window.days & today) && minute >= window.from) || ((window.days & yesterday) && minute < window.to)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool compile_trigger(AutomationStorage *engine, const TriggerConfig &config, CompiledTrigger &out) {
   out.source = config.source;
   switch (config.source) {
@@ -162,6 +180,13 @@ bool compile_trigger(AutomationStorage *engine, const TriggerConfig &config, Com
       set_bits(out.months, config.cron_months);
       set_bits(out.days_of_week, config.cron_days_of_week);
       return true;
+    case SourceTrigger::SCHEDULE:
+      if (!engine->has_rtc()) {
+        ESP_LOGE(TAG, "Trigger: schedule needs a time source (time_id)");
+        return false;
+      }
+      out.windows = config.schedule_windows;
+      return !out.windows.empty();
     case SourceTrigger::STARTUP:
       return true;
     default:
@@ -236,8 +261,13 @@ std::unique_ptr<RuntimeAutomation> RuntimeAutomation::build(AutomationStorage *e
 }
 
 void RuntimeAutomation::set_enabled(bool enabled) {
-  if (!enabled)
+  if (!enabled) {
     this->stop();
+  } else if (!this->enabled_) {
+    // Back on, a schedule hands its state over again, as to a rule just built.
+    for (auto &trigger : this->triggers_)
+      trigger.reported.reset();
+  }
   this->enabled_ = enabled;
 }
 
@@ -330,9 +360,15 @@ void RuntimeAutomation::on_sensor(sensor::Sensor *entity, float value) {
 }
 
 void RuntimeAutomation::on_time(const ESPTime &time) {
-  for (const auto &trigger : this->triggers_) {
-    if (trigger.source == SourceTrigger::CRON && trigger.cron_matches(time))
+  for (auto &trigger : this->triggers_) {
+    if (trigger.source == SourceTrigger::CRON && trigger.cron_matches(time)) {
       this->fire_(false, false);
+    } else if (trigger.source == SourceTrigger::SCHEDULE) {
+      // Offered every second until the rule takes it: a busy rule must not leave the state behind.
+      const bool on = trigger.schedule_on(time);
+      if (trigger.reported != on && this->fire_(true, on))
+        trigger.reported = on;
+    }
   }
 }
 
@@ -343,19 +379,19 @@ void RuntimeAutomation::on_startup() {
   }
 }
 
-void RuntimeAutomation::fire_(bool has_state, bool state) {
+bool RuntimeAutomation::fire_(bool has_state, bool state) {
   if (!this->enabled_)
-    return;
+    return false;
   if (!this->runs_.empty()) {
     switch (this->mode_) {
       case AutomationMode::SINGLE:
-        return;
+        return false;
       case AutomationMode::RESTART:
         this->stop();
         break;
       case AutomationMode::PARALLEL:
         if (this->runs_.size() >= MAX_RUNS)
-          return;
+          return false;
         break;
     }
   }
@@ -371,6 +407,7 @@ void RuntimeAutomation::fire_(bool has_state, bool state) {
   const uint32_t token = run->token;
   this->runs_.push_back(std::move(run));
   this->step_(token);
+  return true;
 }
 
 void RuntimeAutomation::step_(uint32_t token) {

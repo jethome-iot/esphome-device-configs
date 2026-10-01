@@ -884,6 +884,11 @@ void AutomationStorage::print_trigger_info_(const TriggerConfig &trigger, int in
           TAG, "%sTrigger: cron '%s' (%s)", pad.c_str(), trigger.cron_string().c_str(),
           trigger.cron_preset.has_value() ? EnumUtils::cron_preset_to_string(*trigger.cron_preset) : "no preset");
       break;
+    case SourceTrigger::SCHEDULE:
+      ESP_LOGCONFIG(TAG, "%sTrigger: schedule", pad.c_str());
+      for (const auto &window : trigger.schedule_windows)
+        ESP_LOGCONFIG(TAG, "%s  %s", pad.c_str(), window.describe().c_str());
+      break;
     case SourceTrigger::STARTUP:
       ESP_LOGCONFIG(TAG, "%sTrigger: startup", pad.c_str());
       break;

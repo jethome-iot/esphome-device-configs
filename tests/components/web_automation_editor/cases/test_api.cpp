@@ -254,8 +254,10 @@ TEST_F(Editor, SchemaOffersOnlyWhatTheEngineParses) {
     const std::string type = entry["type"];
     const std::string object = type == "temperature" ? "temp" : type == "switch" ? "relay_1" : "in_1";
     if (entry["subtypes"].size() == 0) {
-      const std::string cron = type == "cron" ? R"(,"cron":"0 * * * * *")" : "";
-      EXPECT_TRUE(trigger(R"({"source":")" + type + "\"" + cron + "}")) << type;
+      const std::string extra = type == "cron"       ? R"(,"cron":"0 * * * * *")"
+                                : type == "schedule" ? R"(,"windows":[{"from":"08:00","to":"20:00"}])"
+                                                     : "";
+      EXPECT_TRUE(trigger(R"({"source":")" + type + "\"" + extra + "}")) << type;
       words++;
     }
     for (std::string subtype : entry["subtypes"].as<JsonArray>()) {
@@ -299,7 +301,7 @@ TEST_F(Editor, SchemaOffersOnlyWhatTheEngineParses) {
     words++;
   }
   // Every word above was checked, not an empty schema.
-  EXPECT_EQ(words, 31);
+  EXPECT_EQ(words, 32);
 }
 
 TEST_F(Editor, RebootAnswersFirst) {
