@@ -60,10 +60,19 @@ TEST(TriggerConfig, StartupNeedsNothingElse) {
   EXPECT_EQ(dump(t), R"({"source":"startup"})");
 }
 
+TEST(TriggerConfig, ConditionNeedsNothingElse) {
+  TriggerConfig t;
+  ASSERT_TRUE(load(R"({"source":"condition"})", t));
+  EXPECT_EQ(t.source, SourceTrigger::CONDITION);
+  EXPECT_EQ(dump(t), R"({"source":"condition"})");
+}
+
 TEST(TriggerConfig, RefusesWordsItDoesNotKnow) {
   TriggerConfig t;
   EXPECT_FALSE(load(R"({"type":"press","object_id":"in_1"})", t));
   EXPECT_FALSE(load(R"({"source":"inupt","type":"press","object_id":"in_1"})", t));
+  EXPECT_FALSE(load(R"({"source":"conditon"})", t));
+  EXPECT_FALSE(load(R"({"source":"Condition"})", t));
   EXPECT_FALSE(load(R"({"source":"input","type":"pres","object_id":"in_1"})", t));
   EXPECT_FALSE(load(R"({"source":"input","type":"none","object_id":"in_1"})", t));
   EXPECT_FALSE(load(R"({"source":"temperature","type":"between","object_id":"temp"})", t));
@@ -80,6 +89,25 @@ TEST(ConditionConfig, InputStateDefaultsToTrue) {
 
   ASSERT_TRUE(load(R"({"type":"input","object_id":"in_2","state":"false"})", c));
   EXPECT_EQ(c.state, InputConditionState::FALSE);
+}
+
+TEST(ConditionConfig, SwitchReadsLikeAnInput) {
+  entities();
+  ConditionConfig c;
+  ASSERT_TRUE(load(R"({"type":"switch","object_id":"relay_1"})", c));
+  EXPECT_EQ(c.type, ConditionType::SWITCH);
+  EXPECT_EQ(c.sensor_id, fnv1_hash("relay_1"));
+  EXPECT_EQ(c.state, InputConditionState::TRUE);
+
+  ASSERT_TRUE(load(R"({"type":"switch","object_id":"relay_2","state":"false"})", c));
+  EXPECT_EQ(c.state, InputConditionState::FALSE);
+  EXPECT_EQ(dump(c), R"({"type":"switch","object_id":"relay_2","state":"false"})");
+}
+
+TEST(ConditionConfig, SwitchRefusesWordsItDoesNotKnow) {
+  ConditionConfig c;
+  EXPECT_FALSE(load(R"({"type":"swich","object_id":"relay_1","state":"true"})", c));
+  EXPECT_FALSE(load(R"({"type":"switch","object_id":"relay_1","state":"on"})", c));
 }
 
 TEST(ConditionConfig, GroupsNest) {
@@ -192,6 +220,32 @@ TEST(AutomationConfig, RoundTripsARule) {
   AutomationConfig again;
   ASSERT_TRUE(load(dump(c).c_str(), again));
   EXPECT_EQ(dump(again), dump(c));
+}
+
+// The issue's example, with a switch read the way a latch reads the relay it drives.
+static const char *const PUMP = R"({"id":3,"name":"Pump","enabled":true,"mode":"restart",
+  "triggers":[{"source":"condition"}],
+  "condition":{"type":"or","conditions":[
+    {"type":"and","conditions":[{"type":"input","object_id":"in_1","state":"true"},
+                                {"type":"switch","object_id":"relay_1","state":"true"}]},
+    {"type":"input","object_id":"in_2","state":"false"}]},
+  "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],
+  "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_1"}]})";
+
+TEST(AutomationConfig, RoundTripsAConditionTriggerOverASwitch) {
+  entities();
+  AutomationConfig c;
+  ASSERT_TRUE(load(PUMP, c));
+  ASSERT_EQ(c.triggers.size(), 1u);
+  EXPECT_EQ(c.triggers[0].source, SourceTrigger::CONDITION);
+  ASSERT_EQ(c.condition.sub_conditions.size(), 2u);
+  EXPECT_EQ(c.condition.sub_conditions[0].sub_conditions[1].type, ConditionType::SWITCH);
+
+  AutomationConfig again;
+  ASSERT_TRUE(load(dump(c).c_str(), again));
+  EXPECT_EQ(dump(again), dump(c));
+  EXPECT_NE(dump(c).find(R"({"type":"switch","object_id":"relay_1","state":"true"})"), std::string::npos);
+  EXPECT_NE(dump(c).find(R"("triggers":[{"source":"condition"}])"), std::string::npos);
 }
 
 TEST(AutomationConfig, AbsentFieldsTakeTheirDefaults) {

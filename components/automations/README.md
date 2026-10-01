@@ -60,8 +60,8 @@ one, picks `actions` or `else_actions`.
 
 | Key                 | Values                                                                      |
 | ------------------- | --------------------------------------------------------------------------- |
-| `triggers[].source` | `input` (`press`, `release`, `click`, `state_change`), `switch` (`turn_on`, `turn_off`, `state_change`), `temperature` (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`), `cron`, `startup` |
-| `condition.type`    | `input` with `state`, `temperature` with `temperature_type` (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`), and `and` / `or` / `xor` over a `conditions` list, nested freely |
+| `triggers[].source` | `input` (`press`, `release`, `click`, `state_change`), `switch` (`turn_on`, `turn_off`, `state_change`), `temperature` (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`), `cron`, `startup`, `condition` |
+| `condition.type`    | `input` and `switch` with `state`, `temperature` with `temperature_type` (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`), and `and` / `or` / `xor` over a `conditions` list, nested freely |
 | `actions[].source`  | `switch` (`turn_on`, `turn_off`, `toggle`, `follow` with `invert`), `delay` with `delay_ms` |
 | `mode`              | `single` ignores a trigger while the rule runs, `restart` starts over, `parallel` runs up to 8 copies |
 | `enabled`           | `true` when absent; a disabled rule is loaded and listed but never fires |
@@ -72,6 +72,38 @@ arms again when the value goes back. `above` and `below` are strict, a range inc
 for triggers and conditions alike. `follow` drives its target from the state the trigger
 carried. `cron` is six fields, seconds first — `"*/2 * * * * *"`, `"0 30 6,18 1 * *"` — with
 `*`, `*/N`, `X-Y`, `X-Y/N` and lists; a field that matches nothing is rejected.
+
+A `condition` trigger takes no parameters and makes the rule a state rather than an event: it
+fires whenever the condition's result changes, and once with the current result when the rule
+starts watching — at boot, and when it is added, updated or enabled. It carries the result, so
+`actions` run on true and `else_actions` on false, and `follow` copies it. A temperature moves
+the result only on a crossing, and a sensor with no reading is false. A rule with this trigger
+and no `condition` is refused. Give it `restart`: in `single`, a change that comes while a delay
+runs is ignored.
+
+A condition may read the switch the rule drives. Start turns relay 1 on, the relay holds itself
+on, stop lets it go:
+
+```json
+{
+  "name": "Latch",
+  "mode": "restart",
+  "triggers": [{"source": "condition"}],
+  "condition": {"type": "or", "conditions": [
+    {"type": "input", "object_id": "input_1", "state": "true"},
+    {"type": "and", "conditions": [
+      {"type": "switch", "object_id": "relay_1", "state": "true"},
+      {"type": "input", "object_id": "input_2", "state": "false"}
+    ]}
+  ]},
+  "actions": [{"source": "switch", "type": "turn_on", "object_id": "relay_1"}],
+  "else_actions": [{"source": "switch", "type": "turn_off", "object_id": "relay_1"}]
+}
+```
+
+Rules that keep setting each other off — one toggling the switch that triggers it, or a relay
+that follows its own negation — are cut off 8 nested events deep, with a warning naming the
+rule.
 
 ## Storage
 

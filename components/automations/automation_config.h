@@ -59,8 +59,9 @@ struct ConditionConfig {
   // For composite conditions (And, Or)
   std::vector<ConditionConfig> sub_conditions;
 
-  // For Input condition
+  // For Input, Switch and Temperature conditions: the entity's object id hash
   uint32_t sensor_id = 0;
+  // For Input and Switch conditions
   InputConditionState state = InputConditionState::TRUE;
 
   // For Temperature condition

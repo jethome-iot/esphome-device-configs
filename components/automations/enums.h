@@ -6,7 +6,7 @@ namespace esphome::automations {
 
 enum class AutomationMode : uint8_t { SINGLE = 0, RESTART = 1, PARALLEL = 2 };
 
-enum class SourceTrigger : uint8_t { NONE = 0, INPUT, TEMPERATURE, CRON, STARTUP, SWITCH };
+enum class SourceTrigger : uint8_t { NONE = 0, INPUT, TEMPERATURE, CRON, STARTUP, SWITCH, CONDITION };
 
 enum class TypesInputTrigger : uint8_t {
   NONE,
@@ -40,7 +40,7 @@ enum class TypeSwitchAction : uint8_t {
   FOLLOW,
 };
 
-enum class ConditionType : uint8_t { NONE = 0, AND, OR, XOR, INPUT, TEMPERATURE };
+enum class ConditionType : uint8_t { NONE = 0, AND, OR, XOR, INPUT, TEMPERATURE, SWITCH };
 
 enum class InputConditionState : uint8_t {
   FALSE = 0,

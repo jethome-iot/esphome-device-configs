@@ -6,6 +6,7 @@
 #include <vector>
 #include "automation_config.h"
 #include "entity_lookup.h"
+#include "esphome/core/optional.h"
 #include "esphome/core/time.h"
 
 namespace esphome::automations {
@@ -15,6 +16,7 @@ class AutomationStorage;
 struct CompiledCondition {
   ConditionType type{ConditionType::NONE};
   binary_sensor::BinarySensor *binary_sensor{nullptr};
+  switch_::Switch *sw{nullptr};
   bool expected{true};
   sensor::Sensor *sensor{nullptr};
   float min{NAN};
@@ -73,9 +75,13 @@ class RuntimeAutomation {
   uint32_t get_id() const { return this->id_; }
   const std::string &get_name() const { return this->name_; }
   bool is_enabled() const { return this->enabled_; }
+  /// Enabling a disabled rule with a condition trigger fires it with the current result.
   void set_enabled(bool enabled);
   bool is_running() const { return !this->runs_.empty(); }
   void stop();
+  /// A condition trigger starts watching: fires once with the current result, then on each
+  /// change. Called at startup and wherever the rule is built or enabled at run time.
+  void watch_condition();
 
   void on_binary_sensor(binary_sensor::BinarySensor *entity, bool state, bool level = false);
   void on_switch(switch_::Switch *entity, bool state);
@@ -84,6 +90,7 @@ class RuntimeAutomation {
   void on_startup();
 
   const std::vector<CompiledTrigger> &get_triggers() const { return this->triggers_; }
+  const CompiledCondition *get_condition() const { return this->condition_.get(); }
 
  protected:
   struct Run {
@@ -98,6 +105,7 @@ class RuntimeAutomation {
   RuntimeAutomation(AutomationStorage *engine, const AutomationConfig &config);
 
   void fire_(bool has_state, bool state);
+  void recheck_condition_();
   void step_(uint32_t token);
   Run *find_run_(uint32_t token);
   void finish_run_(uint32_t token);
@@ -116,6 +124,9 @@ class RuntimeAutomation {
   std::vector<CompiledAction> else_;
   std::vector<std::unique_ptr<Run>> runs_;
   uint32_t next_token_{0};
+  bool watches_condition_{false};  // has a condition trigger
+  // The result a condition trigger last acted on; empty while it is not watching.
+  optional<bool> result_;
 };
 
 // Timer ids carry the run sequence in their low 4 bits, so a rule id has to fit the rest.
