@@ -286,7 +286,7 @@ export interface StorageCapability {
 
 /**
  * GET /capabilities — what this firmware has, so the page knows which screens to draw and
- * which routes exist. Read once on load, not polled.
+ * which routes exist. Read on load, not polled; read again where `rollback` may have moved.
  *
  * A key is present only when the capability is, so `if (caps.files)` is the test; one that
  * has no detail to carry is `true`. A `404` on this route is a firmware from before it

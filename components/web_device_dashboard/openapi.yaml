@@ -226,10 +226,11 @@ paths:
       description: >-
         Which screens the page can draw and which routes exist. A key is present
         only when the capability is, so the test is `if (caps.files)`; one that
-        has no detail to carry is `true`. Read once on load, not polled — only
+        has no detail to carry is `true`. Read on load, not polled — only
         `rollback` can change: an update, a failed update and a rollback each
-        change it. A `404` here is a firmware from before this route, not a
-        device without capabilities.
+        change it, so a client that shows it reads again after those. A `404`
+        here is a firmware from before this route, not a device without
+        capabilities.
       responses:
         "200":
           description: The capabilities.
@@ -1078,7 +1079,7 @@ components:
       required: [type, base_path, mounted]
       description: >-
         The mount the Files screen browses and a factory reset wipes: what it is,
-        not how full it is. Usage is live and this route is read once, so the
+        not how full it is. Usage is live and this route is not polled, so the
         byte counts stay where they are already answered — `info` on the file API
         at `files.url_prefix`.
       properties:
