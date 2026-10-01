@@ -298,14 +298,17 @@ export interface Capabilities {
   /** POST /system/factory-reset is served. `clears_storage` says whether it also wipes the
    *  user partition, which is what the confirmation dialog has to warn about. */
   factory_reset: { clears_storage: boolean }
-  /** The slot POST /system/rollback would boot; present only when it holds an image, which
-   *  is also the only case where that route answers anything but `503`. `version` is the
-   *  ESPHome version string of that image, comparable to `DeviceInfo.version` — show it,
-   *  because after one rollback the other slot is the NEWER firmware. */
+  /** The slot POST /system/rollback would boot: after an update the firmware it replaced,
+   *  after a rollback the newer one. Absent after a serial flash, a failed or interrupted
+   *  update, a rollback the bootloader did itself, or while a switch waits for its reboot;
+   *  then that route answers `503`. `version` is the ESPHome version string of that image,
+   *  comparable to `DeviceInfo.version` — show it, because after one rollback the other slot
+   *  is the NEWER firmware. */
   rollback?: {
     /** The partition label, e.g. `"app1"`. */
     partition: string
     version?: string
+    /** The name the image was built under, the device's node name, e.g. `"jxd-r6-e1eth-lcd"`. */
     project_name?: string
   }
   /** Present with a storage component; then `factory_reset.clears_storage` is true. */

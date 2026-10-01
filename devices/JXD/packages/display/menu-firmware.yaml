@@ -1,6 +1,14 @@
 # Settings → Firmware: the update entity of features/firmware-update.yaml on the display.
 # Left out of dist/ with that package (EXCLUDED_PACKAGES in scripts/build-dist.py), because
-# the rows drive it.
+# the rows drive it. The rows also offer a rollback, which stays out of dist/ with them (#116).
+external_components:
+  - source: ${components}
+    components: [firmware_rollback]
+
+# Holds the other slot as read when Firmware opens, not on every redraw.
+firmware_rollback:
+  id: firmware_rollback_id
+
 graphical_display_menu:
   items:
     - id: !extend menu_settings_id
@@ -9,6 +17,10 @@ graphical_display_menu:
         - type: menu
           text: "Firmware"
           weight: 10
+          # Also on the way back up from a child, so the Rollback row follows what an install or
+          # a rollback tried there did to the other slot.
+          on_enter:
+            - firmware_rollback.refresh: firmware_rollback_id
           items:
             - type: label
               text: "Running:"
@@ -39,7 +51,7 @@ graphical_display_menu:
               text: "Channel"
               select: firmware_channel
 
-            # The answer lands in the Offered row above; the next key press draws it.
+            # The answer lands in the Offered row above with the next display update.
             - type: command
               text: "Check now"
               on_value:
@@ -74,3 +86,34 @@ graphical_display_menu:
                     - lambda: |-
                         id(firmware_install_yes)->set_text("Confirm");
                         id(firmware_update).perform(false);
+
+            # Availability only; the rollback checks the target again on Confirm, and a press
+            # with nothing to restore does nothing.
+            - type: menu
+              text: !lambda |-
+                return std::string(id(firmware_rollback_id).available() ? "Rollback (ready)"
+                                                                        : "Rollback (none)");
+              on_leave:
+                - lambda: id(firmware_rollback_yes)->set_text("Confirm");
+              items:
+                - type: label
+                  text: !lambda |-
+                    return std::string(id(firmware_rollback_id).available() ? "Roll back now?"
+                                                                            : "Nothing to restore");
+
+                - type: command
+                  text: "Confirm"
+                  id: firmware_rollback_yes
+                  on_value:
+                    - if:
+                        condition:
+                          firmware_rollback.is_available: firmware_rollback_id
+                        then:
+                          - lambda: id(firmware_rollback_yes)->set_text("Confirm - OK");
+                          # Drawn before the image check below stalls the loop.
+                          - delay: 1s
+                          # Reboots once the other slot is selected.
+                          - firmware_rollback.rollback:
+                              id: firmware_rollback_id
+                              on_error:
+                                - lambda: id(firmware_rollback_yes)->set_text("Confirm - failed");

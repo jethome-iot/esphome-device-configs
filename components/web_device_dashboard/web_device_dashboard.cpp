@@ -34,7 +34,6 @@
 #endif
 #ifdef USE_ESP32
 #include <esp_netif.h>
-#include <esp_ota_ops.h>
 #include <esp_system.h>
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
 #include <esp_efuse.h>
@@ -679,11 +678,11 @@ void WebDeviceDashboard::handle_factory_reset_(AsyncWebServerRequest *request) {
   this->factory_reset_();
 }
 
-// POST /api/device/system/rollback: the other app slot becomes the next boot -- the firmware
-// this one replaced, until a rollback makes the newer one the other slot. Availability is
-// answered before the confirmation because it is about the firmware, not about the request.
-// The image is checked here rather than optimistically, so a slot that turns out to be
-// broken is an error the caller sees instead of a device that reboots and comes back the same.
+// POST /api/device/system/rollback: the other app slot becomes the next boot, when
+// firmware_rollback says it holds one the bootloader would boot. Availability is answered
+// before the confirmation because it is about the firmware, not about the request. The select
+// runs on the loop task: the display menu selects there too, and the check and the switch
+// must not interleave with it; it also keeps the image hash off the server task's stack (#64).
 void WebDeviceDashboard::handle_rollback_(AsyncWebServerRequest *request) {
   const RollbackTarget target = this->rollback_target_();
   if (!target.available()) {
@@ -692,54 +691,25 @@ void WebDeviceDashboard::handle_rollback_(AsyncWebServerRequest *request) {
   }
   if (!this->check_confirm_(request))
     return;
-  const char *error = this->select_rollback_(target);
-  if (error != nullptr) {
-    ESP_LOGE(TAG, "Rollback to '%s' failed: %s", target.partition.c_str(), error);
-    this->send_error_(request, 500, error);
+  const char *error = nullptr;
+  const bool selected = this->run_on_loop_([&]() {
+    error = this->select_rollback_(target);
+    return error == nullptr;
+  });
+  if (!selected) {
+    // No error means the loop task never took the job: nothing was selected and nothing will be.
+    this->send_error_(request, error == nullptr ? 503 : 500, error == nullptr ? "Device busy" : error);
     return;
   }
-  ESP_LOGW(TAG, "Rolling back to '%s'", target.partition.c_str());
   this->send_success_(request, "Rolling back, rebooting");
   this->reboot_();
 }
 
-#ifdef USE_ESP32
-// The slot the next update would be written to is the one a rollback boots, and its app
-// descriptor says which firmware that is. Only the descriptor is read here — a
-// 256-byte header, not the image — because /capabilities is answered on every page load;
-// whether the image behind it is whole is what esp_ota_set_boot_partition() then checks.
-RollbackTarget WebDeviceDashboard::rollback_target_() const {
-  RollbackTarget target;
-  const esp_partition_t *other = esp_ota_get_next_update_partition(nullptr);
-  if (other == nullptr)
-    return target;
-  esp_app_desc_t desc;
-  if (esp_ota_get_partition_description(other, &desc) != ESP_OK)
-    return target;
-  target.partition = other->label;
-  target.version = std::string(desc.version, strnlen(desc.version, sizeof(desc.version)));
-  target.project_name = std::string(desc.project_name, strnlen(desc.project_name, sizeof(desc.project_name)));
-  return target;
-}
+RollbackTarget WebDeviceDashboard::rollback_target_() const { return firmware_rollback::rollback_target(); }
 
-// Reads the whole image back and hashes it before it writes the boot selection, so this
-// takes a moment on the server task. With rollback enabled — it is, through `ota:` — the
-// slot is selected for one monitored boot: a firmware that dies before safe_mode marks it
-// good brings the bootloader back to this one.
 const char *WebDeviceDashboard::select_rollback_(const RollbackTarget &target) {
-  const esp_partition_t *other = esp_ota_get_next_update_partition(nullptr);
-  if (other == nullptr || target.partition != other->label)
-    return "The firmware to roll back to is gone";
-  const esp_err_t err = esp_ota_set_boot_partition(other);
-  return err == ESP_OK ? nullptr : esp_err_to_name(err);
+  return firmware_rollback::select_rollback(target);
 }
-#else
-RollbackTarget WebDeviceDashboard::rollback_target_() const { return {}; }
-
-const char *WebDeviceDashboard::select_rollback_(const RollbackTarget & /*target*/) {
-  return "Rollback needs an ESP32";
-}
-#endif
 
 void WebDeviceDashboard::restart_() { App.safe_reboot(); }
 

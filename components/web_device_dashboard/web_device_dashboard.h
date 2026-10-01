@@ -4,6 +4,7 @@
 #include <functional>
 #include <string>
 #include <ArduinoJson.h>
+#include "esphome/components/firmware_rollback/firmware_rollback.h"
 #include "esphome/components/loop_job/loop_job.h"
 #include "esphome/components/web_origin_guard/web_origin_guard.h"
 #include "esphome/components/web_server_base/web_server_base.h"
@@ -46,13 +47,7 @@ struct Route {
   bool post;
 };
 
-/// The app slot a rollback would boot, empty when the other slot holds no app image.
-struct RollbackTarget {
-  std::string partition;
-  std::string version;
-  std::string project_name;
-  bool available() const { return !this->partition.empty(); }
-};
+using firmware_rollback::RollbackTarget;
 
 // The dashboard page at / and the device API under /api/device/: info (with the board's
 // EEPROM identity when jethome_board_info is wired in), status, network, what the firmware
@@ -109,11 +104,11 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   // Virtual so the host tests can watch these happen: the real ones end the process or move
   // the boot partition, and there is no second app slot to read off a host build.
   virtual RollbackTarget rollback_target_() const;
-  /// nullptr once the next boot is the rolled-back slot, else why it is not.
+  /// nullptr once the next boot is the rolled-back slot, else why it is not. Loop task only.
   virtual const char *select_rollback_(const RollbackTarget &target);
   virtual void restart_();
-  /// Hands @p job to the loop task, which owns the entity records, and waits for it. False
-  /// when the loop never got to it: the job did not run and never will.
+  /// Hands @p job to the loop task, which owns the entity records and the rollback, and waits
+  /// for it. False when the loop never got to it: the job did not run and never will.
   /// Virtual for the same reason: a host build has one task, so nothing crosses on its own
   /// and only a stand-in can refuse a job or count what was handed over.
   virtual bool run_on_loop_(std::function<bool()> &&job);

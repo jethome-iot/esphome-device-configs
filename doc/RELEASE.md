@@ -125,17 +125,21 @@ pipeline has never published to leaves the entity in an error state, with the
 channel the manifest lacked named in the log.
 
 The display carries the same under **Settings → Firmware**: the running and the offered
-version, the channel, a check, and an install behind a confirmation. An install started
-anywhere — that row, Home Assistant, the dashboard — takes the screen over until the device
-reboots into the new firmware: the version being written, the percentage and a progress bar,
-and no blanking while it runs. An install that fails says so on the same screen, leaves the
-running firmware in place, and gives the screen back on the next button press.
+version, the channel, a check, an install behind a confirmation, and a rollback to the firmware
+in the other slot, also behind one. The rollback row says whether there is a firmware to go back
+to (`Rollback (ready)` or `Rollback (none)`); after a rollback it offers the firmware just left,
+so the same row goes forward again. An install started anywhere — the install row, Home
+Assistant, the dashboard — takes the screen over until the device reboots into the new
+firmware: the version being written, the percentage and a progress bar, and no blanking while
+it runs. An install that fails says so on the same screen, leaves the running firmware in
+place, and gives the screen back on the next button press.
 
-The wiring is `devices/JXD/packages/features/firmware-update.yaml` with its menu rows in
-`devices/JXD/packages/display/menu-firmware.yaml` and its install screen in
-`devices/JXD/packages/display/firmware-page.yaml`, and all three are left out of `dist/`: a
-firmware built from the imported config is the user's own, not one this pipeline publishes
-([dist/ and new devices](DIST.md)).
+The wiring is `devices/JXD/packages/features/firmware-update.yaml` with its menu rows, the
+rollback row among them, in `devices/JXD/packages/display/menu-firmware.yaml` and its install
+screen in `devices/JXD/packages/display/firmware-page.yaml`, and all three are left out of
+`dist/`: a firmware built from the imported config is the user's own, not one this pipeline
+publishes ([dist/ and new devices](DIST.md)). A config imported from `dist/` still offers the
+rollback on its dashboard.
 
 ## Secrets
 

@@ -14,7 +14,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [web_device_dashboard, web_origin_guard]
+    components: [web_device_dashboard, web_origin_guard, loop_job, firmware_rollback]
 
 web_server:
   port: 80
@@ -67,7 +67,7 @@ failure `{"success": false, "error"}`. The same contract, machine-readable:
 | GET | `/api/device/capabilities` | what this firmware has, below |
 | POST | `/api/device/system/reboot` | restart, nothing cleared |
 | POST | `/api/device/system/factory-reset` | clear the stored settings and restart, wiping the storage on the way back up (with a `storage_id`) |
-| POST | `/api/device/system/rollback` | boot the other app slot — the firmware this one replaced |
+| POST | `/api/device/system/rollback` | boot the other app slot — after an update, the firmware it replaced |
 
 ### Capabilities
 
@@ -78,11 +78,13 @@ when the capability is, so the test is `if (caps.files)`; one that has no detail
 always there, the latter with `clears_storage` — whether a reset also takes the uploaded files
 and the automation rules with it. `rollback` names the other app slot and the ESPHome version
 of the image in it; that version is what a confirmation dialog should show, because after one
-rollback the other slot is the *newer* firmware. It is absent on a board that has never been
-updated over the air. `storage`, `files`, `automations`, `entity_settings` and `board_info`
-follow the components the firmware was built with. `storage` says what the mount is, not how
-full it is: usage is live and this route is read once, so the byte counts stay in the file
-API's own `info`.
+rollback the other slot is the *newer* firmware. It is there when
+[`firmware_rollback`](../firmware_rollback/README.md) finds a firmware to go back to, and
+absent after a serial flash, a failed or interrupted update, a rollback the bootloader did
+itself, or while a switch waits for its reboot. `storage`, `files`, `automations`,
+`entity_settings` and `board_info` follow the components the firmware was built with.
+`storage` says what the mount is, not how full it is: usage is live and this route is read
+once, so the byte counts stay in the file API's own `info`.
 
 The embedded page reads this on its **Settings → System** tab and will not draw the tab
 without it: a firmware old enough to answer `404` here gets a message saying so rather than
@@ -108,7 +110,8 @@ gone once the device is back, not when it answers. A rollback selects the
 other app slot, checking the image while the request is still open — a slot that is not whole
 is a `500` here rather than a device that comes back unchanged — and the firmware it boots gets
 one monitored boot: if it fails before it marks itself good, the bootloader returns to this
-one. `503` means there is nothing to roll back to.
+one. `503` means there is nothing to roll back to, or that the device was too busy to take the
+request (`Device busy`) and selected nothing.
 
 With a [`web_auth`](../web_auth/README.md), the web server's own credentials; without one
 these routes are `404`:
@@ -143,4 +146,5 @@ accumulation and its 4 KiB cap, the JSON every route answers with, the confirmat
 actions take, and a factory reset wiping a stand-in storage and the preferences before it
 restarts. Out of reach there is the ESP-IDF half — the `Allow` header, URL decoding, the reset
 reason and the IP lookups, the eFuse block, a live WiFi or Ethernet link, the real reboot, the
-LittleFS format, and the `esp_ota_*` calls behind the rollback, which the tests stand in for.
+LittleFS format, and the rollback's reads and switch, which the tests stand in for; the rule
+that decides is covered by [`firmware_rollback`](../firmware_rollback/README.md)'s own suite.

@@ -35,6 +35,7 @@ tests/
     crash_report/
     display_menu_base/
     entity_config/
+    firmware_rollback/
     i2c_eeprom/
     jethome_board_info/
     jethome_manifest/
