@@ -83,8 +83,8 @@ rollback the other slot is the *newer* firmware. It is there when
 absent after a serial flash, a failed or interrupted update, a rollback the bootloader did
 itself, or while a switch waits for its reboot. `storage`, `files`, `automations`,
 `entity_settings` and `board_info` follow the components the firmware was built with.
-`storage` says what the mount is, not how full it is: usage is live and this route is read
-once, so the byte counts stay in the file API's own `info`.
+`storage` says what the mount is, not how full it is: usage is live and this route is not
+polled, so the byte counts stay in the file API's own `info`.
 
 The embedded page will not draw its **Settings → System** tab without this: a firmware old
 enough to answer `404` here gets a message saying so rather than buttons that cannot work. It
