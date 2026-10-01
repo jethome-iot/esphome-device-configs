@@ -457,8 +457,10 @@ components:
           minItems: 1
           description: >-
             For `schedule`, which is on inside any of these windows and off outside
-            them. It fires at both ends of every window and once more whenever the
-            rule starts, carrying that state to a `follow` action.
+            them. It fires whenever that state changes and once more whenever the
+            rule starts, carrying the state to a `follow` action. Windows that touch
+            or overlap, and several schedule triggers in one rule, count as one, so
+            a seam between them fires nothing.
           items:
             $ref: "#/components/schemas/ScheduleWindow"
 
