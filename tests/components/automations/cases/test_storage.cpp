@@ -113,12 +113,13 @@ class Storage : public ::testing::Test {
 
   // Engines outlive the test: the entities keep a callback into each one, and production never
   // destroys the component either. forget() empties them so later tests see nothing fire.
-  FakeEngine &new_engine() {
+  FakeEngine &new_engine(bool clock = true) {
     static std::vector<std::unique_ptr<FakeEngine>> all;
     all.push_back(std::make_unique<FakeEngine>());
     FakeEngine &e = *all.back();
     e.set_storage(&this->backend);
-    e.with_clock();
+    if (clock)
+      e.with_clock();
     this->engines.push_back(&e);
     return e;
   }
@@ -690,6 +691,24 @@ TEST_F(Storage, AScheduleIsAppliedAtBootAndOnEveryEdit) {
   engine->now++;
   engine->tick();
   EXPECT_TRUE(e.relay2.state);
+}
+
+TEST_F(Storage, WithoutAClockOnlyTheTimedRulesStayUnbuilt) {
+  static const char *const SHOP =
+      R"({"id":2,"name":"Shop","enabled":true,"mode":"single","triggers":[{"source":"schedule","windows":[{"days":["mon","tue","wed","thu","fri","sat","sun"],"from":"08:00","to":"20:00"}]}],"actions":[{"source":"switch","type":"follow","object_id":"relay_1"}]})";
+  write("input_press.json", PRESS_RELAY_1);
+  write("shop.json", SHOP);
+  write("tick.json", R"({"id":3,"name":"Tick","triggers":[{"source":"cron","cron":"* * * * * *"}],"actions":[]})");
+  engine->forget();
+  engine = &new_engine(false);
+  boot();
+  EXPECT_TRUE(log().has(log().warnings, "No time source: cron and schedule triggers are disabled"));
+  EXPECT_TRUE(built("Input press"));
+  EXPECT_FALSE(built("Shop"));
+  EXPECT_FALSE(built("Tick"));
+  EXPECT_EQ(read("shop.json"), SHOP);
+  press(e.in1);
+  EXPECT_TRUE(e.relay1.state);
 }
 
 TEST_F(Storage, RulesCannotBeEditedFromInsideTheirOwnAction) {
