@@ -660,12 +660,22 @@ TEST_F(Storage, AScheduleIsAppliedAtBootAndOnEveryEdit) {
   engine->tick();
   EXPECT_FALSE(e.relay1.state);
 
-  // A hand switch holds until the rule is saved again.
+  // A hand switch holds until the rule is saved again, or turned off and on.
+  const uint32_t id = id_of("Shop");
   e.relay1.turn_on();
   engine->now++;
   engine->tick();
   EXPECT_TRUE(e.relay1.state);
-  EXPECT_TRUE(engine->update_automation(id_of("Shop"), rule(SHOP)));
+  EXPECT_TRUE(engine->update_automation(id, rule(SHOP)));
+  engine->now++;
+  engine->tick();
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_TRUE(engine->set_enable_automation(id, false));
+  e.relay1.turn_on();
+  engine->now++;
+  engine->tick();
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_TRUE(engine->set_enable_automation(id, true));
   engine->now++;
   engine->tick();
   EXPECT_FALSE(e.relay1.state);

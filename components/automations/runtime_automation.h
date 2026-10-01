@@ -54,8 +54,6 @@ struct CompiledTrigger {
   bool armed{true};
   bool pressed{false};
   uint32_t press_start{0};
-  // The state a schedule last handed its rule; none until the rule has taken one.
-  optional<bool> reported;
 
   bool cron_matches(const ESPTime &time) const;
   bool schedule_on(const ESPTime &time) const;
@@ -85,6 +83,7 @@ class RuntimeAutomation {
   void on_switch(switch_::Switch *entity, bool state);
   void on_sensor(sensor::Sensor *entity, float value);
   void on_time(const ESPTime &time);
+  void on_schedule(const ESPTime &now);
   void on_startup();
 
   const std::vector<CompiledTrigger> &get_triggers() const { return this->triggers_; }
@@ -121,6 +120,8 @@ class RuntimeAutomation {
   std::vector<CompiledAction> else_;
   std::vector<std::unique_ptr<Run>> runs_;
   uint32_t next_token_{0};
+  // The state the rule's schedules last handed it; none until it has taken one.
+  optional<bool> schedule_reported_;
 };
 
 // Timer ids carry the run sequence in their low 4 bits, so a rule id has to fit the rest.

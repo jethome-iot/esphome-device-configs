@@ -34,7 +34,7 @@ automations:
 | Option        | Default       | Meaning                                                                    |
 | ------------- | ------------- | -------------------------------------------------------------------------- |
 | `storage`     |               | A `filesystem_storage_abstract` backend, `littlefs_storage` on a device; required |
-| `time_id`     |               | A `time` platform. Without one cron triggers are refused at boot, the rest still run |
+| `time_id`     |               | A `time` platform. Without one cron and schedule triggers are refused at boot, the rest still run |
 | `folder_path` | `automations` | The folder below the backend's base path that holds the rule files         |
 
 ## A rule
@@ -92,7 +92,8 @@ edge. Actions other than `follow` run on every one of these, `on` and `off` alik
 `from` and `to` are `HH:MM` on the 24-hour clock, `to` up to `24:00`. A window whose `to` comes
 before its `from` runs past midnight, and its `days` name the day it starts on. `days` are `mon`
 to `sun`, every day when absent, and come back written out in full. A window from a time to the
-same time is rejected; windows that overlap or touch act as one.
+same time is rejected; windows that overlap or touch act as one, and so do several schedule
+triggers in one rule.
 
 ## Storage
 

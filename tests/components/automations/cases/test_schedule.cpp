@@ -136,6 +136,24 @@ TEST(ScheduleTrigger, NeedsAClock) {
   EXPECT_FALSE(trigger.schedule_on(ESPTime{}));
 }
 
+TEST(ScheduleTrigger, RefusesAWindowTheFileCouldNotHold) {
+  FakeEngine engine;
+  engine.with_clock();
+  TriggerConfig config;
+  config.source = SourceTrigger::SCHEDULE;
+  CompiledTrigger trigger;
+  EXPECT_FALSE(compile_trigger(&engine, config, trigger));
+  for (const ScheduleWindow &window :
+       {ScheduleWindow{0, 480, 1200}, ScheduleWindow{0x80, 480, 1200},
+        ScheduleWindow{ScheduleWindow::EVERY_DAY, 480, 480}, ScheduleWindow{ScheduleWindow::EVERY_DAY, 1440, 60},
+        ScheduleWindow{ScheduleWindow::EVERY_DAY, 480, 1441}}) {
+    config.schedule_windows = {window};
+    EXPECT_FALSE(compile_trigger(&engine, config, trigger)) << window.describe();
+  }
+  config.schedule_windows = {ScheduleWindow{ScheduleWindow::EVERY_DAY, 0, 1440}};
+  EXPECT_TRUE(compile_trigger(&engine, config, trigger));
+}
+
 TEST_F(ScheduleOn, FromItsStartUpToItsEnd) {
   const char *weekdays = R"([{"days":["mon","tue","wed","thu","fri"],"from":"08:00","to":"20:00"}])";
   EXPECT_FALSE(on(weekdays, at(0, 7, 59, 59)));
@@ -171,6 +189,13 @@ TEST_F(ScheduleOn, MidnightEndsTheDay) {
   const char *evening = R"([{"days":["mon"],"from":"18:00","to":"00:00"}])";
   EXPECT_TRUE(on(evening, at(0, 23, 59, 59)));
   EXPECT_FALSE(on(evening, at(1, 0, 0)));
+}
+
+TEST_F(ScheduleOn, DaysThatMeetAtMidnightLeaveNoGap) {
+  const char *night = R"([{"days":["mon"],"from":"18:00","to":"24:00"},{"days":["tue"],"from":"00:00","to":"06:00"}])";
+  EXPECT_TRUE(on(night, at(0, 23, 59, 59)));
+  EXPECT_TRUE(on(night, at(1, 0, 0)));
+  EXPECT_FALSE(on(night, at(1, 6, 0)));
 }
 
 TEST_F(ScheduleOn, WindowsThatTouchLeaveNoGap) {
@@ -257,16 +282,45 @@ TEST_F(ScheduleRule, MissedSecondsAreCaughtUp) {
   EXPECT_TRUE(e.relay1.state);
 }
 
-TEST_F(ScheduleRule, AClockThatJumpsIsFollowedASecondLater) {
+TEST_F(ScheduleRule, AClockThatJumpsIsFollowedAtOnce) {
   adopt(SHOP);
   boot_at(at(0, 7, 0));
   boot_at(at(0, 9, 0));
-  EXPECT_FALSE(e.relay1.state);
-  run_until(at(0, 9, 0, 1));
   EXPECT_TRUE(e.relay1.state);
-  // A long way back fires at once.
   boot_at(at(0, 6, 0));
   EXPECT_FALSE(e.relay1.state);
+  // A short step back, which cron waits out, here across the window's end.
+  boot_at(at(0, 20, 5));
+  boot_at(at(0, 19, 58));
+  EXPECT_TRUE(e.relay1.state);
+  run_until(at(0, 20, 0, 1));
+  EXPECT_FALSE(e.relay1.state);
+}
+
+TEST_F(ScheduleRule, SchedulesInOneRuleActAsOne) {
+  adopt(R"({"name":"Two","triggers":[
+      {"source":"schedule","windows":[{"days":["mon","tue","wed","thu","fri"],"from":"08:00","to":"20:00"}]},
+      {"source":"schedule","windows":[{"from":"18:00","to":"22:00"}]}],
+      "actions":[{"source":"switch","type":"follow","object_id":"relay_1"}]})");
+  boot_at(at(0, 10, 0));
+  EXPECT_TRUE(e.relay1.state);
+  boot_at(at(0, 19, 59, 58));
+  run_until(at(0, 20, 0, 2));
+  EXPECT_TRUE(e.relay1.state);
+  boot_at(at(0, 21, 59, 58));
+  run_until(at(0, 22, 0, 2));
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 2);
+}
+
+TEST_F(ScheduleRule, DaysThatMeetAtMidnightDoNotFlicker) {
+  adopt(R"({"name":"Night","triggers":[{"source":"schedule","windows":[
+      {"days":["mon"],"from":"18:00","to":"24:00"},{"days":["tue"],"from":"00:00","to":"06:00"}]}],
+      "actions":[{"source":"switch","type":"follow","object_id":"relay_1"}]})");
+  boot_at(at(0, 23, 59, 58));
+  run_until(at(1, 0, 0, 2));
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 1);
 }
 
 TEST_F(ScheduleRule, AHandSwitchHoldsUntilTheNextEdge) {

@@ -185,6 +185,13 @@ bool compile_trigger(AutomationStorage *engine, const TriggerConfig &config, Com
         ESP_LOGE(TAG, "Trigger: schedule needs a time source (time_id)");
         return false;
       }
+      // A config built in C++ skipped the parser: a window it would refuse could not load back.
+      for (const auto &window : config.schedule_windows) {
+        if (!window.valid()) {
+          ESP_LOGE(TAG, "Trigger: schedule window '%s' cannot be stored", window.describe().c_str());
+          return false;
+        }
+      }
       out.windows = config.schedule_windows;
       return !out.windows.empty();
     case SourceTrigger::STARTUP:
@@ -265,8 +272,7 @@ void RuntimeAutomation::set_enabled(bool enabled) {
     this->stop();
   } else if (!this->enabled_) {
     // Back on, a schedule hands its state over again, as to a rule just built.
-    for (auto &trigger : this->triggers_)
-      trigger.reported.reset();
+    this->schedule_reported_.reset();
   }
   this->enabled_ = enabled;
 }
@@ -360,16 +366,25 @@ void RuntimeAutomation::on_sensor(sensor::Sensor *entity, float value) {
 }
 
 void RuntimeAutomation::on_time(const ESPTime &time) {
-  for (auto &trigger : this->triggers_) {
-    if (trigger.source == SourceTrigger::CRON && trigger.cron_matches(time)) {
+  for (const auto &trigger : this->triggers_) {
+    if (trigger.source == SourceTrigger::CRON && trigger.cron_matches(time))
       this->fire_(false, false);
-    } else if (trigger.source == SourceTrigger::SCHEDULE) {
-      // Offered every second until the rule takes it: a busy rule must not leave the state behind.
-      const bool on = trigger.schedule_on(time);
-      if (trigger.reported != on && this->fire_(true, on))
-        trigger.reported = on;
+  }
+}
+
+void RuntimeAutomation::on_schedule(const ESPTime &now) {
+  // Several schedules in one rule act as one, like windows that overlap.
+  bool scheduled = false;
+  bool on = false;
+  for (const auto &trigger : this->triggers_) {
+    if (trigger.source == SourceTrigger::SCHEDULE) {
+      scheduled = true;
+      on = on || trigger.schedule_on(now);
     }
   }
+  // Offered every second until the rule takes it: a busy rule must not leave the state behind.
+  if (scheduled && this->schedule_reported_ != on && this->fire_(true, on))
+    this->schedule_reported_ = on;
 }
 
 void RuntimeAutomation::on_startup() {

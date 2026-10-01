@@ -16,6 +16,11 @@ struct ScheduleWindow {
   uint16_t from{0};         // minutes since midnight
   uint16_t to{0};           // minutes since midnight, up to 1440 (24:00)
 
+  /// Whether the file format can hold it: some day, both ends on the clock, not empty.
+  bool valid() const {
+    return this->days != 0 && (this->days & ~EVERY_DAY) == 0 && this->from < 1440 && this->to <= 1440 &&
+           this->from != this->to;
+  }
   /// "mon,tue 08:00-20:00", for the log.
   std::string describe() const;
 };

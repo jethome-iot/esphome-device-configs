@@ -34,7 +34,8 @@ import { normalizeScheduleWindows, validateScheduleWindows } from '../schedule'
 function normalizeStoredTriggers(cfg: AutomationConfig): AutomationConfig {
   const triggers = cfg.triggers.map((t) => {
     if (t.source === 'cron' && typeof t.cron === 'string') return { ...t, cron: normalizeCron(t.cron) }
-    if (t.source === 'schedule' && t.windows) return { ...t, windows: normalizeScheduleWindows(t.windows) }
+    // The device writes a schedule back as these two keys and nothing else.
+    if (t.source === 'schedule' && t.windows) return { source: 'schedule', windows: normalizeScheduleWindows(t.windows) }
     return t
   })
   return { ...cfg, triggers }

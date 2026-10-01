@@ -129,7 +129,7 @@ void AutomationStorage::setup() {
   if (this->rtc_ != nullptr) {
     this->set_interval(1000, [this]() { this->check_time_(); });
   } else {
-    ESP_LOGW(TAG, "No time source: cron triggers are disabled");
+    ESP_LOGW(TAG, "No time source: cron and schedule triggers are disabled");
   }
   // Startup triggers fire once every component has finished setting up.
   this->defer([this]() {
@@ -208,11 +208,17 @@ void AutomationStorage::dispatch_sensor_(sensor::Sensor *entity, float value) {
                 [=](RuntimeAutomation &rule) { rule.on_sensor(entity, value); });
 }
 
-// Same catch-up and clock-jump handling as the core cron trigger, for all rules at once.
 void AutomationStorage::check_time_() {
   ESPTime now = this->clock_now_();
   if (!now.is_valid())
     return;
+  this->check_cron_(now);
+  // A schedule is a state: it is read at the time the clock shows, whichever way the clock moved.
+  for_each_rule(this->dispatching_, this->automations_, [&now](RuntimeAutomation &rule) { rule.on_schedule(now); });
+}
+
+// Same catch-up and clock-jump handling as the core cron trigger, for all rules at once.
+void AutomationStorage::check_cron_(const ESPTime &now) {
   auto fire = [this](const ESPTime &time) {
     for_each_rule(this->dispatching_, this->automations_, [&time](RuntimeAutomation &rule) { rule.on_time(time); });
   };

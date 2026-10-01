@@ -96,6 +96,7 @@ class AutomationStorage : public Component {
 
   void subscribe_(const RuntimeAutomation &automation);
   void check_time_();
+  void check_cron_(const ESPTime &now);
   virtual ESPTime clock_now_();
 
   std::string sanitize_filename_(const std::string &name) const;
