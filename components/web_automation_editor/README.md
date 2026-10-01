@@ -96,8 +96,9 @@ ESP-IDF's server insists on (`411` without it), as a browser's `fetch` does on i
 ## client/
 
 `client/automationApi.ts` is the TypeScript client for these routes, `client/types.ts` the wire
-types, `client/cron.ts` and `client/naming.ts` what an editor needs to predict the device (how a
-cron expression comes back re-serialized, which names collide), and
+types, `client/cron.ts`, `client/schedule.ts` and `client/naming.ts` what an editor needs to
+predict the device (how a cron expression comes back re-serialized, which schedule windows it
+refuses and how their days come back, which names collide), and
 `client/mock/automationMock.ts` a dependency-free in-memory implementation of the same routes
 for a dev server or unit tests. They are the contract a browser client codes against and they
 live here so they change with the C++ that they mirror. Nothing in this repository builds or

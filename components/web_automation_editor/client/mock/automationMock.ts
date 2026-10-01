@@ -24,15 +24,19 @@ import type {
 import type { FetchImpl } from '../automationApi'
 import { normalizeCron, validateCronExpression } from '../cron'
 import { isNameTaken } from '../naming'
+import { normalizeScheduleWindows, validateScheduleWindows } from '../schedule'
 
 // The firmware does NOT store a posted cron string — it parses each field into an
-// integer set and RE-SERIALISES on every read, so `1,7` comes back as `*/6`.
-// Reproduce that here so the dev/QA loop sees the same round-trip the hardware
-// does. A cron the device would refuse is refused in /save before this runs.
-function normalizeStoredCron(cfg: AutomationConfig): AutomationConfig {
-  const triggers = cfg.triggers.map((t) =>
-    t.source === 'cron' && typeof t.cron === 'string' ? { ...t, cron: normalizeCron(t.cron) } : t
-  )
+// integer set and RE-SERIALISES on every read, so `1,7` comes back as `*/6`; a
+// schedule's days come back in full, Monday first. Reproduce that here so the
+// dev/QA loop sees the same round-trip the hardware does. A trigger the device
+// would refuse is refused in /save before this runs.
+function normalizeStoredTriggers(cfg: AutomationConfig): AutomationConfig {
+  const triggers = cfg.triggers.map((t) => {
+    if (t.source === 'cron' && typeof t.cron === 'string') return { ...t, cron: normalizeCron(t.cron) }
+    if (t.source === 'schedule' && t.windows) return { ...t, windows: normalizeScheduleWindows(t.windows) }
+    return t
+  })
   return { ...cfg, triggers }
 }
 
@@ -72,6 +76,22 @@ export const seedAutomations: AutomationConfig[] = [
       { source: 'switch', type: 'follow', object_id: 'porch_light', invert: false },
       { source: 'switch', type: 'follow', object_id: 'relay_3', invert: true }
     ]
+  },
+  {
+    id: 4,
+    name: 'Shop window',
+    enabled: true,
+    mode: 'single',
+    triggers: [
+      {
+        source: 'schedule',
+        windows: [
+          { days: ['mon', 'tue', 'wed', 'thu', 'fri'], from: '08:00', to: '20:00' },
+          { days: ['sat', 'sun'], from: '10:00', to: '16:00' }
+        ]
+      }
+    ],
+    actions: [{ source: 'switch', type: 'follow', object_id: 'relay_3', invert: false }]
   }
 ]
 
@@ -97,7 +117,8 @@ export const seedSchema: AutomationSchema = {
     { type: 'temperature', subtypes: ['above', 'below', 'range'] },
     { type: 'cron', subtypes: [] },
     { type: 'startup', subtypes: [] },
-    { type: 'switch', subtypes: ['turn_on', 'turn_off', 'state_change'] }
+    { type: 'switch', subtypes: ['turn_on', 'turn_off', 'state_change'] },
+    { type: 'schedule', subtypes: [] }
   ],
   conditions: [
     { type: 'input' },
@@ -125,7 +146,9 @@ function knownType(entries: Array<{ type: string; subtypes?: string[] }>, type: 
 
 function validTrigger(t: AutomationTrigger): boolean {
   if (!knownType(seedSchema.triggers, t.source, t.type)) return false
-  return t.source !== 'cron' || validateCronExpression(t.cron ?? '') === null
+  if (t.source === 'cron') return validateCronExpression(t.cron ?? '') === null
+  if (t.source === 'schedule') return validateScheduleWindows(t.windows) === null
+  return true
 }
 
 function validAction(a: AutomationAction): boolean {
@@ -266,11 +289,11 @@ export function createAutomationMockStore(): AutomationMockStore {
           if (i < 0) {
             return { status: 404, body: { success: false, error: 'Automation not found' } }
           }
-          automations[i] = normalizeStoredCron({ ...cfg })
+          automations[i] = normalizeStoredTriggers({ ...cfg })
           return { status: 200, body: { success: true, message: 'Automation updated' } }
         }
         const id = nextId++
-        automations.push(normalizeStoredCron({ ...cfg, id }))
+        automations.push(normalizeStoredTriggers({ ...cfg, id }))
         return { status: 200, body: { success: true, message: 'Automation created', id } }
       }
 

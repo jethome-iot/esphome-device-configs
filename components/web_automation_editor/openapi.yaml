@@ -428,7 +428,7 @@ components:
       properties:
         source:
           type: string
-          enum: [input, switch, temperature, cron, startup]
+          enum: [input, switch, temperature, cron, startup, schedule]
         type:
           type: string
           description: >-
@@ -452,6 +452,43 @@ components:
           type: string
           enum: [daily, hourly, every_n_minutes, weekly, monthly, custom]
           description: The editor's note about the form it offered; the engine never reads it.
+        windows:
+          type: array
+          minItems: 1
+          description: >-
+            For `schedule`, which is on inside any of these windows and off outside
+            them. It fires at both ends of every window and once more whenever the
+            rule starts, carrying that state to a `follow` action.
+          items:
+            $ref: "#/components/schemas/ScheduleWindow"
+
+    ScheduleWindow:
+      type: object
+      required: [from, to]
+      description: >-
+        A `to` before `from` runs past midnight, and `days` then name the day the
+        window starts on. A window whose `from` equals its `to` is refused;
+        `00:00` to `24:00` is the whole day.
+      properties:
+        days:
+          type: array
+          minItems: 1
+          description: Absent means every day. Written back in full, Monday first.
+          items:
+            type: string
+            enum: [mon, tue, wed, thu, fri, sat, sun]
+        from:
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          example: "08:00"
+        to:
+          type: string
+          pattern: "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$"
+          example: "20:00"
+      example:
+        days: [mon, tue, wed, thu, fri]
+        from: "08:00"
+        to: "20:00"
 
     Condition:
       type: object
