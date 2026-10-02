@@ -1,0 +1,109 @@
+# Google Test binary for components/mqtt_subscriptions, built through esphome compile by
+# tests/run.py. The harness main.cpp replaces the generated one, so nothing declared here is ever
+# set up: the sections exist to get the sources compiled, the USE_* defines set and App's entity
+# lists sized. The tests build their own component over a directory and the harness's mqtt
+# stand-in, and play the broker through it.
+esphome:
+  name: mqtt-subscriptions-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+
+host:
+
+logger:
+  level: DEBUG
+  # mqtt_config asks for its own listener slot; this trigger sizes the list for a second one,
+  # which the cases read the log through. It is never set up.
+  on_message:
+    - level: ERROR
+      then:
+        - lambda: ""
+
+# As on the devices: USE_NETWORK_IPV6 is defined, and false.
+network:
+  enable_ipv6: false
+
+external_components:
+  - source: ../../../components
+    components:
+      [mqtt_config, mqtt_subscriptions, filesystem_storage_abstract, automations, loop_job, bindings]
+  - source: ../../harness/components
+    components: [mqtt, dir_storage]
+
+time:
+  - platform: host
+    id: host_time
+    timezone: UTC
+
+dir_storage:
+  id: test_storage
+  path: .storage
+
+# As devices/JXD/packages/features/mqtt.yaml.
+mqtt:
+  id: mqtt_client
+  broker: ""
+  enable_on_boot: false
+  reboot_timeout: 0s
+  clean_session: true
+  discovery: true
+  discovery_retain: true
+  discovery_unique_id_generator: mac
+  discover_ip: false
+  log_topic: null
+
+mqtt_config:
+  id: mqtt_settings
+
+# Four slots: four places in each of the three entity lists, on top of what is declared below.
+mqtt_subscriptions:
+  id: mqtt_subs
+  storage: test_storage
+  max_slots: 4
+  units: ["°C", "%"]
+
+# A Number slot as an automation's temperature, an On/Off slot as its input and as a relay's
+# bound input: the cases run both against slot entities.
+automations:
+  storage: test_storage
+  time_id: host_time
+
+bindings:
+
+# App sizes its entity lists from what is declared here and silently drops a registration past
+# that, so this is at least what cases/common.h registers: names a slot cannot take, and the
+# relays the automation and binding cases drive.
+sensor:
+  - platform: template
+    id: board_temperature_unused
+    name: "Board temperature"
+
+binary_sensor:
+  - platform: template
+    id: input_1_unused
+    name: "Input 1"
+
+text_sensor:
+  - platform: template
+    id: ip_address_unused
+    name: "IP address"
+
+switch:
+  - platform: template
+    id: relay_1_unused
+    name: "Relay 1"
+    optimistic: true
+  - platform: template
+    id: relay_2_unused
+    name: "Relay 2"
+    optimistic: true
