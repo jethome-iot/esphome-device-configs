@@ -32,6 +32,7 @@ tests/
       cases/                # the tests; common.h holds what they share
       test_schema.py        # the component's YAML schema, run with unittest by run.py
     bindings/               # the same layout, one suite per component
+    climate_hub/
     config_json/
     crash_report/
     dallas_scan/
