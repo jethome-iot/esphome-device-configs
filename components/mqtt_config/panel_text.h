@@ -18,7 +18,7 @@ using HasGlyph = std::function<bool(uint32_t)>;
 std::string panel_safe(const std::string &text, size_t max_bytes, const HasGlyph &has_glyph);
 // Code points in well-formed UTF-8, such as panel_safe's result.
 size_t panel_glyphs(const std::string &text);
-// At most `glyphs` code points, the last one '…' when the text was cut.
+// At most `glyphs` code points; a cut text ends in '…', with no space before it.
 std::string panel_fit(const std::string &text, size_t glyphs);
 // "name: value" in `width` glyphs. Whole when it fits; otherwise the name keeps
 // max(6, width - 2 - value) glyphs, never more than it has, the value the rest, and each cut

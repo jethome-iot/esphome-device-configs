@@ -253,6 +253,12 @@ TEST(PanelFit, ALongerOneIsCutWithAnEllipsisAsItsLastGlyph) {
   EXPECT_EQ(panel_fit("abc", 0), "");
 }
 
+TEST(PanelFit, NoSpaceIsLeftBeforeTheEllipsis) {
+  EXPECT_EQ(panel_fit("Outdoor temperature", 9), "Outdoor…");
+  EXPECT_EQ(panel_fit("a   b c", 4), "a…");
+  EXPECT_EQ(panel_fit("     x", 3), "…");
+}
+
 TEST(PanelFit, CyrillicIsCutByGlyphs) {
   EXPECT_EQ(panel_fit("Температура в спальне", 10), "Температу…");
   EXPECT_EQ(panel_fit("Включён", 7), "Включён");
@@ -272,8 +278,8 @@ TEST(PanelPair, APairThatFitsIsKeptWhole) {
 
 TEST(PanelPair, ALongNameMakesRoomForTheValue) {
   const std::string row = panel_pair("Outdoor temperature", "21.5 °C", 18);
-  EXPECT_EQ(row, "Outdoor …: 21.5 °C");
-  EXPECT_EQ(panel_glyphs(row), 18u);
+  EXPECT_EQ(row, "Outdoor…: 21.5 °C");
+  EXPECT_LE(panel_glyphs(row), 18u);
 }
 
 TEST(PanelPair, ALongValueLeavesTheNameSixGlyphs) {

@@ -92,6 +92,9 @@ std::string panel_fit(const std::string &text, size_t glyphs) {
     if (is_lead(text[i]) && kept++ == glyphs - 1)
       break;
   }
+  // "Outdoor…", not "Outdoor …".
+  while (i > 0 && text[i - 1] == ' ')
+    i--;
   return text.substr(0, i) + ELLIPSIS;
 }
 
