@@ -116,14 +116,14 @@ TEST_F(SlotFileParse, RecordsThatAreNotAListFailTheFile) {
 
 TEST_F(SlotFileParse, ARecordWithoutAnIntegerSlotFromOneUpIsSkipped) {
   const Parsed parsed = parse(R"({"records":[)"
-                              R"({"address":"0x3c01b5566e8a1f28"},)"
-                              R"({"slot":0,"address":"0x3c01b5566e8a1f28"},)"
-                              R"({"slot":-1,"address":"0x3c01b5566e8a1f28"},)"
-                              R"({"slot":"2","address":"0x3c01b5566e8a1f28"},)"
-                              R"({"slot":2.5,"address":"0x3c01b5566e8a1f28"},)"
-                              R"({"slot":true,"address":"0x3c01b5566e8a1f28"},)"
-                              R"({"slot":null,"address":"0x3c01b5566e8a1f28"},)"
-                              R"({"slot":4294967297,"address":"0x3c01b5566e8a1f28"},)"
+                              R"({"address":"0x9b01b5566e8a1f28"},)"
+                              R"({"slot":0,"address":"0x9b01b5566e8a1f28"},)"
+                              R"({"slot":-1,"address":"0x9b01b5566e8a1f28"},)"
+                              R"({"slot":"2","address":"0x9b01b5566e8a1f28"},)"
+                              R"({"slot":2.5,"address":"0x9b01b5566e8a1f28"},)"
+                              R"({"slot":true,"address":"0x9b01b5566e8a1f28"},)"
+                              R"({"slot":null,"address":"0x9b01b5566e8a1f28"},)"
+                              R"({"slot":4294967297,"address":"0x9b01b5566e8a1f28"},)"
                               R"({"slot":1,"address":"0xeb01227905460228"}]})");
   EXPECT_TRUE(parsed.ok);  // a bad record does not fail the file
   EXPECT_EQ(parsed.table, (std::vector<uint64_t>{ROM_A, 0, 0, 0}));
@@ -134,7 +134,7 @@ TEST_F(SlotFileParse, ARecordWithoutAnIntegerSlotFromOneUpIsSkipped) {
 }
 
 TEST_F(SlotFileParse, ASlotPastMaxSensorsIsSkippedWithoutFailingTheFile) {
-  const Parsed parsed = parse(R"({"records":[{"slot":5,"address":"0x3c01b5566e8a1f28"},)"
+  const Parsed parsed = parse(R"({"records":[{"slot":5,"address":"0x9b01b5566e8a1f28"},)"
                               R"({"slot":4,"address":"0xeb01227905460228"}]})");
   EXPECT_TRUE(parsed.ok);
   EXPECT_EQ(parsed.table, (std::vector<uint64_t>{0, 0, 0, ROM_A}));
@@ -181,7 +181,7 @@ TEST_F(SlotFileParse, AParseStartsFromAnEmptyTable) {
   JsonDocument doc;
   SlotFile file("dallas_scan_temps", 2);
   file.set_table({ROM_A, ROM_B});
-  deserializeJson(doc, R"({"records":[{"slot":2,"address":"0x3c01b5566e8a1f28"}]})");
+  deserializeJson(doc, R"({"records":[{"slot":2,"address":"0x9b01b5566e8a1f28"}]})");
   EXPECT_TRUE(file.parse_json(doc.as<JsonObject>(), 1));
   EXPECT_EQ(file.table(), (std::vector<uint64_t>{0, ROM_C}));
   // A file that fails leaves nothing of the table before it either.

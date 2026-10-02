@@ -89,7 +89,7 @@ void DallasScan::load_table_() {
 #ifdef USE_DALLAS_SCAN_FILE
   if (this->file_ != nullptr) {
     // The keeper has set up by now: no mount means it failed.
-    if (this->can_save_())
+    if (this->can_save())
       this->file_unreadable_ =
           !this->file_->load_from_file(this->keeper_->get_storage(), this->keeper_->get_config_dir());
     this->slots_ = this->file_->table();
@@ -143,7 +143,8 @@ void DallasScan::bind_devices_() {
   if (this->slots_ == before)
     return;
 #ifdef USE_DALLAS_SCAN_FILE
-  // A file that did not load stays as it is, for a person to fix; only a forget writes over it.
+  // A file that did not load stays as it is, for a person to fix; only a forget or an assign
+  // writes over it.
   if (this->file_ != nullptr && this->file_unreadable_) {
     ESP_LOGW(TAG, "%s.json did not load: these slots last until the next reboot", this->file_->get_key());
     return;
@@ -195,7 +196,8 @@ void DallasScan::write_resolution_(uint64_t address) {
 }
 
 void DallasScan::update() {
-  if (this->automatic_ == 0)  // listed sensors read their devices themselves
+  // Listed sensors read their devices themselves; a rewritten table waits for its reboot.
+  if (this->automatic_ == 0 || this->awaiting_reboot_)
     return;
   // One conversion for the whole bus; the scratch pads are read one per loop pass.
   if (this->bus_->skip())
@@ -204,6 +206,8 @@ void DallasScan::update() {
 }
 
 void DallasScan::read_slot_(size_t slot) {
+  if (this->awaiting_reboot_)
+    return;
   // Slots served by YAML sensors are theirs to read.
   while (slot < this->slots_.size() && (this->sensors_[slot] == nullptr || this->given_[slot] != nullptr))
     slot++;
@@ -289,31 +293,98 @@ float DallasScan::temperature(size_t slot) const {
   return sensor == nullptr ? NAN : sensor->state;
 }
 
+bool DallasScan::can_forget(int slot) const {
+  for (size_t i = 0; i < this->slots_.size(); i++) {
+    if ((slot < 0 || (size_t) slot == i) && !this->pinned_[i] && this->slots_[i] != 0)
+      return true;
+  }
+  return false;
+}
+
 void DallasScan::forget(int slot) {
-  if (!this->can_save_()) {
+  if (this->forget_and_save(slot))
+    this->restart_();
+}
+
+bool DallasScan::forget_and_save(int slot) {
+  if (!this->can_save()) {
     ESP_LOGE(TAG, "Storage unavailable: nothing is forgotten");
-    return;
+    return false;
+  }
+  if (!this->can_forget(slot)) {
+    ESP_LOGW(TAG, "Nothing to forget: the slot is empty or taken by a YAML sensor");
+    return false;
   }
   const auto before = this->slots_;
-  bool changed = false;
   for (size_t i = 0; i < this->slots_.size(); i++) {
-    if ((slot >= 0 && (size_t) slot != i) || this->pinned_[i] || this->slots_[i] == 0)
-      continue;
-    this->slots_[i] = 0;
-    changed = true;
+    if ((slot < 0 || (size_t) slot == i) && !this->pinned_[i])
+      this->slots_[i] = 0;
   }
-  if (!changed) {
-    ESP_LOGW(TAG, "Nothing to forget: the slot is empty or taken by a YAML sensor");
-    return;
-  }
-  // A reboot after a failed write would bring the slot back without a word.
-  if (!this->store_for_reboot_()) {
-    this->slots_ = before;
-    ESP_LOGE(TAG, "The slot table was not written: nothing is forgotten");
-    return;
-  }
-  App.safe_reboot();
+  return this->store_or_roll_back_(before, "nothing is forgotten");
 }
+
+bool DallasScan::valid_address(uint64_t address) {
+  // Byte 0 is the family and byte 7 the CRC of the other seven, as the bus reads them.
+  const auto *rom = reinterpret_cast<const uint8_t *>(&address);
+  return is_temperature_sensor(address) && crc8(rom, 7) == rom[7];
+}
+
+AssignCheck DallasScan::check_assign(size_t slot, uint64_t address) const {
+  if (slot >= this->slots_.size())
+    return AssignCheck::BAD_SLOT;
+  if (!valid_address(address))
+    return AssignCheck::BAD_ADDRESS;
+  if (this->pinned_[slot])
+    return AssignCheck::LISTED_SLOT;
+  // Boot puts a listed sensor's device back in its own slot, whatever the table says.
+  for (const auto &pin : this->pins_) {
+    if (pin.second == address)
+      return AssignCheck::LISTED_ADDRESS;
+  }
+  if (this->slots_[slot] == address)
+    return AssignCheck::UNCHANGED;
+  return AssignCheck::OK;
+}
+
+void DallasScan::assign(size_t slot, uint64_t address) {
+  if (this->assign_and_save(slot, address))
+    this->restart_();
+}
+
+bool DallasScan::assign_and_save(size_t slot, uint64_t address) {
+  if (this->check_assign(slot, address) != AssignCheck::OK) {
+    ESP_LOGW(TAG, "Not assigning 0x%016" PRIx64 " to slot %u", address, (unsigned) slot + 1);
+    return false;
+  }
+  if (!this->can_save()) {
+    ESP_LOGE(TAG, "Storage unavailable: nothing is assigned");
+    return false;
+  }
+  const auto before = this->slots_;
+  auto held = std::find(this->slots_.begin(), this->slots_.end(), address);
+  if (held != this->slots_.end())
+    *held = this->slots_[slot];
+  this->slots_[slot] = address;
+  if (!this->store_or_roll_back_(before, "nothing is assigned"))
+    return false;
+  ESP_LOGI(TAG, "0x%016" PRIx64 " takes slot %u", address, (unsigned) slot + 1);
+  return true;
+}
+
+// A reboot after a failed write would bring the old table back without a word.
+bool DallasScan::store_or_roll_back_(const std::vector<uint64_t> &before, const char *outcome) {
+  if (this->store_for_reboot_()) {
+    // The table now describes the next boot, the sensors this one: reading by it would publish
+    // a slot's new device, or none, under its old sensor until the reboot.
+    this->awaiting_reboot_ = true;
+    return true;
+  }
+  this->slots_ = before;
+  ESP_LOGE(TAG, "The slot table was not written: %s", outcome);
+  return false;
+}
+
+void DallasScan::restart_() { App.safe_reboot(); }
 
 // The reboot comes next, so the table has to be on flash now rather than queued.
 bool DallasScan::store_for_reboot_() {
@@ -340,7 +411,7 @@ bool DallasScan::uses_file_() const {
 #endif
 }
 
-bool DallasScan::can_save_() const {
+bool DallasScan::can_save() const {
 #ifdef USE_DALLAS_SCAN_FILE
   if (this->file_ != nullptr)
     return this->keeper_->can_save();
@@ -351,7 +422,7 @@ bool DallasScan::can_save_() const {
 bool DallasScan::save_table_() {
 #ifdef USE_DALLAS_SCAN_FILE
   if (this->file_ != nullptr) {
-    if (!this->can_save_()) {
+    if (!this->can_save()) {
       ESP_LOGE(TAG, "Storage unavailable: the slots last until the next reboot");
       return false;
     }

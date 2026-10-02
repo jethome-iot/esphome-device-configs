@@ -45,8 +45,9 @@ external_components:
       - web_origin_guard
       - loop_job
       - firmware_rollback
+      - dallas_scan
   - source: ../../harness/components
-    components: [dir_storage, web_server_base, web_server]
+    components: [dir_storage, web_server_base, web_server, one_wire_host]
   # web_device_dashboard depends on web_server for the entity REST API its page calls, and
   # upstream builds that for ESP platforms only.
 
@@ -87,11 +88,26 @@ web_server_base: {}
 web_auth:
   id: test_auth
 
+# The temperature slots the routes report and forget. The cases boot their own scans over this
+# bus, whose devices they set; each boot registers its sensors with App, so the slots reserved
+# here are room for all of them.
+one_wire:
+  - platform: one_wire_host
+    id: one_wire_bus
+
+# storage: file compiles the file table in, so a case can wire a scan to a keeper that failed.
+dallas_scan:
+  id: temps
+  max_sensors: 64
+  storage: file
+
 # board_info_id sets USE_WEB_DEVICE_DASHBOARD_BOARD_INFO, so /api/device/info carries the board;
-# storage_id sets USE_WEB_DEVICE_DASHBOARD_STORAGE, so the factory reset has a mount to wipe.
+# storage_id sets USE_WEB_DEVICE_DASHBOARD_STORAGE, so the factory reset has a mount to wipe;
+# dallas_scan_id sets USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS, so the slot routes exist.
 web_device_dashboard:
   board_info_id: board
   storage_id: test_storage
+  dallas_scan_id: temps
 
 # App sizes its entity lists from what is declared here and silently drops a registration past
 # that, so this is at least what cases/common.h registers.

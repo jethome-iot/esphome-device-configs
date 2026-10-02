@@ -93,8 +93,8 @@ lowering `max_sensors` does not empty the table; of two records for the same slo
 address, the later one wins; an address that is not a Dallas temperature sensor is dropped.
 
 A file that is there but cannot be read leaves the table empty for that boot and is not written
-over: the devices take slots in bus order until the next reboot, and only a forget replaces the
-file. When the partition does not mount, the same happens without a file. The two storages do
+over: the devices take slots in bus order until the next reboot, and only a forget or an assign
+replaces the file. When the partition does not mount, the same happens without a file. The two storages do
 not share anything: the first switch to the other one numbers the devices again in bus order,
 and switching back finds the table that storage held last.
 
@@ -103,8 +103,23 @@ and switching back finds the table that storage held last.
 `forget(slot)` clears the slot's table entry, saves the table and reboots; the device that was
 in it, or a new one, takes the lowest free slot again. `forget(-1)` clears every slot, so the
 devices are numbered again in bus order. Listed slots are skipped, and nothing happens at all
-when no slot changes, or when the table cannot be written. `global_preferences->reset()` clears a
-table in preferences; a file goes with its partition.
+when no slot changes, or when the table cannot be written; `can_forget(slot)` says beforehand
+whether a slot would change, `can_save()` whether the table can be written.
+`global_preferences->reset()` clears a table in preferences; a file goes with its partition.
+
+## Assigning
+
+`assign(slot, address)` puts the device with that ROM into a slot, saves the table and reboots.
+A device the table holds in another slot swaps places with what the slot held, so a sensor
+moves to another number without reconnecting the sensors one at a time. A new address takes
+the slot from its device, which takes the lowest free slot at the next boot if it is still on
+the bus; that is also how a sensor gets its number before it is plugged in. A listed slot, a
+listed sensor's address, an address that is not a thermometer ROM with a valid CRC, and a
+device already in that slot change nothing; `check_assign(slot, address)` says which, first.
+Like a forget, an assign that cannot write the table changes nothing.
+
+[`web_device_dashboard`](../web_device_dashboard/README.md) with `dallas_scan_id:` lists the
+slots, forgets and assigns them over HTTP, numbered from 1.
 
 ## From lambdas
 
@@ -118,4 +133,13 @@ Slots are 0-based here.
   is empty; the address is `0` for a listed sensor that is not a 1-Wire device
 - `pinned(slot)`: taken by `sensors:`, so it has no forget entry in a menu
 - `max_sensors()`
+- `can_forget(slot)`: the slot, or any slot for `-1`, holds a device and is not listed
+- `can_save()`: the table can be written; false for a file whose partition did not mount
 - `forget(slot)`, `-1` for every slot
+- `forget_and_save(slot)`, `assign_and_save(slot, rom)`: the same without the reboot, which
+  the caller then owes, and the bus is not read until it comes; false, with the table
+  unchanged, when nothing would change or the table could not be written
+- `awaiting_reboot()`: one of those wrote the table and the reboot has not come yet; the bus
+  is not read until it does
+- `valid_address(rom)`: a thermometer family and a valid CRC, the ROMs a slot can hold
+- `check_assign(slot, rom)`, `assign(slot, rom)`
