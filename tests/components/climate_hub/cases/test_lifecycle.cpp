@@ -716,6 +716,10 @@ TEST_F(HubTest, ASensorReadingIsWhatTheSensorSaysNow) {
   EXPECT_TRUE(std::isnan(hub().sensor_reading("room"))) << "no reading yet";
   entities().room.publish_state(19.5f);
   EXPECT_FLOAT_EQ(19.5f, hub().sensor_reading("room"));
+  entities().room.publish_state(-INFINITY);
+  EXPECT_TRUE(std::isnan(hub().sensor_reading("room"))) << "-inf is no room temperature";
+  entities().room.publish_state(INFINITY);
+  EXPECT_TRUE(std::isnan(hub().sensor_reading("room"))) << "nor is +inf";
   entities().hidden.publish_state(30.f);
   EXPECT_TRUE(std::isnan(hub().sensor_reading("hidden"))) << "internal: not the editor's to show";
   entities().uptime.publish_state(3600.f);

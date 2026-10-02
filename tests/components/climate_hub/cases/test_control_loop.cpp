@@ -470,6 +470,102 @@ TEST_F(ControlLoop, ANaNReadingIsIgnoredRatherThanStored) {
   EXPECT_FALSE(std::isnan(rt->pid().integral_term()));
 }
 
+// An infinity is no reading either: -inf would latch the heater on below the band and +inf trip
+// the cut-out, and Home Assistant would be shown either.
+TEST_F(ControlLoop, AnInfiniteReadingIsIgnoredByTheHysteresis) {
+  ControllerRuntime *rt = this->start(this->base(ControlKind::BANG_BANG), 22.f);
+  HubClimate *entity = hub().entity_of(this->id_);
+  // The entity outlives the test and keeps its callbacks: this one counts only while armed.
+  static bool armed = false;
+  static int infinities = 0;
+  entity->add_on_state_callback([](climate::Climate &c) {
+    if (armed && std::isinf(c.current_temperature))
+      infinities++;
+  });
+  infinities = 0;
+  armed = true;
+  tick(200000);
+  EXPECT_EQ(HubAction::IDLE, rt->action());
+
+  entities().room.publish_state(-INFINITY);
+  EXPECT_FLOAT_EQ(22.f, entity->current_temperature);
+  tick(202000);
+  EXPECT_EQ(HubAction::IDLE, rt->action()) << "-inf is not too cold";
+  EXPECT_FALSE(entities().relay1.state);
+
+  entities().room.publish_state(18.f);
+  tick(204000);
+  EXPECT_EQ(HubAction::HEATING, rt->action());
+  entities().room.publish_state(INFINITY);
+  EXPECT_FLOAT_EQ(18.f, entity->current_temperature);
+  tick(206000);
+  EXPECT_EQ(HubAction::HEATING, rt->action()) << "+inf is neither too hot nor over the cut-out";
+  EXPECT_EQ(HubFault::NONE, rt->fault());
+  EXPECT_TRUE(entities().relay1.state);
+  armed = false;
+  EXPECT_EQ(0, infinities) << "no infinity was published";
+}
+
+// Through the PID, -inf would wind the integral to its limit and fill the derivative window with
+// infinities, and +inf trip the cut-out: each pass runs on the last finite reading instead.
+TEST_F(ControlLoop, AnInfiniteReadingIsIgnoredByThePid) {
+  ClimateConfig config = this->base(ControlKind::PID);
+  config.setpoint = 25.f;
+  config.pid.kp = 0.1f;
+  config.pid.ki = 0.01f;
+  config.pid.kd = 1.f;
+  config.pid.derivative_samples = 4;
+  ControllerRuntime *rt = this->start(config, 20.f);
+  HubClimate *entity = hub().entity_of(this->id_);
+  tick(200000);
+
+  entities().room.publish_state(-INFINITY);
+  EXPECT_FLOAT_EQ(20.f, entity->current_temperature);
+  tick(202000);
+  // Two seconds of a 5 degree error at ki 0.01, and an error that has not moved.
+  EXPECT_NEAR(0.1f, rt->pid().integral_term(), 1e-5f) << "not wound up to max_integral";
+  EXPECT_FLOAT_EQ(0.f, rt->pid().derivative_term());
+  EXPECT_NEAR(0.6f, rt->heat_duty(), 1e-4f);
+
+  entities().room.publish_state(INFINITY);
+  EXPECT_FLOAT_EQ(20.f, entity->current_temperature);
+  tick(204000);
+  EXPECT_EQ(HubFault::NONE, rt->fault());
+  EXPECT_NEAR(0.2f, rt->pid().integral_term(), 1e-5f);
+  EXPECT_FLOAT_EQ(0.f, rt->pid().derivative_term());
+
+  entities().room.publish_state(21.f);
+  tick(206000);
+  EXPECT_TRUE(std::isfinite(rt->pid().derivative_term())) << "no infinity sits in the window";
+  EXPECT_TRUE(std::isfinite(rt->pid().integral_term()));
+  EXPECT_GT(rt->heat_duty(), 0.f);
+}
+
+// A probe that sends nothing but infinities is as good as silent: stale once its timeout has
+// run from the last finite reading, still showing that reading.
+TEST_F(ControlLoop, AProbeSendingOnlyInfinitiesGoesStale) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.safety.sensor_timeout_s = 10.f;
+  ControllerRuntime *rt = this->start(config, 18.f);
+  tick(100000);
+  EXPECT_TRUE(entities().relay1.state);
+
+  for (uint32_t ms = 101000; ms <= 110000; ms += 1000) {
+    hub().ms = ms;
+    entities().room.publish_state(ms % 2000 == 0 ? INFINITY : -INFINITY);
+    tick(ms);
+    EXPECT_EQ(HubFault::NONE, rt->fault()) << ms;
+  }
+  hub().ms = 110001;
+  entities().room.publish_state(-INFINITY);
+  tick(110001);
+  EXPECT_EQ(HubFault::SENSOR_STALE, rt->fault());
+  EXPECT_EQ(HubAction::OFF, rt->action());
+  EXPECT_FALSE(entities().relay1.state);
+  EXPECT_FLOAT_EQ(18.f, hub().entity_of(this->id_)->current_temperature) << "the last finite reading";
+  EXPECT_NEAR(10.001f, rt->sensor_age_s(110001), 1e-4f);
+}
+
 // update_interval_s may be a full hour; a mode or target change must not wait out the rest of it.
 TEST_F(ControlLoop, ASetpointChangeIsActedOnAtTheNextTick) {
   ClimateConfig config = this->base(ControlKind::PID);
@@ -805,6 +901,24 @@ TEST_F(ControlLoop, AProbeThatLastSaidNothingIsNoReading) {
   EXPECT_EQ(HubFault::NONE, rt->fault()) << "waiting, inside the timeout";
   EXPECT_EQ(HubAction::IDLE, rt->action());
   EXPECT_FALSE(entities().relay1.state);
+}
+
+// Nor does one whose last word was an infinity: the entity shows no temperature rather than it.
+TEST_F(ControlLoop, AProbeThatLastSaidInfinityIsNoReading) {
+  for (float value : {-INFINITY, INFINITY}) {
+    hub().ms = 100000;
+    entities().room.publish_state(value);
+    this->id_ = this->create(this->base(ControlKind::BANG_BANG)).id;
+    ControllerRuntime *rt = hub().runtime_of(this->id_);
+    ASSERT_NE(nullptr, rt);
+    EXPECT_FALSE(rt->has_sample()) << value;
+    EXPECT_TRUE(std::isnan(hub().entity_of(this->id_)->current_temperature)) << value;
+    tick(200000);
+    EXPECT_EQ(HubFault::NONE, rt->fault()) << value;
+    EXPECT_EQ(HubAction::IDLE, rt->action()) << value;
+    EXPECT_FALSE(entities().relay1.state) << value;
+    ASSERT_TRUE(hub().remove(this->id_).ok);
+  }
 }
 
 // Traits carry two steps: the target's, the thermostat's own, and the room's, which Home

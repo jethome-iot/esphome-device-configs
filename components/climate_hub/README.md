@@ -113,7 +113,9 @@ name what is not there yet.
   above `safety.max_temperature`, and in mode `off`. A thermostat that starts shows its
   sensor's last value at once, but acts on it only if it arrived within `sensor_timeout_s`
   while a thermostat was running on that sensor, and the timeout runs from that reading;
-  otherwise it waits for the next one.
+  otherwise it waits for the next one. A reading that is not a finite number, `NaN` or an
+  infinity, is no reading: it is neither shown nor acted on, so a sensor that sends nothing
+  else reports `sensor_stale` once `sensor_timeout_s` has passed since its last good one.
 - `min_on_s` and `min_off_s` hold a relay closed or open that long after it moved, whichever
   thermostat moved it or put it back; a safety cut-out does not wait for them.
 - A Save keeps what the thermostat is doing: inside the band a hysteresis thermostat goes on
@@ -187,7 +189,8 @@ got to it.
 - `is_running(id)`, `runtime(id)`: the running thermostat's action, fault, duties, PID terms and
   sample age, `nullptr` when it is not running
 - `claimed_by(relay_object_id)`: the id of the running thermostat holding it, or `""`
-- `sensor_reading(sensor_object_id)`: what a sensor reads now, `NaN` without a reading
+- `sensor_reading(sensor_object_id)`: what a sensor reads now, `NaN` without a finite reading
+  in °C
 - `create(draft)`, `update(id, doc)`, `remove(id)`, `set_enabled(id, enabled, take_over)`,
   `set_setpoint(id, value)`: each returns a `Result` — `ok`, the HTTP `code` that fits (400,
   404, 409, 413 for a file that would be over 8 KiB, 500, 507), an `error` sentence (the one

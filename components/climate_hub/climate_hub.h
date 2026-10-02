@@ -77,8 +77,8 @@ class ClimateHub : public Component {
   const ControllerRuntime *runtime(const std::string &id) const;
   /// The id of the running thermostat that holds this relay, or "".
   std::string claimed_by(const std::string &relay_object_id) const;
-  /// What a sensor reads now, NaN when there is no such sensor or no reading: a stopped
-  /// thermostat has no entity to ask.
+  /// What a sensor reads now, NaN when there is no such sensor or its reading is not a finite
+  /// number in °C: a stopped thermostat has no entity to ask.
   float sensor_reading(const std::string &sensor_object_id) const;
 
   /// Adds a thermostat. The draft's id is ignored: one is made from the name. Refused with 400

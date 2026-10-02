@@ -16,7 +16,7 @@ C++ API are in [components/climate_hub/README.md](../components/climate_hub/READ
   as long as the sensor timeout before it reports a fault. A sensor silent for longer than its
   timeout, or a reading above the cut-out temperature, opens the relays until that clears. A
   thermostat that starts on a sensor that has fallen silent shows its last value but does not
-  act on it.
+  act on it. A reading that is not a number, or an infinite one, counts as no reading at all.
 - **Relay wear**: a minimum on and off time, 10 s each unless set otherwise, counted from the
   relay's last move, whichever thermostat made it. Saving a thermostat does not restart its
   cycle, and a PID keeps what it has learnt unless the Save changes its control law or its
