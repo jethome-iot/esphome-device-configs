@@ -8,17 +8,19 @@ info:
     `web_device_dashboard` component on the device's own web server under
     `/api/device/`: the device identity (with the CPU board's EEPROM record when
     a `jethome_board_info` is wired in), the runtime status, the live network
-    link, on a firmware with a `web_auth` the HTTP credentials, and — on a
-    firmware with a `config_json` store — the per-entity settings and their form
-    fields. ESP-IDF (ESP32) only.
+    link, on a firmware with a `web_auth` the HTTP credentials, on one with an
+    `mqtt_config` the MQTT client's settings and state, and — on a firmware with
+    a `config_json` store — the per-entity settings and their form fields.
+    ESP-IDF (ESP32) only.
 
     This document is the wire contract; the TypeScript client in `client/device`
     implements it and the dashboard repository's dev server mocks it. Reads
-    answer GET only and writes POST only, `entity-settings` both (a read on GET,
-    a write on POST); any other method is `405` with an `Allow` header. Route
-    names match the URL path exactly, so an unknown name under the prefix is
-    `404`. A POST needs a `Content-Length`, even `0`: ESP-IDF's server answers
-    `411` without one. Every failure is `{"success": false, "error"}`.
+    answer GET only and writes POST only, `auth`, `entity-settings` and `mqtt`
+    both (a read on GET, a write on POST); any other method is `405` with an
+    `Allow` header. Route names match the URL path exactly, so an unknown name
+    under the prefix is `404`. A POST needs a `Content-Length`, even `0`:
+    ESP-IDF's server answers `411` without one. Every failure is
+    `{"success": false, "error"}`.
 
     A request whose `Origin` header is not the `Host` it was sent to is answered
     `403` before it reaches a route: the credentials a browser has cached for
@@ -217,6 +219,162 @@ paths:
           $ref: "#/components/responses/UnsupportedMediaType"
         "503":
           $ref: "#/components/responses/AuthNotReady"
+
+  /mqtt:
+    get:
+      tags: [read]
+      operationId: getMqtt
+      summary: The MQTT settings and what runs this boot.
+      description: >-
+        The stored settings, never the password: `password_set` says whether one
+        is stored. An empty `client_id` or `topic_prefix` means the firmware's
+        default, which `client_id_default` and `topic_prefix_default` name.
+        `running` is what the client runs this boot, with the defaults filled
+        in, and null while it was not started. Read on the device's main loop,
+        so `503` when that does not get to it. Only on a firmware with an
+        `mqtt_config`; without one this route is the prefix's plain 404.
+      responses:
+        "200":
+          description: The settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MqttSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NoMqtt"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          description: The device was too busy to read the settings; asking again may succeed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                busy:
+                  value:
+                    success: false
+                    error: Device busy
+    post:
+      tags: [write]
+      operationId: setMqtt
+      summary: Change the MQTT settings.
+      description: >-
+        A partial update: a key left out keeps its value, and `password: ""`
+        clears the stored password. The first save in a boot that turns MQTT on
+        connects at once (`started`), unless it also changes the effective topic
+        prefix; every other change is stored and applies after a restart, which
+        `reboot_required` says here and on `/status`. Turning Home Assistant
+        discovery off applies at once: the device removes its retained entries
+        from the broker, now when it is connected (`discovery_cleanup: running`)
+        or on its next connect (`pending`). Turning MQTT off while the broker
+        cannot be reached leaves them there, and the answer says so. Like
+        `/auth`, it takes no confirmation. The settings are stored from the
+        device's main loop: on a `503` nothing was stored. The request must say
+        `Content-Type: application/json`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MqttSettingsUpdate"
+      responses:
+        "200":
+          description: >-
+            Stored, or nothing to store (`Nothing changed`). `message` says what
+            happens next; `reboot_required`, `started` and `discovery_cleanup`
+            are the state after the save.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MqttSaveResult"
+              examples:
+                started:
+                  value:
+                    success: true
+                    message: Saved; MQTT is connecting
+                    reboot_required: false
+                    started: true
+                    discovery_cleanup: none
+                reboot:
+                  value:
+                    success: true
+                    message: Saved; applies after a reboot
+                    reboot_required: true
+                    started: false
+                    discovery_cleanup: none
+                discovery_off:
+                  value:
+                    success: true
+                    message: Saved; removing this device's Home Assistant entries
+                    reboot_required: false
+                    started: false
+                    discovery_cleanup: running
+        "400":
+          description: >-
+            Bad request — a body that is empty, not JSON or not an object
+            (`Invalid JSON`); a key that is not a setting (`'<key>' is not an
+            MQTT setting`); a value of the wrong type (`'enabled' must be true or
+            false`, the same for `discovery`; `'port' must be a whole number`;
+            `'<key>' must be a string`); or settings that break a rule, the first
+            in this order — a `broker` missing while `enabled`, over 128
+            characters, a URL, carrying a port, or with anything but letters,
+            digits, `.`, `_` and `-` (a build with IPv6 also takes an address of
+            two colons or more); a `port` outside 1–65535; a `username` over 64
+            bytes or with control characters; a `password` over 128 bytes, with a
+            NUL, or without a `username`; a `client_id` over 64 characters or with
+            anything but printable ASCII without spaces; a `topic_prefix` over 64
+            bytes, with `+`, `#` or control characters, starting with `$` or
+            ending with `/`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                url:
+                  value:
+                    success: false
+                    error: "'broker' takes a host name, not a URL: drop the 'mqtt://'"
+                port:
+                  value:
+                    success: false
+                    error: "'port' must be between 1 and 65535"
+                unknown_key:
+                  value:
+                    success: false
+                    error: "'host' is not an MQTT setting"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NoMqtt"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          description: The settings could not be written to flash; the old ones stay in force.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Storing the MQTT settings failed; the old ones stay in force
+        "503":
+          description: The device was too busy to take the request; nothing was stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                busy:
+                  value:
+                    success: false
+                    error: Device busy
 
   /capabilities:
     get:
@@ -658,6 +816,17 @@ components:
           example:
             success: false
             error: Request body over 4 KiB
+    NoMqtt:
+      description: >-
+        This firmware has no `mqtt_config`, so the MQTT route does not exist; the
+        answer is the prefix's plain 404.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Not found
     NoStore:
       description: >-
         This firmware has no `config_json` store, so the settings routes do not
@@ -897,7 +1066,18 @@ components:
           description: The first address the network stack has, null before one is set.
         reboot_required:
           type: boolean
-          description: Always false; nothing here changes a saved setting. Kept for the client's contract.
+          description: >-
+            A saved MQTT setting waits for a restart, or MQTT is held back and a
+            restart retries it; `reboot_reasons` names it. Modbus and Network
+            mode, which also apply on restart, are not tracked.
+        reboot_reasons:
+          type: array
+          description: What waits for the restart; omitted when nothing does.
+          items:
+            type: string
+            enum: [mqtt]
+        mqtt:
+          $ref: "#/components/schemas/MqttLiveStatus"
       example:
         ha_connected: true
         uptime_s: 86400
@@ -906,6 +1086,266 @@ components:
         rssi: null
         ip_address: 192.168.1.50
         reboot_required: false
+        mqtt:
+          available: true
+          enabled: true
+          connected: true
+          state: connected
+          last_error: null
+
+    MqttState:
+      type: string
+      enum: [not_configured, "off", connecting, connected, disconnected]
+      description: >-
+        `not_configured` and `off`: the client was not started this boot, with
+        no broker stored or with one. `connecting` until the first attempt
+        connects or fails, then `connected` or `disconnected`, which
+        `last_error` explains.
+
+    MqttError:
+      type: string
+      enum:
+        - dns
+        - unreachable
+        - connection_lost
+        - protocol
+        - identifier_rejected
+        - server_unavailable
+        - bad_credentials
+        - not_authorized
+        - crash_guard
+      description: >-
+        Why the client is not connected, as far as the firmware can tell: the
+        broker's name did not resolve; no connection to it; a connection that
+        was up dropped; the broker refused the protocol version, the client id,
+        the service, the credentials, or the authorization; or the client is
+        held back after repeated crashes, which a restart retries.
+
+    MqttDiscoveryCleanup:
+      type: string
+      enum: [none, running, pending]
+      description: >-
+        Removing this device's retained Home Assistant entries from the broker:
+        `running` while they go out, `pending` while one is due and the broker
+        is not connected — including after MQTT was turned off before it
+        finished, until MQTT is next on with discovery off.
+
+    MqttLiveStatus:
+      type: object
+      description: >-
+        The client as it runs this boot. Absent on a firmware without an
+        `mqtt_config`.
+      required: [available, enabled, connected, state, last_error]
+      properties:
+        available:
+          type: boolean
+          enum: [true]
+        enabled:
+          type: boolean
+          description: The client was started this boot.
+        connected:
+          type: boolean
+        state:
+          $ref: "#/components/schemas/MqttState"
+        last_error:
+          oneOf:
+            - $ref: "#/components/schemas/MqttError"
+            - type: "null"
+
+    MqttRunning:
+      type: object
+      description: What the client runs this boot, with the defaults filled in.
+      required: [broker, port, client_id, topic_prefix, status_topic, discovery]
+      properties:
+        broker:
+          type: string
+        port:
+          type: integer
+        client_id:
+          type: string
+        topic_prefix:
+          type: string
+        status_topic:
+          type: string
+          description: "`<topic_prefix>/status`: `online` while connected, `offline` otherwise."
+        discovery:
+          type: boolean
+
+    MqttSettings:
+      type: object
+      required:
+        - enabled
+        - broker
+        - port
+        - username
+        - password_set
+        - client_id
+        - client_id_default
+        - topic_prefix
+        - topic_prefix_default
+        - discovery
+        - state
+        - last_error
+        - running
+        - apply_now
+        - reboot_required
+        - discovery_cleanup
+        - stored_notice
+      properties:
+        enabled:
+          type: boolean
+        broker:
+          type: string
+        port:
+          type: integer
+        username:
+          type: string
+        password_set:
+          type: boolean
+          description: A password is stored. The password itself is never answered.
+        client_id:
+          type: string
+          description: Empty for the default, `client_id_default`.
+        client_id_default:
+          type: string
+          description: The node name and the MAC.
+        topic_prefix:
+          type: string
+          description: Empty for the default, `topic_prefix_default`.
+        topic_prefix_default:
+          type: string
+          description: The node name.
+        discovery:
+          type: boolean
+          description: Home Assistant discovery. Off by default.
+        state:
+          $ref: "#/components/schemas/MqttState"
+        last_error:
+          oneOf:
+            - $ref: "#/components/schemas/MqttError"
+            - type: "null"
+        running:
+          oneOf:
+            - $ref: "#/components/schemas/MqttRunning"
+            - type: "null"
+        apply_now:
+          type: boolean
+          description: >-
+            The client has not started this boot and is not held back: a save
+            that turns MQTT on connects at once, unless it also changes the
+            effective topic prefix.
+        reboot_required:
+          type: boolean
+          description: >-
+            A saved change waits for a restart, or MQTT is held back after
+            repeated crashes and a restart retries it.
+        discovery_cleanup:
+          $ref: "#/components/schemas/MqttDiscoveryCleanup"
+        stored_notice:
+          type: [string, "null"]
+          pattern: "^(newer_firmware|invalid: .+)$"
+          description: >-
+            `newer_firmware`: newer firmware wrote the stored settings, so the
+            fields show the defaults, MQTT is off, and a save replaces them.
+            `invalid: <message>`: the stored settings break a rule of this
+            firmware; they run anyway, and the next save must fix what the
+            message names.
+      example:
+        enabled: true
+        broker: 192.168.1.10
+        port: 1883
+        username: jxd
+        password_set: true
+        client_id: ""
+        client_id_default: jxd-r6-e1eth-lcd-5c8214-a1b2c35c8214
+        topic_prefix: ""
+        topic_prefix_default: jxd-r6-e1eth-lcd-5c8214
+        discovery: false
+        state: connected
+        last_error: null
+        running:
+          broker: 192.168.1.10
+          port: 1883
+          client_id: jxd-r6-e1eth-lcd-5c8214-a1b2c35c8214
+          topic_prefix: jxd-r6-e1eth-lcd-5c8214
+          status_topic: jxd-r6-e1eth-lcd-5c8214/status
+          discovery: false
+        apply_now: false
+        reboot_required: false
+        discovery_cleanup: none
+        stored_notice: null
+
+    MqttSettingsUpdate:
+      type: object
+      additionalProperties: false
+      description: A key left out keeps its value; `{}` changes nothing.
+      properties:
+        enabled:
+          type: boolean
+        broker:
+          type: string
+          maxLength: 128
+          description: >-
+            A host name or an IPv4 address, without a scheme or a port. Required
+            to turn MQTT on.
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        username:
+          type: string
+          description: At most 64 bytes of UTF-8, no control characters.
+        password:
+          type: string
+          writeOnly: true
+          description: >-
+            At most 128 bytes, no NUL, and only with a `username`. `""` clears
+            the stored one.
+        client_id:
+          type: string
+          maxLength: 64
+          pattern: "^[!-~]*$"
+          description: Printable ASCII without spaces; empty for the default.
+        topic_prefix:
+          type: string
+          description: >-
+            At most 64 bytes of UTF-8, without `+`, `#` or control characters,
+            not starting with `$` nor ending with `/`; empty for the default.
+        discovery:
+          type: boolean
+      example:
+        enabled: true
+        broker: 192.168.1.10
+        port: 1883
+
+    MqttSaveResult:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          required: [reboot_required, started, discovery_cleanup]
+          properties:
+            message:
+              type: string
+              enum:
+                - Saved; MQTT is connecting
+                - Saved; removing this device's Home Assistant entries now, the rest applies after a reboot
+                - >-
+                  Saved; applies after a reboot. The broker is not reachable, so
+                  this device's Home Assistant entries stay on it unless it comes
+                  back before then
+                - Saved; applies after a reboot
+                - Saved; removing this device's Home Assistant entries
+                - Saved; this device's Home Assistant entries go once the broker is reachable
+                - Saved
+                - Nothing changed
+            reboot_required:
+              type: boolean
+              description: The saved settings differ from what runs; `/status` reports it too.
+            started:
+              type: boolean
+              description: This save started the client; it is connecting now.
+            discovery_cleanup:
+              $ref: "#/components/schemas/MqttDiscoveryCleanup"
 
     ConnectionType:
       type: string
@@ -1054,6 +1494,10 @@ components:
           type: boolean
           enum: [true]
           description: "`/info` carries the CPU board's EEPROM identity."
+        mqtt:
+          type: boolean
+          enum: [true]
+          description: "`/mqtt` is served: the firmware has an `mqtt_config`."
       example:
         reboot: true
         factory_reset:
@@ -1073,6 +1517,7 @@ components:
         entity_settings:
           types: [switch, binary_sensor]
         board_info: true
+        mqtt: true
 
     StorageCapability:
       type: object
