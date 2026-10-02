@@ -24,7 +24,7 @@ TEST_F(Editor, ANameThatIsNoRouteIsNotFound) {
         "/climate-editor/api/list/", "/climate-editor/api/listing", "/climate-editor/api/controllers",
         "/climate-editor/api/get/living-room", "/climate-editor/index.html", "/climate-editor/api/LIST",
         "/climate-editor/API/list", "/climate-editor/api//list", "/climate-editor//api/list", "/climate-editor/list"}) {
-    // Unknown before wrong: no method makes a name that is no route a 405.
+    // Unknown before wrong: no method that reaches the handler makes a name that is no route a 405.
     for (http_method method : {HTTP_GET, HTTP_POST, HTTP_OPTIONS}) {
       Reply reply = this->request(method, target);
       EXPECT_TRUE(reply.claimed) << target;

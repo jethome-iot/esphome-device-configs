@@ -9,7 +9,9 @@
 //
 // It answers the way the device does, in the device's order: an unknown route is
 // 404, the wrong method 405 (before any id is looked at), query parameters 400,
-// and only then the lookup (404) and the change itself. Only /save reads a body,
+// and only then the lookup (404) and the change itself. On the device a PUT,
+// DELETE, HEAD or PATCH, to any path, is ESP-IDF's text/html 405 without Allow;
+// here it is answered in JSON, as a GET or POST is. Only /save reads a body,
 // so only /save can be 413; the body is read the way ArduinoJson reads it. A
 // document is merged over the defaults and clamped to the parameter table like
 // climate_hub's codec does, a name is checked like the hub checks it, a sensor

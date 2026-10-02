@@ -277,7 +277,7 @@ void WebClimateEditor::handle_list_(AsyncWebServerRequest *request) {
       row["heat_relay_id"] = config->heat.relay_id;
       row["cool_relay_id"] = config->cool.relay_id;
       row["running"] = this->hub_->is_running(config->id);
-      // The Save's or the enable's warning, for a client that was not there for the answer.
+      // Why it waits, as the Save, the enable or the boot found it, for a client that was not there.
       row["waiting"] = this->hub_->waiting_reason(config->id);
     }
     serializeJson(doc, json);

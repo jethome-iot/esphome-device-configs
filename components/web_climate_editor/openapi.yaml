@@ -964,7 +964,7 @@ components:
           type: boolean
           description: >-
             Enabled, and its sensor and relays were there to run on. Enabled
-            and not running, it waits for them.
+            and not running, it waits: see `waiting`.
         waiting:
           $ref: "#/components/schemas/Waiting"
 
