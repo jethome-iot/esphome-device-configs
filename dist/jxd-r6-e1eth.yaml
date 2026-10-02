@@ -68,6 +68,13 @@ external_components:
       ref: master
       path: components
     components:
+      - mqtt_config
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
       - filesystem_storage_abstract
       - littlefs_storage
       - config_base
@@ -492,6 +499,8 @@ number:
     min_value: 1
     max_value: 247
     step: 1
+  - id: !extend 'modbus_address'
+    state_topic: null
 select:
   - platform: template
     name: Modbus baud rate
@@ -539,6 +548,14 @@ select:
     options:
       - '1'
       - '2'
+  - id: !extend 'network_mode'
+    state_topic: null
+  - id: !extend 'modbus_baud_rate'
+    state_topic: null
+  - id: !extend 'modbus_parity'
+    state_topic: null
+  - id: !extend 'modbus_stop_bits'
+    state_topic: null
   - platform: template
     name: Network mode
     id: network_mode
@@ -713,6 +730,19 @@ modbus_server:
         read_lambda: return id(input_5).state;
       - address: 21
         read_lambda: return id(input_6).state;
+mqtt:
+  id: mqtt_client
+  broker: ''
+  enable_on_boot: false
+  reboot_timeout: 0s
+  clean_session: true
+  discovery: true
+  discovery_retain: true
+  discovery_unique_id_generator: mac
+  discover_ip: false
+  log_topic: null
+mqtt_config:
+  id: mqtt_settings
 network:
   priority:
     - ethernet

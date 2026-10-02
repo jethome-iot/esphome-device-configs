@@ -115,17 +115,35 @@ graphical_display_menu:
                 - lambda: |-
                     // The partition is wiped at the next boot; the record has to outlive
                     // the preferences erase, which takes all of NVS.
-                    global_preferences->reset();
-                    if (!id(user_storage)->request_format()) {
-                      ESP_LOGE("factory_reset", "The user partition was not wiped and will not be");
+                    auto wipe = []() {
+                      global_preferences->reset();
+                      if (!id(user_storage)->request_format()) {
+                        ESP_LOGE("factory_reset", "The user partition was not wiped and will not be");
+                      }
+                      App.safe_reboot();
+                    };
+                    #ifdef USE_MQTT_CONFIG
+                    // Its Home Assistant entries leave the broker first.
+                    if (mqtt_config::global_mqtt_config != nullptr) {
+                      mqtt_config::global_mqtt_config->before_factory_reset(wipe);
+                      return;
                     }
-                    App.safe_reboot();
+                    #endif
+                    wipe();
 
         - type: command
           text: "Reboot device"
           weight: 30
           on_value:
-            - lambda: 'App.safe_reboot();'
+            - lambda: |-
+                #ifdef USE_MQTT_CONFIG
+                // A running Home Assistant cleanup gets to finish first.
+                if (mqtt_config::global_mqtt_config != nullptr) {
+                  mqtt_config::global_mqtt_config->after_cleanup(5000, []() { App.safe_reboot(); });
+                  return;
+                }
+                #endif
+                App.safe_reboot();
 
 esphome:
   on_boot:

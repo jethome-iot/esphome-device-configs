@@ -27,6 +27,8 @@ packages:
   firmware_update: !include ${features}/firmware-update.yaml
   i2c: !include ${features}/i2c.yaml
   modbus: !include ${features}/modbus-server.yaml
+  mqtt: !include ${features}/mqtt.yaml
+  mqtt_firmware: !include ${features}/mqtt-firmware.yaml
   network: !include ${features}/network.yaml
   rtc_time: !include ${features}/rtc-time.yaml
   storage: !include ${features}/storage.yaml
