@@ -5,8 +5,10 @@
 // base URL and its fetch wrapper through createClimateApi().
 //
 // Backend behaviour (web_climate_editor.cpp follows ./types.ts):
-//  - save, delete, enable and setpoint answer POST only, the rest GET only; any
-//    other method is 405 with an Allow header, and an unknown route is 404;
+//  - save, delete, enable and setpoint answer POST only, the rest GET only; a GET
+//    or POST to the wrong route, or an OPTIONS, is 405 with an Allow header, and
+//    an unknown route is 404. The server answers PUT, DELETE, HEAD and PATCH with
+//    its own text 405 and closes the connection; this client sends none of them;
 //  - failures are {success:false,error} with 400/404/405/409/413/500/503/507;
 //  - GET /get?id= returns the bare document, not the success envelope;
 //  - /ping returns {status:"ok"} (NOT the success envelope);

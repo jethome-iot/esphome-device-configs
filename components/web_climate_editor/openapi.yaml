@@ -13,10 +13,14 @@ info:
 
     This document is the wire contract; the TypeScript client and mock in
     `client/` implement it, and `client/types.ts` is where a shape changes
-    first. Every route answers exactly one HTTP method — any other method is
-    `405` with an `Allow` header. Route names match the URL path exactly, and
-    any other path under the prefix is `404`. A POST needs a `Content-Length`,
-    even `0`: ESP-IDF's server answers `411` without one.
+    first. Every route answers exactly one HTTP method: a `GET` or `POST` it
+    does not take, and an `OPTIONS`, is `405` with an `Allow` header naming
+    the one it does. The server takes no other method to any path — a `PUT`,
+    `DELETE`, `HEAD` or `PATCH` gets ESP-IDF's own `405`, an HTML sentence
+    with no `Allow` header and no JSON, and the connection is closed. Route
+    names match the URL path exactly, and any other path under the prefix is
+    `404`. A POST needs a `Content-Length`, even `0`: ESP-IDF's server answers
+    `411` without one.
 
     Every route that reads or changes the thermostats runs on the device's
     main loop, so an answer describes what actually happened; `503` means the
@@ -484,7 +488,11 @@ components:
                 success: false
                 error: Unknown endpoint
     MethodNotAllowed:
-      description: Wrong HTTP method for this route.
+      description: >-
+        A `GET` to a route that takes `POST`, a `POST` to one that takes
+        `GET`, or an `OPTIONS`. Any other method never reaches a route: the
+        server answers it with a `405` of its own, `text/html`, no `Allow`,
+        and closes the connection.
       headers:
         Allow:
           description: The one method this route accepts.

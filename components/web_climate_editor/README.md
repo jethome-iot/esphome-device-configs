@@ -46,7 +46,10 @@ them, are unaffected.
 ## REST
 
 Routes match on the exact URL path under `<url_prefix>/api/`, and each answers the one method
-below: anything else is `405` with an `Allow` header. Any other path under the prefix is `404`.
+below. A `GET` or `POST` the route does not take, and an `OPTIONS`, is `405` with an `Allow`
+header naming the one it does. The server takes no other method to any path: a `PUT`, `DELETE`,
+`HEAD` or `PATCH` gets its own `405`, with an HTML sentence for a body, no `Allow` and no JSON,
+and the connection closed. Any other path under the prefix is `404`.
 
 Every route that touches the thermostats runs its whole read or write on the loop task, which
 owns them, and answers `503 Service Unavailable` when the loop does not get to it within five
@@ -98,12 +101,13 @@ An `id` is the thermostat's slug (`a-z`, `0-9`, single dashes, at most 48): a mi
 to a space.
 
 Every failure is `{"success": false, "error"}`, with the sentence an editor shows: `400` for a
-bad request, `404` for an unknown `id` or path, `405` for the wrong method, `409` for a name or
-a relay in use, `413` for an oversized body or file, `500` when nothing could be written, `503`
-when the loop was busy and `507` at `max_controllers`. A `500` changed nothing: `The
-thermostat's file could not be written`, or `Thermostat storage is not available` when the
-storage was not usable at boot — then every write gets it, a save before its body is even read.
-The same contract, machine-readable: [openapi.yaml](openapi.yaml) (OpenAPI 3.1).
+bad request, `404` for an unknown `id` or path, `405` for a `GET` or `POST` the route does not
+take, `409` for a name or a relay in use, `413` for an oversized body or file, `500` when
+nothing could be written, `503` when the loop was busy and `507` at `max_controllers`. A `500`
+changed nothing: `The thermostat's file could not be written`, or
+`Thermostat storage is not available` when the storage was not usable at boot — then every write
+gets it, a save before its body is even read. The same contract, machine-readable:
+[openapi.yaml](openapi.yaml) (OpenAPI 3.1).
 
 A rename reaches Home Assistant as a new entity, and a thermostat that starts, stops, is removed
 or renamed makes Home Assistant reconnect: [doc/CLIMATE.md](../../doc/CLIMATE.md).
@@ -141,5 +145,5 @@ type-checks them yet.
 over the real hub, a directory standing in for the flash and the harness's `web_server_base`
 stand-in, and drives every route through it; the cases are in
 `tests/components/web_climate_editor/`. See [doc/TESTING.md](../../doc/TESTING.md). What the
-host cannot reach is ESP-IDF's side of the answer: the status lines written by hand and the
-hop from the server's task to the loop task.
+host cannot reach is ESP-IDF's side of the answer: the status lines written by hand, the hop
+from the server's task to the loop task, and the methods the server answers itself.

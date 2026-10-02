@@ -25,7 +25,7 @@ TEST_F(Editor, ANameThatIsNoRouteIsNotFound) {
         "/climate-editor/api/get/living-room", "/climate-editor/index.html", "/climate-editor/api/LIST",
         "/climate-editor/API/list", "/climate-editor/api//list", "/climate-editor//api/list", "/climate-editor/list"}) {
     // Unknown before wrong: no method makes a name that is no route a 405.
-    for (http_method method : {HTTP_GET, HTTP_POST, HTTP_PUT, HTTP_DELETE, HTTP_HEAD}) {
+    for (http_method method : {HTTP_GET, HTTP_POST, HTTP_OPTIONS}) {
       Reply reply = this->request(method, target);
       EXPECT_TRUE(reply.claimed) << target;
       EXPECT_EQ(reply.code, 404) << target;
@@ -59,15 +59,14 @@ TEST_F(Editor, MutatingRoutesArePostOnlyAndTheRestGetOnly) {
     EXPECT_EQ(reply.code, 405) << route;
     EXPECT_EQ(reply.header("Allow"), "GET") << route;
   }
-  for (http_method method : {HTTP_PUT, HTTP_DELETE}) {
-    EXPECT_EQ(this->call(method, "save", LIVING_ROOM).code, 405);
-    EXPECT_EQ(this->call(method, "list").code, 405);
-  }
+  EXPECT_EQ(this->call(HTTP_OPTIONS, "save", LIVING_ROOM).code, 405);
+  EXPECT_EQ(this->call(HTTP_OPTIONS, "list").code, 405);
   EXPECT_TRUE(this->files().empty());
 }
 
-// Every route against every method the server passes on: its own one gets past the method
-// check, every other one is the same 405 with the one method it takes.
+// Every route against every method the server passes on, GET, POST and OPTIONS (ESP-IDF answers
+// the rest itself): its own one gets past the method check, every other one is the same 405 with
+// the one method it takes.
 TEST_F(Editor, EveryRouteAnswersItsOneMethodAndRefusesTheRest) {
   struct Case {
     const char *route;
@@ -78,7 +77,7 @@ TEST_F(Editor, EveryRouteAnswersItsOneMethodAndRefusesTheRest) {
         Case{"schema", HTTP_GET}, Case{"ping", HTTP_GET}, Case{"save", HTTP_POST}, Case{"delete", HTTP_POST},
         Case{"enable", HTTP_POST}, Case{"setpoint", HTTP_POST}}) {
     const char *allow = c.method == HTTP_POST ? "POST" : "GET";
-    for (http_method method : {HTTP_GET, HTTP_POST, HTTP_PUT, HTTP_DELETE, HTTP_HEAD}) {
+    for (http_method method : {HTTP_GET, HTTP_POST, HTTP_OPTIONS}) {
       Reply reply = this->call(method, c.route);
       EXPECT_TRUE(reply.claimed) << c.route;
       if (method == c.method) {
