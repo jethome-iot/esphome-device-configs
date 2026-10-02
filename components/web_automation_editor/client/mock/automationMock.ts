@@ -25,15 +25,21 @@ import type { FetchImpl } from '../automationApi'
 import { normalizeCron, validateCronExpression } from '../cron'
 import { isNameTaken } from '../naming'
 
-// The firmware does NOT store a posted cron string — it parses each field into an
-// integer set and RE-SERIALISES on every read, so `1,7` comes back as `*/6`.
-// Reproduce that here so the dev/QA loop sees the same round-trip the hardware
-// does. A cron the device would refuse is refused in /save before this runs.
-function normalizeStoredCron(cfg: AutomationConfig): AutomationConfig {
+// The firmware does NOT store what was posted — it parses the rule and RE-SERIALISES
+// it on every read, so a cron `1,7` comes back as `*/6` and an input or switch
+// condition's state always as the string "true" or "false". Reproduce that here so
+// the dev/QA loop sees the same round-trip the hardware does. What the device would
+// refuse is refused in /save before this runs.
+function normalizeConditionState(c: AutomationCondition): AutomationCondition {
+  if (c.type === 'input' || c.type === 'switch') return { ...c, state: String(c.state ?? true) }
+  return c.conditions ? { ...c, conditions: c.conditions.map(normalizeConditionState) } : c
+}
+
+function normalizeStored(cfg: AutomationConfig): AutomationConfig {
   const triggers = cfg.triggers.map((t) =>
     t.source === 'cron' && typeof t.cron === 'string' ? { ...t, cron: normalizeCron(t.cron) } : t
   )
-  return { ...cfg, triggers }
+  return { ...cfg, triggers, ...(cfg.condition ? { condition: normalizeConditionState(cfg.condition) } : {}) }
 }
 
 // --- Seed data ---------------------------------------------------------------
@@ -317,14 +323,14 @@ export function createAutomationMockStore(): AutomationMockStore {
           if (!buildable(cfg)) {
             return { status: 400, body: { success: false, error: 'Failed to update automation' } }
           }
-          automations[i] = normalizeStoredCron({ ...cfg })
+          automations[i] = normalizeStored({ ...cfg })
           return { status: 200, body: { success: true, message: 'Automation updated' } }
         }
         if (!buildable(cfg)) {
           return { status: 400, body: { success: false, error: 'Failed to create automation' } }
         }
         const id = nextId++
-        automations.push(normalizeStoredCron({ ...cfg, id }))
+        automations.push(normalizeStored({ ...cfg, id }))
         return { status: 200, body: { success: true, message: 'Automation created', id } }
       }
 
