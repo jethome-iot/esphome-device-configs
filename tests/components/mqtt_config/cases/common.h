@@ -244,10 +244,13 @@ class MqttTest : public ::testing::Test {
     return this->boot(before_setup);
   }
 
+  // Cancelled, then left allocated: the scheduler drops a cancelled entry only once it comes
+  // due, and asks the component it names whether it failed before it looks at the cancellation.
   void shutdown() {
-    if (this->config != nullptr)
+    if (this->config != nullptr) {
       this->config->forget_schedule();
-    this->config.reset();
+      (void) this->config.release();  // NOLINT(bugprone-unused-return-value)
+    }
   }
 
   std::vector<mqtt::MQTTComponent *> components() const {

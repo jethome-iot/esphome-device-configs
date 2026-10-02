@@ -122,12 +122,15 @@ class MqttDashboard : public Dashboard {
     return this->boot(before_setup);
   }
 
+  // Cancelled, then left allocated: the scheduler drops a cancelled entry only once it comes
+  // due, and asks the component it names whether it failed before it looks at the cancellation.
   void shutdown() {
-    if (this->config != nullptr)
+    if (this->config != nullptr) {
       this->config->forget_schedule();
+      (void) this->config.release();  // NOLINT(bugprone-unused-return-value)
+    }
     // The firmware without the component, as far as the routes can tell.
     mqtt_config::global_mqtt_config = nullptr;
-    this->config.reset();
   }
 
   // The client connects and runs its resend passes until nothing is pending.
