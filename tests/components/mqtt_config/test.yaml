@@ -1,0 +1,105 @@
+# Google Test binary for components/mqtt_config, built through esphome compile by tests/run.py.
+# The harness main.cpp replaces the generated one, so nothing declared here is ever set up: the
+# sections exist to get the sources compiled and the USE_* defines set. The tests build their
+# own MqttConfig over the harness's mqtt stand-in and drive the client in place of a broker.
+esphome:
+  name: mqtt-config-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+
+host:
+
+logger:
+  level: DEBUG
+  # mqtt_config asks for its own listener slot; this trigger sizes the list for a second one,
+  # which the cases read the log through. It is never set up.
+  on_message:
+    - level: ERROR
+      then:
+        - lambda: ""
+
+# As on the devices: USE_NETWORK_IPV6 is defined, and false.
+network:
+  enable_ipv6: false
+
+external_components:
+  - source: ../../../components
+    components: [mqtt_config]
+  - source: ../../harness/components
+    components: [mqtt]
+
+# As devices/JXD/packages/features/mqtt.yaml.
+mqtt:
+  id: mqtt_client
+  broker: ""
+  enable_on_boot: false
+  reboot_timeout: 0s
+  clean_session: true
+  discovery: true
+  discovery_retain: true
+  discovery_unique_id_generator: mac
+  discover_ip: false
+  log_topic: null
+
+mqtt_config:
+  id: mqtt_settings
+
+# App sizes its entity lists from what is declared here and silently drops a registration past
+# that, so this is at least what cases/common.h registers. One of each domain the devices carry,
+# and a hidden switch, so codegen's entity walk has every kind to emit.
+switch:
+  - platform: template
+    id: relay_1_unused
+    name: "Relay 1"
+    optimistic: true
+  - platform: template
+    id: relay_2_unused
+    name: "Relay 2"
+    optimistic: true
+  - platform: template
+    id: hidden_unused
+    name: "Hidden"
+    optimistic: true
+    state_topic: null
+
+binary_sensor:
+  - platform: template
+    id: input_unused
+    name: "Input 1"
+
+select:
+  - platform: template
+    id: mode_unused
+    name: "Mode"
+    optimistic: true
+    options: ["A", "B"]
+
+number:
+  - platform: template
+    id: address_unused
+    name: "Address"
+    optimistic: true
+    min_value: 1
+    max_value: 247
+    step: 1
+
+sensor:
+  - platform: template
+    id: temp_1_unused
+    name: "Temp 1"
+  - platform: template
+    id: temp_2_unused
+    name: "Temp 2"
+  - platform: template
+    id: temp_3_unused
+    name: "Temp 3"
