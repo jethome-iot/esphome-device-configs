@@ -148,6 +148,21 @@ class SharedFolder(unittest.TestCase):
                 )
                 self.assertEqual(refused.exception.path, ["folder_path"])
 
+    def test_the_folder_dallas_scan_keeps_its_slot_table_in_is_refused(self):
+        # With storage: file the table is <config_dir>/<key>.json, config_json's folder.
+        config = {"storage": self.storage(), "folder_path": "config"}
+        full = {
+            "config_json": {"storage": self.storage(), "config_dir": "config"},
+            "dallas_scan": {
+                "storage": "file",
+                "name_prefix": "Temp",
+                "max_sensors": 16,
+            },
+        }
+        with self.assertRaises(cv.Invalid) as refused:
+            self.final_validate(config, full)
+        self.assertIn("config_json's folder", refused.exception.msg)
+
     def test_another_storage_or_another_folder_passes(self):
         config = {"storage": self.storage(), "folder_path": "mqtt"}
         self.final_validate(

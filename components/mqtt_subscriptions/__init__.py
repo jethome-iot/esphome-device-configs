@@ -64,7 +64,8 @@ DEFAULT_UNITS = [
 # Every slot can be any of them, so each domain gets max_slots places.
 DOMAINS = ("sensor", "binary_sensor", "text_sensor")
 # Components that keep a folder of their own on a storage, and the option naming it. The
-# automations engine loads every JSON file in its folder as a rule; crash_report prunes its.
+# automations engine loads every JSON file in its folder as a rule; crash_report prunes its;
+# config_json's also holds dallas_scan's slot table with `storage: file`.
 FOLDER_OWNERS = {
     "automations": "folder_path",
     "crash_report": "report_dir",
