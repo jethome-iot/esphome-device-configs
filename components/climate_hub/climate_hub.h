@@ -94,10 +94,12 @@ class ClimateHub : public Component {
   Result update(const std::string &id, ClimateConfig doc);
   /// Stops and deletes a thermostat.
   Result remove(const std::string &id);
-  /// Starts or stops a thermostat and stores the flag. Enabling one whose sensor or relay is not
-  /// on the device, or whose sensor does not report °C, is a 400; one whose relay a running
-  /// thermostat holds is a 409 naming the holder, unless `take_over`: the holder is then
-  /// disabled first.
+  /// Starts or stops a thermostat and stores the flag. Enabling is refused as a Save is: 400
+  /// for a sensor that does not report °C, 409 naming the holder for a relay a running
+  /// thermostat holds, unless `take_over`: the holder is then disabled first, and a 400 comes
+  /// instead when the sensor or a relay is not on the device, the holder untouched. Otherwise
+  /// one whose sensor or relay is not on the device is stored enabled and waits, with a
+  /// `warning`.
   Result set_enabled(const std::string &id, bool enabled, bool take_over = false);
   /// Moves the target, clamped into the visual range, running or not.
   Result set_setpoint(const std::string &id, float value);
@@ -148,7 +150,8 @@ class ClimateHub : public Component {
   /// The running thermostat, other than `config` itself, that holds one of its relays, and
   /// which relay.
   std::string holder_of_(const ClimateConfig &config, std::string *relay_id = nullptr) const;
-  /// Whether the sensor and the relays `config` names are on this device, the sensor in °C.
+  /// Whether the sensor and the relays `config` names are on this device, the sensor in °C:
+  /// what a take-over asks before it stops the holder.
   bool check_entities_(const ClimateConfig &config, std::string *error) const;
   /// Whether `config`, enabled, may be saved: 400 for a sensor not in °C, 409 for a relay held
   /// elsewhere. A missing sensor or relay is waited for, as at boot.

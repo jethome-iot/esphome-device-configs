@@ -96,11 +96,10 @@ component: it would list the entities no thermostat is using.
 Every number is clamped into its range, and a missing one takes its default: the ranges and the
 defaults are the table in `param_table.cpp`. A document built in C++ and handed to `create()` or
 `update()` is clamped the same way. A document that breaks a rule above is refused
-whole with a sentence that says which. A thermostat that is to run is created or saved only
-when its sensor, if it is on the device, reports °C, and no running thermostat holds its relays.
-One whose sensor or a relay is not on the device is saved all the same, enabled, and waits as it
-would at boot, with a `warning` that names what is missing. Enabling a stopped thermostat asks
-for everything: its sensor and relays on the device, the sensor in °C. A disabled one may name
+whole with a sentence that says which. A thermostat that is to run is created, saved or enabled
+only when its sensor, if it is on the device, reports °C, and no running thermostat holds its
+relays. One whose sensor or a relay is not on the device is saved or enabled all the same, and
+waits as it would at boot, with a `warning` that names what is missing. A disabled one may name
 what is not there yet.
 
 ## Control
@@ -139,7 +138,8 @@ A running thermostat holds its relays, and puts one back within a loop pass if a
 moves it — from the panel, over Modbus, from an automation or from Home Assistant. Two
 thermostats may name the same relay and take turns: only one of them can run at a time.
 Starting the second while the first runs is refused, naming the one that holds it, unless it
-takes the relay over, which stops the holder. Stopping a thermostat opens its relays. A Save
+takes the relay over, which stops the holder. A take-over by one whose sensor or a relay is not
+on the device is refused, and the holder runs on. Stopping a thermostat opens its relays. A Save
 that keeps a relay leaves it where it is, and so does a take-over: a relay both thermostats
 drive changes hands as it is, and the holder's other relays open.
 

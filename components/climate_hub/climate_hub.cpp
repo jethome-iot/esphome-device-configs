@@ -525,15 +525,19 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
 
   if (slot != nullptr)
     return result;
+  // As a Save, but for a held relay the caller may take over: a missing sensor or relay is
+  // waited for.
+  Result refused;
+  if (!this->check_savable_(*stored, &refused) && (refused.holder.empty() || !take_over))
+    return refused;
   std::string error;
-  if (!this->check_entities_(*stored, &error))
+  std::string relay_id;
+  std::string holder = this->holder_of_(*stored, &relay_id);
+  // A take-over stops the holder, so only for a thermostat that runs in its place.
+  if (!holder.empty() && !this->check_entities_(*stored, &error))
     return failure(400, error);
   // Taken over in the same job, so the relay is never free for a third party in between.
-  std::string relay_id;
-  for (std::string holder = this->holder_of_(*stored, &relay_id); !holder.empty();
-       holder = this->holder_of_(*stored, &relay_id)) {
-    if (!take_over)
-      return this->relay_held_(relay_id, holder);
+  for (; !holder.empty(); holder = this->holder_of_(*stored, &relay_id)) {
     ClimateConfig *held = this->store_.get(holder);
     if (held != nullptr) {
       held->enabled = false;
