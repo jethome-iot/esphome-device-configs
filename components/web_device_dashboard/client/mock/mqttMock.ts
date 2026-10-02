@@ -241,8 +241,10 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
     const leaves = (from: MqttRecord) =>
       !merged.discovery || !merged.enabled || merged.broker !== from.broker || merged.port !== from.port
     if (started && applied.discovery && leaves(applied)) {
+      // Clean mode for the rest of the boot, as on the device: discovery no longer runs, so a
+      // save that keeps it on, or puts the broker back, still needs the reboot to announce again.
       cleanup = true
-      if (!merged.discovery) applied.discovery = false
+      applied.discovery = false
     } else if (heldBack && stored.enabled && stored.discovery && leaves(stored) && !(merged.enabled && merged.discovery)) {
       cleanup = true
     }

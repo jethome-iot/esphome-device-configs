@@ -127,6 +127,19 @@ TEST_F(CleanupTest, ABrokerChangeCleansTheOldBrokerAndWaitsForTheReboot) {
   EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::NONE);
 }
 
+// Clean mode stays for the rest of the boot, so putting the broker back does not bring the
+// entries back: that takes the reboot.
+TEST_F(CleanupTest, ABrokerPutBackBeforeTheRebootStillNeedsIt) {
+  TestConfig &c = this->announced();
+  this->save(patch_of([](MqttPatch &p) { p.broker = std::string("192.168.1.20"); }));
+  const auto back = this->save(patch_of([](MqttPatch &p) { p.broker = std::string("192.168.1.10"); }));
+  EXPECT_STREQ(back.message, CLEANING_THEN_REBOOT);
+  EXPECT_TRUE(back.reboot_required);
+  EXPECT_TRUE(c.reboot_required());
+  EXPECT_TRUE(this->client->get_discovery_info().clean);
+  EXPECT_FALSE(this->settings_json()["running"]["discovery"].as<bool>());
+}
+
 TEST_F(CleanupTest, APortChangeCleansToo) {
   this->announced();
   const auto result = this->save(patch_of([](MqttPatch &p) { p.port = 1884; }));
