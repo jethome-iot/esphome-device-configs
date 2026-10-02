@@ -680,6 +680,22 @@ TEST_F(Editor, EnableOfAThermostatWhoseSensorOrRelayIsMissingStoresItEnabledToWa
   EXPECT_TRUE(this->post("enable?id=floor&value=false")["warning"].isUnbound());
 }
 
+// The 400 above is for a take-over that would stop a running thermostat: with none on the relay,
+// take_over=true answers as a plain enable, and the thermostat waits.
+TEST_F(Editor, ATakeOverWithNoHolderWaitsForAMissingSensor) {
+  std::string attic = with(LIVING_ROOM, R"("enabled":false)");
+  attic.replace(attic.find("\"room\""), 6, "\"attic\"");
+  ASSERT_EQ(this->post("save", attic).code, 200);
+
+  Reply reply = this->post("enable?id=living-room&value=true&take_over=true");
+  ASSERT_EQ(reply.code, 200) << reply.body;
+  EXPECT_EQ(reply.body, R"({"success":true,"message":"Thermostat enabled; not started: sensor 'attic' not found",)"
+                        R"("persisted":true,"warning":"not started: sensor 'attic' not found"})");
+  EXPECT_TRUE(hub().store().get("living-room")->enabled);
+  EXPECT_FALSE(hub().is_running("living-room"));
+  EXPECT_EQ(hub().claimed_by("relay_1"), "");
+}
+
 // What a Save refuses, an enable refuses too: a sensor that is there but not in °C.
 TEST_F(Editor, EnableRefusesASensorNotInCelsius) {
   std::string uptime = with(LIVING_ROOM, R"("enabled":false)");

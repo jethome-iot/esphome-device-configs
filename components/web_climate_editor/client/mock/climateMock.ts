@@ -16,8 +16,9 @@
 // not in °C is 400, and a relay held by a running thermostat is 409 unless the
 // enable asks to take it over. An enabled Save or an enable whose sensor or
 // relay the device does not have stores the thermostat enabled to wait, not
-// running, with a `warning` that /list and /status repeat as `waiting`; a
-// take-over by one is 400.
+// running, with a `warning` that /list and /status repeat as `waiting`. Taking a
+// running thermostat's relay over for one is 400; with no holder, take_over=true
+// answers the same 200.
 // /status reads a first-order room model per sensor, heated and cooled by the
 // duties of the thermostats bound to it. control() stands in for Home Assistant
 // setting a running thermostat's mode or target through its climate entity.

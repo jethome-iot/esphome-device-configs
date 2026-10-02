@@ -497,9 +497,10 @@ components:
       description: >-
         Bad request — a missing or malformed parameter, a body that is empty or
         not JSON, a document that breaks a rule, an enabled thermostat whose
-        sensor does not report °C, or a take-over (`/enable` with
-        `take_over=true`) by a thermostat whose sensor or relay is not on the
-        device.
+        sensor does not report °C, or an `/enable` with `take_over=true` that
+        would stop a running thermostat for one whose sensor or relay is not on
+        the device. With no running thermostat on its relays, that `/enable` is
+        a `200` with a `warning`, as without `take_over`.
       content:
         application/json:
           schema:
@@ -514,7 +515,7 @@ components:
                 success: false
                 error: "Name cannot contain '/'"
             entity:
-              summary: "/enable with take_over=true only"
+              summary: "/enable taking a running thermostat's relay over only"
               value:
                 success: false
                 error: No sensor "temp_3" on this device

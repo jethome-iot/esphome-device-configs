@@ -113,6 +113,7 @@ was stored enabled before or not. With `take_over=true` the thermostat holding t
 stopped and stored as disabled first, in the same step, and the answer names it:
 `Thermostat enabled; "Living Room" stopped`. A take-over by one whose sensor or a relay is not
 on the device is `400` instead (`No sensor "attic" on this device`), and the holder runs on.
+With no running thermostat on its relays, `take_over=true` changes nothing.
 
 An `id` is the thermostat's slug (`a-z`, `0-9`, single dashes, at most 48): a missing one is
 `Missing id parameter`, anything else `Invalid id parameter`. `value` and `take_over` of
