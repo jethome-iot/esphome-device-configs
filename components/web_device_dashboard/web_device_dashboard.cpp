@@ -888,16 +888,14 @@ void WebDeviceDashboard::handle_temperature_slots_forget_(AsyncWebServerRequest 
 }
 
 // "0x" (or nothing) and 16 hex digits, the way /temperature-slots and the panel print a ROM.
-static bool parse_rom(const char *text, uint64_t &rom) {
-  if (text == nullptr)
-    return false;
-  if (text[0] == '0' && (text[1] == 'x' || text[1] == 'X'))
-    text += 2;
-  if (strlen(text) != 16)
+// A std::string, not a C string: a JSON string may carry a NUL, and the text would end there.
+static bool parse_rom(const std::string &text, uint64_t &rom) {
+  const size_t start = text.size() >= 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X') ? 2 : 0;
+  if (text.size() - start != 16)
     return false;
   rom = 0;
-  for (const char *c = text; *c != '\0'; c++) {
-    const uint8_t digit = parse_hex_char(*c);
+  for (size_t i = start; i < text.size(); i++) {
+    const uint8_t digit = parse_hex_char(text[i]);
     if (digit == INVALID_HEX_CHAR)
       return false;
     rom = (rom << 4) | static_cast<uint64_t>(digit);
@@ -926,7 +924,7 @@ void WebDeviceDashboard::handle_temperature_slots_assign_(AsyncWebServerRequest 
     return;
   uint64_t rom;
   JsonVariant address = doc["address"];
-  if (!address.is<const char *>() || !parse_rom(address.as<const char *>(), rom)) {
+  if (!address.is<const char *>() || !parse_rom(address.as<std::string>(), rom)) {
     this->send_error_(request, 400, "'address' must be 16 hex digits, after an optional 0x");
     return;
   }

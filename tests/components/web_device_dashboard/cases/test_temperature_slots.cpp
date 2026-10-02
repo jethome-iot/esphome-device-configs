@@ -371,7 +371,10 @@ TEST_F(TemperatureSlots, AssignRefusesWhatIsNotARomAddress) {
   this->boot({ROM_A});
   const int jobs = this->dashboard->jobs;
   for (const char *address : {R"("")", R"("0x")", R"("0x9b01b5566e8a1f2")", R"("0x9b01b5566e8a1f288")",
-                              R"("0x9b01b5566e8a1fzz")", R"("0x 9b01b5566e8a1f2")", "1234", "null"}) {
+                              R"("0x9b01b5566e8a1fzz")", R"("0x 9b01b5566e8a1f2")", "1234", "null",
+                              // A NUL ends a C string, not a JSON one: the 16 digits before it are not
+                              // all that was sent.
+                              R"("9b01b5566e8a1f28\u0000junk")", R"("0x9b01b5566e8a1f2\u00008")"}) {
     Reply reply = this->post(ASSIGN, this->confirmed(std::string(R"("slot":2,"address":)") + address));
     EXPECT_EQ(reply.code, 400) << address;
     EXPECT_EQ(reply.error(), "'address' must be 16 hex digits, after an optional 0x") << address;
