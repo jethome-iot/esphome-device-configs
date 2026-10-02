@@ -176,7 +176,10 @@ The folder is writable by hand, so what it holds is checked at boot:
 - an enabled thermostat whose sensor or relay is missing, whose sensor does not report °C, or
   whose relay another one holds, stays enabled and does not run.
 
-A removal the partition refuses leaves the file empty, so the thermostat does not come back.
+A removal the partition refuses empties the file instead: the next boot refuses an empty file,
+so the thermostat does not come back. When the file cannot be emptied either, the thermostat is
+gone only until the next boot, which loads it from that file again; `remove()` then returns
+`persisted` false.
 
 ## From C++
 
