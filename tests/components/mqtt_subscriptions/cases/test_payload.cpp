@@ -199,6 +199,29 @@ TEST(RawPreview, FirstBytesSanitized) {
   EXPECT_EQ(raw_preview(odd).size(), RAW_MAX - 1);
 }
 
+// A message whose slots all read it whole is never parsed, nor one over the limit.
+class PeekMessage : public Message {
+ public:
+  using Message::Message;
+  bool parsed() const { return this->parsed_; }
+};
+
+TEST(MessageParse, NotForASlotWithoutAPath) {
+  const std::string payload = R"({"a":1})";
+  PeekMessage message(payload);
+  read_number(message, "");
+  read_binary(message, "", "ON", "OFF");
+  read_text(message, "");
+  EXPECT_FALSE(message.parsed());
+  EXPECT_FLOAT_EQ(read_number(message, "a").value, 1.0f);
+  EXPECT_TRUE(message.parsed());
+
+  const std::string large = R"({"a":")" + std::string(PAYLOAD_MAX, 'x') + R"("})";
+  PeekMessage too_large(large);
+  read_number(too_large, "a");
+  EXPECT_FALSE(too_large.parsed());
+}
+
 // The JSON is parsed once, whatever number of slots read the message.
 TEST(MessageParse, OnceAndOnlyWhenAsked) {
   const std::string payload = R"({"a":1})";

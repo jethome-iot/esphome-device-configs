@@ -1,4 +1,5 @@
 #include "common.h"
+#include <utime.h>
 #include <cmath>
 
 namespace esphome::mqtt_subscriptions::testing {
@@ -579,6 +580,34 @@ TEST_F(ComponentTest, AFileRewrittenBehindItsBackIsNoticed) {
   this->plant({outdoor()});
   JsonDocument doc = this->get();
   EXPECT_FALSE(doc["reboot_required"].as<bool>());
+}
+
+// The check goes by size and time alone: a rewrite that keeps both goes unseen until a read,
+// and one that only moves the time is read again.
+TEST_F(ComponentTest, TheCheckSkipsAnUnchangedFileAndNoticesANewTime) {
+  this->plant({outdoor()});
+  TestSubscriptions &s = this->boot([](TestSubscriptions &s) { s.set_check_interval(10); });
+  struct stat before;
+  ASSERT_EQ(stat(this->file().c_str(), &before), 0);
+  SlotConfig moved = outdoor();
+  moved.topic = "zigbee2mqtt/outdoox";  // as long as the topic it replaces
+  this->plant({moved});
+  struct utimbuf times {
+    before.st_atime, before.st_mtime
+  };
+  ASSERT_EQ(utime(this->file().c_str(), &times), 0);
+  struct stat after;
+  ASSERT_EQ(stat(this->file().c_str(), &after), 0);
+  ASSERT_EQ(after.st_size, before.st_size);
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  App.scheduler.call(millis());
+  EXPECT_FALSE(s.reboot_required());
+
+  times.modtime = before.st_mtime + 10;
+  ASSERT_EQ(utime(this->file().c_str(), &times), 0);
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  App.scheduler.call(millis());
+  EXPECT_TRUE(s.reboot_required());
 }
 
 TEST_F(ComponentTest, TheGetShape) {
