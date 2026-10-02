@@ -310,33 +310,99 @@ TEST_F(HubTest, ASetpointMoveSurvivesAReload) {
   EXPECT_FLOAT_EQ(26.f, hub().store().get("boiler")->setpoint);
 }
 
-// A thermostat that is to run needs what it names to be there; one that is off may wait for it.
-TEST_F(HubTest, AnEnabledThermostatNeedsItsSensorAndRelays) {
+// An enabled thermostat whose sensor or relay is not on the device is saved enabled and waits,
+// as one loaded at boot does; the answer says why it is not running.
+TEST_F(HubTest, AnEnabledThermostatWithoutItsSensorOrRelayIsSavedAndWaits) {
   ClimateConfig ghost = draft("Ghost");
   ghost.sensor_id = "no_such_sensor";
   Result result = hub().create(ghost);
-  EXPECT_EQ(400, result.code);
-  EXPECT_EQ("No sensor \"no_such_sensor\" on this device", result.error);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(200, result.code);
+  EXPECT_EQ("ghost", result.id);
+  EXPECT_EQ("not started: sensor 'no_such_sensor' not found", result.warning);
+  EXPECT_TRUE(result.persisted);
+  EXPECT_TRUE(hub().store().get("ghost")->enabled);
+  EXPECT_FALSE(hub().is_running("ghost"));
+  EXPECT_EQ(4u, hub().free_count()) << "it took no slot";
+  EXPECT_EQ("", hub().claimed_by("relay_1")) << "nor its relay";
 
-  result = hub().create(draft("Ghost", "relay_9"));
-  EXPECT_EQ(400, result.code);
-  EXPECT_EQ("No switch \"relay_9\" on this device", result.error);
-  EXPECT_TRUE(list_dir(this->folder()).empty()) << "nothing written";
+  result = hub().create(draft("Porch", "relay_9"));
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: relay 'relay_9' not found", result.warning);
+  EXPECT_TRUE(hub().store().get("porch")->enabled);
+  EXPECT_FALSE(hub().is_running("porch"));
+  EXPECT_EQ((std::vector<std::string>{"ghost.json", "porch.json"}), list_dir(this->folder()));
+  pass_resync_delay();
+  EXPECT_EQ(0, hub().resyncs) << "nothing started, nothing to re-list";
 
-  ghost.enabled = false;
-  this->create(ghost);
-  EXPECT_EQ(4u, hub().free_count()) << "kept, and it took no slot";
+  // The toggle still asks for what is there: it answers a 400 and changes nothing.
   result = hub().set_enabled("ghost", true);
   EXPECT_EQ(400, result.code);
   EXPECT_EQ("No sensor \"no_such_sensor\" on this device", result.error);
-  EXPECT_FALSE(hub().store().get("ghost")->enabled);
-
-  this->create(draft("Boiler"));
-  ClimateConfig moved = draft("Boiler", "relay_9");
-  result = hub().update("boiler", moved);
+  EXPECT_TRUE(hub().store().get("ghost")->enabled);
+  result = hub().set_enabled("porch", true);
   EXPECT_EQ(400, result.code);
-  EXPECT_EQ("relay_1", hub().store().get("boiler")->heat.relay_id) << "the running one is left as it was";
+  EXPECT_EQ("No switch \"relay_9\" on this device", result.error);
+
+  this->reboot();
+  for (const char *id : {"ghost", "porch"}) {
+    EXPECT_TRUE(hub().store().get(id)->enabled) << id << " waits across a reboot too";
+    EXPECT_FALSE(hub().is_running(id)) << id;
+  }
+}
+
+// A Save that points a running thermostat at a missing relay stops it: it opens its relay, lets
+// go of it and waits for the new one, saved and enabled.
+TEST_F(HubTest, ASaveOntoAMissingRelayStopsTheThermostatAndKeepsIt) {
+  this->create(draft("Boiler"));
+  HubClimate *entity = hub().entity_of("boiler");
+  entities().relay1.turn_on();
+  ASSERT_TRUE(entities().relay1.state);
+  pass_resync_delay();
+  hub().resyncs = 0;
+
+  Result result = hub().update("boiler", draft("Boiler", "relay_9"));
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: relay 'relay_9' not found", result.warning);
+  EXPECT_EQ("relay_9", hub().store().get("boiler")->heat.relay_id);
+  EXPECT_TRUE(hub().store().get("boiler")->enabled);
+  EXPECT_FALSE(hub().is_running("boiler"));
+  EXPECT_TRUE(entity->is_internal());
+  EXPECT_EQ("", hub().claimed_by("relay_1"));
+  EXPECT_FALSE(entities().relay1.state);
+  EXPECT_NE(std::string::npos, read_file(this->file_of("boiler")).find("relay_9"));
+  pass_resync_delay();
+  EXPECT_EQ(1, hub().resyncs) << "its entity is gone from the lists";
+
+  // Saved back onto a relay that is there, it runs again.
+  result = hub().update("boiler", draft("Boiler"));
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("", result.warning);
   EXPECT_TRUE(hub().is_running("boiler"));
+}
+
+// The same for a sensor: the relays it kept are opened and let go with it.
+TEST_F(HubTest, ASaveOntoAMissingSensorStopsTheThermostatAndKeepsIt) {
+  this->create(draft("Boiler"));
+  ClimateConfig moved = draft("Boiler");
+  moved.sensor_id = "no_such_sensor";
+  Result result = hub().update("boiler", moved);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: sensor 'no_such_sensor' not found", result.warning);
+  EXPECT_EQ("no_such_sensor", hub().store().get("boiler")->sensor_id);
+  EXPECT_FALSE(hub().is_running("boiler"));
+  EXPECT_EQ("", hub().claimed_by("relay_1"));
+}
+
+// A relay a running thermostat holds is still a 409, missing sensor or not: the holder decides.
+TEST_F(HubTest, AHeldRelayStillRefusesASaveWhoseSensorIsMissing) {
+  this->create(draft("Winter", "relay_1"));
+  ClimateConfig summer = draft("Summer", "relay_1");
+  summer.sensor_id = "no_such_sensor";
+  Result result = hub().create(summer);
+  EXPECT_EQ(409, result.code);
+  EXPECT_EQ("winter", result.holder);
+  EXPECT_EQ(nullptr, hub().store().get("summer"));
 }
 
 // Checked before anything is taken over: a refused enable leaves the holder running.
@@ -758,13 +824,14 @@ TEST_F(HubTest, AnEnabledThermostatNeedsASensorInCelsius) {
   EXPECT_TRUE(hub().is_running("boiler"));
 }
 
-// internal: true keeps an entity to the firmware; a thermostat cannot name it either.
-TEST_F(HubTest, AnInternalSensorCannotBeBound) {
+// internal: true keeps an entity to the firmware; to a thermostat it is not on the device.
+TEST_F(HubTest, AnInternalSensorIsNeverFound) {
   ClimateConfig config = draft("Boiler");
   config.sensor_id = "hidden";
   Result result = hub().create(config);
-  EXPECT_EQ(400, result.code);
-  EXPECT_EQ("No sensor \"hidden\" on this device", result.error);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: sensor 'hidden' not found", result.warning);
+  EXPECT_FALSE(hub().is_running("boiler"));
 }
 
 // run_on_loop() is how an HTTP handler reaches the hub. With one task, as here, the job runs in

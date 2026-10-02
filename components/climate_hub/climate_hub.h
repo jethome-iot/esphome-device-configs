@@ -33,7 +33,8 @@ struct Result {
   std::string id;
   /// A 409 over a relay: the id of the running thermostat that holds it.
   std::string holder;
-  /// Saved and enabled but not running, and why: no climate entity was free.
+  /// Saved and enabled but not running, and why: its sensor or a relay is not on the device, or
+  /// no climate entity was free.
   std::string warning;
   /// False when the change is live but did not reach flash, so a reboot undoes it.
   bool persisted{true};
@@ -82,13 +83,14 @@ class ClimateHub : public Component {
   float sensor_reading(const std::string &sensor_object_id) const;
 
   /// Adds a thermostat. The draft's id is ignored: one is made from the name. Refused with 400
-  /// (a rule broken; enabled, and its sensor or a relay is not on the device, or its sensor does
-  /// not report °C), 409 (name taken, relay held by a running thermostat, every id the name
-  /// gives taken), 413 (the file would be over CONFIG_MAX_BYTES), 507 (at max_controllers) or
-  /// 500 (not written).
+  /// (a rule broken; enabled, and its sensor does not report °C), 409 (name taken, relay held by
+  /// a running thermostat, every id the name gives taken), 413 (the file would be over
+  /// CONFIG_MAX_BYTES), 507 (at max_controllers) or 500 (not written). An enabled one whose
+  /// sensor or relay is not on the device is saved and waits, as at boot, with a `warning`.
   Result create(ClimateConfig draft);
   /// Replaces a thermostat's document; the id stays. A running one keeps its entity and every
-  /// relay it still names. 404 for an unknown id, otherwise as create().
+  /// relay it still names, or stops when the sensor or a relay it now names is not on the
+  /// device. 404 for an unknown id, otherwise as create().
   Result update(const std::string &id, ClimateConfig doc);
   /// Stops and deletes a thermostat.
   Result remove(const std::string &id);
@@ -148,8 +150,9 @@ class ClimateHub : public Component {
   std::string holder_of_(const ClimateConfig &config, std::string *relay_id = nullptr) const;
   /// Whether the sensor and the relays `config` names are on this device, the sensor in °C.
   bool check_entities_(const ClimateConfig &config, std::string *error) const;
-  /// Whether `config` could run now: 400 for a missing entity, 409 for a relay held elsewhere.
-  bool check_startable_(const ClimateConfig &config, Result *result) const;
+  /// Whether `config`, enabled, may be saved: 400 for a sensor not in °C, 409 for a relay held
+  /// elsewhere. A missing sensor or relay is waited for, as at boot.
+  bool check_savable_(const ClimateConfig &config, Result *result) const;
   Result relay_held_(const std::string &relay_id, const std::string &holder) const;
   Slot *slot_for_(const std::string &id) const;
   /// The hidden slot that last carried `name` (by object id), so a thermostat back under its

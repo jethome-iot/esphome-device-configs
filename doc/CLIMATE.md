@@ -34,8 +34,9 @@ The device keeps at most eight. OTA updates keep the files; a factory reset form
 partition, so the thermostats go with it. A file dropped into the folder, over the file API
 under `/files` for instance, is loaded at the next boot.
 
-A thermostat whose sensor or relay is missing at boot stays on disk, not running, until it is
-back.
+A thermostat whose sensor or relay is missing, at boot or when it is saved, stays enabled on disk
+but does not run; a Save of it succeeds with a warning that names what is missing. It starts at
+the next boot that finds what it names, or at a Save that names what is there.
 
 ## Home Assistant
 
