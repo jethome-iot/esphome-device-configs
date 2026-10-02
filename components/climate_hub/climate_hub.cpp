@@ -852,9 +852,8 @@ ClimateHub::SensorSubscription *ClimateHub::subscribe_(sensor::Sensor *sensor) {
 }
 
 void ClimateHub::on_sample_(SensorSubscription *sub, float value) {
-  // A NaN stored as a reading would pass the staleness and over-temperature guards, and one
-  // through the integrator would leave it NaN for good; an infinity would latch the heater on or
-  // wind the integral. Either is no reading: a sensor that sends only those goes stale.
+  // NaN slips past the staleness and over-temperature guards and poisons the integral; an
+  // infinity latches the heater or winds the integral. Neither is a reading: the sensor goes stale.
   if (!std::isfinite(value))
     return;
   const uint32_t now = this->now_ms();

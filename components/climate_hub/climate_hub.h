@@ -74,7 +74,7 @@ class ClimateHub : public Component {
   /// Whether the thermostat is running: enabled, and its sensor and relays were there.
   bool is_running(const std::string &id) const { return this->slot_for_(id) != nullptr; }
   /// Why an enabled thermostat is not running, worded as the `warning` that said so ("not
-  /// started: sensor 'attic' not found"): what its last start, at boot, a Save or an enable,
+  /// started: sensor 'temp_3' not found"): what its last start, at boot, a Save or an enable,
   /// failed on. "" when it runs, is disabled or is not there.
   std::string waiting_reason(const std::string &id) const;
   /// The running thermostat's control state (action, fault, duties, PID terms, sample age),

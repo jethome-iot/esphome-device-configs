@@ -116,8 +116,9 @@ what is not there yet.
   sensor's last value at once, but acts on it only if it arrived within `sensor_timeout_s`
   while a thermostat was running on that sensor, and the timeout runs from that reading;
   otherwise it waits for the next one. A reading that is not a finite number, `NaN` or an
-  infinity, is no reading: it is neither shown nor acted on, so a sensor that sends nothing
-  else reports `sensor_stale` once `sensor_timeout_s` has passed since its last good one.
+  infinity, is no reading: it is neither shown nor acted on, so a thermostat whose sensor sends
+  nothing else reports `sensor_stale` once `sensor_timeout_s` has passed since its last good
+  one.
 - `min_on_s` and `min_off_s` hold a relay closed or open that long after it moved, whichever
   thermostat moved it or put it back; a safety cut-out does not wait for them. A relay no
   thermostat has held since boot counts as opened at boot, so `min_off_s` holds across a
@@ -202,7 +203,7 @@ got to it.
 - `is_running(id)`, `runtime(id)`: the running thermostat's action, fault, duties, PID terms and
   sample age, `nullptr` when it is not running
 - `waiting_reason(id)`: why an enabled thermostat does not run, the sentence its last failed
-  start gave as a `warning`, at boot, a Save or an enable (`not started: sensor 'attic' not
+  start gave as a `warning`, at boot, a Save or an enable (`not started: sensor 'temp_3' not
   found`, `not started: no free climate entity`); `""` once it runs or is disabled
 - `claimed_by(relay_object_id)`: the id of the running thermostat holding it, or `""`
 - `sensor_reading(sensor_object_id)`: what a sensor reads now, `NaN` without a finite reading
@@ -212,8 +213,7 @@ got to it.
   404, 409, 413 for a file that would be over 8 KiB, 500, 507), an `error` sentence (the one
   the editor shows), the new `id`, the `holder` of a relay, a `warning` when the thermostat was
   saved enabled but does not run (its sensor or a relay is not on the device, or no climate
-  entity was free), and `persisted`, false when the change is
-  live but did not reach flash
+  entity was free), and `persisted`, false when the change is live but did not reach flash
 - `validate_name(name, &error)`, `is_name_taken(name, exclude_id, &error)`
 
 ## Testing
