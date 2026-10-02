@@ -8,9 +8,9 @@ device found at boot, up to sixteen. Each is a sensor in Home Assistant, a row i
 ## Slots
 
 At boot every new sensor takes the lowest free slot, in bus order, and the slot keeps its
-ROM address in flash from then on; adding, removing or swapping other sensors does not
-move it. Empty slots have no sensor, so a device plugged in later appears after the next
-reboot. An unplugged sensor reads `--` (`0x8000` over Modbus); the log notes it once when it
+ROM address from then on; adding, removing or swapping other sensors does not move it.
+Empty slots have no sensor, so a device plugged in later appears after the next reboot. An
+unplugged sensor reads `--` (`0x8000` over Modbus); the log notes it once when it
 stops answering and once when it is back, no reboot needed. A reading of exactly 85.0 °C,
 the DS18B20 power-on value, is dropped.
 
@@ -24,6 +24,16 @@ To choose the order, connect the sensors one at a time, rebooting after each.
 
 **Temperatures → Temp N** shows the slot's ROM address, e.g. `0xeb01227905460228`. The boot
 log lists them too (`ds2484: Found devices`).
+
+## Backup and restore
+
+The slots are kept in `/littlefs/config/dallas_scan_temps.json` on the user storage partition,
+next to the relay and input settings and the automations, so a backup of the partition carries
+them and a restore puts every sensor back in its slot, on this controller or on a replacement:
+restore, then reboot. A rule that reads `Temp 3` reads the same sensor as before.
+
+The file can also be edited by hand, then the device rebooted; the format is in
+[components/dallas_scan](../components/dallas_scan/README.md#storage).
 
 ## Your own sensors
 
@@ -60,7 +70,7 @@ numbered again in bus order. Factory reset clears them too.
 
 Raise `max_sensors` in `devices/JXD/packages/features/temperature.yaml` and add the registers in
 `devices/JXD/packages/features/modbus-server.yaml`, the README line and `TEMP_COUNT` in
-`scripts/modbus_probe.py`. Changing `max_sensors` empties the table once.
+`scripts/modbus_probe.py`. The slots already taken keep their sensors.
 
 ## The component
 

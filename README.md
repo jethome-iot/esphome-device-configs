@@ -264,7 +264,7 @@ untouched; any button then takes the page away, and it leaves on its own after h
 - **Inputs** - a submenu per input: live state and inversion
 - **Temperatures** - temperature sensor readings; a DS18B20 row opens its slot: the ROM address and a forget command
 - **Info** - network information (Ethernet and WiFi IP and MAC addresses, access point password), then the serial number from the CPU board's EEPROM (`--` when it holds none)
-- **Settings** - display auto-off timer, Modbus settings, firmware updates (the running and the offered version, the release channel, a check, an install, and a rollback row that says whether there is a firmware to go back to; after a rollback the same row goes forward again), temperature slots, network mode, WiFi credential reset, reboot; a factory reset clears the stored preferences (WiFi credentials, settings, the temperature slot table) and formats the user partition, taking the automation rules and uploaded files with it
+- **Settings** - display auto-off timer, Modbus settings, firmware updates (the running and the offered version, the release channel, a check, an install, and a rollback row that says whether there is a firmware to go back to; after a rollback the same row goes forward again), temperature slots, network mode, WiFi credential reset, reboot; a factory reset clears the stored preferences (WiFi credentials, settings) and formats the user partition, taking the temperature slot table, the automation rules and uploaded files with it
 
 **Getting here**: CENTER from the main page.
 

@@ -15,11 +15,15 @@
 #ifdef USE_WEBSERVER_SORTING
 #include "esphome/components/web_server/web_server.h"
 #endif
+#ifdef USE_DALLAS_SCAN_FILE
+#include "esphome/components/config_json/config_json.h"
+#include "slot_file.h"
+#endif
 
 namespace esphome::dallas_scan {
 
 /// One temperature sensor per DS18B20-family device found on the bus at boot.
-/// Slot numbers stick: the slot table lives in flash.
+/// Slot numbers stick: the slot table lives in preferences, or in a file when set_slot_file() is called.
 class DallasScan : public PollingComponent {
  public:
   void set_one_wire_bus(one_wire::OneWireBus *bus) { this->bus_ = bus; }
@@ -35,6 +39,10 @@ class DallasScan : public PollingComponent {
   void set_resolution(uint8_t resolution) { this->resolution_ = resolution; }
   void set_entity_strings(uint8_t device_class_idx, uint8_t uom_idx);
   void set_preference_hash(uint32_t hash) { this->preference_hash_ = hash; }
+#ifdef USE_DALLAS_SCAN_FILE
+  /// Keep the table in <key>.json in the keeper's folder instead; after set_max_sensors().
+  void set_slot_file(config_json::ConfigJsonKeeper *keeper, const char *key);
+#endif
   /// The address of a listed 1-Wire sensor: that device keeps the slot.
   void pin(size_t slot, uint64_t address) {
     this->pins_.emplace_back(slot, address);
@@ -77,6 +85,7 @@ class DallasScan : public PollingComponent {
   void forget(int slot);
 
  protected:
+  void load_table_();
   void bind_devices_();
   sensor::Sensor *make_sensor_(size_t slot);
   void write_resolution_(uint64_t address);
@@ -84,7 +93,10 @@ class DallasScan : public PollingComponent {
   void update_status_();
   bool read_scratch_pad_(uint64_t address, uint8_t *scratch_pad);
   float to_celsius_(uint64_t address, const uint8_t *scratch_pad) const;
-  void save_table_();
+  bool uses_file_() const;
+  bool can_save_() const;
+  bool save_table_();
+  bool store_for_reboot_();
 
   one_wire::OneWireBus *bus_{nullptr};
   const char *name_prefix_{"Temp"};
@@ -104,6 +116,11 @@ class DallasScan : public PollingComponent {
   size_t automatic_{0};                    // slots the component reads itself
   std::vector<bool> missing_;              // slot -> the sensor did not answer the last read
   ESPPreferenceObject pref_;
+#ifdef USE_DALLAS_SCAN_FILE
+  config_json::ConfigJsonKeeper *keeper_{nullptr};
+  SlotFile *file_{nullptr};      // nullptr: the table is in preferences
+  bool file_unreadable_{false};  // the file is there but did not load
+#endif
 #ifdef USE_WEBSERVER_SORTING
   web_server::WebServer *web_server_{nullptr};
   uint64_t sorting_group_{0};

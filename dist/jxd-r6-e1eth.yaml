@@ -850,6 +850,7 @@ dallas_scan:
   id: temps
   one_wire_id: one_wire_bus
   max_sensors: 16
+  storage: file
   update_interval: 20s
   web_server:
     sorting_group_id: group_temperature

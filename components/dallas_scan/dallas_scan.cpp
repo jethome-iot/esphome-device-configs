@@ -33,6 +33,14 @@ void DallasScan::set_entity_strings(uint8_t device_class_idx, uint8_t uom_idx) {
       ((uint32_t) device_class_idx << ENTITY_FIELD_DC_SHIFT) | ((uint32_t) uom_idx << ENTITY_FIELD_UOM_SHIFT);
 }
 
+#ifdef USE_DALLAS_SCAN_FILE
+void DallasScan::set_slot_file(config_json::ConfigJsonKeeper *keeper, const char *key) {
+  this->keeper_ = keeper;
+  // Not one of the keeper's settings types: those are entity settings, served by the dashboard.
+  this->file_ = new SlotFile(key, this->slots_.size());  // NOLINT(cppcoreguidelines-owning-memory)
+}
+#endif
+
 #ifdef USE_WEBSERVER_SORTING
 void DallasScan::set_web_server_sorting(web_server::WebServer *server, uint64_t group, float weight) {
   this->web_server_ = server;
@@ -42,11 +50,7 @@ void DallasScan::set_web_server_sorting(web_server::WebServer *server, uint64_t 
 #endif
 
 void DallasScan::setup() {
-  const size_t bytes = this->slots_.size() * sizeof(uint64_t);
-  this->pref_ = global_preferences->make_preference(bytes, this->preference_hash_);
-  if (!this->pref_.load(reinterpret_cast<uint8_t *>(this->slots_.data()), bytes))
-    std::fill(this->slots_.begin(), this->slots_.end(), 0);
-
+  this->load_table_();
   this->bind_devices_();
 
   this->sensors_.assign(this->slots_.size(), nullptr);
@@ -81,6 +85,29 @@ void DallasScan::setup() {
   this->update_status_();
 }
 
+void DallasScan::load_table_() {
+#ifdef USE_DALLAS_SCAN_FILE
+  if (this->file_ != nullptr) {
+    // The keeper has set up by now: no mount means it failed.
+    if (this->can_save_())
+      this->file_unreadable_ =
+          !this->file_->load_from_file(this->keeper_->get_storage(), this->keeper_->get_config_dir());
+    this->slots_ = this->file_->table();
+    for (auto &address : this->slots_) {
+      if (address != 0 && !is_temperature_sensor(address)) {
+        ESP_LOGW(TAG, "Not a temperature sensor, dropping 0x%016" PRIx64 " from the table", address);
+        address = 0;
+      }
+    }
+    return;
+  }
+#endif
+  const size_t bytes = this->slots_.size() * sizeof(uint64_t);
+  this->pref_ = global_preferences->make_preference(bytes, this->preference_hash_);
+  if (!this->pref_.load(reinterpret_cast<uint8_t *>(this->slots_.data()), bytes))
+    std::fill(this->slots_.begin(), this->slots_.end(), 0);
+}
+
 void DallasScan::bind_devices_() {
   const auto before = this->slots_;
   const auto begin = this->slots_.begin(), end = this->slots_.end();
@@ -113,8 +140,16 @@ void DallasScan::bind_devices_() {
     this->slots_[slot] = address;
     ESP_LOGI(TAG, "0x%016" PRIx64 " takes slot %u", address, (unsigned) slot + 1);
   }
-  if (this->slots_ != before)
-    this->save_table_();
+  if (this->slots_ == before)
+    return;
+#ifdef USE_DALLAS_SCAN_FILE
+  // A file that did not load stays as it is, for a person to fix; only a forget writes over it.
+  if (this->file_ != nullptr && this->file_unreadable_) {
+    ESP_LOGW(TAG, "%s.json did not load: these slots last until the next reboot", this->file_->get_key());
+    return;
+  }
+#endif
+  this->save_table_();
 }
 
 sensor::Sensor *DallasScan::make_sensor_(size_t slot) {
@@ -255,6 +290,11 @@ float DallasScan::temperature(size_t slot) const {
 }
 
 void DallasScan::forget(int slot) {
+  if (!this->can_save_()) {
+    ESP_LOGE(TAG, "Storage unavailable: nothing is forgotten");
+    return;
+  }
+  const auto before = this->slots_;
   bool changed = false;
   for (size_t i = 0; i < this->slots_.size(); i++) {
     if ((slot >= 0 && (size_t) slot != i) || this->pinned_[i] || this->slots_[i] == 0)
@@ -266,15 +306,66 @@ void DallasScan::forget(int slot) {
     ESP_LOGW(TAG, "Nothing to forget: the slot is empty or taken by a YAML sensor");
     return;
   }
-  this->save_table_();
-  global_preferences->sync();
+  // A reboot after a failed write would bring the slot back without a word.
+  if (!this->store_for_reboot_()) {
+    this->slots_ = before;
+    ESP_LOGE(TAG, "The slot table was not written: nothing is forgotten");
+    return;
+  }
   App.safe_reboot();
 }
 
-void DallasScan::save_table_() {
+// The reboot comes next, so the table has to be on flash now rather than queued.
+bool DallasScan::store_for_reboot_() {
+  if (!this->save_table_())
+    return false;
+  if (this->uses_file_() || global_preferences->sync())
+    return true;
+  // The flush reports for every record at once, so the failure may be another one's. It has
+  // emptied the queue, so this reads what flash holds.
+  std::vector<uint64_t> stored(this->slots_.size(), 0);
+  if (this->pref_.load(reinterpret_cast<uint8_t *>(stored.data()), stored.size() * sizeof(uint64_t)) &&
+      stored == this->slots_) {
+    ESP_LOGW(TAG, "Flushing flash failed for another record; the slot table is stored all the same");
+    return true;
+  }
+  return false;
+}
+
+bool DallasScan::uses_file_() const {
+#ifdef USE_DALLAS_SCAN_FILE
+  return this->file_ != nullptr;
+#else
+  return false;
+#endif
+}
+
+bool DallasScan::can_save_() const {
+#ifdef USE_DALLAS_SCAN_FILE
+  if (this->file_ != nullptr)
+    return this->keeper_->can_save();
+#endif
+  return true;
+}
+
+bool DallasScan::save_table_() {
+#ifdef USE_DALLAS_SCAN_FILE
+  if (this->file_ != nullptr) {
+    if (!this->can_save_()) {
+      ESP_LOGE(TAG, "Storage unavailable: the slots last until the next reboot");
+      return false;
+    }
+    this->file_->set_table(this->slots_);
+    this->keeper_->ensure_config_dir();
+    return this->file_->save_to_file(this->keeper_->get_storage(), this->keeper_->get_config_dir());
+  }
+#endif
   const size_t bytes = this->slots_.size() * sizeof(uint64_t);
-  if (!this->pref_.save(reinterpret_cast<const uint8_t *>(this->slots_.data()), bytes))
+  if (!this->pref_.save(reinterpret_cast<const uint8_t *>(this->slots_.data()), bytes)) {
     ESP_LOGE(TAG, "Saving the slot table failed");
+    return false;
+  }
+  return true;
 }
 
 void DallasScan::dump_config() {
@@ -283,6 +374,10 @@ void DallasScan::dump_config() {
                 "  Slots: %u\n"
                 "  Resolution: %u bits",
                 (unsigned) this->slots_.size(), this->resolution_);
+#ifdef USE_DALLAS_SCAN_FILE
+  if (this->file_ != nullptr)
+    ESP_LOGCONFIG(TAG, "  Slot file: %s/%s.json", this->keeper_->get_config_dir().c_str(), this->file_->get_key());
+#endif
   LOG_UPDATE_INTERVAL(this);
   for (size_t slot = 0; slot < this->slots_.size(); slot++) {
     auto *sensor = this->sensors_[slot];

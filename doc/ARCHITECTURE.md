@@ -108,8 +108,9 @@ be readable and editable on the partition. See [ENTITY_SETTINGS.md](ENTITY_SETTI
 ## Temperature slots
 
 The `dallas_scan` component (`components/dallas_scan`, id `temps` in `features/temperature.yaml`)
-owns the slots: a slot → ROM address table in flash and one `sensor::Sensor` per bound slot,
-`Temp 1` … `Temp 16`, created at setup rather than declared in YAML. `max_sensors` sizes the table
+owns the slots: a slot → ROM address table, kept as a `config_json` file on the user partition
+(`storage: file`), and one `sensor::Sensor` per bound slot, `Temp 1` … `Temp 16`, created at
+setup rather than declared in YAML. `max_sensors` sizes the table
 and the entity slots codegen reserves; `sensors:` hands the first slots to YAML sensors, the
 scan fills the rest. Adding slots touches
 `max_sensors`, `modbus-server.yaml`, the README and `TEMP_COUNT` in `scripts/modbus_probe.py`;
