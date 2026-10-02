@@ -118,6 +118,9 @@ class MqttSubscriptions : public Component {
   // The slots the next boot would run from what was read; a FAILED read changes nothing.
   void take_saved_(const SlotFile &file);
   void check_file_();
+  // The saved slot changes what the next boot runs: a slot that runs nothing now and is not
+  // enabled in the file stays as it is, invalid or not.
+  bool slot_pending_(size_t index) const;
   void update_pending_();
 
   void start_slot_(size_t index);

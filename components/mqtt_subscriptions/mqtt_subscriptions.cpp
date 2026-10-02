@@ -406,11 +406,16 @@ void MqttSubscriptions::check_file_() {
   this->take_saved_(this->read_file_(false));
 }
 
+bool MqttSubscriptions::slot_pending_(size_t index) const {
+  const SlotConfig &saved = this->saved_[index];
+  return saved != this->active_[index] && (saved.enabled || this->running_[index].entity != nullptr);
+}
+
 // A suspended boot counts too: a restart is what retries the subscriptions.
 void MqttSubscriptions::update_pending_() {
   bool any = this->suspended_;
   for (size_t i = 0; i < this->max_slots_; i++)
-    any = any || !this->saved_[i].runs_like(this->active_[i]);
+    any = any || this->slot_pending_(i);
   this->pending_any_ = any;
 }
 
@@ -464,7 +469,7 @@ void MqttSubscriptions::write_api_json(JsonObject root) {
     JsonObject obj = slots.add<JsonObject>();
     obj["slot"] = i + 1;
     this->saved_[i].to_json(obj);
-    obj["pending"] = !this->saved_[i].runs_like(this->active_[i]);
+    obj["pending"] = this->slot_pending_(i);
     const Running &run = this->running_[i];
     if (run.entity != nullptr) {
       JsonObject entity = obj["entity"].to<JsonObject>();
@@ -551,8 +556,7 @@ MqttSubscriptions::Result MqttSubscriptions::post(JsonObjectConst body, std::str
   const std::string label = "Slot " + std::to_string(slot_number);
   if (clear)
     return answer(Result::OK, label + (this->active(index) ? " cleared; its entity goes after a reboot" : " cleared"));
-  return answer(Result::OK,
-                label + (slot.runs_like(this->active_[index]) ? " saved" : " saved; applies after a reboot"));
+  return answer(Result::OK, label + (this->slot_pending_(index) ? " saved; applies after a reboot" : " saved"));
 }
 
 // --- Loop task ---

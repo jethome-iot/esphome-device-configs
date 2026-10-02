@@ -341,9 +341,10 @@ export function sameSlot(a: MqttSlotFields, b: MqttSlotFields): boolean {
   return SLOT_FIELD_KEYS.every((key) => a[key] === b[key])
 }
 
-/** Whether the next boot runs the two alike: slots that run nothing are all alike. */
-export function slotRunsLike(a: MqttSlotFields, b: MqttSlotFields): boolean {
-  return (!a.enabled && !b.enabled) || sameSlot(a, b)
+/** The device's `pending`: the saved slot changes what the next boot runs. `runs` says the slot
+ *  has an entity this boot; one that runs nothing and is not enabled in `saved` stays as it is. */
+export function slotPending(saved: MqttSlotFields, running: MqttSlotFields, runs: boolean): boolean {
+  return !sameSlot(saved, running) && (saved.enabled || runs)
 }
 
 /** An entity the device already has, for slotNameConflict(). */

@@ -62,10 +62,6 @@ void SlotConfig::normalize() {
   }
 }
 
-bool SlotConfig::runs_like(const SlotConfig &other) const {
-  return (!this->enabled && !other.enabled) || *this == other;
-}
-
 bool SlotConfig::operator==(const SlotConfig &other) const {
   return this->enabled == other.enabled && this->name == other.name && this->topic == other.topic &&
          this->kind == other.kind && this->json_path == other.json_path && this->unit == other.unit &&

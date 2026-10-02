@@ -51,8 +51,6 @@ struct SlotConfig {
   bool empty() const { return this->topic.empty(); }
   // Fields the kind does not use go back to their defaults; an empty slot is all defaults.
   void normalize();
-  // Whether the next boot runs this the same way: slots that do not run are all alike.
-  bool runs_like(const SlotConfig &other) const;
   // Every field but the slot number.
   void to_json(JsonObject obj) const;
 

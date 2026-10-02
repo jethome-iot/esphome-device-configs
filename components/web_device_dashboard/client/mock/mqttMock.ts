@@ -32,7 +32,7 @@ import {
   sameSlot,
   saveMessage,
   slotNameConflict,
-  slotRunsLike,
+  slotPending,
   utf8Bytes,
   validateSettings,
   type SlotNamedEntity
@@ -327,7 +327,8 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
     return run.error === null ? 'ok' : 'error'
   }
 
-  const slotsWait = (): boolean => slotsServed && savedSlots.some((slot, i) => !slotRunsLike(slot, runningSlots[i]!))
+  const pendingAt = (i: number): boolean => slotPending(savedSlots[i]!, runningSlots[i]!, slotRuns(i))
+  const slotsWait = (): boolean => slotsServed && savedSlots.some((_, i) => pendingAt(i))
 
   function subscriptions(): MqttSubscriptions {
     return {
@@ -340,7 +341,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
         (slot, i): MqttSlot => ({
           slot: i + 1,
           ...slot,
-          pending: !slotRunsLike(slot, runningSlots[i]!),
+          pending: pendingAt(i),
           entity: slotRuns(i) ? { domain: runningSlots[i]!.kind, name: runningSlots[i]!.name } : null,
           status: {
             state: slotState(i),
@@ -371,7 +372,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
     savedSlots[i] = next
     const M = SLOT_SAVE_MESSAGES
     if (body.clear) return answer(slotRuns(i) ? M.clearedForReboot(body.slot) : M.cleared(body.slot))
-    return answer(slotRunsLike(next, runningSlots[i]!) ? M.saved(body.slot) : M.savedForReboot(body.slot))
+    return answer(pendingAt(i) ? M.savedForReboot(body.slot) : M.saved(body.slot))
   }
 
   function bootSlots(): void {

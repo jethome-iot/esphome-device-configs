@@ -502,6 +502,43 @@ TEST_F(ComponentTest, EditingASlotThatDoesNotRunNeedsNoReboot) {
   EXPECT_FALSE(answer.reboot_required);
 }
 
+// An enabled slot that did not start runs nothing either way, so clearing or disabling it waits
+// for no reboot; fixing it does.
+TEST_F(ComponentTest, ASlotThatDidNotStartIsPendingOnlyOnceTheNextBootWouldRunIt) {
+  SlotConfig taken = slot_of("Input 1", "a", SlotKind::BINARY_SENSOR);  // the name of a YAML input
+  SlotConfig wildcard = slot_of("Wild", "a/#");
+  this->plant({taken, wildcard});
+  TestSubscriptions &s = this->boot();
+  ASSERT_FALSE(s.active(0));
+  ASSERT_FALSE(s.active(1));
+  EXPECT_FALSE(s.reboot_required());
+  EXPECT_FALSE(this->get()["slots"][0]["pending"].as<bool>());
+
+  // Turned off, under a name a save takes.
+  Answer answer = this->post(R"({"slot":1,"enabled":false,"name":"Spare","topic":"a","kind":"binary_sensor"})");
+  EXPECT_EQ(answer.message, "Slot 1 saved");
+  EXPECT_FALSE(answer.reboot_required);
+  answer = this->post(R"({"slot":2,"action":"clear"})");
+  EXPECT_EQ(answer.message, "Slot 2 cleared");
+  EXPECT_FALSE(answer.reboot_required);
+
+  answer = this->post(R"({"slot":1,"enabled":true,"name":"Door","topic":"a","kind":"binary_sensor"})");
+  EXPECT_EQ(answer.message, "Slot 1 saved; applies after a reboot");
+  EXPECT_TRUE(answer.reboot_required);
+  EXPECT_TRUE(this->get()["slots"][0]["pending"].as<bool>());
+}
+
+// A running slot turned off waits for the reboot that removes its entity.
+TEST_F(ComponentTest, DisablingARunningSlotWaitsForTheReboot) {
+  this->plant({outdoor()});
+  this->boot();
+  const Answer answer = this->post(
+      R"({"slot":1,"enabled":false,"name":"Outdoor temperature","topic":"zigbee2mqtt/outdoor","kind":"sensor",)"
+      R"("json_path":"temperature","unit":"°C","decimals":2})");
+  EXPECT_EQ(answer.message, "Slot 1 saved; applies after a reboot");
+  EXPECT_TRUE(answer.reboot_required);
+}
+
 TEST_F(ComponentTest, RefusedBodies) {
   this->boot();
   const std::string range = "'slot' must be a whole number from 1 to 4";

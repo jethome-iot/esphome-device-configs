@@ -141,17 +141,6 @@ TEST(SlotRecord, EqualityIsEveryField) {
   }
 }
 
-// Two slots that both run nothing need no reboot to tell apart.
-TEST(SlotRecord, SlotsThatDoNotRunAreAlike) {
-  SlotConfig disabled = slot_of("A", "t");
-  disabled.enabled = false;
-  EXPECT_TRUE(disabled.runs_like(SlotConfig{}));
-  EXPECT_TRUE(SlotConfig{}.runs_like(disabled));
-  EXPECT_FALSE(slot_of("A", "t").runs_like(disabled));
-  EXPECT_FALSE(slot_of("A", "t").runs_like(slot_of("A", "u")));
-  EXPECT_TRUE(slot_of("A", "t").runs_like(slot_of("A", "t")));
-}
-
 TEST(SlotRecord, ARoundTripKeepsEveryField) {
   SlotConfig slot = slot_of("Garage door", "zigbee2mqtt/garage", SlotKind::BINARY_SENSOR);
   slot.json_path = "contact";
