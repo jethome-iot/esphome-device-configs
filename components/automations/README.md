@@ -75,8 +75,9 @@ carried. `cron` is six fields, seconds first — `"*/2 * * * * *"`, `"0 30 6,18 
 
 A `condition` trigger takes no parameters and makes the rule a state rather than an event: it
 fires whenever the condition's result changes, and once with the current result when the rule
-starts watching — at boot, and when it is added, updated or enabled. It carries the result, so
-`actions` run on true and `else_actions` on false, and `follow` copies it. A temperature moves
+starts watching — at boot, and when it is added, updated or enabled. `actions` run on true and
+`else_actions` on false, so a switch that mirrors the result is turned on in one and off in the
+other; a lone `follow` in `actions` only ever sees true. A temperature moves
 the result only on a crossing, and a sensor with no reading is false. A rule with this trigger
 and no `condition` is refused. Give it `restart`: in `single`, a change that comes while a delay
 runs is ignored.
