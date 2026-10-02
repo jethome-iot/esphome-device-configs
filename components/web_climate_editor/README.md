@@ -58,13 +58,13 @@ seconds. Nothing was read or written then, and the call can simply be made again
 
 | Method | Path | |
 |---|---|---|
-| GET | `list` | `{"success": true, "count", "max_controllers", "controllers": [{"id", "name", "enabled", "kind", "mode", "sensor_id", "heat_relay_id", "cool_relay_id", "running"}, ...]}` |
+| GET | `list` | `{"success": true, "count", "max_controllers", "controllers": [{"id", "name", "enabled", "kind", "mode", "sensor_id", "heat_relay_id", "cool_relay_id", "running", "waiting"}, ...]}`; `waiting` says why an enabled thermostat does not run, `""` when it runs or is disabled |
 | GET | `get?id=` | One thermostat, in the file format of [climate_hub](../climate_hub/README.md#a-thermostat) |
 | POST | `save` | A thermostat as a JSON body. `id` absent or `""` creates one, an existing `id` replaces that one, renamed or not. Answers `{"success": true, "message", "id"}`, and a `warning` when it was saved enabled but does not run |
 | POST | `delete?id=` | Stops the thermostat and removes its file |
 | POST | `enable?id=&value=true\|false[&take_over=true]` | Starts or stops it and stores the flag. `{"success": true, "message", "persisted"}`; `persisted` is `false` when it runs but the flag did not reach flash. A `warning` comes as from `save` when it was enabled but does not run |
 | POST | `setpoint?id=&value=` | Moves the target, clamped into the thermostat's range, whether it runs or not |
-| GET | `status[?id=]` | `{"success": true, "controllers": [...]}`: per thermostat whether it runs, what it does (`off`, `idle`, `heating`, `cooling`), its fault, the room temperature and its age, the target and range, the bang-bang switching points, the heat and cool duty and relay state, and a running PID's terms. A stopped thermostat still reports its sensor's reading |
+| GET | `status[?id=]` | `{"success": true, "controllers": [...]}`: per thermostat whether it runs and the `waiting` of `list`, what it does (`off`, `idle`, `heating`, `cooling`), its fault, the room temperature and its age, the target and range, the bang-bang switching points, the heat and cool duty and relay state, and a running PID's terms. A stopped thermostat still reports its sensor's reading |
 | GET | `entities` | `{"success": true, "sensors": [{"object_id", "name", "unit"}], "switches": [{"object_id", "name", "claimed_by"}]}`; `claimed_by` is the id of the running thermostat that holds the relay, or `""`. Internal entities are left out, and so is a sensor that does not report °C |
 | GET | `schema` | The kinds, modes and faults, `max_controllers`, `name_max_length`, and every tunable number with its label, unit, default, range, step and hint, grouped as a form shows them: the table the device clamps against |
 | GET | `ping` | `{"status": "ok"}` |
@@ -91,9 +91,8 @@ refusals come in this order, and the first one a document meets is the answer:
    rules reaches.
 
 An enabled thermostat whose sensor or a relay is not on the device is no refusal: it is saved,
-stays enabled and waits without running, and a running one is stopped; `list` shows it enabled
-and not running. The answer is `200` with a `warning` that names what is missing, and the
-message repeats it:
+stays enabled and waits without running, and a running one is stopped. The answer is `200` with
+a `warning` that names what is missing, and the message repeats it:
 
 ```json
 {"success": true, "message": "Thermostat created; not started: sensor 'attic' not found",
@@ -102,7 +101,10 @@ message repeats it:
 
 It starts at the next boot that finds what it names, or at a Save or an `enable` that finds it
 there. The same `warning` comes, as `not started: no free climate entity`, if no climate entity
-is free.
+is free. Until it starts or is stopped, `list` and `status` show it enabled, not running and with
+no fault, with the same words in `waiting`. One the boot left waiting shows there too, and the
+boot has two reasons more: a sensor not in °C (`not started: sensor 'uptime' reports s, not °C`)
+and a relay another thermostat holds (`not started: relay 'relay_1' is held by 'living-room'`).
 
 `enable` starts a thermostat as a Save of it would: `400` when its sensor does not report °C,
 then `409` when a running thermostat holds its relay, and one whose sensor or a relay is not on

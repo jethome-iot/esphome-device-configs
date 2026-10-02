@@ -930,7 +930,7 @@ components:
 
     ControllerSummary:
       type: object
-      required: [id, name, enabled, kind, mode, sensor_id, heat_relay_id, cool_relay_id, running]
+      required: [id, name, enabled, kind, mode, sensor_id, heat_relay_id, cool_relay_id, running, waiting]
       properties:
         id:
           $ref: "#/components/schemas/Id"
@@ -954,6 +954,8 @@ components:
           description: >-
             Enabled, and its sensor and relays were there to run on. Enabled
             and not running, it waits for them.
+        waiting:
+          $ref: "#/components/schemas/Waiting"
 
     ControllersResponse:
       type: object
@@ -985,6 +987,22 @@ components:
             heat_relay_id: relay_1
             cool_relay_id: ""
             running: true
+            waiting: ""
+
+    Waiting:
+      type: string
+      description: >-
+        Why an enabled thermostat does not run, word for word the `warning`
+        the Save or the `/enable` that left it waiting answered with, or the
+        boot that found it so; `""` when it runs or is disabled. A waiting
+        thermostat's `fault` is `none`: a fault is a running one's.
+      examples:
+        - ""
+        - "not started: sensor 'temp_3' not found"
+        - "not started: sensor 'uptime' reports s, not °C"
+        - "not started: relay 'relay_9' not found"
+        - "not started: relay 'relay_1' is held by 'living-room'"
+        - "not started: no free climate entity"
 
     PidTerms:
       type: object
@@ -1007,6 +1025,7 @@ components:
       required:
         - id
         - running
+        - waiting
         - action
         - fault
         - current_temperature
@@ -1024,6 +1043,8 @@ components:
           $ref: "#/components/schemas/Id"
         running:
           type: boolean
+        waiting:
+          $ref: "#/components/schemas/Waiting"
         action:
           $ref: "#/components/schemas/Action"
         fault:

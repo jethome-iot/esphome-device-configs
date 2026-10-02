@@ -277,6 +277,8 @@ void WebClimateEditor::handle_list_(AsyncWebServerRequest *request) {
       row["heat_relay_id"] = config->heat.relay_id;
       row["cool_relay_id"] = config->cool.relay_id;
       row["running"] = this->hub_->is_running(config->id);
+      // The Save's or the enable's warning, for a client that was not there for the answer.
+      row["waiting"] = this->hub_->waiting_reason(config->id);
     }
     serializeJson(doc, json);
     return true;
@@ -331,6 +333,7 @@ void WebClimateEditor::handle_status_(AsyncWebServerRequest *request) {
       JsonObject row = rows.add<JsonObject>();
       row["id"] = config->id;
       row["running"] = runtime != nullptr;
+      row["waiting"] = this->hub_->waiting_reason(config->id);
       row["action"] =
           climate_hub::enums::action_to_string(runtime != nullptr ? runtime->action() : climate_hub::HubAction::OFF);
       row["fault"] =

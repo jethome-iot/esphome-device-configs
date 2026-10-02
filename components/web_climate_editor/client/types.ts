@@ -116,8 +116,13 @@ export interface ControllerSummary {
   sensor_id: string
   heat_relay_id: string
   cool_relay_id: string
-  /** Enabled and bound to its sensor and relays. Enabled but not running, it waits: see SaveResponse.warning. */
+  /** Enabled and bound to its sensor and relays. Enabled but not running, it waits: see `waiting`. */
   running: boolean
+  /**
+   * Why an enabled thermostat does not run, in the words of the SaveResponse.warning that said
+   * so first ("not started: sensor 'attic' not found"); "" when it runs or is disabled.
+   */
+  waiting: string
 }
 
 /** Terms are `null` rather than NaN — JSON has no NaN and ArduinoJson emits null. */
@@ -132,6 +137,8 @@ export interface PidTerms {
 export interface ControllerStatus {
   id: string
   running: boolean
+  /** As ControllerSummary.waiting: `fault` is a running thermostat's alone. */
+  waiting: string
   action: ClimateHubAction
   fault: ClimateHubFault
   /** The bound sensor's reading, running or not. null, not NaN — JSON has no NaN. */

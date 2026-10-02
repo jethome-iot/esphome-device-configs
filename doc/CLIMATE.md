@@ -56,7 +56,8 @@ A Save or a start over `enable` of a thermostat that is to run is refused while 
 thermostat drives its relay, or when its sensor does not report °C; one whose sensor or relay is
 missing is stored enabled and waits, as above. A start can take the relay over instead of being
 refused, which stops the other thermostat and stores it as disabled; one whose sensor or relay
-is missing cannot.
+is missing cannot. The list and the status say why an enabled thermostat does not run, in the
+words of the warning.
 
 ## Home Assistant
 
