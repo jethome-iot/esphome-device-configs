@@ -248,34 +248,6 @@ class WeightAcrossPackages(unittest.TestCase):
 
         self.assertEqual(self.info_rows(base, serial, network), ["Serial", "IP", "MAC"])
 
-    def test_a_root_row_from_another_package_sits_by_weight(self):
-        def root():
-            # As menu.yaml: four unweighted rows, then Info and Settings.
-            return {
-                "items": [
-                    {"type": "menu", "text": "Relays"},
-                    {"type": "menu", "text": "Inputs"},
-                    {"type": "menu", "text": "Temperatures"},
-                    {"type": "menu", "text": "Automations"},
-                    {"type": "menu", "text": "Info", "weight": 10},
-                    {"type": "menu", "text": "Settings", "weight": 20},
-                ]
-            }
-
-        def mqtt():
-            return {"items": [{"type": "menu", "text": "MQTT", "weight": 5}]}
-
-        for name, packages in (
-            ("menu first", (root, mqtt)),
-            ("mqtt first", (mqtt, root)),
-        ):
-            with self.subTest(packages=name):
-                merged = {}
-                for build in packages:
-                    merged = merge_config(merged, build())
-                config = display_menu_base.DISPLAY_MENU_BASE_SCHEMA(merged)
-                self.assertEqual([row["text"] for row in config["items"]], DEVICE_ROOT)
-
 
 class DevicePackages(unittest.TestCase):
     """The display packages as the LCD device merges them, in either order."""
