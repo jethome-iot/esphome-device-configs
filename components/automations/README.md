@@ -73,6 +73,9 @@ for triggers and conditions alike. `follow` drives its target from the state the
 carried. `cron` is six fields, seconds first — `"*/2 * * * * *"`, `"0 30 6,18 1 * *"` — with
 `*`, `*/N`, `X-Y`, `X-Y/N` and lists; a field that matches nothing is rejected.
 
+A jump of the `time_id` clock back by more than 15 minutes is not handled: the moments it
+passes again fire a second time.
+
 ## Storage
 
 One file per rule, `<base_path>/<folder_path>/<name>.json`, the name lower-cased with runs of
