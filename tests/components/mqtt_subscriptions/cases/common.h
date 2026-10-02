@@ -133,6 +133,8 @@ class TestSubscriptions : public MqttSubscriptions {
   // A filesystem that cannot answer now: out of file handles, an I/O error.
   bool fail_reads{false};
   bool fail_stat{false};
+  // Memory running out while the file is built.
+  bool fail_serialize{false};
 
   void forget_schedule() { this->cancel_interval("mqtt-subs-check"); }
   void set_check_interval(uint32_t ms) { this->check_interval_ms_ = ms; }
@@ -158,6 +160,9 @@ class TestSubscriptions : public MqttSubscriptions {
   }
   bool read_bytes_(const std::string &path, size_t size, std::string &out) const override {
     return !this->fail_reads && MqttSubscriptions::read_bytes_(path, size, out);
+  }
+  bool serialize_(const std::vector<SlotConfig> &slots, std::string &out) const override {
+    return !this->fail_serialize && MqttSubscriptions::serialize_(slots, out);
   }
 };
 
@@ -287,7 +292,9 @@ class SlotsTest : public ::testing::Test {
     std::vector<SlotConfig> all(4);
     for (size_t i = 0; i < slots.size() && i < all.size(); i++)
       all[i] = slots[i];
-    this->plant_text(serialize_file(all));
+    std::string text;
+    ASSERT_TRUE(serialize_file(all, text));
+    this->plant_text(text);
   }
   void plant_text(const std::string &text) {
     mkdir(this->folder().c_str(), 0755);

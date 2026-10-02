@@ -96,7 +96,10 @@ SlotFile::Status parse_failure_status(DeserializationError error);
 // The file's text. Entries past `max_slots`, repeated numbers and entries of the wrong type
 // are dropped with a log line; slots whose values break a rule are kept as written.
 SlotFile parse_file(const char *data, size_t len, size_t max_slots);
-// The non-empty slots, each with every field.
-std::string serialize_file(const std::vector<SlotConfig> &slots);
+// The non-empty slots, each with every field, into `out`; false when the document ran out of
+// memory while being built, whose text would be cut short.
+bool serialize_file(const std::vector<SlotConfig> &slots, std::string &out);
+// The same over a document the caller gives, so a test can starve it.
+bool serialize_into(JsonDocument &doc, const std::vector<SlotConfig> &slots, std::string &out);
 
 }  // namespace esphome::mqtt_subscriptions

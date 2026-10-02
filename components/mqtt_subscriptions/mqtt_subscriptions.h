@@ -107,6 +107,10 @@ class MqttSubscriptions : public Component {
 
   std::string folder_path_() const;
   std::string file_path_() const;
+  // Virtual, as stat_file_ and read_bytes_: the host cannot run out of memory on cue.
+  virtual bool serialize_(const std::vector<SlotConfig> &slots, std::string &out) const {
+    return serialize_file(slots, out);
+  }
   // Virtual, as read_bytes_: the host cannot make a filesystem fail on cue.
   virtual Seen stat_file_() const;
   // The file's `size` bytes; false when they could not all be read now.

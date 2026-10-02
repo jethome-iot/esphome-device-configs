@@ -1,4 +1,5 @@
 #include "common.h"
+#include <cstdlib>
 
 namespace esphome::mqtt_subscriptions::testing {
 
@@ -157,7 +158,9 @@ TEST(SlotRecord, ARoundTripKeepsEveryField) {
 TEST(SlotFileFormat, OnlyNonEmptySlotsAreWrittenWithEveryField) {
   std::vector<SlotConfig> slots(4);
   slots[2] = slot_of("Garage", "g", SlotKind::TEXT_SENSOR);
-  JsonDocument doc = parse(serialize_file(slots));
+  std::string text;
+  ASSERT_TRUE(serialize_file(slots, text));
+  JsonDocument doc = parse(text);
   EXPECT_EQ(doc["version"], 1);
   ASSERT_EQ(doc["slots"].size(), 1u);
   JsonObject entry = doc["slots"][0];
@@ -175,10 +178,53 @@ TEST(SlotFileFormat, ItReadsBackWhatItWrote) {
   slots[0].unit = "°C";
   slots[0].json_path = "temperature";
   slots[3] = slot_of("Door", "z2m/door", SlotKind::BINARY_SENSOR);
-  const std::string text = serialize_file(slots);
+  std::string text;
+  ASSERT_TRUE(serialize_file(slots, text));
   const SlotFile file = parse_file(text.data(), text.size(), 4);
   EXPECT_EQ(file.status, SlotFile::Status::OK);
   EXPECT_EQ(file.slots, slots);
+}
+
+// Hands out at most `budget` bytes, then nothing: a heap running out mid-build.
+class StarvedAllocator : public ArduinoJson::Allocator {
+ public:
+  explicit StarvedAllocator(size_t budget) : budget_(budget) {}
+  void *allocate(size_t size) override {
+    if (size > this->budget_)
+      return nullptr;
+    this->budget_ -= size;
+    return std::malloc(size);
+  }
+  void deallocate(void *pointer) override { std::free(pointer); }
+  void *reallocate(void *pointer, size_t size) override {
+    if (size > this->budget_)
+      return nullptr;
+    this->budget_ -= size;
+    return std::realloc(pointer, size);
+  }
+
+ protected:
+  size_t budget_;
+};
+
+// What serializeJson() would make of a document that ran out of memory is cut short: no text.
+TEST(SlotFileFormat, ADocumentThatRanOutOfMemoryGivesNoText) {
+  std::vector<SlotConfig> slots(4);
+  slots[0] = slot_of("Outdoor", "z2m/outdoor");
+  slots[1] = slot_of("Door", "z2m/door", SlotKind::BINARY_SENSOR);
+  for (size_t budget : {size_t{0}, size_t{64}, size_t{512}}) {
+    SCOPED_TRACE(budget);
+    StarvedAllocator allocator(budget);
+    JsonDocument doc(&allocator);
+    std::string out = "untouched";
+    EXPECT_FALSE(serialize_into(doc, slots, out));
+    EXPECT_EQ(out, "untouched");
+  }
+  StarvedAllocator plenty(1 << 20);
+  JsonDocument doc(&plenty);
+  std::string out;
+  EXPECT_TRUE(serialize_into(doc, slots, out));
+  EXPECT_EQ(parse_file(out.data(), out.size(), 4).slots[1].name, "Door");
 }
 
 TEST(SlotFileFormat, WhatCannotBeReadIsUnreadable) {

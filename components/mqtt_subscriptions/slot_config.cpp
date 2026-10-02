@@ -282,9 +282,13 @@ SlotFile parse_file(const char *data, size_t len, size_t max_slots) {
   return out;
 }
 
-std::string serialize_file(const std::vector<SlotConfig> &slots) {
+bool serialize_file(const std::vector<SlotConfig> &slots, std::string &out) {
   Document document;
-  JsonObject root = document.doc.to<JsonObject>();
+  return serialize_into(document.doc, slots, out);
+}
+
+bool serialize_into(JsonDocument &doc, const std::vector<SlotConfig> &slots, std::string &out) {
+  JsonObject root = doc.to<JsonObject>();
   root["version"] = FILE_VERSION;
   JsonArray list = root["slots"].to<JsonArray>();
   for (size_t i = 0; i < slots.size(); i++) {
@@ -294,9 +298,11 @@ std::string serialize_file(const std::vector<SlotConfig> &slots) {
     obj["slot"] = i + 1;
     slots[i].to_json(obj);
   }
-  std::string text;
-  serializeJson(document.doc, text);
-  return text;
+  if (doc.overflowed())
+    return false;
+  out.clear();
+  serializeJson(doc, out);
+  return true;
 }
 
 }  // namespace esphome::mqtt_subscriptions

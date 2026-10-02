@@ -365,8 +365,13 @@ bool MqttSubscriptions::write_file_(const std::vector<SlotConfig> &slots) {
     ESP_LOGE(TAG, "Creating %s failed", folder.c_str());
     return false;
   }
-  const std::string text = serialize_file(slots);
   const std::string path = this->file_path_();
+  // Out of memory while building, the text would be cut short; the old file stays.
+  std::string text;
+  if (!this->serialize_(slots, text)) {
+    ESP_LOGE(TAG, "Out of memory building %s; not written", path.c_str());
+    return false;
+  }
   // A file restored with oversized fields can outgrow what a read takes once rewritten in full,
   // and the next boot would set it aside whole.
   if (text.size() > FILE_MAX) {

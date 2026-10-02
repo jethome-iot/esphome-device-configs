@@ -324,6 +324,18 @@ TEST_F(ComponentTest, ASaveThatWouldOutgrowTheFileIsRefused) {
   EXPECT_EQ(LogCapture::instance().count("over the 16384 a read takes; not written"), 1u);
 }
 
+TEST_F(ComponentTest, ASaveThatRanOutOfMemoryKeepsTheOldFile) {
+  this->plant({outdoor()});
+  TestSubscriptions &s = this->boot();
+  const std::string before = read_text(this->file());
+  s.fail_serialize = true;
+  const Answer answer = this->post(R"({"slot":2,"enabled":true,"name":"B","topic":"b","kind":"sensor"})");
+  EXPECT_EQ(answer.result, Result::STORAGE);
+  EXPECT_EQ(read_text(this->file()), before);
+  EXPECT_FALSE(exists(this->file() + ".tmp"));
+  EXPECT_EQ(LogCapture::instance().count("Out of memory building"), 1u);
+}
+
 // Over the 16 KiB a save could write: broken, so set aside at boot.
 TEST_F(ComponentTest, AnOversizedFileIsSetAside) {
   this->plant_text("{\"version\":1,\"slots\":[]}" + std::string(FILE_MAX, ' '));
