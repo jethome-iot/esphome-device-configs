@@ -398,6 +398,31 @@ TEST_F(HubTest, BootStartsOneOfTwoOnTheSameRelay) {
   EXPECT_EQ(0u, hub().reasons_kept());
 }
 
+// A take-over by one stored enabled and waiting its turn: only the holder's flag is written.
+TEST_F(HubTest, ATakeOverByOneThatWaitsWritesOnlyTheHoldersFlag) {
+  const std::string winter = doc("winter", "Winter");
+  write_file(this->file_of("summer"), doc("summer", "Summer"));
+  write_file(this->file_of("winter"), winter);
+  this->reboot();
+  ASSERT_FALSE(hub().is_running("winter"));
+  // Its own file cannot be written, and need not be.
+  ASSERT_EQ(0, mkdir((this->file_of("winter") + ".tmp").c_str(), 0755));
+
+  Result result = hub().set_enabled("winter", true, true);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_TRUE(result.persisted);
+  EXPECT_EQ("", result.warning);
+  EXPECT_TRUE(hub().is_running("winter"));
+  EXPECT_EQ("winter", hub().claimed_by("relay_1"));
+  EXPECT_FALSE(hub().store().get("summer")->enabled);
+  EXPECT_EQ(0u, hub().reasons_kept());
+  EXPECT_EQ(winter, read_file(this->file_of("winter")));
+
+  this->reboot();
+  EXPECT_TRUE(hub().is_running("winter"));
+  EXPECT_FALSE(hub().is_running("summer"));
+}
+
 // One that waits on a held relay claims none of its others: a relay something else closed
 // before the boot load stays closed.
 TEST_F(HubTest, BootLeavesTheOtherRelayOfOneThatWaitsAlone) {
