@@ -270,8 +270,8 @@ class MQTTClientComponent : public Component {
 
   // --- Test drivers, in place of the broker ---
 
-  // The broker took the connection: callbacks first, then every child is due a resend, which
-  // is the order upstream's loop pass runs them in.
+  // The broker took the connection, in upstream's order: the callbacks run while the client
+  // still reads as not connected, then it is connected and every child is due a resend.
   void connect_for_test(bool session_present = false);
   // The connection went, or never came: each disconnect callback hears the reason once.
   void drop_for_test(MQTTClientDisconnectReason reason) {
@@ -302,6 +302,8 @@ class MQTTClientComponent : public Component {
   const std::vector<MQTTComponent *> &children() const { return this->children_; }
   size_t discovery_info_calls() const { return this->discovery_info_calls_; }
   size_t disable_discovery_calls() const { return this->disable_discovery_calls_; }
+  size_t on_connect_callbacks() const { return this->on_connect_.size(); }
+  size_t on_disconnect_callbacks() const { return this->on_disconnect_.size(); }
 
   int enable_calls{0};
   int disable_calls{0};

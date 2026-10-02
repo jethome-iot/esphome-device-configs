@@ -161,7 +161,8 @@ TEST_F(CleanupTest, DiscoveryBackOnWaitsForTheReboot) {
 }
 
 // is_connected() turns true in the same client pass that schedules the resends, so the loop
-// never sees "connected, nothing pending" before they exist.
+// never sees "connected, nothing pending" before they exist. This pins the stand-in's copy of
+// that order (upstream's check_connected()), not upstream itself.
 TEST_F(CleanupTest, CompletionIsNeverSeenBetweenTheConnectAndTheResends) {
   MqttRecord stored = enabled_record();
   stored.clean_pending = true;

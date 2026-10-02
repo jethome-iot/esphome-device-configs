@@ -186,8 +186,16 @@ TEST_F(ApplyTest, AHeldBackClientDoesNotStartAndARestartIsDue) {
 }
 
 TEST_F(ApplyTest, TheCallbacksAndTheLogListenerAreRegistered) {
-  this->boot();
+  TestConfig &c = this->boot();
   EXPECT_TRUE(this->board.log_listener_added);
+  EXPECT_EQ(this->client->on_connect_callbacks(), 1u);
+  EXPECT_EQ(this->client->on_disconnect_callbacks(), 1u);
+  // Each one is this component's: a connect and a drop reach its state.
+  this->client->connect_for_test();
+  EXPECT_TRUE(c.connected());
+  this->client->drop_for_test(mqtt::MQTTClientDisconnectReason::DNS_RESOLVE_ERROR);
+  EXPECT_FALSE(c.connected());
+  EXPECT_EQ(c.last_error(), MqttError::DNS);
 }
 
 // The client's own setup at 200 and the entities' at 100 come after this one at 210.

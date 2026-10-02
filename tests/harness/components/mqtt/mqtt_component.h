@@ -295,10 +295,13 @@ class MQTTSensorComponent final : public MQTTEntityComponent<sensor::Sensor> {
 };
 #endif
 
+// Upstream calls the callbacks from its backend while its state is still CONNECTING;
+// check_connected() then sets CONNECTED and schedules the resends in one go.
 inline void MQTTClientComponent::connect_for_test(bool session_present) {
-  this->connected_ = true;
+  this->connected_ = false;
   for (auto &callback : this->on_connect_)
     callback(session_present);
+  this->connected_ = true;
   for (MQTTComponent *child : this->children_)
     child->schedule_resend_state();
 }
