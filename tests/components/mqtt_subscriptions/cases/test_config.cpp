@@ -1,4 +1,5 @@
 #include "common.h"
+#include <cstdio>
 #include <cstdlib>
 
 namespace esphome::mqtt_subscriptions::testing {
@@ -225,6 +226,31 @@ TEST(SlotFileFormat, ADocumentThatRanOutOfMemoryGivesNoText) {
   std::string out;
   EXPECT_TRUE(serialize_into(doc, slots, out));
   EXPECT_EQ(parse_file(out.data(), out.size(), 4).slots[1].name, "Door");
+}
+
+// The devices' 16 slots, each as large as the rules let it be once written: '"' is the most a
+// valid byte grows to in JSON, and an On/Off slot carries the most text. Well inside a read.
+TEST(SlotFileFormat, SixteenSlotsAtTheirLargestFitAReadWithRoomToSpare) {
+  std::vector<SlotConfig> slots(16);
+  for (size_t i = 0; i < slots.size(); i++) {
+    const std::string code = {static_cast<char>('a' + i / 10), static_cast<char>('0' + i % 10)};
+    SlotConfig &slot = slots[i];
+    slot.enabled = true;
+    slot.kind = SlotKind::BINARY_SENSOR;
+    slot.name = std::string(SLOT_NAME_MAX - 2, '"') + code;
+    slot.topic = std::string(TOPIC_MAX - 2, '"') + code;
+    slot.json_path = std::string(JSON_PATH_MAX, '"');
+    slot.payload_on = std::string(PAYLOAD_STATE_MAX - 1, '"') + "A";
+    slot.payload_off = std::string(PAYLOAD_STATE_MAX - 1, '"') + "B";
+    ASSERT_EQ(validate_slot(slot, {}), "") << i;
+  }
+  std::string text;
+  ASSERT_TRUE(serialize_file(slots, text));
+  std::printf("subscriptions.json, 16 slots at their largest: %zu bytes of %zu\n", text.size(), FILE_MAX);
+  EXPECT_LT(text.size(), FILE_MAX * 3 / 4);
+  const SlotFile back = parse_file(text.data(), text.size(), 16);
+  EXPECT_EQ(back.status, SlotFile::Status::OK);
+  EXPECT_EQ(back.slots, slots);
 }
 
 TEST(SlotFileFormat, WhatCannotBeReadIsUnreadable) {

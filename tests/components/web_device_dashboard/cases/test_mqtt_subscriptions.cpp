@@ -1,5 +1,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include "common.h"
@@ -70,7 +71,7 @@ class SlotsDashboard : public Dashboard {
     std::filesystem::remove_all(this->slot_storage.get_base_path(), ignored);
   }
 
-  TestSlots &boot(filesystem_storage_abstract::FilesystemStorageAbstract *storage = nullptr) {
+  TestSlots &boot(filesystem_storage_abstract::FilesystemStorageAbstract *storage = nullptr, uint8_t max_slots = 2) {
     this->shutdown();
     this->tables.restore();
     this->client = std::make_unique<mqtt::MQTTClientComponent>();
@@ -81,7 +82,7 @@ class SlotsDashboard : public Dashboard {
     this->subs->set_config(this->config.get());
     this->subs->set_storage(storage != nullptr ? storage : &this->slot_storage);
     this->subs->set_folder_path("mqtt");
-    this->subs->set_max_slots(2);
+    this->subs->set_max_slots(max_slots);
     this->subs->add_unit("°C", 1);
     this->subs->setup();
     this->config->setup();
@@ -177,6 +178,57 @@ TEST_F(SlotsDashboard, TheReadIsBusyWhenTheLoopDoesNotTakeIt) {
   Reply reply = this->get(SLOTS);
   EXPECT_EQ(reply.code, 503);
   EXPECT_EQ(reply.error(), "Device busy");
+}
+
+// The devices' 16 slots, every field at the most it can take, escaped at twice its bytes ('"'
+// is the worst a rule lets through), each with the longest text and error a running slot shows:
+// the read still answers whole.
+TEST_F(SlotsDashboard, SixteenSlotsAtTheirLargestReadWhole) {
+  const auto quotes = [](size_t n) { return std::string(n, '"'); };
+  const auto escaped = [](size_t n) {
+    std::string out;
+    for (size_t i = 0; i < n; i++)
+      out += "\\\"";
+    return out;
+  };
+  std::string file = R"({"version":1,"slots":[)";
+  for (int i = 0; i < 16; i++) {
+    const std::string code = {static_cast<char>('a' + i / 10), static_cast<char>('0' + i % 10)};
+    if (i > 0)
+      file += ",";
+    file += R"({"slot":)" + std::to_string(i + 1) + R"(,"enabled":true,"kind":"text_sensor","name":")" + escaped(30) +
+            code + R"(","topic":")" + escaped(126) + code + R"(","json_path":")" + escaped(64) + R"("})";
+  }
+  file += "]}";
+  this->plant(file);
+  TestSlots &s = this->boot(nullptr, 16);
+  this->client->connect_for_test();
+  const std::string value = R"({")" + escaped(64) + R"(":")" + escaped(300) + R"("})";
+  const std::string without_key = R"({"x":")" + escaped(100) + R"("})";
+  for (int i = 0; i < 16; i++) {
+    const std::string code = {static_cast<char>('a' + i / 10), static_cast<char>('0' + i % 10)};
+    ASSERT_TRUE(s.active(i)) << i;
+    this->client->deliver_for_test(quotes(126) + code, value);
+    this->client->deliver_for_test(quotes(126) + code, without_key);
+  }
+
+  Reply reply = this->get(SLOTS);
+  ASSERT_EQ(reply.code, 200);
+  std::printf("GET /mqtt/subscriptions, 16 slots at their largest: %zu bytes\n", reply.body.size());
+  ASSERT_EQ(reply["slots"].size(), 16u);
+  for (int i = 0; i < 16; i++) {
+    SCOPED_TRACE(i);
+    JsonObject slot = reply["slots"][i];
+    EXPECT_EQ(slot["name"].as<std::string>().size(), 32u);
+    EXPECT_EQ(slot["topic"].as<std::string>().size(), 128u);
+    EXPECT_EQ(slot["json_path"].as<std::string>(), quotes(64));
+    EXPECT_EQ(slot["status"]["state"].as<std::string>(), "error");
+    EXPECT_EQ(slot["status"]["value"].as<std::string>(), quotes(255));
+    EXPECT_EQ(slot["status"]["raw"].as<std::string>().size(), 64u);
+    EXPECT_EQ(slot["status"]["error"].as<std::string>(), "key '" + quotes(64) + "' not found");
+  }
+  // Far from the 4 KiB a POST may carry, and nothing a read caps.
+  EXPECT_LT(reply.body.size(), 32u * 1024u);
 }
 
 // --- methods and names ---

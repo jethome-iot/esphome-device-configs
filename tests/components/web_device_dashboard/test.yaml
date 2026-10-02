@@ -110,12 +110,13 @@ mqtt:
 mqtt_config:
   id: mqtt_settings
 
-# Sets USE_MQTT_SUBSCRIPTIONS, which compiles /mqtt/subscriptions, and reserves two places in
-# each of the sensor, binary sensor and text sensor lists for the slots the cases create.
+# Sets USE_MQTT_SUBSCRIPTIONS, which compiles /mqtt/subscriptions, and reserves sixteen places in
+# each of the sensor, binary sensor and text sensor lists for the slots the cases create: as
+# many as the devices have, for the read at its largest.
 mqtt_subscriptions:
   id: mqtt_subs
   storage: test_storage
-  max_slots: 2
+  max_slots: 16
   units: ["°C"]
 
 # board_info_id sets USE_WEB_DEVICE_DASHBOARD_BOARD_INFO, so /api/device/info carries the board;
