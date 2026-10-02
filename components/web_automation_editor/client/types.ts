@@ -16,6 +16,19 @@ export interface AutomationListResponse {
   automations: AutomationSummary[]
 }
 
+export type Weekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
+
+/**
+ * One window of a schedule trigger, `HH:MM` on the 24-hour clock. A `to` before `from`
+ * runs past midnight, and `days` then name the day the window starts on.
+ */
+export interface ScheduleWindow {
+  // Absent means every day; the device writes the list back in full, Monday first.
+  days?: Weekday[]
+  from: string
+  to: string // up to 24:00, which only an end may be
+}
+
 export interface AutomationTrigger {
   source?: string
   type?: string
@@ -29,6 +42,8 @@ export interface AutomationTrigger {
   // contract, so they are intentionally not modelled here.
   cron?: string
   cron_preset?: string
+  // Schedule triggers: on inside any of the windows, off outside them.
+  windows?: ScheduleWindow[]
 }
 
 export interface AutomationCondition {

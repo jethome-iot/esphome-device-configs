@@ -16,6 +16,8 @@ const char *source_trigger_to_string(SourceTrigger source) {
       return "startup";
     case SourceTrigger::SWITCH:
       return "switch";
+    case SourceTrigger::SCHEDULE:
+      return "schedule";
     default:
       return "none";
   }
@@ -32,6 +34,8 @@ SourceTrigger string_to_source_trigger(const std::string &str) {
     return SourceTrigger::STARTUP;
   if (str == "switch")
     return SourceTrigger::SWITCH;
+  if (str == "schedule")
+    return SourceTrigger::SCHEDULE;
   return SourceTrigger::NONE;
 }
 

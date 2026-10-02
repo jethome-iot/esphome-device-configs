@@ -6,7 +6,7 @@ using namespace EnumUtils;
 
 TEST(Enums, SourceTriggerRoundTrip) {
   for (auto v : {SourceTrigger::INPUT, SourceTrigger::TEMPERATURE, SourceTrigger::CRON, SourceTrigger::STARTUP,
-                 SourceTrigger::SWITCH})
+                 SourceTrigger::SWITCH, SourceTrigger::SCHEDULE})
     EXPECT_EQ(string_to_source_trigger(source_trigger_to_string(v)), v);
   EXPECT_EQ(string_to_source_trigger("inupt"), SourceTrigger::NONE);
 }

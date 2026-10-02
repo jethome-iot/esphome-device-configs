@@ -7,6 +7,24 @@
 
 namespace esphome::automations {
 
+// One window of a schedule trigger. A `to` below `from` runs past midnight; `days` then names
+// the day the window starts on.
+struct ScheduleWindow {
+  static constexpr uint8_t EVERY_DAY = 0x7F;
+
+  uint8_t days{EVERY_DAY};  // bit N is ESPTime::day_of_week N + 1, so Sunday is bit 0
+  uint16_t from{0};         // minutes since midnight
+  uint16_t to{0};           // minutes since midnight, up to 1440 (24:00)
+
+  /// Whether the file format can hold it: some day, both ends on the clock, not empty.
+  bool valid() const {
+    return this->days != 0 && (this->days & ~EVERY_DAY) == 0 && this->from < 1440 && this->to <= 1440 &&
+           this->from != this->to;
+  }
+  /// "mon,tue 08:00-20:00", for the log.
+  std::string describe() const;
+};
+
 struct TriggerConfig {
   SourceTrigger source = SourceTrigger::NONE;
 
@@ -32,7 +50,7 @@ struct TriggerConfig {
     // Other
   } params;
 
-  // Cron fields (not in union because they use std::vector)
+  // Cron and schedule fields (not in union because they use std::vector)
   std::vector<uint8_t> cron_seconds;
   std::vector<uint8_t> cron_minutes;
   std::vector<uint8_t> cron_hours;
@@ -40,6 +58,8 @@ struct TriggerConfig {
   std::vector<uint8_t> cron_months;
   std::vector<uint8_t> cron_days_of_week;
   optional<CronPreset> cron_preset;  // the editor's note about the form it presented, if any
+
+  std::vector<ScheduleWindow> schedule_windows;
 
   /// The six cron fields as one string, the form the file stores.
   std::string cron_string() const;

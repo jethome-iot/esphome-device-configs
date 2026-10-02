@@ -10,7 +10,9 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
 
 - **Triggers** (any of them fires the rule): input press / release / click / state change,
   switch turn on / off / state change, temperature above / below / in range (fires on the
-  crossing, once), cron (six fields, seconds first), startup.
+  crossing, once), cron (six fields, seconds first), startup, schedule (time windows by day of
+  the week: on inside, off outside, and the current state again at boot, so a relay that follows
+  it is right after a power cut).
 - **Condition** (optional): input is on/off, temperature above / below / in range (`above` and
   `below` are strict, a range includes both ends), and `and` / `or` / `xor` groups of those,
   nested. When false, the `else` actions run.

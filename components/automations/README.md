@@ -34,7 +34,7 @@ automations:
 | Option        | Default       | Meaning                                                                    |
 | ------------- | ------------- | -------------------------------------------------------------------------- |
 | `storage`     |               | A `filesystem_storage_abstract` backend, `littlefs_storage` on a device; required |
-| `time_id`     |               | A `time` platform. Without one cron triggers are refused at boot, the rest still run |
+| `time_id`     |               | A `time` platform. Without one cron and schedule triggers are refused at boot, the rest still run |
 | `folder_path` | `automations` | The folder below the backend's base path that holds the rule files         |
 
 ## A rule
@@ -60,7 +60,7 @@ one, picks `actions` or `else_actions`.
 
 | Key                 | Values                                                                      |
 | ------------------- | --------------------------------------------------------------------------- |
-| `triggers[].source` | `input` (`press`, `release`, `click`, `state_change`), `switch` (`turn_on`, `turn_off`, `state_change`), `temperature` (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`), `cron`, `startup` |
+| `triggers[].source` | `input` (`press`, `release`, `click`, `state_change`), `switch` (`turn_on`, `turn_off`, `state_change`), `temperature` (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`), `cron`, `startup`, `schedule` with `windows` |
 | `condition.type`    | `input` with `state`, `temperature` with `temperature_type` (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`), and `and` / `or` / `xor` over a `conditions` list, nested freely |
 | `actions[].source`  | `switch` (`turn_on`, `turn_off`, `toggle`, `follow` with `invert`), `delay` with `delay_ms` |
 | `mode`              | `single` ignores a trigger while the rule runs, `restart` starts over, `parallel` runs up to 8 copies |
@@ -72,6 +72,29 @@ arms again when the value goes back. `above` and `below` are strict, a range inc
 for triggers and conditions alike. `follow` drives its target from the state the trigger
 carried. `cron` is six fields, seconds first — `"*/2 * * * * *"`, `"0 30 6,18 1 * *"` — with
 `*`, `*/N`, `X-Y`, `X-Y/N` and lists; a field that matches nothing is rejected.
+
+A `schedule` holds a state rather than marking a moment: on inside any of its windows, off
+outside them. With `follow` it is a relay's whole timetable in one rule:
+
+```json
+{"source": "schedule", "windows": [
+  {"days": ["mon", "tue", "wed", "thu", "fri"], "from": "08:00", "to": "20:00"},
+  {"days": ["sat", "sun"], "from": "10:00", "to": "16:00"}
+]}
+```
+
+It fires whenever that state changes — `on` as the time enters the windows, `off` as it leaves
+them, nothing where two windows meet — and with the current state whenever its rule starts: at
+boot once the clock is valid, and when the rule is added, changed or enabled. So the relay is
+right again after a power cut. A rule still running in `single` mode
+takes the state as soon as it finishes. A relay switched by hand stays so until the next window
+edge. Actions other than `follow` run on every one of these, `on` and `off` alike.
+
+`from` and `to` are `HH:MM` on the 24-hour clock, `to` up to `24:00`. A window whose `to` comes
+before its `from` runs past midnight, and its `days` name the day it starts on. `days` are `mon`
+to `sun`, every day when absent, and come back written out in full. A window from a time to the
+same time is rejected; windows that overlap or touch act as one, and so do several schedule
+triggers in one rule.
 
 ## Storage
 

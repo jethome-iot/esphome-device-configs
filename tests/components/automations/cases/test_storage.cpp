@@ -73,6 +73,10 @@ static const std::vector<std::pair<const char *, const char *>> REFUSED = {
      R"({"name":"Bad Cond Type","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"condition":{"type":"inupt","object_id":"in_2","state":"true"},"actions":[]})"},
     {"badcron.json",
      R"({"id":90,"name":"Bad Cron","triggers":[{"source":"cron","cron":"99 * * * * *","cron_preset":"custom"}],"actions":[]})"},
+    {"badday.json",
+     R"({"name":"Bad Day","triggers":[{"source":"schedule","windows":[{"days":["Mon"],"from":"08:00","to":"20:00"}]}],"actions":[]})"},
+    {"badwindow.json",
+     R"({"name":"Bad Window","triggers":[{"source":"schedule","windows":[{"from":"08:00","to":"08:00"}]}],"actions":[]})"},
     {"badsource.json",
      R"({"name":"Bad Source","triggers":[{"source":"inupt","type":"press","object_id":"in_1"}],"actions":[]})"},
     {"badsub.json",
@@ -109,12 +113,13 @@ class Storage : public ::testing::Test {
 
   // Engines outlive the test: the entities keep a callback into each one, and production never
   // destroys the component either. forget() empties them so later tests see nothing fire.
-  FakeEngine &new_engine() {
+  FakeEngine &new_engine(bool clock = true) {
     static std::vector<std::unique_ptr<FakeEngine>> all;
     all.push_back(std::make_unique<FakeEngine>());
     FakeEngine &e = *all.back();
     e.set_storage(&this->backend);
-    e.with_clock();
+    if (clock)
+      e.with_clock();
     this->engines.push_back(&e);
     return e;
   }
@@ -271,6 +276,8 @@ TEST_F(Storage, LoadsTheFolderAndRepairsIt) {
   EXPECT_TRUE(log().has(log().errors, "Missing temperature_type"));
   EXPECT_TRUE(log().has(log().errors, "Condition 'and' has no members"));
   EXPECT_TRUE(log().has(log().errors, "Invalid cron '99 * * * * *'"));
+  EXPECT_TRUE(log().has(log().errors, "Unknown day 'Mon'"));
+  EXPECT_TRUE(log().has(log().errors, "A schedule window from 08:00 to 08:00 is empty"));
   EXPECT_TRUE(log().has(log().errors, "JSON parse error in"));
   EXPECT_TRUE(log().has(log().errors, "Automation 'Orphan': trigger cannot be built"));
   EXPECT_TRUE(log().has(log().warnings, "Not writing 'Orphan'"));
@@ -634,6 +641,73 @@ TEST_F(Storage, StartupRulesFireOnceTheEngineIsUp) {
       R"({"id":1,"name":"Boot","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})");
   boot();
   engine->rule(0)->on_startup();  // what setup() defers until every component is up
+  EXPECT_TRUE(e.relay1.state);
+}
+
+TEST_F(Storage, AScheduleIsAppliedAtBootAndOnEveryEdit) {
+  static const time_t MONDAY_10 = 1770026400;  // 2026-02-02 10:00 UTC
+  static const char *const SHOP =
+      R"({"id":1,"name":"Shop","triggers":[{"source":"schedule","windows":[{"from":"08:00","to":"20:00"}]}],"actions":[{"source":"switch","type":"follow","object_id":"relay_1"}]})";
+  write("shop.json", SHOP);
+  boot();
+  engine->dump_config();
+  engine->now = MONDAY_10;
+  engine->tick();
+  EXPECT_TRUE(e.relay1.state);
+
+  // Power back at 21:00 with the relay restored on: the first tick sets it right.
+  reboot();
+  engine->now = MONDAY_10 + 11 * 3600;
+  engine->tick();
+  EXPECT_FALSE(e.relay1.state);
+
+  // A hand switch holds until the rule is saved again, or turned off and on.
+  const uint32_t id = id_of("Shop");
+  e.relay1.turn_on();
+  engine->now++;
+  engine->tick();
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_TRUE(engine->update_automation(id, rule(SHOP)));
+  engine->now++;
+  engine->tick();
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_TRUE(engine->set_enable_automation(id, false));
+  e.relay1.turn_on();
+  engine->now++;
+  engine->tick();
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_TRUE(engine->set_enable_automation(id, true));
+  engine->now++;
+  engine->tick();
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_NE(read("shop.json").find(R"("days":["mon","tue","wed","thu","fri","sat","sun"],"from":"08:00","to":"20:00")"),
+            std::string::npos);
+
+  // A new rule applies at the next tick.
+  ASSERT_NE(
+      engine->add_automation(rule(
+          R"({"name":"Night","triggers":[{"source":"schedule","windows":[{"from":"20:00","to":"06:00"}]}],"actions":[{"source":"switch","type":"follow","object_id":"relay_2"}]})")),
+      0u);
+  engine->now++;
+  engine->tick();
+  EXPECT_TRUE(e.relay2.state);
+}
+
+TEST_F(Storage, WithoutAClockOnlyTheTimedRulesStayUnbuilt) {
+  static const char *const SHOP =
+      R"({"id":2,"name":"Shop","enabled":true,"mode":"single","triggers":[{"source":"schedule","windows":[{"days":["mon","tue","wed","thu","fri","sat","sun"],"from":"08:00","to":"20:00"}]}],"actions":[{"source":"switch","type":"follow","object_id":"relay_1"}]})";
+  write("input_press.json", PRESS_RELAY_1);
+  write("shop.json", SHOP);
+  write("tick.json", R"({"id":3,"name":"Tick","triggers":[{"source":"cron","cron":"* * * * * *"}],"actions":[]})");
+  engine->forget();
+  engine = &new_engine(false);
+  boot();
+  EXPECT_TRUE(log().has(log().warnings, "No time source: cron and schedule triggers are disabled"));
+  EXPECT_TRUE(built("Input press"));
+  EXPECT_FALSE(built("Shop"));
+  EXPECT_FALSE(built("Tick"));
+  EXPECT_EQ(read("shop.json"), SHOP);
+  press(e.in1);
   EXPECT_TRUE(e.relay1.state);
 }
 
