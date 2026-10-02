@@ -154,7 +154,7 @@ TEST_F(NamesTest, AnotherSlotsNameIsTaken) {
   this->plant({slot_of("Дверь", "a")});
   this->boot();
   EXPECT_EQ(this->post(R"({"slot":2,"enabled":true,"name":"Окно!!","topic":"b","kind":"text_sensor"})").message,
-            "'name' gives the same id as slot 1; add a Latin letter or a digit");
+            "'name' gives the same id as the subscription 'Дверь'; add a Latin letter or a digit");
   // Disabled counts too: enabling it later would be refused.
   this->plant({slot_of("A", "a"), [] {
                  SlotConfig s = slot_of("Outdoor", "b");
@@ -162,7 +162,7 @@ TEST_F(NamesTest, AnotherSlotsNameIsTaken) {
                  return s;
                }()});
   EXPECT_EQ(this->post(R"({"slot":3,"enabled":true,"name":"outdoor","topic":"c","kind":"sensor"})").message,
-            "'name' gives the same id as slot 2; add a Latin letter or a digit");
+            "'name' gives the same id as the subscription 'Outdoor'; add a Latin letter or a digit");
   EXPECT_EQ(this->post(R"({"slot":3,"enabled":true,"name":"Outdoor 2","topic":"c","kind":"sensor"})").message,
             "Saved; applies after a reboot");
 }
@@ -249,7 +249,7 @@ TEST_F(NamesTest, AtBootTheFirstOfTwoAlikeRuns) {
   EXPECT_TRUE(s.active(0));
   EXPECT_FALSE(s.active(1));
   EXPECT_EQ(this->get()["slots"][1]["status"]["error"],
-            "invalid: 'name' gives the same id as slot 1; add a Latin letter or a digit");
+            "invalid: 'name' gives the same id as the subscription 'Door'; add a Latin letter or a digit");
 }
 
 TEST_F(NamesTest, AtBootAnEntityOfTheSameKindKeepsItsName) {

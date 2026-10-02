@@ -492,8 +492,8 @@ paths:
             `decimals` outside 0–4; a `binary_sensor`'s payloads not 1 to 32 bytes
             or with control characters, or equal ignoring case;
             and last, once the saved slots are read, a `name` giving the id of
-            another slot, of another entity of its kind or (a `sensor`) of a
-            temperature probe.
+            another subscription (named in the answer), of another entity of its
+            kind or (a `sensor`) of a temperature probe.
           content:
             application/json:
               schema:
@@ -511,6 +511,10 @@ paths:
                   value:
                     success: false
                     error: "'name' gives the same id as the entity 'Relay 1'"
+                other_subscription:
+                  value:
+                    success: false
+                    error: "'name' gives the same id as the subscription 'Garage door'; add a Latin letter or a digit"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -1557,7 +1561,7 @@ components:
           type: string
           description: >-
             The entity's name, at most 32 bytes of UTF-8 without control
-            characters or `/`, trimmed. Its id must not be another slot's,
+            characters or `/`, trimmed. Its id must not be another subscription's,
             another entity's of its kind or (a `sensor`) a temperature probe's.
         topic:
           type: string

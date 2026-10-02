@@ -231,7 +231,8 @@ export const SLOT_MESSAGES = {
 
 /** The names the device checks against what else it has, after validate_slot(). */
 export const SLOT_NAME_MESSAGES = {
-  otherSlot: (slot: number): string => `'name' gives the same id as slot ${slot}; add a Latin letter or a digit`,
+  otherSubscription: (name: string): string =>
+    `'name' gives the same id as the subscription '${name}'; add a Latin letter or a digit`,
   entity: (name: string): string => `'name' gives the same id as the entity '${name}'`,
   probe: (name: string): string => `'name' gives the same id as '${name}', which a temperature probe takes`
 } as const
@@ -377,7 +378,7 @@ export function slotNameConflict(
   const id = slotObjectId(slot.name)
   for (let j = 0; j < others.length; j++) {
     const other = others[j]!
-    if (j !== index && other.topic !== '' && slotObjectId(other.name) === id) return SLOT_NAME_MESSAGES.otherSlot(j + 1)
+    if (j !== index && other.topic !== '' && slotObjectId(other.name) === id) return SLOT_NAME_MESSAGES.otherSubscription(other.name)
   }
   const taken = entities.find((e) => e.domain === slot.kind && slotObjectId(e.name) === id)
   if (taken) return SLOT_NAME_MESSAGES.entity(taken.name)

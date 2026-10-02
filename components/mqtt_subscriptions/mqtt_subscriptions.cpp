@@ -199,7 +199,7 @@ std::string MqttSubscriptions::name_conflict_(size_t index, const SlotConfig &sl
     if (j == index || others[j] == nullptr || others[j]->empty())
       continue;
     if (object_id_of(others[j]->name) == id)
-      return "'name' gives the same id as slot " + std::to_string(j + 1) + "; add a Latin letter or a digit";
+      return "'name' gives the same id as the subscription '" + others[j]->name + "'; add a Latin letter or a digit";
   }
 
   // The slots' own entities are covered above, by what is saved rather than what runs.
