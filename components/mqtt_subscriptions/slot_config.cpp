@@ -159,11 +159,7 @@ bool json_path_valid(const std::string &path) {
   return !segment_empty && segments <= JSON_PATH_SEGMENTS;
 }
 
-static std::string check_payload_state(const char *key, const std::string &value) {
-  if (value.empty() || value.size() > PAYLOAD_STATE_MAX)
-    return std::string("'") + key + "' must be 1 to 32 bytes";
-  return "";
-}
+static bool payload_state_fits(const std::string &value) { return !value.empty() && value.size() <= PAYLOAD_STATE_MAX; }
 
 bool equal_ignoring_case(const std::string &a, const std::string &b) {
   return a.size() == b.size() &&
@@ -205,10 +201,11 @@ std::string validate_slot(const SlotConfig &slot, const std::vector<std::string>
   }
 
   if (slot.kind == SlotKind::BINARY_SENSOR) {
-    if (std::string error = check_payload_state("payload_on", slot.payload_on); !error.empty())
-      return error;
-    if (std::string error = check_payload_state("payload_off", slot.payload_off); !error.empty())
-      return error;
+    // Whole literals, as every fixed message here, so the dashboard can match them verbatim.
+    if (!payload_state_fits(slot.payload_on))
+      return "'payload_on' must be 1 to 32 bytes";
+    if (!payload_state_fits(slot.payload_off))
+      return "'payload_off' must be 1 to 32 bytes";
     if (equal_ignoring_case(slot.payload_on, slot.payload_off))
       return "'payload_on' and 'payload_off' must differ";
   }
