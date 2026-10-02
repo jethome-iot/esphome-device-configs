@@ -50,6 +50,7 @@ packages:
   menu: !include ${display}/menu.yaml
   menu_firmware: !include ${display}/menu-firmware.yaml
   menu_items: !include ${display}/menu-items-network.yaml
+  menu_mqtt: !include ${display}/menu-mqtt.yaml
   menu_serial: !include ${display}/menu-serial.yaml
   status_page: !include ${display}/status-page.yaml
   time_page: !include ${display}/time-page.yaml

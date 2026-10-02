@@ -44,14 +44,17 @@ graphical_display_menu:
       text: "Automations"
       id: automations_menu
 
+    # MQTT (display/menu-mqtt.yaml) sits at 5, after the unweighted rows.
     - type: menu
       text: "Info"
       id: info_submenu
+      weight: 10
       items:
 
     - type: menu
       text: "Settings"
       id: menu_settings_id
+      weight: 20
       # Weights, not the package order, group these by what a row does: unweighted
       # everyday settings, 10 commissioning, 20 erases data, 30+ the whole device.
       items:
