@@ -9,8 +9,11 @@
 // reboot(), and turning discovery off while it runs removes the Home Assistant entries without
 // one. Slots follow mqtt_subscriptions: a save waits for reboot(), and what runs reads what
 // deliver() publishes while connected, the retained message again on every connect. A number
-// reads as strtof() reads it, except a hexadecimal one with a fraction or an exponent. Time moves only on tick(now): a dev
-// server calls it with Date.now() before each request, a test when it wants an attempt over.
+// reads as strtof() reads it, except a hexadecimal one with a fraction or an exponent.
+// `fileError` puts the slots' file in one of the states GET's `file_error` names
+// (MQTT_MOCK_FILE_ERRORS), with the saves and boots the device answers it with. Time moves only
+// on tick(now): a dev server calls it with Date.now() before each request, a test when it wants
+// an attempt over.
 import type {
   MqttDiscoveryCleanup,
   MqttError,
@@ -20,6 +23,7 @@ import type {
   MqttSettingsUpdate,
   MqttSlot,
   MqttSlotFields,
+  MqttSlotFileError,
   MqttSlotState,
   MqttState,
   MqttSubscriptions
@@ -27,7 +31,9 @@ import type {
 import {
   MQTT_SAVE_MESSAGES,
   SLOT_DEFAULTS,
+  SLOT_NEWER_FILE,
   SLOT_SAVE_MESSAGES,
+  SLOT_STORAGE_UNAVAILABLE,
   parseMqttPatch,
   parseSlotBody,
   sameSlot,
@@ -48,6 +54,10 @@ export const MQTT_MOCK_DNS_FAIL_SUFFIX = '.invalid'
 /** The states the mock can start in; leaving the mode unset (or empty) is the factory state. */
 export const MQTT_MOCK_MODES = ['connected', 'unreachable', 'refused', 'held_back', 'noslots', 'none'] as const
 export type MqttMockMode = (typeof MQTT_MOCK_MODES)[number]
+
+const RENAMED: MqttSlotFileError = 'unreadable: renamed to subscriptions.json.bad'
+/** The states the slots' file can be found in, as GET's `file_error` names them. */
+export const MQTT_MOCK_FILE_ERRORS: readonly MqttSlotFileError[] = ['newer_firmware', 'unreadable', RENAMED, 'unavailable']
 
 /** The firmware's units for a Number slot (mqtt_subscriptions' DEFAULT_UNITS). */
 export const MQTT_MOCK_UNITS = [
@@ -96,6 +106,16 @@ export interface MqttMockOptions {
   /** The names temperature probes take; the devices' `Temp 1` … `Temp 16` by default, null
    *  for a firmware without probes. */
   reservedNames?: MqttReservedNames | null
+  /**
+   * The slots' file, as GET's `file_error` names it; unset, it reads fine. `newer_firmware`:
+   * written by newer firmware, so no slot runs, a save answers 503 and it stays so.
+   * `unreadable`: broken while the slots run, so the next boot would run none; a save or a
+   * reboot sets it aside (the renamed state) and the slots start empty. `unreadable: renamed to
+   * subscriptions.json.bad`: set aside at this boot, so no slot runs; a save clears the notice.
+   * `unavailable`: the storage is not mounted, so no slot runs and a save answers 503. Taken as
+   * any string, as `mode` is, and anything but these throws.
+   */
+  fileError?: MqttSlotFileError | (string & {})
 }
 
 export interface MqttMockResult {
@@ -310,6 +330,10 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
   const reservedNames = o.reservedNames === undefined ? { prefix: 'Temp', count: 16 } : o.reservedNames
   /** The crash guard keeps the slots' subscriptions off this boot (a streak of 2 or more). */
   let slotsSuspended = mode === 'held_back'
+  if (o.fileError && !(MQTT_MOCK_FILE_ERRORS as readonly string[]).includes(o.fileError)) {
+    throw new Error(`Unknown slots file state '${o.fileError}': use one of ${MQTT_MOCK_FILE_ERRORS.join(', ')}, or leave it unset`)
+  }
+  let fileError = (o.fileError || null) as MqttSlotFileError | null
   let savedSlots: MqttSlotFields[] = Array.from({ length: maxSlots }, () => ({ ...SLOT_DEFAULTS }))
   let runningSlots: MqttSlotFields[] = savedSlots.map((slot) => ({ ...slot }))
   let runs: SlotRun[] = runningSlots.map(freshRun)
@@ -367,7 +391,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
       max_slots: maxSlots,
       reboot_required: slotsWait(),
       suspended: slotsSuspended,
-      file_error: null,
+      file_error: fileError,
       units: [...units],
       reserved_names: reservedNames && { ...reservedNames },
       slots: savedSlots.map(
@@ -391,6 +415,10 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
   function saveSlotBody(parsed: Record<string, unknown>): MqttMockResult {
     const body = parseSlotBody(parsed, maxSlots, units)
     if (!body.ok) return err(400, body.error)
+    if (fileError === 'unavailable') return err(503, SLOT_STORAGE_UNAVAILABLE)
+    if (fileError === 'newer_firmware') return err(503, SLOT_NEWER_FILE)
+    // A broken file is set aside first, and the save starts from empty slots.
+    if (fileError === 'unreadable') fileError = RENAMED
     const i = body.slot - 1
     const next = body.clear ? { ...SLOT_DEFAULTS } : body.fields
     if (!body.clear) {
@@ -404,6 +432,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
     })
     if (sameSlot(savedSlots[i]!, next)) return answer(SLOT_SAVE_MESSAGES.unchanged)
     savedSlots[i] = next
+    if (fileError === RENAMED) fileError = null  // a file written afresh
     const M = SLOT_SAVE_MESSAGES
     if (body.clear) return answer(slotRuns(i) ? M.clearedForReboot(body.slot) : M.cleared(body.slot))
     return answer(pendingAt(i) ? M.savedForReboot(body.slot) : M.saved(body.slot))
@@ -412,6 +441,13 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
   function bootSlots(): void {
     runningSlots = savedSlots.map((slot) => ({ ...slot }))
     runs = runningSlots.map(freshRun)
+  }
+
+  // A boot sets a broken file aside, and finds the one it set aside gone the boot after.
+  function bootFile(): void {
+    if (fileError === 'unreadable') fileError = RENAMED
+    else if (fileError === RENAMED) fileError = null
+    if (fileError !== null) savedSlots = savedSlots.map(() => ({ ...SLOT_DEFAULTS }))
   }
 
   function start(): void {
@@ -608,7 +644,10 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
     retained.set('zigbee2mqtt/garage_door', '{"battery":100,"contact":true}')
     retained.set('weather/summary', 'Light rain, 9 °C')
   }
+  // Broken while running: what runs came from the file before it broke.
+  if (fileError !== null && fileError !== 'unreadable') savedSlots = savedSlots.map(() => ({ ...SLOT_DEFAULTS }))
   bootSlots()
+  if (fileError === 'unreadable') savedSlots = savedSlots.map(() => ({ ...SLOT_DEFAULTS }))
   boot()
   // A seeded device has been up a while: its first attempt is over.
   if (attemptSince !== null) endAttempt()
@@ -651,6 +690,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
       if (connected && cleanup) finishCleanup()
       heldBack = false
       slotsSuspended = false
+      bootFile()
       bootSlots()
       boot()
     },
@@ -658,6 +698,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
       stored = { ...FACTORY }
       heldBack = false
       slotsSuspended = false
+      fileError = null  // the storage is formatted
       savedSlots = savedSlots.map(() => ({ ...SLOT_DEFAULTS }))
       bootSlots()
       boot()
