@@ -1,19 +1,33 @@
 """The YAML surface the two components add over upstream's: the options, the back action,
-the item weights and the submenu that may stay empty."""
+the item weights and the submenu that may stay empty; and the root menu the LCD device's display
+packages build with them."""
 
 import unittest
 from pathlib import Path
 
-from esphome import automation, loader
+from esphome import automation, loader, yaml_util
 from esphome.config import resolve_extend_remove
 from esphome.config_helpers import Extend, merge_config
 import esphome.config_validation as cv
 
-loader.install_meta_finder(Path(__file__).resolve().parents[3] / "components")
+REPO = Path(__file__).resolve().parents[3]
+loader.install_meta_finder(REPO / "components")
 
-from esphome.components import display_menu_base, graphical_display_menu  # noqa: E402
+# script: menu.yaml's rows run script.execute, which validates only once script registered it.
+from esphome.components import display_menu_base, graphical_display_menu, script  # noqa: E402, F401
 
 ITEMS = [{"type": "label", "text": "Row"}]
+
+# The root menu of the device with the display.
+DEVICE_ROOT = [
+    "Relays",
+    "Inputs",
+    "Temperatures",
+    "Automations",
+    "MQTT",
+    "Info",
+    "Settings",
+]
 
 
 def menu(**options):
@@ -233,6 +247,26 @@ class WeightAcrossPackages(unittest.TestCase):
         serial = lambda: extends_info(label("Serial"))  # noqa: E731
 
         self.assertEqual(self.info_rows(base, serial, network), ["Serial", "IP", "MAC"])
+
+
+class DevicePackages(unittest.TestCase):
+    """The display packages as the LCD device merges them, in either order."""
+
+    DISPLAY = REPO / "devices" / "JXD" / "packages" / "display"
+
+    def root_rows(self, *names):
+        merged = {}
+        for name in names:
+            menu = yaml_util.load_yaml(self.DISPLAY / name)["graphical_display_menu"]
+            merged = merge_config(merged, menu)
+        resolve_extend_remove(merged)
+        config = graphical_display_menu.CONFIG_SCHEMA(merged)
+        return [row["text"] for row in config["items"]]
+
+    def test_mqtt_sits_after_automations_and_before_info_and_settings(self):
+        for names in (("menu.yaml", "menu-mqtt.yaml"), ("menu-mqtt.yaml", "menu.yaml")):
+            with self.subTest(packages=names):
+                self.assertEqual(self.root_rows(*names), DEVICE_ROOT)
 
 
 if __name__ == "__main__":

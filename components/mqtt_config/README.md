@@ -66,10 +66,20 @@ over MQTT gets `state_topic: null`: no state topic, no command topic and no disc
 native API and the web server keep it. Entities created at run time by `dallas_scan` (the
 `Temp N` sensors) get an MQTT component from this one.
 
+## On a display
+
+`panel_state_text()`, `panel_broker()` and `panel_discovery()` are the rows the display menu's
+MQTT item shows (`devices/JXD/packages/display/menu-mqtt.yaml`), as this boot runs them, else
+as saved.
+`panel_text.h` fits any text to a row: `panel_safe()` stands `?` in for what the font cannot draw
+and for malformed UTF-8, `panel_fit()` cuts to a number of characters with `…`, and
+`panel_pair()` lays out `name: value`.
+
 ## Tests
 
 `tests/components/mqtt_config/` covers the refused `mqtt:` blocks and the entity walk from
 Python and, over the harness's `mqtt` stand-in, the stored record and its validation, what a
 boot applies, the first start in a boot, the later changes that wait for a reboot, the removal of
-Home Assistant entries, the connection states and their causes, the crash guard and the `Temp N`
-bridge. NVS, the RTC memory and esp-mqtt itself are ESP-IDF only and out of the host's reach.
+Home Assistant entries, the connection states and their causes, the crash guard, the `Temp N`
+bridge and the display rows, down to a sweep showing that nothing `panel_safe()` returns stops the
+font's decoder. NVS, the RTC memory and esp-mqtt itself are ESP-IDF only and out of the host's reach.

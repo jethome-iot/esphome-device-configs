@@ -1,0 +1,53 @@
+# Menu → MQTT: the client's state, broker and Home Assistant discovery as this boot runs them,
+# then a row per running subscription slot. Needs features/mqtt.yaml and
+# features/mqtt-subscriptions.yaml.
+graphical_display_menu:
+  items:
+    # After the unweighted rows, ahead of Info (10) and Settings (20).
+    - type: menu
+      text: "MQTT"
+      id: mqtt_menu
+      weight: 5
+
+esphome:
+  on_boot:
+    # After mqtt_subscriptions (setup HARDWARE + 3) has created the slot entities. Every row
+    # reads its text on each redraw, so it follows the client and the slots as they change.
+    - priority: 500
+      then:
+        - lambda: |-
+            using namespace display_menu_base;
+            using namespace mqtt_config;
+            static constexpr size_t ROW = 18;        // f7x14_mod2 glyphs across the panel
+            static constexpr size_t READ = 4 * ROW;  // bytes of a text read for one row
+            auto *font = id(f7x14_mod2);
+            const HasGlyph has = [font](uint32_t code_point) { return font->find_glyph(code_point) != nullptr; };
+            auto *menu = id(mqtt_menu);
+            auto add = [menu](std::function<std::string()> text) {
+              auto *row = new MenuItem(MENU_ITEM_LABEL);
+              row->set_text([text](const MenuItem *) { return text(); });
+              menu->add_item(row);
+            };
+
+            auto *mqtt = id(mqtt_settings);
+            add([mqtt]() { return std::string(mqtt->panel_state_text()); });
+            add([mqtt, has]() {
+              const std::string broker = mqtt->panel_broker(ROW, has);
+              return broker.empty() ? std::string("Broker: --") : broker;
+            });
+            add([mqtt]() { return std::string(mqtt->panel_discovery() ? "HA discovery: On" : "HA discovery: Off"); });
+
+            auto *subs = id(mqtt_subs);
+            size_t listed = 0;
+            for (size_t slot = 0; slot < subs->max_slots(); slot++) {
+              if (!subs->active(slot))
+                continue;
+              listed++;
+              const std::string name = panel_safe(subs->name(slot), READ, has);  // fixed for the boot
+              add([subs, slot, name, has]() {
+                const std::string value = subs->value_text(slot);
+                return panel_pair(name, value.empty() ? std::string("--") : panel_safe(value, READ, has), ROW);
+              });
+            }
+            if (listed == 0)
+              add([]() { return std::string("No subscriptions"); });

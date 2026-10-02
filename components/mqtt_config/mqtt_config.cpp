@@ -592,6 +592,47 @@ void MqttConfig::write_settings_json(JsonObject root) const {
   }
 }
 
+// --- Display menu ---
+
+const char *MqttConfig::panel_state_text() const {
+  switch (this->state()) {
+    case MqttState::NOT_CONFIGURED:
+      return "MQTT: Not set";
+    case MqttState::OFF:
+      return this->last_error() == MqttError::CRASH_GUARD ? "MQTT: Held back" : "MQTT: Off";
+    case MqttState::CONNECTING:
+      return "MQTT: Connecting";
+    case MqttState::CONNECTED:
+      return "MQTT: Connected";
+    case MqttState::DISCONNECTED:
+      return "MQTT: Disconnected";
+  }
+  return "MQTT: Off";
+}
+
+std::string MqttConfig::panel_broker(size_t glyphs, const HasGlyph &has_glyph) const {
+  const MqttRecord &record = this->started_ ? this->applied_ : this->stored_;
+  if (record.broker.empty())
+    return "";
+  std::string head;
+  std::string tail;
+  if (record.port != DEFAULT_PORT) {
+    tail = ":" + std::to_string(record.port);
+    // An IPv6 address carries colons of its own.
+    if (record.broker.find(':') != std::string::npos) {
+      head = "[";
+      tail = "]" + tail;
+    }
+  }
+  const std::string host = panel_safe(record.broker, 4 * glyphs, has_glyph);
+  const size_t fixed = panel_glyphs(head) + panel_glyphs(tail);
+  if (fixed >= glyphs)
+    return panel_fit(head + host + tail, glyphs);
+  return head + panel_fit(host, glyphs - fixed) + tail;
+}
+
+bool MqttConfig::panel_discovery() const { return this->started_ ? this->applied_.discovery : this->stored_.discovery; }
+
 void MqttConfig::dump_config() {
   const MqttRecord &s = this->stored_;
   ESP_LOGCONFIG(TAG,

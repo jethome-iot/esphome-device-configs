@@ -17,6 +17,7 @@
 #endif
 #include "crash_guard.h"
 #include "mqtt_record.h"
+#include "panel_text.h"
 
 namespace esphome::mqtt_config {
 
@@ -120,6 +121,14 @@ class MqttConfig : public Component {
   void after_cleanup(uint32_t timeout_ms, std::function<void()> &&then);
   // Starts a cleanup when Home Assistant has this device's entries now, then after_cleanup().
   void before_factory_reset(std::function<void()> &&then);
+
+  // --- Loop task: the display menu, as this boot runs it, else as stored ---
+  // "MQTT: Connected" and the like, at most 18 glyphs.
+  const char *panel_state_text() const;
+  // host[:port], the port only when it is not 1883, in `glyphs`: a long host is cut, the port
+  // kept whole. "" with no broker.
+  std::string panel_broker(size_t glyphs, const HasGlyph &has_glyph) const;
+  bool panel_discovery() const;
 
   static const char *state_key(MqttState state);
   // nullptr for NONE.
