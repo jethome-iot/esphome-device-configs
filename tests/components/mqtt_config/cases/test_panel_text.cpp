@@ -202,15 +202,17 @@ TEST(PanelSafe, ACutInsideACodePointDropsIt) {
 }
 
 // Every one- and two-byte string, and three- and four-byte ones from the bytes where the rules
-// change, come out as text the font reads to the end: with every glyph present, so what is
-// well-formed reaches the font's decoder, and with the stand-in's.
+// change, come out as text the font reads to the end, cut at every length too: with every glyph
+// present, so what is well-formed reaches the font's decoder, and with the stand-in's.
 TEST(PanelSafe, NothingItReturnsStopsTheFont) {
   const std::vector<uint8_t> edges = {0x00, 0x0A, 0x41, 0x7F, 0x80, 0x8F, 0x90, 0x9F, 0xA0, 0xBF, 0xC0, 0xFF};
   auto check = [](const std::string &text) {
-    EXPECT_TRUE(the_font_draws_all_of(panel_safe(text, 72, every_glyph), every_glyph))
-        << ::testing::PrintToString(text);
-    EXPECT_TRUE(the_font_draws_all_of(panel_safe(text, 72, font_stand_in), font_stand_in))
-        << ::testing::PrintToString(text);
+    for (size_t max_bytes = 0; max_bytes <= text.size(); max_bytes++) {
+      for (auto *has_glyph : {every_glyph, font_stand_in}) {
+        EXPECT_TRUE(the_font_draws_all_of(panel_safe(text, max_bytes, has_glyph), has_glyph))
+            << ::testing::PrintToString(text) << " cut at " << max_bytes;
+      }
+    }
   };
   auto byte = [](int value) { return static_cast<char>(value); };
   for (int a = 0; a < 256; a++) {
