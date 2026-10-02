@@ -979,8 +979,8 @@ TEST_F(ControlLoop, ADisableAndEnableInsideMinOffKeepsTheRelayOpen) {
   EXPECT_TRUE(entities().relay1.state);
 }
 
-// Held open while there is no reading, the relay never moved: min_off does not hold back the
-// first demand.
+// Held open while there is no reading, the relay never moved: the wait starts no min_off of its
+// own, and the one from the boot ran out long ago.
 TEST_F(ControlLoop, TheFirstReadingClosesARelayTheWaitNeverMoved) {
   ClimateConfig config = this->base(ControlKind::BANG_BANG);
   config.heat.min_off_s = 60.f;
@@ -996,6 +996,20 @@ TEST_F(ControlLoop, TheFirstReadingClosesARelayTheWaitNeverMoved) {
   EXPECT_TRUE(entities().relay1.state);
 }
 
+// An idle first pass keeps an open relay open: no write, and no min_off from it.
+TEST_F(ControlLoop, TheFirstIdlePassMovesNothing) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.heat.min_off_s = 60.f;
+  this->start(config, 20.5f);
+  tick(100000);
+  ASSERT_FALSE(entities().relay1.state);
+  EXPECT_EQ(0, entities().relay1.writes) << "nothing to open";
+
+  entities().room.publish_state(18.f);
+  tick(105000);
+  EXPECT_TRUE(entities().relay1.state) << "min_off ran out 60 s after the boot";
+}
+
 // Nor does a thermostat that stopped before it ever moved the relay hold back the next one on it.
 TEST_F(ControlLoop, AStopThatNeverMovedTheRelayLeavesNoDwellBehind) {
   ClimateConfig waiting = this->base(ControlKind::BANG_BANG);
@@ -1005,9 +1019,30 @@ TEST_F(ControlLoop, AStopThatNeverMovedTheRelayLeavesNoDwellBehind) {
   ASSERT_TRUE(hub().set_enabled("waiting", false).ok);
 
   ClimateConfig config = this->base(ControlKind::BANG_BANG);
-  config.heat.min_off_s = 3600.f;
+  config.heat.min_off_s = 60.f;
   this->start(config, 18.f);
   tick(101000);
+  EXPECT_TRUE(entities().relay1.state) << "open since the boot, more than 60 s ago";
+}
+
+// The reset or an ALWAYS_OFF restore opened the relay, so min_off runs from the boot: a
+// brown-out or a boot loop does not short-cycle a compressor.
+TEST_F(ControlLoop, MinOffHoldsAcrossAReboot) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.heat.min_off_s = 300.f;
+  this->start(config, 18.f);
+  tick(400000);
+  ASSERT_TRUE(entities().relay1.state);
+
+  this->reboot();
+  ASSERT_FALSE(entities().relay1.state);
+  ASSERT_TRUE(hub().is_running(this->id_));
+  entities().room.publish_state(18.f);
+  tick(102000);
+  EXPECT_FALSE(entities().relay1.state) << "the device's clock starts at 0, this test's boot at 100 s";
+  tick(299999);
+  EXPECT_FALSE(entities().relay1.state);
+  tick(300000);
   EXPECT_TRUE(entities().relay1.state);
 }
 

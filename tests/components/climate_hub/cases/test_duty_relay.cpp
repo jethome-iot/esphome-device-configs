@@ -245,6 +245,21 @@ TEST(RelayClaim, ForceOffOnAnOpenRelayLeavesTheFirstRequestFree) {
   EXPECT_TRUE(relay.state);
 }
 
+// What the hub hands out for a relay no claim has moved since boot: open since 0 ms. Keeping it
+// open writes nothing and restarts nothing, and min_off counts from the boot.
+TEST(RelayClaim, AClaimOpenSinceBootCountsMinOffFromTheBoot) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.set_dwell(0, 60000);
+  claim.resume({false, 0});
+  EXPECT_FALSE(claim.request(false, 1000));
+  claim.force_off(2000);
+  EXPECT_EQ(0, relay.writes) << "keeping an open relay open is no move";
+  EXPECT_FALSE(claim.request(true, 59999));
+  EXPECT_TRUE(claim.request(true, 60000));
+  EXPECT_EQ(1, relay.writes);
+}
+
 // A claim made after another let the relay go carries on from where that one left it.
 TEST(RelayClaim, ResumesTheDwellOfAnEarlierClaim) {
   FakeSwitch relay;

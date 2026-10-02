@@ -722,9 +722,10 @@ bool ClimateHub::acquire_claims_(const ClimateConfig &config, RelayClaim **heat,
         return false;
       }
       auto created = std::make_unique<RelayClaim>(sw, config.id);
+      // Unclaimed since boot, the relay counts as opened at boot, as the reset left it: min_off
+      // runs from there, so a boot loop does not short-cycle a compressor.
       auto last = this->relay_history_.find(out->relay_id);
-      if (last != this->relay_history_.end())
-        created->resume(last->second);
+      created->resume(last != this->relay_history_.end() ? last->second : RelaySwitching{false, 0});
       claim = created.get();
       this->claims_[out->relay_id] = std::move(created);
     }
@@ -741,10 +742,7 @@ void ClimateHub::release_claims_(const std::string &owner) {
 
 ClimateHub::ClaimMap::iterator ClimateHub::let_go_(ClaimMap::iterator it, uint32_t now_ms) {
   it->second->force_off(now_ms);
-  // A claim that never moved its relay leaves no switching to honour.
-  RelaySwitching last;
-  if (it->second->last_switching(&last))
-    this->relay_history_[it->first] = last;
+  it->second->last_switching(&this->relay_history_[it->first]);
   return this->claims_.erase(it);
 }
 
