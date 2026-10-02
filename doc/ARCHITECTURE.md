@@ -63,6 +63,10 @@ boundaries; everything else is local to its file.
   `firmware_update` and `firmware_channel` in the package `dist/` leaves out. The menu's Reboot
   device and Factory reset reach `mqtt_config` through `mqtt_config::global_mqtt_config` under
   `#ifdef USE_MQTT_CONFIG`, not `id()`, which a build without the component could not resolve.
+- `mqtt_subs` (`features/mqtt-subscriptions.yaml`) is the `mqtt_subscriptions` component, the
+  slots that read MQTT topics into entities; it keeps them in `mqtt/` on `user_storage` and
+  subscribes through `mqtt_client`. The same package adds the `group_mqtt` sorting group its
+  entities sit in.
 - `web_auth_credentials` (`features/web-auth.yaml`) holds the credentials the web server checks.
   The `auth:` block in the same file is the factory pair; a pair set through the dashboard is
   kept in the device's flash preferences and replaces it from the next request on, so a factory
@@ -104,6 +108,12 @@ Entity settings ride on `setup_priority` instead, ahead of every `on_boot` block
 pushes the values into the entities at `HARDWARE + 1`, before the switches and binary sensors set
 themselves up. `bindings` sets up at `DATA`, after every entity, and drives the `Follow` relays
 once there; until then input changes are ignored. See [ENTITY_SETTINGS.md](ENTITY_SETTINGS.md).
+
+`mqtt_subscriptions` sets up at `HARDWARE + 3`: after the mount, and before the entity settings
+apply at `HARDWARE + 1`, which is what lets a relay's Bound input be a slot's entity. It is also
+ahead of `dallas_scan` at `DATA`, so the `Temp N` names are kept free by reservation, since no
+probe exists yet, and ahead of the MQTT client, whose `subscribe()` keeps the topics until it
+connects. It is the first to ask `mqtt_config` for the crash streak.
 
 ## Settings
 
@@ -245,6 +255,15 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
     broker; final_validate requires `true`. The client reserves the whole announced length of an
     inbound message before it matches the topic, which with exceptions off can abort the device;
     that is what the crash guard counts.
+- `components/mqtt_subscriptions` creates its entities at run time the way `dallas_scan` does
+  (reserved table places, the four-argument `App.register_*` with hash 0, `add_entity_config`),
+  and gives them no MQTT component, so they never reach the broker. Its name check builds object
+  ids with `EntityBase`'s per-byte rule (`to_snake_case_char`, then `to_sanitized_char`). An
+  On/Off slot is a level on its first value because of `set_trigger_on_initial_state(false)`:
+  `StatefulEntityBase` skips the plain callbacks on a first state, also the first after
+  `invalidate_state()`, and always calls the full-state ones. It relies on the client calling
+  subscription callbacks on the loop task with the whole payload; the client reserves the
+  announced length first, which is the abort the crash guard's suspension stage answers.
 - `tests/harness/components/mqtt` stands in for upstream's `mqtt` on the host: its schema and
   codegen are upstream's own module, its C++ copies the client's setters, topic prefix rule,
   discovery info and resend pass. A signature drift shows in the ESP32 builds; a behaviour drift

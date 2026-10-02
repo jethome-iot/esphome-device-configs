@@ -19,6 +19,10 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
 - **Mode**: `single` ignores a trigger while the rule is running, `restart` starts over,
   `parallel` runs up to 8 copies.
 
+MQTT subscription slots ([MQTT.md](MQTT.md#subscriptions)) work like the device's own entities:
+a Number slot is a temperature and an On/Off slot an input. The first value an On/Off slot gets
+after a start is its state, not a press or a release.
+
 ## Storage
 
 Rules are `/littlefs/automations/<name>.json` on the LittleFS partition from

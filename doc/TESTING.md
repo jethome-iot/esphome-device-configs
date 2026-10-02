@@ -48,6 +48,7 @@ tests/
     littlefs_storage/         # test_schema.py alone: the C++ is ESP-IDF only
     loop_job/
     mqtt_config/
+    mqtt_subscriptions/
     virtual_display/          # test_schema.py alone: the C++ includes <esp_http_server.h>,
                               # which the host platform has no header for
     web_auth/
@@ -74,7 +75,9 @@ tests/
   the generated setup, and `environment.cpp` constructs `App` because that setup would have.
   The YAML only pulls the sources in and sets the `USE_*` defines.
 - `App` sizes its entity lists from the YAML and silently drops a registration past that. A new
-  entity in the cases needs a matching declaration in the YAML.
+  entity in the cases needs a matching declaration in the YAML. A component that creates its
+  entities at setup is booted again and again in one process, so its suite puts the lists back
+  to their length before each boot, as `mqtt_subscriptions`' does.
 - A component that subscribed to an entity has to outlive the process: the entity keeps a
   callback into it. Keep such objects alive across tests instead of destroying them.
 - Nothing runs the scheduler, so a `set_timeout`, `set_interval` or `defer` never fires unless a
