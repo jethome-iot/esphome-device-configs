@@ -216,7 +216,22 @@ function numberFrom(text: string): SlotReading {
   if (NULL_LIKE.has(lowerAscii(t)) || STRTOF_NOT_FINITE.test(t)) return { value: null, error: null }
   const n = NOT_STRTOF.test(t) ? Number.NaN : Number(t)
   if (Number.isNaN(n)) return { value: null, error: 'not a number' }
-  return { value: Number.isFinite(n) ? n : null, error: null }
+  return asFloat(n)
+}
+
+// The device reads into a 32-bit float: past its range is unknown, not an error.
+function asFloat(n: number): SlotReading {
+  const f = Math.fround(n)
+  return { value: Number.isFinite(f) ? f : null, error: null }
+}
+
+// A float as the device's JSON writes it: the fewest digits that read back as the same float.
+function floatJson(f: number): number {
+  for (let digits = 1; digits < 9; digits++) {
+    const shortest = Number(f.toPrecision(digits))
+    if (Math.fround(shortest) === f) return shortest
+  }
+  return f
 }
 
 function readSlot(slot: MqttSlotFields, payload: string): SlotReading {
@@ -230,7 +245,7 @@ function readSlot(slot: MqttSlotFields, payload: string): SlotReading {
     if (!at.json) return numberFrom(v as string)
     if (v === null) return { value: null, error: null }
     if (typeof v === 'boolean') return { value: v ? 1 : 0, error: null }
-    if (typeof v === 'number') return { value: Number.isFinite(v) ? v : null, error: null }
+    if (typeof v === 'number') return asFloat(v)
     if (typeof v === 'string') return numberFrom(v)
     return { value: null, error: 'not a number' }
   }
@@ -613,7 +628,8 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
         const value = runs[i]!.value
         const text = slotValueText(i)
         const base = { name: slot.name, sorting_group: MQTT_SORTING_GROUP.name, sorting_weight: i + 1 }
-        if (slot.kind === 'sensor') out.push({ ...base, domain: 'sensor', state: text || 'NA', value, uom: slot.unit })
+        if (slot.kind === 'sensor')
+          out.push({ ...base, domain: 'sensor', state: text || 'NA', value: value === null ? null : floatJson(value as number), uom: slot.unit })
         else if (slot.kind === 'binary_sensor')
           out.push({ ...base, domain: 'binary_sensor', state: value === null ? 'NA' : value ? 'ON' : 'OFF', value })
         else out.push({ ...base, domain: 'text_sensor', state: text, value: text })
