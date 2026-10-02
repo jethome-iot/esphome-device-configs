@@ -43,7 +43,8 @@ enabled on disk but does not run; the Save or the switch-on succeeds with a warn
 what is missing. It starts at the next boot that finds what it names, or at a Save or a
 switch-on that finds it there. Until then, or until it is switched off, the device's log says
 why it waits: when the start fails, and again in the configuration it prints whenever a log
-viewer connects.
+viewer connects. Over HTTP, the list and the status say it in their `waiting` field, in the
+words of the warning.
 
 ## Over HTTP
 
@@ -57,8 +58,7 @@ A Save or a start over `enable` of a thermostat that is to run is refused while 
 thermostat drives its relay, or when its sensor does not report °C; one whose sensor or relay is
 missing is stored enabled and waits, as above. A start can take the relay over instead of being
 refused, which stops the other thermostat and stores it as disabled; one whose sensor or relay
-is missing cannot. The list and the status say why an enabled thermostat does not run, in the
-words of the warning.
+is missing cannot.
 
 ## Home Assistant
 
