@@ -173,6 +173,9 @@ std::string validate_slot(const SlotConfig &slot, const std::vector<std::string>
     return "'name' is over 32 bytes";
   if (!mqtt_config::is_text(slot.name))
     return "'name' must be text without control characters";
+  // web_server addresses an entity as <domain>/<name>, and upstream refuses a '/' in names.
+  if (slot.name.find('/') != std::string::npos)
+    return "'name' cannot contain '/'";
 
   const std::string &topic = slot.topic;
   if (topic.empty())

@@ -262,6 +262,7 @@ TEST_F(SlotsDashboard, TheComponentsRefusalsComeThroughVerbatim) {
       {R"({"slot":1,"enabled":true,"name":"A","topic":"t","kind":"number"})",
        "'kind' must be 'sensor', 'binary_sensor' or 'text_sensor'"},
       {R"({"slot":1,"enabled":true,"name":"A","topic":"t","kind":"sensor","qos":1})", "'qos' is not a slot field"},
+      {R"({"slot":1,"enabled":true,"name":"In/Out","topic":"t","kind":"sensor"})", "'name' cannot contain '/'"},
       {R"({"slot":1,"enabled":true,"name":"A","topic":"a/#","kind":"sensor"})",
        "'topic' cannot contain '+' or '#': a slot takes one topic"},
       {R"({"slot":1,"enabled":true,"name":"A","topic":"t","kind":"sensor","unit":"K"})",

@@ -502,7 +502,7 @@ export type MqttSlotState = 'off' | 'waiting' | 'ok' | 'error' | 'suspended'
  *  for the other kinds they hold their defaults. An empty slot has `topic: ''`. */
 export interface MqttSlotFields {
   enabled: boolean
-  /** The entity's name: at most 32 bytes, trimmed. */
+  /** The entity's name: at most 32 bytes, no `/`, trimmed. */
   name: string
   /** One exact topic: at most 128 bytes, no `+` or `#`. */
   topic: string

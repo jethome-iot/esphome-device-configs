@@ -211,6 +211,7 @@ export const SLOT_MESSAGES = {
   nameRequired: "'name' is required",
   nameTooLong: "'name' is over 32 bytes",
   nameText: "'name' must be text without control characters",
+  nameSlash: "'name' cannot contain '/'",
   topicRequired: "'topic' is required",
   topicTooLong: "'topic' is over 128 bytes",
   topicText: "'topic' must be text without control characters",
@@ -291,6 +292,7 @@ export function validateSlot(slot: MqttSlotFields, units: readonly string[]): st
   if (slot.name === '') return SM.nameRequired
   if (utf8Bytes(slot.name) > SLOT_LIMITS.name) return SM.nameTooLong
   if (!isText(slot.name)) return SM.nameText
+  if (slot.name.includes('/')) return SM.nameSlash
   const topic = slot.topic
   if (topic === '') return SM.topicRequired
   if (utf8Bytes(topic) > SLOT_LIMITS.topic) return SM.topicTooLong

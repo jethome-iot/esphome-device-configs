@@ -41,6 +41,10 @@ TEST(SlotRules, Name) {
     EXPECT_EQ(check([bad](SlotConfig &s) { s.name = bad; }), "'name' must be text without control characters");
   }
   EXPECT_EQ(check([](SlotConfig &s) { s.name = "Температура"; }), "");
+  // web_server would read it as a separator: two slots "A/Out" and "B/Out" would both be "Out".
+  EXPECT_EQ(check([](SlotConfig &s) { s.name = "In/Out"; }), "'name' cannot contain '/'");
+  EXPECT_EQ(check([](SlotConfig &s) { s.name = "/"; }), "'name' cannot contain '/'");
+  EXPECT_EQ(check([](SlotConfig &s) { s.name = "a\n/b"; }), "'name' must be text without control characters");
 }
 
 TEST(SlotRules, Topic) {

@@ -89,7 +89,7 @@ reading one topic into one entity.
 | Field | Notes |
 | --- | --- |
 | Enabled | A disabled slot keeps its settings and has no entity |
-| Name | The entity's name, up to 32 bytes. See "Names" below |
+| Name | The entity's name, up to 32 bytes, without `/`. See "Names" below |
 | Topic | One exact topic, up to 128 bytes. No `+` or `#` |
 | Kind | Number, On/Off or Text |
 | JSON path | Optional: where the value sits in a JSON message, up to 6 keys separated by `.`, e.g. `temperature` or `sensors.0.value`; a number picks an element of a list |

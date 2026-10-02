@@ -485,7 +485,7 @@ paths:
             `max_slots`; an `action` other than `clear`; a key that is not a slot
             field (`'<key>' is not a slot field`); a value of the wrong type; or a
             slot that breaks a rule, the first in this order — `name` empty, over
-            32 bytes, with control characters, or giving the id of another slot,
+            32 bytes, with control characters, with a `/`, or giving the id of another slot,
             of another entity of its kind or (a `sensor`) of a temperature probe;
             `topic` empty, over 128 bytes, with control characters, a leading or
             trailing space, `+` or `#`; `json_path` over 64 bytes or not 1 to 6
@@ -1554,8 +1554,8 @@ components:
           type: string
           description: >-
             The entity's name, at most 32 bytes of UTF-8 without control
-            characters, trimmed. Its id must not be another slot's, another
-            entity's of its kind or (a `sensor`) a temperature probe's.
+            characters or `/`, trimmed. Its id must not be another slot's,
+            another entity's of its kind or (a `sensor`) a temperature probe's.
         topic:
           type: string
           description: >-
