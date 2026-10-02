@@ -60,14 +60,14 @@ one, picks `actions` or `else_actions`.
 
 | Key                 | Values                                                                      |
 | ------------------- | --------------------------------------------------------------------------- |
-| `triggers[].source` | `input` (`press`, `release`, `click`, `state_change`), `switch` (`turn_on`, `turn_off`, `state_change`), `temperature` (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`), `cron`, `startup` |
-| `condition.type`    | `input` with `state`, `temperature` with `temperature_type` (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`), and `and` / `or` / `xor` over a `conditions` list, nested freely |
+| `triggers[].source` | `input` (`press`, `release`, `click`, `state_change`), `switch` (`turn_on`, `turn_off`, `state_change`), `temperature` — any numeric sensor, despite the key (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`, in the sensor's unit), `cron`, `startup` |
+| `condition.type`    | `input` with `state`, `temperature` with `temperature_type` — any numeric sensor, as for the trigger (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`), and `and` / `or` / `xor` over a `conditions` list, nested freely |
 | `actions[].source`  | `switch` (`turn_on`, `turn_off`, `toggle`, `follow` with `invert`), `delay` with `delay_ms` |
 | `mode`              | `single` ignores a trigger while the rule runs, `restart` starts over, `parallel` runs up to 8 copies |
 | `enabled`           | `true` when absent; a disabled rule is loaded and listed but never fires |
 | `cron_preset`       | The editor's own note about the form it offered: `daily`, `hourly`, `every_n_minutes`, `weekly`, `monthly`, `custom`. The engine never reads it, and writes it back only when the file had one |
 
-A `click` is a press between 200 and 1000 ms. A temperature trigger fires on the crossing and
+A `click` is a press between 200 and 1000 ms. A `temperature` trigger fires on the crossing and
 arms again when the value goes back. `above` and `below` are strict, a range includes both ends,
 for triggers and conditions alike. `follow` drives its target from the state the trigger
 carried. `cron` is six fields, seconds first — `"*/2 * * * * *"`, `"0 30 6,18 1 * *"` — with
