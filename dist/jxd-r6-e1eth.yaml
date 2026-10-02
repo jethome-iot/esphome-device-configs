@@ -197,10 +197,19 @@ sensor:
           if (x <= 2.8) return 0;
           return x;
   - platform: template
+    name: Input voltage
     id: input_voltage
-    internal: true
-    update_interval: 1s
+    web_server:
+      sorting_group_id: group_system
+      sorting_weight: 2
+    entity_category: diagnostic
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    update_interval: 2s
     lambda: return std::max(id(vin_meas).state, id(poe_voltage).state);
+    filters:
+      - delta: 0.1
 binary_sensor:
   - platform: gpio
     name: FN
