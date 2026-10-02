@@ -485,13 +485,14 @@ paths:
             `max_slots`; an `action` other than `clear`; a key that is not a slot
             field (`'<key>' is not a slot field`); a value of the wrong type; or a
             slot that breaks a rule, the first in this order — `name` empty, over
-            32 bytes, with control characters, with a `/`, or giving the id of another slot,
-            of another entity of its kind or (a `sensor`) of a temperature probe;
-            `topic` empty, over 128 bytes, with control characters, a leading or
-            trailing space, `+` or `#`; `json_path` over 64 bytes or not 1 to 6
-            keys separated by `.`; a `sensor`'s `unit` not in `units` or
-            `decimals` outside 0–4; a `binary_sensor`'s payloads not 1 to 32
-            bytes, or equal ignoring case.
+            32 bytes, with control characters or a `/`; `topic` empty, over 128
+            bytes, with control characters, a leading or trailing space, `+` or
+            `#`; `json_path` over 64 bytes or not 1 to 6 keys separated by `.`; a
+            `sensor`'s `unit` not in `units` or `decimals` outside 0–4; a
+            `binary_sensor`'s payloads not 1 to 32 bytes, or equal ignoring case;
+            and last, once the saved slots are read, a `name` giving the id of
+            another slot, of another entity of its kind or (a `sensor`) of a
+            temperature probe.
           content:
             application/json:
               schema:
