@@ -13,7 +13,7 @@ static RollbackTarget other_slot() {
   RollbackTarget target;
   target.partition = "app1";
   target.version = "2026.8.1";
-  target.project_name = "jethome.jxd-r6-e1eth-lcd";
+  target.project_name = "jxd-r6-e1eth-lcd";
   return target;
 }
 
@@ -81,7 +81,7 @@ TEST_F(Dashboard, CapabilitiesDescribesTheSlotARollbackWouldBoot) {
   Reply reply = this->get(CAPABILITIES);
   EXPECT_EQ(reply["rollback"]["partition"].as<std::string>(), "app1");
   EXPECT_EQ(reply["rollback"]["version"].as<std::string>(), "2026.8.1");
-  EXPECT_EQ(reply["rollback"]["project_name"].as<std::string>(), "jethome.jxd-r6-e1eth-lcd");
+  EXPECT_EQ(reply["rollback"]["project_name"].as<std::string>(), "jxd-r6-e1eth-lcd");
 }
 
 TEST_F(Dashboard, CapabilitiesLeavesRollbackOutWhenThereIsNoOtherSlot) {
@@ -295,13 +295,17 @@ TEST_F(Dashboard, RollbackReportsItsAvailabilityBeforeItAsksForAConfirmation) {
 TEST_F(Dashboard, RollbackSelectsTheOtherSlotAndReboots) {
   this->dashboard->stub_rollback = true;
   this->dashboard->rollback = other_slot();
-  Reply reply = this->post(ROLLBACK, this->confirmation());
+  const std::string confirmation = this->confirmation();
+  this->dashboard->jobs = 0;
+  Reply reply = this->post(ROLLBACK, confirmation);
   EXPECT_EQ(reply.code, 200);
   EXPECT_TRUE(reply.success());
   EXPECT_EQ(reply.message(), "Rolling back, rebooting");
   // Selected while the request was still open, so a slot that fails to verify is an error the
-  // caller sees rather than a device that comes back unchanged.
+  // caller sees rather than a device that comes back unchanged -- and on the loop task, where
+  // the display menu selects too.
   EXPECT_EQ(this->dashboard->rollbacks, 1);
+  EXPECT_EQ(this->dashboard->jobs, 1);
   EXPECT_EQ(this->dashboard->restarts, 0);
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 1);
@@ -315,6 +319,32 @@ TEST_F(Dashboard, RollbackSaysWhyTheSlotCouldNotBeSelected) {
   EXPECT_EQ(reply.code, 500);
   EXPECT_FALSE(reply.success());
   EXPECT_EQ(reply.error(), "ESP_ERR_OTA_VALIDATE_FAILED");
+  this->loop();
+  EXPECT_EQ(this->dashboard->restarts, 0);
+}
+
+TEST_F(Dashboard, RollbackPassesOnWhatFirmwareRollbackRefusedWith) {
+  this->dashboard->stub_rollback = true;
+  this->dashboard->rollback = other_slot();
+  this->dashboard->real_select = true;
+  Reply reply = this->post(ROLLBACK, this->confirmation());
+  EXPECT_EQ(reply.code, 500);
+  EXPECT_EQ(reply.error(), "Rollback needs an ESP32");
+  this->loop();
+  EXPECT_EQ(this->dashboard->restarts, 0);
+}
+
+// 503, as every route that hands its work over answers it: nothing was selected.
+TEST_F(Dashboard, RollbackAnswersBusyWhenTheLoopNeverTakesIt) {
+  this->dashboard->stub_rollback = true;
+  this->dashboard->rollback = other_slot();
+  this->dashboard->loop_busy = true;
+  Reply reply = this->post(ROLLBACK, this->confirmation());
+  this->dashboard->loop_busy = false;
+  EXPECT_EQ(reply.code, 503);
+  EXPECT_FALSE(reply.success());
+  EXPECT_EQ(reply.error(), "Device busy");
+  EXPECT_EQ(this->dashboard->rollbacks, 0);
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
 }

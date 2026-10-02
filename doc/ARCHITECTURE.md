@@ -20,18 +20,21 @@ boundaries; everything else is local to its file.
   and menu iterate over. `temps` (`features/temperature.yaml`) is the `dallas_scan` component; the
   status page, the menu and the Modbus map read the temperatures through it (`used_slots()`,
   `slot_name(slot)`, `sensor(slot)`, `temperature(slot)`), and `forget_temperatures` (a script)
-  clears slots.
+  clears slots. `features/web-device-dashboard.yaml` hands it to the dashboard as
+  `dallas_scan_id`, for `/api/device/temperature-slots`, which forgets and assigns through the
+  component itself.
 - `board_info` (`boards/jxd-cpu-e1eth.yaml`) is the `jethome_board_info` component over the
   CPU board's EEPROM `eeprom_cpu`; `display/menu-serial.yaml` reads it for the Serial row and
   `features/web-device-dashboard.yaml` for `/api/device/info`.
 - `display1` and `main_page` come from `display/display.yaml`; the other pages attach with
   `id: !extend display1`. `display_menu` (`display/menu.yaml`) exposes `info_submenu` and
   `menu_settings_id` as extension points that `menu-items-network.yaml`, `menu-serial.yaml`
-  and `menu-firmware.yaml` fill via `!extend`; their rows follow the device config's package
-  order unless a `weight` moves them, and rows added from C++ at boot come after all of them. A
-  submenu may be empty, and `info_submenu`, `relays_menu` and `inputs_menu` declare no rows of
-  their own: the last two are filled at boot from the `relays` / `inputs` vectors, so the menu
-  follows whatever the board package put there. `temperatures_menu` gets a `Temp N` submenu per
+  and `menu-firmware.yaml` fill via `!extend` (`firmware_rollback_id`, the instance the
+  Rollback row reads, is local to `menu-firmware.yaml`); their rows follow the device config's
+  package order unless a `weight` moves them, and rows added from C++ at boot come after all of
+  them. A submenu may be empty, and `info_submenu`, `relays_menu` and `inputs_menu` declare no
+  rows of their own: the last two are filled at boot from the `relays` / `inputs` vectors, so the
+  menu follows whatever the board package put there. `temperatures_menu` gets a `Temp N` submenu per
   slot up to the last bound one at boot; a freed slot's submenu only says `Free slot`.
   `automations_menu` is filled at boot with a row per loaded rule, or one `No automations` row.
 - `automations_engine` (`features/automations.yaml`) is the rule engine; `display/menu.yaml`
@@ -52,6 +55,7 @@ boundaries; everything else is local to its file.
   reachable from the network. The `automations` component (`features/automations.yaml`) keeps its
   rules there and takes its clock from `pcf8563_time`; `web_automation_editor`
   (`features/automation-editor.yaml`) edits those rules under `/automation-editor/api`.
+  `crash_report` (`features/crash-report.yaml`) writes the last panic's record to `crash/` there.
 - `config_json_keeper` (`features/storage.yaml`) owns the JSON settings files on that partition
   for any component that registers a settings type with it.
 - `switch_settings` and `binary_sensor_settings` (`features/entity-settings.yaml`) are the
@@ -60,7 +64,10 @@ boundaries; everything else is local to its file.
 - `web_auth_credentials` (`features/web-auth.yaml`) holds the credentials the web server checks.
   The `auth:` block in the same file is the factory pair; a pair set through the dashboard is
   kept in the device's flash preferences and replaces it from the next request on, so a factory
-  reset from the display menu brings `admin` / `admin` back.
+  reset brings `admin` / `admin` back.
+- `run_factory_reset` (a script in `features/factory-reset.yaml`) is the reset the menu's
+  Factory reset runs; the same file runs it when `fn_button` (`boards/jxd-cpu-e1eth.yaml`) is
+  held for 10 s, after blinking `red_led`, the `status_indicator` on the CPU board's LED.
 - `web_device_dashboard` (`features/web-device-dashboard.yaml`) is the page at `/`, registered
   ahead of `web_server`'s own. Entity state and control go through `web_server`'s REST and
   `/events`, the Files screen through `web_file_browser` at `/files`, the Automations screen
@@ -91,6 +98,8 @@ afterwards. An unreadable record is not "no wipe was asked for" — mounting on 
 files the reset promised to erase, on a device that came up on its factory credentials —
 and mounting on a standing one takes the files written during that boot and erases them at
 the next, saying nothing either time.
+`crash_report` sets up at 809, right after the mount and ahead of the `config_json` keeper at
+`HARDWARE + 5`, and writes the previous boot's crash record there.
 Entity settings ride on `setup_priority` instead, ahead of every `on_boot` block: the
 `config_json` keeper loads the files at `HARDWARE + 5`, and one apply component per settings type
 pushes the values into the entities at `HARDWARE + 1`, before the switches and binary sensors set
@@ -109,8 +118,9 @@ be readable and editable on the partition. See [ENTITY_SETTINGS.md](ENTITY_SETTI
 ## Temperature slots
 
 The `dallas_scan` component (`components/dallas_scan`, id `temps` in `features/temperature.yaml`)
-owns the slots: a slot → ROM address table in flash and one `sensor::Sensor` per bound slot,
-`Temp 1` … `Temp 16`, created at setup rather than declared in YAML. `max_sensors` sizes the table
+owns the slots: a slot → ROM address table, kept as a `config_json` file on the user partition
+(`storage: file`), and one `sensor::Sensor` per bound slot, `Temp 1` … `Temp 16`, created at
+setup rather than declared in YAML. `max_sensors` sizes the table
 and the entity slots codegen reserves; `sensors:` hands the first slots to YAML sensors, the
 scan fills the rest. Adding slots touches
 `max_sensors`, `modbus-server.yaml`, the README and `TEMP_COUNT` in `scripts/modbus_probe.py`;
@@ -151,11 +161,16 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   `setup_priority::WIFI - 0.5`, just ahead of `web_server`'s `WIFI - 1`, and `web_server_base`
   asks its handlers in registration order. `web_server` therefore runs without `local: true`:
   the page it would embed is never served. Its `to_code` also reads the validated config of
-  `web_file_browser` and `web_automation_editor` out of `CORE.config` to report their prefixes,
-  and `/api/device/system/rollback` picks the slot with `esp_ota_get_next_update_partition`,
-  reads its `esp_app_desc_t` and hands it to `esp_ota_set_boot_partition`. That the bootloader
-  then guards the boot is ESPHome's doing: `esp32`'s `enable_ota_rollback` defaults on wherever
-  `ota:` and `safe_mode` are present, and `safe_mode` is what marks a boot good.
+  `web_file_browser` and `web_automation_editor` out of `CORE.config` to report their prefixes.
+- `components/firmware_rollback`, behind the dashboard's `/api/device/system/rollback` and the
+  display's Rollback row, reads otadata the way the bootloader does: the other slot is a target
+  only when its entry is one `bootloader_common_ota_select_valid` would boot, so an entry marked
+  invalid or aborted, or none at all, is no target. That a half-written slot reads as none is
+  ESPHome's OTA backend's doing, which erases the other slot's otadata entry as an update begins.
+  That the bootloader then guards the boot is ESPHome's too: `esp32`'s `enable_ota_rollback`
+  defaults on wherever `ota:` and `safe_mode` are present, and `safe_mode` marks a boot good only
+  when the running firmware is also the boot partition, so the firmware a rollback switched to is
+  not confirmed before it has booted.
 - `components/web_origin_guard` duplicates `web_server::WebServer::is_request_origin_allowed_`
   rather than calling it: the check is private to a component our handlers do not share, and it
   would not cover `web_server`'s own OTA handler at `/update` in any case. Its catch-all sits in
@@ -216,5 +231,12 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   another task may schedule into it.
 - `components/bindings` subscribes once per input with `add_full_state_callback` and never
   unsubscribes: upstream has no callback removal, so rebinding goes through its own table.
+- `components/crash_report` takes the crash record the one way upstream hands it out, as log
+  lines: it checks `esp32::crash_handler_has_data()`, catches what `esp32::crash_handler_log()`
+  prints through a logger listener (`logger.request_log_listener()`, `add_log_callback`), then
+  calls `esp32::crash_handler_clear()`. The file carries the formatted lines tagged
+  `esp32.crash`, cut after the first `]: ` and stripped of colour codes, so the tag, the log
+  line layout and `crash_handler_log()`'s wording are part of the report format the decoder
+  reads.
 
 Re-check each of these on every ESPHome bump.

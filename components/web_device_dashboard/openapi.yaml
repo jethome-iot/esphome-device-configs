@@ -8,9 +8,10 @@ info:
     `web_device_dashboard` component on the device's own web server under
     `/api/device/`: the device identity (with the CPU board's EEPROM record when
     a `jethome_board_info` is wired in), the runtime status, the live network
-    link, on a firmware with a `web_auth` the HTTP credentials, and — on a
-    firmware with a `config_json` store — the per-entity settings and their form
-    fields. ESP-IDF (ESP32) only.
+    link, on a firmware with a `web_auth` the HTTP credentials, with a
+    `dallas_scan` the temperature slots, and — on a firmware with a
+    `config_json` store — the per-entity settings and their form fields.
+    ESP-IDF (ESP32) only.
 
     This document is the wire contract; the TypeScript client in `client/device`
     implements it and the dashboard repository's dev server mocks it. Reads
@@ -226,8 +227,9 @@ paths:
       description: >-
         Which screens the page can draw and which routes exist. A key is present
         only when the capability is, so the test is `if (caps.files)`; one that
-        has no detail to carry is `true`. Read once on load, not polled — only
-        the rollback slot can change, and only across a firmware update. A `404`
+        has no detail to carry is `true`. Read on load, not polled — only
+        `rollback` can change: an update, a failed update and a rollback each
+        change it, so a client that shows it reads again after those. A `404`
         here is a firmware from before this route, not a device without
         capabilities.
       responses:
@@ -344,7 +346,10 @@ paths:
         "415":
           $ref: "#/components/responses/UnsupportedMediaType"
         "500":
-          description: The slot could not be selected; the message is the ESP-IDF error.
+          description: >-
+            The slot could not be selected: the ESP-IDF error when its image does
+            not check out, or `The firmware to roll back to is gone` when it stopped
+            being one to go back to after the check.
           content:
             application/json:
               schema:
@@ -354,15 +359,314 @@ paths:
                 error: ESP_ERR_OTA_VALIDATE_FAILED
         "503":
           description: >-
-            There is no other app slot, or nothing has been written to it — a
-            board that has never been updated over the air.
+            Nothing to roll back to — `capabilities` carries no `rollback` — or
+            the device was too busy to take the request; then nothing was
+            selected, and asking again may succeed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                unavailable:
+                  value:
+                    success: false
+                    error: No firmware to roll back to
+                busy:
+                  value:
+                    success: false
+                    error: Device busy
+
+  /temperature-slots:
+    get:
+      tags: [read]
+      operationId: getTemperatureSlots
+      summary: The temperature slots and what is in them.
+      description: >-
+        The slots of the firmware's `dallas_scan` up to the last bound one,
+        numbered from 1 as the `Temp N` sensors are. A slot freed between bound
+        ones keeps its row, as it does in the panel's Temperatures menu. The table
+        changes only at boot and through `/temperature-slots/forget` and
+        `/temperature-slots/assign`, which reboot, so this is read once per page
+        load. Readings are not here: they
+        are the sensors' state on `web_server`'s `/events`, matched by `name`.
+      responses:
+        "200":
+          description: The slots.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemperatureSlots"
+        "404":
+          $ref: "#/components/responses/NoTemperatureSlots"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          description: >-
+            The loop task did not take the request in time (`Device busy`), or a
+            forget or an assign has just been written and the reboot that applies
+            it is under way (`Rebooting: the slots change with it`). Nothing was read.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
               example:
                 success: false
-                error: No firmware to roll back to
+                error: Device busy
+
+  /temperature-slots/forget:
+    post:
+      tags: [write]
+      operationId: forgetTemperatureSlots
+      summary: Empty one slot, or every slot but the listed ones, and restart.
+      description: >-
+        What **Temperatures → Temp N → Confirm** and **Settings → Temp sensors →
+        Confirm** do on the panel. `slot` empties that slot: the device in it, if
+        it is still on the bus, takes the lowest free slot again at the next
+        boot, and the other slots keep their numbers. `all` empties every slot
+        but the ones `sensors:` lists, so the devices are numbered again in bus
+        order. A request that would change nothing — a free slot, a listed one,
+        or `all` with nothing but listed slots bound — is refused with `409`
+        rather than answered with a reboot that leaves the table as it was; the
+        slot's `can_forget` in `/temperature-slots` says beforehand. A table that
+        cannot be written is `503`. Otherwise it empties the slots and writes the
+        table, then answers and restarts half a second later; a write that fails
+        is `500`, and the device keeps running with the table as it was.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgetSlotsRequest"
+            examples:
+              one:
+                value:
+                  slot: 2
+                  confirm: true
+                  confirm_token: "DD:EE:FF"
+              all:
+                value:
+                  all: true
+                  confirm: true
+                  confirm_token: "DD:EE:FF"
+      responses:
+        "200":
+          description: Forgetting.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+              examples:
+                one:
+                  value:
+                    success: true
+                    message: Forgetting slot 2, rebooting
+                all:
+                  value:
+                    success: true
+                    message: Forgetting every slot, rebooting
+        "400":
+          description: >-
+            Not a confirmation (`'confirm' must be true`, as on the system
+            routes), or not exactly one of a slot in range and `all: true`.
+            Both keys present is refused whatever their values, `null` included.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                unconfirmed:
+                  value:
+                    success: false
+                    error: "'confirm' must be true"
+                neither:
+                  value:
+                    success: false
+                    error: "'slot' or 'all' is required"
+                both:
+                  value:
+                    success: false
+                    error: "'slot' and 'all' exclude each other"
+                notTrue:
+                  value:
+                    success: false
+                    error: "'all' must be true"
+                range:
+                  value:
+                    success: false
+                    error: "'slot' must be a number from 1 to 16"
+        "403":
+          $ref: "#/components/responses/WrongToken"
+        "404":
+          $ref: "#/components/responses/NoTemperatureSlots"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          description: Nothing would change. Nothing happened, and the device keeps running.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                free:
+                  value:
+                    success: false
+                    error: Slot 3 is free
+                listed:
+                  value:
+                    success: false
+                    error: Slot 1 belongs to a sensor listed in YAML
+                nothing:
+                  value:
+                    success: false
+                    error: "Nothing to forget: every slot is free or listed in YAML"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          description: >-
+            The table could not be written, so it stays as it was and the device
+            keeps running. The log says why.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: The slot table was not written
+        "503":
+          description: >-
+            The table is kept in a file and the user partition did not mount, so
+            nothing could be written (`Temperature slot storage unavailable`), the
+            loop task did not take the request in time (`Device busy`), or an
+            earlier forget or assign is waiting for its reboot (`Rebooting: the
+            slots change with it`). Nothing happened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Temperature slot storage unavailable
+
+  /temperature-slots/assign:
+    post:
+      tags: [write]
+      operationId: assignTemperatureSlot
+      summary: Put a device into a slot, and restart.
+      description: >-
+        Puts the device with this ROM into `slot`. If the table holds it in
+        another slot already, the two slots swap what they hold, which is how a
+        sensor moves to another number. If the address is new — typed in for a
+        sensor not plugged in yet, say — it takes the slot from the device that
+        held it; that device, if still on the bus, takes the lowest free slot at
+        the next boot. A device whose slot changes takes that slot's `Temp N`
+        name and Modbus register with it. Refused before anything happens:
+        a malformed or non-thermometer address (`400`), and a listed slot, a
+        listed sensor's address, or a device already in that slot (`409`), and
+        a table that cannot be written (`503`). Otherwise it writes the table,
+        then answers and restarts half a second later; a write that fails is
+        `500`, and the device keeps running with the table as it was.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignSlotRequest"
+            example:
+              slot: 1
+              address: "0xeb01227905460228"
+              confirm: true
+              confirm_token: "DD:EE:FF"
+      responses:
+        "200":
+          description: Assigning.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+              example:
+                success: true
+                message: Assigning slot 1, rebooting
+        "400":
+          description: >-
+            Not a confirmation, a slot out of range, an address that is not 16
+            hex digits after an optional `0x`, or one no thermometer can have: a family
+            other than DS18B20, DS18S20, DS1822, DS1825 or DS28EA00, or a CRC
+            that does not match.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                range:
+                  value:
+                    success: false
+                    error: "'slot' must be a number from 1 to 16"
+                format:
+                  value:
+                    success: false
+                    error: "'address' must be 16 hex digits, after an optional 0x"
+                rom:
+                  value:
+                    success: false
+                    error: "0x4e00001234567801 is not a thermometer ROM: wrong family or CRC"
+        "403":
+          $ref: "#/components/responses/WrongToken"
+        "404":
+          $ref: "#/components/responses/NoTemperatureSlots"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          description: >-
+            The YAML decides this slot or this device, or nothing would change.
+            Nothing happened, and the device keeps running.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                listedSlot:
+                  value:
+                    success: false
+                    error: Slot 1 belongs to a sensor listed in YAML
+                listedAddress:
+                  value:
+                    success: false
+                    error: 0x8a0122791699dd28 belongs to a sensor listed in YAML
+                unchanged:
+                  value:
+                    success: false
+                    error: 0xeb01227905460228 is in slot 2 already
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          description: >-
+            The table could not be written, so it stays as it was and the device
+            keeps running. The log says why.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: The slot table was not written
+        "503":
+          description: >-
+            The table is kept in a file and the user partition did not mount, so
+            nothing could be written (`Temperature slot storage unavailable`), the
+            loop task did not take the request in time (`Device busy`), or an
+            earlier forget or assign is waiting for its reboot (`Rebooting: the
+            slots change with it`). Nothing happened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Temperature slot storage unavailable
 
   /entities:
     get:
@@ -647,6 +951,25 @@ components:
           example:
             success: false
             error: Request body over 4 KiB
+    NoTemperatureSlots:
+      description: >-
+        This firmware has no `dallas_scan` wired to the dashboard
+        (`dallas_scan_id:`): `capabilities` carries no `temperature_slots`. On a
+        firmware built without one at all the routes do not exist, and the
+        answer is the prefix's plain `Not found`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            unwired:
+              value:
+                success: false
+                error: No temperature slots
+            absent:
+              value:
+                success: false
+                error: Not found
     NoStore:
       description: >-
         This firmware has no `config_json` store, so the settings routes do not
@@ -961,6 +1284,120 @@ components:
           pattern: "^[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}$"
           example: "DD:EE:FF"
 
+    TemperatureSlots:
+      type: object
+      required: [max_slots, slots]
+      properties:
+        max_slots:
+          type: integer
+          minimum: 1
+          maximum: 64
+          description: The size of the table, `dallas_scan`'s `max_sensors`.
+        slots:
+          type: array
+          description: >-
+            Slots 1 up to the last bound one, in order; empty when nothing was
+            ever bound.
+          items:
+            $ref: "#/components/schemas/TemperatureSlot"
+      example:
+        max_slots: 16
+        slots:
+          - slot: 1
+            name: Boiler
+            free: false
+            listed: true
+            address: "0x8a0122791699dd28"
+            can_forget: false
+          - slot: 2
+            name: Temp 2
+            free: true
+            listed: false
+            can_forget: false
+          - slot: 3
+            name: Temp 3
+            free: false
+            listed: false
+            address: "0xeb01227905460228"
+            can_forget: true
+
+    TemperatureSlot:
+      type: object
+      required: [slot, name, free, listed, can_forget]
+      properties:
+        slot:
+          type: integer
+          minimum: 1
+          description: The slot's number, from 1; the `slot` a forget takes.
+        name:
+          type: string
+          description: >-
+            The name of the slot's sensor — the entity `web_server` serves, so
+            the key to its reading — or `<prefix> N` for a free slot.
+        free:
+          type: boolean
+          description: No sensor — the slot was forgotten and nothing took it since.
+        listed:
+          type: boolean
+          description: >-
+            Taken by a sensor from `dallas_scan`'s `sensors:`, which the YAML
+            fixes there: nothing here forgets it.
+        address:
+          type: string
+          pattern: "^0x[0-9a-f]{16}$"
+          description: >-
+            The device's 1-Wire ROM, as the panel prints it. A string, because 64
+            bits do not survive a JavaScript number. Absent for a free slot and
+            for a listed sensor that is not a 1-Wire one.
+        can_forget:
+          type: boolean
+          description: >-
+            `/temperature-slots/forget` with this `slot` would empty it: it holds
+            a device, is not listed, and the table can be written. Whether that
+            device still answers does not matter — an unplugged sensor is the
+            usual reason to forget one.
+
+    AssignSlotRequest:
+      allOf:
+        - $ref: "#/components/schemas/ConfirmRequest"
+        - type: object
+          required: [slot, address]
+          properties:
+            slot:
+              type: integer
+              minimum: 1
+              description: The slot to put the device into, from 1 up to `max_slots`.
+            address:
+              type: string
+              pattern: "^(0[xX])?[0-9A-Fa-f]{16}$"
+              description: >-
+                The device's ROM as `/temperature-slots` prints it; the `0x` is
+                optional and either case is taken.
+
+    ForgetSlotsRequest:
+      description: A confirmation with either `slot` or `all`, never both.
+      allOf:
+        - $ref: "#/components/schemas/ConfirmRequest"
+        - oneOf:
+            - type: object
+              required: [slot]
+              not:
+                required: [all]
+              properties:
+                slot:
+                  type: integer
+                  minimum: 1
+                  description: The slot to empty, from 1 up to `max_slots`.
+            - type: object
+              required: [all]
+              not:
+                required: [slot]
+              properties:
+                all:
+                  type: boolean
+                  enum: [true]
+                  description: Every slot but the listed ones.
+
     Capabilities:
       type: object
       required: [reboot, factory_reset]
@@ -983,8 +1420,12 @@ components:
           type: object
           required: [partition]
           description: >-
-            The firmware `/system/rollback` would boot. Absent when the other app
-            slot holds no image, which is also when that route is `503`.
+            The firmware `/system/rollback` would boot: after an update, the
+            firmware it replaced; after a rollback, the newer one. Absent when
+            there is nothing to go back to — a board flashed over serial, an
+            update that failed or was interrupted, a firmware the bootloader
+            already rolled back from because it crashed, or a switch still
+            waiting for its reboot — which is also when that route is `503`.
           properties:
             partition:
               type: string
@@ -999,6 +1440,8 @@ components:
               example: 2026.8.1
             project_name:
               type: string
+              description: The name that image was built under, the device's node name.
+              example: jxd-r6-e1eth-lcd
         storage:
           $ref: "#/components/schemas/StorageCapability"
         files:
@@ -1037,6 +1480,12 @@ components:
           type: boolean
           enum: [true]
           description: "`/info` carries the CPU board's EEPROM identity."
+        temperature_slots:
+          type: boolean
+          enum: [true]
+          description: >-
+            A `dallas_scan` is wired in, so `/temperature-slots`,
+            `/temperature-slots/forget` and `/temperature-slots/assign` answer.
       example:
         reboot: true
         factory_reset:
@@ -1044,7 +1493,7 @@ components:
         rollback:
           partition: app1
           version: 2026.8.1
-          project_name: jethome.jxd-r6-e1eth-lcd
+          project_name: jxd-r6-e1eth-lcd
         storage:
           type: LittleFS
           base_path: /littlefs
@@ -1056,13 +1505,14 @@ components:
         entity_settings:
           types: [switch, binary_sensor]
         board_info: true
+        temperature_slots: true
 
     StorageCapability:
       type: object
       required: [type, base_path, mounted]
       description: >-
         The mount the Files screen browses and a factory reset wipes: what it is,
-        not how full it is. Usage is live and this route is read once, so the
+        not how full it is. Usage is live and this route is not polled, so the
         byte counts stay where they are already answered — `info` on the file API
         at `files.url_prefix`.
       properties:

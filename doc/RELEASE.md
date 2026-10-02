@@ -10,6 +10,7 @@ How firmware gets built, versioned and published, and what runs where.
 | Release (`release.yml`) | a release is published (incl. prerelease), push to `dev` (nightly), manual dispatch | Compiles every firmware, uploads the `upload: true` ones to fw.jethome.com; GitHub releases are minted for published releases and dispatches only — dev pushes go to the nightly channel without a GitHub release |
 | ESPHome release check (`esphome-release-check.yml`) | weekly, manual | On a new upstream ESPHome release: compiles every firmware with it and opens an issue with the results — the go/no-go for the dependabot bump |
 | Draft release (`draft-release.yml`) | push to `master`, manual | Refreshes the rolling draft release tagged with the next version — publish it to build and ship |
+| Community issues (`community-issues.yml`) | an issue is opened | Labels it `community` when its author has less than triage access here — see [Labels](DEVELOPMENT.md#labels) |
 | Dependabot | weekly | PRs bumping workflow actions and the pinned files in `requirements.txt` / `requirements-dev.txt`; an esphome bump PR is build-tested by Build |
 
 ## The firmware list: `firmwares.yaml`
@@ -64,7 +65,7 @@ at build time.
    Release → Run workflow**:
    - `dry_run` on: builds everything, uploads artifacts, touches nothing;
    - `dry_run` off and `channel: release` (the dispatch default is `nightly`
-     — the safe side: it never moves the release channel's `latest` pointer):
+     — the safe side: it never touches the release channel's `latest` pointer):
      the workflow computes the version, creates the GitHub release, attaches
      all binaries, and uploads the `upload: true` firmwares to the server.
 5. A full release tag must be `<esphome>` (workflow picks the next
@@ -101,8 +102,10 @@ built firmware, both images; dev nightlies have no GitHub release:
 - hierarchy `JetHome.jxd.firmware.esphome.<device>.<channel>`
 - image types `esp.bin` (factory) and `esp.ota` (OTA)
 - hash: md5 (the server serves it as `info.md5` for OTA updates)
-- `supported_devices`: the device slug; the `latest` pointer moves only on
-  `release` channel uploads (manual runs control it with `update_latest`)
+- `supported_devices`: the device slug; the factory-image upload advances
+  the channel's `latest` pointer (the OTA upload never does), no channel's
+  pointer moves backward, and manual release publications can opt out with
+  `update_latest`
 
 ## Updates on the device
 
@@ -124,17 +127,21 @@ pipeline has never published to leaves the entity in an error state, with the
 channel the manifest lacked named in the log.
 
 The display carries the same under **Settings → Firmware**: the running and the offered
-version, the channel, a check, and an install behind a confirmation. An install started
-anywhere — that row, Home Assistant, the dashboard — takes the screen over until the device
-reboots into the new firmware: the version being written, the percentage and a progress bar,
-and no blanking while it runs. An install that fails says so on the same screen, leaves the
-running firmware in place, and gives the screen back on the next button press.
+version, the channel, a check, an install behind a confirmation, and a rollback to the firmware
+in the other slot, also behind one. The rollback row says whether there is a firmware to go back
+to (`Rollback (ready)` or `Rollback (none)`); after a rollback it offers the firmware just left,
+so the same row goes forward again. An install started anywhere — the install row, Home
+Assistant, the dashboard — takes the screen over until the device reboots into the new
+firmware: the version being written, the percentage and a progress bar, and no blanking while
+it runs. An install that fails says so on the same screen, leaves the running firmware in
+place, and gives the screen back on the next button press.
 
-The wiring is `devices/JXD/packages/features/firmware-update.yaml` with its menu rows in
-`devices/JXD/packages/display/menu-firmware.yaml` and its install screen in
-`devices/JXD/packages/display/firmware-page.yaml`, and all three are left out of `dist/`: a
-firmware built from the imported config is the user's own, not one this pipeline publishes
-([dist/ and new devices](DIST.md)).
+The wiring is `devices/JXD/packages/features/firmware-update.yaml` with its menu rows, the
+rollback row among them, in `devices/JXD/packages/display/menu-firmware.yaml` and its install
+screen in `devices/JXD/packages/display/firmware-page.yaml`, and all three are left out of
+`dist/`: a firmware built from the imported config is the user's own, not one this pipeline
+publishes ([dist/ and new devices](DIST.md)). A config imported from `dist/` still offers the
+rollback on its dashboard.
 
 ## Secrets
 

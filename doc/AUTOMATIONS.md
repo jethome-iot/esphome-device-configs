@@ -9,9 +9,9 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
 ## What a rule can do
 
 - **Triggers** (any of them fires the rule): input press / release / click / state change,
-  switch turn on / off / state change, temperature above / below / in range (fires on the
+  switch turn on / off / state change, a sensor above / below / in range (fires on the
   crossing, once), cron (six fields, seconds first), startup.
-- **Condition** (optional): input is on/off, temperature above / below / in range (`above` and
+- **Condition** (optional): input is on/off, a sensor above / below / in range (`above` and
   `below` are strict, a range includes both ends), and `and` / `or` / `xor` groups of those,
   nested. When false, the `else` actions run.
 - **Actions**: switch turn on / off / toggle / follow (copies the state the trigger
@@ -19,15 +19,18 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
 - **Mode**: `single` ignores a trigger while the rule is running, `restart` starts over,
   `parallel` runs up to 8 copies.
 
+A sensor is any numeric one that is not internal, not only a temperature, and its thresholds
+are in its own unit.
+
 ## Storage
 
 Rules are `/littlefs/automations/<name>.json` on the LittleFS partition from
 `features/storage.yaml`, one file per rule, named after the rule. Two rules cannot share a
 name. OTA updates keep the files; a factory reset — **Settings → Factory reset → Confirm** on
-the display, or `POST /api/device/system/factory-reset` — formats the partition, so the rules
-go with it.
+the display, the FN button held for 10 seconds, or `POST /api/device/system/factory-reset` —
+formats the partition, so the rules go with it.
 
-Entities are named by object id, so renaming a relay, an input or a temperature sensor leaves
+Entities are named by object id, so renaming a relay, an input or a sensor leaves
 the rules that used it unbuilt — the boot log says which, and their files are kept exactly as
 written until the entity is back.
 

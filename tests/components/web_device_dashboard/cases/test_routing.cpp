@@ -30,6 +30,9 @@ TEST_F(Dashboard, LooksEveryRouteUpByItsName) {
   EXPECT_EQ(this->dashboard->route_for_("/api/device/system/reboot")->id, RouteId::SYSTEM_REBOOT);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/system/factory-reset")->id, RouteId::SYSTEM_FACTORY_RESET);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/system/rollback")->id, RouteId::SYSTEM_ROLLBACK);
+  EXPECT_EQ(this->dashboard->route_for_("/api/device/temperature-slots")->id, RouteId::TEMPERATURE_SLOTS);
+  EXPECT_EQ(this->dashboard->route_for_("/api/device/temperature-slots/forget")->id, RouteId::TEMPERATURE_SLOTS_FORGET);
+  EXPECT_EQ(this->dashboard->route_for_("/api/device/temperature-slots/assign")->id, RouteId::TEMPERATURE_SLOTS_ASSIGN);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/entities")->id, RouteId::ENTITIES);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/entity-settings")->id, RouteId::ENTITY_SETTINGS);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/entity-settings-meta")->id, RouteId::ENTITY_SETTINGS_META);
@@ -39,7 +42,9 @@ TEST_F(Dashboard, HasNoRouteForAnythingElse) {
   // The tail is matched whole: no prefix, no suffix and no path below a route.
   for (const char *url : {"/", "/api/device/", "/api/device/nonesuch", "/api/device/inf", "/api/device/information",
                           "/api/device/info/extra", "/api/device/entity-settings/meta", "/info", "/api/device/system",
-                          "/api/device/system/", "/api/device/system/reboot/extra", "/api/device/reboot"}) {
+                          "/api/device/system/", "/api/device/system/reboot/extra", "/api/device/reboot",
+                          "/api/device/temperature-slots/", "/api/device/temperature-slots/1",
+                          "/api/device/temperature-slots/forget/extra", "/api/device/forget"}) {
     EXPECT_EQ(this->dashboard->route_for_(url), nullptr) << url;
   }
 }
@@ -54,8 +59,9 @@ TEST_F(Dashboard, ReadRoutesAnswerGet) {
 }
 
 TEST_F(Dashboard, ReadRoutesRefusePostAndAllowOnlyGet) {
-  for (const char *url : {"/api/device/info", "/api/device/status", "/api/device/network", "/api/device/capabilities",
-                          "/api/device/entities", "/api/device/entity-settings-meta"}) {
+  for (const char *url :
+       {"/api/device/info", "/api/device/status", "/api/device/network", "/api/device/capabilities",
+        "/api/device/entities", "/api/device/entity-settings-meta", "/api/device/temperature-slots"}) {
     LogCapture::instance().clear();
     Reply reply = this->post(url);
     EXPECT_EQ(reply.code, 405) << url;
@@ -68,7 +74,8 @@ TEST_F(Dashboard, ReadRoutesRefusePostAndAllowOnlyGet) {
 
 TEST_F(Dashboard, WriteRoutesRefuseGetAndAllowOnlyPost) {
   for (const char *url :
-       {"/api/device/system/reboot", "/api/device/system/factory-reset", "/api/device/system/rollback"}) {
+       {"/api/device/system/reboot", "/api/device/system/factory-reset", "/api/device/system/rollback",
+        "/api/device/temperature-slots/forget", "/api/device/temperature-slots/assign"}) {
     LogCapture::instance().clear();
     Reply reply = this->get(url);
     EXPECT_EQ(reply.code, 405) << url;

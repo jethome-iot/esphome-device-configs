@@ -31,8 +31,8 @@ web_file_browser:
 ```
 
 The firmwares in this repository format the mount on a factory reset — **Settings → Factory
-reset → Confirm** in the display menu, or `POST /api/device/system/factory-reset`: uploaded
-files do not survive one.
+reset → Confirm** in the display menu, the FN button held for 10 seconds, or
+`POST /api/device/system/factory-reset`: uploaded files do not survive one.
 
 ## Options
 

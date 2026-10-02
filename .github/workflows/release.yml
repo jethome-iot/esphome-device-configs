@@ -121,20 +121,22 @@ jobs:
             fi
             DO_UPLOAD=true
             CREATE_RELEASE=false
-            if [ "$CHANNEL" = release ]; then UPDATE_LATEST=true; else UPDATE_LATEST=false; fi
+            UPDATE_LATEST=true
           elif [ "$EVENT" = "push" ]; then
             # Every dev commit is a nightly on the firmware server only — no
             # GitHub release, the releases page stays release-channel clean.
+            # update_latest moves this channel's own pointer: without it the
+            # nightly latest never advances and channel devices see no update.
             CHANNEL=nightly
             DO_UPLOAD=true
             CREATE_RELEASE=false
-            UPDATE_LATEST=false
+            UPDATE_LATEST=true
           else
             CHANNEL=$IN_CHANNEL
             DO_UPLOAD=true
             if [ "$IN_DRY_RUN" = "true" ]; then DO_UPLOAD=false; fi
             CREATE_RELEASE=$DO_UPLOAD
-            if [ "$CHANNEL" = release ]; then UPDATE_LATEST=$IN_UPDATE_LATEST; else UPDATE_LATEST=false; fi
+            if [ "$CHANNEL" = release ]; then UPDATE_LATEST=$IN_UPDATE_LATEST; else UPDATE_LATEST=true; fi
           fi
 
           # Highest <n> among tags matching an anchored pattern, or the given
@@ -417,18 +419,26 @@ jobs:
       # a possible missed forward move is announced by the warning.
       - name: Decide the latest pointer against current tags
         id: pointer
-        if: env.FW_CHANNEL == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
+          FW_CHANNEL: ${{ env.FW_CHANNEL }}
           FW_VERSION: ${{ env.FW_VERSION }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           # The repo is private: an anonymous ls-remote cannot authenticate,
-          # so the tag list comes through the authenticated API.
+          # so the tag list comes through the authenticated API. Either
+          # channel's pointer must never move backward — a superseded retry
+          # (its reserved version is older than a newer publication) would
+          # otherwise offer devices the older firmware.
+          if [ "$FW_CHANNEL" = release ]; then
+            PATTERN='^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
+          else
+            PATTERN='^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]{8}\.[0-9]+$'
+          fi
           MAXTAG=$(gh api --paginate "repos/$REPO/git/matching-refs/tags/" \
             --jq '.[] | .ref | ltrimstr("refs/tags/")' |
-            { grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1)
+            { grep -E "$PATTERN" || true; } | sort -V | tail -1)
           if [ -n "$MAXTAG" ] && [ "$FW_VERSION" != "$MAXTAG" ] &&
             [ "$(printf '%s\n%s\n' "$FW_VERSION" "$MAXTAG" | sort -V | head -n1)" = "$FW_VERSION" ]; then
             echo "::warning::version $FW_VERSION is superseded by $MAXTAG — publishing without moving the latest pointer"

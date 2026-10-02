@@ -12,10 +12,13 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/config_json/config_json.h"
 #include "esphome/components/config_json/settings_base_json.h"
+#include "esphome/components/dallas_scan/dallas_scan.h"
 #include "esphome/components/dir_storage/dir_storage.h"
 #include "esphome/components/host/preferences.h"
 #include "esphome/components/jethome_board_info/jethome_board_info.h"
 #include "esphome/components/logger/logger.h"
+#include "esphome/components/one_wire_host/host_one_wire_bus.h"
+#include "esphome/components/sensor/sensor.h"
 #include "esphome/components/host/preferences.h"
 #include "esphome/components/switch/switch.h"
 #include "esphome/components/web_auth/web_auth.h"
@@ -72,6 +75,16 @@ class LogCapture {
       capture->warnings.emplace_back(message, len);
     }
   }
+};
+
+// A temperature scan whose reboot is counted instead of ending the process; the slot table it
+// binds is the dallas_scan suite's to cover.
+class TestScan : public dallas_scan::DallasScan {
+ public:
+  int restarts{0};
+
+ protected:
+  void restart_() override { this->restarts++; }
 };
 
 class FakeSwitch : public switch_::Switch {
@@ -332,15 +345,17 @@ class TestDashboard : public WebDeviceDashboard {
   bool stub_rollback{false};
   RollbackTarget rollback;
   const char *rollback_error{nullptr};
+  // Hands the select to firmware_rollback, which off ESP32 always refuses.
+  bool real_select{false};
 
  protected:
   void restart_() override { this->restarts++; }
   RollbackTarget rollback_target_() const override {
     return this->stub_rollback ? this->rollback : WebDeviceDashboard::rollback_target_();
   }
-  const char *select_rollback_(const RollbackTarget & /*target*/) override {
+  const char *select_rollback_(const RollbackTarget &target) override {
     this->rollbacks++;
-    return this->rollback_error;
+    return this->real_select ? WebDeviceDashboard::select_rollback_(target) : this->rollback_error;
   }
   bool run_on_loop_(std::function<bool()> &&job) override {
     this->jobs++;

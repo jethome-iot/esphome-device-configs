@@ -433,7 +433,8 @@ components:
           type: string
           description: >-
             `input`: press, release, click, state_change. `switch`: turn_on,
-            turn_off, state_change. `temperature`: above, below, range.
+            turn_off, state_change. `temperature`: above, below, range, on any
+            sensor in `/entities`, in its unit.
         object_id:
           type: string
         threshold:
@@ -460,6 +461,7 @@ components:
         type:
           type: string
           enum: [input, temperature, and, or, xor]
+          description: "`temperature` compares any sensor in `/entities`, in its unit."
         object_id:
           type: string
         state:

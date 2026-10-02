@@ -1,0 +1,48 @@
+# Google Test binary for components/crash_report, built through esphome compile by
+# tests/run.py. The harness main.cpp replaces the generated one, so nothing declared
+# here is ever set up: the sections exist to get the sources compiled and the USE_*
+# defines set. The tests drive their own report over a stand-in for the crash handler.
+esphome:
+  name: crash-report-test
+  # The header's firmware line, as a device config names it.
+  project:
+    name: jethome.crash_report_test
+    version: "1.2.3"
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+      # A rename the cases can make fail: only a flash error does that on the device.
+      - -Wl,--wrap=rename
+
+host:
+
+logger:
+  level: DEBUG
+  # crash_report asks for its own listener slot; this trigger sizes the list for a second
+  # one, which the cases read the errors and warnings through. It is never set up.
+  on_message:
+    - level: ERROR
+      then:
+        - lambda: ""
+
+external_components:
+  - source: ../../../components
+    components: [filesystem_storage_abstract, crash_report]
+  - source: ../../harness/components
+    components: [dir_storage]
+
+dir_storage:
+  id: test_storage
+  path: .storage
+
+crash_report:
+  storage: test_storage

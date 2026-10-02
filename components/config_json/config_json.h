@@ -23,12 +23,15 @@ class ConfigJsonKeeper : public config_base::ConfigKeeperBase<ConfigJsonKeeper, 
     this->storage_backend_ = storage;
   }
   const std::string &get_config_dir() const { return this->config_dir_; }
+  filesystem_storage_abstract::FilesystemStorageAbstract *get_storage() const { return this->storage_backend_; }
 
   const char *get_timeout_name() const { return "config_save"; }
   const char *get_log_tag() const { return TAG; }
   const char *get_settings_key(SettingsBaseJson *settings) const { return settings->get_key(); }
   void load_one(SettingsBaseJson *settings);
   void save_one(SettingsBaseJson *settings);
+  // For a file kept outside the settings list: the folder may have been removed since setup.
+  bool ensure_config_dir() { return this->ensure_directory_exists_(); }
 
  protected:
   bool ensure_directory_exists_();

@@ -1,4 +1,4 @@
-"""DS18B20 sensors created at boot, one per device on a 1-Wire bus; slot numbers stick in flash."""
+"""DS18B20 sensors created at boot, one per device on a 1-Wire bus; slot numbers stick in NVS or a file."""
 
 import esphome.codegen as cg
 from esphome.components import one_wire, sensor, web_server
@@ -28,9 +28,18 @@ AUTO_LOAD = ["sensor"]
 
 CONF_MAX_SENSORS = "max_sensors"
 CONF_NAME_PREFIX = "name_prefix"
+CONF_STORAGE = "storage"
+CONF_CONFIG_JSON_ID = "config_json_id"
+
+STORAGE_NVS = "nvs"
+STORAGE_FILE = "file"
 
 dallas_scan_ns = cg.esphome_ns.namespace("dallas_scan")
 DallasScan = dallas_scan_ns.class_("DallasScan", cg.PollingComponent)
+# Named here rather than imported, so a config without config_json never loads it.
+ConfigJsonKeeper = cg.esphome_ns.namespace("config_json").class_(
+    "ConfigJsonKeeper", cg.Component
+)
 
 
 def _fresh_ids(node):
@@ -58,6 +67,11 @@ def _validate(config):
         )
     if len({sensor_id.id for sensor_id in sensors}) != listed:
         raise cv.Invalid("A sensor is listed twice", path=[CONF_SENSORS])
+    if CONF_CONFIG_JSON_ID in config and config[CONF_STORAGE] != STORAGE_FILE:
+        raise cv.Invalid(
+            f"{CONF_CONFIG_JSON_ID} only applies to {CONF_STORAGE}: {STORAGE_FILE}",
+            path=[CONF_CONFIG_JSON_ID],
+        )
     # A filter chain belongs to one sensor, so every slot the component fills gets
     # its own copy; the id pass names the copies' ids after this.
     if filters := config.get(CONF_FILTERS):
@@ -84,6 +98,11 @@ CONFIG_SCHEMA = cv.All(
             ),
             # The usual sensor filters, the same chain on every sensor.
             cv.Optional(CONF_FILTERS): sensor.validate_filters,
+            # Where the slot table lives: preferences, or a file on the user partition.
+            cv.Optional(CONF_STORAGE, default=STORAGE_NVS): cv.one_of(
+                STORAGE_NVS, STORAGE_FILE, lower=True
+            ),
+            cv.Optional(CONF_CONFIG_JSON_ID): cv.use_id(ConfigJsonKeeper),
         }
     )
     .extend(web_server.WEBSERVER_SORTING_SCHEMA)
@@ -108,9 +127,18 @@ def _one_wire_address(entry):
 
 
 def _final_validate(config):
+    full_config = fv.full_config.get()
+    if (
+        config[CONF_STORAGE] == STORAGE_FILE
+        and CONF_CONFIG_JSON_ID not in config
+        and "config_json" not in full_config
+    ):
+        raise cv.Invalid(
+            f"{CONF_STORAGE}: {STORAGE_FILE} needs a config_json: section",
+            path=[CONF_STORAGE],
+        )
     # A listed 1-Wire sensor pins its address to its slot; without one the scan
     # would hand the same device a slot of its own.
-    full_config = fv.full_config.get()
     for index, sensor_id in enumerate(config[CONF_SENSORS]):
         entry = _sensor_entry(full_config, sensor_id)
         if entry is None or one_wire.CONF_ONE_WIRE_ID not in entry:
@@ -136,7 +164,18 @@ async def to_code(config):
     cg.add(var.set_max_sensors(config[CONF_MAX_SENSORS]))
     cg.add(var.set_name_prefix(config[CONF_NAME_PREFIX]))
     cg.add(var.set_resolution(config[CONF_RESOLUTION]))
-    cg.add(var.set_preference_hash(fnv1_hash(config[CONF_ID].id)))
+    if config[CONF_STORAGE] == STORAGE_FILE:
+        keeper_id = (
+            config.get(CONF_CONFIG_JSON_ID) or CORE.config["config_json"][CONF_ID]
+        )
+        cg.add_define("USE_DALLAS_SCAN_FILE")
+        cg.add(
+            var.set_slot_file(
+                await cg.get_variable(keeper_id), f"dallas_scan_{config[CONF_ID].id}"
+            )
+        )
+    else:
+        cg.add(var.set_preference_hash(fnv1_hash(config[CONF_ID].id)))
     listed = [await cg.get_variable(sensor_id) for sensor_id in config[CONF_SENSORS]]
     for slot, (sensor_id, listed_sensor) in enumerate(
         zip(config[CONF_SENSORS], listed)

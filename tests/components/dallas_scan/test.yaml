@@ -1,0 +1,59 @@
+# Google Test binary for components/dallas_scan, built through esphome compile by tests/run.py.
+# The harness main.cpp replaces the generated one, so nothing declared here is ever set up: the
+# sections exist to get the sources compiled and the USE_* defines set. The cases boot their own
+# scans over the harness's one_wire_host bus, whose devices they set, and boot them again to see
+# what the table kept.
+esphome:
+  name: dallas-scan-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+      - -DUSE_LOG_LISTENERS
+      - -DESPHOME_LOG_MAX_LISTENERS=1
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../../components
+    components: [filesystem_storage_abstract, config_base, config_json, dallas_scan]
+  # Upstream's gpio bus needs ISR pins and an interrupt lock, which the host build has neither of.
+  - source: ../../harness/components
+    components: [one_wire_host, dir_storage]
+
+one_wire:
+  - platform: one_wire_host
+    id: one_wire_bus
+
+dir_storage:
+  id: test_storage
+  path: .storage
+
+config_json:
+  storage: test_storage
+
+# storage: file compiles the file code in; a scan the cases build without set_slot_file() keeps
+# its table in preferences, so both storages run here. Every boot in the cases registers its
+# sensors with App, which sizes its list from the slots reserved here and drops a registration
+# past them: room for all the boots the cases make.
+dallas_scan:
+  id: temps
+  max_sensors: 64
+  storage: file
+
+# The listed sensor the cases hand to sensors: is registered with App too, so it needs a place.
+sensor:
+  - platform: template
+    id: boiler_unused
+    name: "Boiler"
