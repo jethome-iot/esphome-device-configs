@@ -228,9 +228,9 @@ export interface DeviceStatus {
   connection_type: 'wifi' | 'ethernet' | 'none'
   ip_address: string | null
   rssi: number | null
-  /** A saved MQTT setting waits for a restart, or MQTT is held back and a restart retries
-   *  it; `reboot_reasons` names it. Modbus and Network mode, which also apply on restart,
-   *  are not tracked. */
+  /** A saved MQTT setting or subscription slot waits for a restart, or MQTT or its
+   *  subscriptions are held back and a restart retries them; `reboot_reasons` names it.
+   *  Modbus and Network mode, which also apply on restart, are not tracked. */
   reboot_required: boolean
   /** Omitted when nothing is waiting. This firmware names only `mqtt`. */
   reboot_reasons?: RebootReason[]
@@ -247,7 +247,7 @@ export interface DeviceStatus {
 export interface MutationResponse {
   success: boolean
   message?: string
-  /** Set by a route whose change can wait for a restart: POST /mqtt. */
+  /** Set by a route whose change can wait for a restart: POST /mqtt, /mqtt/subscriptions. */
   reboot_required?: boolean
 }
 
@@ -318,6 +318,8 @@ export interface Capabilities {
   board_info?: true
   /** GET/POST /mqtt are served. */
   mqtt?: true
+  /** GET/POST /mqtt/subscriptions are served, with this many slots. */
+  mqtt_subscriptions?: { max_slots: number }
 }
 
 // --- Network (live status + saved config) ---
@@ -485,6 +487,114 @@ export interface MqttSaveResult extends MutationResponse {
   /** This save started the client: it is connecting now, no reboot needed. */
   started: boolean
   discovery_cleanup: MqttDiscoveryCleanup
+}
+
+// --- MQTT subscription slots (mqtt_subscriptions) ---
+
+/** The entity a slot runs as, by its domain: Number, On/Off and Text in the dashboard. */
+export type MqttSlotKind = 'sensor' | 'binary_sensor' | 'text_sensor'
+/** `off`: runs nothing this boot (disabled, empty, breaking a rule, no room). `suspended`: its
+ *  entity runs but nothing is subscribed after repeated crashes. `waiting`: MQTT is not
+ *  connected or no message came yet. `error`: the last message could not be read. */
+export type MqttSlotState = 'off' | 'waiting' | 'ok' | 'error' | 'suspended'
+
+/** A slot's settings. `unit` and `decimals` are a sensor's, the payloads a binary_sensor's;
+ *  for the other kinds they hold their defaults. An empty slot has `topic: ''`. */
+export interface MqttSlotFields {
+  enabled: boolean
+  /** The entity's name: at most 32 bytes, no `/`, trimmed. */
+  name: string
+  /** One exact topic: at most 128 bytes, no `+` or `#`. */
+  topic: string
+  kind: MqttSlotKind
+  /** Up to 6 keys separated by `.`; a number picks a list element. '' reads the whole message. */
+  json_path: string
+  /** One of `MqttSubscriptions.units`, or ''. */
+  unit: string
+  /** 0–4. */
+  decimals: number
+  payload_on: string
+  payload_off: string
+}
+
+/** What a slot runs as this boot. */
+export interface MqttSlotEntity {
+  domain: MqttSlotKind
+  /** The name web_server serves it under: join entities on it, not on the saved name. */
+  name: string
+}
+
+export interface MqttSlotStatus {
+  state: MqttSlotState
+  /** As the device shows it: `21.5 °C`, `On`, the text; '' while unknown. */
+  value: string
+  /** The first 64 bytes of the last message, stray bytes and control characters as `?`. */
+  raw: string
+  /** Why the slot does not run (`invalid: …`, `no room in the entity table`) or why the last
+   *  message could not be read (`not JSON`, `key 'a.b' not found`, `not a number`, `neither ON
+   *  nor OFF`, `not UTF-8`, `message over 2 KiB`). */
+  error: string | null
+  /** Seconds since the last message; null before one. */
+  age_s: number | null
+}
+
+/** One slot of GET /mqtt/subscriptions: the saved fields, and what runs. */
+export interface MqttSlot extends MqttSlotFields {
+  /** 1-based. */
+  slot: number
+  /** The saved slot differs from what runs: it changes at the next restart. */
+  pending: boolean
+  entity: MqttSlotEntity | null
+  status: MqttSlotStatus
+}
+
+/** `newer_firmware`: no slot runs and saves are refused. `unreadable`: the file was read and is
+ *  broken; the next save sets it aside. The renamed form: set aside at boot. `unavailable`: the
+ *  storage is not mounted, or the file could not be read just now and is left as it is. */
+export type MqttSlotFileError =
+  | 'newer_firmware'
+  | 'unreadable'
+  | 'unreadable: renamed to subscriptions.json.bad'
+  | 'unavailable'
+
+/** The names temperature probes take, `<prefix> 1` … `<prefix> <count>`, which a Number slot
+ *  cannot have. */
+export interface MqttReservedNames {
+  prefix: string
+  count: number
+}
+
+/** GET /mqtt/subscriptions. */
+export interface MqttSubscriptions {
+  max_slots: number
+  /** A saved slot differs from what runs, or the slots are suspended and a restart retries them. */
+  reboot_required: boolean
+  /** After two crashes in a row while connected, nothing is subscribed this boot. */
+  suspended: boolean
+  file_error: MqttSlotFileError | null
+  /** The units a sensor slot may take. */
+  units: string[]
+  /** Null on a firmware without temperature probes. */
+  reserved_names: MqttReservedNames | null
+  /** Always `max_slots` entries, slot 1 first. */
+  slots: MqttSlot[]
+}
+
+/** POST /mqtt/subscriptions: one slot, whole. Left-out optional fields take their defaults. */
+export type MqttSlotSave = Pick<MqttSlotFields, 'enabled' | 'name' | 'topic' | 'kind'> &
+  Partial<Pick<MqttSlotFields, 'json_path' | 'unit' | 'decimals' | 'payload_on' | 'payload_off'>> & {
+    slot: number
+  }
+
+/** POST /mqtt/subscriptions: empty one slot. */
+export interface MqttSlotClear {
+  slot: number
+  action: 'clear'
+}
+
+/** POST /mqtt/subscriptions's 200. `message` is one of SLOT_SAVE_MESSAGES (mqttRules.ts). */
+export interface MqttSlotSaveResult extends MutationResponse {
+  reboot_required: boolean
 }
 
 // --- Auth (web_auth) ---

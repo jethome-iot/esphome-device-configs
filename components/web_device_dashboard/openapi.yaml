@@ -9,16 +9,17 @@ info:
     `/api/device/`: the device identity (with the CPU board's EEPROM record when
     a `jethome_board_info` is wired in), the runtime status, the live network
     link, on a firmware with a `web_auth` the HTTP credentials, on one with an
-    `mqtt_config` the MQTT client's settings and state, and — on a firmware with
+    `mqtt_config` the MQTT client's settings and state and with an
+    `mqtt_subscriptions` its subscription slots, and — on a firmware with
     a `config_json` store — the per-entity settings and their form fields.
     ESP-IDF (ESP32) only.
 
     This document is the wire contract; the TypeScript client in `client/device`
     implements it and the dashboard repository's dev server mocks it. Reads
-    answer GET only and writes POST only, `auth`, `entity-settings` and `mqtt`
-    both (a read on GET, a write on POST); any other method is `405` with an
-    `Allow` header. Route names match the URL path exactly, so an unknown name
-    under the prefix is `404`. A POST needs a `Content-Length`, even `0`:
+    answer GET only and writes POST only, `auth`, `entity-settings`, `mqtt` and
+    `mqtt/subscriptions` both (a read on GET, a write on POST); any other method
+    is `405` with an `Allow` header. Route names match the URL path exactly, so
+    an unknown name under the prefix is `404`. A POST needs a `Content-Length`, even `0`:
     ESP-IDF's server answers `411` without one. Every failure is
     `{"success": false, "error"}`.
 
@@ -389,6 +390,165 @@ paths:
                   value:
                     success: false
                     error: MQTT not available
+
+  /mqtt/subscriptions:
+    get:
+      tags: [read]
+      operationId: getMqttSubscriptions
+      summary: The subscription slots, as saved and as they run.
+      description: >-
+        Every slot from 1 to `max_slots`, an empty one with `topic: ""`. The
+        record fields are the saved slot; `entity` and `status` describe what
+        runs this boot, and `pending` says the two differ, so the slot changes
+        at the next restart. The slots are read from their file every time, on
+        the device's main loop, so `503` when that does not get to it. Only on
+        a firmware with an `mqtt_subscriptions`; without one this route is the
+        prefix's plain 404.
+      responses:
+        "200":
+          description: The slots.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MqttSubscriptions"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NoMqttSubscriptions"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          description: >-
+            The device was too busy to read the slots, and asking again may
+            succeed (`Device busy`); or the `mqtt_subscriptions` did not come up,
+            which a device does not reach.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                busy:
+                  value:
+                    success: false
+                    error: Device busy
+                not_available:
+                  value:
+                    success: false
+                    error: MQTT subscriptions not available
+    post:
+      tags: [write]
+      operationId: setMqttSubscription
+      summary: Save or clear one subscription slot.
+      description: >-
+        `{"slot", "enabled", "name", "topic", "kind", ...}` saves the slot whole:
+        `enabled`, `name`, `topic` and `kind` are required, the rest take their
+        defaults, and the fields the kind does not use are reset. `{"slot",
+        "action": "clear"}` empties it. The keys a read answers with that are
+        not slot fields (`pending`, `status`, `entity`) are ignored, so a slot
+        can be sent back as read. Reading the file, judging the slot and writing
+        the file are one step on the device's main loop: on a `503` nothing was
+        written. A saved slot applies after a restart, which `reboot_required`
+        says here and on `/status`. The request must say
+        `Content-Type: application/json`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/MqttSlotSave"
+                - $ref: "#/components/schemas/MqttSlotClear"
+      responses:
+        "200":
+          description: >-
+            Written, or nothing to write (`Nothing changed`). `reboot_required` is
+            the state after it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MqttSlotSaveResult"
+              examples:
+                saved:
+                  value:
+                    success: true
+                    message: Saved; applies after a reboot
+                    reboot_required: true
+                cleared:
+                  value:
+                    success: true
+                    message: Cleared; its entity goes after a reboot
+                    reboot_required: true
+        "400":
+          description: >-
+            Bad request — a body that is empty, not JSON or not an object
+            (`Invalid JSON`); a `slot` that is not a whole number from 1 to
+            `max_slots`; an `action` other than `clear`; a key that is not a slot
+            field (`'<key>' is not a slot field`); a value of the wrong type; or a
+            slot that breaks a rule, the first in this order — `name` empty, over
+            32 bytes, with control characters or a `/`; `topic` empty, over 128
+            bytes, with control characters, a leading or trailing space, `+` or
+            `#`; `json_path` over 64 bytes, with control characters, or not 1 to 6
+            keys separated by `.`; a `sensor`'s `unit` not in `units` or
+            `decimals` outside 0–4; a `binary_sensor`'s payloads not 1 to 32 bytes
+            or with control characters, or equal ignoring case;
+            and last, once the saved slots are read, a `name` giving the id of
+            another subscription (named in the answer), of another entity of its
+            kind or (a `sensor`) of a temperature probe.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                slot:
+                  value:
+                    success: false
+                    error: "'slot' must be a whole number from 1 to 16"
+                wildcard:
+                  value:
+                    success: false
+                    error: "'topic' cannot contain '+' or '#': a slot takes one topic"
+                name:
+                  value:
+                    success: false
+                    error: "'name' gives the same id as the entity 'Relay 1'"
+                other_subscription:
+                  value:
+                    success: false
+                    error: "'name' gives the same id as the subscription 'Garage door'; add a Latin letter or a digit"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NoMqttSubscriptions"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "503":
+          description: >-
+            Nothing was written: the storage is not mounted, the file could not be
+            read just now, or the write failed (`Storage unavailable`); the file
+            was written by newer firmware and is
+            left as it is; the device was too busy (`Device busy`); or the
+            `mqtt_subscriptions` did not come up, as for the read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                storage:
+                  value:
+                    success: false
+                    error: Storage unavailable
+                newer:
+                  value:
+                    success: false
+                    error: The subscriptions file was written by newer firmware; it is left as it is
+                busy:
+                  value:
+                    success: false
+                    error: Device busy
 
   /capabilities:
     get:
@@ -846,6 +1006,17 @@ components:
           example:
             success: false
             error: Not found
+    NoMqttSubscriptions:
+      description: >-
+        This firmware has no `mqtt_subscriptions`, so the route does not exist;
+        the answer is the prefix's plain 404.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Not found
     NoStore:
       description: >-
         This firmware has no `config_json` store, so the settings routes do not
@@ -1086,9 +1257,10 @@ components:
         reboot_required:
           type: boolean
           description: >-
-            A saved MQTT setting waits for a restart, or MQTT is held back and a
-            restart retries it; `reboot_reasons` names it. Modbus and Network
-            mode, which also apply on restart, are not tracked.
+            A saved MQTT setting or subscription slot waits for a restart, or MQTT
+            or its subscriptions are held back and a restart retries them;
+            `reboot_reasons` names it. Modbus and Network mode, which also apply
+            on restart, are not tracked.
         reboot_reasons:
           type: array
           description: What waits for the restart; omitted when nothing does.
@@ -1368,6 +1540,268 @@ components:
             discovery_cleanup:
               $ref: "#/components/schemas/MqttDiscoveryCleanup"
 
+    MqttSlotKind:
+      type: string
+      enum: [sensor, binary_sensor, text_sensor]
+      description: >-
+        The entity a slot runs as, by its domain: Number, On/Off or Text in the
+        dashboard.
+
+    MqttSlotFields:
+      type: object
+      description: >-
+        A slot's settings. `unit` and `decimals` are a `sensor`'s, `payload_on`
+        and `payload_off` a `binary_sensor`'s; for the other kinds they hold their
+        defaults.
+      properties:
+        enabled:
+          type: boolean
+          description: A disabled slot keeps its settings and runs no entity.
+        name:
+          type: string
+          description: >-
+            The entity's name, at most 32 bytes of UTF-8 without control
+            characters or `/`, trimmed. Its id must not be another subscription's,
+            another entity's of its kind or (a `sensor`) a temperature probe's.
+        topic:
+          type: string
+          description: >-
+            One exact topic, at most 128 bytes of UTF-8, without control
+            characters, `+` or `#`, nor a leading or trailing space. `""` is an
+            empty slot.
+        kind:
+          $ref: "#/components/schemas/MqttSlotKind"
+        json_path:
+          type: string
+          maxLength: 64
+          description: >-
+            Where the value sits in a JSON message: 1 to 6 keys separated by `.`,
+            a number picking an element of a list, without control characters.
+            `""` reads the whole message.
+        unit:
+          type: string
+          description: One of `units`, or `""`.
+        decimals:
+          type: integer
+          minimum: 0
+          maximum: 4
+        payload_on:
+          type: string
+          description: 1 to 32 bytes of UTF-8 without control characters, compared ignoring case.
+        payload_off:
+          type: string
+          description: 1 to 32 bytes like `payload_on`, not equal to it ignoring case.
+
+    MqttSlotSave:
+      allOf:
+        - $ref: "#/components/schemas/MqttSlotFields"
+        - type: object
+          required: [slot, enabled, name, topic, kind]
+          properties:
+            slot:
+              type: integer
+              minimum: 1
+              description: 1 to `max_slots`.
+      example:
+        slot: 3
+        enabled: true
+        name: Garage door
+        topic: zigbee2mqtt/garage_door
+        kind: binary_sensor
+        json_path: contact
+        payload_on: "false"
+        payload_off: "true"
+
+    MqttSlotClear:
+      type: object
+      required: [slot, action]
+      properties:
+        slot:
+          type: integer
+          minimum: 1
+        action:
+          type: string
+          enum: [clear]
+      example:
+        slot: 3
+        action: clear
+
+    MqttSlotState:
+      type: string
+      enum: ["off", waiting, ok, error, suspended]
+      description: >-
+        `off`: the slot runs nothing this boot (disabled, empty, breaking a rule,
+        or no room for its entity). `suspended`: its entity runs but nothing is
+        subscribed after repeated crashes. `waiting`: MQTT is not connected or no
+        message came yet. `error`: the last message could not be read. `ok`.
+
+    MqttSlot:
+      allOf:
+        - $ref: "#/components/schemas/MqttSlotFields"
+        - type: object
+          required:
+            - slot
+            - enabled
+            - name
+            - topic
+            - kind
+            - json_path
+            - unit
+            - decimals
+            - payload_on
+            - payload_off
+            - pending
+            - entity
+            - status
+          properties:
+            slot:
+              type: integer
+              minimum: 1
+            pending:
+              type: boolean
+              description: The saved slot differs from what runs; it changes at the next restart.
+            entity:
+              oneOf:
+                - type: object
+                  required: [domain, name]
+                  properties:
+                    domain:
+                      $ref: "#/components/schemas/MqttSlotKind"
+                    name:
+                      type: string
+                      description: The name `web_server` serves the entity under.
+                - type: "null"
+              description: The entity the slot runs as this boot, null when none.
+            status:
+              type: object
+              required: [state, value, raw, error, age_s]
+              properties:
+                state:
+                  $ref: "#/components/schemas/MqttSlotState"
+                value:
+                  type: string
+                  description: >-
+                    The value as the device shows it (`21.5 °C`, `On`, the text),
+                    `""` while it is unknown.
+                raw:
+                  type: string
+                  description: >-
+                    The first 64 bytes of the last message, stray bytes and
+                    control characters as `?`.
+                error:
+                  type: [string, "null"]
+                  description: >-
+                    Why the slot does not run (`invalid: <rule>`, `no room in the
+                    entity table`) or why the last message could not be read (`not
+                    JSON`, `key '<path>' not found`, `not a number`, `neither ON
+                    nor OFF`, `not UTF-8`, `message over 2 KiB`).
+                age_s:
+                  type: [integer, "null"]
+                  description: Seconds since the last message, null before one.
+
+    MqttSubscriptions:
+      type: object
+      required: [max_slots, reboot_required, suspended, file_error, units, reserved_names, slots]
+      properties:
+        max_slots:
+          type: integer
+          minimum: 1
+          maximum: 16
+        reboot_required:
+          type: boolean
+          description: >-
+            A saved slot differs from what runs, or the slots are suspended and a
+            restart retries them.
+        suspended:
+          type: boolean
+          description: >-
+            After two crashes in a row while connected, the slots run their
+            entities but nothing is subscribed this boot.
+        file_error:
+          type: [string, "null"]
+          description: >-
+            `newer_firmware`: the file was written by newer firmware, no slot runs
+            and saves are refused. `unreadable`: the file was read and is broken;
+            the next save sets it aside. `unreadable: renamed to
+            subscriptions.json.bad`: it was set aside at boot. `unavailable`: the
+            storage is not mounted, or the file could not be read just now; it is
+            left as it is and read again later.
+        units:
+          type: array
+          description: The units a `sensor` slot may take.
+          items:
+            type: string
+        reserved_names:
+          description: >-
+            The names temperature probes take, `<prefix> 1` to `<prefix> <count>`,
+            which a `sensor` slot's name may not give the id of; null on a
+            firmware without probes.
+          oneOf:
+            - type: object
+              required: [prefix, count]
+              properties:
+                prefix:
+                  type: string
+                count:
+                  type: integer
+                  minimum: 1
+            - type: "null"
+        slots:
+          type: array
+          items:
+            $ref: "#/components/schemas/MqttSlot"
+      example:
+        max_slots: 16
+        reboot_required: false
+        suspended: false
+        file_error: null
+        units: ["°C", "%"]
+        reserved_names:
+          prefix: Temp
+          count: 16
+        slots:
+          - slot: 1
+            enabled: true
+            name: Outdoor temperature
+            topic: zigbee2mqtt/outdoor
+            kind: sensor
+            json_path: temperature
+            unit: °C
+            decimals: 1
+            payload_on: "ON"
+            payload_off: "OFF"
+            pending: false
+            entity:
+              domain: sensor
+              name: Outdoor temperature
+            status:
+              state: ok
+              value: 21.4 °C
+              raw: '{"battery":97,"temperature":21.4,"humidity":48}'
+              error: null
+              age_s: 12
+
+    MqttSlotSaveResult:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          required: [reboot_required]
+          properties:
+            message:
+              type: string
+              enum:
+                - Saved; applies after a reboot
+                - Saved
+                - Nothing changed
+                - Cleared; its entity goes after a reboot
+                - Cleared
+              description: >-
+                `Saved` is a save back to what runs; `Cleared` empties a slot that
+                runs nothing this boot.
+            reboot_required:
+              type: boolean
+              description: Something waits for a restart now; `/status` reports it too.
+
     ConnectionType:
       type: string
       enum: [wifi, ethernet, none]
@@ -1519,6 +1953,18 @@ components:
           type: boolean
           enum: [true]
           description: "`/mqtt` is served: the firmware has an `mqtt_config`."
+        mqtt_subscriptions:
+          type: object
+          required: [max_slots]
+          description: >-
+            `/mqtt/subscriptions` is served: the firmware has an
+            `mqtt_subscriptions`, with this many slots.
+          properties:
+            max_slots:
+              type: integer
+              minimum: 1
+              maximum: 16
+              example: 16
       example:
         reboot: true
         factory_reset:
@@ -1539,6 +1985,8 @@ components:
           types: [switch, binary_sensor]
         board_info: true
         mqtt: true
+        mqtt_subscriptions:
+          max_slots: 16
 
     StorageCapability:
       type: object

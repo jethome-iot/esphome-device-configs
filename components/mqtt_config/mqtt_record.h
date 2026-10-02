@@ -93,6 +93,10 @@ StoredMqttV1 to_stored(const MqttRecord &record, const StoredMqttV1 &base);
 // Every field is cut at its buffer's end, so a corrupted record still reads as text.
 MqttRecord from_stored(const StoredMqttV1 &stored);
 
+// The length of the well-formed UTF-8 sequence at `p`, its code point in `cp`; 0 for a stray
+// or cut sequence, an overlong form, a surrogate or a code point past U+10FFFF.
+size_t utf8_sequence(const uint8_t *p, const uint8_t *end, uint32_t &cp);
+
 // Valid UTF-8 without control characters (U+0000–U+001F, U+007F–U+009F): overlong forms,
 // surrogates, code points past U+10FFFF and cut sequences all fail.
 bool is_text(const std::string &value);

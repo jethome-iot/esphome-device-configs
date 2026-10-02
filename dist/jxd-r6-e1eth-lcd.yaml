@@ -75,6 +75,13 @@ external_components:
       ref: master
       path: components
     components:
+      - mqtt_subscriptions
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
       - filesystem_storage_abstract
       - littlefs_storage
       - config_base
@@ -157,6 +164,9 @@ web_server:
     - id: group_system
       name: System
       sorting_weight: 60
+    - id: group_mqtt
+      name: MQTT
+      sorting_weight: 35
   auth:
     type: digest
     username: admin
@@ -1138,6 +1148,13 @@ mqtt:
   log_topic: null
 mqtt_config:
   id: mqtt_settings
+mqtt_subscriptions:
+  id: mqtt_subs
+  storage: user_storage
+  max_slots: 16
+  web_server:
+    sorting_group_id: group_mqtt
+    sorting_weight: 1
 network:
   priority:
     - ethernet
