@@ -6,15 +6,15 @@
 
 namespace esphome::mqtt_config::testing {
 
-// What the menu font carries: the Latin kernel's ASCII, Cyrillic, and the few symbols checked.
-static bool menu_font(uint32_t code_point) {
+// A stand-in for the menu font, not its glyph list: ASCII, Cyrillic and the symbols these cases use.
+static bool font_stand_in(uint32_t code_point) {
   return (code_point >= 0x20 && code_point <= 0x7E) || (code_point >= 0x400 && code_point <= 0x4FF) ||
          code_point == 0xB0 || code_point == 0xB2 || code_point == 0xB3 || code_point == 0xB5 || code_point == 0x2026;
 }
 static bool every_glyph(uint32_t) { return true; }
 
 static std::string safe(const std::string &text, size_t max_bytes = 72) {
-  return panel_safe(text, max_bytes, menu_font);
+  return panel_safe(text, max_bytes, font_stand_in);
 }
 
 // upstream's extract_unicode_codepoint (components/font/font.cpp, ESPHome 2026.9.0), static there
@@ -110,7 +110,7 @@ TEST(PanelSafe, WhatTheFontDrawsPassesThrough) {
 TEST(PanelSafe, ACodePointTheFontLacksIsOneQuestionMark) {
   EXPECT_EQ(safe("日本"), "??");
   EXPECT_EQ(safe("\xF0\x9F\x98\x80 ok"), "? ok");  // an emoji, four bytes
-  EXPECT_EQ(safe("\xE2\x82\xAC 5"), "? 5");        // €
+  EXPECT_EQ(safe("caf\xC3\xA9 5"), "caf? 5");      // é
 }
 
 TEST(PanelSafe, AControlCharacterIsAQuestionMarkWhateverTheFont) {
@@ -203,13 +203,14 @@ TEST(PanelSafe, ACutInsideACodePointDropsIt) {
 
 // Every one- and two-byte string, and three- and four-byte ones from the bytes where the rules
 // change, come out as text the font reads to the end: with every glyph present, so what is
-// well-formed reaches the font's decoder, and with the menu font's.
+// well-formed reaches the font's decoder, and with the stand-in's.
 TEST(PanelSafe, NothingItReturnsStopsTheFont) {
   const std::vector<uint8_t> edges = {0x00, 0x0A, 0x41, 0x7F, 0x80, 0x8F, 0x90, 0x9F, 0xA0, 0xBF, 0xC0, 0xFF};
   auto check = [](const std::string &text) {
     EXPECT_TRUE(the_font_draws_all_of(panel_safe(text, 72, every_glyph), every_glyph))
         << ::testing::PrintToString(text);
-    EXPECT_TRUE(the_font_draws_all_of(panel_safe(text, 72, menu_font), menu_font)) << ::testing::PrintToString(text);
+    EXPECT_TRUE(the_font_draws_all_of(panel_safe(text, 72, font_stand_in), font_stand_in))
+        << ::testing::PrintToString(text);
   };
   auto byte = [](int value) { return static_cast<char>(value); };
   for (int a = 0; a < 256; a++) {
