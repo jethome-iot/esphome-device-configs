@@ -44,8 +44,8 @@ point takes credentials from anyone in radio range.
 
 The credentials live in the same flash area as the rest of the device's saved state, so a
 factory reset restores the ones the firmware was built with. After a forgotten password that
-means holding the FN button on the CPU board for 10 seconds, or **Settings → Factory reset** on
-a device with a display.
+means holding the FN button on the CPU board for 10 seconds once the device is running, or
+**Settings → Factory reset** on a device with a display.
 
 While the device still serves the factory password it says so in the boot log and on
 `/api/device/auth`.

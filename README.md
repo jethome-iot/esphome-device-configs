@@ -56,8 +56,9 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
 - **Password-protected web server**: `admin` / `admin` out of the factory, changed from the
   dashboard and kept across reboots ([details](components/web_auth/README.md))
 - **Factory reset**: **Settings → Factory reset** on the display, the dashboard, or the FN button
-  on the CPU board held for 10 seconds — the red LED then blinks fast for 5 seconds before the
-  device resets; the button works without the display and without the web password
+  on the CPU board held for 10 seconds on a running device — the LED then flashes red for
+  5 seconds before the device resets; the button works without the display and without the web
+  password
 
 ## Repository Layout
 

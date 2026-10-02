@@ -112,7 +112,7 @@ graphical_display_menu:
               on_value:
                 - lambda: 'id(factory_reset_yes)->set_text("Confirm - OK");'
                 - delay: 1s
-                - script.execute: factory_reset
+                - script.execute: run_factory_reset
 
         - type: command
           text: "Reboot device"

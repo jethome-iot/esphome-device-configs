@@ -31,6 +31,7 @@ external_components:
     components:
       - i2c_eeprom
       - jethome_board_info
+      - status_indicator
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -286,7 +287,11 @@ binary_sensor:
   - platform: template
     id: fn_held
     internal: true
-    lambda: return id(fn_button).state;
+    lambda: |-
+      static bool armed = false;
+      if (!id(fn_button).state)
+        armed = true;
+      return armed && id(fn_button).state;
     filters:
       - delayed_on: 10s
     on_press:
@@ -439,14 +444,76 @@ binary_sensor:
           } else {
             id(display1).show_page(id(main_page));
           }
+status_indicator:
+  id: red_led
+  pin:
+    number: GPIO2
+    ignore_strapping_warning: true
+text_sensor:
+  - platform: uptime
+    name: Uptime
+    id: uptime_sensor
+    internal: true
+    format:
+      separator: ' '
+  - platform: ethernet_info
+    ip_address:
+      name: Ethernet IP
+      web_server:
+        sorting_group_id: group_network
+        sorting_weight: 1
+      address_0:
+        id: ip_eth
+        on_value:
+          - component.update: ip
+    mac_address:
+      name: Ethernet MAC
+      web_server:
+        sorting_group_id: group_network
+        sorting_weight: 2
+      id: mac_eth
+  - platform: wifi_info
+    ip_address:
+      name: WiFi IP
+      web_server:
+        sorting_group_id: group_network
+        sorting_weight: 3
+      id: ip_wifi
+      on_value:
+        - component.update: ip
+    mac_address:
+      name: WiFi MAC
+      web_server:
+        sorting_group_id: group_network
+        sorting_weight: 4
+      id: mac_wifi
+  - platform: template
+    id: ip
+    internal: true
+    update_interval: never
+    lambda: |-
+      if (id(ethernet_id).is_connected())
+        return id(ip_eth).state;
+      if (id(wifi_id).is_connected())
+        return id(ip_wifi).state;
+      if (id(wifi_id).is_ap_active()) {
+        char buf[esphome::network::IP_ADDRESS_BUFFER_SIZE];
+        return std::string(id(wifi_id).wifi_soft_ap_ip().str_to(buf));
+      }
+      return std::string();
+pca9554:
+  - id: jxd_d6_r6_exp
+    pin_count: 16
+    address: 34
+  - id: jxd_display_exp
+    pin_count: 16
+    address: 36
+one_wire:
+  - platform: ds2484
+    id: one_wire_bus
+    address: 24
+    active_pullup: true
 switch:
-  - platform: gpio
-    name: Red led
-    id: red_led
-    web_server:
-      sorting_group_id: group_system
-      sorting_weight: 10
-    pin: GPIO2
   - platform: gpio
     name: Relay 1
     id: relay_1
@@ -513,70 +580,6 @@ switch:
       number: 5
       mode:
         output: true
-text_sensor:
-  - platform: uptime
-    name: Uptime
-    id: uptime_sensor
-    internal: true
-    format:
-      separator: ' '
-  - platform: ethernet_info
-    ip_address:
-      name: Ethernet IP
-      web_server:
-        sorting_group_id: group_network
-        sorting_weight: 1
-      address_0:
-        id: ip_eth
-        on_value:
-          - component.update: ip
-    mac_address:
-      name: Ethernet MAC
-      web_server:
-        sorting_group_id: group_network
-        sorting_weight: 2
-      id: mac_eth
-  - platform: wifi_info
-    ip_address:
-      name: WiFi IP
-      web_server:
-        sorting_group_id: group_network
-        sorting_weight: 3
-      id: ip_wifi
-      on_value:
-        - component.update: ip
-    mac_address:
-      name: WiFi MAC
-      web_server:
-        sorting_group_id: group_network
-        sorting_weight: 4
-      id: mac_wifi
-  - platform: template
-    id: ip
-    internal: true
-    update_interval: never
-    lambda: |-
-      if (id(ethernet_id).is_connected())
-        return id(ip_eth).state;
-      if (id(wifi_id).is_connected())
-        return id(ip_wifi).state;
-      if (id(wifi_id).is_ap_active()) {
-        char buf[esphome::network::IP_ADDRESS_BUFFER_SIZE];
-        return std::string(id(wifi_id).wifi_soft_ap_ip().str_to(buf));
-      }
-      return std::string();
-pca9554:
-  - id: jxd_d6_r6_exp
-    pin_count: 16
-    address: 34
-  - id: jxd_display_exp
-    pin_count: 16
-    address: 36
-one_wire:
-  - platform: ds2484
-    id: one_wire_bus
-    address: 24
-    active_pullup: true
 globals:
   - id: relays
     type: std::vector<switch_::Switch *>
@@ -946,7 +949,7 @@ entity_config:
   binary_sensor_settings_id: binary_sensor_settings
 bindings: null
 script:
-  - id: factory_reset
+  - id: run_factory_reset
     then:
       - lambda: |-
           // The partition is wiped at the next boot; the record has to outlive
@@ -961,12 +964,9 @@ script:
       - logger.log:
           level: WARN
           format: 'FN held for 10 s: factory reset in 5 s'
-      - repeat:
-          count: 50
-          then:
-            - switch.toggle: red_led
-            - delay: 100ms
-      - script.execute: factory_reset
+      - status_indicator.blink_fast: red_led
+      - delay: 5s
+      - script.execute: run_factory_reset
   - id: set_wifi_ap
     then:
       - lambda: |-
@@ -1534,7 +1534,7 @@ graphical_display_menu:
               on_value:
                 - lambda: id(factory_reset_yes)->set_text("Confirm - OK");
                 - delay: 1s
-                - script.execute: factory_reset
+                - script.execute: run_factory_reset
         - type: command
           text: Reboot device
           weight: 30

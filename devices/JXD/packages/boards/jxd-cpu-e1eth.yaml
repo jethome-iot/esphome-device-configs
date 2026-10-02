@@ -27,7 +27,7 @@ preferences:
 
 external_components:
   - source: ${components}
-    components: [i2c_eeprom, jethome_board_info]
+    components: [i2c_eeprom, jethome_board_info, status_indicator]
 
 i2c_eeprom:
   - id: eeprom_cpu
@@ -87,14 +87,13 @@ binary_sensor:
       # The board's boot button: GPIO0 is strapping by design.
       ignore_strapping_warning: true
 
-switch:
-  - platform: gpio
-    name: "Red led"
-    id: red_led
-    web_server:
-      sorting_group_id: group_system
-      sorting_weight: 10
-    pin: GPIO2
+# The bi-colour LED: green while the pin is low, red while it is high.
+status_indicator:
+  id: red_led
+  pin:
+    number: GPIO2
+    # Wired this way by the board's design, like GPIO0.
+    ignore_strapping_warning: true
 
 text_sensor:
   - platform: uptime
