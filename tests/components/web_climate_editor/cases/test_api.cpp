@@ -300,8 +300,6 @@ TEST_F(Editor, ASaveOntoAMissingSensorStopsTheThermostat) {
   ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
   hub().loop();
   entities().room.publish_state(15.f);
-  // Past the 10 s the relay stays open after the waiting pass opened it.
-  hub().ms += 10000;
   hub().loop();
   ASSERT_TRUE(entities().relay1.state);
 
@@ -803,7 +801,7 @@ TEST_F(Editor, StatusReportsTheControlLoop) {
 
   entities().room.publish_state(18.f);
   entities().floor.publish_state(26.f);
-  // Past the 10 s the relay stays open after the waiting pass opened it.
+  // Ten seconds on, so the reading has an age.
   hub().ms += 10000;
   hub().loop();
 
@@ -848,7 +846,6 @@ TEST_F(Editor, StatusReportsACoolingThermostat) {
             "cellar");
   hub().loop();
   entities().floor.publish_state(20.f);
-  hub().ms += 10000;
   hub().loop();
 
   Reply reply = this->get("status?id=cellar");
