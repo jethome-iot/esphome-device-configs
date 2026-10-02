@@ -592,6 +592,35 @@ void MqttConfig::write_settings_json(JsonObject root) const {
   }
 }
 
+// --- Display menu ---
+
+const char *MqttConfig::panel_state_text() const {
+  switch (this->state()) {
+    case MqttState::NOT_CONFIGURED:
+      return "MQTT: Not set";
+    case MqttState::OFF:
+      return this->last_error() == MqttError::CRASH_GUARD ? "MQTT: Held back" : "MQTT: Off";
+    case MqttState::CONNECTING:
+      return "MQTT: Connecting";
+    case MqttState::CONNECTED:
+      return "MQTT: Connected";
+    case MqttState::DISCONNECTED:
+      return "MQTT: Disconnected";
+  }
+  return "MQTT: Off";
+}
+
+std::string MqttConfig::panel_broker() const {
+  const MqttRecord &record = this->started_ ? this->applied_ : this->stored_;
+  if (record.broker.empty() || record.port == DEFAULT_PORT)
+    return record.broker;
+  // An IPv6 address carries colons of its own.
+  const bool bracket = record.broker.find(':') != std::string::npos;
+  return (bracket ? "[" + record.broker + "]" : record.broker) + ":" + std::to_string(record.port);
+}
+
+bool MqttConfig::panel_discovery() const { return this->started_ ? this->applied_.discovery : this->stored_.discovery; }
+
 void MqttConfig::dump_config() {
   const MqttRecord &s = this->stored_;
   ESP_LOGCONFIG(TAG,
