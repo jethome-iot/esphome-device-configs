@@ -211,6 +211,9 @@ MqttConfig::UpdateResult MqttConfig::update(const MqttPatch &patch) {
   this->foreign_ = false;
   this->stored_notice_.clear();
   this->stored_ = merged;
+  // The guard holds back a client that is on; with MQTT off it is no reason for anything.
+  if (this->held_back_)
+    this->last_error_ = merged.enabled ? MqttError::CRASH_GUARD : MqttError::NONE;
 
   if (clean_now) {
     this->start_cleanup_();

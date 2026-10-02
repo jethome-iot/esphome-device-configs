@@ -239,6 +239,8 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
     if (merged.enabled && merged.discovery) merged.clean_pending = false
     else if (cleanup) merged.clean_pending = true
     stored = merged
+    // The guard holds back a client that is on; with MQTT off it is no reason for anything.
+    if (heldBack) lastError = merged.enabled ? 'crash_guard' : null
 
     // A changed prefix cannot start live: command topics were subscribed with the boot's.
     let didStart = false

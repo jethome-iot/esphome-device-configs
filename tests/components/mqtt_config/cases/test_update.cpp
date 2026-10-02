@@ -293,6 +293,25 @@ TEST_F(UpdateTest, MqttOffWhileHeldBackLeavesTheRemovalToTheNextStart) {
   EXPECT_EQ(next.discovery_cleanup(), DiscoveryCleanup::NONE);
 }
 
+// Held back is a reason only while MQTT is on: turned off, the status no longer names the guard,
+// and turned on again in the same boot, it does.
+TEST_F(UpdateTest, TurningMqttOffWhileHeldBackClearsTheCrashGuardReason) {
+  TestConfig &c = this->held_back_with_discovery();
+  ASSERT_EQ(c.last_error(), MqttError::CRASH_GUARD);
+  this->save(patch_of([](MqttPatch &p) { p.enabled = false; }));
+  EXPECT_EQ(c.last_error(), MqttError::NONE);
+  EXPECT_EQ(c.state(), MqttState::OFF);
+  EXPECT_EQ(c.live_status().last_error, MqttError::NONE);
+  EXPECT_FALSE(c.reboot_required());
+  EXPECT_TRUE(this->settings_json()["last_error"].isNull());
+
+  this->save(patch_of([](MqttPatch &p) { p.enabled = true; }));
+  EXPECT_EQ(c.last_error(), MqttError::CRASH_GUARD);
+  EXPECT_EQ(c.live_status().last_error, MqttError::CRASH_GUARD);
+  EXPECT_TRUE(c.reboot_required());
+  EXPECT_FALSE(c.running());
+}
+
 // The old broker cannot be reached from a held-back boot, so it keeps the entries, as after a
 // broker change while disconnected; the reboot announces them on the new one.
 TEST_F(UpdateTest, ABrokerChangeWhileHeldBackLeavesTheOldBrokerItsEntries) {
