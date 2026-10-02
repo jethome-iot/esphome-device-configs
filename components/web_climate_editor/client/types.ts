@@ -236,6 +236,11 @@ export interface SaveResponse extends SuccessResponse {
   warning?: string
 }
 
+/** POST /delete: `persisted` is false when it is gone but its file is not, so a reboot brings it back. */
+export interface DeleteResponse extends SuccessResponse {
+  persisted: boolean
+}
+
 /** POST /enable: `persisted` is false when the change is live but the flag did not reach flash. */
 export interface EnableResponse extends SuccessResponse {
   persisted: boolean

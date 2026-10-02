@@ -222,14 +222,24 @@ paths:
         "200":
           description: >-
             Removed. Should the partition refuse both the removal and blanking
-            the file, the message says the thermostat comes back at the next boot.
+            the file, `persisted` is false and the message says the thermostat
+            comes back at the next boot.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SuccessEnvelope"
-              example:
-                success: true
-                message: Thermostat deleted
+                $ref: "#/components/schemas/DeleteResponse"
+              examples:
+                deleted:
+                  value:
+                    success: true
+                    message: Thermostat deleted
+                    persisted: true
+                comesBack:
+                  summary: Gone until the next boot
+                  value:
+                    success: true
+                    message: Thermostat deleted; its file could not be removed, so it comes back at the next boot
+                    persisted: false
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1224,6 +1234,23 @@ components:
         success: true
         message: Thermostat created
         id: living-room
+
+    DeleteResponse:
+      type: object
+      required: [success, message, persisted]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+        persisted:
+          type: boolean
+          description: False when the thermostat is gone but its file is not, so the next boot brings it back.
+      example:
+        success: true
+        message: Thermostat deleted
+        persisted: true
 
     EnableResponse:
       type: object

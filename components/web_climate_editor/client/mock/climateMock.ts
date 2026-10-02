@@ -1059,7 +1059,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
         running.delete(id)
         waitReasons.delete(id)
         docs.splice(i, 1)
-        return ok('Thermostat deleted')
+        return ok('Thermostat deleted', { persisted: true })
       }
 
       case 'enable':

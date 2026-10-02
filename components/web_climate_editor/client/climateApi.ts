@@ -23,6 +23,7 @@ import type {
   ControllerDraft,
   ControllerSaveInput,
   ControllersResponse,
+  DeleteResponse,
   EnableResponse,
   SaveResponse,
   StatusResponse,
@@ -58,7 +59,7 @@ export interface ClimateApi {
   /** POST /save with `id` — replace that controller's document; a rename keeps the id. */
   update(id: string, doc: ControllerDocument | ControllerDraft): Promise<SaveResponse>
   /** POST /delete?id= — remove it (no body). */
-  remove(id: string): Promise<SuccessResponse>
+  remove(id: string): Promise<DeleteResponse>
   /** POST /enable?id=&value=[&take_over=true] — start or stop without deleting (no body). */
   setEnabled(id: string, value: boolean, options?: EnableOptions): Promise<EnableResponse>
   /** POST /setpoint?id=&value= — move the target alone, running or not (no body). */
@@ -132,7 +133,7 @@ export function createClimateApi(options: ClimateApiOptions): ClimateApi {
       return save({ ...doc, id })
     },
     remove(id) {
-      return jpost<SuccessResponse>(`/delete?id=${q(id)}`)
+      return jpost<DeleteResponse>(`/delete?id=${q(id)}`)
     },
     setEnabled(id, value, options = {}) {
       const takeOver = value && options.takeOver ? '&take_over=true' : ''

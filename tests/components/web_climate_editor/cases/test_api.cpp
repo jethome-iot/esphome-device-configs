@@ -412,7 +412,7 @@ TEST_F(Editor, DeleteRemovesTheThermostatAndItsFile) {
   ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
   Reply reply = this->post("delete?id=living-room");
   EXPECT_EQ(reply.code, 200) << reply.body;
-  EXPECT_EQ(reply.body, R"({"success":true,"message":"Thermostat deleted"})");
+  EXPECT_EQ(reply.body, R"({"success":true,"message":"Thermostat deleted","persisted":true})");
   EXPECT_TRUE(this->files().empty());
   EXPECT_FALSE(hub().is_running("living-room"));
   EXPECT_EQ(hub().claimed_by("relay_1"), "");
@@ -429,7 +429,7 @@ TEST_F(Editor, DeleteEmptiesAFileItCannotRemove) {
   hub().refuse_remove = true;
   Reply reply = this->post("delete?id=living-room");
   ASSERT_EQ(reply.code, 200) << reply.body;
-  EXPECT_EQ(reply.body, R"({"success":true,"message":"Thermostat deleted"})");
+  EXPECT_EQ(reply.body, R"({"success":true,"message":"Thermostat deleted","persisted":true})");
   struct stat info {};
   ASSERT_EQ(stat((this->folder() + "/living-room.json").c_str(), &info), 0);
   EXPECT_EQ(info.st_size, 0);
@@ -447,6 +447,8 @@ TEST_F(Editor, DeleteSaysWhenTheThermostatComesBackAtTheNextBoot) {
   Reply reply = this->post("delete?id=living-room");
   ASSERT_EQ(reply.code, 200) << reply.body;
   EXPECT_EQ(reply.message(), "Thermostat deleted; its file could not be removed, so it comes back at the next boot");
+  ASSERT_TRUE(reply["persisted"].is<bool>()) << reply.body;
+  EXPECT_FALSE(reply["persisted"].as<bool>());
   EXPECT_EQ(hub().store().get("living-room"), nullptr);
   EXPECT_FALSE(hub().is_running("living-room"));
 }

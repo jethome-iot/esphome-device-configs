@@ -517,10 +517,15 @@ void WebClimateEditor::handle_delete_(AsyncWebServerRequest *request) {
       error = result.error;
       return true;
     }
+    JsonDocument answer;
+    answer["success"] = true;
     // The hub blanks a file it cannot unlink; this is the rarer case where that failed too.
-    json = success_json(result.persisted ? "Thermostat deleted"
+    answer["message"] = result.persisted ? "Thermostat deleted"
                                          : "Thermostat deleted; its file could not be removed, so it comes back "
-                                           "at the next boot");
+                                           "at the next boot";
+    // As on /enable, so a client need not parse the message for it.
+    answer["persisted"] = result.persisted;
+    serializeJson(answer, json);
     return true;
   });
   this->answer_(request, ran, code, error, json);
