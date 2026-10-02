@@ -319,13 +319,17 @@ TEST_F(Editor, SaveRoundTripsAConditionTriggerOverASwitch) {
   expected.replace(1, 0, "\"id\":" + std::to_string(id) + ",");
   EXPECT_EQ(this->get("get?id=" + std::to_string(id)).body, expected);
 
+  // NOT in_1 OR NOT relay_1: in_1 is never set, so the result holds at true and the update's
+  // start turns relay_1 on once. Flipping the switch alone would make relay_1 = NOT relay_1.
   std::string flipped = expected;
+  flipped.replace(flipped.find(R"("object_id":"in_1","state":"true")"), 33, R"("object_id":"in_1","state":"false")");
   flipped.replace(flipped.find(R"("object_id":"relay_1","state":"true")"), 36,
                   R"("object_id":"relay_1","state":"false")");
   Reply reply = this->post("save", flipped);
   ASSERT_EQ(reply.code, 200) << reply.body;
   EXPECT_EQ(reply.message(), "Automation updated");
   EXPECT_EQ(this->get("get?id=" + std::to_string(id)).body, flipped);
+  EXPECT_TRUE(entities().relay1.state);
 }
 
 TEST_F(Editor, SaveRefusesAConditionTriggerWithNoCondition) {
