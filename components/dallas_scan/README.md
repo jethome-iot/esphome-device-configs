@@ -119,7 +119,8 @@ device already in that slot change nothing; `check_assign(slot, address)` says w
 Like a forget, an assign that cannot write the table changes nothing.
 
 [`web_device_dashboard`](../web_device_dashboard/README.md) with `dallas_scan_id:` lists the
-slots, forgets and assigns them over HTTP, numbered from 1.
+slots, forgets and assigns them over HTTP, numbered from 1; its page does the same under
+**Settings → Temperature**.
 
 ## From lambdas
 

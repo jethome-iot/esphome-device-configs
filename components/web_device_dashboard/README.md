@@ -94,7 +94,8 @@ uses `factory_reset.clears_storage` to say whether a reset takes the uploaded fi
 Its **Settings → Firmware** tab uses `rollback` to name the slot a rollback would boot — with
 no key there, the action stays disabled instead of offering a `503`. Since that key moves, the
 page reads this route again whenever it shows the rollback, and after an update fails or a
-rollback is refused, rather than only on load.
+rollback is refused, rather than only on load. Its **Settings → Temperature** tab is gone once
+this route answers without `temperature_slots`.
 
 ### System actions
 
