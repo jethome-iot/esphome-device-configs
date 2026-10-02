@@ -116,7 +116,7 @@ export interface ControllerSummary {
   sensor_id: string
   heat_relay_id: string
   cool_relay_id: string
-  /** Enabled and bound to its sensor and relays. */
+  /** Enabled and bound to its sensor and relays. Enabled but not running, it waits: see SaveResponse.warning. */
   running: boolean
 }
 
@@ -221,6 +221,12 @@ export interface SuccessResponse {
 /** POST /save: the id of the controller created or updated. */
 export interface SaveResponse extends SuccessResponse {
   id: string
+  /**
+   * Present when it was saved enabled but does not run, and why: its sensor or a
+   * relay is not on the device ("not started: sensor 'attic' not found") or no
+   * climate entity was free. It waits; `message` repeats this after a `;`.
+   */
+  warning?: string
 }
 
 /** POST /enable: `persisted` is false when the change runs but did not reach flash. */

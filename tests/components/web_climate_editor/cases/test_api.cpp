@@ -241,29 +241,86 @@ TEST_F(Editor, SaveStopsAtTheLimitBeforeItLooksAtTheName) {
   EXPECT_EQ(this->files().size(), 3u);
 }
 
-// Running is what a document that says enabled asks for: it is saved only if it can.
-TEST_F(Editor, AnEnabledSaveNeedsItsSensorAndRelaysFree) {
-  std::string no_sensor = LIVING_ROOM;
-  no_sensor.replace(no_sensor.find("\"room\""), 6, "\"attic\"");
-  Reply reply = this->post("save", no_sensor);
-  EXPECT_EQ(reply.code, 400);
-  EXPECT_EQ(reply.error(), "No sensor \"attic\" on this device");
+// A sensor or relay the device does not have is no refusal: the thermostat is stored enabled
+// and waits for it, and the answer says so in a key of its own as well as in the message.
+TEST_F(Editor, AnEnabledThermostatWhoseSensorOrRelayIsMissingIsSavedAndWaits) {
+  std::string attic = LIVING_ROOM;
+  attic.replace(attic.find("\"room\""), 6, "\"attic\"");
+  Reply created = this->post("save", attic);
+  ASSERT_EQ(created.code, 200) << created.body;
+  EXPECT_EQ(created.body, R"({"success":true,"message":"Thermostat created; not started: sensor 'attic' not found",)"
+                          R"("id":"living-room","warning":"not started: sensor 'attic' not found"})");
+  EXPECT_EQ(this->files(), std::vector<std::string>{"living-room.json"});
+  EXPECT_TRUE(hub().store().get("living-room")->enabled);
+  EXPECT_FALSE(hub().is_running("living-room"));
+  EXPECT_EQ(hub().claimed_by("relay_1"), "");
 
-  std::string no_relay = LIVING_ROOM;
+  // Waiting shows as enabled and not running, with no reading and nothing driven.
+  Reply list = this->get("list");
+  JsonObject row = list["controllers"][0];
+  EXPECT_TRUE(row["enabled"].as<bool>());
+  EXPECT_FALSE(row["running"].as<bool>());
+  Reply status = this->get("status?id=living-room");
+  JsonObject state = status["controllers"][0];
+  EXPECT_FALSE(state["running"].as<bool>());
+  EXPECT_EQ(state["action"].as<std::string>(), "off");
+  EXPECT_EQ(state["fault"].as<std::string>(), "none");
+  EXPECT_TRUE(state["current_temperature"].isNull());
+  EXPECT_FALSE(state["heat_relay_on"].as<bool>());
+
+  std::string no_relay = with(LIVING_ROOM, R"("id":"living-room")");
   no_relay.replace(no_relay.find("relay_1"), 7, "relay_9");
-  reply = this->post("save", no_relay);
-  EXPECT_EQ(reply.code, 400);
-  EXPECT_EQ(reply.error(), "No switch \"relay_9\" on this device");
+  Reply updated = this->post("save", no_relay);
+  ASSERT_EQ(updated.code, 200) << updated.body;
+  EXPECT_EQ(updated.message(), "Thermostat updated; not started: relay 'relay_9' not found");
+  EXPECT_EQ(updated["warning"].as<std::string>(), "not started: relay 'relay_9' not found");
+  EXPECT_FALSE(hub().is_running("living-room"));
 
+  // An internal sensor is no input, so it is as missing as one the device never had.
+  std::string hidden = with(LIVING_ROOM, R"("id":"living-room")");
+  hidden.replace(hidden.find("\"room\""), 6, "\"probe\"");
+  EXPECT_EQ(this->post("save", hidden)["warning"].as<std::string>(), "not started: sensor 'probe' not found");
+
+  // Named what is there, the next Save starts it, and the answer carries no warning.
+  Reply fixed = this->post("save", with(LIVING_ROOM, R"("id":"living-room")"));
+  ASSERT_EQ(fixed.code, 200) << fixed.body;
+  EXPECT_EQ(fixed.body, R"({"success":true,"message":"Thermostat updated","id":"living-room"})");
+  EXPECT_TRUE(hub().is_running("living-room"));
+}
+
+// The hub stops a running thermostat a Save moves onto what is not there, and lets its relay go.
+TEST_F(Editor, ASaveOntoAMissingSensorStopsTheThermostat) {
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  hub().loop();
+  entities().room.publish_state(15.f);
+  // Past the 10 s the relay stays open after the waiting pass opened it.
+  hub().ms += 10000;
+  hub().loop();
+  ASSERT_TRUE(entities().relay1.state);
+
+  std::string attic = with(LIVING_ROOM, R"("id":"living-room")");
+  attic.replace(attic.find("\"room\""), 6, "\"attic\"");
+  Reply reply = this->post("save", attic);
+  ASSERT_EQ(reply.code, 200) << reply.body;
+  EXPECT_EQ(reply["warning"].as<std::string>(), "not started: sensor 'attic' not found");
+  EXPECT_FALSE(hub().is_running("living-room"));
+  EXPECT_TRUE(hub().store().get("living-room")->enabled);
+  EXPECT_EQ(hub().claimed_by("relay_1"), "");
+  EXPECT_FALSE(entities().relay1.state);
+}
+
+// What a Save of an enabled thermostat still refuses: a sensor that is there but not in °C, and
+// a relay a running thermostat holds, even when the sensor is missing as well.
+TEST_F(Editor, AnEnabledSaveRefusesASensorNotInCelsiusAndAHeldRelay) {
   std::string not_celsius = LIVING_ROOM;
   not_celsius.replace(not_celsius.find("\"room\""), 6, "\"uptime\"");
-  reply = this->post("save", not_celsius);
+  Reply reply = this->post("save", not_celsius);
   EXPECT_EQ(reply.code, 400);
   EXPECT_EQ(reply.error(), "\"Uptime\" reports s, not °C");
   EXPECT_TRUE(this->files().empty());
 
-  // A disabled one may wait for what it names.
-  EXPECT_EQ(this->post("save", with(no_sensor.c_str(), R"("enabled":false)")).code, 200);
+  // A disabled one may name it: it is not about to run.
+  EXPECT_EQ(this->post("save", with(not_celsius.c_str(), R"("enabled":false)")).code, 200);
 
   ASSERT_EQ(this->create(FLOOR), "floor");
   std::string shares = LIVING_ROOM;
@@ -272,6 +329,13 @@ TEST_F(Editor, AnEnabledSaveNeedsItsSensorAndRelaysFree) {
   reply = this->post("save", shares);
   EXPECT_EQ(reply.code, 409);
   EXPECT_EQ(reply.error(), "\"Relay 2\" is already driven by \"Floor\"");
+
+  shares.replace(shares.find("\"room\""), 6, "\"attic\"");
+  reply = this->post("save", shares);
+  EXPECT_EQ(reply.code, 409);
+  EXPECT_EQ(reply.error(), "\"Relay 2\" is already driven by \"Floor\"");
+  EXPECT_EQ(this->files().size(), 2u);
+  EXPECT_EQ(hub().store().get("kitchen"), nullptr);
 }
 
 TEST_F(Editor, AFileThatCannotBeWrittenIsAServerError) {
@@ -313,6 +377,7 @@ TEST_F(Editor, AThermostatWithNoFreeEntityIsStoredAndTheAnswerSaysSo) {
   Reply created = this->post("save", LIVING_ROOM);
   ASSERT_EQ(created.code, 200) << created.body;
   EXPECT_EQ(created.message(), "Thermostat created; not started: no free climate entity");
+  EXPECT_EQ(created["warning"].as<std::string>(), "not started: no free climate entity");
   EXPECT_EQ(created["id"].as<std::string>(), "living-room");
   EXPECT_EQ(this->files(), std::vector<std::string>{"living-room.json"});
   EXPECT_FALSE(hub().is_running("living-room"));
@@ -321,6 +386,7 @@ TEST_F(Editor, AThermostatWithNoFreeEntityIsStoredAndTheAnswerSaysSo) {
   Reply updated = this->post("save", with(LIVING_ROOM, R"("id":"living-room")"));
   ASSERT_EQ(updated.code, 200) << updated.body;
   EXPECT_EQ(updated.message(), "Thermostat updated; not started: no free climate entity");
+  EXPECT_EQ(updated["warning"].as<std::string>(), "not started: no free climate entity");
 
   ASSERT_EQ(this->post("enable?id=living-room&value=false").code, 200);
   Reply enabled = this->post("enable?id=living-room&value=true");
@@ -547,6 +613,19 @@ TEST_F(Editor, EnableNeedsTheSensorBeforeItTakesAnythingOver) {
   EXPECT_EQ(reply.code, 400);
   EXPECT_EQ(reply.error(), "No sensor \"attic\" on this device");
   EXPECT_TRUE(hub().is_running("living-room"));
+}
+
+// Unlike a Save, a start is refused for what is missing, even for a thermostat already stored
+// enabled and waiting; it stays as it was.
+TEST_F(Editor, EnablingAWaitingThermostatStillNeedsItsSensor) {
+  std::string attic = LIVING_ROOM;
+  attic.replace(attic.find("\"room\""), 6, "\"attic\"");
+  ASSERT_EQ(this->post("save", attic).code, 200);
+  Reply reply = this->post("enable?id=living-room&value=true");
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "No sensor \"attic\" on this device");
+  EXPECT_TRUE(hub().store().get("living-room")->enabled);
+  EXPECT_FALSE(hub().is_running("living-room"));
 }
 
 // --- setpoint ---

@@ -60,7 +60,7 @@ seconds. Nothing was read or written then, and the call can simply be made again
 |---|---|---|
 | GET | `list` | `{"success": true, "count", "max_controllers", "controllers": [{"id", "name", "enabled", "kind", "mode", "sensor_id", "heat_relay_id", "cool_relay_id", "running"}, ...]}` |
 | GET | `get?id=` | One thermostat, in the file format of [climate_hub](../climate_hub/README.md#a-thermostat) |
-| POST | `save` | A thermostat as a JSON body. `id` absent or `""` creates one, an existing `id` replaces that one, renamed or not. Answers `{"success": true, "message", "id"}` |
+| POST | `save` | A thermostat as a JSON body. `id` absent or `""` creates one, an existing `id` replaces that one, renamed or not. Answers `{"success": true, "message", "id"}`, and a `warning` when it was saved enabled but does not run |
 | POST | `delete?id=` | Stops the thermostat and removes its file |
 | POST | `enable?id=&value=true\|false[&take_over=true]` | Starts or stops it and stores the flag. `{"success": true, "message", "persisted"}`; `persisted` is `false` when it runs but the flag did not reach flash |
 | POST | `setpoint?id=&value=` | Moves the target, clamped into the thermostat's range, whether it runs or not |
@@ -84,15 +84,30 @@ refusals come in this order, and the first one a document meets is the answer:
 3. `409` for a name another thermostat or a YAML climate answers to, compared without case and
    extra spaces or by the entity id both would get (`Room 1` and `Room_1`), and on a create for
    a name whose every id is taken by a file in the folder;
-4. for an enabled thermostat, `400` when its sensor or a relay is not on the device or its sensor
-   does not report °C (`"Uptime" reports s, not °C`), then `409` when a running thermostat holds
-   its relay: `"Relay 1" is already driven by "Living Room"`.
+4. for an enabled thermostat, `400` when its sensor does not report °C
+   (`"Uptime" reports s, not °C`), then `409` when a running thermostat holds its relay:
+   `"Relay 1" is already driven by "Living Room"`;
 5. `413` when the file the document makes would be over 8 KiB, a guard no document within the
    rules reaches.
 
-`enable` refuses the same two ways when it starts a thermostat. With `take_over=true` the
-thermostat holding the relay is stopped and stored as disabled first, in the same step, and the
-answer names it: `Thermostat enabled; "Living Room" stopped`.
+An enabled thermostat whose sensor or a relay is not on the device is no refusal: it is saved,
+stays enabled and waits without running, and a running one is stopped; `list` shows it enabled
+and not running. The answer is `200` with a `warning` that names what is missing, and the
+message repeats it:
+
+```json
+{"success": true, "message": "Thermostat created; not started: sensor 'attic' not found",
+ "id": "attic-room", "warning": "not started: sensor 'attic' not found"}
+```
+
+It starts at the next boot that finds what it names, or at a Save that names what is there. The
+same `warning` comes, as `not started: no free climate entity`, if no climate entity is free.
+
+`enable` refuses three ways when it starts a thermostat, one stored enabled and waiting too:
+`400` when its sensor or a relay is not on the device (`No sensor "attic" on this device`) or
+its sensor does not report °C, then `409` when a running thermostat holds its relay. With
+`take_over=true` the thermostat holding the relay is stopped and stored as disabled first, in
+the same step, and the answer names it: `Thermostat enabled; "Living Room" stopped`.
 
 An `id` is the thermostat's slug (`a-z`, `0-9`, single dashes, at most 48): a missing one is
 `Missing id parameter`, anything else `Invalid id parameter`. `value` and `take_over` of

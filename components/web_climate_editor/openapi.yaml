@@ -132,9 +132,15 @@ paths:
         `max_controllers`; `409` for a name another thermostat or a YAML
         climate answers to, or on a create for a name whose every id is taken
         by a file in the folder; and, for an enabled thermostat, `400` when its
-        sensor or a relay is not on the device or its sensor does not report
-        °C, then `409` when a running thermostat holds its relay. While the thermostat storage is not
-        usable, a body is `500` before it is read.
+        sensor does not report °C, then `409` when a running thermostat holds
+        its relay. While the thermostat storage is not usable, a body is `500`
+        before it is read.
+
+        An enabled thermostat whose sensor or a relay is not on the device is
+        no refusal: it is saved, stays enabled, and waits without running (a
+        running one is stopped). The `200` then carries a `warning` naming
+        what is missing. It starts at the next boot that finds what it names,
+        or at a Save that names what is there.
       requestBody:
         required: true
         content:
@@ -144,13 +150,26 @@ paths:
       responses:
         "200":
           description: >-
-            Created or updated. The message says which; it goes on after a `;`
-            in the rare case the thermostat was saved enabled but no climate
-            entity was free to run it.
+            Created or updated; the message says which. A thermostat saved
+            enabled that does not run gets a `warning` saying why, which the
+            message repeats after a `;`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SaveResponse"
+              examples:
+                running:
+                  value:
+                    success: true
+                    message: Thermostat created
+                    id: living-room
+                waiting:
+                  summary: Saved enabled, waiting for its sensor
+                  value:
+                    success: true
+                    message: "Thermostat created; not started: sensor 'temp_3' not found"
+                    id: attic
+                    warning: "not started: sensor 'temp_3' not found"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -230,11 +249,12 @@ paths:
       operationId: enableThermostat
       summary: Start or stop a thermostat, and store the flag.
       description: >-
-        Starting refuses like `/save` does for an enabled thermostat: `400` when
-        its sensor or a relay is not on the device or its sensor does not report
-        °C, `409` when a running thermostat holds its relay. With `take_over=true` that thermostat is
-        stopped and stored as disabled first, in the same step, and the answer
-        names it.
+        Starting refuses three ways: `400` when its sensor or a relay is not
+        on the device or its sensor does not report °C, then `409` when a
+        running thermostat holds its relay. Unlike `/save`, a missing sensor or
+        relay is refused here, for a thermostat already stored enabled too.
+        With `take_over=true` the thermostat holding the relay is stopped and
+        stored as disabled first, in the same step, and the answer names it.
       parameters:
         - $ref: "#/components/parameters/IdQuery"
         - name: value
@@ -449,8 +469,9 @@ components:
     BadRequest:
       description: >-
         Bad request — a missing or malformed parameter, a body that is empty or
-        not JSON, a document that breaks a rule, or an enabled thermostat whose
-        sensor or relay is not on the device or whose sensor does not report °C.
+        not JSON, a document that breaks a rule, an enabled thermostat whose
+        sensor does not report °C, or a start (`/enable`) whose sensor or relay
+        is not on the device.
       content:
         application/json:
           schema:
@@ -465,6 +486,7 @@ components:
                 success: false
                 error: "Name cannot contain '/'"
             entity:
+              summary: "/enable only"
               value:
                 success: false
                 error: No sensor "temp_3" on this device
@@ -901,7 +923,9 @@ components:
           type: string
         running:
           type: boolean
-          description: Enabled, and its sensor and relays were there to run on.
+          description: >-
+            Enabled, and its sensor and relays were there to run on. Enabled
+            and not running, it waits for them.
 
     ControllersResponse:
       type: object
@@ -1136,6 +1160,16 @@ components:
           type: string
         id:
           $ref: "#/components/schemas/Id"
+        warning:
+          type: string
+          description: >-
+            Present only when the thermostat was saved enabled but does not
+            run: its sensor or a relay is not on the device, or no climate
+            entity was free. It waits, stored enabled.
+          examples:
+            - "not started: sensor 'temp_3' not found"
+            - "not started: relay 'relay_9' not found"
+            - "not started: no free climate entity"
       example:
         success: true
         message: Thermostat created

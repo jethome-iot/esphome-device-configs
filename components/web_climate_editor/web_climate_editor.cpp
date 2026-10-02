@@ -491,6 +491,9 @@ void WebClimateEditor::handle_save_(AsyncWebServerRequest *request) {
     answer["success"] = true;
     answer["message"] = message;
     answer["id"] = id.empty() ? result.id : id;
+    // Saved enabled but not running: a client should not have to parse the message for that.
+    if (!result.warning.empty())
+      answer["warning"] = result.warning;
     serializeJson(answer, json);
     return true;
   });
