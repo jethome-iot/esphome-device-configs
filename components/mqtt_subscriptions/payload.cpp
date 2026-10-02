@@ -140,7 +140,8 @@ NumberReading number_from_text(const std::string &raw) {
     return {NAN, ""};
   char *end = nullptr;
   const float value = std::strtof(text.c_str(), &end);
-  if (end == text.c_str() || *end != '\0')
+  // The whole text: strtof stops at a NUL inside it as at its end.
+  if (end == text.c_str() || end != text.c_str() + text.size())
     return {NAN, "not a number"};
   return {finite_or_nan(value), ""};
 }

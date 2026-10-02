@@ -40,6 +40,10 @@ TEST(NumberPayload, PlainText) {
   EXPECT_UNKNOWN(number("21.5 °C"), "not a number");
   EXPECT_UNKNOWN(number("warm"), "not a number");
   EXPECT_UNKNOWN(number("true"), "not a number");
+  // A NUL is not the end of the number.
+  EXPECT_UNKNOWN(number(std::string("26.5\0bad", 8)), "not a number");
+  EXPECT_UNKNOWN(number(std::string("26.5\0", 5)), "not a number");
+  EXPECT_UNKNOWN(number(R"({"t":"26.5\u0000bad"})", "t"), "not a number");
 }
 
 TEST(NumberPayload, NullLikeIsUnknownWithoutAnError) {
