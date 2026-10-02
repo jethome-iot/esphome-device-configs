@@ -8,6 +8,8 @@ static const char *const REBOOT = "Saved; applies after a reboot";
 static const char *const SAVED = "Saved";
 static const char *const UNCHANGED = "Nothing changed";
 static const char *const STORE_FAILED = "Storing the MQTT settings failed; the old ones stay in force";
+static const char *const ENTRIES_STAY_OFF =
+    "Saved; this device's Home Assistant entries stay on the broker until MQTT is turned on again";
 
 static MqttPatch turn_on(const char *broker = "10.0.2.2") {
   MqttPatch p;
@@ -16,7 +18,25 @@ static MqttPatch turn_on(const char *broker = "10.0.2.2") {
   return p;
 }
 
-class UpdateTest : public MqttTest {};
+class UpdateTest : public MqttTest {
+ protected:
+  // A device whose last boots announced its entries, now held back after three crashes.
+  TestConfig &held_back_with_discovery() {
+    MqttRecord stored = enabled_record();
+    stored.discovery = true;
+    this->plant(stored);
+    this->board.rtc = CrashGuardRecord{CRASH_GUARD_MAGIC, 2, 1, {0, 0}};
+    this->board.panic = true;
+    TestConfig &c = this->boot();
+    EXPECT_FALSE(c.running());
+    return c;
+  }
+  // Reboot now: a software reset, which clears the streak.
+  TestConfig &soft_reboot() {
+    this->board.panic = false;
+    return this->reboot();
+  }
+};
 
 TEST_F(UpdateTest, TheFirstEnableInABootStartsTheClientAtOnce) {
   TestConfig &c = this->boot();
@@ -227,6 +247,99 @@ TEST_F(UpdateTest, AHeldBackClientIsNotStartedByASave) {
   EXPECT_FALSE(c.running());
   EXPECT_TRUE(c.reboot_required());
   EXPECT_EQ(this->client->enable_calls, 0);
+}
+
+// Nothing runs while held back, but the broker keeps what earlier boots announced: the reboot
+// that retries the client removes them.
+TEST_F(UpdateTest, DiscoveryOffWhileHeldBackRemovesTheEntriesAfterTheReboot) {
+  this->held_back_with_discovery();
+  const auto result = this->save(patch_of([](MqttPatch &p) { p.discovery = false; }));
+  EXPECT_STREQ(result.message, REBOOT);
+  EXPECT_TRUE(result.reboot_required);
+  EXPECT_EQ(result.cleanup, DiscoveryCleanup::PENDING);
+  EXPECT_TRUE(from_stored(this->board.record()).clean_pending);
+
+  TestConfig &next = this->soft_reboot();
+  EXPECT_TRUE(next.running());
+  EXPECT_TRUE(this->client->get_discovery_info().clean);
+  this->connect_and_settle();
+  next.run_loop();
+  EXPECT_EQ(this->discovery_publishes(""), 3u);
+  EXPECT_EQ(next.discovery_cleanup(), DiscoveryCleanup::NONE);
+  EXPECT_FALSE(from_stored(this->board.record()).clean_pending);
+}
+
+// MQTT off: nothing connects after the reboot, so the entries wait for MQTT to be turned on
+// again, and that first start removes them.
+TEST_F(UpdateTest, MqttOffWhileHeldBackLeavesTheRemovalToTheNextStart) {
+  this->held_back_with_discovery();
+  const auto result = this->save(patch_of([](MqttPatch &p) { p.enabled = false; }));
+  EXPECT_STREQ(result.message, ENTRIES_STAY_OFF);
+  EXPECT_FALSE(result.reboot_required);
+  EXPECT_EQ(result.cleanup, DiscoveryCleanup::PENDING);
+  EXPECT_TRUE(from_stored(this->board.record()).clean_pending);
+
+  TestConfig &next = this->soft_reboot();
+  EXPECT_FALSE(next.running());
+  EXPECT_EQ(next.discovery_cleanup(), DiscoveryCleanup::PENDING);
+  const auto on = this->save(patch_of([](MqttPatch &p) {
+    p.enabled = true;
+    p.discovery = false;
+  }));
+  EXPECT_STREQ(on.message, STARTED);
+  this->connect_and_settle();
+  next.run_loop();
+  EXPECT_EQ(this->discovery_publishes(""), 3u);
+  EXPECT_EQ(next.discovery_cleanup(), DiscoveryCleanup::NONE);
+}
+
+// The old broker cannot be reached from a held-back boot, so it keeps the entries, as after a
+// broker change while disconnected; the reboot announces them on the new one.
+TEST_F(UpdateTest, ABrokerChangeWhileHeldBackLeavesTheOldBrokerItsEntries) {
+  this->held_back_with_discovery();
+  const auto result = this->save(patch_of([](MqttPatch &p) { p.broker = std::string("192.168.1.20"); }));
+  EXPECT_STREQ(result.message, REBOOT);
+  EXPECT_EQ(result.cleanup, DiscoveryCleanup::NONE);
+  EXPECT_FALSE(from_stored(this->board.record()).clean_pending);
+
+  TestConfig &next = this->soft_reboot();
+  EXPECT_TRUE(next.running());
+  EXPECT_EQ(this->client->credentials().address, "192.168.1.20");
+  this->connect_and_settle();
+  EXPECT_EQ(this->discovery_publishes("{}"), 3u);
+  EXPECT_EQ(this->discovery_publishes(""), 0u);
+}
+
+// Only what earlier boots announced is flagged: without discovery, or with a change that keeps
+// the entries, a held-back save leaves no removal behind.
+TEST_F(UpdateTest, AHeldBackSaveFlagsNoRemovalWhenNothingWasAnnounced) {
+  this->held_back_with_discovery();
+  const auto kept = this->save(patch_of([](MqttPatch &p) { p.username = std::string("jxd"); }));
+  EXPECT_EQ(kept.cleanup, DiscoveryCleanup::NONE);
+
+  MqttRecord stored = enabled_record();
+  this->plant(stored);
+  this->board.rtc = CrashGuardRecord{CRASH_GUARD_MAGIC, 2, 1, {0, 0}};
+  this->board.panic = true;
+  TestConfig &c = this->reboot();
+  ASSERT_FALSE(c.running());
+  const auto off = this->save(patch_of([](MqttPatch &p) { p.enabled = false; }));
+  EXPECT_STREQ(off.message, SAVED);
+  EXPECT_EQ(off.cleanup, DiscoveryCleanup::NONE);
+  EXPECT_FALSE(from_stored(this->board.record()).clean_pending);
+}
+
+// MQTT off at boot with a removal still due: the entries wait for the next start, not for the
+// broker.
+TEST_F(UpdateTest, AChangeWhileOffWithARemovalDueSaysTheEntriesStay) {
+  MqttRecord stored = enabled_record();
+  stored.enabled = false;
+  stored.clean_pending = true;
+  this->plant(stored);
+  this->boot();
+  const auto result = this->save(patch_of([](MqttPatch &p) { p.port = 1884; }));
+  EXPECT_STREQ(result.message, ENTRIES_STAY_OFF);
+  EXPECT_EQ(result.cleanup, DiscoveryCleanup::PENDING);
 }
 
 // With the broker away the old one keeps the entries until it is back; MQTT stays on, so that

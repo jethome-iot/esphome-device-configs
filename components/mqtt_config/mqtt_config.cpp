@@ -177,15 +177,19 @@ MqttConfig::UpdateResult MqttConfig::update(const MqttPatch &patch) {
   if (const char *error = validate(merged, BUILD_HAS_IPV6); error != nullptr)
     return this->result_(400, error, false);
 
-  // Retained configs go now from the broker that has them: the config topic does not depend
-  // on the prefix, the client id or the credentials, so only these changes call for it.
-  const bool discovery_live = this->started_ && this->applied_.discovery;
-  const bool clean_now =
-      discovery_live && (!merged.discovery || !merged.enabled || merged.broker != this->applied_.broker ||
-                         merged.port != this->applied_.port);
+  // Retained configs go from the broker that has them: the config topic does not depend on
+  // the prefix, the client id or the credentials, so only these changes call for it.
+  const auto leaves = [&merged](const MqttRecord &from) {
+    return !merged.discovery || !merged.enabled || merged.broker != from.broker || merged.port != from.port;
+  };
+  const bool clean_now = this->started_ && this->applied_.discovery && leaves(this->applied_);
+  // Held back, nothing runs, yet the broker keeps what earlier boots announced: the next
+  // connect removes it.
+  const bool clean_later =
+      this->held_back_ && this->stored_.enabled && this->stored_.discovery && leaves(this->stored_);
   if (merged.enabled && merged.discovery) {
     merged.clean_pending = false;  // announced again at the next connect
-  } else if (clean_now) {
+  } else if (clean_now || clean_later) {
     merged.clean_pending = true;  // until a connect has finished it
   }
   // Command topics were subscribed with the boot's prefix, so a new one waits for a restart.
@@ -247,6 +251,8 @@ const char *MqttConfig::save_message_(bool started, bool enabled) const {
     return "Saved; applies after a reboot";
   if (cleanup == DiscoveryCleanup::RUNNING)
     return "Saved; removing this device's Home Assistant entries";
+  if (cleanup == DiscoveryCleanup::PENDING && !enabled)
+    return "Saved; this device's Home Assistant entries stay on the broker until MQTT is turned on again";
   if (cleanup == DiscoveryCleanup::PENDING)
     return "Saved; this device's Home Assistant entries go once the broker is reachable";
   return "Saved";

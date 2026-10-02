@@ -1353,6 +1353,7 @@ components:
                   back before then
                 - Saved; applies after a reboot
                 - Saved; removing this device's Home Assistant entries
+                - Saved; this device's Home Assistant entries stay on the broker until MQTT is turned on again
                 - Saved; this device's Home Assistant entries go once the broker is reachable
                 - Saved
                 - Nothing changed

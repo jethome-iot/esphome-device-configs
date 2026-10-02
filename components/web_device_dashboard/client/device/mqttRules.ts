@@ -46,6 +46,7 @@ export const MQTT_SAVE_MESSAGES = {
     "Saved; applies after a reboot. The broker is not reachable, so this device's Home Assistant entries stay on it unless it comes back before then",
   reboot: 'Saved; applies after a reboot',
   cleaning: "Saved; removing this device's Home Assistant entries",
+  entriesStayUntilOn: "Saved; this device's Home Assistant entries stay on the broker until MQTT is turned on again",
   cleaningPending: "Saved; this device's Home Assistant entries go once the broker is reachable",
   saved: 'Saved',
   unchanged: 'Nothing changed'
@@ -180,6 +181,7 @@ export function saveMessage(r: {
   if (r.reboot_required && r.discovery_cleanup === 'pending' && !r.enabled) return S.rebootEntriesStay
   if (r.reboot_required) return S.reboot
   if (r.discovery_cleanup === 'running') return S.cleaning
+  if (r.discovery_cleanup === 'pending' && !r.enabled) return S.entriesStayUntilOn
   if (r.discovery_cleanup === 'pending') return S.cleaningPending
   return S.saved
 }

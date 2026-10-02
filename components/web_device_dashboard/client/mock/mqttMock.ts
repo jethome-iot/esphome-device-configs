@@ -26,8 +26,9 @@ export const MQTT_MOCK_DNS_FAIL_SUFFIX = '.invalid'
 export interface MqttMockOptions {
   /**
    * Unset: the factory state. `connected`: on and connected. `unreachable`: on, and the
-   * broker never answers. `refused`: on, and the broker refuses the login. `none`: a
-   * firmware without MQTT, so the route is a 404 and neither /status nor /capabilities has it.
+   * broker never answers. `refused`: on, and the broker refuses the login. `held_back`: on
+   * with discovery, held back after repeated crashes until reboot(). `none`: a firmware
+   * without MQTT, so the route is a 404 and neither /status nor /capabilities has it.
    */
   mode?: string
   /** The node name, MAC-suffixed as a device has it: the default topic prefix. */
@@ -108,6 +109,8 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
   // What this boot runs, defaults filled in. Kept while not started for the boot's prefix.
   let applied: MqttRecord = { ...FACTORY }
   let started = false
+  /** The crash guard holds the client back this boot; a restart retries it. */
+  let heldBack = mode === 'held_back'
   let connected = false
   let lastError: MqttError | null = null
   /** When the attempt in flight began; null when none is. */
@@ -140,7 +143,8 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
     attemptSince = null
     // With discovery on, the entries are announced again anyway.
     cleanup = stored.clean_pending && !(stored.enabled && stored.discovery)
-    if (stored.enabled) start()
+    if (stored.enabled && heldBack) lastError = 'crash_guard'
+    else if (stored.enabled) start()
   }
 
   function finishCleanup(): void {
@@ -160,7 +164,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
   }
 
   function rebootRequired(): boolean {
-    if (!started) return stored.enabled && effPrefix(stored) !== applied.topic_prefix
+    if (!started) return stored.enabled && (heldBack || effPrefix(stored) !== applied.topic_prefix)
     return !(
       stored.enabled === applied.enabled &&
       stored.broker === applied.broker &&
@@ -197,7 +201,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
             discovery: applied.discovery
           }
         : null,
-      apply_now: !started,
+      apply_now: !started && !heldBack,
       reboot_required: rebootRequired(),
       discovery_cleanup: cleanupState(),
       stored_notice: null
@@ -222,14 +226,15 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
     if (invalid) return err(400, invalid)
 
     // While discovery runs, turning it off, turning MQTT off or moving the broker removes the
-    // entries now; discovery off then needs no reboot.
-    if (
-      started &&
-      applied.discovery &&
-      (!merged.discovery || !merged.enabled || merged.broker !== applied.broker || merged.port !== applied.port)
-    ) {
+    // entries now; discovery off then needs no reboot. Held back, nothing runs, but the broker
+    // keeps what earlier boots announced: the next connect removes it.
+    const leaves = (from: MqttRecord) =>
+      !merged.discovery || !merged.enabled || merged.broker !== from.broker || merged.port !== from.port
+    if (started && applied.discovery && leaves(applied)) {
       cleanup = true
       if (!merged.discovery) applied.discovery = false
+    } else if (heldBack && stored.enabled && stored.discovery && leaves(stored) && !(merged.enabled && merged.discovery)) {
+      cleanup = true
     }
     if (merged.enabled && merged.discovery) merged.clean_pending = false
     else if (cleanup) merged.clean_pending = true
@@ -237,7 +242,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
 
     // A changed prefix cannot start live: command topics were subscribed with the boot's.
     let didStart = false
-    if (!started && merged.enabled && effPrefix(merged) === applied.topic_prefix) {
+    if (!started && !heldBack && merged.enabled && effPrefix(merged) === applied.topic_prefix) {
       start()
       cleanup = merged.clean_pending && !merged.discovery
       didStart = true
@@ -280,6 +285,8 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
 
   if (mode === 'connected' || mode === 'unreachable' || mode === 'refused') {
     stored = { ...FACTORY, enabled: true, broker: '192.168.1.10', username: 'jxd', password: 'secret' }
+  } else if (mode === 'held_back') {
+    stored = { ...FACTORY, enabled: true, broker: '192.168.1.10', discovery: true }
   }
   boot()
   // A seeded device has been up a while: its first attempt is over.
@@ -298,10 +305,12 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
     tick,
     reboot() {
       if (connected && cleanup) finishCleanup()
+      heldBack = false
       boot()
     },
     factoryReset() {
       stored = { ...FACTORY }
+      heldBack = false
       boot()
     }
   }
