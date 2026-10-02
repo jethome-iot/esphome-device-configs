@@ -1,7 +1,7 @@
 // The firmware's MQTT settings rules (mqtt_config's validate() and parse_patch(), and the
 // messages a save answers with), with its messages verbatim, so a form can refuse what the
 // device would before the round trip. The device stays the authority: keep the two in step.
-import type { MqttDiscoveryCleanup, MqttSettingsUpdate, MqttSlotFields, MqttSlotKind } from './types'
+import type { MqttDiscoveryCleanup, MqttReservedNames, MqttSettingsUpdate, MqttSlotFields, MqttSlotKind } from './types'
 
 /** Size limits in UTF-8 bytes. broker and client_id take ASCII only, so their bytes are characters. */
 export const MQTT_LIMITS = { broker: 128, username: 64, password: 128, client_id: 64, topic_prefix: 64 } as const
@@ -357,13 +357,17 @@ export interface SlotNamedEntity {
  * The device's name check after validateSlot(): another saved slot (`others`, by index, empty
  * ones skipped), then another entity of the slot's kind, then (a sensor) a temperature probe's
  * name, `<prefix> 1` … `<prefix> <count>`. `index` is the slot's own, 0-based.
+ *
+ * `entities` must leave out the entities the slots run as (`MqttSlot.entity`), as the device
+ * does: the saved slots in `others` stand for them. `probes` is GET's `reserved_names`, null on
+ * a firmware without temperature probes.
  */
 export function slotNameConflict(
   index: number,
   slot: MqttSlotFields,
   others: readonly MqttSlotFields[],
   entities: readonly SlotNamedEntity[],
-  probes: { prefix: string; count: number } = { prefix: 'Temp', count: 16 }
+  probes: MqttReservedNames | null
 ): string | null {
   const id = slotObjectId(slot.name)
   for (let j = 0; j < others.length; j++) {
@@ -372,7 +376,7 @@ export function slotNameConflict(
   }
   const taken = entities.find((e) => e.domain === slot.kind && slotObjectId(e.name) === id)
   if (taken) return SLOT_NAME_MESSAGES.entity(taken.name)
-  if (slot.kind === 'sensor') {
+  if (slot.kind === 'sensor' && probes) {
     for (let n = 1; n <= probes.count; n++) {
       const probe = `${probes.prefix} ${n}`
       if (slotObjectId(probe) === id) return SLOT_NAME_MESSAGES.probe(probe)

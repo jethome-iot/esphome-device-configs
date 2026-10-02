@@ -595,6 +595,8 @@ TEST_F(ComponentTest, TheGetShape) {
   EXPECT_TRUE(doc["file_error"].isNull());
   ASSERT_EQ(doc["units"].size(), 2u);
   EXPECT_EQ(doc["units"][0], "°C");
+  EXPECT_TRUE(doc["reserved_names"].isNull());
+  EXPECT_FALSE(doc["reserved_names"].isUnbound());
   ASSERT_EQ(doc["slots"].size(), 4u);
 
   JsonObject first = doc["slots"][0];

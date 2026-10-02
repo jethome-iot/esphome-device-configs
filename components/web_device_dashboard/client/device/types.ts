@@ -557,6 +557,13 @@ export type MqttSlotFileError =
   | 'unreadable: renamed to subscriptions.json.bad'
   | 'unavailable'
 
+/** The names temperature probes take, `<prefix> 1` … `<prefix> <count>`, which a Number slot
+ *  cannot have. */
+export interface MqttReservedNames {
+  prefix: string
+  count: number
+}
+
 /** GET /mqtt/subscriptions. */
 export interface MqttSubscriptions {
   max_slots: number
@@ -567,6 +574,8 @@ export interface MqttSubscriptions {
   file_error: MqttSlotFileError | null
   /** The units a sensor slot may take. */
   units: string[]
+  /** Null on a firmware without temperature probes. */
+  reserved_names: MqttReservedNames | null
   /** Always `max_slots` entries, slot 1 first. */
   slots: MqttSlot[]
 }

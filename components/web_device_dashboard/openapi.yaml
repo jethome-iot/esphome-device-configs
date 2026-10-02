@@ -1694,7 +1694,7 @@ components:
 
     MqttSubscriptions:
       type: object
-      required: [max_slots, reboot_required, suspended, file_error, units, slots]
+      required: [max_slots, reboot_required, suspended, file_error, units, reserved_names, slots]
       properties:
         max_slots:
           type: integer
@@ -1724,6 +1724,21 @@ components:
           description: The units a `sensor` slot may take.
           items:
             type: string
+        reserved_names:
+          description: >-
+            The names temperature probes take, `<prefix> 1` to `<prefix> <count>`,
+            which a `sensor` slot's name may not give the id of; null on a
+            firmware without probes.
+          oneOf:
+            - type: object
+              required: [prefix, count]
+              properties:
+                prefix:
+                  type: string
+                count:
+                  type: integer
+                  minimum: 1
+            - type: "null"
         slots:
           type: array
           items:
@@ -1734,6 +1749,9 @@ components:
         suspended: false
         file_error: null
         units: ["°C", "%"]
+        reserved_names:
+          prefix: Temp
+          count: 16
         slots:
           - slot: 1
             enabled: true

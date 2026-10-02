@@ -15,6 +15,7 @@ import type {
   MqttDiscoveryCleanup,
   MqttError,
   MqttLiveStatus,
+  MqttReservedNames,
   MqttSettings,
   MqttSettingsUpdate,
   MqttSlot,
@@ -89,8 +90,11 @@ export interface MqttMockOptions {
   maxSlots?: number
   /** What a Number slot may show; MQTT_MOCK_UNITS by default. */
   units?: readonly string[]
-  /** The device's other entities, whose names a slot cannot take. */
+  /** The device's other entities, whose names a slot cannot take; not the slots' own. */
   entities?: () => readonly SlotNamedEntity[]
+  /** The names temperature probes take; the devices' `Temp 1` … `Temp 16` by default, null
+   *  for a firmware without probes. */
+  reservedNames?: MqttReservedNames | null
 }
 
 export interface MqttMockResult {
@@ -286,6 +290,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
   const maxSlots = o.maxSlots ?? 0
   const units = o.units ?? MQTT_MOCK_UNITS
   const otherEntities = o.entities ?? (() => [])
+  const reservedNames = o.reservedNames === undefined ? { prefix: 'Temp', count: 16 } : o.reservedNames
   let savedSlots: MqttSlotFields[] = Array.from({ length: maxSlots }, () => ({ ...SLOT_DEFAULTS }))
   let runningSlots: MqttSlotFields[] = savedSlots.map((slot) => ({ ...slot }))
   let runs: SlotRun[] = runningSlots.map(freshRun)
@@ -342,6 +347,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
       suspended: false,
       file_error: null,
       units: [...units],
+      reserved_names: reservedNames && { ...reservedNames },
       slots: savedSlots.map(
         (slot, i): MqttSlot => ({
           slot: i + 1,
@@ -366,7 +372,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
     const i = body.slot - 1
     const next = body.clear ? { ...SLOT_DEFAULTS } : body.fields
     if (!body.clear) {
-      const conflict = slotNameConflict(i, next, savedSlots, otherEntities())
+      const conflict = slotNameConflict(i, next, savedSlots, otherEntities(), reservedNames)
       if (conflict) return err(400, conflict)
     }
     const answer = (message: string): MqttMockResult => ({

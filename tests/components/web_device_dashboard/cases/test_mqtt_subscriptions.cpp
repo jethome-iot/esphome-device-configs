@@ -153,6 +153,9 @@ TEST_F(SlotsDashboard, AFreshDeviceListsEveryEmptySlot) {
   EXPECT_FALSE(reply["file_error"].isUnbound());
   ASSERT_EQ(reply["units"].size(), 1u);
   EXPECT_EQ(reply["units"][0].as<std::string>(), "°C");
+  // No probes on this firmware, so no names are kept for them.
+  EXPECT_TRUE(reply["reserved_names"].isNull());
+  EXPECT_FALSE(reply["reserved_names"].isUnbound());
   ASSERT_EQ(reply["slots"].size(), 2u);
   JsonObject slot = reply["slots"][1];
   EXPECT_EQ(slot["slot"].as<int>(), 2);

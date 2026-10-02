@@ -195,6 +195,9 @@ TEST_F(NamesTest, TheSameHoldsForOnOffAndText) {
 
 TEST_F(NamesTest, ANameAProbeWillTakeIsRefusedOnSave) {
   this->boot([](TestSubscriptions &s) { s.reserve_sensor_names("Temp", 16); });
+  JsonDocument doc = this->get();
+  EXPECT_EQ(doc["reserved_names"]["prefix"], "Temp");
+  EXPECT_EQ(doc["reserved_names"]["count"], 16);
   EXPECT_EQ(this->post(R"({"slot":1,"enabled":true,"name":"Temp 3","topic":"a","kind":"sensor"})").message,
             "'name' gives the same id as 'Temp 3', which a temperature probe takes");
   EXPECT_EQ(this->post(R"({"slot":1,"enabled":true,"name":"temp_16","topic":"a","kind":"sensor"})").message,

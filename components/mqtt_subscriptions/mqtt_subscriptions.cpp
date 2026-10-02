@@ -462,6 +462,14 @@ void MqttSubscriptions::write_api_json(JsonObject root) {
   JsonArray units = root["units"].to<JsonArray>();
   for (const std::string &unit : this->units_)
     units.add(unit);
+  // So a client refuses the names a probe takes only on a firmware that has probes.
+  if (this->reserved_count_ == 0) {
+    root["reserved_names"] = nullptr;
+  } else {
+    JsonObject reserved = root["reserved_names"].to<JsonObject>();
+    reserved["prefix"] = this->reserved_prefix_;
+    reserved["count"] = this->reserved_count_;
+  }
 
   const uint32_t now = this->now_ms_();
   JsonArray slots = root["slots"].to<JsonArray>();
