@@ -649,10 +649,11 @@ const char *MqttConfig::error_label(MqttError error) {
       return "Client ID refused";
     case MqttError::SERVER_UNAVAILABLE:
       return "Broker unavailable";
+    // mosquitto 2 refuses a wrong password, an unknown user and no credentials alike with
+    // "not authorized" under MQTT 3.1.1, so the two read the same.
     case MqttError::BAD_CREDENTIALS:
-      return "Wrong username or password";
     case MqttError::NOT_AUTHORIZED:
-      return "Not authorized (check username and password)";
+      return "Wrong username or password";
     case MqttError::CRASH_GUARD:
       return "Held back after repeated crashes";
   }

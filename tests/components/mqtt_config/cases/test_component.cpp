@@ -39,7 +39,7 @@ TEST(MqttConfigComponent, KeysAndLabelsAreTheContractsWords) {
       {MqttError::IDENTIFIER_REJECTED, "identifier_rejected", "Client ID refused"},
       {MqttError::SERVER_UNAVAILABLE, "server_unavailable", "Broker unavailable"},
       {MqttError::BAD_CREDENTIALS, "bad_credentials", "Wrong username or password"},
-      {MqttError::NOT_AUTHORIZED, "not_authorized", "Not authorized (check username and password)"},
+      {MqttError::NOT_AUTHORIZED, "not_authorized", "Wrong username or password"},
       {MqttError::CRASH_GUARD, "crash_guard", "Held back after repeated crashes"},
   };
   for (const auto &[error, key, label] : errors) {
