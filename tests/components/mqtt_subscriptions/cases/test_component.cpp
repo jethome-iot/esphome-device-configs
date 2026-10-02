@@ -283,16 +283,36 @@ TEST_F(ComponentTest, AFolderThatCannotBeMadeIsUnavailableStorage) {
   std::remove(this->folder().c_str());
 }
 
-TEST_F(ComponentTest, AWriteThatCannotReplaceTheFileLeavesNoTemporary) {
+// A folder where the file goes cannot be read, so nothing is concluded and nothing written.
+TEST_F(ComponentTest, AFolderWhereTheFileGoesTakesNoSave) {
   this->boot();
   mkdir(this->folder().c_str(), 0755);
-  // Folders in the file's place and in the place it would be set aside to: neither moves.
-  for (const std::string &path : {this->file(), this->file() + ".bad"}) {
-    mkdir(path.c_str(), 0755);
-    write_text(path + "/keep", "x");
-  }
+  mkdir(this->file().c_str(), 0755);
+  write_text(this->file() + "/keep", "x");
   EXPECT_EQ(this->post(R"({"slot":1,"enabled":true,"name":"A","topic":"a","kind":"sensor"})").result, Result::STORAGE);
   EXPECT_FALSE(exists(this->file() + ".tmp"));
+  EXPECT_FALSE(exists(this->file() + ".bad"));
+}
+
+// A full filesystem shows at the close: the old file stays, and the temporary goes.
+TEST_F(ComponentTest, AWriteThatCannotFinishLeavesTheOldFile) {
+  this->plant({outdoor()});
+  this->boot();
+  const std::string before = read_text(this->file());
+  ASSERT_EQ(symlink("/dev/full", (this->file() + ".tmp").c_str()), 0);
+  EXPECT_EQ(this->post(R"({"slot":2,"enabled":true,"name":"A","topic":"a","kind":"sensor"})").result, Result::STORAGE);
+  EXPECT_EQ(read_text(this->file()), before);
+  struct stat st;
+  EXPECT_NE(lstat((this->file() + ".tmp").c_str(), &st), 0);
+}
+
+// Over the 16 KiB a save could write: broken, so set aside at boot.
+TEST_F(ComponentTest, AnOversizedFileIsSetAside) {
+  this->plant_text("{\"version\":1,\"slots\":[]}" + std::string(FILE_MAX, ' '));
+  TestSubscriptions &s = this->boot();
+  EXPECT_FALSE(s.active(0));
+  EXPECT_FALSE(exists(this->file()));
+  EXPECT_TRUE(exists(this->file() + ".bad"));
 }
 
 TEST_F(ComponentTest, AStorageGoneFromUnderneathTakesNoSave) {
