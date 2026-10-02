@@ -74,8 +74,9 @@ class MQTTClientComponent;
 
 inline MQTTClientComponent *global_mqtt_client = nullptr;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
-// Upstream's topic_match (mqtt_client.cpp): `+` and `#` match, except at the top level of a
-// `$` topic.
+// Upstream's topic_match (mqtt_client.cpp), in its order: `+` and `#` match, except at the top
+// level of a `$` topic, and an exhausted topic fails before `#` is looked at, so `a/#` misses
+// `a` there although MQTT 3.1.1 counts zero levels. The stand-in keeps that, as the device does.
 inline bool topic_match(const char *message, const char *subscription, bool is_normal, bool past_separator) {
   if (*message == '\0' && *subscription == '\0')
     return true;
