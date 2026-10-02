@@ -973,6 +973,111 @@ TEST_F(Storage, AConditionTriggerSeesAnInputLoseItsState) {
   EXPECT_EQ(e.relay2.writes, 4);
 }
 
+// The start an add, an update or an enable makes runs as any rule's action does: an edit from
+// inside it is refused.
+TEST_F(Storage, AConditionTriggersStartRefusesAnEdit) {
+  boot();
+  uint32_t inner = 1;
+  int attempts = 0;
+  // A new name each time, so one that got through cannot make the next fail on a clash.
+  e.relay1.on_change = [&]() {
+    const std::string json =
+        R"({"name":"Inner )" + std::to_string(++attempts) + R"(","triggers":[{"source":"startup"}]})";
+    inner = engine->add_automation(rule(json.c_str()));
+  };
+  const uint32_t id =
+      engine->add_automation(rule(watching("Pump", R"({"type":"input","object_id":"in_1","state":"false"})").c_str()));
+  ASSERT_NE(id, 0u);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(inner, 0u);
+
+  inner = 1;
+  ASSERT_TRUE(engine->update_automation(id, rule(watching("Pump", R"({"type":"input","object_id":"in_1"})").c_str())));
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_EQ(inner, 0u);
+
+  inner = 1;
+  ASSERT_TRUE(engine->set_enable_automation(id, false));
+  e.in1.publish_state(true);
+  ASSERT_TRUE(engine->set_enable_automation(id, true));
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(inner, 0u);
+  EXPECT_EQ(attempts, 3);
+  EXPECT_EQ(names(), std::vector<std::string>{"Pump"});
+  EXPECT_EQ(log().count(log().errors, "Rules cannot be edited from inside a rule's own action"), 3u);
+}
+
+// Each branch waits before it drives the target.
+static std::string delayed(const char *mode, const char *target = "relay_1") {
+  return std::string(R"({"name":"Delayed","mode":")") + mode +
+         R"(","triggers":[{"source":"condition"}],"condition":{"type":"input","object_id":"in_1"},)"
+         R"("actions":[{"source":"delay","delay_ms":500},{"source":"switch","type":"turn_on","object_id":")" +
+         target +
+         R"("}],"else_actions":[{"source":"delay","delay_ms":500},{"source":"switch","type":"turn_off","object_id":")" +
+         target + R"("}]})";
+}
+
+TEST_F(Storage, InSingleAChangeDuringADelayIsLost) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(delayed("single").c_str())), 0u);
+  ASSERT_EQ(engine->delays.size(), 1u);
+  e.in1.publish_state(true);
+  EXPECT_EQ(engine->delays.size(), 1u);
+  ASSERT_TRUE(engine->fire_next());
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 1);
+  EXPECT_FALSE(engine->fire_next());
+}
+
+TEST_F(Storage, InRestartAChangeDuringADelayStartsOver) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(delayed("restart").c_str())), 0u);
+  ASSERT_EQ(engine->delays.size(), 1u);
+  e.in1.publish_state(true);
+  ASSERT_EQ(engine->delays.size(), 1u);
+  ASSERT_TRUE(engine->fire_next());
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 1);
+  EXPECT_FALSE(engine->fire_next());
+}
+
+TEST_F(Storage, AnUpdateTakesThePendingDelayWithTheOldRule) {
+  boot();
+  const uint32_t id = engine->add_automation(rule(delayed("restart").c_str()));
+  ASSERT_NE(id, 0u);
+  ASSERT_EQ(engine->delays.size(), 1u);
+  ASSERT_TRUE(engine->update_automation(id, rule(delayed("restart", "relay_2").c_str())));
+  ASSERT_EQ(engine->delays.size(), 1u);  // the new rule's own start
+  ASSERT_TRUE(engine->fire_next());
+  EXPECT_EQ(e.relay1.writes, 0);
+  EXPECT_EQ(e.relay2.writes, 1);
+  EXPECT_FALSE(engine->fire_next());
+}
+
+TEST_F(Storage, ConditionRulesChainThroughARelay) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(R"({"name":"First","triggers":[{"source":"condition"}],
+      "condition":{"type":"input","object_id":"in_1"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],
+      "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_1"}]})")),
+            0u);
+  ASSERT_NE(engine->add_automation(rule(R"({"name":"Second","triggers":[{"source":"condition"}],
+      "condition":{"type":"switch","object_id":"relay_1"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_2"}],
+      "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_2"}]})")),
+            0u);
+  e.in1.publish_state(true);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_TRUE(e.relay2.state);
+  e.in1.publish_state(false);
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_FALSE(e.relay2.state);
+  // Each start and each change once.
+  EXPECT_EQ(e.relay1.writes, 3);
+  EXPECT_EQ(e.relay2.writes, 3);
+  EXPECT_TRUE(log().warnings.empty());
+}
+
 TEST_F(Storage, AConditionTriggerWithoutAConditionIsRefused) {
   const char *bare =
       R"({"id":1,"name":"Bare","triggers":[{"source":"condition"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})";
