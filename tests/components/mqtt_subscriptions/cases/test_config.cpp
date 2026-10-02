@@ -204,6 +204,16 @@ TEST(SlotFileFormat, WhatCannotBeReadIsUnreadable) {
   EXPECT_EQ(parse_file(huge.data(), huge.size(), 4).status, SlotFile::Status::UNREADABLE);
 }
 
+// Running out of memory says nothing about the file, so it is no reason to set it aside.
+TEST(SlotFileFormat, OnlyAFileThatParsedBadlyIsUnreadable) {
+  EXPECT_EQ(parse_failure_status(DeserializationError::NoMemory), SlotFile::Status::FAILED);
+  for (auto code : {DeserializationError::EmptyInput, DeserializationError::IncompleteInput,
+                    DeserializationError::InvalidInput, DeserializationError::TooDeep}) {
+    SCOPED_TRACE(DeserializationError(code).c_str());
+    EXPECT_EQ(parse_failure_status(code), SlotFile::Status::UNREADABLE);
+  }
+}
+
 TEST(SlotFileFormat, ANewerVersionIsNewer) {
   const char *text = R"({"version":2,"slots":[{"slot":1,"enabled":true,"name":"A","topic":"t","kind":"sensor"}]})";
   const SlotFile file = parse_file(text, std::strlen(text), 4);

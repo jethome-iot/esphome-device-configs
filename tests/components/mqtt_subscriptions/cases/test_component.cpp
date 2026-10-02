@@ -342,6 +342,75 @@ TEST_F(ComponentTest, AnUnreadableFileThatCannotBeMovedStaysAndRunsNothing) {
   EXPECT_EQ(this->get()["file_error"], "unreadable");
 }
 
+// A read that fails now is not a broken file: nothing is set aside or overwritten.
+TEST_F(ComponentTest, AFileThatCannotBeReadAtBootIsLeftAsItIs) {
+  this->plant({outdoor()});
+  const std::string before = read_text(this->file());
+  TestSubscriptions &s = this->boot([](TestSubscriptions &s) { s.fail_reads = true; });
+  EXPECT_FALSE(s.active(0));
+  EXPECT_EQ(read_text(this->file()), before);
+  EXPECT_FALSE(exists(this->file() + ".bad"));
+  EXPECT_EQ(LogCapture::instance().count("no slot runs this boot"), 1u);
+  EXPECT_EQ(this->get()["file_error"], "unavailable");
+  // Once it reads again, the next boot would run the slot.
+  s.fail_reads = false;
+  JsonDocument doc = this->get();
+  EXPECT_TRUE(doc["file_error"].isNull());
+  EXPECT_TRUE(doc["reboot_required"].as<bool>());
+}
+
+TEST_F(ComponentTest, ASaveWhileTheFileCannotBeReadChangesNothing) {
+  SlotConfig door = slot_of("Door", "d", SlotKind::BINARY_SENSOR);
+  this->plant({outdoor(), door});
+  TestSubscriptions &s = this->boot();
+  const std::string before = read_text(this->file());
+  s.fail_reads = true;
+  const Answer answer = this->post(R"({"slot":3,"enabled":true,"name":"A","topic":"a","kind":"sensor"})");
+  EXPECT_EQ(answer.result, Result::STORAGE);
+  EXPECT_EQ(answer.message, "Storage unavailable");
+  EXPECT_FALSE(answer.reboot_required);
+  EXPECT_EQ(read_text(this->file()), before);
+  EXPECT_FALSE(exists(this->file() + ".bad"));
+  JsonDocument doc = this->get();
+  EXPECT_EQ(doc["file_error"], "unavailable");
+  EXPECT_EQ(doc["slots"][1]["name"], "Door");  // what was read before stands
+  s.fail_reads = false;
+  EXPECT_EQ(this->post(R"({"slot":3,"enabled":true,"name":"A","topic":"a","kind":"sensor"})").result, Result::OK);
+  const std::string text = read_text(this->file());
+  EXPECT_EQ(parse_file(text.data(), text.size(), 4).slots[1], door);
+}
+
+TEST_F(ComponentTest, AStatThatFailsIsNoVerdictEither) {
+  this->plant({outdoor()});
+  TestSubscriptions &s = this->boot([](TestSubscriptions &s) {
+    s.fail_stat = true;
+    s.set_check_interval(10);
+  });
+  EXPECT_FALSE(s.active(0));
+  EXPECT_EQ(this->post(R"({"slot":2,"action":"clear"})").result, Result::STORAGE);
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  App.scheduler.call(millis());
+  EXPECT_FALSE(s.reboot_required());
+  EXPECT_TRUE(exists(this->file()));
+}
+
+// What was last seen of the file stays as it was, so the next look tries again.
+TEST_F(ComponentTest, TheCheckTriesAgainAfterAReadThatFailed) {
+  this->plant({outdoor()});
+  TestSubscriptions &s = this->boot([](TestSubscriptions &s) { s.set_check_interval(10); });
+  SlotConfig moved = outdoor();
+  moved.topic = "zigbee2mqtt/outdoor_sensor";
+  this->plant({moved});
+  s.fail_reads = true;
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  App.scheduler.call(millis());
+  EXPECT_FALSE(s.reboot_required());
+  s.fail_reads = false;
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  App.scheduler.call(millis());
+  EXPECT_TRUE(s.reboot_required());
+}
+
 // Rewritten into garbage while running: reported, and set aside only by the save that replaces it.
 TEST_F(ComponentTest, AFileBrokenWhileRunningIsReportedAndSetAsideByTheNextSave) {
   this->plant({outdoor()});

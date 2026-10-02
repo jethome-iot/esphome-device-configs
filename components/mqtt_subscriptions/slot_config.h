@@ -85,10 +85,15 @@ std::string trim_ascii(const std::string &text);
 bool equal_ignoring_case(const std::string &a, const std::string &b);
 
 struct SlotFile {
-  enum class Status : uint8_t { OK, MISSING, UNREADABLE, NEWER };
+  // UNREADABLE: read, and broken. FAILED: not read whole this time (out of memory, a short
+  // read); nothing is concluded from it.
+  enum class Status : uint8_t { OK, MISSING, UNREADABLE, NEWER, FAILED };
   Status status{Status::MISSING};
   std::vector<SlotConfig> slots;  // max_slots of them, the empty ones included
 };
+
+// What a JSON parse error says about the file: running out of memory is no fault of its own.
+SlotFile::Status parse_failure_status(DeserializationError error);
 
 // The file's text. Entries past `max_slots`, repeated numbers and entries of the wrong type
 // are dropped with a log line; slots whose values break a rule are kept as written.

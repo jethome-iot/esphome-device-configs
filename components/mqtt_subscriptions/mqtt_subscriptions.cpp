@@ -1,6 +1,7 @@
 #include "mqtt_subscriptions.h"
 #include <sys/stat.h>
 #include <algorithm>
+#include <cerrno>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -46,7 +47,9 @@ void MqttSubscriptions::setup() {
 
   if (this->storage_ != nullptr && this->storage_->is_mounted()) {
     const SlotFile file = this->read_file_(true);
-    if (file.status == SlotFile::Status::NEWER) {
+    if (file.status == SlotFile::Status::FAILED) {
+      ESP_LOGE(TAG, "The subscriptions file could not be read; no slot runs this boot");
+    } else if (file.status == SlotFile::Status::NEWER) {
       this->newer_file_ = true;
       ESP_LOGW(TAG, "The subscriptions file is newer firmware's; no slot runs and the file stays as it is");
     } else if (file.status == SlotFile::Status::OK) {
@@ -299,27 +302,48 @@ MqttSubscriptions::Seen MqttSubscriptions::stat_file_() const {
     seen.exists = true;
     seen.size = static_cast<int64_t>(st.st_size);
     seen.mtime = st.st_mtime;
+  } else {
+    seen.failed = errno != ENOENT && errno != ENOTDIR;
   }
   return seen;
 }
 
+bool MqttSubscriptions::read_bytes_(const std::string &path, size_t size, std::string &out) const {
+  FILE *file = std::fopen(path.c_str(), "r");
+  if (file == nullptr)
+    return false;
+  out.assign(size, '\0');
+  const size_t read = std::fread(&out[0], 1, size, file);
+  std::fclose(file);
+  return read == size;
+}
+
 SlotFile MqttSubscriptions::read_file_(bool rename_bad) {
   const std::string path = this->file_path_();
-  this->seen_ = this->stat_file_();
+  const Seen seen = this->stat_file_();
   SlotFile out;
   out.slots.assign(this->max_slots_, SlotConfig{});
-  if (!this->seen_.exists)
-    return out;  // MISSING
-  out.status = SlotFile::Status::UNREADABLE;
-  if (this->seen_.size <= static_cast<int64_t>(FILE_MAX)) {
-    FILE *file = std::fopen(path.c_str(), "r");
-    if (file != nullptr) {
-      std::string text(static_cast<size_t>(this->seen_.size), '\0');
-      const size_t read = std::fread(&text[0], 1, text.size(), file);
-      std::fclose(file);
-      out = parse_file(text.data(), read, this->max_slots_);
-    }
+  out.status = SlotFile::Status::FAILED;
+  if (seen.failed) {
+    ESP_LOGW(TAG, "%s could not be looked at", path.c_str());
+    return out;
   }
+  if (!seen.exists) {
+    this->seen_ = seen;
+    out.status = SlotFile::Status::MISSING;
+    return out;
+  }
+  if (seen.size > static_cast<int64_t>(FILE_MAX)) {
+    out.status = SlotFile::Status::UNREADABLE;
+  } else if (std::string text; this->read_bytes_(path, static_cast<size_t>(seen.size), text)) {
+    out = parse_file(text.data(), text.size(), this->max_slots_);
+  }
+  // Not read whole this time: a later look tries again, and the file is not judged on it.
+  if (out.status == SlotFile::Status::FAILED) {
+    ESP_LOGW(TAG, "%s could not be read now", path.c_str());
+    return out;
+  }
+  this->seen_ = seen;
   if (out.status == SlotFile::Status::UNREADABLE && rename_bad) {
     // Its bytes are kept for whoever wants them; the slots start empty.
     const std::string bad = path + ".bad";
@@ -363,6 +387,8 @@ bool MqttSubscriptions::write_file_(const std::vector<SlotConfig> &slots) {
 }
 
 void MqttSubscriptions::take_saved_(const SlotFile &file) {
+  if (file.status == SlotFile::Status::FAILED)
+    return;
   if (file.status == SlotFile::Status::OK) {
     this->saved_ = file.slots;
   } else {
@@ -372,7 +398,9 @@ void MqttSubscriptions::take_saved_(const SlotFile &file) {
 }
 
 void MqttSubscriptions::check_file_() {
-  if (this->storage_ == nullptr || !this->storage_->is_mounted() || this->stat_file_() == this->seen_)
+  if (this->storage_ == nullptr || !this->storage_->is_mounted())
+    return;
+  if (const Seen now = this->stat_file_(); now.failed || now == this->seen_)
     return;
   ESP_LOGD(TAG, "The subscriptions file changed; reading it again");
   this->take_saved_(this->read_file_(false));
@@ -391,6 +419,8 @@ const char *MqttSubscriptions::file_error_(SlotFile::Status status) const {
     return "newer_firmware";
   if (status == SlotFile::Status::UNREADABLE)
     return "unreadable";
+  if (status == SlotFile::Status::FAILED)
+    return "unavailable";
   return this->boot_notice_.empty() ? nullptr : this->boot_notice_.c_str();
 }
 
@@ -494,6 +524,8 @@ MqttSubscriptions::Result MqttSubscriptions::post(JsonObjectConst body, std::str
     return answer(Result::STORAGE, "Storage unavailable");
   // Read, change one slot, write: a restore or a hand edit since the last look is kept.
   const SlotFile file = this->read_file_(true);
+  if (file.status == SlotFile::Status::FAILED)
+    return answer(Result::STORAGE, "Storage unavailable");
   this->take_saved_(file);
   if (file.status == SlotFile::Status::NEWER)
     return answer(Result::NEWER_FILE, "The subscriptions file was written by newer firmware; it is left as it is");

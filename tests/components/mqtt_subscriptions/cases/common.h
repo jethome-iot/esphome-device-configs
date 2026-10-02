@@ -157,6 +157,9 @@ class GuardConfig : public mqtt_config::MqttConfig {
 class TestSubscriptions : public MqttSubscriptions {
  public:
   uint32_t now{1000};
+  // A filesystem that cannot answer now: out of file handles, an I/O error.
+  bool fail_reads{false};
+  bool fail_stat{false};
 
   void forget_schedule() { this->cancel_interval("mqtt-subs-check"); }
   void set_check_interval(uint32_t ms) { this->check_interval_ms_ = ms; }
@@ -173,6 +176,16 @@ class TestSubscriptions : public MqttSubscriptions {
 
  protected:
   uint32_t now_ms_() const override { return this->now; }
+  Seen stat_file_() const override {
+    if (!this->fail_stat)
+      return MqttSubscriptions::stat_file_();
+    Seen seen;
+    seen.failed = true;
+    return seen;
+  }
+  bool read_bytes_(const std::string &path, size_t size, std::string &out) const override {
+    return !this->fail_reads && MqttSubscriptions::read_bytes_(path, size, out);
+  }
 };
 
 inline SlotConfig slot_of(const char *name, const char *topic, SlotKind kind = SlotKind::SENSOR) {

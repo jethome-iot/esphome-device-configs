@@ -548,9 +548,9 @@ export interface MqttSlot extends MqttSlotFields {
   status: MqttSlotStatus
 }
 
-/** `newer_firmware`: no slot runs and saves are refused. `unreadable`: the file cannot be read;
- *  the next save sets it aside. The renamed form: set aside at boot. `unavailable`: the storage
- *  is not mounted. */
+/** `newer_firmware`: no slot runs and saves are refused. `unreadable`: the file was read and is
+ *  broken; the next save sets it aside. The renamed form: set aside at boot. `unavailable`: the
+ *  storage is not mounted, or the file could not be read just now and is left as it is. */
 export type MqttSlotFileError =
   | 'newer_firmware'
   | 'unreadable'

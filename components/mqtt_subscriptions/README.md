@@ -64,8 +64,9 @@ The slots are `<storage>/<folder_path>/subscriptions.json`:
 - A file restored from a backup or written by hand is read again within 30 seconds, and its
   changes, like any other, apply after a reboot. A slot in it that breaks a rule does not run,
   and the device API says why.
-- A file the device cannot read is renamed to `subscriptions.json.bad` at boot, and the slots
-  start empty.
+- A file that is not valid is renamed to `subscriptions.json.bad` at boot, and the slots start
+  empty. One that could not be read just now is left as it is: no slot runs, a save is refused,
+  and the next look tries again.
 - A file written by newer firmware is left as it is: no slot runs and saves are refused.
 - A factory reset formats the storage, so the slots go with it.
 

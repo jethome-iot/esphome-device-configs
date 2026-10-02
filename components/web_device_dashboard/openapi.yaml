@@ -521,8 +521,9 @@ paths:
           $ref: "#/components/responses/UnsupportedMediaType"
         "503":
           description: >-
-            Nothing was written: the storage is not mounted or the write failed
-            (`Storage unavailable`); the file was written by newer firmware and is
+            Nothing was written: the storage is not mounted, the file could not be
+            read just now, or the write failed (`Storage unavailable`); the file
+            was written by newer firmware and is
             left as it is; the device was too busy (`Device busy`); or the
             `mqtt_subscriptions` did not come up, as for the read.
           content:
@@ -1713,9 +1714,11 @@ components:
           type: [string, "null"]
           description: >-
             `newer_firmware`: the file was written by newer firmware, no slot runs
-            and saves are refused. `unreadable`: the file cannot be read; the next
-            save sets it aside. `unreadable: renamed to subscriptions.json.bad`:
-            it was set aside at boot. `unavailable`: the storage is not mounted.
+            and saves are refused. `unreadable`: the file was read and is broken;
+            the next save sets it aside. `unreadable: renamed to
+            subscriptions.json.bad`: it was set aside at boot. `unavailable`: the
+            storage is not mounted, or the file could not be read just now; it is
+            left as it is and read again later.
         units:
           type: array
           description: The units a `sensor` slot may take.

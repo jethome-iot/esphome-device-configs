@@ -221,6 +221,10 @@ std::string object_id_of(const std::string &name) {
   return id;
 }
 
+SlotFile::Status parse_failure_status(DeserializationError error) {
+  return error == DeserializationError::NoMemory ? SlotFile::Status::FAILED : SlotFile::Status::UNREADABLE;
+}
+
 SlotFile parse_file(const char *data, size_t len, size_t max_slots) {
   SlotFile out;
   out.slots.assign(max_slots, SlotConfig{});
@@ -228,8 +232,10 @@ SlotFile parse_file(const char *data, size_t len, size_t max_slots) {
   if (len > FILE_MAX)
     return out;
   Document document;
-  if (deserializeJson(document.doc, data, len))
+  if (const DeserializationError error = deserializeJson(document.doc, data, len); error) {
+    out.status = parse_failure_status(error);
     return out;
+  }
   JsonObjectConst root = document.doc.as<JsonObjectConst>();
   JsonVariantConst version = root["version"];
   if (root.isNull() || !version.is<int64_t>() || version.as<int64_t>() < 1)

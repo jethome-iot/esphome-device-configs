@@ -92,11 +92,13 @@ class MqttSubscriptions : public Component {
   };
   // What a stat() of the file saw, to notice a rewrite nobody announced.
   struct Seen {
+    bool failed{false};  // stat() failed for another reason than a missing file
     bool exists{false};
     int64_t size{0};
     time_t mtime{0};
     bool operator==(const Seen &other) const {
-      return this->exists == other.exists && this->size == other.size && this->mtime == other.mtime;
+      return this->failed == other.failed && this->exists == other.exists && this->size == other.size &&
+             this->mtime == other.mtime;
     }
   };
 
@@ -105,11 +107,15 @@ class MqttSubscriptions : public Component {
 
   std::string folder_path_() const;
   std::string file_path_() const;
-  Seen stat_file_() const;
-  // Reads and parses the file; an unreadable one is renamed to .bad when `rename_bad`.
+  // Virtual, as read_bytes_: the host cannot make a filesystem fail on cue.
+  virtual Seen stat_file_() const;
+  // The file's `size` bytes; false when they could not all be read now.
+  virtual bool read_bytes_(const std::string &path, size_t size, std::string &out) const;
+  // Reads and parses the file; a broken one is renamed to .bad when `rename_bad`. One that
+  // could not be read now (FAILED) is left alone, and so is what was last seen of it.
   SlotFile read_file_(bool rename_bad);
   bool write_file_(const std::vector<SlotConfig> &slots);
-  // The slots the next boot would run from what was read.
+  // The slots the next boot would run from what was read; a FAILED read changes nothing.
   void take_saved_(const SlotFile &file);
   void check_file_();
   void update_pending_();
