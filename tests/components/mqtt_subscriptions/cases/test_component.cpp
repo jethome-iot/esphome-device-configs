@@ -244,7 +244,7 @@ TEST_F(ComponentTest, ASaveRewritesTheFileAndKeepsTheOtherSlots) {
   const Answer answer =
       this->post(R"({"slot":3,"enabled":true,"name":"Door","topic":"z2m/door","kind":"binary_sensor"})");
   EXPECT_EQ(answer.result, Result::OK);
-  EXPECT_EQ(answer.message, "Slot 3 saved; applies after a reboot");
+  EXPECT_EQ(answer.message, "Saved; applies after a reboot");
   EXPECT_TRUE(answer.reboot_required);
   EXPECT_FALSE(exists(this->file() + ".tmp"));
   const std::string text = read_text(this->file());
@@ -511,14 +511,14 @@ TEST_F(ComponentTest, WhatASaveSaysAndWhatWaits) {
       R"("json_path":"temperature","unit":"°C","decimals":1})";
   EXPECT_EQ(this->post(same).message, "Nothing changed");
   Answer answer = this->post(changed);
-  EXPECT_EQ(answer.message, "Slot 1 saved; applies after a reboot");
+  EXPECT_EQ(answer.message, "Saved; applies after a reboot");
   EXPECT_TRUE(answer.reboot_required);
   EXPECT_TRUE(s.reboot_required());
   EXPECT_TRUE(this->get()["slots"][0]["pending"].as<bool>());
   EXPECT_FALSE(this->get()["slots"][1]["pending"].as<bool>());
   // Back to what runs.
   answer = this->post(same);
-  EXPECT_EQ(answer.message, "Slot 1 saved");
+  EXPECT_EQ(answer.message, "Saved");
   EXPECT_FALSE(answer.reboot_required);
   EXPECT_FALSE(this->get()["slots"][0]["pending"].as<bool>());
 }
@@ -529,14 +529,14 @@ TEST_F(ComponentTest, WhatAClearSays) {
   this->plant({outdoor(), disabled});
   this->boot();
   Answer answer = this->post(R"({"slot":1,"action":"clear"})");
-  EXPECT_EQ(answer.message, "Slot 1 cleared; its entity goes after a reboot");
+  EXPECT_EQ(answer.message, "Cleared; its entity goes after a reboot");
   EXPECT_TRUE(answer.reboot_required);
   JsonDocument doc = this->get();
   EXPECT_EQ(doc["slots"][0]["topic"], "");
   EXPECT_FALSE(doc["slots"][0]["entity"].isNull());  // still runs this boot
   // A slot that runs nothing goes without a reboot.
   answer = this->post(R"({"slot":2,"action":"clear"})");
-  EXPECT_EQ(answer.message, "Slot 2 cleared");
+  EXPECT_EQ(answer.message, "Cleared");
   EXPECT_EQ(this->post(R"({"slot":2,"action":"clear"})").message, "Nothing changed");
   EXPECT_EQ(this->post(R"({"slot":4,"action":"clear"})").message, "Nothing changed");
   // A clear ignores the rest of the body.
@@ -549,7 +549,7 @@ TEST_F(ComponentTest, EditingASlotThatDoesNotRunNeedsNoReboot) {
   this->plant({disabled});
   this->boot();
   const Answer answer = this->post(R"({"slot":1,"enabled":false,"name":"Spare 2","topic":"other","kind":"sensor"})");
-  EXPECT_EQ(answer.message, "Slot 1 saved");
+  EXPECT_EQ(answer.message, "Saved");
   EXPECT_FALSE(answer.reboot_required);
 }
 
@@ -567,14 +567,14 @@ TEST_F(ComponentTest, ASlotThatDidNotStartIsPendingOnlyOnceTheNextBootWouldRunIt
 
   // Turned off, under a name a save takes.
   Answer answer = this->post(R"({"slot":1,"enabled":false,"name":"Spare","topic":"a","kind":"binary_sensor"})");
-  EXPECT_EQ(answer.message, "Slot 1 saved");
+  EXPECT_EQ(answer.message, "Saved");
   EXPECT_FALSE(answer.reboot_required);
   answer = this->post(R"({"slot":2,"action":"clear"})");
-  EXPECT_EQ(answer.message, "Slot 2 cleared");
+  EXPECT_EQ(answer.message, "Cleared");
   EXPECT_FALSE(answer.reboot_required);
 
   answer = this->post(R"({"slot":1,"enabled":true,"name":"Door","topic":"a","kind":"binary_sensor"})");
-  EXPECT_EQ(answer.message, "Slot 1 saved; applies after a reboot");
+  EXPECT_EQ(answer.message, "Saved; applies after a reboot");
   EXPECT_TRUE(answer.reboot_required);
   EXPECT_TRUE(this->get()["slots"][0]["pending"].as<bool>());
 }
@@ -586,7 +586,7 @@ TEST_F(ComponentTest, DisablingARunningSlotWaitsForTheReboot) {
   const Answer answer = this->post(
       R"({"slot":1,"enabled":false,"name":"Outdoor temperature","topic":"zigbee2mqtt/outdoor","kind":"sensor",)"
       R"("json_path":"temperature","unit":"°C","decimals":2})");
-  EXPECT_EQ(answer.message, "Slot 1 saved; applies after a reboot");
+  EXPECT_EQ(answer.message, "Saved; applies after a reboot");
   EXPECT_TRUE(answer.reboot_required);
 }
 

@@ -471,12 +471,12 @@ paths:
                 saved:
                   value:
                     success: true
-                    message: Slot 3 saved; applies after a reboot
+                    message: Saved; applies after a reboot
                     reboot_required: true
                 cleared:
                   value:
                     success: true
-                    message: Slot 3 cleared; its entity goes after a reboot
+                    message: Cleared; its entity goes after a reboot
                     reboot_required: true
         "400":
           description: >-
@@ -1785,10 +1785,15 @@ components:
           properties:
             message:
               type: string
+              enum:
+                - Saved; applies after a reboot
+                - Saved
+                - Nothing changed
+                - Cleared; its entity goes after a reboot
+                - Cleared
               description: >-
-                `Slot <N> saved; applies after a reboot`, `Slot <N> saved` (back to
-                what runs), `Nothing changed`, `Slot <N> cleared; its entity goes
-                after a reboot` or `Slot <N> cleared`.
+                `Saved` is a save back to what runs; `Cleared` empties a slot that
+                runs nothing this boot.
             reboot_required:
               type: boolean
               description: Something waits for a restart now; `/status` reports it too.

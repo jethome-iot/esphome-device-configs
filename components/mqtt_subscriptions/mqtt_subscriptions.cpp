@@ -573,10 +573,10 @@ MqttSubscriptions::Result MqttSubscriptions::post(JsonObjectConst body, std::str
   this->saved_ = std::move(next);
   this->update_pending_();
 
-  const std::string label = "Slot " + std::to_string(slot_number);
+  // Worded as the broker settings' answers: the dashboard lists subscriptions, not slots.
   if (clear)
-    return answer(Result::OK, label + (this->active(index) ? " cleared; its entity goes after a reboot" : " cleared"));
-  return answer(Result::OK, label + (this->slot_pending_(index) ? " saved; applies after a reboot" : " saved"));
+    return answer(Result::OK, this->active(index) ? "Cleared; its entity goes after a reboot" : "Cleared");
+  return answer(Result::OK, this->slot_pending_(index) ? "Saved; applies after a reboot" : "Saved");
 }
 
 // --- Loop task ---

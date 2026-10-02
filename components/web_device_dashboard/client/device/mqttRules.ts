@@ -250,11 +250,11 @@ export const SLOT_BODY_MESSAGES = {
 
 /** A 200's `message`. */
 export const SLOT_SAVE_MESSAGES = {
-  savedForReboot: (slot: number): string => `Slot ${slot} saved; applies after a reboot`,
-  saved: (slot: number): string => `Slot ${slot} saved`,
+  savedForReboot: 'Saved; applies after a reboot',
+  saved: 'Saved',
   unchanged: 'Nothing changed',
-  clearedForReboot: (slot: number): string => `Slot ${slot} cleared; its entity goes after a reboot`,
-  cleared: (slot: number): string => `Slot ${slot} cleared`
+  clearedForReboot: 'Cleared; its entity goes after a reboot',
+  cleared: 'Cleared'
 } as const
 
 /** The 503s a save can answer besides `Device busy`. */

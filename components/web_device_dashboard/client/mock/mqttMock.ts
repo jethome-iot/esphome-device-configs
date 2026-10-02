@@ -434,8 +434,8 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
     savedSlots[i] = next
     if (fileError === RENAMED) fileError = null  // a file written afresh
     const M = SLOT_SAVE_MESSAGES
-    if (body.clear) return answer(slotRuns(i) ? M.clearedForReboot(body.slot) : M.cleared(body.slot))
-    return answer(pendingAt(i) ? M.savedForReboot(body.slot) : M.saved(body.slot))
+    if (body.clear) return answer(slotRuns(i) ? M.clearedForReboot : M.cleared)
+    return answer(pendingAt(i) ? M.savedForReboot : M.saved)
   }
 
   function bootSlots(): void {

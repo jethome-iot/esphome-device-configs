@@ -164,7 +164,7 @@ TEST_F(NamesTest, AnotherSlotsNameIsTaken) {
   EXPECT_EQ(this->post(R"({"slot":3,"enabled":true,"name":"outdoor","topic":"c","kind":"sensor"})").message,
             "'name' gives the same id as slot 2; add a Latin letter or a digit");
   EXPECT_EQ(this->post(R"({"slot":3,"enabled":true,"name":"Outdoor 2","topic":"c","kind":"sensor"})").message,
-            "Slot 3 saved; applies after a reboot");
+            "Saved; applies after a reboot");
 }
 
 TEST_F(NamesTest, AnEntityOfTheSameKindIsTaken) {
@@ -177,7 +177,7 @@ TEST_F(NamesTest, AnEntityOfTheSameKindIsTaken) {
             "'name' gives the same id as the entity 'IP address'");
   // Another kind is another id space.
   EXPECT_EQ(this->post(R"({"slot":1,"enabled":true,"name":"Input 1","topic":"a","kind":"sensor"})").message,
-            "Slot 1 saved; applies after a reboot");
+            "Saved; applies after a reboot");
 }
 
 TEST_F(NamesTest, AnInternalEntityTakesNoName) {
@@ -188,7 +188,7 @@ TEST_F(NamesTest, AnInternalEntityTakesNoName) {
   this->boot();
   App.register_sensor(hidden, "Hidden", 0, 1u << ENTITY_FIELD_INTERNAL_SHIFT);
   EXPECT_EQ(this->post(R"({"slot":1,"enabled":true,"name":"Hidden","topic":"a","kind":"sensor"})").message,
-            "Slot 1 saved; applies after a reboot");
+            "Saved; applies after a reboot");
 }
 
 // The running entities are this component's own: what is saved decides, not what runs.
@@ -197,12 +197,12 @@ TEST_F(NamesTest, ARunningSlotDoesNotBlockItsOwnNameOrAnother) {
   this->boot();
   ASSERT_TRUE(this->subs->active(0));
   EXPECT_EQ(this->post(R"({"slot":1,"enabled":true,"name":"Outdoor","topic":"b","kind":"sensor"})").message,
-            "Slot 1 saved; applies after a reboot");
+            "Saved; applies after a reboot");
   EXPECT_EQ(this->post(R"({"slot":1,"enabled":true,"name":"Indoor","topic":"b","kind":"sensor"})").message,
-            "Slot 1 saved; applies after a reboot");
+            "Saved; applies after a reboot");
   // Slot 1's entity still runs as "Outdoor", but after the reboot that name is free.
   EXPECT_EQ(this->post(R"({"slot":2,"enabled":true,"name":"Outdoor","topic":"c","kind":"sensor"})").message,
-            "Slot 2 saved; applies after a reboot");
+            "Saved; applies after a reboot");
 }
 
 TEST_F(NamesTest, TheSameHoldsForOnOffAndText) {
@@ -227,7 +227,7 @@ TEST_F(NamesTest, ANameAProbeWillTakeIsRefusedOnSave) {
             MqttSubscriptions::Result::OK);
   // Probes are sensors only.
   EXPECT_EQ(this->post(R"({"slot":2,"enabled":true,"name":"Temp 3","topic":"a","kind":"text_sensor"})").message,
-            "Slot 2 saved; applies after a reboot");
+            "Saved; applies after a reboot");
 }
 
 // At boot no probe exists yet, so only the reservation keeps the slot from taking the name.

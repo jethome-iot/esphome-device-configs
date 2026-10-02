@@ -278,7 +278,7 @@ TEST_F(SlotsDashboard, ASaveAnswersWhatItDid) {
   Reply reply = this->post_slot(OUTDOOR);
   ASSERT_EQ(reply.code, 200);
   EXPECT_TRUE(reply.success());
-  EXPECT_EQ(reply.message(), "Slot 1 saved; applies after a reboot");
+  EXPECT_EQ(reply.message(), "Saved; applies after a reboot");
   EXPECT_TRUE(reply["reboot_required"].as<bool>());
   EXPECT_NE(this->file_text().find("zigbee2mqtt/outdoor"), std::string::npos);
   EXPECT_TRUE(this->get(SLOTS)["slots"][0]["pending"].as<bool>());
@@ -287,7 +287,7 @@ TEST_F(SlotsDashboard, ASaveAnswersWhatItDid) {
   EXPECT_EQ(reply.message(), "Nothing changed");
   reply = this->post_slot(R"({"slot":1,"action":"clear"})");
   EXPECT_EQ(reply.code, 200);
-  EXPECT_EQ(reply.message(), "Slot 1 cleared");
+  EXPECT_EQ(reply.message(), "Cleared");
   EXPECT_FALSE(reply["reboot_required"].as<bool>());
 }
 
@@ -295,7 +295,7 @@ TEST_F(SlotsDashboard, AClearOfARunningSlotSaysItsEntityGoesLater) {
   ASSERT_EQ(this->post_slot(OUTDOOR).code, 200);
   this->boot();
   Reply reply = this->post_slot(R"({"slot":1,"action":"clear"})");
-  EXPECT_EQ(reply.message(), "Slot 1 cleared; its entity goes after a reboot");
+  EXPECT_EQ(reply.message(), "Cleared; its entity goes after a reboot");
   EXPECT_TRUE(reply["reboot_required"].as<bool>());
 }
 
