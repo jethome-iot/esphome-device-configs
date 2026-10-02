@@ -1,0 +1,36 @@
+# The factory reset the display menu runs, and FN held for 10 s as the way to it that
+# needs neither the display nor the web credentials.
+binary_sensor:
+  - platform: template
+    id: fn_held
+    internal: true
+    lambda: return id(fn_button).state;
+    filters:
+      - delayed_on: 10s
+    on_press:
+      - script.execute: fn_factory_reset
+
+script:
+  - id: factory_reset
+    then:
+      - lambda: |-
+          // The partition is wiped at the next boot; the record has to outlive
+          // the preferences erase, which takes all of NVS.
+          global_preferences->reset();
+          if (!id(user_storage)->request_format()) {
+            ESP_LOGE("factory_reset", "The user partition was not wiped and will not be");
+          }
+          App.safe_reboot();
+
+  # The blinking is the only sign of it on a device without a display.
+  - id: fn_factory_reset
+    then:
+      - logger.log:
+          level: WARN
+          format: "FN held for 10 s: factory reset in 5 s"
+      - repeat:
+          count: 50
+          then:
+            - switch.toggle: red_led
+            - delay: 100ms
+      - script.execute: factory_reset

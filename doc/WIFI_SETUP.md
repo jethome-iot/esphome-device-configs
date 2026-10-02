@@ -56,7 +56,7 @@ stays off until you switch the mode.
 **By factory reset.** **Settings → Factory reset → Confirm** clears the stored preferences,
 credentials included, formats the user partition, and reboots into AP mode.
 `POST /api/device/system/factory-reset` does the same over the network, while the device is
-still reachable on the old ones.
+still reachable on the old ones, and so does holding the FN button on the CPU board for 10 seconds.
 
 **By baking credentials into the firmware.** `devices/JXD/packages/features/network.yaml` configures
 only the fallback AP; add `ssid` and `password` to its `wifi:` block, keeping them out

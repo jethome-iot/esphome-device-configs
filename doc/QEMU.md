@@ -86,6 +86,7 @@ its own build directory instead of forcing a full ESP-IDF rebuild on every switc
 | `network_mode`: `restore_value: false`, `initial_option: Ethernet` | No radio is emulated. Ethernet is the one mode that never touches the WiFi stack, and pinning it keeps a mode restored from emulated NVS from calling `esp_wifi_init()`. The select is still there and still switchable — switching to Auto or WiFi at runtime is untested. |
 | `esp32: flash_mode: dio` | QEMU's flash model serves the bootloader path fine but hands the runtime driver garbage in QIO, so LittleFS reports "Corrupted dir pair" and format never succeeds. |
 | `vin_meas` / `poe_voltage`: `update_interval: never` | **Fatal otherwise.** No ADC, and the conversion never completes: `ADCSensor::sample()` spins with interrupts off until the interrupt watchdog reboots the chip — a boot loop, not a failed component. The entities stay (`input_voltage` reads both) and just never sample, so the screen shows `VIN: nanV`. |
+| `fn_button`: `template`, its pin removed | GPIO0 floats in emulation and, the pin being inverted, reads as held: held for 10 s it means factory reset, so an untouched device would wipe itself every boot. As a template sensor it stays released until the panel's `fn` key presses it. |
 | `esphome: name_add_mac_suffix: false` | QEMU burns no eFuse MAC, so the suffix is `-000000` everywhere; it also costs 7 of the 31 hostname characters the `-qemu` rename needs. |
 
 ESP-IDF's own messages are compiled out below `ERROR` by default. To see driver-level detail while
@@ -127,8 +128,8 @@ matches a request by name and the internal flag only gates listing and state pus
 
 ## The front panel
 
-The device serves its screen at `/panel`: the 128x64 canvas, with the joystick as on-screen
-buttons (clickable, or arrows/Enter/Escape on the keyboard). It is the real UI — the same
+The device serves its screen at `/panel`: the 128x64 canvas, with the joystick and FN as
+on-screen buttons (clickable, or arrows/Enter/Escape on the keyboard). It is the real UI — the same
 pages, fonts and `graphical_display_menu` the hardware runs, rendering into a framebuffer
 served over HTTP instead of pushed at a chip, with keys injected into the binary sensors the
 joystick drives, so every `on_press` fires exactly as on the device.

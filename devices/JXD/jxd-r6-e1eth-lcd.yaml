@@ -24,6 +24,7 @@ packages:
   crash_report: !include ${features}/crash-report.yaml
   display_off: !include ${features}/display-off.yaml
   entity_settings: !include ${features}/entity-settings.yaml
+  factory_reset: !include ${features}/factory-reset.yaml
   firmware_update: !include ${features}/firmware-update.yaml
   i2c: !include ${features}/i2c.yaml
   modbus: !include ${features}/modbus-server.yaml

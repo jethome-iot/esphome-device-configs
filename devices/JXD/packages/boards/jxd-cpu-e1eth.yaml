@@ -76,6 +76,17 @@ sensor:
     update_interval: 20s
     entity_category: diagnostic
 
+binary_sensor:
+  - platform: gpio
+    name: "FN"
+    id: fn_button
+    internal: true
+    pin:
+      number: GPIO0
+      inverted: true
+      # The board's boot button: GPIO0 is strapping by design.
+      ignore_strapping_warning: true
+
 switch:
   - platform: gpio
     name: "Red led"
