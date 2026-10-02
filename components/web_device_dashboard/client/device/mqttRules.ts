@@ -3,7 +3,7 @@
 // device would before the round trip. The device stays the authority: keep the two in step.
 import type { MqttDiscoveryCleanup, MqttSettingsUpdate } from './types'
 
-/** Size limits in UTF-8 bytes. broker and client_id take ASCII only, so there bytes are characters. */
+/** Size limits in UTF-8 bytes. broker and client_id take ASCII only, so their bytes are characters. */
 export const MQTT_LIMITS = { broker: 128, username: 64, password: 128, client_id: 64, topic_prefix: 64 } as const
 
 /** validate()'s messages, in its order: the first rule that fails is the answer. */
