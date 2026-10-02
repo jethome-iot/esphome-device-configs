@@ -14,9 +14,10 @@
 // document is merged over the defaults and clamped to the parameter table like
 // climate_hub's codec does, a name is checked like the hub checks it, a sensor
 // not in °C is 400, and a relay held by a running thermostat is 409 unless the
-// enable asks to take it over. An enabled Save whose sensor or relay the device
-// does not have is stored and waits, not running, with a `warning`; an enable
-// of it is 400.
+// enable asks to take it over. An enabled Save or an enable whose sensor or
+// relay the device does not have stores the thermostat enabled to wait, not
+// running, with a `warning` that /list and /status repeat as `waiting`; a
+// take-over by one is 400.
 // /status reads a first-order room model per sensor, heated and cooled by the
 // duties of the thermostats bound to it. control() stands in for Home Assistant
 // setting a running thermostat's mode or target through its climate entity.
@@ -599,6 +600,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
   const yamlClimates = (options.otherClimates ?? []).map((name, n) => ({ id: `yaml/${n}`, name }))
   const docs: ControllerDocument[] = structuredClone(seedControllers)
   const running = new Map<string, Runtime>()
+  // ClimateHub::waiting_: why each enabled thermostat that does not run did not start, by id.
+  const waitReasons = new Map<string, string>()
   const rooms = new Map<string, { temp: number | null; ambient: number }>()
   for (const [id, room] of Object.entries(seedRooms)) rooms.set(id, { temp: room.start, ambient: room.ambient })
   const startedAt = now()
@@ -656,6 +659,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     rt.fault = faultOf(doc, rt, t)
     rt.action = standingAction(doc, rt)
     running.set(doc.id, rt)
+    waitReasons.delete(doc.id)
   }
 
   // Silence counts from the start while the sensor has given no reading.
@@ -687,30 +691,16 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     return fail(409, `"${switchName(relay)}" is already driven by "${holder.name}"`)
   }
 
-  // Why `doc` cannot start: an entity the device does not have or a sensor not in °C
-  // (400), or a relay a running thermostat holds (409). With `takeOver`, the holders come back instead.
-  function bindCheck(
-    doc: ControllerDocument,
-    takeOver: boolean
-  ): { refusal?: MockResult; holders: ControllerDocument[] } {
+  // ClimateHub::check_entities_: what a take-over asks before it stops the holder, an
+  // entity the device does not have or a sensor not in °C (400).
+  function entityRefusal(doc: ControllerDocument): MockResult | undefined {
     if (!seedSensors.some((s) => s.object_id === doc.sensor_id)) {
-      return { refusal: fail(400, `No sensor "${doc.sensor_id}" on this device`), holders: [] }
+      return fail(400, `No sensor "${doc.sensor_id}" on this device`)
     }
     const unit = unitRefusal(doc.sensor_id)
-    if (unit) return { refusal: unit, holders: [] }
-    const holders: ControllerDocument[] = []
-    for (const relay of relaysOf(doc)) {
-      if (!seedSwitches.some((s) => s.object_id === relay)) {
-        return { refusal: fail(400, `No switch "${relay}" on this device`), holders: [] }
-      }
-    }
-    for (const relay of relaysOf(doc)) {
-      const holder = holderOf(relay, doc.id)
-      if (!holder) continue
-      if (!takeOver) return { refusal: heldRefusal(relay, holder), holders: [] }
-      if (!holders.includes(holder)) holders.push(holder)
-    }
-    return { holders }
+    if (unit) return unit
+    const missing = relaysOf(doc).find((relay) => !seedSwitches.some((s) => s.object_id === relay))
+    return missing === undefined ? undefined : fail(400, `No switch "${missing}" on this device`)
   }
 
   // ClimateHub::check_savable_: what an enabled Save is refused for. A missing
@@ -725,11 +715,37 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     return undefined
   }
 
-  // Why a saved, enabled `doc` does not start, worded as ClimateHub::start_ words it; '' when it does.
+  // Why an enabled `doc` does not start, worded and ordered as ClimateHub::start_ finds it; ''
+  // when it does. A Save or an enable has refused the unit and a held relay already; a boot has not.
   function startError(doc: ControllerDocument): string {
-    if (!seedSensors.some((s) => s.object_id === doc.sensor_id)) return `sensor '${doc.sensor_id}' not found`
-    const missing = relaysOf(doc).find((relay) => !seedSwitches.some((s) => s.object_id === relay))
-    return missing === undefined ? '' : `relay '${missing}' not found`
+    const sensor = seedSensors.find((s) => s.object_id === doc.sensor_id)
+    if (!sensor) return `sensor '${doc.sensor_id}' not found`
+    if (sensor.unit !== CELSIUS) {
+      return `sensor '${doc.sensor_id}' reports ${sensor.unit === '' ? 'no unit' : sensor.unit}, not ${CELSIUS}`
+    }
+    for (const relay of relaysOf(doc)) {
+      const holder = holderOf(relay, doc.id)
+      if (holder) return `relay '${relay}' is held by '${holder.id}'`
+      if (!seedSwitches.some((s) => s.object_id === relay)) return `relay '${relay}' not found`
+    }
+    return ''
+  }
+
+  // Runs `doc`, or keeps why not and returns it as the warning; '' when it runs.
+  function start(doc: ControllerDocument, prev?: { doc: ControllerDocument; rt: Runtime }): string {
+    const error = startError(doc)
+    if (!error) {
+      bind(doc, prev)
+      return ''
+    }
+    const warning = `not started: ${error}`
+    waitReasons.set(doc.id, warning)
+    return warning
+  }
+
+  // ClimateHub::waiting_reason: '' for a thermostat that runs or is disabled.
+  function waitingOf(doc: ControllerDocument): string {
+    return doc.enabled && !running.has(doc.id) ? (waitReasons.get(doc.id) ?? '') : ''
   }
 
   function runControl(doc: ControllerDocument, rt: Runtime, t: number) {
@@ -838,6 +854,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     const status: ControllerStatus = {
       id: doc.id,
       running: !!rt,
+      waiting: waitingOf(doc),
       action: rt ? rt.action : 'off',
       fault: rt ? rt.fault : 'none',
       current_temperature: reading === null ? null : round(reading, 2),
@@ -869,7 +886,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       sensor_id: doc.sensor_id,
       heat_relay_id: doc.heat.relay_id,
       cool_relay_id: doc.cool.relay_id,
-      running: running.has(doc.id)
+      running: running.has(doc.id),
+      waiting: waitingOf(doc)
     }
   }
 
@@ -908,15 +926,13 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     else docs.push(doc)
     docs.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     const message = updating ? 'Thermostat updated' : 'Thermostat created'
-    if (!doc.enabled) return ok(message, { id: doc.id })
-    // Stored all the same, and a running one stopped: it waits for what it names.
-    const missing = startError(doc)
-    if (missing) {
-      const warning = `not started: ${missing}`
-      return ok(`${message}; ${warning}`, { id: doc.id, warning })
+    if (!doc.enabled) {
+      waitReasons.delete(doc.id)
+      return ok(message, { id: doc.id })
     }
-    bind(doc, before && rt ? { doc: before, rt } : undefined)
-    return ok(message, { id: doc.id })
+    // Stored all the same, and a running one stopped: it waits for what it names.
+    const warning = start(doc, before && rt ? { doc: before, rt } : undefined)
+    return warning ? ok(`${message}; ${warning}`, { id: doc.id, warning }) : ok(message, { id: doc.id })
   }
 
   function enable(search: URLSearchParams): MockResult {
@@ -935,24 +951,34 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     if (value === 'false') {
       doc.enabled = false
       running.delete(id)
+      waitReasons.delete(id)
       return ok('Thermostat disabled', { persisted: true })
     }
-    let stopped: ControllerDocument[] = []
-    if (!running.has(id)) {
-      const { refusal, holders } = bindCheck(doc, takeOverRaw === 'true')
-      if (refusal) return refusal
-      for (const holder of holders) {
-        holder.enabled = false
-        running.delete(holder.id)
-      }
-      stopped = holders
-      bind(doc)
+    if (running.has(id)) return ok('Thermostat enabled', { persisted: true })
+    // Refused as a Save would be, but for a held relay the call may take over.
+    const unit = unitRefusal(doc.sensor_id)
+    if (unit) return unit
+    const holders: ControllerDocument[] = []
+    for (const relay of relaysOf(doc)) {
+      const holder = holderOf(relay, id)
+      if (!holder) continue
+      if (takeOverRaw !== 'true') return heldRefusal(relay, holder)
+      if (!holders.includes(holder)) holders.push(holder)
+    }
+    // A take-over stops the holder, so only for a thermostat that runs in its place.
+    const refusal = holders.length ? entityRefusal(doc) : undefined
+    if (refusal) return refusal
+    for (const holder of holders) {
+      holder.enabled = false
+      running.delete(holder.id)
+      waitReasons.delete(holder.id)
     }
     doc.enabled = true
-    const message = stopped.length
-      ? `Thermostat enabled; ${stopped.map((h) => `"${h.name}"`).join(' and ')} stopped`
-      : 'Thermostat enabled'
-    return ok(message, { persisted: true })
+    // A sensor or relay that is not there is waited for, as on a Save.
+    const warning = start(doc)
+    let message = 'Thermostat enabled'
+    if (holders.length) message += `; ${holders.map((h) => `"${h.name}"`).join(' and ')} stopped`
+    return warning ? ok(`${message}; ${warning}`, { persisted: true, warning }) : ok(message, { persisted: true })
   }
 
   function setpoint(search: URLSearchParams): MockResult {
@@ -1030,6 +1056,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
         const i = docs.findIndex((d) => d.id === id)
         if (i < 0) return fail(404, 'Thermostat not found')
         running.delete(id)
+        waitReasons.delete(id)
         docs.splice(i, 1)
         return ok('Thermostat deleted')
       }
@@ -1054,8 +1081,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     return true
   }
 
-  // Seeds that are enabled start running, as they would at boot, unless they wait for what they name.
-  for (const doc of docs) if (doc.enabled && !startError(doc)) bind(doc)
+  // Seeds that are enabled start in id order, as at boot, or wait and keep why.
+  for (const doc of docs) if (doc.enabled) start(doc)
 
   return { handle, control }
 }
