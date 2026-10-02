@@ -5,7 +5,13 @@ namespace esphome::mqtt_config::testing {
 
 using Reason = mqtt::MQTTClientDisconnectReason;
 
-class PanelTest : public MqttTest {};
+static bool every_glyph(uint32_t) { return true; }
+
+class PanelTest : public MqttTest {
+ protected:
+  // The broker row as the menu draws it, 18 glyphs wide.
+  std::string broker_row() const { return this->config->panel_broker(18, every_glyph); }
+};
 
 TEST_F(PanelTest, TheStateRowFollowsEveryState) {
   TestConfig &c = this->boot();
@@ -30,8 +36,8 @@ TEST_F(PanelTest, AHeldBackClientSaysSo) {
 }
 
 TEST_F(PanelTest, NoBrokerIsEmpty) {
-  TestConfig &c = this->boot();
-  EXPECT_EQ(c.panel_broker(), "");
+  this->boot();
+  EXPECT_EQ(this->broker_row(), "");
 }
 
 TEST_F(PanelTest, TheDefaultPortIsLeftOut) {
@@ -40,23 +46,61 @@ TEST_F(PanelTest, TheDefaultPortIsLeftOut) {
   this->plant(stored);
   TestConfig &c = this->boot();
   EXPECT_FALSE(c.running());
-  EXPECT_EQ(c.panel_broker(), "10.0.2.2");
+  EXPECT_EQ(this->broker_row(), "10.0.2.2");
 }
 
 TEST_F(PanelTest, AnotherPortIsShown) {
+  MqttRecord stored = enabled_record("broker.lan");
+  stored.port = 1884;
+  this->plant(stored);
+  this->boot();
+  EXPECT_EQ(this->broker_row(), "broker.lan:1884");
+}
+
+TEST_F(PanelTest, ALongHostIsCutAndItsPortKeptWhole) {
   MqttRecord stored = enabled_record("mqtt.office.example.com");
   stored.port = 1884;
   this->plant(stored);
-  TestConfig &c = this->boot();
-  EXPECT_EQ(c.panel_broker(), "mqtt.office.example.com:1884");
+  this->boot();
+  EXPECT_EQ(this->broker_row(), "mqtt.office.…:1884");
+  EXPECT_EQ(panel_glyphs(this->broker_row()), 18u);
+}
+
+TEST_F(PanelTest, ALongHostOnTheDefaultPortIsSimplyCut) {
+  this->plant(enabled_record("mqtt.office.example.com"));
+  this->boot();
+  EXPECT_EQ(this->broker_row(), "mqtt.office.examp…");
 }
 
 TEST_F(PanelTest, AnIpv6AddressIsBracketedBeforeItsPort) {
   MqttRecord stored = enabled_record("fd00::1");
   stored.port = 8883;
   this->plant(stored);
+  this->boot();
+  EXPECT_EQ(this->broker_row(), "[fd00::1]:8883");
+}
+
+TEST_F(PanelTest, ALongIpv6AddressKeepsItsBracketsAndPort) {
+  MqttRecord stored = enabled_record("fd00:1234:5678::1");
+  stored.port = 8883;
+  this->plant(stored);
+  this->boot();
+  EXPECT_EQ(this->broker_row(), "[fd00:1234:…]:8883");
+}
+
+TEST_F(PanelTest, WhatTheFontLacksIsAQuestionMark) {
+  this->plant(enabled_record("10.0.2.2"));
   TestConfig &c = this->boot();
-  EXPECT_EQ(c.panel_broker(), "[fd00::1]:8883");
+  EXPECT_EQ(c.panel_broker(18, [](uint32_t code_point) { return code_point != '.'; }), "10?0?2?2");
+}
+
+// Too narrow for the port: the whole row is cut instead.
+TEST_F(PanelTest, ARowNarrowerThanThePortIsCutWhole) {
+  MqttRecord stored = enabled_record("broker.lan");
+  stored.port = 1884;
+  this->plant(stored);
+  TestConfig &c = this->boot();
+  EXPECT_EQ(c.panel_broker(5, every_glyph), "brok…");
 }
 
 // A saved change waits for the reboot, and the row says what runs until then.
@@ -68,16 +112,16 @@ TEST_F(PanelTest, TheRunningBrokerIsShownOverASavedOne) {
     p.port = 1884;
   }));
   ASSERT_TRUE(c.reboot_required());
-  EXPECT_EQ(c.panel_broker(), "10.0.2.2");
+  EXPECT_EQ(this->broker_row(), "10.0.2.2");
 }
 
 TEST_F(PanelTest, WhileOffTheStoredBrokerIsShown) {
   TestConfig &c = this->boot();
   this->save(patch_of([](MqttPatch &p) { p.broker = std::string("broker.lan"); }));
-  EXPECT_EQ(c.panel_broker(), "broker.lan");
+  EXPECT_EQ(this->broker_row(), "broker.lan");
   this->save(patch_of([](MqttPatch &p) { p.enabled = true; }));
   EXPECT_TRUE(c.running());
-  EXPECT_EQ(c.panel_broker(), "broker.lan");
+  EXPECT_EQ(this->broker_row(), "broker.lan");
 }
 
 TEST_F(PanelTest, DiscoveryWhileOffIsTheStoredSetting) {

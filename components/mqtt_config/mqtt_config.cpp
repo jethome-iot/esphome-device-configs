@@ -610,13 +610,25 @@ const char *MqttConfig::panel_state_text() const {
   return "MQTT: Off";
 }
 
-std::string MqttConfig::panel_broker() const {
+std::string MqttConfig::panel_broker(size_t glyphs, const HasGlyph &has_glyph) const {
   const MqttRecord &record = this->started_ ? this->applied_ : this->stored_;
-  if (record.broker.empty() || record.port == DEFAULT_PORT)
-    return record.broker;
-  // An IPv6 address carries colons of its own.
-  const bool bracket = record.broker.find(':') != std::string::npos;
-  return (bracket ? "[" + record.broker + "]" : record.broker) + ":" + std::to_string(record.port);
+  if (record.broker.empty())
+    return "";
+  std::string head;
+  std::string tail;
+  if (record.port != DEFAULT_PORT) {
+    tail = ":" + std::to_string(record.port);
+    // An IPv6 address carries colons of its own.
+    if (record.broker.find(':') != std::string::npos) {
+      head = "[";
+      tail = "]" + tail;
+    }
+  }
+  const std::string host = panel_safe(record.broker, 4 * glyphs, has_glyph);
+  const size_t fixed = panel_glyphs(head) + panel_glyphs(tail);
+  if (fixed >= glyphs)
+    return panel_fit(head + host + tail, glyphs);
+  return head + panel_fit(host, glyphs - fixed) + tail;
 }
 
 bool MqttConfig::panel_discovery() const { return this->started_ ? this->applied_.discovery : this->stored_.discovery; }

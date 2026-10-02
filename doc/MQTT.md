@@ -183,8 +183,8 @@ show; nothing is set there.
 - The rows follow the connection and the values as they change, with the menu open.
 - They show what runs: a change saved for the next reboot shows after it. While MQTT is off, the
   broker and discovery rows show what is saved.
-- A row holds 18 characters. A longer one is cut and ends in `…`; a slot's name gives way to its
-  value, down to 6 characters.
+- A row holds 18 characters, and a longer one is cut with `…`: the broker's name gives way to
+  its port, and a slot's name to its value, down to 6 characters.
 - The rows draw A–Z, Cyrillic, digits, the usual signs and `°`, `µ`, `²`, `³`. Any other
   character (`é`, `日`, an emoji), a control character or a byte that is not valid UTF-8 shows as
   `?`.

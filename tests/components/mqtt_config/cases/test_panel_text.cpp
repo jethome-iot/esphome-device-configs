@@ -246,8 +246,8 @@ TEST(PanelFit, ATextThatFitsIsKeptWhole) {
 }
 
 TEST(PanelFit, ALongerOneIsCutWithAnEllipsisAsItsLastGlyph) {
-  const std::string fitted = panel_fit("mqtt.office.example.com:1884", 18);
-  EXPECT_EQ(fitted, "mqtt.office.examp…");
+  const std::string fitted = panel_fit("Kitchen temperature sensor", 18);
+  EXPECT_EQ(fitted, "Kitchen temperatu…");
   EXPECT_EQ(panel_glyphs(fitted), 18u);
   EXPECT_EQ(panel_fit("abc", 1), "…");
   EXPECT_EQ(panel_fit("abc", 0), "");

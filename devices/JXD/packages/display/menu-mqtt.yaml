@@ -32,8 +32,8 @@ esphome:
             auto *mqtt = id(mqtt_settings);
             add([mqtt]() { return std::string(mqtt->panel_state_text()); });
             add([mqtt, has]() {
-              const std::string broker = mqtt->panel_broker();
-              return broker.empty() ? std::string("Broker: --") : panel_fit(panel_safe(broker, READ, has), ROW);
+              const std::string broker = mqtt->panel_broker(ROW, has);
+              return broker.empty() ? std::string("Broker: --") : broker;
             });
             add([mqtt]() { return std::string(mqtt->panel_discovery() ? "HA discovery: On" : "HA discovery: Off"); });
 
