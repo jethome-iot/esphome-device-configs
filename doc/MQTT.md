@@ -175,7 +175,7 @@ show; nothing is set there.
 
 | Row | Shows |
 | --- | --- |
-| `MQTT: Connected` | Or `Connecting`, `Disconnected`, `Off`, `Not set` (no broker saved yet), `Held back` (see "Repeated crashes") |
+| `MQTT: Connected` | Or `Connecting`, `Disconnected`, `Off`, `Not set` (no usable broker saved), `Held back` (see "Repeated crashes") |
 | `192.168.1.10` | The broker, with `:<port>` when the port is not 1883; `Broker: --` when none is saved |
 | `HA discovery: Off` | Home Assistant discovery |
 | `Outdoor: 21.5 °C` | One row per running subscription slot, in slot order; `--` until it has a value. `No subscriptions` when none runs |
