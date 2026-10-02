@@ -921,6 +921,31 @@ TEST_F(ControlLoop, AProbeThatLastSaidInfinityIsNoReading) {
   }
 }
 
+// A sensor state that arrived before any thermostat listened: shown if it is a finite number,
+// never acted on.
+TEST_F(ControlLoop, AStateTheHubNeverHeardIsShownNotActedOn) {
+  for (float value : {18.f, -INFINITY}) {
+    hub().ms = 100000;
+    // Set without a publish, so no subscription hears it.
+    entities().room.state = value;
+    entities().room.set_has_state(true);
+    this->id_ = this->create(this->base(ControlKind::BANG_BANG)).id;
+    ControllerRuntime *rt = hub().runtime_of(this->id_);
+    ASSERT_NE(nullptr, rt);
+    const float shown = hub().entity_of(this->id_)->current_temperature;
+    if (std::isfinite(value)) {
+      EXPECT_FLOAT_EQ(value, shown);
+    } else {
+      EXPECT_TRUE(std::isnan(shown)) << value;
+    }
+    EXPECT_FALSE(rt->has_sample()) << value;
+    tick(200000);
+    EXPECT_EQ(HubAction::IDLE, rt->action()) << value;
+    EXPECT_FALSE(entities().relay1.state) << "18 is below the band, but not a reading";
+    ASSERT_TRUE(hub().remove(this->id_).ok);
+  }
+}
+
 // Traits carry two steps: the target's, the thermostat's own, and the room's, which Home
 // Assistant would otherwise round to half a degree.
 TEST_F(ControlLoop, TheRoomTemperatureIsShownToATenthWhateverTheTargetStep) {
