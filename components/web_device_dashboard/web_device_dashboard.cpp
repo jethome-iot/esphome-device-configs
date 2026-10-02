@@ -631,6 +631,10 @@ void WebDeviceDashboard::handle_capabilities_(AsyncWebServerRequest *request) {
       JsonObject automations = root["automations"].to<JsonObject>();
       automations["url_prefix"] = this->automations_url_prefix_;
     }
+    if (this->climates_url_prefix_ != nullptr) {
+      JsonObject climates = root["climates"].to<JsonObject>();
+      climates["url_prefix"] = this->climates_url_prefix_;
+    }
 #ifdef USE_CONFIG_JSON
     auto *keeper = config_json::global_config_json_keeper;
     if (keeper != nullptr) {

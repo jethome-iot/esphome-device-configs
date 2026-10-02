@@ -45,9 +45,8 @@ export interface ClimateSetParams {
   mode?: string
   fan_mode?: string
   swing_mode?: string
-  // NOTE: no `preset` — the C++ climate handler (climate_handler.h handle_action)
-  // does not read a preset param, so sending it was a silent no-op. Re-add here
-  // together with ClimateCall::set_preset support in the backend.
+  /** A standard preset or one of the entity's custom presets, by name. */
+  preset?: string
   target_temperature?: number
   target_temperature_low?: number
   target_temperature_high?: number

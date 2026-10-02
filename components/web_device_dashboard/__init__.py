@@ -22,6 +22,7 @@ CONF_URL_PREFIX = "url_prefix"
 SERVED_BY = {
     "web_file_browser": "set_files_url_prefix",
     "web_automation_editor": "set_automations_url_prefix",
+    "web_climate_editor": "set_climates_url_prefix",
 }
 
 web_device_dashboard_ns = cg.esphome_ns.namespace("web_device_dashboard")

@@ -42,7 +42,8 @@ boundaries; everything else is local to its file.
 - `climates` (`features/climates.yaml`) is the `climate_hub` component: the thermostats, kept
   on `user_storage` under `climates/`. A thermostat names its sensor and relays by object id,
   so renaming a relay in YAML, or a `Temp N` slot that stays empty, leaves it not running. The
-  QEMU overlay `qemu/climate-plant.yaml` gives it a room to control.
+  QEMU overlay `qemu/climate-plant.yaml` gives it a room to control. `web_climate_editor`
+  (`features/climate-editor.yaml`) edits the thermostats under `/climate-editor/api`.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
   and expanded inside the main-page lambda in `display/display.yaml`. Package substitutions share
   one namespace with the device config's.
@@ -72,7 +73,8 @@ boundaries; everything else is local to its file.
   ahead of `web_server`'s own. Entity state and control go through `web_server`'s REST and
   `/events`, the Files screen through `web_file_browser` at `/files`, the Automations screen
   through `web_automation_editor` at `/automation-editor`; both prefixes are baked into the page
-  at build time and reported at run time by `/api/device/capabilities`. Its `storage_id` is
+  at build time and reported at run time by `/api/device/capabilities`, which reports
+  `web_climate_editor`'s `/climate-editor` too. Its `storage_id` is
   `user_storage`, which is what `/api/device/system/factory-reset` wipes — the same wipe the
   menu's Factory reset does.
 
@@ -161,7 +163,8 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   `setup_priority::WIFI - 0.5`, just ahead of `web_server`'s `WIFI - 1`, and `web_server_base`
   asks its handlers in registration order. `web_server` therefore runs without `local: true`:
   the page it would embed is never served. Its `to_code` also reads the validated config of
-  `web_file_browser` and `web_automation_editor` out of `CORE.config` to report their prefixes.
+  `web_file_browser`, `web_automation_editor` and `web_climate_editor` out of `CORE.config` to
+  report their prefixes.
 - `components/firmware_rollback`, behind the dashboard's `/api/device/system/rollback` and the
   display's Rollback row, reads otadata the way the bootloader does: the other slot is a target
   only when its entry is one `bootloader_common_ota_select_valid` would boot, so an entry marked
@@ -177,8 +180,8 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   front of every handler only because it sets up at `setup_priority::WIFI`, above `web_server`
   and ours at `WIFI - 1` and above the web_server OTA platform at `AFTER_WIFI`, and it writes
   its `403` through `httpd_resp_*` because `AsyncWebServerRequest::send()` maps every status it
-  does not know to a 500. That last coupling is `web_device_dashboard`'s and
-  `web_file_browser`'s too, and it is why both carry a `send_status_` of their own.
+  does not know to a 500. That last coupling is `web_device_dashboard`'s, `web_file_browser`'s
+  and the two editors' too, and it is why each carries a `send_status_` of its own.
 - `components/web_auth` replaces the two `const char *` upstream's `WebServerBase` keeps and
   never copies, so the strings it hands over must outlive every request and the setters are
   called again after each change. It also needs a compiled `auth:` block to exist at all:

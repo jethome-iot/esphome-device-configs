@@ -33,9 +33,9 @@ Both are optional and no route disappears without them — `/api/device/info` om
 block, and a factory reset clears only the stored settings. `dallas_scan_id` names a
 [`dallas_scan`](../dallas_scan/README.md); without it the temperature-slot routes are `404`.
 
-The Files and Automations screens need no option of their own: the component reads the
-`url_prefix` of a `web_file_browser` and a `web_automation_editor` off the config and reports
-whichever of them this firmware has in `/api/device/capabilities`.
+The Files, Automations and Climate screens need no option of their own: the component reads
+the `url_prefix` of a `web_file_browser`, a `web_automation_editor` and a `web_climate_editor`
+off the config and reports whichever of them this firmware has in `/api/device/capabilities`.
 
 The handler registers on the shared `web_server_base` ahead of `web_server`'s, so `/` is the
 dashboard and `web_server`'s own page is not reachable; its REST routes, `/events` and its
@@ -73,20 +73,19 @@ failure `{"success": false, "error"}`. The same contract, machine-readable:
 
 ### Capabilities
 
-`/api/device/capabilities` answers which screens a client can draw and which routes exist. It
-is meant to be read on load, not polled. A key is there only
-when the capability is, so the test is `if (caps.files)`; one that has no detail to carry is
-`true`. `reboot` and `factory_reset` are
-always there, the latter with `clears_storage` — whether a reset also takes the uploaded files
-and the automation rules with it. `rollback` names the other app slot and the ESPHome version
-of the image in it; that version is what a confirmation dialog should show, because after one
-rollback the other slot is the *newer* firmware. It is there when
-[`firmware_rollback`](../firmware_rollback/README.md) finds a firmware to go back to, and
-absent after a serial flash, a failed or interrupted update, a rollback the bootloader did
-itself, or while a switch waits for its reboot. `storage`, `files`, `automations`,
-`entity_settings`, `board_info` and `temperature_slots` follow the components the firmware was
-built with. `storage` says what the mount is, not how full it is: usage is live and this route
-is not polled, so the byte counts stay in the file API's own `info`.
+`/api/device/capabilities` answers which screens a client can draw and which routes exist. It is
+meant to be read on load, not polled. A key is there only when the capability is, so the test is
+`if (caps.files)`; one that has no detail to carry is `true`. `reboot` and `factory_reset` are
+always there, the latter with `clears_storage` — whether a reset also takes the uploaded files and
+the automation rules with it. `rollback` names the other app slot and the ESPHome version of the
+image in it; that version is what a confirmation dialog should show, because after one rollback the
+other slot is the *newer* firmware. It is there when
+[`firmware_rollback`](../firmware_rollback/README.md) finds a firmware to go back to, and absent
+after a serial flash, a failed or interrupted update, a rollback the bootloader did itself, or while
+a switch waits for its reboot. `storage`, `files`, `automations`, `climates`, `entity_settings`,
+`board_info` and `temperature_slots` follow the components the firmware was built with. `storage`
+says what the mount is, not how full it is: usage is live and this route is not polled, so the byte
+counts stay in the file API's own `info`.
 
 The embedded page will not draw its **Settings → System** tab without this: a firmware old
 enough to answer `404` here gets a message saying so rather than buttons that cannot work. It

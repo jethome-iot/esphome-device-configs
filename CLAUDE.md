@@ -21,7 +21,7 @@ generated files and runs the pre-commit hooks.
 | use or change the HTTP file API over the user partition | [components/web_file_browser/README.md](components/web_file_browser/README.md) |
 | change the web server's credentials or how they are stored | [components/web_auth/README.md](components/web_auth/README.md) |
 | touch the `automations` engine or its rule format | [doc/AUTOMATIONS.md](doc/AUTOMATIONS.md) |
-| touch the `climate_hub` thermostats or their file format | [doc/CLIMATE.md](doc/CLIMATE.md), [components/climate_hub/README.md](components/climate_hub/README.md) |
+| touch the `climate_hub` thermostats, their file format or their HTTP API | [doc/CLIMATE.md](doc/CLIMATE.md), [components/climate_hub/README.md](components/climate_hub/README.md), [components/web_climate_editor/README.md](components/web_climate_editor/README.md) |
 | add a test, or wonder which suite a case belongs in | [doc/TESTING.md](doc/TESTING.md) |
 | change what a relay or an input remembers across reboots | [doc/ENTITY_SETTINGS.md](doc/ENTITY_SETTINGS.md) |
 | change WiFi provisioning | [doc/WIFI_SETUP.md](doc/WIFI_SETUP.md) |
