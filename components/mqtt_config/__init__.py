@@ -121,8 +121,8 @@ def _check_mqtt_block(conf):
         # None or {} means no such message, which the device keeps.
         if (message := conf.get(key)) and message[CONF_TOPIC] != f"{CORE.name}/status":
             return (
-                f"mqtt_config points '{key}' at '<topic prefix>/status' per device: leave "
-                "its 'topic' out"
+                f"mqtt_config sends '{key}' to each device's '<topic prefix>/status': set "
+                f"its 'topic' to '{CORE.name}/status' or leave the block out"
             )
     for key in TLS_KEYS:
         if key in conf:

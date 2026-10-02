@@ -169,8 +169,8 @@ class FinalValidate(unittest.TestCase):
         for key in ("birth_message", "will_message", "shutdown_message"):
             with self.subTest(key=key):
                 self.assert_refused(
-                    f"mqtt_config points '{key}' at '<topic prefix>/status' per device: "
-                    "leave its 'topic' out",
+                    f"mqtt_config sends '{key}' to each device's '<topic prefix>/status': "
+                    f"set its 'topic' to '{NODE}/status' or leave the block out",
                     **{key: {"topic": "somewhere/else", "payload": "x"}},
                 )
 

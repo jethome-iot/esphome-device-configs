@@ -56,7 +56,7 @@ refused with its own message:
 | `log_topic` | `null` | Every log line would go to the broker |
 | `wait_for_connection` | `false` | The boot would wait for a broker nobody may have set |
 | `topic_prefix`, `client_id` | left out | Set on the device; empty there means the stock default |
-| `birth_message`, `will_message`, `shutdown_message` | `topic` left out, or `null` | The status topic is `<topic prefix>/status` of each device; a payload of its own is kept |
+| `birth_message`, `will_message`, `shutdown_message` | left out, `null`, or `topic: <name>/status` | The device sends them to its own `<topic prefix>/status`; a payload of its own is kept |
 | `certificate_authority`, `client_certificate`, `client_certificate_key` | left out | No TLS yet |
 
 ## Entities kept off MQTT
