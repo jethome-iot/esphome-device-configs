@@ -674,8 +674,6 @@ Result ClimateHub::relay_held_(const std::string &relay_id, const std::string &h
 }
 
 ClimateHub::Slot *ClimateHub::take_free_slot_(const std::string &name) {
-  if (this->free_.empty())
-    return nullptr;
   const std::string object_id = object_id_of_name(name);
   auto it = std::find_if(this->free_.begin(), this->free_.end(), [&object_id](const Slot *slot) {
     return slot->entity.is_named() && object_id_of(slot->entity) == object_id;
@@ -703,32 +701,34 @@ bool ClimateHub::acquire_claims_(const ClimateConfig &config, RelayClaim **heat,
                                  std::string *error) {
   *heat = nullptr;
   *cool = nullptr;
+  // All checked before one is claimed: a claim let go opens its relay, which something else may
+  // have closed.
   for (const OutputConfig *out : {&config.heat, &config.cool}) {
     if (!out->configured())
       continue;
-    RelayClaim *claim = nullptr;
     auto it = this->claims_.find(out->relay_id);
-    if (it != this->claims_.end()) {
-      if (it->second->owner() != config.id) {
-        *error = "relay '" + out->relay_id + "' is held by '" + it->second->owner() + "'";
-        return false;
-      }
-      // The same relay across a Save: its state and dwell carry on.
-      claim = it->second.get();
-    } else {
-      switch_::Switch *sw = find_switch(out->relay_id);
-      if (sw == nullptr) {
-        *error = "relay '" + out->relay_id + "' not found";
-        return false;
-      }
-      auto created = std::make_unique<RelayClaim>(sw, config.id);
-      auto last = this->relay_history_.find(out->relay_id);
-      if (last != this->relay_history_.end())
-        created->resume(last->second);
-      claim = created.get();
-      this->claims_[out->relay_id] = std::move(created);
+    if (it != this->claims_.end() && it->second->owner() != config.id) {
+      *error = "relay '" + out->relay_id + "' is held by '" + it->second->owner() + "'";
+      return false;
     }
-    (out == &config.heat ? *heat : *cool) = claim;
+    if (it == this->claims_.end() && find_switch(out->relay_id) == nullptr) {
+      *error = "relay '" + out->relay_id + "' not found";
+      return false;
+    }
+  }
+  for (const OutputConfig *out : {&config.heat, &config.cool}) {
+    if (!out->configured())
+      continue;
+    // One it holds already is the same relay across a Save: its state and dwell carry on.
+    std::unique_ptr<RelayClaim> &claim = this->claims_[out->relay_id];
+    if (claim == nullptr) {
+      claim = std::make_unique<RelayClaim>(find_switch(out->relay_id), config.id);
+      // Unclaimed since boot, the relay counts as opened at boot, as the reset left it: min_off
+      // runs from there, so a boot loop does not short-cycle a compressor.
+      auto last = this->relay_history_.find(out->relay_id);
+      claim->resume(last != this->relay_history_.end() ? last->second : RelaySwitching{false, 0});
+    }
+    (out == &config.heat ? *heat : *cool) = claim.get();
   }
   return true;
 }
@@ -741,10 +741,7 @@ void ClimateHub::release_claims_(const std::string &owner) {
 
 ClimateHub::ClaimMap::iterator ClimateHub::let_go_(ClaimMap::iterator it, uint32_t now_ms) {
   it->second->force_off(now_ms);
-  // A claim that never moved its relay leaves no switching to honour.
-  RelaySwitching last;
-  if (it->second->last_switching(&last))
-    this->relay_history_[it->first] = last;
+  it->second->last_switching(&this->relay_history_[it->first]);
   return this->claims_.erase(it);
 }
 
@@ -767,6 +764,12 @@ bool ClimateHub::start_(ClimateConfig *config, std::string *error) {
   sensor::Sensor *sensor = find_input(config->sensor_id, error);
   if (sensor == nullptr)
     return false;
+  // Before any claim, so a start that fails opens no relay but one a take-over handed it.
+  if (this->free_.empty()) {
+    this->release_claims_(config->id);
+    *error = "no free climate entity";
+    return false;
+  }
   RelayClaim *heat = nullptr;
   RelayClaim *cool = nullptr;
   if (!this->acquire_claims_(*config, &heat, &cool, error)) {
@@ -774,11 +777,6 @@ bool ClimateHub::start_(ClimateConfig *config, std::string *error) {
     return false;
   }
   Slot *slot = this->take_free_slot_(config->name);
-  if (slot == nullptr) {
-    this->release_claims_(config->id);
-    *error = "no free climate entity";
-    return false;
-  }
   const SensorSubscription *sub = this->subscribe_(sensor);
   slot->runtime.start(config, sensor, heat, cool, this->now_ms(), sub != nullptr ? sub->last : Reading{});
   this->park_names_like_(config->name, slot);
@@ -854,9 +852,8 @@ ClimateHub::SensorSubscription *ClimateHub::subscribe_(sensor::Sensor *sensor) {
 }
 
 void ClimateHub::on_sample_(SensorSubscription *sub, float value) {
-  // A NaN stored as a reading would pass the staleness and over-temperature guards, and one
-  // through the integrator would leave it NaN for good; an infinity would latch the heater on or
-  // wind the integral. Either is no reading: a sensor that sends only those goes stale.
+  // NaN slips past the staleness and over-temperature guards and poisons the integral; an
+  // infinity latches the heater or winds the integral. Neither is a reading: the sensor goes stale.
   if (!std::isfinite(value))
     return;
   const uint32_t now = this->now_ms();

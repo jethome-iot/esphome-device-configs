@@ -398,6 +398,50 @@ TEST_F(HubTest, BootStartsOneOfTwoOnTheSameRelay) {
   EXPECT_EQ(0u, hub().reasons_kept());
 }
 
+// A take-over by one stored enabled and waiting its turn: only the holder's flag is written.
+TEST_F(HubTest, ATakeOverByOneThatWaitsWritesOnlyTheHoldersFlag) {
+  const std::string winter = doc("winter", "Winter");
+  write_file(this->file_of("summer"), doc("summer", "Summer"));
+  write_file(this->file_of("winter"), winter);
+  this->reboot();
+  ASSERT_FALSE(hub().is_running("winter"));
+  // Its own file cannot be written, and need not be.
+  ASSERT_EQ(0, mkdir((this->file_of("winter") + ".tmp").c_str(), 0755));
+
+  Result result = hub().set_enabled("winter", true, true);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_TRUE(result.persisted);
+  EXPECT_EQ("", result.warning);
+  EXPECT_TRUE(hub().is_running("winter"));
+  EXPECT_EQ("winter", hub().claimed_by("relay_1"));
+  EXPECT_FALSE(hub().store().get("summer")->enabled);
+  EXPECT_EQ(0u, hub().reasons_kept());
+  EXPECT_EQ(winter, read_file(this->file_of("winter")));
+
+  this->reboot();
+  EXPECT_TRUE(hub().is_running("winter"));
+  EXPECT_FALSE(hub().is_running("summer"));
+}
+
+// One that waits on a held relay claims none of its others: a relay something else closed
+// before the boot load stays closed.
+TEST_F(HubTest, BootLeavesTheOtherRelayOfOneThatWaitsAlone) {
+  write_file(this->file_of("summer"), doc("summer", "Summer"));
+  write_file(this->file_of("winter"),
+             R"({"version":1,"id":"winter","name":"Winter","kind":"bang_bang","sensor_id":"room",)"
+             R"("heat":{"relay_id":"relay_2"},"cool":{"relay_id":"relay_1"},"mode":"heat_cool"})");
+  hub().reset();
+  reset_entities();
+  entities().relay2.turn_on();  // restored on, or closed by a binding, before the hub sets up
+  hub().setup();
+
+  EXPECT_TRUE(hub().is_running("summer"));
+  EXPECT_EQ("not started: relay 'relay_1' is held by 'summer'", hub().waiting_reason("winter"));
+  EXPECT_TRUE(entities().relay2.state);
+  EXPECT_EQ(1, entities().relay2.writes);
+  EXPECT_EQ("", hub().claimed_by("relay_2"));
+}
+
 // An enabled thermostat whose sensor or relay is gone stays on flash and enabled, not running,
 // until what it names is back.
 TEST_F(HubTest, BootKeepsAThermostatWhoseSensorOrRelayIsGone) {
@@ -415,7 +459,7 @@ TEST_F(HubTest, BootKeepsAThermostatWhoseSensorOrRelayIsGone) {
     EXPECT_FALSE(hub().is_running(id)) << id;
   }
   EXPECT_EQ(4u, hub().free_count());
-  EXPECT_EQ("", hub().claimed_by("relay_1")) << "a claim taken on the way is let go";
+  EXPECT_EQ("", hub().claimed_by("relay_1")) << "nothing claimed on the way";
   EXPECT_TRUE(LogCapture::instance().has("'attic' not started: sensor 'gone' not found"));
   EXPECT_TRUE(LogCapture::instance().has("'porch' not started: relay 'relay_9' not found"));
   EXPECT_EQ("not started: sensor 'gone' not found", hub().waiting_reason("attic"));
@@ -509,12 +553,17 @@ TEST(HubWithoutRoom, ThermostatsAreKeptButNotRun) {
   EXPECT_TRUE(LogCapture::instance().has("No room in the entity table for thermostat 1"));
 
   const std::string not_started = "not started: no free climate entity";
+  entities().relay1.turn_on();  // an automation, or Home Assistant
+  const int writes = entities().relay1.writes;
   Result created = crowded.create(draft("Boiler"));
   EXPECT_TRUE(created.ok) << created.error;
   EXPECT_EQ(not_started, created.warning);
   EXPECT_EQ(not_started, crowded.waiting_reason("boiler"));
   EXPECT_FALSE(crowded.is_running("boiler"));
   EXPECT_EQ("", crowded.claimed_by("relay_1")) << "no claim without an entity to run";
+  EXPECT_TRUE(entities().relay1.state) << "nor a move";
+  EXPECT_EQ(writes, entities().relay1.writes);
+  entities().relay1.turn_off();
   EXPECT_EQ(not_started, crowded.set_enabled("boiler", true).warning);
   ClimateConfig edited = draft("Boiler");
   edited.setpoint = 23.f;

@@ -74,7 +74,7 @@ class ClimateHub : public Component {
   /// Whether the thermostat is running: enabled, and its sensor and relays were there.
   bool is_running(const std::string &id) const { return this->slot_for_(id) != nullptr; }
   /// Why an enabled thermostat is not running, worded as the `warning` that said so ("not
-  /// started: sensor 'attic' not found"): what its last start, at boot, a Save or an enable,
+  /// started: sensor 'temp_3' not found"): what its last start, at boot, a Save or an enable,
   /// failed on. "" when it runs, is disabled or is not there.
   std::string waiting_reason(const std::string &id) const;
   /// The running thermostat's control state (action, fault, duties, PID terms, sample age),
@@ -147,6 +147,8 @@ class ClimateHub : public Component {
   const std::string &note_waiting_(const std::string &id, const std::string &error);
   void stop_(Slot *slot);
   bool restart_(Slot *slot, const std::string &previous_name, std::string *error);
+  /// Claims every relay `config` names, or none: false, nothing claimed, when one is missing or
+  /// another thermostat holds it.
   bool acquire_claims_(const ClimateConfig &config, RelayClaim **heat, RelayClaim **cool, std::string *error);
   void release_claims_(const std::string &owner);
   /// Opens the claim's relay, remembers its last switching and drops the claim.
@@ -165,7 +167,7 @@ class ClimateHub : public Component {
   Result relay_held_(const std::string &relay_id, const std::string &holder) const;
   Slot *slot_for_(const std::string &id) const;
   /// The hidden slot that last carried `name` (by object id), so a thermostat back under its
-  /// name gets back its key; otherwise the one freed longest ago.
+  /// name gets back its key; otherwise the one freed longest ago. Only while one is free.
   Slot *take_free_slot_(const std::string &name);
   /// Parks every hidden slot but `keep` whose name `name` is about to take: the web server
   /// answers the first climate that matches, hidden or not.

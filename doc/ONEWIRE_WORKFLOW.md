@@ -19,12 +19,13 @@ DS28EA00. Any other 1-Wire device on the bus is skipped and logged as `Not a tem
 sensor`.
 
 To choose the order, connect the sensors one at a time, rebooting after each, or move them
-afterwards over HTTP (below).
+afterwards from the web dashboard (below).
 
 ## Addresses
 
-**Temperatures → Temp N** shows the slot's ROM address, e.g. `0xeb01227905460228`. The boot
-log lists them too (`ds2484: Found devices`).
+**Temperatures → Temp N** on the panel and **Settings → Temperature** on the web dashboard show
+each slot's ROM address, e.g. `0xeb01227905460228`. The boot log lists them too
+(`ds2484: Found devices`).
 
 ## Backup and restore
 
@@ -67,15 +68,18 @@ before them keeps its `Temp N` row reading `--`; its menu entry says `Free slot`
 **Settings → Temp sensors → Confirm** clears every slot but the listed ones, so sensors are
 numbered again in bus order. Factory reset clears them too.
 
-Over HTTP the web dashboard's API does the same without the panel, which is the only way on a
-device without a display: `GET /api/device/temperature-slots` lists every slot with its ROM
-address, and `POST /api/device/temperature-slots/forget` forgets one slot or all of them. The
-routes are in [components/web_device_dashboard](../components/web_device_dashboard/README.md).
+The web dashboard does the same without the panel, which is the only way on a device without
+a display: **Settings → Temperature** lists the slots with their readings and ROM addresses,
+and **Forget** on a slot or **Forget All**, clicked twice, clears them. Scripts can use its
+routes, in
+[components/web_device_dashboard](../components/web_device_dashboard/README.md).
 
 ## Moving and assigning
 
-Only over HTTP: `POST /api/device/temperature-slots/assign` takes a slot number and a ROM
-address, and the device reboots with that device in that slot.
+Only the web dashboard does this: **Edit** on a slot in **Settings → Temperature** takes a slot
+number and a ROM address, and **Assign by Address** opens the same dialog on the lowest free slot
+with an empty address. The dialog says what will change before it saves, and the device reboots
+with that device in that slot.
 
 - The address of a sensor in another slot moves it there; if a sensor holds that slot, the two
   swap.
@@ -84,7 +88,8 @@ address, and the device reboots with that device in that slot.
   connected, takes the lowest free slot at the next boot.
 
 A `Temp N` name and its Modbus register belong to the slot: a sensor moved to slot 3 reads as
-`Temp 3`, on that slot's register. Listed slots cannot be assigned.
+`Temp 3`, on that slot's register. Listed slots cannot be assigned; the tab shows them as
+`Fixed in YAML`.
 
 ## More slots
 

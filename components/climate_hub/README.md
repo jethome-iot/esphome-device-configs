@@ -116,11 +116,14 @@ what is not there yet.
   sensor's last value at once, but acts on it only if it arrived within `sensor_timeout_s`
   while a thermostat was running on that sensor, and the timeout runs from that reading;
   otherwise it waits for the next one. A reading that is not a finite number, `NaN` or an
-  infinity, is no reading: it is neither shown nor acted on, so a sensor that sends nothing
-  else reports `sensor_stale` once `sensor_timeout_s` has passed since its last good one.
+  infinity, is no reading: it is neither shown nor acted on, so a thermostat whose sensor sends
+  nothing else reports `sensor_stale` once `sensor_timeout_s` has passed since its last good
+  one.
 - `min_on_s` and `min_off_s` hold a relay closed or open that long after it moved, whichever
-  thermostat moved it or put it back; a safety cut-out does not wait for them. Keeping an open
-  relay open, as while a thermostat waits for its first reading, is no move.
+  thermostat moved it or put it back; a safety cut-out does not wait for them. A relay no
+  thermostat has held since boot counts as opened at boot, so `min_off_s` holds across a
+  reboot. Keeping an open relay open, as while a thermostat waits for its first reading, is no
+  move.
 - A Save keeps what the thermostat is doing: inside the band a hysteresis thermostat goes on
   heating, cooling or idling as it was in the modes it still has, and the PWM keeps its rhythm
   unless `period_s` changes. Unless it changes `kind` or `sensor_id`, it also keeps what a PID
@@ -139,9 +142,10 @@ moves it — from the panel, over Modbus, from an automation or from Home Assist
 thermostats may name the same relay and take turns: only one of them can run at a time.
 Starting the second while the first runs is refused, naming the one that holds it, unless it
 takes the relay over, which stops the holder. A take-over by one whose sensor or a relay is not
-on the device is refused, and the holder runs on. Stopping a thermostat opens its relays. A Save
-that keeps a relay leaves it where it is, and so does a take-over: a relay both thermostats
-drive changes hands as it is, and the holder's other relays open.
+on the device is refused, and the holder runs on. Stopping a thermostat opens its relays; one
+that waits holds none and moves none. A Save that keeps a relay leaves it where it is, and so
+does a take-over: a relay both thermostats drive changes hands as it is, and the holder's other
+relays open.
 
 ## Names and Home Assistant
 
@@ -199,7 +203,7 @@ got to it.
 - `is_running(id)`, `runtime(id)`: the running thermostat's action, fault, duties, PID terms and
   sample age, `nullptr` when it is not running
 - `waiting_reason(id)`: why an enabled thermostat does not run, the sentence its last failed
-  start gave as a `warning`, at boot, a Save or an enable (`not started: sensor 'attic' not
+  start gave as a `warning`, at boot, a Save or an enable (`not started: sensor 'temp_3' not
   found`, `not started: no free climate entity`); `""` once it runs or is disabled
 - `claimed_by(relay_object_id)`: the id of the running thermostat holding it, or `""`
 - `sensor_reading(sensor_object_id)`: what a sensor reads now, `NaN` without a finite reading
@@ -209,8 +213,7 @@ got to it.
   404, 409, 413 for a file that would be over 8 KiB, 500, 507), an `error` sentence (the one
   the editor shows), the new `id`, the `holder` of a relay, a `warning` when the thermostat was
   saved enabled but does not run (its sensor or a relay is not on the device, or no climate
-  entity was free), and `persisted`, false when the change is
-  live but did not reach flash
+  entity was free), and `persisted`, false when the change is live but did not reach flash
 - `validate_name(name, &error)`, `is_name_taken(name, exclude_id, &error)`
 
 ## Testing
