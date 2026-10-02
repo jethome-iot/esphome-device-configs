@@ -149,16 +149,24 @@ function knownType(entries: Array<{ type: string; subtypes?: string[] }>, type: 
 }
 
 function validTrigger(t: AutomationTrigger): boolean {
+  if (!t || typeof t !== 'object') return false
   if (!knownType(seedSchema.triggers, t.source, t.type)) return false
   return t.source !== 'cron' || validateCronExpression(t.cron ?? '') === null
 }
 
 function validAction(a: AutomationAction): boolean {
+  if (!a || typeof a !== 'object') return false
   return knownType(seedSchema.actions as Array<{ type: string; subtypes?: string[] }>, a.source, a.type)
 }
 
+// Absent or null is true. The device reads a boolean as its JSON text, so true and false pass.
+function validState(state: unknown): boolean {
+  return state === undefined || state === null || state === 'true' || state === 'false' || typeof state === 'boolean'
+}
+
 function validCondition(c: AutomationCondition): boolean {
-  if (c.type === 'input' || c.type === 'switch') return typeof c.object_id === 'string'
+  if (!c || typeof c !== 'object') return false
+  if (c.type === 'input' || c.type === 'switch') return typeof c.object_id === 'string' && validState(c.state)
   if (c.type === 'temperature') {
     return knownType(seedSchema.conditions as Array<{ type: string; subtypes?: string[] }>, c.type, c.temperature_type)
   }
@@ -178,13 +186,15 @@ function validRule(cfg: unknown): cfg is AutomationSaveInput {
     Array.isArray(c.actions) &&
     c.actions.every(validAction) &&
     (c.else_actions === undefined || (Array.isArray(c.else_actions) && c.else_actions.every(validAction))) &&
-    (c.condition === undefined || validCondition(c.condition))
+    // null is no condition, as on the device.
+    (c.condition == null || validCondition(c.condition))
   )
 }
 
 // What the engine refuses to build after the words have parsed: the device answers
 // that as a failed create or update, not as a parse error.
 function buildable(cfg: AutomationConfig): boolean {
+  if (cfg.triggers.length === 0) return false
   return cfg.condition !== undefined || !cfg.triggers.some((t) => t.source === 'condition')
 }
 
@@ -283,8 +293,15 @@ export function createAutomationMockStore(): AutomationMockStore {
         if (!validRule(parsed)) {
           return { status: 400, body: { success: false, error: 'Failed to parse automation config' } }
         }
-        // The device fills the defaults a client leaves out.
-        const cfg: AutomationConfig = { ...parsed, id: parsed.id ?? 0, enabled: parsed.enabled ?? true, mode: parsed.mode ?? 'single' }
+        // The device fills the defaults a client leaves out, and keeps no null condition.
+        const { condition, ...rest } = parsed
+        const cfg: AutomationConfig = {
+          ...rest,
+          ...(condition != null ? { condition } : {}),
+          id: parsed.id ?? 0,
+          enabled: parsed.enabled ?? true,
+          mode: parsed.mode ?? 'single'
+        }
         // Name clash by stored filename, as the backend checks it.
         if (isNameTaken(cfg.name, cfg.id, automations)) {
           return {
