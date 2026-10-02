@@ -1,0 +1,43 @@
+# The factory reset the display menu runs, and FN held for 10 s as the way to it that
+# needs neither the display nor the web credentials.
+binary_sensor:
+  - platform: template
+    id: fn_held
+    internal: true
+    # After fn_button: the latch below must see the pin's first reading.
+    setup_priority: 600
+    # A button still held through the reset's own reboot does not count until let go,
+    # or it would reset the fresh device again.
+    lambda: |-
+      static bool armed = false;
+      if (!id(fn_button).state)
+        armed = true;
+      return armed && id(fn_button).state;
+    filters:
+      - delayed_on: 10s
+    on_press:
+      - script.execute: fn_factory_reset
+
+script:
+  # Not `factory_reset`: an id may not shadow an ESPHome integration's name.
+  # web_device_dashboard's factory_reset_() takes the same steps; keep them in step.
+  - id: run_factory_reset
+    then:
+      - lambda: |-
+          // The partition is wiped at the next boot; the record has to outlive
+          // the preferences erase, which takes all of NVS.
+          global_preferences->reset();
+          if (!id(user_storage)->request_format()) {
+            ESP_LOGE("factory_reset", "The user partition was not wiped and will not be");
+          }
+          App.safe_reboot();
+
+  # The blinking is the only sign of it on a device without a display.
+  - id: fn_factory_reset
+    then:
+      - logger.log:
+          level: WARN
+          format: "FN held for 10 s: factory reset in 5 s"
+      - status_indicator.blink_fast: red_led
+      - delay: 5s
+      - script.execute: run_factory_reset

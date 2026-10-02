@@ -60,7 +60,10 @@ boundaries; everything else is local to its file.
 - `web_auth_credentials` (`features/web-auth.yaml`) holds the credentials the web server checks.
   The `auth:` block in the same file is the factory pair; a pair set through the dashboard is
   kept in the device's flash preferences and replaces it from the next request on, so a factory
-  reset from the display menu brings `admin` / `admin` back.
+  reset brings `admin` / `admin` back.
+- `run_factory_reset` (a script in `features/factory-reset.yaml`) is the reset the menu's
+  Factory reset runs; the same file runs it when `fn_button` (`boards/jxd-cpu-e1eth.yaml`) is
+  held for 10 s, after blinking `red_led`, the `status_indicator` on the CPU board's LED.
 - `web_device_dashboard` (`features/web-device-dashboard.yaml`) is the page at `/`, registered
   ahead of `web_server`'s own. Entity state and control go through `web_server`'s REST and
   `/events`, the Files screen through `web_file_browser` at `/files`, the Automations screen

@@ -54,9 +54,11 @@ second or two and you reconfigure through the captive portal as above; in `Ether
 stays off until you switch the mode.
 
 **By factory reset.** **Settings → Factory reset → Confirm** clears the stored preferences,
-credentials included, formats the user partition, and reboots into AP mode.
-`POST /api/device/system/factory-reset` does the same over the network, while the device is
-still reachable on the old ones.
+credentials included, formats the user partition, and reboots as it came out of the box: in
+`Ethernet` mode, with WiFi off until you switch the mode. `POST /api/device/system/factory-reset`
+does the same over the network, while the device is still reachable on the old credentials.
+Holding the FN button on the CPU board of a running device for 10 seconds does it without the
+display or the network.
 
 **By baking credentials into the firmware.** `devices/JXD/packages/features/network.yaml` configures
 only the fallback AP; add `ssid` and `password` to its `wifi:` block, keeping them out
