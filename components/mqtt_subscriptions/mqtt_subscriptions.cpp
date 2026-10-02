@@ -367,6 +367,13 @@ bool MqttSubscriptions::write_file_(const std::vector<SlotConfig> &slots) {
   }
   const std::string text = serialize_file(slots);
   const std::string path = this->file_path_();
+  // A file restored with oversized fields can outgrow what a read takes once rewritten in full,
+  // and the next boot would set it aside whole.
+  if (text.size() > FILE_MAX) {
+    ESP_LOGE(TAG, "%s would be %u bytes, over the %u a read takes; not written", path.c_str(),
+             static_cast<unsigned>(text.size()), static_cast<unsigned>(FILE_MAX));
+    return false;
+  }
   // Written beside the file and renamed over it, so a failed write leaves the old one whole.
   // The close is where a full filesystem shows up.
   const std::string tmp = path + ".tmp";

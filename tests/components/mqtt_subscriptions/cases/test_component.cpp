@@ -306,6 +306,24 @@ TEST_F(ComponentTest, AWriteThatCannotFinishLeavesTheOldFile) {
   EXPECT_NE(lstat((this->file() + ".tmp").c_str(), &st), 0);
 }
 
+// Written back in full, a restored file that kept an oversized field grows past what a read
+// takes: the save fails and the file stays as it was.
+TEST_F(ComponentTest, ASaveThatWouldOutgrowTheFileIsRefused) {
+  const std::string head = R"({"version":1,"slots":[{"slot":1,"enabled":true,"name":")";
+  const std::string tail = R"(","topic":"a","kind":"sensor"},{"slot":3,"topic":"c"},{"slot":4,"topic":"d"}]})";
+  const std::string restored = head + std::string(FILE_MAX - 200 - head.size() - tail.size(), 'n') + tail;
+  this->plant_text(restored);
+  TestSubscriptions &s = this->boot();
+  ASSERT_FALSE(s.active(0));  // the name breaks a rule, so the slot does not run
+  ASSERT_TRUE(this->get()["file_error"].isNull());
+  const Answer answer = this->post(R"({"slot":2,"enabled":true,"name":"B","topic":"b","kind":"sensor"})");
+  EXPECT_EQ(answer.result, Result::STORAGE);
+  EXPECT_EQ(answer.message, "Storage unavailable");
+  EXPECT_EQ(read_text(this->file()), restored);
+  EXPECT_FALSE(exists(this->file() + ".tmp"));
+  EXPECT_EQ(LogCapture::instance().count("over the 16384 a read takes; not written"), 1u);
+}
+
 // Over the 16 KiB a save could write: broken, so set aside at boot.
 TEST_F(ComponentTest, AnOversizedFileIsSetAside) {
   this->plant_text("{\"version\":1,\"slots\":[]}" + std::string(FILE_MAX, ' '));
