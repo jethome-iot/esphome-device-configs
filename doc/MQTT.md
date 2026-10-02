@@ -160,6 +160,9 @@ one lose it.
 - Exact topics only, at QoS 0. The client connects with a clean session, so what is published
   while the device is offline is lost, except the retained message, which arrives on every
   connect.
+- After each connect the subscriptions go out four at a time, so the retained messages of all
+  16 arrive within about two seconds; a topic with no retained message holds the ones after it
+  back by a second.
 - The device takes in every message whole before a subscription reads it, and a very large one,
   tens of kilobytes, can crash it. Pick topics that carry small messages; not
   `zigbee2mqtt/bridge/…`, camera snapshots or `frigate/…`. See "Repeated crashes" for what the

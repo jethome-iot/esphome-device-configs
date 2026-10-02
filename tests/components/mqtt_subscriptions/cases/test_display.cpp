@@ -23,6 +23,7 @@ TEST_F(DisplayTest, EachKindAsTheRowShowsIt) {
   EXPECT_EQ(s.name(0), "Outdoor");
   EXPECT_EQ(s.name(2), "Weather");
 
+  this->online();
   this->deliver("o", "21.46");
   this->deliver("d", "ON");
   this->deliver("w", "Sunny");

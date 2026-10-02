@@ -68,17 +68,17 @@ void MqttSubscriptions::setup() {
     ESP_LOGW(TAG, "Subscriptions suspended after %u crashes in a row; a restart retries them",
              static_cast<unsigned>(streak));
   } else if (client != nullptr) {
-    // One subscription per topic: the client hands a message to each one that matches. It only
-    // stores them until it connects, and subscribes again on every connect.
-    std::vector<const std::string *> topics;
+    // One subscription per topic: the client hands a message to each one that matches.
     for (size_t i = 0; i < this->max_slots_; i++) {
       const std::string &topic = this->active_[i].topic;
-      if (this->running_[i].entity == nullptr ||
-          std::any_of(topics.begin(), topics.end(), [&topic](const std::string *t) { return *t == topic; }))
-        continue;
-      topics.push_back(&topic);
-      client->subscribe(
-          topic, [this](const std::string &t, const std::string &payload) { this->on_message_(t, payload); }, 0);
+      if (this->running_[i].entity != nullptr &&
+          std::find(this->topics_.begin(), this->topics_.end(), topic) == this->topics_.end())
+        this->topics_.push_back(topic);
+    }
+    this->answered_.assign(this->topics_.size(), false);
+    if (!this->topics_.empty()) {
+      client->set_on_connect([this](bool) { this->on_connect_(); });
+      client->set_on_disconnect([this](mqtt::MQTTClientDisconnectReason) { this->on_disconnect_(); });
     }
   }
   this->update_pending_();
@@ -232,6 +232,7 @@ std::string MqttSubscriptions::name_conflict_(size_t index, const SlotConfig &sl
 }
 
 void MqttSubscriptions::on_message_(const std::string &topic, const std::string &payload) {
+  this->note_answer_(topic);
   Message message(payload);
   const uint32_t now = this->now_ms_();
   for (size_t i = 0; i < this->max_slots_; i++) {
@@ -273,6 +274,81 @@ void MqttSubscriptions::on_message_(const std::string &topic, const std::string 
     }
     this->set_error_(i, error);
   }
+}
+
+// --- Subscribing ---
+
+namespace {
+using SubscriptionList = std::vector<mqtt::MQTTSubscription>;
+// The client's unsubscribe() asks the broker (an error while disconnected) and drops every entry
+// of the topic, a command topic too. Its list is protected and the class final; an explicit
+// instantiation may name a protected member, which is how this gets at it.
+template<SubscriptionList mqtt::MQTTClientComponent::*List> struct ClientList {
+  friend SubscriptionList &client_list(mqtt::MQTTClientComponent &client) { return client.*List; }
+};
+template struct ClientList<&mqtt::MQTTClientComponent::subscriptions_>;
+SubscriptionList &client_list(mqtt::MQTTClientComponent &client);
+}  // namespace
+
+static const char *const WAVE = "mqtt-subs-wave";
+
+// Runs before the client sends its own list, in the same pass; the first wave follows it.
+void MqttSubscriptions::on_connect_() {
+  // A connect with no disconnect heard before it must not leave ours in twice.
+  this->drop_from_client_();
+  this->set_timeout(WAVE, 0, [this]() { this->send_wave_(); });
+}
+
+void MqttSubscriptions::on_disconnect_() {
+  this->cancel_timeout(WAVE);
+  this->drop_from_client_();
+}
+
+void MqttSubscriptions::drop_from_client_() {
+  SubscriptionList &list = client_list(*this->config_->client());
+  list.erase(
+      std::remove_if(list.begin(), list.end(),
+                     [](const mqtt::MQTTSubscription &sub) { return sub.callback.target<Delivery>() != nullptr; }),
+      list.end());
+  this->wave_begin_ = this->next_topic_ = 0;
+}
+
+void MqttSubscriptions::send_wave_() {
+  if (this->next_topic_ >= this->topics_.size())
+    return;
+  mqtt::MQTTClientComponent *client = this->config_->client();
+  // esp-mqtt reconnects on its own; the client may take a while to call the connection its own.
+  if (!client->is_connected()) {
+    this->set_timeout(WAVE, this->wave_timeout_ms_, [this]() { this->send_wave_(); });
+    return;
+  }
+  // Connected, the client sends a subscription at once.
+  this->wave_begin_ = this->next_topic_;
+  this->next_topic_ = std::min(this->wave_begin_ + SUBSCRIBE_WAVE, this->topics_.size());
+  for (size_t i = this->wave_begin_; i < this->next_topic_; i++) {
+    this->answered_[i] = false;
+    client->subscribe(this->topics_[i], Delivery{this}, 0);
+  }
+  if (this->next_topic_ < this->topics_.size())
+    this->set_timeout(WAVE, this->wave_timeout_ms_, [this]() { this->send_wave_(); });
+}
+
+// Its message is in, so is everything the subscription brought before it.
+void MqttSubscriptions::note_answer_(const std::string &topic) {
+  bool first = false;
+  bool all = true;
+  for (size_t i = this->wave_begin_; i < this->next_topic_; i++) {
+    if (this->topics_[i] == topic && !this->answered_[i]) {
+      this->answered_[i] = true;
+      first = true;
+    }
+    all = all && this->answered_[i];
+  }
+  if (!first || this->next_topic_ >= this->topics_.size())
+    return;
+  // Not from here: the client is walking its list while it calls us. A topic with no retained
+  // value never answers, so the wave also ends once the rest have been quiet for the timeout.
+  this->set_timeout(WAVE, all ? 0 : this->wave_timeout_ms_, [this]() { this->send_wave_(); });
 }
 
 // Logged when it changes, not on every message of a topic that keeps sending the same thing.

@@ -136,8 +136,18 @@ class TestSubscriptions : public MqttSubscriptions {
   // Memory running out while the file is built.
   bool fail_serialize{false};
 
-  void forget_schedule() { this->cancel_interval("mqtt-subs-check"); }
+  void forget_schedule() {
+    this->cancel_interval("mqtt-subs-check");
+    this->cancel_timeout("mqtt-subs-wave");
+  }
   void set_check_interval(uint32_t ms) { this->check_interval_ms_ = ms; }
+  void set_wave_timeout(uint32_t ms) { this->wave_timeout_ms_ = ms; }
+  // Every wave out now, as if each had had its answers. Connected only: otherwise none goes.
+  void subscribe_all() {
+    while (this->config_->client()->is_connected() && this->next_topic_ < this->topics_.size())
+      this->send_wave_();
+    this->cancel_timeout("mqtt-subs-wave");
+  }
   EntityBase *entity(size_t slot) const { return this->running_[slot].entity; }
   sensor::Sensor *sensor(size_t slot) const { return static_cast<sensor::Sensor *>(this->entity(slot)); }
   binary_sensor::BinarySensor *binary(size_t slot) const {
@@ -287,9 +297,15 @@ class SlotsTest : public ::testing::Test {
   std::string folder() const { return this->storage.get_base_path() + "/mqtt"; }
   std::string file() const { return this->folder() + "/subscriptions.json"; }
 
+  // Connected, with every subscription out.
+  void online() {
+    this->client->connect_for_test();
+    this->subs->subscribe_all();
+  }
+
   // The file as a save writes it.
   void plant(const std::vector<SlotConfig> &slots) {
-    std::vector<SlotConfig> all(4);
+    std::vector<SlotConfig> all(std::max<size_t>(4, slots.size()));
     for (size_t i = 0; i < slots.size() && i < all.size(); i++)
       all[i] = slots[i];
     std::string text;

@@ -73,6 +73,7 @@ TEST_F(ComponentTest, OneSubscriptionPerTopicAndOneMessageToEverySlotOnIt) {
   humidity.unit = "%";
   this->plant({outdoor(), humidity, slot_of("Weather", "weather/text", SlotKind::TEXT_SENSOR)});
   TestSubscriptions &s = this->boot();
+  this->online();
   ASSERT_EQ(this->client->subscriptions().size(), 2u);
   EXPECT_EQ(this->subscriptions_to("zigbee2mqtt/outdoor"), 1u);
   EXPECT_EQ(this->subscriptions_to("weather/text"), 1u);
@@ -93,7 +94,9 @@ TEST_F(ComponentTest, SlotsThatDoNotRunAreNotSubscribed) {
   SlotConfig invalid = slot_of("Bad", "bad/#");
   this->plant({disabled, invalid});
   TestSubscriptions &s = this->boot();
+  this->online();
   EXPECT_TRUE(this->client->subscriptions().empty());
+  EXPECT_TRUE(this->client->sent_subscribes.empty());
   EXPECT_EQ(this->get()["slots"][1]["status"]["error"],
             "invalid: 'topic' cannot contain '+' or '#': a slot takes one topic");
   EXPECT_EQ(s.state(1), SlotState::OFF);
@@ -104,6 +107,7 @@ TEST_F(ComponentTest, SlotsThatDoNotRunAreNotSubscribed) {
 TEST_F(ComponentTest, EveryMessageIsPublishedAndAnErrorLoggedOnce) {
   this->plant({slot_of("Outdoor", "t")});
   TestSubscriptions &s = this->boot();
+  this->online();
   int published = 0;
   s.sensor(0)->add_on_state_callback([&published](float) { published++; });
   this->deliver("t", "20");
@@ -125,6 +129,7 @@ TEST_F(ComponentTest, AClearedTopicIsUnknown) {
   this->plant(
       {slot_of("N", "n"), slot_of("B", "b", SlotKind::BINARY_SENSOR), slot_of("T", "t", SlotKind::TEXT_SENSOR)});
   TestSubscriptions &s = this->boot();
+  this->online();
   this->deliver("n", "5");
   this->deliver("b", "ON");
   this->deliver("t", "x");
@@ -141,6 +146,7 @@ TEST_F(ComponentTest, AClearedTopicIsUnknown) {
 TEST_F(ComponentTest, ALargeMessageIsNotReadButShown) {
   this->plant({slot_of("N", "n"), slot_of("T", "t", SlotKind::TEXT_SENSOR)});
   TestSubscriptions &s = this->boot();
+  this->online();
   this->deliver("t", "kept");
   const std::string large = "{\"pad\":\"" + std::string(3000, 'x') + "\"}";
   this->deliver("n", large);
@@ -156,6 +162,7 @@ TEST_F(ComponentTest, ALargeMessageIsNotReadButShown) {
 TEST_F(ComponentTest, AnOnOffSlotsFirstValueIsALevel) {
   this->plant({slot_of("Door", "d", SlotKind::BINARY_SENSOR)});
   TestSubscriptions &s = this->boot();
+  this->online();
   int plain = 0;
   int full = 0;
   s.binary(0)->add_on_state_callback([&plain](bool) { plain++; });
@@ -181,6 +188,7 @@ TEST_F(ComponentTest, AFullEntityTableLeavesTheSlotOff) {
     }
   });
   TestSubscriptions &s = *this->subs;
+  this->online();
   EXPECT_FALSE(s.active(0));
   EXPECT_TRUE(s.active(1));
   EXPECT_EQ(this->get()["slots"][0]["status"]["error"], "no room in the entity table");
@@ -194,7 +202,6 @@ TEST_F(ComponentTest, TheSecondCrashInARowSuspendsTheSlots) {
   this->board.panic = true;
   TestSubscriptions &s = this->boot();
   EXPECT_TRUE(s.suspended());
-  EXPECT_TRUE(this->client->subscriptions().empty());
   // The entity stays, so Home Assistant keeps the same set.
   EXPECT_TRUE(s.active(0));
   EXPECT_EQ(s.state(0), SlotState::SUSPENDED);
@@ -206,6 +213,10 @@ TEST_F(ComponentTest, TheSecondCrashInARowSuspendsTheSlots) {
   // mqtt_config's own setup found the streak already evaluated, and MQTT still runs.
   EXPECT_EQ(this->config->crash_streak(), 2);
   EXPECT_EQ(this->board.rtc.armed, 0);
+  // Nor does a connect subscribe them.
+  this->online();
+  EXPECT_TRUE(this->client->subscriptions().empty());
+  EXPECT_TRUE(this->client->sent_subscribes.empty());
 }
 
 TEST_F(ComponentTest, TheFirstCrashLeavesThemRunning) {
@@ -213,16 +224,17 @@ TEST_F(ComponentTest, TheFirstCrashLeavesThemRunning) {
   this->board.rtc = armed_streak(0);
   this->board.panic = true;
   TestSubscriptions &s = this->boot();
+  this->online();
   EXPECT_FALSE(s.suspended());
   EXPECT_EQ(this->subscriptions_to("t"), 1u);
 }
 
-// Stored only until the client connects: a first enable later in the boot needs no reboot.
+// Subscribed once the client connects: a first enable later in the boot needs no reboot.
 TEST_F(ComponentTest, SlotsWaitForTheBrokerAndThenRead) {
   this->plant({slot_of("Outdoor", "t")});
   TestSubscriptions &s = this->boot();
   EXPECT_EQ(s.state(0), SlotState::WAITING);
-  this->client->connect_for_test();
+  this->online();
   EXPECT_EQ(s.state(0), SlotState::WAITING);  // no message yet
   this->deliver("t", "4");
   EXPECT_EQ(s.state(0), SlotState::OK);
@@ -480,6 +492,7 @@ TEST_F(ComponentTest, NewerFirmwaresFileIsLeftAsItIs) {
       R"({"version":2,"slots":[{"slot":1,"enabled":true,"name":"A","topic":"a","kind":"sensor","qos":1}]})";
   this->plant_text(newer);
   TestSubscriptions &s = this->boot();
+  this->online();
   EXPECT_FALSE(s.active(0));
   EXPECT_TRUE(this->client->subscriptions().empty());
   JsonDocument doc = this->get();
@@ -663,7 +676,7 @@ TEST_F(ComponentTest, TheCheckSkipsAnUnchangedFileAndNoticesANewTime) {
 TEST_F(ComponentTest, TheGetShape) {
   this->plant({outdoor(), slot_of("Door", "z2m/door", SlotKind::BINARY_SENSOR)});
   TestSubscriptions &s = this->boot();
-  this->client->connect_for_test();
+  this->online();
   s.now = 5000;
   this->deliver("zigbee2mqtt/outdoor", R"({"battery":97,"temperature":21.4,"humidity":48})");
   s.now = 17500;

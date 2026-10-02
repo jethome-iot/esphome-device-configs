@@ -46,7 +46,17 @@ class SlotsMqttConfig : public mqtt_config::MqttConfig {
 
 class TestSlots : public MqttSubscriptions {
  public:
-  void forget_schedule() { this->cancel_interval("mqtt-subs-check"); }
+  void forget_schedule() {
+    this->cancel_interval("mqtt-subs-check");
+    this->cancel_timeout("mqtt-subs-wave");
+  }
+  // Connected, with every subscription out.
+  void online(mqtt::MQTTClientComponent *client) {
+    client->connect_for_test();
+    while (client->is_connected() && this->next_topic_ < this->topics_.size())
+      this->send_wave_();
+    this->cancel_timeout("mqtt-subs-wave");
+  }
 };
 
 // The dashboard on a firmware with mqtt_subscriptions: the client, mqtt_config and two slots
@@ -160,8 +170,7 @@ TEST_F(SlotsDashboard, AFreshDeviceListsEveryEmptySlot) {
 TEST_F(SlotsDashboard, TheReadShowsWhatRunsAndWhatItRead) {
   this->plant(R"({"version":1,"slots":[{"slot":1,"enabled":true,"name":"Outdoor","topic":"t","kind":"sensor",)"
               R"("unit":"°C"}]})");
-  this->boot();
-  this->client->connect_for_test();
+  this->boot().online(this->client.get());
   this->client->deliver_for_test("t", "21.46");
   Reply reply = this->get(SLOTS);
   JsonObject slot = reply["slots"][0];
@@ -202,7 +211,7 @@ TEST_F(SlotsDashboard, SixteenSlotsAtTheirLargestReadWhole) {
   file += "]}";
   this->plant(file);
   TestSlots &s = this->boot(nullptr, 16);
-  this->client->connect_for_test();
+  s.online(this->client.get());
   const std::string value = R"({")" + escaped(64) + R"(":")" + escaped(300) + R"("})";
   const std::string without_key = R"({"x":")" + escaped(100) + R"("})";
   for (int i = 0; i < 16; i++) {

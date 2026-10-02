@@ -74,7 +74,7 @@ The slots are `<storage>/<folder_path>/subscriptions.json`:
 
 `tests/components/mqtt_subscriptions/` covers the schema, the shared-folder check and codegen
 from Python and, over the harness's `mqtt` stand-in and a directory in place of the storage, the
-slot record and its rules, reading payloads, the entities each slot gets, subscribing and
-delivering, the crash guard, saving and clearing through the device API, the file and its
+slot record and its rules, reading payloads, the entities each slot gets, subscribing in waves
+across reconnects and delivering, the crash guard, saving and clearing through the device API, the file and its
 mishaps, and slots driving automations and a relay's bound input. LittleFS and esp-mqtt are
 ESP-IDF only and out of the host's reach.

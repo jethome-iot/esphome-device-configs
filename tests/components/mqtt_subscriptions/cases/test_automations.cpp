@@ -39,6 +39,7 @@ TEST_F(SlotsDriveTest, ANumberSlotIsATemperatureTrigger) {
              R"("actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})");
   this->plant({slot_of("Outdoor", "z2m/outdoor")});
   this->boot();
+  this->online();
   automations::AutomationStorage &engine = this->engine();
   ASSERT_EQ(engine.configs().size(), 1u);
   this->deliver("z2m/outdoor", "21");
@@ -53,6 +54,7 @@ TEST_F(SlotsDriveTest, AnOnOffSlotIsAnInputTrigger) {
                           R"("actions":[{"source":"switch","type":"toggle","object_id":"relay_1"}]})");
   this->plant({slot_of("Door", "z2m/door", SlotKind::BINARY_SENSOR)});
   this->boot();
+  this->online();
   this->engine();
   // The retained state on connect is a level, not a press.
   this->deliver("z2m/door", "ON");
@@ -65,6 +67,7 @@ TEST_F(SlotsDriveTest, AnOnOffSlotIsAnInputTrigger) {
 TEST_F(SlotsDriveTest, AnOnOffSlotIsABoundInput) {
   this->plant({slot_of("Door", "z2m/door", SlotKind::BINARY_SENSOR)});
   this->boot();
+  this->online();
   static auto *bindings = new bindings::BindingsManager();
   bindings->set_binding(fnv1_hash("relay_2"), fnv1_hash("door"), bindings::BindingMode::FOLLOW);
   bindings->setup();

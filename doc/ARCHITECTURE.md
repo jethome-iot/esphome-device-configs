@@ -264,9 +264,19 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   `invalidate_state()`, and always calls the full-state ones. It relies on the client calling
   subscription callbacks on the loop task with the whole payload; the client reserves the
   announced length first, which is the abort the crash guard's suspension stage answers.
+  - The client sends its whole subscription list at once on every connect, and the ESP32
+    backend queues inbound events in a pool of 31 that the loop drains one per pass: 16 retained
+    values on top of the command topics overflowed it. So the slots' topics enter the list only
+    once the client is connected, four at a time, the next four once each has had its message
+    or none has come for a second, and leave it on every disconnect.
+  - Leaving means erasing our entries from the client's protected list, reached through an
+    explicit template instantiation (which may name a protected member; the class is `final`)
+    and told apart by their callback's type. The client's `unsubscribe()` would ask the broker,
+    an error while disconnected, and drop a command topic of the same name too.
 - `tests/harness/components/mqtt` stands in for upstream's `mqtt` on the host: its schema and
   codegen are upstream's own module, its C++ copies the client's setters, topic prefix rule,
-  discovery info and resend pass. A signature drift shows in the ESP32 builds; a behaviour drift
-  only by re-reading upstream's `mqtt_client.cpp` and `mqtt_component.cpp`.
+  discovery info, resend pass and when a subscription goes out. A signature drift shows in the
+  ESP32 builds; a behaviour drift only by re-reading upstream's `mqtt_client.cpp` and
+  `mqtt_component.cpp`.
 
 Re-check each of these on every ESPHome bump.

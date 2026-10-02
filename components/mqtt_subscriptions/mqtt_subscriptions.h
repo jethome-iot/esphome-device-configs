@@ -33,8 +33,7 @@ class MqttSubscriptions : public Component {
  public:
   MqttSubscriptions();
 
-  // Before entity settings apply at HARDWARE + 1, so a relay can bind to a slot, and before the
-  // client (AFTER_WIFI), whose subscribe() only stores the topic until it connects.
+  // Before entity settings apply at HARDWARE + 1, so a relay can bind to a slot.
   float get_setup_priority() const override { return setup_priority::HARDWARE + 3.0f; }
   void setup() override;
   void dump_config() override;
@@ -81,7 +80,20 @@ class MqttSubscriptions : public Component {
 
   static const char *state_key(SlotState state);
 
+  // Topics subscribed at once after a connect; the next ones wait until each has its retained
+  // value, or until none has come for wave_timeout_ms_.
+  static constexpr size_t SUBSCRIBE_WAVE = 4;
+
  protected:
+  // The callback our entries in the client's list carry: its type tells them apart from a
+  // command topic of the same name.
+  struct Delivery {
+    MqttSubscriptions *owner;
+    void operator()(const std::string &topic, const std::string &payload) const {
+      this->owner->on_message_(topic, payload);
+    }
+  };
+
   struct Running {
     EntityBase *entity{nullptr};  // of the slot's kind; nullptr when the slot runs nothing
     std::string off_reason;       // why an enabled slot runs nothing
@@ -104,6 +116,14 @@ class MqttSubscriptions : public Component {
 
   virtual uint32_t now_ms_() const { return millis(); }
   void on_message_(const std::string &topic, const std::string &payload);
+
+  // The client sends its whole list at once on every connect, and 16 retained values overflow its
+  // inbound event pool: the slots' topics join that list only once connected, in waves.
+  void on_connect_();
+  void on_disconnect_();
+  void send_wave_();
+  void note_answer_(const std::string &topic);
+  void drop_from_client_();
 
   std::string folder_path_() const;
   std::string file_path_() const;
@@ -159,6 +179,12 @@ class MqttSubscriptions : public Component {
   std::string boot_notice_;  // a file renamed to .bad this boot, until a save
   Seen seen_;
   uint32_t check_interval_ms_{30000};
+
+  std::vector<std::string> topics_;  // of the running slots, each once, in slot order
+  std::vector<bool> answered_;       // a message came since the topic's subscription went out
+  size_t wave_begin_{0};             // the wave out now is topics_[wave_begin_, next_topic_)
+  size_t next_topic_{0};
+  uint32_t wave_timeout_ms_{1000};
   std::atomic<bool> pending_any_{false};
 };
 
