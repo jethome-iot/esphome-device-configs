@@ -6,7 +6,7 @@ namespace esphome::dallas_scan::testing {
 
 static const char *const HEX_A = "0xeb01227905460228";
 static const char *const HEX_B = "0x8a0122791699dd28";
-static const char *const HEX_C = "0x3c01b5566e8a1f28";
+static const char *const HEX_C = "0x9b01b5566e8a1f28";
 
 // The other Dallas temperature families: DS18S20, DS1822, DS1825, DS28EA00.
 static const uint64_t ROM_DS18S20 = 0x1100000000000110ULL;
@@ -17,22 +17,19 @@ static const uint64_t ROM_DS28EA00 = 0x4400000000000142ULL;
 class FileStorage : public Boots {};
 class NvsStorage : public Boots {};
 // Death tests run before the rest, while the process has one thread to fork.
-class ForgetDeathTest : public Boots {};
+class Forget : public Boots {};
 
-// forget(), with the reboot it ends in allowed: the child process writes the table and exits 0,
-// and the case reads what it left behind.
 #define EXPECT_FORGET_REBOOTS(scan, slot) \
-  EXPECT_EXIT( \
-      { \
-        host::arm_reexec(""); \
-        (scan).forget(slot); \
-      }, \
-      ::testing::ExitedWithCode(0), "")
+  do { \
+    const int restarts = (scan).restarts; \
+    (scan).forget(slot); \
+    EXPECT_EQ((scan).restarts, restarts + 1); \
+  } while (0)
 
 // --- storage: file, at boot ---
 
 TEST_F(FileStorage, NewDevicesTakeTheLowestFreeSlotsAndAreWrittenAtOnce) {
-  DallasScan &scan = this->boot({ROM_A, ROM_B});
+  TestScan &scan = this->boot({ROM_A, ROM_B});
   EXPECT_EQ(scan.address(0), ROM_A);
   EXPECT_EQ(scan.address(1), ROM_B);
   EXPECT_EQ(this->read(), slot_file({{1, HEX_A}, {2, HEX_B}}));
@@ -42,7 +39,7 @@ TEST_F(FileStorage, NewDevicesTakeTheLowestFreeSlotsAndAreWrittenAtOnce) {
 TEST_F(FileStorage, TheNextBootReadsTheTableBack) {
   this->boot({ROM_A, ROM_B});
   // A unplugged: it keeps its slot, and a newcomer goes after both.
-  DallasScan &scan = this->boot({ROM_C, ROM_B});
+  TestScan &scan = this->boot({ROM_C, ROM_B});
   EXPECT_EQ(scan.address(0), ROM_A);
   EXPECT_NE(scan.sensor(0), nullptr);
   EXPECT_EQ(scan.address(1), ROM_B);
@@ -52,9 +49,9 @@ TEST_F(FileStorage, TheNextBootReadsTheTableBack) {
 
 TEST_F(FileStorage, WhatTakesNoSlotIsNotWritten) {
   // Not a thermometer, and no slot left for the third one.
-  DallasScan &scan = this->boot({ROM_SERIAL, ROM_A, ROM_B, ROM_C}, 2);
-  EXPECT_TRUE(this->log().has(this->log().warnings, "Not a temperature sensor, skipping 0x5f00001234567801"));
-  EXPECT_TRUE(this->log().has(this->log().warnings, "No free slot for 0x3c01b5566e8a1f28"));
+  TestScan &scan = this->boot({ROM_SERIAL, ROM_A, ROM_B, ROM_C}, 2);
+  EXPECT_TRUE(this->log().has(this->log().warnings, "Not a temperature sensor, skipping 0x4e00001234567801"));
+  EXPECT_TRUE(this->log().has(this->log().warnings, "No free slot for 0x9b01b5566e8a1f28"));
   EXPECT_EQ(scan.address(0), ROM_A);
   EXPECT_EQ(scan.address(1), ROM_B);
   EXPECT_EQ(this->read(), slot_file({{1, HEX_A}, {2, HEX_B}}));
@@ -62,7 +59,7 @@ TEST_F(FileStorage, WhatTakesNoSlotIsNotWritten) {
 
 TEST_F(FileStorage, AHandWrittenFilePutsEachDeviceInItsSlot) {
   this->write(slot_file({{3, HEX_A}, {1, HEX_B}}));
-  DallasScan &scan = this->boot({ROM_A, ROM_B, ROM_C});
+  TestScan &scan = this->boot({ROM_A, ROM_B, ROM_C});
   EXPECT_EQ(scan.address(0), ROM_B);
   EXPECT_EQ(scan.address(1), ROM_C);  // the lowest free one
   EXPECT_EQ(scan.address(2), ROM_A);
@@ -80,14 +77,14 @@ TEST_F(FileStorage, ABootThatChangesNothingDoesNotWrite) {
 }
 
 TEST_F(FileStorage, OnlyDallasTemperatureFamiliesStayInTheTable) {
-  this->write(slot_file({{1, "0x5f00001234567801"},
+  this->write(slot_file({{1, "0x4e00001234567801"},
                          {2, HEX_A},
                          {3, "0x1100000000000110"},
                          {4, "0x2200000000000122"},
                          {5, "0x330000000000013b"},
                          {6, "0x4400000000000142"}}));
-  DallasScan &scan = this->boot({ROM_A, ROM_B}, 6);
-  EXPECT_TRUE(this->log().has(this->log().warnings, "dropping 0x5f00001234567801 from the table"));
+  TestScan &scan = this->boot({ROM_A, ROM_B}, 6);
+  EXPECT_TRUE(this->log().has(this->log().warnings, "dropping 0x4e00001234567801 from the table"));
   // The serial number's slot was free, so the newcomer takes it, and the write leaves it out.
   EXPECT_EQ(scan.address(0), ROM_B);
   EXPECT_EQ(scan.address(1), ROM_A);
@@ -104,9 +101,9 @@ TEST_F(FileStorage, OnlyDallasTemperatureFamiliesStayInTheTable) {
 }
 
 TEST_F(FileStorage, ADroppedAddressAloneDoesNotRewriteTheFile) {
-  const std::string text = slot_file({{1, "0x5f00001234567801"}, {2, HEX_A}});
+  const std::string text = slot_file({{1, "0x4e00001234567801"}, {2, HEX_A}});
   this->write(text);
-  DallasScan &scan = this->boot({ROM_A});
+  TestScan &scan = this->boot({ROM_A});
   EXPECT_EQ(scan.address(0), 0u);
   EXPECT_EQ(scan.address(1), ROM_A);
   EXPECT_EQ(this->read(), text);
@@ -118,14 +115,14 @@ TEST_F(FileStorage, ARecordPastMaxSensorsWaitsInTheFileUntilAWrite) {
   EXPECT_EQ(this->boot({ROM_B}).address(0), ROM_B);
   EXPECT_EQ(this->read(), text);
   // A newcomer rewrites the table, and only what fits in max_sensors is in it.
-  DallasScan &scan = this->boot({ROM_B, ROM_A});
+  TestScan &scan = this->boot({ROM_B, ROM_A});
   EXPECT_EQ(scan.address(1), ROM_A);
   EXPECT_EQ(this->read(), slot_file({{1, HEX_B}, {2, HEX_A}}));
 }
 
 TEST_F(FileStorage, AListedSensorTakesItsAddressOutOfAnotherSlot) {
   this->write(slot_file({{2, HEX_A}}));
-  DallasScan &scan = this->boot({ROM_A}, 4, [](DallasScan &s) {
+  TestScan &scan = this->boot({ROM_A}, 4, [](TestScan &s) {
     s.set_sensor(0, &boiler());
     s.pin(0, ROM_A);
   });
@@ -151,7 +148,7 @@ TEST_F(FileStorage, AFileThatDidNotLoadIsNotWrittenOver) {
     this->log().clear();
     this->write(c.text);
     // The devices take slots in bus order for this boot only.
-    DallasScan &scan = this->boot({ROM_A});
+    TestScan &scan = this->boot({ROM_A});
     EXPECT_EQ(scan.address(0), ROM_A);
     EXPECT_TRUE(this->log().has(this->log().warnings, "dallas_scan_temps.json did not load"));
     EXPECT_EQ(this->read(), c.text);
@@ -166,7 +163,7 @@ TEST_F(FileStorage, AFileThatWillNotOpenIsNotWrittenOver) {
   const std::string text = slot_file({{1, HEX_B}});
   this->write(text);
   ASSERT_EQ(chmod(this->file().c_str(), 0), 0);
-  DallasScan &scan = this->boot({ROM_A, ROM_B});
+  TestScan &scan = this->boot({ROM_A, ROM_B});
   chmod(this->file().c_str(), 0644);
   EXPECT_EQ(scan.address(0), ROM_A);
   EXPECT_EQ(this->read(), text);
@@ -176,7 +173,7 @@ TEST_F(FileStorage, AWriteThatFailsLeavesTheSlotsForThisBootOnly) {
   if (geteuid() == 0)
     GTEST_SKIP() << "root writes into a read-only folder";
   ASSERT_EQ(mkdir(this->dir().c_str(), 0555), 0);
-  DallasScan &scan = this->boot({ROM_A});
+  TestScan &scan = this->boot({ROM_A});
   EXPECT_EQ(scan.address(0), ROM_A);
   EXPECT_TRUE(this->log().has(this->log().errors, "Failed to open"));
   EXPECT_TRUE(this->files().empty());
@@ -187,7 +184,7 @@ TEST_F(FileStorage, AWriteThatFailsLeavesTheSlotsForThisBootOnly) {
 TEST_F(FileStorage, WithoutAMountTheSlotsLastOneBootAndNothingIsForgotten) {
   const std::string text = slot_file({{1, HEX_B}});
   this->write(text);
-  DallasScan &scan = this->boot({ROM_A, ROM_B}, 4, nullptr, false);
+  TestScan &scan = this->boot({ROM_A, ROM_B}, 4, nullptr, false);
   // Not read: the keeper failed, so the devices go in bus order.
   EXPECT_EQ(scan.address(0), ROM_A);
   EXPECT_EQ(scan.address(1), ROM_B);
@@ -195,23 +192,25 @@ TEST_F(FileStorage, WithoutAMountTheSlotsLastOneBootAndNothingIsForgotten) {
   EXPECT_EQ(this->read(), text);
 
   this->log().clear();
-  scan.forget(0);  // returns: a reboot would have ended the run with 1
+  scan.forget(0);
+  EXPECT_EQ(scan.restarts, 0);
   EXPECT_TRUE(this->log().has(this->log().errors, "Storage unavailable: nothing is forgotten"));
   EXPECT_EQ(scan.address(0), ROM_A);
   EXPECT_EQ(this->read(), text);
 }
 
 TEST_F(FileStorage, AForgetThatWouldChangeNothingNeitherWritesNorReboots) {
-  auto listing = [](DallasScan &s) {
+  auto listing = [](TestScan &s) {
     s.set_sensor(0, &boiler());
     s.pin(0, ROM_A);
   };
-  DallasScan &scan = this->boot({ROM_A}, 4, listing);
+  TestScan &scan = this->boot({ROM_A}, 4, listing);
   const std::string text = this->read();
   ASSERT_EQ(text, slot_file({{1, HEX_A}}));
   scan.forget(0);   // listed
   scan.forget(2);   // free
   scan.forget(-1);  // nothing but the listed one
+  EXPECT_EQ(scan.restarts, 0);
   EXPECT_TRUE(this->log().has(this->log().warnings, "Nothing to forget"));
   EXPECT_EQ(this->read(), text);
 }
@@ -221,18 +220,19 @@ TEST_F(FileStorage, AForgetWhoseWriteFailsKeepsTheSlotAndDoesNotReboot) {
   if (geteuid() == 0)
     GTEST_SKIP() << "root writes into a read-only folder";
   this->write(slot_file({{1, HEX_A}, {2, HEX_B}}));
-  DallasScan &scan = this->boot({ROM_A, ROM_B});
+  TestScan &scan = this->boot({ROM_A, ROM_B});
   const std::string text = this->read();
   ASSERT_EQ(chmod(this->dir().c_str(), 0555), 0);
-  scan.forget(0);  // a reboot here fails the run
+  scan.forget(0);
   chmod(this->dir().c_str(), 0755);
+  EXPECT_EQ(scan.restarts, 0);
   EXPECT_EQ(scan.address(0), ROM_A);
   EXPECT_TRUE(this->log().has(this->log().errors, "nothing is forgotten"));
   EXPECT_EQ(this->read(), text);
 }
 
 TEST_F(FileStorage, DumpConfigNamesTheFile) {
-  DallasScan &scan = this->boot({ROM_A});
+  TestScan &scan = this->boot({ROM_A});
   this->log().clear();
   scan.dump_config();
   EXPECT_TRUE(this->log().has(this->log().configs, "Slot file: config/dallas_scan_temps.json"));
@@ -242,7 +242,7 @@ TEST_F(FileStorage, DumpConfigNamesTheFile) {
 TEST_F(FileStorage, TheTwoStoragesShareNothing) {
   this->boot({ROM_A});
   EXPECT_EQ(this->read(), slot_file({{1, HEX_A}}));
-  DallasScan &nvs = this->boot_nvs({ROM_B, ROM_A});
+  TestScan &nvs = this->boot_nvs({ROM_B, ROM_A});
   EXPECT_EQ(nvs.address(0), ROM_B);
   EXPECT_EQ(nvs.address(1), ROM_A);
   EXPECT_EQ(this->read(), slot_file({{1, HEX_A}}));
@@ -250,44 +250,44 @@ TEST_F(FileStorage, TheTwoStoragesShareNothing) {
 
 // --- storage: file, forget ---
 
-TEST_F(ForgetDeathTest, ForgetWritesTheSlotOutOfTheFileAndReboots) {
+TEST_F(Forget, ForgetWritesTheSlotOutOfTheFileAndReboots) {
   this->write(slot_file({{1, HEX_A}, {2, HEX_B}}));
-  DallasScan &before = this->boot({ROM_B});  // A unplugged
+  TestScan &before = this->boot({ROM_B});  // A unplugged
   EXPECT_FORGET_REBOOTS(before, 0);
   EXPECT_EQ(this->read(), slot_file({{2, HEX_B}}));
   // After the reboot the slot is free, and the next newcomer takes it.
-  DallasScan &after = this->boot({ROM_B, ROM_C});
+  TestScan &after = this->boot({ROM_B, ROM_C});
   EXPECT_EQ(after.address(0), ROM_C);
   EXPECT_EQ(after.address(1), ROM_B);
 }
 
 // The keeper made the folder at boot; a forget makes it again if it has gone since.
-TEST_F(ForgetDeathTest, ForgetRecreatesAFolderRemovedSinceBoot) {
+TEST_F(Forget, ForgetRecreatesAFolderRemovedSinceBoot) {
   this->write(slot_file({{1, HEX_A}, {2, HEX_B}}));
-  DallasScan &before = this->boot({ROM_B});
+  TestScan &before = this->boot({ROM_B});
   ASSERT_EQ(remove(this->file().c_str()), 0);
   ASSERT_EQ(rmdir(this->dir().c_str()), 0);
   EXPECT_FORGET_REBOOTS(before, 0);
   EXPECT_EQ(this->read(), slot_file({{2, HEX_B}}));
 }
 
-TEST_F(ForgetDeathTest, ForgetAllLeavesOnlyTheListedSlot) {
-  auto listing = [](DallasScan &s) {
+TEST_F(Forget, ForgetAllLeavesOnlyTheListedSlot) {
+  auto listing = [](TestScan &s) {
     s.set_sensor(0, &boiler());
     s.pin(0, ROM_C);
   };
   this->write(slot_file({{1, HEX_C}, {2, HEX_B}, {3, HEX_A}}));
-  DallasScan &before = this->boot({ROM_C, ROM_A, ROM_B}, 4, listing);
+  TestScan &before = this->boot({ROM_C, ROM_A, ROM_B}, 4, listing);
   EXPECT_FORGET_REBOOTS(before, -1);
   EXPECT_EQ(this->read(), slot_file({{1, HEX_C}}));
-  DallasScan &after = this->boot({ROM_C, ROM_A, ROM_B}, 4, listing);
+  TestScan &after = this->boot({ROM_C, ROM_A, ROM_B}, 4, listing);
   EXPECT_EQ(after.address(1), ROM_A);
   EXPECT_EQ(after.address(2), ROM_B);
 }
 
-TEST_F(ForgetDeathTest, OnlyAForgetWritesOverAFileThatDidNotLoad) {
+TEST_F(Forget, OnlyAForgetWritesOverAFileThatDidNotLoad) {
   this->write(R"({"records":[{"slot":1,"address":"0x8a01)");
-  DallasScan &scan = this->boot({ROM_A, ROM_B});
+  TestScan &scan = this->boot({ROM_A, ROM_B});
   EXPECT_FORGET_REBOOTS(scan, 0);
   EXPECT_EQ(this->read(), slot_file({{2, HEX_B}}));
 }
@@ -322,15 +322,15 @@ static std::vector<uint64_t> stored_table(size_t slots) {
 
 TEST_F(NvsStorage, TheTableComesBackFromPreferencesAndNoFileIsWritten) {
   this->boot_nvs({ROM_A, ROM_B});
-  DallasScan &scan = this->boot_nvs({ROM_C, ROM_B});
+  TestScan &scan = this->boot_nvs({ROM_C, ROM_B});
   EXPECT_EQ(scan.address(0), ROM_A);
   EXPECT_EQ(scan.address(1), ROM_B);
   EXPECT_EQ(scan.address(2), ROM_C);
   EXPECT_TRUE(this->files().empty());
 }
 
-TEST_F(ForgetDeathTest, ForgetInPreferencesSyncsTheTableAndReboots) {
-  DallasScan &scan = this->boot_nvs({ROM_A, ROM_B});
+TEST_F(Forget, ForgetInPreferencesSyncsTheTableAndReboots) {
+  TestScan &scan = this->boot_nvs({ROM_A, ROM_B});
   EXPECT_FORGET_REBOOTS(scan, 0);
   EXPECT_EQ(stored_table(4), (std::vector<uint64_t>{0, ROM_B, 0, 0}));
   EXPECT_TRUE(this->files().empty());
@@ -339,10 +339,10 @@ TEST_F(ForgetDeathTest, ForgetInPreferencesSyncsTheTableAndReboots) {
 // The flush reports for every record at once. On the host a record lives in memory from save()
 // on, so a flush that cannot write the file is the case where another record failed and this
 // one is on flash: the read-back finds the new table and the forget goes ahead.
-TEST_F(ForgetDeathTest, AFailedFlushWithTheTableOnFlashStillReboots) {
+TEST_F(Forget, AFailedFlushWithTheTableOnFlashStillReboots) {
   if (geteuid() == 0)
     GTEST_SKIP() << "root writes a read-only file";
-  DallasScan &scan = this->boot_nvs({ROM_A, ROM_B});
+  TestScan &scan = this->boot_nvs({ROM_A, ROM_B});
   ASSERT_TRUE(global_preferences->sync());
   ASSERT_EQ(chmod(prefs_path().c_str(), 0444), 0);
   EXPECT_FORGET_REBOOTS(scan, 0);

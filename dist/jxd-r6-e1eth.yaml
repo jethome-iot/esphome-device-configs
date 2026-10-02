@@ -871,6 +871,7 @@ web_auth:
 web_device_dashboard:
   board_info_id: board_info
   storage_id: user_storage
+  dallas_scan_id: temps
 web_file_browser:
   storage_id: user_storage
 dashboard_import:

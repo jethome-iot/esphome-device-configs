@@ -23,13 +23,15 @@ web_server:
 web_device_dashboard:
   board_info_id: board_info   # optional: the jethome_board_info to report
   storage_id: user_storage    # optional: the mount a factory reset wipes
+  dallas_scan_id: temps       # optional: the temperature slots to list and forget
 ```
 
 `board_info_id` names a `jethome_board_info`; with it `/api/device/info` carries the identity the
 firmware read from the CPU board's EEPROM. `storage_id` names a `filesystem_storage_abstract`
 mount: `/api/device/system/factory-reset` wipes it, and `/api/device/capabilities` reports it.
 Both are optional and no route disappears without them — `/api/device/info` omits the board
-block, and a factory reset clears only the stored settings.
+block, and a factory reset clears only the stored settings. `dallas_scan_id` names a
+[`dallas_scan`](../dallas_scan/README.md); without it the temperature-slot routes are `404`.
 
 The Files and Automations screens need no option of their own: the component reads the
 `url_prefix` of a `web_file_browser` and a `web_automation_editor` off the config and reports
@@ -82,9 +84,9 @@ rollback the other slot is the *newer* firmware. It is there when
 [`firmware_rollback`](../firmware_rollback/README.md) finds a firmware to go back to, and
 absent after a serial flash, a failed or interrupted update, a rollback the bootloader did
 itself, or while a switch waits for its reboot. `storage`, `files`, `automations`,
-`entity_settings` and `board_info` follow the components the firmware was built with.
-`storage` says what the mount is, not how full it is: usage is live and this route is not
-polled, so the byte counts stay in the file API's own `info`.
+`entity_settings`, `board_info` and `temperature_slots` follow the components the firmware was
+built with. `storage` says what the mount is, not how full it is: usage is live and this route
+is not polled, so the byte counts stay in the file API's own `info`.
 
 The embedded page will not draw its **Settings → System** tab without this: a firmware old
 enough to answer `404` here gets a message saying so rather than buttons that cannot work. It
@@ -92,7 +94,8 @@ uses `factory_reset.clears_storage` to say whether a reset takes the uploaded fi
 Its **Settings → Firmware** tab uses `rollback` to name the slot a rollback would boot — with
 no key there, the action stays disabled instead of offering a `503`. Since that key moves, the
 page reads this route again whenever it shows the rollback, and after an update fails or a
-rollback is refused, rather than only on load.
+rollback is refused, rather than only on load. Its **Settings → Temperature** tab is there only
+with `temperature_slots`.
 
 ### System actions
 
@@ -123,6 +126,17 @@ these routes are `404`:
 | GET | `/api/device/auth` | `{"username", "password_length", "is_default"}` — never the password |
 | POST | `/api/device/auth` | `{"username", "password"}` replaces both; needs `Content-Type: application/json`, which no HTML form can send. Answers `200` for a pair it accepted, under the old credentials; the change itself happens on the next turn of the main loop, and the `GET` confirms it |
 
+With a `dallas_scan_id`, the temperature slots; without one these routes are `404`:
+
+| Method | Path | |
+|---|---|---|
+| GET | `/api/device/temperature-slots` | `{"max_slots", "slots": [{"slot", "name", "free", "listed", "address", "can_forget"}]}`: slots 1 up to the last bound one, a freed slot between them included. `address` is the ROM as a hex string, absent for a free slot and a listed sensor that is not a 1-Wire one |
+| POST | `/api/device/temperature-slots/forget` | `{"slot": N}` empties that slot, `{"all": true}` every slot but the listed ones, then the device restarts — what the panel's forget rows do. Takes the system actions' confirmation; a request that would change nothing — a free or listed slot, or nothing to forget at all — is `409` and the device keeps running |
+| POST | `/api/device/temperature-slots/assign` | `{"slot": N, "address": "0x…"}` puts that device into slot N, then the device restarts. A device already in another slot swaps with what slot N held; a new address takes slot N from its device, which takes the lowest free slot at the next boot if it is still on the bus. Same confirmation; an address that is not a thermometer ROM with a valid CRC is `400`, a listed slot or device, or a device already there, `409` |
+
+Slots are numbered from 1, as the `Temp N` sensors are. A slot's reading is not here: it is the
+state of the sensor of that `name` on `web_server`'s `/events`.
+
 With a `config_json` store (`entity_config`'s `switch` and `binary_sensor` types), the entity
 settings too; without one these routes are `404`:
 
@@ -145,8 +159,10 @@ mirror. Nothing in this repository builds or type-checks them.
 `tests/components/web_device_dashboard/` drives the handler on the host through the
 `web_server_base` stand-in: the URLs it claims, the route table and its method matrix, the body
 accumulation and its 4 KiB cap, the JSON every route answers with, the confirmation the system
-actions take, and a factory reset wiping a stand-in storage and the preferences before it
-restarts. Out of reach there is the ESP-IDF half — the `Allow` header, URL decoding, the reset
-reason and the IP lookups, the eFuse block, a live WiFi or Ethernet link, the real reboot, the
-LittleFS format, and the rollback's reads and switch, which the tests stand in for; the rule
-that decides is covered by [`firmware_rollback`](../firmware_rollback/README.md)'s own suite.
+actions take, a factory reset wiping a stand-in storage and the preferences before it
+restarts, and the temperature slots listed, forgotten and assigned on a real `dallas_scan` over
+the harness's 1-Wire bus, booted again to see what the table kept. Out of reach there is the
+ESP-IDF half — the `Allow` header, URL decoding, the reset reason and the IP lookups, the
+eFuse block, a live WiFi or Ethernet link, the real reboot, the LittleFS format, and the
+rollback's reads and switch, which the tests stand in for; the rule that decides is covered by
+[`firmware_rollback`](../firmware_rollback/README.md)'s own suite.

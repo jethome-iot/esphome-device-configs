@@ -25,12 +25,12 @@
 
 namespace esphome::dallas_scan::testing {
 
-// DS18B20 ROMs: family 0x28 in the low byte, the way the bus reads them.
+// DS18B20 ROMs: family 0x28 in the low byte and the CRC in the high one, the way the bus reads them.
 static const uint64_t ROM_A = 0xeb01227905460228ULL;
 static const uint64_t ROM_B = 0x8a0122791699dd28ULL;
-static const uint64_t ROM_C = 0x3c01b5566e8a1f28ULL;
-// A 1-Wire device that is not a thermometer: a DS2401 serial number, family 0x01.
-static const uint64_t ROM_SERIAL = 0x5f00001234567801ULL;
+static const uint64_t ROM_C = 0x9b01b5566e8a1f28ULL;
+// A 1-Wire device that is not a thermometer: a DS2401 serial number, family 0x01, valid CRC.
+static const uint64_t ROM_SERIAL = 0x4e00001234567801ULL;
 
 // The table a scan keeps, as the generated setup would have reached it.
 inline void install_preferences() {
@@ -41,10 +41,18 @@ inline void install_preferences() {
   }();
 }
 
-// forget() ends in App.safe_reboot(), which exits the process with 0 on the host: a test that
-// reboots by mistake would end the run as a pass. Armed, the reboot exec()s a path that is not
-// there and exits with 1 instead. A case that expects the reboot disarms it in a death test.
+// App.safe_reboot() exits the process with 0 on the host, so a reboot that slipped past TestScan
+// would end the run as a pass. Armed, it exec()s a path that is not there and exits with 1.
 inline void fail_on_reboot() { host::arm_reexec("/nonexistent/dallas-scan-test-rebooted"); }
+
+// A scan whose reboot is counted instead of ending the process.
+class TestScan : public DallasScan {
+ public:
+  int restarts{0};
+
+ protected:
+  void restart_() override { this->restarts++; }
+};
 
 // Every error, warning and dump_config() line the process logs. Registered once: the logger
 // keeps its listeners.
@@ -97,7 +105,7 @@ inline sensor::Sensor &boiler() {
 }
 
 // Listed sensors are set before boot(), as codegen sets them before setup().
-using Listing = std::function<void(DallasScan &)>;
+using Listing = std::function<void(TestScan &)>;
 
 // A boot is a new scan over the same bus and the same storage: what it binds is what the table
 // kept. Every case starts on a device whose preferences were never written, with an empty
@@ -131,8 +139,8 @@ class Boots : public ::testing::Test {
   // storage: file. Every boot gets a new keeper over the same folder, set up first as its
   // priority puts it, so the scan finds the config folder made. `mounted` false: the partition
   // did not mount, so the keeper's setup fails.
-  DallasScan &boot(std::vector<uint64_t> devices, size_t max_sensors = 4, const Listing &listing = nullptr,
-                   bool mounted = true) {
+  TestScan &boot(std::vector<uint64_t> devices, size_t max_sensors = 4, const Listing &listing = nullptr,
+                 bool mounted = true) {
     auto storage = std::make_unique<dir_storage::DirStorage>();
     storage->set_base_path(this->folder);
     if (mounted)
@@ -140,7 +148,7 @@ class Boots : public ::testing::Test {
     auto keeper = std::make_unique<config_json::ConfigJsonKeeper>();
     keeper->set_storage(storage.get());
     keeper->set_config_dir("config");
-    DallasScan &scan = this->build(std::move(devices), max_sensors);
+    TestScan &scan = this->build(std::move(devices), max_sensors);
     scan.set_slot_file(keeper.get(), KEY);
     if (listing)
       listing(scan);
@@ -152,8 +160,8 @@ class Boots : public ::testing::Test {
   }
 
   // storage: nvs.
-  DallasScan &boot_nvs(std::vector<uint64_t> devices, size_t max_sensors = 4, const Listing &listing = nullptr) {
-    DallasScan &scan = this->build(std::move(devices), max_sensors);
+  TestScan &boot_nvs(std::vector<uint64_t> devices, size_t max_sensors = 4, const Listing &listing = nullptr) {
+    TestScan &scan = this->build(std::move(devices), max_sensors);
     scan.set_preference_hash(fnv1_hash("temps"));
     if (listing)
       listing(scan);
@@ -162,9 +170,9 @@ class Boots : public ::testing::Test {
   }
 
   // A scan as codegen builds one, up to where the storages differ.
-  DallasScan &build(std::vector<uint64_t> devices, size_t max_sensors) {
+  TestScan &build(std::vector<uint64_t> devices, size_t max_sensors) {
     this->bus.set_devices(std::move(devices));
-    auto scan = std::make_unique<DallasScan>();
+    auto scan = std::make_unique<TestScan>();
     scan->set_one_wire_bus(&this->bus);
     scan->set_max_sensors(max_sensors);
     // Kept to the end of the case, so it can compare a boot with the one before it.
@@ -205,10 +213,13 @@ class Boots : public ::testing::Test {
 
   one_wire_host::HostOneWireBus bus;
   std::string folder;
-  std::vector<std::unique_ptr<DallasScan>> boots;
+  std::vector<std::unique_ptr<TestScan>> boots;
   std::vector<std::unique_ptr<dir_storage::DirStorage>> storages;
   std::vector<std::unique_ptr<config_json::ConfigJsonKeeper>> keepers;
 };
+
+// The slot and assign cases, over the file storage the JXD configs use.
+class Slots : public Boots {};
 
 // The file a table is written as: {"slot": N, "address": "0x..."} for each bound slot.
 inline std::string slot_file(const std::vector<std::pair<int, const char *>> &records) {

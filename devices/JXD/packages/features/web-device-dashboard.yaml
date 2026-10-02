@@ -11,3 +11,5 @@ web_device_dashboard:
   # What a factory reset over the API wipes, and what /api/device/capabilities reports as the
   # device's storage. Needs the storage package.
   storage_id: user_storage
+  # The temperature slots the page lists and forgets. Needs the temperature package.
+  dallas_scan_id: temps

@@ -22,6 +22,16 @@
 
 namespace esphome::dallas_scan {
 
+/// What assign() would do with a slot and an address, asked before it does it.
+enum class AssignCheck : uint8_t {
+  OK,              ///< the table changes
+  BAD_SLOT,        ///< past the end of the table
+  BAD_ADDRESS,     ///< not a thermometer ROM with a valid CRC
+  LISTED_SLOT,     ///< the slot is taken by sensors:
+  LISTED_ADDRESS,  ///< a listed sensor's device, which keeps its own slot
+  UNCHANGED,       ///< the device is in that slot already
+};
+
 /// One temperature sensor per DS18B20-family device found on the bus at boot.
 /// Slot numbers stick: the slot table lives in preferences, or in a file when set_slot_file() is called.
 class DallasScan : public PollingComponent {
@@ -81,10 +91,25 @@ class DallasScan : public PollingComponent {
   std::string slot_name(size_t slot) const;
   /// Taken by a sensor from sensors:, so forget leaves it alone.
   bool pinned(size_t slot) const { return slot < this->pinned_.size() && this->pinned_[slot]; }
+  /// Whether forget(slot) would empty anything: the slot (any slot for -1) holds a device
+  /// and is not listed.
+  bool can_forget(int slot) const;
+  /// False when the table cannot be written (a file whose partition did not mount): forget()
+  /// and assign() then change nothing.
+  bool can_save() const;
   /// Empty a slot (every slot for -1), then reboot to scan the bus again. Listed slots stay.
   void forget(int slot);
+  /// A ROM a slot can hold: a thermometer family, and the CRC the bus scan checks.
+  static bool valid_address(uint64_t address);
+  AssignCheck check_assign(size_t slot, uint64_t address) const;
+  /// Put the device at @p address into @p slot, then reboot. If it held another slot, that slot
+  /// takes what @p slot held; otherwise the device @p slot held loses its slot and, still on the
+  /// bus, takes the lowest free one at the next boot. Nothing happens unless check_assign() is OK.
+  void assign(size_t slot, uint64_t address);
 
  protected:
+  /// Virtual so the host tests can see the reboot: the real one ends the process.
+  virtual void restart_();
   void load_table_();
   void bind_devices_();
   sensor::Sensor *make_sensor_(size_t slot);
@@ -94,9 +119,9 @@ class DallasScan : public PollingComponent {
   bool read_scratch_pad_(uint64_t address, uint8_t *scratch_pad);
   float to_celsius_(uint64_t address, const uint8_t *scratch_pad) const;
   bool uses_file_() const;
-  bool can_save_() const;
   bool save_table_();
   bool store_for_reboot_();
+  void store_and_restart_(const std::vector<uint64_t> &before, const char *outcome);
 
   one_wire::OneWireBus *bus_{nullptr};
   const char *name_prefix_{"Temp"};
