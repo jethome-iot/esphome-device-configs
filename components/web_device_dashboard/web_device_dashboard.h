@@ -15,6 +15,9 @@
 #ifdef USE_WEB_AUTH
 #include "esphome/components/web_auth/web_auth.h"
 #endif
+#ifdef USE_MQTT_CONFIG
+#include "esphome/components/mqtt_config/mqtt_config.h"
+#endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_STORAGE
 #include "esphome/components/filesystem_storage_abstract/filesystem_storage_abstract.h"
 #endif
@@ -27,6 +30,9 @@ enum class RouteId : uint8_t {
   NETWORK,
 #ifdef USE_WEB_AUTH
   AUTH,
+#endif
+#ifdef USE_MQTT_CONFIG
+  MQTT,
 #endif
   CAPABILITIES,
   SYSTEM_REBOOT,
@@ -42,7 +48,7 @@ enum class RouteId : uint8_t {
 struct Route {
   const char *name;
   RouteId id;
-  /// Reads answer GET, writes POST; entity-settings reads on GET and writes on POST.
+  /// Reads answer GET, writes POST; auth, mqtt and entity-settings read on GET and write on POST.
   bool get;
   bool post;
 };
@@ -51,8 +57,9 @@ using firmware_rollback::RollbackTarget;
 
 // The dashboard page at / and the device API under /api/device/: info (with the board's
 // EEPROM identity when jethome_board_info is wired in), status, network, what the firmware
-// can do, the three system actions, with web_auth the HTTP credentials, and with config_json
-// the entity index, the entity settings and their form fields.
+// can do, the three system actions, with web_auth the HTTP credentials, with mqtt_config the
+// MQTT client's settings, and with config_json the entity index, the entity settings and
+// their form fields.
 class WebDeviceDashboard : public AsyncWebHandler, public Component {
  public:
   explicit WebDeviceDashboard(web_server_base::WebServerBase *base) : base_(base) {}
@@ -92,6 +99,10 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #ifdef USE_WEB_AUTH
   void handle_auth_get_(AsyncWebServerRequest *request);
   void handle_auth_set_(AsyncWebServerRequest *request);
+#endif
+#ifdef USE_MQTT_CONFIG
+  void handle_mqtt_get_(AsyncWebServerRequest *request);
+  void handle_mqtt_set_(AsyncWebServerRequest *request);
 #endif
   void handle_capabilities_(AsyncWebServerRequest *request);
   void handle_reboot_(AsyncWebServerRequest *request);

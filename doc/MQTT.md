@@ -69,8 +69,9 @@ Assistant also gets the device's entities over MQTT, with MAC-based unique ids a
 topic as their availability, so each entity shows up a second time.
 
 Turning discovery off removes this device's entries from the broker at once; if the broker
-cannot be reached at that moment, they go the next time it connects. An unreachable broker keeps
-them in these cases:
+cannot be reached at that moment, they go the next time it connects. A reboot from the dashboard
+or the display gives a removal that is going out up to five seconds to finish. An unreachable
+broker keeps them in these cases:
 
 - after a broker or port change, the old broker keeps them;
 - after MQTT is turned off: the save says so, and turning MQTT on again later with discovery off

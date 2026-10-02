@@ -247,7 +247,10 @@ paths:
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
         "503":
-          description: The device was too busy to read the settings; asking again may succeed.
+          description: >-
+            The device was too busy to read the settings, and asking again may
+            succeed (`Device busy`); or the `mqtt_config` did not come up, which a
+            device does not reach: codegen creates it before any route is served.
           content:
             application/json:
               schema:
@@ -257,6 +260,10 @@ paths:
                   value:
                     success: false
                     error: Device busy
+                not_available:
+                  value:
+                    success: false
+                    error: MQTT not available
     post:
       tags: [write]
       operationId: setMqtt
@@ -365,7 +372,9 @@ paths:
                 success: false
                 error: Storing the MQTT settings failed; the old ones stay in force
         "503":
-          description: The device was too busy to take the request; nothing was stored.
+          description: >-
+            The device was too busy to take the request (`Device busy`), or the
+            `mqtt_config` did not come up, as for the read; nothing was stored.
           content:
             application/json:
               schema:
@@ -375,6 +384,10 @@ paths:
                   value:
                     success: false
                     error: Device busy
+                not_available:
+                  value:
+                    success: false
+                    error: MQTT not available
 
   /capabilities:
     get:
@@ -406,7 +419,9 @@ paths:
       summary: Restart the device.
       description: >-
         Answers first and restarts half a second later, so the answer reaches the
-        caller. Nothing is cleared: settings and files are as they were.
+        caller. Nothing is cleared: settings and files are as they were. On a
+        firmware with an `mqtt_config`, a removal of this device's Home Assistant
+        entries that is going out gets up to five seconds more to finish.
       requestBody:
         $ref: "#/components/requestBodies/Confirmation"
       responses:
@@ -441,7 +456,10 @@ paths:
         partition on its way back up when the firmware has one — `capabilities`
         `factory_reset.clears_storage` says so, and that is what the
         confirmation dialog has to warn about. Answers before any of it happens,
-        and the files are gone once the device is back, not when it answers.
+        and the files are gone once the device is back, not when it answers. On a
+        firmware with an `mqtt_config` and Home Assistant discovery on, this
+        device's entries leave the broker first, for up to five seconds, while it
+        is connected; otherwise they stay there.
       requestBody:
         $ref: "#/components/requestBodies/Confirmation"
       responses:
@@ -479,7 +497,7 @@ paths:
         so an image that is not whole is an error here rather than a device that
         comes back unchanged. The rolled-into firmware gets one monitored boot:
         if it fails before it marks itself good, the bootloader returns to this
-        one.
+        one. The restart waits for a Home Assistant cleanup as a reboot's does.
       requestBody:
         $ref: "#/components/requestBodies/Confirmation"
       responses:

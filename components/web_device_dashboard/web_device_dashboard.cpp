@@ -50,6 +50,10 @@ static const size_t API_PREFIX_LEN = 12;
 static const size_t MAX_BODY_BYTES = 4096;
 // The tail of the pretty MAC a confirmation has to carry: "DD:EE:FF", three octets.
 static const size_t CONFIRM_TOKEN_LEN = 8;
+#ifdef USE_MQTT_CONFIG
+// How long a reboot waits for this device's Home Assistant entries to leave the broker.
+static const uint32_t MQTT_CLEANUP_WAIT_MS = 5000;
+#endif
 
 // clang-format off
 static const Route ROUTES[] = {
@@ -58,6 +62,9 @@ static const Route ROUTES[] = {
     {"network", RouteId::NETWORK, true, false},
 #ifdef USE_WEB_AUTH
     {"auth", RouteId::AUTH, true, true},
+#endif
+#ifdef USE_MQTT_CONFIG
+    {"mqtt", RouteId::MQTT, true, true},
 #endif
     {"capabilities", RouteId::CAPABILITIES, true, false},
     {"system/reboot", RouteId::SYSTEM_REBOOT, false, true},
@@ -158,6 +165,15 @@ void WebDeviceDashboard::handleRequest(AsyncWebServerRequest *request) {
           this->handle_auth_set_(request);
         } else {
           this->handle_auth_get_(request);
+        }
+        break;
+#endif
+#ifdef USE_MQTT_CONFIG
+      case RouteId::MQTT:
+        if (request->method() == HTTP_POST) {
+          this->handle_mqtt_set_(request);
+        } else {
+          this->handle_mqtt_get_(request);
         }
         break;
 #endif
@@ -437,7 +453,27 @@ void WebDeviceDashboard::handle_status_(AsyncWebServerRequest *request) {
     if (link.rssi_valid)
       root["rssi"] = link.rssi;
     write_ip_address(root);
-    root["reboot_required"] = false;
+    // A saved change that applies on a restart. Atomics only: this runs on the server's task.
+    bool mqtt_waits = false;
+#ifdef USE_MQTT_CONFIG
+    if (auto *mqtt = mqtt_config::global_mqtt_config; mqtt != nullptr) {
+      const mqtt_config::MqttConfig::LiveStatus live = mqtt->live_status();
+      JsonObject out = root["mqtt"].to<JsonObject>();
+      out["available"] = true;
+      out["enabled"] = live.running;
+      out["connected"] = live.connected;
+      out["state"] = mqtt_config::MqttConfig::state_key(live.state);
+      if (const char *error = mqtt_config::MqttConfig::error_key(live.last_error); error != nullptr) {
+        out["last_error"] = error;
+      } else {
+        out["last_error"] = nullptr;
+      }
+      mqtt_waits = mqtt->reboot_required();
+    }
+#endif
+    root["reboot_required"] = mqtt_waits;
+    if (mqtt_waits)
+      root["reboot_reasons"].to<JsonArray>().add("mqtt");
   });
   request->send(200, "application/json", body.c_str());
 }
@@ -576,6 +612,78 @@ void WebDeviceDashboard::handle_auth_set_(AsyncWebServerRequest *request) {
 }
 #endif  // USE_WEB_AUTH
 
+#ifdef USE_MQTT_CONFIG
+// GET /api/device/mqtt: the stored settings, never the password, and what runs this boot.
+// Built on the loop task, which owns the record and the strings.
+void WebDeviceDashboard::handle_mqtt_get_(AsyncWebServerRequest *request) {
+  auto *mqtt = mqtt_config::global_mqtt_config;
+  if (mqtt == nullptr) {
+    this->send_error_(request, 503, "MQTT not available");
+    return;
+  }
+  std::string json;
+  const bool read = this->run_on_loop_([&]() {
+    JsonDocument doc;
+    mqtt->write_settings_json(doc.to<JsonObject>());
+    serializeJson(doc, json);
+    return true;
+  });
+  if (!read) {
+    this->send_error_(request, 503, "Device busy");
+    return;
+  }
+  request->send(200, "application/json", json.c_str());
+}
+
+// POST /api/device/mqtt: a partial update. The types are read here; the values are judged,
+// stored and applied on the loop task, in one job, so the answer describes what was done.
+void WebDeviceDashboard::handle_mqtt_set_(AsyncWebServerRequest *request) {
+  if (!this->require_json_(request))
+    return;
+  if (this->body_too_large_) {
+    this->send_error_(request, 413, "Request body over 4 KiB");
+    return;
+  }
+  auto *mqtt = mqtt_config::global_mqtt_config;
+  if (mqtt == nullptr) {
+    this->send_error_(request, 503, "MQTT not available");
+    return;
+  }
+  JsonDocument doc = json::parse_json(this->body_);
+  if (doc.isNull() || !doc.is<JsonObject>()) {
+    this->send_error_(request, 400, "Invalid JSON");
+    return;
+  }
+  mqtt_config::MqttPatch patch;
+  if (const std::string error = mqtt_config::parse_patch(doc.as<JsonObjectConst>(), patch); !error.empty()) {
+    this->send_error_(request, 400, error.c_str());
+    return;
+  }
+  mqtt_config::MqttConfig::UpdateResult result{};
+  const bool ran = this->run_on_loop_([&]() {
+    result = mqtt->update(patch);
+    return true;
+  });
+  if (!ran) {
+    // The loop task never took the job: nothing was stored and nothing will be.
+    this->send_error_(request, 503, "Device busy");
+    return;
+  }
+  if (result.code != 200) {
+    this->send_error_(request, result.code, result.message);
+    return;
+  }
+  auto body = json::build_json([&result](JsonObject root) {
+    root["success"] = true;
+    root["message"] = result.message;
+    root["reboot_required"] = result.reboot_required;
+    root["started"] = result.started;
+    root["discovery_cleanup"] = mqtt_config::MqttConfig::cleanup_key(result.cleanup);
+  });
+  request->send(200, "application/json", body.c_str());
+}
+#endif  // USE_MQTT_CONFIG
+
 // GET /api/device/capabilities: what this firmware has, so the page knows which screens to
 // draw and which routes exist. A key is present only when the capability is; one that has no
 // detail to carry is `true`.
@@ -623,6 +731,10 @@ void WebDeviceDashboard::handle_capabilities_(AsyncWebServerRequest *request) {
 #endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
     root["board_info"] = true;
+#endif
+#ifdef USE_MQTT_CONFIG
+    if (mqtt_config::global_mqtt_config != nullptr)
+      root["mqtt"] = true;
 #endif
   });
   request->send(200, "application/json", body.c_str());
@@ -718,22 +830,41 @@ bool WebDeviceDashboard::run_on_loop_(std::function<bool()> &&job) {
 }
 
 // Both wait the answer out on the loop task: the server task is still holding the socket this
-// was asked on.
+// was asked on. With mqtt_config they also wait for its Home Assistant cleanup: the client
+// shuts down first in a reboot, so a removal still going out would be cut short.
 void WebDeviceDashboard::reboot_() {
-  this->set_timeout(this->action_delay_ms_, [this]() { this->restart_(); });
-}
-
-// The steps the display menu's Factory reset takes, in that order: the preferences erase
-// takes all of NVS with it, so the record asking for the wipe has to be written after it.
-// The partition itself is wiped at the next boot, before anything mounts it.
-void WebDeviceDashboard::factory_reset_() {
   this->set_timeout(this->action_delay_ms_, [this]() {
-    global_preferences->reset();
-#ifdef USE_WEB_DEVICE_DASHBOARD_STORAGE
-    if (this->storage_ != nullptr && !this->storage_->request_format())
-      ESP_LOGE(TAG, "The user partition was not wiped and will not be");
+#ifdef USE_MQTT_CONFIG
+    if (auto *mqtt = mqtt_config::global_mqtt_config; mqtt != nullptr) {
+      mqtt->after_cleanup(MQTT_CLEANUP_WAIT_MS, [this]() { this->restart_(); });
+      return;
+    }
 #endif
     this->restart_();
+  });
+}
+
+// The steps the display menu's Factory reset takes, in that order: the entries leave the
+// broker while the settings that name it still exist, and the preferences erase takes all of
+// NVS with it, so the record asking for the wipe has to be written after it. The partition
+// itself is wiped at the next boot, before anything mounts it.
+void WebDeviceDashboard::factory_reset_() {
+  this->set_timeout(this->action_delay_ms_, [this]() {
+    auto wipe = [this]() {
+      global_preferences->reset();
+#ifdef USE_WEB_DEVICE_DASHBOARD_STORAGE
+      if (this->storage_ != nullptr && !this->storage_->request_format())
+        ESP_LOGE(TAG, "The user partition was not wiped and will not be");
+#endif
+      this->restart_();
+    };
+#ifdef USE_MQTT_CONFIG
+    if (auto *mqtt = mqtt_config::global_mqtt_config; mqtt != nullptr) {
+      mqtt->before_factory_reset(std::move(wipe));
+      return;
+    }
+#endif
+    wipe();
   });
 }
 
