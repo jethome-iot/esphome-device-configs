@@ -185,9 +185,9 @@ show; nothing is set there.
   broker and discovery rows show what is saved.
 - A row holds 18 characters, and a longer one is cut with `…`: the broker's name gives way to
   its port, and a slot's name to its value, down to 6 characters.
-- The rows draw A–Z, Cyrillic, digits, the usual signs and `°`, `µ`, `²`, `³`. Any other
-  character (`é`, `日`, an emoji), a control character or a byte that is not valid UTF-8 shows as
-  `?`.
+- The rows draw Latin letters without accents, Cyrillic, digits, the usual signs and `°`, `µ`,
+  `²`, `³`. Any other character (`é`, `日`, an emoji), a control character or a byte that is not
+  valid UTF-8 shows as `?`.
 
 ## Security
 
