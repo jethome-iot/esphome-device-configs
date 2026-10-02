@@ -144,6 +144,7 @@ class DallasScan : public PollingComponent {
   std::vector<sensor::Sensor *> sensors_;  // slot -> sensor, nullptr = empty
   std::vector<sensor::Sensor *> bound_;    // sensors_ without the gaps
   size_t automatic_{0};                    // slots the component reads itself
+  bool awaiting_reboot_{false};            // the table was rewritten: no reads until the reboot
   std::vector<bool> missing_;              // slot -> the sensor did not answer the last read
   ESPPreferenceObject pref_;
 #ifdef USE_DALLAS_SCAN_FILE

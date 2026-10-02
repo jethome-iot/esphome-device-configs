@@ -1,4 +1,6 @@
 #include "common.h"
+#include <chrono>
+#include <thread>
 #include <cstdio>
 #include <cstring>
 
@@ -254,6 +256,44 @@ TEST_F(FileStorage, AnAssignIsWrittenToTheFile) {
   scan.assign(0, ROM_B);
   EXPECT_EQ(scan.restarts, 1);
   EXPECT_EQ(this->read(), slot_file({{1, HEX_B}, {2, HEX_A}}));
+}
+
+// The halves the web dashboard calls: it answers between the write and the reboot it owes.
+TEST_F(FileStorage, SavingWithoutTheRebootLeavesTheRebootToTheCaller) {
+  TestScan &scan = this->boot({ROM_A, ROM_B});
+  EXPECT_FALSE(scan.forget_and_save(2));  // free
+  EXPECT_TRUE(scan.forget_and_save(0));
+  EXPECT_EQ(scan.restarts, 0);
+  EXPECT_EQ(this->read(), slot_file({{2, HEX_B}}));
+
+  TestScan &next = this->boot({ROM_B});
+  EXPECT_FALSE(next.assign_and_save(1, ROM_B));  // there already
+  EXPECT_TRUE(next.assign_and_save(2, ROM_C));
+  EXPECT_EQ(next.restarts, 0);
+  EXPECT_EQ(this->read(), slot_file({{2, HEX_B}, {3, HEX_C}}));
+}
+
+// Between that write and the reboot the table describes the next boot: nothing reads the bus by
+// it under this boot's sensors.
+TEST_F(FileStorage, ARewrittenTableStopsTheReadsUntilTheReboot) {
+  auto read_once = [](TestScan &scan) {
+    scan.update();
+    std::this_thread::sleep_for(std::chrono::milliseconds(800));  // the 12-bit conversion
+    for (int pass = 0; pass < 8; pass++)
+      App.scheduler.call(millis());
+  };
+  TestScan &rewritten = this->boot({ROM_A, ROM_B});
+  ASSERT_TRUE(rewritten.forget_and_save(0));
+  this->log().clear();
+  read_once(rewritten);
+  EXPECT_FALSE(this->log().has(this->log().warnings, "does not answer"));
+
+  // The same reads on a scan that kept its table: the harness bus answers all ones, so every
+  // device fails its checksum and says so.
+  TestScan &kept = this->boot({ROM_A, ROM_B});
+  this->log().clear();
+  read_once(kept);
+  EXPECT_TRUE(this->log().has(this->log().warnings, "does not answer"));
 }
 
 TEST_F(FileStorage, DumpConfigNamesTheFile) {

@@ -137,7 +137,7 @@ Slots are 0-based here.
 - `can_save()`: the table can be written; false for a file whose partition did not mount
 - `forget(slot)`, `-1` for every slot
 - `forget_and_save(slot)`, `assign_and_save(slot, rom)`: the same without the reboot, which
-  the caller then owes; false, with the table unchanged, when nothing would change or the
-  table could not be written
+  the caller then owes, and the bus is not read until it comes; false, with the table
+  unchanged, when nothing would change or the table could not be written
 - `valid_address(rom)`: a thermometer family and a valid CRC, the ROMs a slot can hold
 - `check_assign(slot, rom)`, `assign(slot, rom)`

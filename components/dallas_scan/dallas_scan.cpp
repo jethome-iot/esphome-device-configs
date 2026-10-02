@@ -196,7 +196,8 @@ void DallasScan::write_resolution_(uint64_t address) {
 }
 
 void DallasScan::update() {
-  if (this->automatic_ == 0)  // listed sensors read their devices themselves
+  // Listed sensors read their devices themselves; a rewritten table waits for its reboot.
+  if (this->automatic_ == 0 || this->awaiting_reboot_)
     return;
   // One conversion for the whole bus; the scratch pads are read one per loop pass.
   if (this->bus_->skip())
@@ -205,6 +206,8 @@ void DallasScan::update() {
 }
 
 void DallasScan::read_slot_(size_t slot) {
+  if (this->awaiting_reboot_)
+    return;
   // Slots served by YAML sensors are theirs to read.
   while (slot < this->slots_.size() && (this->sensors_[slot] == nullptr || this->given_[slot] != nullptr))
     slot++;
@@ -368,8 +371,12 @@ bool DallasScan::assign_and_save(size_t slot, uint64_t address) {
 
 // A reboot after a failed write would bring the old table back without a word.
 bool DallasScan::store_or_roll_back_(const std::vector<uint64_t> &before, const char *outcome) {
-  if (this->store_for_reboot_())
+  if (this->store_for_reboot_()) {
+    // The table now describes the next boot, the sensors this one: reading by it would publish
+    // a slot's new device, or none, under its old sensor until the reboot.
+    this->awaiting_reboot_ = true;
     return true;
+  }
   this->slots_ = before;
   ESP_LOGE(TAG, "The slot table was not written: %s", outcome);
   return false;

@@ -119,7 +119,7 @@ TEST_F(TemperatureSlots, AnEmptyTableListsNoSlots) {
 // --- forgetting ---
 
 TEST_F(TemperatureSlots, ForgetASlotWritesTheTableAnswersAndReboots) {
-  this->boot({ROM_A, ROM_B});
+  TestScan &scan = this->boot({ROM_A, ROM_B});
   Reply reply = this->post(FORGET, this->confirmed(R"("slot":1)"));
   EXPECT_EQ(reply.code, 200);
   EXPECT_TRUE(reply.success());
@@ -128,6 +128,7 @@ TEST_F(TemperatureSlots, ForgetASlotWritesTheTableAnswersAndReboots) {
   EXPECT_EQ(this->dashboard->restarts, 0);
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 1);
+  EXPECT_EQ(scan.restarts, 0);  // the scan's own reboot would have come before the answer
   // The next boot finds slot 1 free, and B where it was.
   TestScan &after = this->boot({ROM_B});
   EXPECT_EQ(after.address(0), 0u);
@@ -144,6 +145,7 @@ TEST_F(TemperatureSlots, ForgetAllEmptiesEverySlotButTheListedOne) {
   EXPECT_EQ(reply.message(), "Forgetting every slot, rebooting");
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 1);
+  EXPECT_EQ(scan.restarts, 0);
   // Numbered again in bus order, after the listed slot.
   TestScan &after = this->boot({ROM_A, ROM_B}, true);
   EXPECT_EQ(after.sensor(0), &boiler());
@@ -316,7 +318,7 @@ TEST_F(TemperatureSlots, ABusyLoopIsUnavailableForEveryRoute) {
 }
 
 TEST_F(TemperatureSlots, AssignSwapsWritesTheTableAnswersAndReboots) {
-  this->boot({ROM_A, ROM_B});
+  TestScan &scan = this->boot({ROM_A, ROM_B});
   Reply reply = this->post(ASSIGN, this->confirmed(R"("slot":1,"address":"0x8a0122791699dd28")"));
   EXPECT_EQ(reply.code, 200);
   EXPECT_TRUE(reply.success());
@@ -324,6 +326,7 @@ TEST_F(TemperatureSlots, AssignSwapsWritesTheTableAnswersAndReboots) {
   EXPECT_EQ(this->dashboard->restarts, 0);
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 1);
+  EXPECT_EQ(scan.restarts, 0);
   TestScan &after = this->boot({ROM_A, ROM_B});
   EXPECT_EQ(after.address(0), ROM_B);
   EXPECT_EQ(after.address(1), ROM_A);
@@ -345,6 +348,7 @@ TEST_F(TemperatureSlots, AssignTakesANewAddressInEitherCaseWithOrWithoutThePrefi
 
 TEST_F(TemperatureSlots, AssignRefusesWhatIsNotARomAddress) {
   this->boot({ROM_A});
+  const int jobs = this->dashboard->jobs;
   for (const char *address : {R"("")", R"("0x")", R"("0x9b01b5566e8a1f2")", R"("0x9b01b5566e8a1f288")",
                               R"("0x9b01b5566e8a1fzz")", R"("0x 9b01b5566e8a1f2")", "1234", "null"}) {
     Reply reply = this->post(ASSIGN, this->confirmed(std::string(R"("slot":2,"address":)") + address));
@@ -360,6 +364,8 @@ TEST_F(TemperatureSlots, AssignRefusesWhatIsNotARomAddress) {
   Reply crc = this->post(ASSIGN, this->confirmed(R"("slot":2,"address":"0x9a01b5566e8a1f28")"));
   EXPECT_EQ(crc.code, 400);
   EXPECT_EQ(crc.error(), "0x9a01b5566e8a1f28 is not a thermometer ROM: wrong family or CRC");
+  // About the request alone: none of it waited for the loop task.
+  EXPECT_EQ(this->dashboard->jobs, jobs);
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
 }
