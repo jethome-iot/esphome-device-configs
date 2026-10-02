@@ -50,8 +50,8 @@ const CELSIUS = '°C'
 
 // Every visible sensor on the device; /entities offers only the ones in °C.
 export const seedSensors: BindableSensor[] = [
-  { object_id: 'temp1', name: 'Temp1', unit: CELSIUS },
-  { object_id: 'temp2', name: 'Temp2', unit: CELSIUS },
+  { object_id: 'temp_1', name: 'Temp 1', unit: CELSIUS },
+  { object_id: 'temp_2', name: 'Temp 2', unit: CELSIUS },
   { object_id: 'pcb_temp', name: 'PCB Temp', unit: CELSIUS },
   { object_id: 'uptime', name: 'Uptime', unit: 's' }
 ]
@@ -66,11 +66,11 @@ export const seedSwitches: Array<Omit<BindableSwitch, 'claimed_by'>> = [
   { object_id: 'red_led', name: 'Red led' }
 ]
 
-// Where each sensor starts and what it settles to with nothing driving it. Temp2
+// Where each sensor starts and what it settles to with nothing driving it. Temp 2
 // has no reading, as on the dashboard mock, so a thermostat on it faults.
 const seedRooms: Record<string, { start: number | null; ambient: number }> = {
-  temp1: { start: 23.84, ambient: 15 },
-  temp2: { start: null, ambient: 15 },
+  temp_1: { start: 23.84, ambient: 15 },
+  temp_2: { start: null, ambient: 15 },
   pcb_temp: { start: 31.5, ambient: 31.5 }
 }
 
@@ -229,7 +229,7 @@ export const seedControllers: ControllerDocument[] = [
     id: 'floor-heating',
     name: 'Floor Heating',
     kind: 'bang_bang',
-    sensor_id: 'temp2',
+    sensor_id: 'temp_2',
     heat: { relay_id: 'relay_2', period_s: 300, min_on_s: 60, min_off_s: 300 },
     bang_bang: { below: 0.5, above: 0.5 },
     setpoint: 24
@@ -240,7 +240,7 @@ export const seedControllers: ControllerDocument[] = [
     name: 'Guest Room',
     enabled: false,
     kind: 'bang_bang',
-    sensor_id: 'temp1',
+    sensor_id: 'temp_1',
     heat: { relay_id: 'relay_1', period_s: 300, min_on_s: 10, min_off_s: 10 },
     setpoint: 19
   },
@@ -249,7 +249,7 @@ export const seedControllers: ControllerDocument[] = [
     id: 'living-room',
     name: 'Living Room',
     kind: 'pid',
-    sensor_id: 'temp1',
+    sensor_id: 'temp_1',
     heat: { relay_id: 'relay_1', period_s: 300, min_on_s: 10, min_off_s: 10 },
     setpoint: 22
   }
