@@ -12,8 +12,10 @@
 //  - failures are {success:false,error} with 400/404/405/409/413/500/503/507;
 //  - GET /get?id= returns the bare document, not the success envelope;
 //  - /ping returns {status:"ok"} (NOT the success envelope);
-//  - every read and write runs on the device's main loop, so an answer describes
-//    what actually happened; 503 means the loop did not get to it and nothing changed.
+//  - every route but /schema and /ping does its read or write on the device's main
+//    loop, so an answer describes what actually happened; 503 means the loop did not
+//    get to it and nothing changed. /schema and /ping answer from build-time data
+//    without waiting for the loop, so they are never 503.
 import type {
   ClimateEntitiesResponse,
   ClimateSchema,
