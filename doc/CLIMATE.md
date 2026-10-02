@@ -27,7 +27,8 @@ at the next boot. The file format and the C++ API are in
 - **A relay belongs to the running thermostat.** Switched from anywhere else — the panel,
   Modbus, an automation, Home Assistant — it is put back within a moment. Two thermostats may
   name one relay and take turns, a summer and a winter profile on one boiler; only one of them
-  runs at a time, and taking the relay over from the other leaves it as it is.
+  runs at a time, and taking the relay over from the other leaves it as it is. One that could
+  not run, its sensor or a relay missing, cannot take it over.
 
 ## Storage
 
@@ -37,9 +38,11 @@ The device keeps at most eight. OTA updates keep the files; a factory reset form
 partition, so the thermostats go with it. A file dropped into the folder, over the file API
 under `/files` for instance, is loaded at the next boot.
 
-A thermostat whose sensor or relay is missing, at boot or when it is saved, stays enabled on disk
-but does not run; a Save of it succeeds with a warning that names what is missing. It starts at
-the next boot that finds what it names, or at a Save that names what is there.
+A thermostat whose sensor or relay is missing, at boot or when it is saved or switched on, stays
+enabled on disk but does not run; the Save or the switch-on succeeds with a warning that names
+what is missing. It starts at the next boot that finds what it names, or at a Save or a
+switch-on that finds it there. Until then, or until it is switched off, the device keeps saying
+why it waits.
 
 ## Over HTTP
 

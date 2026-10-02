@@ -96,11 +96,10 @@ component: it would list the entities no thermostat is using.
 Every number is clamped into its range, and a missing one takes its default: the ranges and the
 defaults are the table in `param_table.cpp`. A document built in C++ and handed to `create()` or
 `update()` is clamped the same way. A document that breaks a rule above is refused
-whole with a sentence that says which. A thermostat that is to run is created or saved only
-when its sensor, if it is on the device, reports °C, and no running thermostat holds its relays.
-One whose sensor or a relay is not on the device is saved all the same, enabled, and waits as it
-would at boot, with a `warning` that names what is missing. Enabling a stopped thermostat asks
-for everything: its sensor and relays on the device, the sensor in °C. A disabled one may name
+whole with a sentence that says which. A thermostat that is to run is created, saved or enabled
+only when its sensor, if it is on the device, reports °C, and no running thermostat holds its
+relays. One whose sensor or a relay is not on the device is saved or enabled all the same, and
+waits as it would at boot, with a `warning` that names what is missing. A disabled one may name
 what is not there yet.
 
 ## Control
@@ -120,7 +119,8 @@ what is not there yet.
   infinity, is no reading: it is neither shown nor acted on, so a sensor that sends nothing
   else reports `sensor_stale` once `sensor_timeout_s` has passed since its last good one.
 - `min_on_s` and `min_off_s` hold a relay closed or open that long after it moved, whichever
-  thermostat moved it or put it back; a safety cut-out does not wait for them.
+  thermostat moved it or put it back; a safety cut-out does not wait for them. Keeping an open
+  relay open, as while a thermostat waits for its first reading, is no move.
 - A Save keeps what the thermostat is doing: inside the band a hysteresis thermostat goes on
   heating, cooling or idling as it was in the modes it still has, and the PWM keeps its rhythm
   unless `period_s` changes. Unless it changes `kind` or `sensor_id`, it also keeps what a PID
@@ -138,7 +138,8 @@ A running thermostat holds its relays, and puts one back within a loop pass if a
 moves it — from the panel, over Modbus, from an automation or from Home Assistant. Two
 thermostats may name the same relay and take turns: only one of them can run at a time.
 Starting the second while the first runs is refused, naming the one that holds it, unless it
-takes the relay over, which stops the holder. Stopping a thermostat opens its relays. A Save
+takes the relay over, which stops the holder. A take-over by one whose sensor or a relay is not
+on the device is refused, and the holder runs on. Stopping a thermostat opens its relays. A Save
 that keeps a relay leaves it where it is, and so does a take-over: a relay both thermostats
 drive changes hands as it is, and the holder's other relays open.
 
@@ -177,7 +178,7 @@ The folder is writable by hand, so what it holds is checked at boot:
   (a name whose every id is taken that way is refused);
 - a name another thermostat or a YAML climate already has becomes `<name> 2` and is written back;
 - an enabled thermostat whose sensor or relay is missing, whose sensor does not report °C, or
-  whose relay another one holds, stays enabled and does not run.
+  whose relay another one holds, stays enabled and does not run; `waiting_reason()` says which.
 
 A thermostat that waits is not started when what it names turns up later, only by the next boot
 that finds it, or by a Save or an enable once it is there.
@@ -197,6 +198,9 @@ got to it.
 - `store()`: the documents, sorted by id; `max_controllers()`
 - `is_running(id)`, `runtime(id)`: the running thermostat's action, fault, duties, PID terms and
   sample age, `nullptr` when it is not running
+- `waiting_reason(id)`: why an enabled thermostat does not run, the sentence its last failed
+  start gave as a `warning`, at boot, a Save or an enable (`not started: sensor 'attic' not
+  found`, `not started: no free climate entity`); `""` once it runs or is disabled
 - `claimed_by(relay_object_id)`: the id of the running thermostat holding it, or `""`
 - `sensor_reading(sensor_object_id)`: what a sensor reads now, `NaN` without a finite reading
   in °C

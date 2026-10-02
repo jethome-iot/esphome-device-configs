@@ -979,6 +979,38 @@ TEST_F(ControlLoop, ADisableAndEnableInsideMinOffKeepsTheRelayOpen) {
   EXPECT_TRUE(entities().relay1.state);
 }
 
+// Held open while there is no reading, the relay never moved: min_off does not hold back the
+// first demand.
+TEST_F(ControlLoop, TheFirstReadingClosesARelayTheWaitNeverMoved) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.heat.min_off_s = 60.f;
+  this->id_ = this->create(config).id;
+  tick(100000);
+  tick(101000);
+  ASSERT_FALSE(entities().relay1.state);
+  EXPECT_EQ(0, entities().relay1.writes) << "nothing to open";
+
+  entities().room.publish_state(18.f);
+  tick(102000);
+  EXPECT_EQ(HubAction::HEATING, hub().runtime_of(this->id_)->action());
+  EXPECT_TRUE(entities().relay1.state);
+}
+
+// Nor does a thermostat that stopped before it ever moved the relay hold back the next one on it.
+TEST_F(ControlLoop, AStopThatNeverMovedTheRelayLeavesNoDwellBehind) {
+  ClimateConfig waiting = this->base(ControlKind::BANG_BANG);
+  waiting.name = "Waiting";
+  this->create(waiting);
+  tick(100000);
+  ASSERT_TRUE(hub().set_enabled("waiting", false).ok);
+
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.heat.min_off_s = 3600.f;
+  this->start(config, 18.f);
+  tick(101000);
+  EXPECT_TRUE(entities().relay1.state);
+}
+
 // Summer taking over a boiler Winter has closed wants it closed too: it changes hands as it is.
 TEST_F(ControlLoop, ATakeOverOfAClosedRelayKeepsItClosed) {
   ClimateConfig winter = this->base(ControlKind::BANG_BANG);

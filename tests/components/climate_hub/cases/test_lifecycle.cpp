@@ -247,10 +247,13 @@ TEST_F(HubTest, TakeOverDisablesTheHolder) {
 TEST_F(HubTest, DisableStopsTheEntityAndEnableBringsItBack) {
   this->create(draft("Boiler"));
 
+  EXPECT_EQ("", hub().waiting_reason("boiler")) << "running: nothing to wait for";
   ASSERT_TRUE(hub().set_enabled("boiler", false).ok);
   EXPECT_FALSE(hub().is_running("boiler"));
   EXPECT_EQ("", hub().claimed_by("relay_1"));
   EXPECT_FALSE(hub().store().get("boiler")->enabled);
+  EXPECT_EQ("", hub().waiting_reason("boiler")) << "disabled: not waiting either";
+  EXPECT_EQ("", hub().waiting_reason("nope"));
 
   ASSERT_TRUE(hub().set_enabled("boiler", true).ok);
   EXPECT_TRUE(hub().is_running("boiler"));
@@ -335,20 +338,113 @@ TEST_F(HubTest, AnEnabledThermostatWithoutItsSensorOrRelayIsSavedAndWaits) {
   pass_resync_delay();
   EXPECT_EQ(0, hub().resyncs) << "nothing started, nothing to re-list";
 
-  // The toggle still asks for what is there: it answers a 400 and changes nothing.
+  // The toggle on one that waits tries again, and answers as the Save did.
   result = hub().set_enabled("ghost", true);
-  EXPECT_EQ(400, result.code);
-  EXPECT_EQ("No sensor \"no_such_sensor\" on this device", result.error);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: sensor 'no_such_sensor' not found", result.warning);
   EXPECT_TRUE(hub().store().get("ghost")->enabled);
+  EXPECT_FALSE(hub().is_running("ghost"));
   result = hub().set_enabled("porch", true);
-  EXPECT_EQ(400, result.code);
-  EXPECT_EQ("No switch \"relay_9\" on this device", result.error);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: relay 'relay_9' not found", result.warning);
 
   this->reboot();
   for (const char *id : {"ghost", "porch"}) {
     EXPECT_TRUE(hub().store().get(id)->enabled) << id << " waits across a reboot too";
     EXPECT_FALSE(hub().is_running(id)) << id;
   }
+}
+
+// Enabling a stopped thermostat whose sensor or relay is not on the device is a Save of its
+// flag: stored enabled, it waits, as one loaded at boot does.
+TEST_F(HubTest, EnablingAThermostatWithoutItsSensorOrRelayStoresItAndLetsItWait) {
+  ClimateConfig ghost = draft("Ghost");
+  ghost.sensor_id = "no_such_sensor";
+  ghost.enabled = false;
+  this->create(ghost);
+  ClimateConfig porch = draft("Porch", "relay_9");
+  porch.enabled = false;
+  this->create(porch);
+
+  Result result = hub().set_enabled("ghost", true);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(200, result.code);
+  EXPECT_EQ("not started: sensor 'no_such_sensor' not found", result.warning);
+  EXPECT_TRUE(result.persisted);
+  EXPECT_TRUE(hub().store().get("ghost")->enabled);
+  EXPECT_FALSE(hub().is_running("ghost"));
+  EXPECT_EQ(4u, hub().free_count()) << "it took no slot";
+  EXPECT_EQ("", hub().claimed_by("relay_1")) << "nor its relay";
+
+  result = hub().set_enabled("porch", true);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: relay 'relay_9' not found", result.warning);
+  EXPECT_TRUE(hub().store().get("porch")->enabled);
+  pass_resync_delay();
+  EXPECT_EQ(0, hub().resyncs) << "nothing started, nothing to re-list";
+
+  this->reboot();
+  for (const char *id : {"ghost", "porch"}) {
+    EXPECT_TRUE(hub().store().get(id)->enabled) << id << ": the flag reached the file";
+    EXPECT_FALSE(hub().is_running(id)) << id;
+  }
+}
+
+// A relay a running thermostat holds is a 409 for the toggle too, as for a Save, missing
+// sensor or not: the holder decides.
+TEST_F(HubTest, AHeldRelayStillRefusesAnEnableWhoseSensorIsMissing) {
+  this->create(draft("Winter", "relay_1"));
+  ClimateConfig summer = draft("Summer", "relay_1");
+  summer.enabled = false;
+  summer.sensor_id = "no_such_sensor";
+  this->create(summer);
+
+  Result result = hub().set_enabled("summer", true);
+  EXPECT_EQ(409, result.code);
+  EXPECT_EQ("winter", result.holder);
+  EXPECT_FALSE(hub().store().get("summer")->enabled);
+  EXPECT_TRUE(hub().is_running("winter"));
+}
+
+// Why an enabled thermostat does not run is kept, worded as the `warning` that said so, for
+// whoever asks later: the newest failed start's reason, until it starts or is disabled.
+TEST_F(HubTest, AWaitingThermostatKeepsWhyItDoesNotRun) {
+  ClimateConfig ghost = draft("Ghost");
+  ghost.sensor_id = "no_such_sensor";
+  Result result = hub().create(ghost);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: sensor 'no_such_sensor' not found", hub().waiting_reason("ghost"));
+  EXPECT_EQ(result.warning, hub().waiting_reason("ghost"));
+
+  result = hub().update("ghost", draft("Ghost", "relay_9"));
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: relay 'relay_9' not found", hub().waiting_reason("ghost")) << "the newest";
+  EXPECT_EQ(result.warning, hub().waiting_reason("ghost"));
+
+  ClimateConfig uptime = draft("Ghost");
+  uptime.sensor_id = "uptime";
+  EXPECT_EQ(400, hub().update("ghost", uptime).code);
+  EXPECT_EQ("not started: relay 'relay_9' not found", hub().waiting_reason("ghost")) << "a refusal changes nothing";
+
+  ASSERT_TRUE(hub().set_enabled("ghost", false).ok);
+  EXPECT_EQ("", hub().waiting_reason("ghost"));
+  EXPECT_EQ(0u, hub().reasons_kept());
+
+  result = hub().set_enabled("ghost", true);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: relay 'relay_9' not found", hub().waiting_reason("ghost"));
+  EXPECT_EQ(result.warning, hub().waiting_reason("ghost"));
+
+  ClimateConfig off = draft("Ghost", "relay_9");
+  off.enabled = false;
+  ASSERT_TRUE(hub().update("ghost", off).ok);
+  EXPECT_EQ("", hub().waiting_reason("ghost")) << "a Save that disables it ends the wait too";
+  EXPECT_EQ(0u, hub().reasons_kept());
+
+  ASSERT_TRUE(hub().update("ghost", draft("Ghost", "relay_9")).ok);
+  ASSERT_EQ(1u, hub().reasons_kept());
+  ASSERT_TRUE(hub().remove("ghost").ok);
+  EXPECT_EQ(0u, hub().reasons_kept()) << "nor does a removed one leave its reason behind";
 }
 
 // A Save that points a running thermostat at a missing relay stops it: it opens its relay, lets
@@ -364,6 +460,7 @@ TEST_F(HubTest, ASaveOntoAMissingRelayStopsTheThermostatAndKeepsIt) {
   Result result = hub().update("boiler", draft("Boiler", "relay_9"));
   ASSERT_TRUE(result.ok) << result.error;
   EXPECT_EQ("not started: relay 'relay_9' not found", result.warning);
+  EXPECT_EQ(result.warning, hub().waiting_reason("boiler"));
   EXPECT_EQ("relay_9", hub().store().get("boiler")->heat.relay_id);
   EXPECT_TRUE(hub().store().get("boiler")->enabled);
   EXPECT_FALSE(hub().is_running("boiler"));
@@ -379,6 +476,8 @@ TEST_F(HubTest, ASaveOntoAMissingRelayStopsTheThermostatAndKeepsIt) {
   ASSERT_TRUE(result.ok) << result.error;
   EXPECT_EQ("", result.warning);
   EXPECT_TRUE(hub().is_running("boiler"));
+  EXPECT_EQ("", hub().waiting_reason("boiler"));
+  EXPECT_EQ(0u, hub().reasons_kept());
 }
 
 // The same for a sensor: the relays it kept are opened and let go with it.
@@ -405,7 +504,8 @@ TEST_F(HubTest, AHeldRelayStillRefusesASaveWhoseSensorIsMissing) {
   EXPECT_EQ(nullptr, hub().store().get("summer"));
 }
 
-// Checked before anything is taken over: a refused enable leaves the holder running.
+// A take-over stops the holder, so it is refused, before anything moves, for a thermostat that
+// would not run in its place.
 TEST_F(HubTest, AMissingSensorRefusesATakeOverBeforeItStopsTheHolder) {
   this->create(draft("Winter", "relay_1"));
   ClimateConfig summer = draft("Summer", "relay_1");
@@ -413,9 +513,35 @@ TEST_F(HubTest, AMissingSensorRefusesATakeOverBeforeItStopsTheHolder) {
   summer.sensor_id = "no_such_sensor";
   this->create(summer);
 
-  EXPECT_EQ(400, hub().set_enabled("summer", true, true).code);
+  Result result = hub().set_enabled("summer", true, true);
+  EXPECT_EQ(400, result.code);
+  EXPECT_EQ("No sensor \"no_such_sensor\" on this device", result.error);
   EXPECT_TRUE(hub().is_running("winter"));
   EXPECT_TRUE(hub().store().get("winter")->enabled);
+  EXPECT_FALSE(hub().store().get("summer")->enabled);
+
+  ClimateConfig porch = draft("Porch", "relay_1");
+  porch.cool.relay_id = "relay_9";
+  porch.mode = HubMode::HEAT_COOL;
+  porch.enabled = false;
+  this->create(porch);
+  result = hub().set_enabled("porch", true, true);
+  EXPECT_EQ(400, result.code);
+  EXPECT_EQ("No switch \"relay_9\" on this device", result.error);
+  EXPECT_TRUE(hub().is_running("winter"));
+}
+
+// With nothing to take over, `take_over` changes nothing: one that cannot run waits.
+TEST_F(HubTest, ATakeOverWithNoHolderLetsAThermostatWait) {
+  ClimateConfig ghost = draft("Ghost");
+  ghost.sensor_id = "no_such_sensor";
+  ghost.enabled = false;
+  this->create(ghost);
+
+  Result result = hub().set_enabled("ghost", true, true);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: sensor 'no_such_sensor' not found", result.warning);
+  EXPECT_TRUE(hub().store().get("ghost")->enabled);
 }
 
 TEST_F(HubTest, MaxControllersCapsCreation) {
@@ -812,6 +938,9 @@ TEST_F(HubTest, AnEnabledThermostatNeedsASensorInCelsius) {
   EXPECT_EQ(400, result.code);
   EXPECT_EQ("\"Counter\" reports no unit, not °C", result.error);
   EXPECT_FALSE(hub().store().get("boiler")->enabled);
+  result = hub().set_enabled("boiler", true, true);
+  EXPECT_EQ(400, result.code) << "nothing to take over changes nothing";
+  EXPECT_FALSE(hub().store().get("boiler")->enabled);
 
   config.enabled = true;
   config.sensor_id = "room";
@@ -876,7 +1005,7 @@ TEST_F(HubTest, TheConfigDumpSaysWhatEachThermostatIsDoing) {
   EXPECT_TRUE(log.has("Thermostats: 3 of 4"));
   EXPECT_TRUE(log.has("'Boiler' (boiler): pid, running"));
   EXPECT_TRUE(log.has("'Kettle' (kettle): pid, disabled"));
-  EXPECT_TRUE(log.has("'Attic' (attic): bang_bang, not started"));
+  EXPECT_TRUE(log.has("'Attic' (attic): bang_bang, not started: sensor 'gone' not found"));
 }
 
 // A target that cannot be written stays live; the log says it will not survive a reboot.

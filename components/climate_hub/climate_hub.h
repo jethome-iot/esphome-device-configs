@@ -73,6 +73,10 @@ class ClimateHub : public Component {
   uint8_t max_controllers() const { return this->max_controllers_; }
   /// Whether the thermostat is running: enabled, and its sensor and relays were there.
   bool is_running(const std::string &id) const { return this->slot_for_(id) != nullptr; }
+  /// Why an enabled thermostat is not running, worded as the `warning` that said so ("not
+  /// started: sensor 'attic' not found"): what its last start, at boot, a Save or an enable,
+  /// failed on. "" when it runs, is disabled or is not there.
+  std::string waiting_reason(const std::string &id) const;
   /// The running thermostat's control state (action, fault, duties, PID terms, sample age),
   /// nullptr when it is not running.
   const ControllerRuntime *runtime(const std::string &id) const;
@@ -94,10 +98,12 @@ class ClimateHub : public Component {
   Result update(const std::string &id, ClimateConfig doc);
   /// Stops and deletes a thermostat.
   Result remove(const std::string &id);
-  /// Starts or stops a thermostat and stores the flag. Enabling one whose sensor or relay is not
-  /// on the device, or whose sensor does not report °C, is a 400; one whose relay a running
-  /// thermostat holds is a 409 naming the holder, unless `take_over`: the holder is then
-  /// disabled first.
+  /// Starts or stops a thermostat and stores the flag. Enabling is refused as a Save is: 400
+  /// for a sensor that does not report °C, 409 naming the holder for a relay a running
+  /// thermostat holds, unless `take_over`: the holder is then disabled first, and a 400 comes
+  /// instead when the sensor or a relay is not on the device, the holder untouched. Otherwise
+  /// one whose sensor or relay is not on the device is stored enabled and waits, with a
+  /// `warning`.
   Result set_enabled(const std::string &id, bool enabled, bool take_over = false);
   /// Moves the target, clamped into the visual range, running or not.
   Result set_setpoint(const std::string &id, float value);
@@ -137,6 +143,8 @@ class ClimateHub : public Component {
   void resolve_name_(ClimateConfig *config);
 
   bool start_(ClimateConfig *config, std::string *error);
+  /// Keeps `error` as why `id` waits, and returns it worded as a `warning`.
+  const std::string &note_waiting_(const std::string &id, const std::string &error);
   void stop_(Slot *slot);
   bool restart_(Slot *slot, const std::string &previous_name, std::string *error);
   bool acquire_claims_(const ClimateConfig &config, RelayClaim **heat, RelayClaim **cool, std::string *error);
@@ -148,7 +156,8 @@ class ClimateHub : public Component {
   /// The running thermostat, other than `config` itself, that holds one of its relays, and
   /// which relay.
   std::string holder_of_(const ClimateConfig &config, std::string *relay_id = nullptr) const;
-  /// Whether the sensor and the relays `config` names are on this device, the sensor in °C.
+  /// Whether the sensor and the relays `config` names are on this device, the sensor in °C:
+  /// what a take-over asks before it stops the holder.
   bool check_entities_(const ClimateConfig &config, std::string *error) const;
   /// Whether `config`, enabled, may be saved: 400 for a sensor not in °C, 409 for a relay held
   /// elsewhere. A missing sensor or relay is waited for, as at boot.
@@ -204,6 +213,8 @@ class ClimateHub : public Component {
   // Each relay's last switching once its claim is gone, by object id: the next claim on it
   // honours min_on and min_off from there.
   std::map<std::string, RelaySwitching> relay_history_;
+  // Why each enabled thermostat that is not running did not start, by id, as a `warning`.
+  std::map<std::string, std::string> waiting_;
   // One per sensor, kept for the life of the device: upstream has no callback removal.
   std::vector<std::unique_ptr<SensorSubscription>> sensor_subs_;
 

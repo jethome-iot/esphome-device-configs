@@ -143,6 +143,7 @@ class TestHub : public ClimateHub {
       sub->last = Reading{};
     this->store_.clear();
     this->dirty_.clear();
+    this->waiting_.clear();
     this->cancel_timeout("ha_resync");
     this->ms = 100000;
     this->resyncs = 0;
@@ -171,6 +172,8 @@ class TestHub : public ClimateHub {
     return it == this->claims_.end() ? nullptr : it->second.get();
   }
   bool dirty(const std::string &id) const { return this->dirty_.count(id) != 0; }
+  // Every reason kept, stale or not: waiting_reason() would hide one the hub forgot to drop.
+  size_t reasons_kept() const { return this->waiting_.size(); }
 
  protected:
   void resync_home_assistant_() override { this->resyncs++; }

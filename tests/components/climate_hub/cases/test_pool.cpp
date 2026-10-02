@@ -386,6 +386,16 @@ TEST_F(HubTest, BootStartsOneOfTwoOnTheSameRelay) {
   EXPECT_TRUE(hub().is_running("summer"));
   EXPECT_FALSE(hub().is_running("winter"));
   EXPECT_TRUE(hub().store().get("winter")->enabled) << "still enabled, just not running";
+  EXPECT_EQ("not started: relay 'relay_1' is held by 'summer'", hub().waiting_reason("winter"));
+
+  // Its turn comes with an enable once the relay is free: started, it has nothing left to say.
+  ASSERT_TRUE(hub().set_enabled("summer", false).ok);
+  EXPECT_EQ("not started: relay 'relay_1' is held by 'summer'", hub().waiting_reason("winter"))
+      << "never retried on its own";
+  ASSERT_TRUE(hub().set_enabled("winter", true).ok);
+  EXPECT_TRUE(hub().is_running("winter"));
+  EXPECT_EQ("", hub().waiting_reason("winter"));
+  EXPECT_EQ(0u, hub().reasons_kept());
 }
 
 // An enabled thermostat whose sensor or relay is gone stays on flash and enabled, not running,
@@ -408,6 +418,8 @@ TEST_F(HubTest, BootKeepsAThermostatWhoseSensorOrRelayIsGone) {
   EXPECT_EQ("", hub().claimed_by("relay_1")) << "a claim taken on the way is let go";
   EXPECT_TRUE(LogCapture::instance().has("'attic' not started: sensor 'gone' not found"));
   EXPECT_TRUE(LogCapture::instance().has("'porch' not started: relay 'relay_9' not found"));
+  EXPECT_EQ("not started: sensor 'gone' not found", hub().waiting_reason("attic"));
+  EXPECT_EQ("not started: relay 'relay_9' not found", hub().waiting_reason("porch"));
   EXPECT_EQ(attic, read_file(this->file_of("attic")));
   EXPECT_EQ(porch, read_file(this->file_of("porch")));
 }
@@ -424,6 +436,8 @@ TEST_F(HubTest, BootKeepsAThermostatWhoseSensorIsNotInCelsius) {
   EXPECT_FALSE(hub().is_running("attic"));
   EXPECT_EQ("", hub().claimed_by("relay_1")) << "no relay taken";
   EXPECT_TRUE(LogCapture::instance().has("'attic' not started: sensor 'uptime' reports s, not °C"));
+  EXPECT_EQ("not started: sensor 'uptime' reports s, not °C", hub().waiting_reason("attic"))
+      << "not called missing: it is there, in the wrong unit";
   EXPECT_EQ(attic, read_file(this->file_of("attic")));
 }
 
@@ -498,6 +512,7 @@ TEST(HubWithoutRoom, ThermostatsAreKeptButNotRun) {
   Result created = crowded.create(draft("Boiler"));
   EXPECT_TRUE(created.ok) << created.error;
   EXPECT_EQ(not_started, created.warning);
+  EXPECT_EQ(not_started, crowded.waiting_reason("boiler"));
   EXPECT_FALSE(crowded.is_running("boiler"));
   EXPECT_EQ("", crowded.claimed_by("relay_1")) << "no claim without an entity to run";
   EXPECT_EQ(not_started, crowded.set_enabled("boiler", true).warning);
