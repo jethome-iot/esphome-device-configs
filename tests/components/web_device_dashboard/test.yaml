@@ -50,6 +50,7 @@ external_components:
       - loop_job
       - firmware_rollback
       - mqtt_config
+      - mqtt_subscriptions
   - source: ../../harness/components
     components: [dir_storage, mqtt, web_server_base, web_server]
   # web_device_dashboard depends on web_server for the entity REST API its page calls, and
@@ -108,6 +109,14 @@ mqtt:
 
 mqtt_config:
   id: mqtt_settings
+
+# Sets USE_MQTT_SUBSCRIPTIONS, which compiles /mqtt/subscriptions, and reserves two places in
+# each of the sensor, binary sensor and text sensor lists for the slots the cases create.
+mqtt_subscriptions:
+  id: mqtt_subs
+  storage: test_storage
+  max_slots: 2
+  units: ["°C"]
 
 # board_info_id sets USE_WEB_DEVICE_DASHBOARD_BOARD_INFO, so /api/device/info carries the board;
 # storage_id sets USE_WEB_DEVICE_DASHBOARD_STORAGE, so the factory reset has a mount to wipe.

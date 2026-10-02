@@ -110,7 +110,15 @@ How a message is read:
 
 The dashboard shows each slot's value, the start of its last message, and why the message could
 not be read when it could not: not JSON, the key is not there, not a number, neither On nor Off,
-not UTF-8, or over 2 KiB.
+not UTF-8, or over 2 KiB. The same slots are served at `/api/device/mqtt/subscriptions`
+([openapi.yaml](../components/web_device_dashboard/openapi.yaml)):
+
+```bash
+curl --digest -u admin:admin -H 'Content-Type: application/json' \
+  -d '{"slot": 1, "enabled": true, "name": "Outdoor temperature", "topic": "zigbee2mqtt/outdoor",
+       "kind": "sensor", "json_path": "temperature", "unit": "°C"}' \
+  http://<device>/api/device/mqtt/subscriptions
+```
 
 ### Names
 

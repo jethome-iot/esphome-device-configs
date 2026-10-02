@@ -54,7 +54,8 @@ run by hand, opens the same change as a pull request.
 
 ## REST
 
-Reads answer GET and writes POST, `auth`, `mqtt` and `entity-settings` both; the wrong method
+Reads answer GET and writes POST, `auth`, `mqtt`, `mqtt/subscriptions` and `entity-settings`
+both; the wrong method
 is `405` with an `Allow` header, an unknown route under `/api/device/` `404`, a body over 4 KiB
 `413`, and every failure `{"success": false, "error"}`. The same contract, machine-readable:
 [openapi.yaml](openapi.yaml) (OpenAPI 3.1).
@@ -62,7 +63,7 @@ is `405` with an `Allow` header, an unknown route under `/api/device/` `404`, a 
 | Method | Path | |
 |---|---|---|
 | GET | `/api/device/info` | `{"name", "base_mac_address", "mac_address", "version"}`; with `board_info_id` also `serial_number`, `device_model`, `hw_revision` and `board` — what `jethome_board_info` read, verbatim, plus the chip's eFuses |
-| GET | `/api/device/status` | `{"ha_connected", "uptime_s", "reset_reason", "connection_type", "rssi", "ip_address", "reboot_required"}`; `reboot_reasons: ["mqtt"]` while a saved MQTT setting waits for a restart, and with an `mqtt_config` the client's `mqtt` block |
+| GET | `/api/device/status` | `{"ha_connected", "uptime_s", "reset_reason", "connection_type", "rssi", "ip_address", "reboot_required"}`; `reboot_reasons: ["mqtt"]` while a saved MQTT setting or subscription slot waits for a restart, and with an `mqtt_config` the client's `mqtt` block |
 | GET | `/api/device/network` | `{"hostname", "connection_type", "ip_address", "gateway", "subnet", "dns1", "dns2", "ssid", "rssi", "ethernet_connected"}` |
 | GET | `/api/device/capabilities` | what this firmware has, below |
 | POST | `/api/device/system/reboot` | restart, nothing cleared |
@@ -82,8 +83,9 @@ rollback the other slot is the *newer* firmware. It is there when
 [`firmware_rollback`](../firmware_rollback/README.md) finds a firmware to go back to, and
 absent after a serial flash, a failed or interrupted update, a rollback the bootloader did
 itself, or while a switch waits for its reboot. `storage`, `files`, `automations`,
-`entity_settings`, `board_info` and `mqtt` follow the components the firmware was built with;
-`mqtt` is `true` and draws **Settings → MQTT**.
+`entity_settings`, `board_info`, `mqtt` and `mqtt_subscriptions` follow the components the
+firmware was built with; `mqtt` is `true` and draws **Settings → MQTT**, and
+`mqtt_subscriptions` carries `max_slots` and adds the Subscriptions card there.
 `storage` says what the mount is, not how full it is: usage is live and this route is not
 polled, so the byte counts stay in the file API's own `info`.
 
@@ -144,6 +146,14 @@ routes are `404`. Behaviour for a user: [doc/MQTT.md](../../doc/MQTT.md).
 | GET | `/api/device/mqtt` | the stored settings, never the password (`password_set` instead), the defaults for an empty `client_id` and `topic_prefix`, the client's `state` and `last_error`, what runs this boot (`running`), and whether a save applies now (`apply_now`), a change waits for a restart (`reboot_required`) and the Home Assistant entries are being removed (`discovery_cleanup`). Read on the loop task: `503` when it does not get to it |
 | POST | `/api/device/mqtt` | a partial update of `enabled`, `broker`, `port`, `username`, `password` (`""` clears it), `client_id`, `topic_prefix` and `discovery`. The first enable in a boot connects at once, unless the effective topic prefix differs from the one this boot started with; later changes wait for a restart. Answers `{"success", "message", "reboot_required", "started", "discovery_cleanup"}`; `400` with the rule a value breaks, `500` when flash refused it, `503` when the loop task did not take it. Needs `Content-Type: application/json` |
 
+With an [`mqtt_subscriptions`](../mqtt_subscriptions/README.md), its slots; without one the
+route is `404`.
+
+| Method | Path | |
+|---|---|---|
+| GET | `/api/device/mqtt/subscriptions` | every slot, `1` to `max_slots`, as saved (an empty one has `topic: ""`), with `pending` when it differs from what runs, the entity it runs as (`entity`, `null` when none) and its `status`: `state`, `value`, the start of the last message (`raw`), why it could not be read (`error`) and `age_s`. Also `max_slots`, `units`, `reboot_required`, `suspended` and `file_error`. Read on the loop task, from the file each time: `503` when it does not get to it |
+| POST | `/api/device/mqtt/subscriptions` | `{"slot", "enabled", "name", "topic", "kind", ...}` saves one slot, `{"slot", "action": "clear"}` empties it; saved slots apply after a restart. Answers `{"success", "message", "reboot_required"}`; `400` with the rule a value breaks, `503` when the storage is unavailable, the file is newer firmware's, or the loop task did not take it. Needs `Content-Type: application/json` |
+
 ## client/
 
 `client/device` is the TypeScript client for these routes and `client/rest` the client for
@@ -158,7 +168,8 @@ mirror. Nothing in this repository builds or type-checks them.
 accumulation and its 4 KiB cap, the JSON every route answers with, the confirmation the system
 actions take, a factory reset wiping a stand-in storage and the preferences before it
 restarts, and the MQTT routes over the harness's `mqtt` stand-in, the system actions waiting
-for its Home Assistant cleanup included. Out of reach there is the ESP-IDF half — the `Allow`
+for its Home Assistant cleanup and the subscription slots over a directory of their own
+included. Out of reach there is the ESP-IDF half — the `Allow`
 header, URL decoding, the reset reason and the IP lookups, the eFuse block, a live WiFi or
 Ethernet link, the real reboot, the LittleFS format, and the rollback's reads and switch, which
 the tests stand in for; the rule that decides is covered by
