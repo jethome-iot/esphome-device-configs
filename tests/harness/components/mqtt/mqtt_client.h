@@ -126,6 +126,7 @@ class MQTTClientComponent : public Component {
     this->last_will_ = std::move(message);
     this->recalculate_availability_();
   }
+  // Upstream's (mqtt_client.cpp) leaves the availability as it was, unlike the other two.
   void disable_last_will() { this->last_will_.topic = ""; }
   void set_birth_message(MQTTMessage &&message) {
     this->birth_message_ = std::move(message);
