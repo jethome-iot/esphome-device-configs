@@ -8,9 +8,9 @@
 // effective topic prefix differs from the one this boot started with, later changes wait for
 // reboot(), and turning discovery off while it runs removes the Home Assistant entries without
 // one. Slots follow mqtt_subscriptions: a save waits for reboot(), and what runs reads what
-// deliver() publishes while connected, the retained message again on every connect. Time moves
-// only on tick(now): a dev server calls it with Date.now() before each request, a test when it
-// wants an attempt over.
+// deliver() publishes while connected, the retained message again on every connect. A number
+// reads as strtof() reads it, except a hexadecimal one with a fraction or an exponent. Time moves only on tick(now): a dev
+// server calls it with Date.now() before each request, a test when it wants an attempt over.
 import type {
   MqttDiscoveryCleanup,
   MqttError,
@@ -203,10 +203,14 @@ function locate(payload: string, path: string): { json: boolean; value: unknown 
   return { json: true, value: node }
 }
 
+// strtof() takes infinities and NaN in any case, and no 0b or 0o; Number() the other way round.
+const STRTOF_NOT_FINITE = /^[+-]?(inf|infinity|nan(\([0-9a-z_]*\))?)$/i
+const NOT_STRTOF = /^[+-]?0[bo]/i
+
 function numberFrom(text: string): SlotReading {
   const t = trimAscii(text)
-  if (NULL_LIKE.has(lowerAscii(t))) return { value: null, error: null }
-  const n = Number(t)
+  if (NULL_LIKE.has(lowerAscii(t)) || STRTOF_NOT_FINITE.test(t)) return { value: null, error: null }
+  const n = NOT_STRTOF.test(t) ? Number.NaN : Number(t)
   if (Number.isNaN(n)) return { value: null, error: 'not a number' }
   return { value: Number.isFinite(n) ? n : null, error: null }
 }
@@ -231,8 +235,9 @@ function readSlot(slot: MqttSlotFields, payload: string): SlotReading {
     const text = typeof v === 'string' ? v : JSON.stringify(v)
     if (lowerAscii(text) === lowerAscii(slot.payload_on)) return { value: true, error: null }
     if (lowerAscii(text) === lowerAscii(slot.payload_off)) return { value: false, error: null }
-    if (v === true || text === 'true') return { value: true, error: null }
-    if (v === false || text === 'false') return { value: false, error: null }
+    // A JSON bool, or a bare payload of one; a string at a JSON path is text.
+    if (v === true || (!at.json && text === 'true')) return { value: true, error: null }
+    if (v === false || (!at.json && text === 'false')) return { value: false, error: null }
     return { value: null, error: 'neither ON nor OFF' }
   }
   return { value: cutBytes(typeof v === 'string' ? v : JSON.stringify(v), TEXT_MAX), error: null }
@@ -366,7 +371,8 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
     }
     const answer = (message: string): MqttMockResult => ({
       status: 200,
-      body: { success: true, message, reboot_required: rebootRequired() || slotsWait() }
+      // The slots' own, as the device's answer: /status is what adds MQTT's.
+      body: { success: true, message, reboot_required: slotsWait() }
     })
     if (sameSlot(savedSlots[i]!, next)) return answer(SLOT_SAVE_MESSAGES.unchanged)
     savedSlots[i] = next
