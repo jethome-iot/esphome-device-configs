@@ -6,9 +6,10 @@ using namespace EnumUtils;
 
 TEST(Enums, SourceTriggerRoundTrip) {
   for (auto v : {SourceTrigger::INPUT, SourceTrigger::TEMPERATURE, SourceTrigger::CRON, SourceTrigger::STARTUP,
-                 SourceTrigger::SWITCH})
+                 SourceTrigger::SWITCH, SourceTrigger::CONDITION})
     EXPECT_EQ(string_to_source_trigger(source_trigger_to_string(v)), v);
   EXPECT_EQ(string_to_source_trigger("inupt"), SourceTrigger::NONE);
+  EXPECT_EQ(string_to_source_trigger("conditon"), SourceTrigger::NONE);
 }
 
 TEST(Enums, InputTriggerTypeRoundTrip) {
@@ -44,10 +45,11 @@ TEST(Enums, SwitchActionTypeRoundTrip) {
 }
 
 TEST(Enums, ConditionTypeRoundTrip) {
-  for (auto v :
-       {ConditionType::AND, ConditionType::OR, ConditionType::XOR, ConditionType::INPUT, ConditionType::TEMPERATURE})
+  for (auto v : {ConditionType::AND, ConditionType::OR, ConditionType::XOR, ConditionType::INPUT,
+                 ConditionType::TEMPERATURE, ConditionType::SWITCH})
     EXPECT_EQ(string_to_condition_type(condition_type_to_string(v)), v);
   EXPECT_EQ(string_to_condition_type("nand"), ConditionType::NONE);
+  EXPECT_EQ(string_to_condition_type("swich"), ConditionType::NONE);
 }
 
 TEST(Enums, TemperatureConditionTypeRoundTrip) {

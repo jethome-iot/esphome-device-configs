@@ -21,6 +21,106 @@ TEST_F(Runtime, BuildRefusesWhatItCannotResolve) {
       "condition":{"type":"input","object_id":"no_such"}})"),
             nullptr);
   EXPECT_EQ(build_rule(engine, R"({"name":"No clock","triggers":[{"source":"cron","cron":"* * * * * *"}]})"), nullptr);
+  EXPECT_EQ(build_rule(engine, R"({"name":"Orphan switch","triggers":[{"source":"startup"}],
+      "condition":{"type":"switch","object_id":"no_such"}})"),
+            nullptr);
+}
+
+TEST_F(Runtime, AConditionTriggerNeedsACondition) {
+  EXPECT_EQ(build_rule(engine, R"({"name":"Nothing to watch","triggers":[{"source":"condition"}],
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})"),
+            nullptr);
+  EXPECT_EQ(build_rule(engine, R"({"name":"Nothing to watch","triggers":[{"source":"startup"},{"source":"condition"}],
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})"),
+            nullptr);
+}
+
+TEST_F(Runtime, SwitchConditionReadsTheSwitch) {
+  ConditionConfig config;
+  ASSERT_TRUE(load(R"({"type":"switch","object_id":"relay_1","state":"false"})", config));
+  CompiledCondition c;
+  ASSERT_TRUE(compile_condition(config, c));
+  EXPECT_TRUE(c.check());
+  e.relay1.turn_on();
+  EXPECT_FALSE(c.check());
+}
+
+static const char *const MIRROR = R"({"name":"Mirror","triggers":[{"source":"condition"}],
+    "condition":{"type":"input","object_id":"in_1"},
+    "actions":[{"source":"switch","type":"follow","object_id":"relay_1"}],
+    "else_actions":[{"source":"switch","type":"follow","object_id":"relay_1"},
+                    {"source":"switch","type":"follow","object_id":"relay_2","invert":true}]})";
+
+TEST_F(Runtime, AConditionTriggerWaitsForTheStartupEvent) {
+  auto rule = build_rule(engine, MIRROR);
+  ASSERT_NE(rule, nullptr);
+  e.in1.publish_state(true);
+  rule->on_binary_sensor(&e.in1, true);
+  EXPECT_EQ(e.relay1.writes, 0);
+
+  rule->on_startup();
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 1);
+  rule->on_startup();  // watching already: nothing new to say
+  EXPECT_EQ(e.relay1.writes, 1);
+}
+
+TEST_F(Runtime, FollowMirrorsTheConditionResult) {
+  auto rule = build_rule(engine, MIRROR);
+  ASSERT_NE(rule, nullptr);
+  rule->watch_condition();
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_TRUE(e.relay2.state);  // the else branch carries false, inverted
+  e.in1.publish_state(true);
+  rule->on_binary_sensor(&e.in1, true);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay2.writes, 1);
+  e.in1.publish_state(false);
+  rule->on_binary_sensor(&e.in1, false);
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 3);
+}
+
+// An input whose inversion flipped re-emits its state as a level: no press, but a new state
+// for whatever reads it.
+TEST_F(Runtime, AConditionTriggerSeesALevel) {
+  auto rule = build_rule(engine, MIRROR);
+  ASSERT_NE(rule, nullptr);
+  rule->watch_condition();
+  e.in1.publish_state(true);
+  rule->on_binary_sensor(&e.in1, true, true);
+  EXPECT_TRUE(e.relay1.state);
+}
+
+TEST_F(Runtime, AConditionTriggerIsQuietWhileDisabled) {
+  auto rule = build_rule(engine, MIRROR);
+  ASSERT_NE(rule, nullptr);
+  rule->watch_condition();
+  EXPECT_EQ(e.relay1.writes, 1);
+  rule->set_enabled(false);
+  e.in1.publish_state(true);
+  rule->on_binary_sensor(&e.in1, true);
+  EXPECT_EQ(e.relay1.writes, 1);
+  rule->watch_condition();  // a disabled rule does not start watching
+  EXPECT_EQ(e.relay1.writes, 1);
+
+  rule->set_enabled(true);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 2);
+  rule->set_enabled(true);  // already enabled: no second start
+  EXPECT_EQ(e.relay1.writes, 2);
+}
+
+TEST_F(Runtime, AStartupRuleWithNoConditionTriggerWatchesNothing) {
+  auto rule = build_rule(engine, R"({"name":"Gate","triggers":[{"source":"startup"}],
+      "condition":{"type":"input","object_id":"in_1"},
+      "actions":[{"source":"switch","type":"toggle","object_id":"relay_1"}]})");
+  ASSERT_NE(rule, nullptr);
+  rule->on_startup();
+  EXPECT_EQ(e.relay1.writes, 0);  // in_1 is off: the else branch is empty
+  e.in1.publish_state(true);
+  rule->on_binary_sensor(&e.in1, true);
+  EXPECT_EQ(e.relay1.writes, 0);
 }
 
 TEST_F(Runtime, PressTurnsTheRelayOn) {

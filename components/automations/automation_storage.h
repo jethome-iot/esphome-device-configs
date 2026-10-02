@@ -66,10 +66,10 @@ class AutomationStorage : public Component {
   virtual void cancel_delay(uint32_t id) { this->cancel_timeout(id); }
   virtual uint32_t now_ms() const;
   // Runs a rule's own step, so an edit from inside it is refused as from any other dispatch.
-  template<typename F> void drive(F &&step) {
-    this->dispatching_++;
+  template<typename F> void drive(RuntimeAutomation &rule, F &&step) {
+    this->driving_.push_back(&rule);
     step();
-    this->dispatching_--;
+    this->driving_.pop_back();
   }
 
   template<typename E> struct Subscription {
@@ -77,6 +77,8 @@ class AutomationStorage : public Component {
     E *entity;
     // The next state is a level, not an edge (expect_level()).
     bool level_only{false};
+    // Also told the states the plain callback leaves out (watch_every_state_()).
+    bool every_state{false};
   };
   // The next state from this input is a level, not an edge: a flipped inversion re-emits the
   // sensor's state, which conditions may read but press, release, change and click must not act
@@ -95,6 +97,14 @@ class AutomationStorage : public Component {
   bool run_on_loop_(std::function<bool()> &&job);
 
   void subscribe_(const RuntimeAutomation &automation);
+  void subscribe_(const CompiledCondition &condition);
+  void subscribe_to_(binary_sensor::BinarySensor *entity);
+  void subscribe_to_(switch_::Switch *entity);
+  void subscribe_to_(sensor::Sensor *entity);
+  void watch_every_state_(binary_sensor::BinarySensor *entity);
+  void recheck_conditions_();
+  template<typename F> void each_rule_(F call);
+  bool too_deep_();
   void check_time_();
   virtual ESPTime clock_now_();
 
@@ -124,8 +134,9 @@ class AutomationStorage : public Component {
   time::RealTimeClock *rtc_{nullptr};
   optional<ESPTime> last_check_;
   loop_job::LoopDispatcher dispatcher_;
-  // Above zero while a rule is being driven: an edit then would pull the rule from under it.
-  uint8_t dispatching_{0};
+  // The rules being driven, innermost last. An edit while any is would pull it from under it,
+  // and how many there are is how deeply dispatches nest, which too_deep_() bounds.
+  std::vector<RuntimeAutomation *> driving_;
 
   // One subscription per entity, kept for the life of the device.
   std::vector<std::unique_ptr<Subscription<binary_sensor::BinarySensor>>> binary_sensor_subs_;

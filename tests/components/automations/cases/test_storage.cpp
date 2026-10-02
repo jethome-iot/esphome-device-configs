@@ -22,11 +22,13 @@ class FakeStorage : public filesystem_storage_abstract::FilesystemStorageAbstrac
   bool request_format() override { return false; }
 };
 
-// Every error and warning the process logs. Registered once: the logger keeps its listeners.
+// Every error, warning and config line the process logs. Registered once: the logger keeps
+// its listeners.
 class LogCapture {
  public:
   std::vector<std::string> errors;
   std::vector<std::string> warnings;
+  std::vector<std::string> config;
 
   static LogCapture &instance() {
     static LogCapture *capture = [] {
@@ -39,10 +41,12 @@ class LogCapture {
   void clear() {
     this->errors.clear();
     this->warnings.clear();
+    this->config.clear();
   }
-  bool has(const std::vector<std::string> &lines, const char *needle) const {
-    return std::any_of(lines.begin(), lines.end(),
-                       [needle](const std::string &line) { return line.find(needle) != std::string::npos; });
+  bool has(const std::vector<std::string> &lines, const char *needle) const { return count(lines, needle) > 0; }
+  size_t count(const std::vector<std::string> &lines, const char *needle) const {
+    return std::count_if(lines.begin(), lines.end(),
+                         [needle](const std::string &line) { return line.find(needle) != std::string::npos; });
   }
 
  protected:
@@ -52,6 +56,8 @@ class LogCapture {
       capture->errors.emplace_back(message, len);
     } else if (level == ESPHOME_LOG_LEVEL_WARN) {
       capture->warnings.emplace_back(message, len);
+    } else if (level == ESPHOME_LOG_LEVEL_CONFIG) {
+      capture->config.emplace_back(message, len);
     }
   }
 };
@@ -348,6 +354,18 @@ TEST_F(Storage, RulesRunThroughTheEntityCallback) {
   write("input_press.json", PRESS_RELAY_1);
   boot();
   e.in1.publish_state(true);
+  EXPECT_TRUE(e.relay1.state);
+}
+
+TEST_F(Storage, TemperatureRulesRunThroughTheSensorCallback) {
+  boot();
+  ASSERT_NE(
+      engine->add_automation(rule(
+          R"({"name":"Hot","triggers":[{"source":"temperature","type":"above","object_id":"temp","threshold":25}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})")),
+      0u);
+  e.temp.publish_state(20);
+  EXPECT_FALSE(e.relay1.state);
+  e.temp.publish_state(26);
   EXPECT_TRUE(e.relay1.state);
 }
 
@@ -667,6 +685,436 @@ TEST_F(Storage, RefusesARuleThatWouldNotFitItsFile) {
   huge.name = "Small";
   EXPECT_FALSE(engine->update_automation(id, huge));
   EXPECT_EQ(engine->configs().get_all_configs()[0].actions.size(), 0u);
+}
+
+// The switch a rule toggles calls back into the engine from inside the action: a rule
+// triggered by that switch restarts itself on every toggle, and only the bound ends it.
+TEST_F(Storage, ARuleTogglingItsOwnTriggerStopsAtTheBound) {
+  boot();
+  ASSERT_NE(
+      engine->add_automation(rule(
+          R"({"name":"Self toggle","mode":"restart","triggers":[{"source":"switch","type":"state_change","object_id":"relay_1"}],"actions":[{"source":"switch","type":"toggle","object_id":"relay_1"}]})")),
+      0u);
+  e.relay1.turn_on();
+  // The test's own write, then one toggle from each of the 8 dispatches the bound lets in.
+  EXPECT_EQ(e.relay1.writes, 9);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_TRUE(log().has(log().warnings, "Automation 'Self toggle': events nested 8 deep"));
+  EXPECT_FALSE(engine->rule(0)->is_running());
+}
+
+// --- condition triggers, through the entity callbacks the engine subscribes ---
+
+// relay_2 counts the runs, relay_1 says which branch the last one took.
+static const char *const COUNTED = R"(
+    "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"},{"source":"switch","type":"toggle","object_id":"relay_2"}],
+    "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_1"},{"source":"switch","type":"toggle","object_id":"relay_2"}]})";
+
+static std::string watching(const char *name, const char *condition) {
+  return std::string(R"({"name":")") + name + R"(","mode":"restart","triggers":[{"source":"condition"}],"condition":)" +
+         condition + "," + COUNTED;
+}
+
+TEST_F(Storage, AConditionTriggerFiresWhenTheResultChanges) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(watching("Inputs", R"({"type":"and","conditions":[
+      {"type":"input","object_id":"in_1","state":"true"},{"type":"input","object_id":"in_2","state":"false"}]})")
+                                            .c_str())),
+            0u);
+  // Added: once, with what the condition says now.
+  EXPECT_EQ(e.relay2.writes, 1);
+  EXPECT_FALSE(e.relay1.state);
+
+  e.in2.publish_state(true);  // still false
+  e.in1.publish_state(true);  // still false: in_2 is on
+  EXPECT_EQ(e.relay2.writes, 1);
+  e.in2.publish_state(false);
+  EXPECT_EQ(e.relay2.writes, 2);
+  EXPECT_TRUE(e.relay1.state);
+  e.temp.publish_state(30);  // an entity it does not read
+  EXPECT_EQ(e.relay2.writes, 2);
+  e.in1.publish_state(false);
+  EXPECT_EQ(e.relay2.writes, 3);
+  EXPECT_FALSE(e.relay1.state);
+}
+
+TEST_F(Storage, AConditionTriggerFiresOnTheCrossingNotOnEveryReading) {
+  boot();
+  ASSERT_NE(
+      engine->add_automation(
+          rule(watching("Hot", R"({"type":"temperature","object_id":"temp","temperature_type":"above","threshold":25})")
+                   .c_str())),
+      0u);
+  EXPECT_EQ(e.relay2.writes, 1);  // no reading yet: false
+  e.temp.publish_state(20);
+  EXPECT_EQ(e.relay2.writes, 1);
+  e.temp.publish_state(26);
+  EXPECT_EQ(e.relay2.writes, 2);
+  EXPECT_TRUE(e.relay1.state);
+  for (float reading : {27.0f, 30.0f, 26.0f, 30.0f})
+    e.temp.publish_state(reading);
+  EXPECT_EQ(e.relay2.writes, 2);
+  e.temp.publish_state(25);  // above is strict
+  EXPECT_EQ(e.relay2.writes, 3);
+  EXPECT_FALSE(e.relay1.state);
+
+  // A lost reading is false, as it is in any condition: it ends a true result and holds a false one.
+  e.temp.publish_state(NAN);
+  EXPECT_EQ(e.relay2.writes, 3);
+  e.temp.publish_state(26);
+  EXPECT_EQ(e.relay2.writes, 4);
+  e.temp.publish_state(NAN);
+  EXPECT_EQ(e.relay2.writes, 5);
+  EXPECT_FALSE(e.relay1.state);
+}
+
+TEST_F(Storage, AConditionTriggerReadsASwitch) {
+  boot();
+  ASSERT_NE(
+      engine->add_automation(rule(
+          R"({"name":"Chain","triggers":[{"source":"condition"}],"condition":{"type":"switch","object_id":"relay_2","state":"true"},
+                    "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],
+                    "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_1"}]})")),
+      0u);
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 1);
+  e.relay2.turn_on();
+  EXPECT_TRUE(e.relay1.state);
+  e.relay2.turn_on();  // no change, no callback
+  e.relay2.turn_off();
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 3);
+}
+
+TEST_F(Storage, AConditionTriggerStartsWatchingAtStartup) {
+  write("pump.json", watching("Pump", R"({"type":"input","object_id":"in_1"})"));
+  std::string off = watching("Off", R"({"type":"input","object_id":"in_2"})");
+  off.replace(off.find(R"("mode")"), 0, R"("enabled":false,)");
+  write("off.json", off);
+  boot();
+  ASSERT_TRUE(built("Pump"));
+  // Nothing runs before the startup event, and what happens before it is not missed.
+  e.in1.publish_state(true);
+  EXPECT_EQ(e.relay2.writes, 0);
+
+  App.scheduler.call(millis());  // the startup event setup() deferred
+  EXPECT_EQ(e.relay2.writes, 1);
+  EXPECT_TRUE(e.relay1.state);
+  e.in2.publish_state(true);  // the disabled rule's input
+  EXPECT_EQ(e.relay2.writes, 1);
+  e.in1.publish_state(false);
+  EXPECT_EQ(e.relay2.writes, 2);
+}
+
+TEST_F(Storage, AConditionTriggerStartsOverWhenUpdatedOrEnabled) {
+  boot();
+  const uint32_t id = engine->add_automation(rule(watching("Pump", R"({"type":"input","object_id":"in_1"})").c_str()));
+  ASSERT_NE(id, 0u);
+  EXPECT_EQ(e.relay2.writes, 1);
+  EXPECT_FALSE(e.relay1.state);
+
+  // An update is a new rule: it fires with what its own condition says now.
+  ASSERT_TRUE(engine->update_automation(
+      id, rule(watching("Pump", R"({"type":"input","object_id":"in_1","state":"false"})").c_str())));
+  EXPECT_EQ(e.relay2.writes, 2);
+  EXPECT_TRUE(e.relay1.state);
+
+  ASSERT_TRUE(engine->set_enable_automation(id, false));
+  e.in1.publish_state(true);
+  EXPECT_EQ(e.relay2.writes, 2);
+  ASSERT_TRUE(engine->set_enable_automation(id, true));
+  EXPECT_EQ(e.relay2.writes, 3);
+  EXPECT_FALSE(e.relay1.state);
+  ASSERT_TRUE(engine->set_enable_automation(id, true));
+  EXPECT_EQ(e.relay2.writes, 3);
+}
+
+// start OR (relay AND NOT stop): the relay holds itself on after start is let go.
+TEST_F(Storage, ALatchHoldsItself) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(R"({"name":"Latch","triggers":[{"source":"condition"}],
+      "condition":{"type":"or","conditions":[{"type":"input","object_id":"in_1"},
+        {"type":"and","conditions":[{"type":"switch","object_id":"relay_1"},{"type":"input","object_id":"in_2","state":"false"}]}]},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],
+      "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_1"}]})")),
+            0u);
+  EXPECT_EQ(e.relay1.writes, 1);
+  e.in1.publish_state(true);
+  EXPECT_TRUE(e.relay1.state);
+  e.in1.publish_state(false);
+  EXPECT_TRUE(e.relay1.state);
+  // The relay's own change came back through the condition without firing again.
+  EXPECT_EQ(e.relay1.writes, 2);
+  e.in2.publish_state(true);
+  EXPECT_FALSE(e.relay1.state);
+  e.in2.publish_state(false);
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 3);
+  EXPECT_TRUE(log().warnings.empty());
+}
+
+TEST_F(Storage, AConditionTriggerSitsBesideOtherTriggers) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(R"({"name":"Both","triggers":[{"source":"condition"},
+      {"source":"input","type":"press","object_id":"in_1"}],"condition":{"type":"input","object_id":"in_2"},
+      "actions":[{"source":"switch","type":"toggle","object_id":"relay_1"}],
+      "else_actions":[{"source":"switch","type":"toggle","object_id":"relay_2"}]})")),
+            0u);
+  EXPECT_EQ(e.relay2.writes, 1);
+  press(e.in1);  // the press, gated by the condition; the result did not move
+  EXPECT_EQ(e.relay2.writes, 2);
+  EXPECT_EQ(e.relay1.writes, 0);
+  e.in2.publish_state(true);  // the result moved
+  EXPECT_EQ(e.relay1.writes, 1);
+  press(e.in1);
+  EXPECT_EQ(e.relay1.writes, 2);
+  EXPECT_EQ(e.relay2.writes, 2);
+}
+
+// relay = NOT relay never settles; the bound stops it instead of the stack.
+TEST_F(Storage, AConditionThatContradictsItsOwnActionStopsAtTheBound) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(R"({"name":"Not relay","mode":"restart","triggers":[{"source":"condition"}],
+      "condition":{"type":"switch","object_id":"relay_1","state":"false"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],
+      "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_1"}]})")),
+            0u);
+  // The add's own start is one level deep, so seven nested dispatches each flip it once more.
+  EXPECT_EQ(e.relay1.writes, 8);
+  EXPECT_TRUE(log().has(log().warnings, "Automation 'Not relay': events nested 8 deep"));
+  EXPECT_FALSE(engine->rule(0)->is_running());
+}
+
+// The loop's rules take the result the bound left them with: an unrelated event leaves them be,
+// a real change of the result sets them off again, and that is cut again.
+TEST_F(Storage, AfterTheBoundOnlyARealChangeSetsTheLoopOffAgain) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(R"({"name":"Not relay","mode":"restart","triggers":[{"source":"condition"}],
+      "condition":{"type":"switch","object_id":"relay_1","state":"false"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],
+      "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_1"}]})")),
+            0u);
+  ASSERT_NE(
+      engine->add_automation(rule(
+          R"({"name":"Press","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"actions":[{"source":"switch","type":"toggle","object_id":"relay_2"}]})")),
+      0u);
+  EXPECT_EQ(e.relay1.writes, 8);
+  EXPECT_FALSE(e.relay1.state);
+
+  e.in1.publish_state(true);
+  EXPECT_EQ(e.relay2.writes, 1);
+  EXPECT_EQ(e.relay1.writes, 8);
+  EXPECT_EQ(log().count(log().warnings, "events nested 8 deep"), 1u);
+
+  e.relay1.turn_on();  // from outside: the result moved
+  EXPECT_EQ(e.relay1.writes, 17);
+  EXPECT_EQ(log().count(log().warnings, "Automation 'Not relay': events nested 8 deep"), 2u);
+  e.in1.publish_state(false);
+  e.in1.publish_state(true);
+  EXPECT_EQ(e.relay2.writes, 2);
+  EXPECT_EQ(e.relay1.writes, 17);
+}
+
+// relay_1 = NOT relay_2 and relay_2 = relay_1: the rule the bound stopped is not the only one
+// left with an old result.
+TEST_F(Storage, AfterTheBoundTwoRulesInALoopStayPut) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(R"({"name":"Copy","mode":"restart","triggers":[{"source":"condition"}],
+      "condition":{"type":"switch","object_id":"relay_1","state":"true"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_2"}],
+      "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_2"}]})")),
+            0u);
+  ASSERT_NE(engine->add_automation(rule(R"({"name":"Negate","mode":"restart","triggers":[{"source":"condition"}],
+      "condition":{"type":"switch","object_id":"relay_2","state":"false"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],
+      "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_1"}]})")),
+            0u);
+  ASSERT_NE(engine->add_automation(rule(
+                R"({"name":"Listen","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"actions":[]})")),
+            0u);
+  EXPECT_EQ(log().count(log().warnings, "events nested 8 deep"), 1u);
+  const int writes1 = e.relay1.writes;
+  const int writes2 = e.relay2.writes;
+
+  e.in1.publish_state(true);
+  e.in1.publish_state(false);
+  EXPECT_EQ(e.relay1.writes, writes1);
+  EXPECT_EQ(e.relay2.writes, writes2);
+  EXPECT_EQ(log().count(log().warnings, "events nested 8 deep"), 1u);
+}
+
+// The plain state callback leaves out an input's first state when it does not trigger on it;
+// a condition still reads it.
+TEST_F(Storage, AConditionTriggerSeesAnInputsFirstState) {
+  e.in1.invalidate_state();
+  e.in1.set_trigger_on_initial_state(false);
+  boot();
+  ASSERT_NE(engine->add_automation(rule(watching("Pump", R"({"type":"input","object_id":"in_1"})").c_str())), 0u);
+  EXPECT_EQ(e.relay2.writes, 1);  // no state yet: false
+  EXPECT_FALSE(e.relay1.state);
+  e.in1.publish_state(true);
+  EXPECT_EQ(e.relay2.writes, 2);
+  EXPECT_TRUE(e.relay1.state);
+}
+
+// ...and every loss of state, which reads as false.
+TEST_F(Storage, AConditionTriggerSeesAnInputLoseItsState) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(watching("Pump", R"({"type":"input","object_id":"in_1"})").c_str())), 0u);
+  e.in1.publish_state(true);
+  EXPECT_EQ(e.relay2.writes, 2);
+  EXPECT_TRUE(e.relay1.state);
+  e.in1.invalidate_state();
+  EXPECT_EQ(e.relay2.writes, 3);
+  EXPECT_FALSE(e.relay1.state);
+  e.in1.publish_state(false);  // still false
+  EXPECT_EQ(e.relay2.writes, 3);
+  e.in1.publish_state(true);
+  EXPECT_EQ(e.relay2.writes, 4);
+}
+
+// The start an add, an update or an enable makes runs as any rule's action does: an edit from
+// inside it is refused.
+TEST_F(Storage, AConditionTriggersStartRefusesAnEdit) {
+  boot();
+  uint32_t inner = 1;
+  int attempts = 0;
+  // A new name each time, so one that got through cannot make the next fail on a clash.
+  e.relay1.on_change = [&]() {
+    const std::string json =
+        R"({"name":"Inner )" + std::to_string(++attempts) + R"(","triggers":[{"source":"startup"}]})";
+    inner = engine->add_automation(rule(json.c_str()));
+  };
+  const uint32_t id =
+      engine->add_automation(rule(watching("Pump", R"({"type":"input","object_id":"in_1","state":"false"})").c_str()));
+  ASSERT_NE(id, 0u);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(inner, 0u);
+
+  inner = 1;
+  ASSERT_TRUE(engine->update_automation(id, rule(watching("Pump", R"({"type":"input","object_id":"in_1"})").c_str())));
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_EQ(inner, 0u);
+
+  inner = 1;
+  ASSERT_TRUE(engine->set_enable_automation(id, false));
+  e.in1.publish_state(true);
+  ASSERT_TRUE(engine->set_enable_automation(id, true));
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(inner, 0u);
+  EXPECT_EQ(attempts, 3);
+  EXPECT_EQ(names(), std::vector<std::string>{"Pump"});
+  EXPECT_EQ(log().count(log().errors, "Rules cannot be edited from inside a rule's own action"), 3u);
+}
+
+// Each branch waits before it drives the target.
+static std::string delayed(const char *mode, const char *target = "relay_1") {
+  return std::string(R"({"name":"Delayed","mode":")") + mode +
+         R"(","triggers":[{"source":"condition"}],"condition":{"type":"input","object_id":"in_1"},)"
+         R"("actions":[{"source":"delay","delay_ms":500},{"source":"switch","type":"turn_on","object_id":")" +
+         target +
+         R"("}],"else_actions":[{"source":"delay","delay_ms":500},{"source":"switch","type":"turn_off","object_id":")" +
+         target + R"("}]})";
+}
+
+TEST_F(Storage, InSingleAChangeDuringADelayIsLost) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(delayed("single").c_str())), 0u);
+  ASSERT_EQ(engine->delays.size(), 1u);
+  e.in1.publish_state(true);
+  EXPECT_EQ(engine->delays.size(), 1u);
+  ASSERT_TRUE(engine->fire_next());
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 1);
+  EXPECT_FALSE(engine->fire_next());
+}
+
+TEST_F(Storage, InRestartAChangeDuringADelayStartsOver) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(delayed("restart").c_str())), 0u);
+  ASSERT_EQ(engine->delays.size(), 1u);
+  e.in1.publish_state(true);
+  ASSERT_EQ(engine->delays.size(), 1u);
+  ASSERT_TRUE(engine->fire_next());
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 1);
+  EXPECT_FALSE(engine->fire_next());
+}
+
+TEST_F(Storage, AnUpdateTakesThePendingDelayWithTheOldRule) {
+  boot();
+  const uint32_t id = engine->add_automation(rule(delayed("restart").c_str()));
+  ASSERT_NE(id, 0u);
+  ASSERT_EQ(engine->delays.size(), 1u);
+  ASSERT_TRUE(engine->update_automation(id, rule(delayed("restart", "relay_2").c_str())));
+  ASSERT_EQ(engine->delays.size(), 1u);  // the new rule's own start
+  ASSERT_TRUE(engine->fire_next());
+  EXPECT_EQ(e.relay1.writes, 0);
+  EXPECT_EQ(e.relay2.writes, 1);
+  EXPECT_FALSE(engine->fire_next());
+}
+
+TEST_F(Storage, ConditionRulesChainThroughARelay) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(R"({"name":"First","triggers":[{"source":"condition"}],
+      "condition":{"type":"input","object_id":"in_1"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],
+      "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_1"}]})")),
+            0u);
+  ASSERT_NE(engine->add_automation(rule(R"({"name":"Second","triggers":[{"source":"condition"}],
+      "condition":{"type":"switch","object_id":"relay_1"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_2"}],
+      "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_2"}]})")),
+            0u);
+  e.in1.publish_state(true);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_TRUE(e.relay2.state);
+  e.in1.publish_state(false);
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_FALSE(e.relay2.state);
+  // Each start and each change once.
+  EXPECT_EQ(e.relay1.writes, 3);
+  EXPECT_EQ(e.relay2.writes, 3);
+  EXPECT_TRUE(log().warnings.empty());
+}
+
+TEST_F(Storage, AConditionTriggerWithoutAConditionIsRefused) {
+  const char *bare =
+      R"({"id":1,"name":"Bare","triggers":[{"source":"condition"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})";
+  write("bare.json", bare);
+  boot();
+  EXPECT_FALSE(built("Bare"));
+  EXPECT_TRUE(log().has(log().errors, "Automation 'Bare': a condition trigger needs a condition"));
+  EXPECT_EQ(read("bare.json"), bare);
+
+  AutomationConfig config = rule(bare);
+  config.name = "Bare too";
+  EXPECT_EQ(engine->add_automation(config), 0u);
+  EXPECT_EQ(files(), (std::vector<std::string>{"bare.json"}));
+  EXPECT_FALSE(engine->update_automation(1, rule(bare)));
+  EXPECT_EQ(read("bare.json"), bare);
+}
+
+TEST_F(Storage, ASwitchConditionNamingNoSwitchLeavesTheRuleUnbuilt) {
+  const char *orphan =
+      R"({"name":"Gone","triggers":[{"source":"condition"}],"condition":{"type":"switch","object_id":"no_such_switch"}})";
+  write("gone.json", orphan);
+  boot();
+  EXPECT_FALSE(built("Gone"));
+  EXPECT_TRUE(log().has(log().warnings, "Not writing 'Gone'"));
+  EXPECT_EQ(read("gone.json"), orphan);
+}
+
+TEST_F(Storage, DumpConfigNamesTheNewWords) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(R"({"name":"Dump","triggers":[{"source":"condition"}],
+      "condition":{"type":"switch","object_id":"relay_2","state":"false"}})")),
+            0u);
+  engine->dump_config();
+  EXPECT_TRUE(log().has(log().config, "Trigger: condition"));
+  char line[64];
+  snprintf(line, sizeof(line), "Condition: switch 0x%08X is false", static_cast<unsigned>(fnv1_hash("relay_2")));
+  EXPECT_TRUE(log().has(log().config, line));
 }
 
 TEST_F(Storage, StopsAt255Rules) {

@@ -17,7 +17,9 @@ export interface AutomationListResponse {
 }
 
 export interface AutomationTrigger {
-  source?: string
+  // 'condition' carries no other field: it fires when the rule's condition
+  // changes, and a rule with it and no condition is refused.
+  source?: string // 'input' | 'switch' | 'temperature' | 'cron' | 'startup' | 'condition'
   type?: string
   object_id?: string
   threshold?: number
@@ -32,9 +34,9 @@ export interface AutomationTrigger {
 }
 
 export interface AutomationCondition {
-  type: string // 'input' | 'temperature' | 'and' | 'or' | 'xor'
+  type: string // 'input' | 'switch' | 'temperature' | 'and' | 'or' | 'xor'
   object_id?: string
-  state?: string
+  state?: string // 'true' | 'false', for 'input' and 'switch'
   temperature_type?: string
   threshold?: number
   min_threshold?: number

@@ -269,6 +269,8 @@ TEST_F(Editor, SchemaOffersOnlyWhatTheEngineParses) {
     const std::string type = entry["type"];
     if (type == "input") {
       EXPECT_TRUE(condition(R"({"type":"input","object_id":"in_1","state":"true"})"));
+    } else if (type == "switch") {
+      EXPECT_TRUE(condition(R"({"type":"switch","object_id":"relay_1","state":"false"})"));
     } else if (type == "temperature") {
       for (std::string subtype : entry["subtypes"].as<JsonArray>()) {
         EXPECT_TRUE(condition(R"({"type":"temperature","object_id":"temp","temperature_type":")" + subtype + "\"" +
@@ -299,7 +301,53 @@ TEST_F(Editor, SchemaOffersOnlyWhatTheEngineParses) {
     words++;
   }
   // Every word above was checked, not an empty schema.
-  EXPECT_EQ(words, 31);
+  EXPECT_EQ(words, 33);
+}
+
+// The issue's pump, with a switch in its condition: what goes in comes back, created and replaced.
+static const char *const PUMP =
+    R"({"name":"Pump","enabled":true,"mode":"restart","triggers":[{"source":"condition"}],)"
+    R"("condition":{"type":"or","conditions":[{"type":"input","object_id":"in_1","state":"true"},)"
+    R"({"type":"switch","object_id":"relay_1","state":"true"}]},)"
+    R"("actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],)"
+    R"("else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_1"}]})";
+
+TEST_F(Editor, SaveRoundTripsAConditionTriggerOverASwitch) {
+  const uint32_t id = this->create(PUMP);
+  ASSERT_GT(id, 0u);
+  std::string expected = PUMP;
+  expected.replace(1, 0, "\"id\":" + std::to_string(id) + ",");
+  EXPECT_EQ(this->get("get?id=" + std::to_string(id)).body, expected);
+
+  // NOT in_1 OR NOT relay_1: in_1 is never set, so the result holds at true and the update's
+  // start turns relay_1 on once. Flipping the switch alone would make relay_1 = NOT relay_1.
+  std::string flipped = expected;
+  flipped.replace(flipped.find(R"("object_id":"in_1","state":"true")"), 33, R"("object_id":"in_1","state":"false")");
+  flipped.replace(flipped.find(R"("object_id":"relay_1","state":"true")"), 36,
+                  R"("object_id":"relay_1","state":"false")");
+  Reply reply = this->post("save", flipped);
+  ASSERT_EQ(reply.code, 200) << reply.body;
+  EXPECT_EQ(reply.message(), "Automation updated");
+  EXPECT_EQ(this->get("get?id=" + std::to_string(id)).body, flipped);
+  EXPECT_TRUE(entities().relay1.state);
+}
+
+TEST_F(Editor, SaveRefusesAConditionTriggerWithNoCondition) {
+  static const char *const BARE =
+      R"({"name":"Bare","triggers":[{"source":"condition"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})";
+  Reply reply = this->post("save", BARE);
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "Failed to create automation");
+  EXPECT_TRUE(this->files().empty());
+
+  const uint32_t id = this->create(PUMP);
+  ASSERT_GT(id, 0u);
+  std::string stripped = BARE;
+  stripped.replace(1, 0, "\"id\":" + std::to_string(id) + ",");
+  reply = this->post("save", stripped);
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "Failed to update automation");
+  EXPECT_EQ(this->get("get?id=" + std::to_string(id))["name"].as<std::string>(), "Pump");
 }
 
 TEST_F(Editor, RebootAnswersFirst) {

@@ -16,6 +16,8 @@ const char *source_trigger_to_string(SourceTrigger source) {
       return "startup";
     case SourceTrigger::SWITCH:
       return "switch";
+    case SourceTrigger::CONDITION:
+      return "condition";
     default:
       return "none";
   }
@@ -32,6 +34,8 @@ SourceTrigger string_to_source_trigger(const std::string &str) {
     return SourceTrigger::STARTUP;
   if (str == "switch")
     return SourceTrigger::SWITCH;
+  if (str == "condition")
+    return SourceTrigger::CONDITION;
   return SourceTrigger::NONE;
 }
 
@@ -170,6 +174,8 @@ const char *condition_type_to_string(ConditionType type) {
       return "input";
     case ConditionType::TEMPERATURE:
       return "temperature";
+    case ConditionType::SWITCH:
+      return "switch";
     default:
       return "none";
   }
@@ -186,6 +192,8 @@ ConditionType string_to_condition_type(const std::string &str) {
     return ConditionType::INPUT;
   if (str == "temperature")
     return ConditionType::TEMPERATURE;
+  if (str == "switch")
+    return ConditionType::SWITCH;
   return ConditionType::NONE;
 }
 

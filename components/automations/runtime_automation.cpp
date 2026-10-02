@@ -23,6 +23,12 @@ bool CompiledCondition::check() const {
 #else
       return false;
 #endif
+    case ConditionType::SWITCH:
+#ifdef USE_SWITCH
+      return this->sw->state == this->expected;
+#else
+      return false;
+#endif
     case ConditionType::TEMPERATURE: {
 #ifdef USE_SENSOR
       const float value = this->sensor->state;
@@ -70,6 +76,12 @@ bool compile_condition(const ConditionConfig &config, CompiledCondition &out) {
       if (out.binary_sensor == nullptr)
         ESP_LOGE(TAG, "Condition: binary sensor 0x%08X not found", static_cast<unsigned>(config.sensor_id));
       return out.binary_sensor != nullptr;
+    case ConditionType::SWITCH:
+      out.sw = find_switch(config.sensor_id);
+      out.expected = config.state == InputConditionState::TRUE;
+      if (out.sw == nullptr)
+        ESP_LOGE(TAG, "Condition: switch 0x%08X not found", static_cast<unsigned>(config.sensor_id));
+      return out.sw != nullptr;
     case ConditionType::TEMPERATURE:
       out.sensor = find_sensor(config.sensor_id);
       if (out.sensor == nullptr) {
@@ -163,6 +175,7 @@ bool compile_trigger(AutomationStorage *engine, const TriggerConfig &config, Com
       set_bits(out.days_of_week, config.cron_days_of_week);
       return true;
     case SourceTrigger::STARTUP:
+    case SourceTrigger::CONDITION:
       return true;
     default:
       return false;
@@ -218,7 +231,12 @@ std::unique_ptr<RuntimeAutomation> RuntimeAutomation::build(AutomationStorage *e
       ESP_LOGE(TAG, "Automation '%s': trigger cannot be built", config.name.c_str());
       return nullptr;
     }
+    automation->watches_condition_ = automation->watches_condition_ || trigger.source == SourceTrigger::CONDITION;
     automation->triggers_.push_back(trigger);
+  }
+  if (automation->watches_condition_ && !config.condition.is_valid()) {
+    ESP_LOGE(TAG, "Automation '%s': a condition trigger needs a condition", config.name.c_str());
+    return nullptr;
   }
   if (config.condition.is_valid()) {
     auto condition = std::make_unique<CompiledCondition>();
@@ -236,9 +254,42 @@ std::unique_ptr<RuntimeAutomation> RuntimeAutomation::build(AutomationStorage *e
 }
 
 void RuntimeAutomation::set_enabled(bool enabled) {
-  if (!enabled)
+  const bool enabling = enabled && !this->enabled_;
+  if (!enabled) {
     this->stop();
+    this->result_.reset();
+  }
   this->enabled_ = enabled;
+  if (enabling)
+    this->watch_condition();
+}
+
+void RuntimeAutomation::watch_condition() {
+  if (!this->watches_condition_ || !this->enabled_)
+    return;
+  const bool result = this->condition_->check();
+  this->result_ = result;
+  this->fire_(true, result);
+}
+
+// Runs on every event the rule is handed. The engine hands it each state an entity the condition
+// reads takes, an input's first one and its loss included, except an event it drops at the
+// nesting bound.
+void RuntimeAutomation::recheck_condition() {
+  if (!this->result_.has_value())
+    return;
+  const bool result = this->condition_->check();
+  if (result == *this->result_)
+    return;
+  // Before the actions: one that drives a switch the condition reads calls back in here, and
+  // must find the result already moved.
+  this->result_ = result;
+  this->fire_(true, result);
+}
+
+void RuntimeAutomation::resync_condition() {
+  if (this->result_.has_value())
+    this->result_ = this->condition_->check();
 }
 
 void RuntimeAutomation::stop() {
@@ -283,6 +334,8 @@ void RuntimeAutomation::on_binary_sensor(binary_sensor::BinarySensor *entity, bo
         break;
     }
   }
+  // A level too: the condition reads the state, whatever brought it.
+  this->recheck_condition();
 }
 
 void RuntimeAutomation::on_switch(switch_::Switch *entity, bool state) {
@@ -294,13 +347,13 @@ void RuntimeAutomation::on_switch(switch_::Switch *entity, bool state) {
       continue;
     this->fire_(true, state);
   }
+  this->recheck_condition();
 }
 
 void RuntimeAutomation::on_sensor(sensor::Sensor *entity, float value) {
-  if (std::isnan(value))
-    return;
   for (auto &trigger : this->triggers_) {
-    if (trigger.source != SourceTrigger::TEMPERATURE || trigger.sensor != entity)
+    // A lost reading is no crossing; a condition still sees it, as false.
+    if (std::isnan(value) || trigger.source != SourceTrigger::TEMPERATURE || trigger.sensor != entity)
       continue;
     bool crossed = false;
     bool rearm = false;
@@ -327,6 +380,7 @@ void RuntimeAutomation::on_sensor(sensor::Sensor *entity, float value) {
       trigger.armed = true;
     }
   }
+  this->recheck_condition();
 }
 
 void RuntimeAutomation::on_time(const ESPTime &time) {
@@ -341,6 +395,9 @@ void RuntimeAutomation::on_startup() {
     if (trigger.source == SourceTrigger::STARTUP)
       this->fire_(false, false);
   }
+  // Unless it started already: a rule added before the startup event watches from then.
+  if (!this->result_.has_value())
+    this->watch_condition();
 }
 
 void RuntimeAutomation::fire_(bool has_state, bool state) {
@@ -378,8 +435,9 @@ void RuntimeAutomation::step_(uint32_t token) {
   while (run != nullptr && run->cursor < run->branch->size()) {
     const CompiledAction &action = (*run->branch)[run->cursor++];
     if (action.source == SourceAction::DELAY) {
-      this->engine_->schedule_delay(this->timer_id_(run->seq), action.delay_ms,
-                                    [this, token]() { this->engine_->drive([this, token]() { this->step_(token); }); });
+      this->engine_->schedule_delay(this->timer_id_(run->seq), action.delay_ms, [this, token]() {
+        this->engine_->drive(*this, [this, token]() { this->step_(token); });
+      });
       return;
     }
     this->play_switch_(action, *run);

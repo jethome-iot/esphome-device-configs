@@ -10,14 +10,19 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
 
 - **Triggers** (any of them fires the rule): input press / release / click / state change,
   switch turn on / off / state change, temperature above / below / in range (fires on the
-  crossing, once), cron (six fields, seconds first), startup.
-- **Condition** (optional): input is on/off, temperature above / below / in range (`above` and
-  `below` are strict, a range includes both ends), and `and` / `or` / `xor` groups of those,
-  nested. When false, the `else` actions run.
+  crossing, once), cron (six fields, seconds first), startup, condition change (fires when the
+  condition's result changes, and once when the rule starts watching: a relay that follows a
+  logic expression of inputs and switches is one rule).
+- **Condition** (optional): input is on/off, switch is on/off, temperature above / below / in
+  range (`above` and `below` are strict, a range includes both ends), and `and` / `or` / `xor`
+  groups of those, nested. When false, the `else` actions run.
 - **Actions**: switch turn on / off / toggle / follow (copies the state the trigger
   carried, optionally inverted), delay.
 - **Mode**: `single` ignores a trigger while the rule is running, `restart` starts over,
   `parallel` runs up to 8 copies.
+
+Rules that keep setting each other off are cut 8 nested events deep, with a warning naming the
+rule; each time something sets the loop off again, it is cut again.
 
 ## Storage
 

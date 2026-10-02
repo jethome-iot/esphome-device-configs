@@ -25,15 +25,23 @@ import type { FetchImpl } from '../automationApi'
 import { normalizeCron, validateCronExpression } from '../cron'
 import { isNameTaken } from '../naming'
 
-// The firmware does NOT store a posted cron string — it parses each field into an
-// integer set and RE-SERIALISES on every read, so `1,7` comes back as `*/6`.
-// Reproduce that here so the dev/QA loop sees the same round-trip the hardware
-// does. A cron the device would refuse is refused in /save before this runs.
-function normalizeStoredCron(cfg: AutomationConfig): AutomationConfig {
+// The firmware does NOT store what was posted — it parses the rule and RE-SERIALISES
+// it on every read, so a cron `1,7` comes back as `*/6` and an input or switch
+// condition's state always as the string "true" or "false". Reproduce that here so
+// the dev/QA loop sees the same round-trip the hardware does. What the device would
+// refuse is refused in /save before this runs.
+function normalizeConditionState(c: AutomationCondition): AutomationCondition {
+  if (c.type === 'input' || c.type === 'switch') return { ...c, state: String(c.state ?? true) }
+  // Only groups have validated children; a leaf's stray `conditions` is ignored, as on the device.
+  const group = c.type === 'and' || c.type === 'or' || c.type === 'xor'
+  return group && Array.isArray(c.conditions) ? { ...c, conditions: c.conditions.map(normalizeConditionState) } : c
+}
+
+function normalizeStored(cfg: AutomationConfig): AutomationConfig {
   const triggers = cfg.triggers.map((t) =>
     t.source === 'cron' && typeof t.cron === 'string' ? { ...t, cron: normalizeCron(t.cron) } : t
   )
-  return { ...cfg, triggers }
+  return { ...cfg, triggers, ...(cfg.condition ? { condition: normalizeConditionState(cfg.condition) } : {}) }
 }
 
 // --- Seed data ---------------------------------------------------------------
@@ -72,6 +80,29 @@ export const seedAutomations: AutomationConfig[] = [
       { source: 'switch', type: 'follow', object_id: 'porch_light', invert: false },
       { source: 'switch', type: 'follow', object_id: 'relay_3', invert: true }
     ]
+  },
+  {
+    // A latch: the door turns relay 3 on, it holds itself on, motion lets it go.
+    id: 4,
+    name: 'Relay 3 latches on the door',
+    enabled: true,
+    mode: 'restart',
+    triggers: [{ source: 'condition' }],
+    condition: {
+      type: 'or',
+      conditions: [
+        { type: 'input', object_id: 'front_door', state: 'true' },
+        {
+          type: 'and',
+          conditions: [
+            { type: 'switch', object_id: 'relay_3', state: 'true' },
+            { type: 'input', object_id: 'motion', state: 'false' }
+          ]
+        }
+      ]
+    },
+    actions: [{ source: 'switch', type: 'turn_on', object_id: 'relay_3' }],
+    else_actions: [{ source: 'switch', type: 'turn_off', object_id: 'relay_3' }]
   }
 ]
 
@@ -97,10 +128,12 @@ export const seedSchema: AutomationSchema = {
     { type: 'temperature', subtypes: ['above', 'below', 'range'] },
     { type: 'cron', subtypes: [] },
     { type: 'startup', subtypes: [] },
-    { type: 'switch', subtypes: ['turn_on', 'turn_off', 'state_change'] }
+    { type: 'switch', subtypes: ['turn_on', 'turn_off', 'state_change'] },
+    { type: 'condition', subtypes: [] }
   ],
   conditions: [
     { type: 'input' },
+    { type: 'switch' },
     { type: 'temperature', subtypes: ['above', 'below', 'range'] },
     { type: 'and' },
     { type: 'or' },
@@ -124,16 +157,24 @@ function knownType(entries: Array<{ type: string; subtypes?: string[] }>, type: 
 }
 
 function validTrigger(t: AutomationTrigger): boolean {
+  if (!t || typeof t !== 'object') return false
   if (!knownType(seedSchema.triggers, t.source, t.type)) return false
   return t.source !== 'cron' || validateCronExpression(t.cron ?? '') === null
 }
 
 function validAction(a: AutomationAction): boolean {
+  if (!a || typeof a !== 'object') return false
   return knownType(seedSchema.actions as Array<{ type: string; subtypes?: string[] }>, a.source, a.type)
 }
 
+// Absent or null is true. The device reads a boolean as its JSON text, so true and false pass.
+function validState(state: unknown): boolean {
+  return state === undefined || state === null || state === 'true' || state === 'false' || typeof state === 'boolean'
+}
+
 function validCondition(c: AutomationCondition): boolean {
-  if (c.type === 'input') return typeof c.object_id === 'string'
+  if (!c || typeof c !== 'object') return false
+  if (c.type === 'input' || c.type === 'switch') return typeof c.object_id === 'string' && validState(c.state)
   if (c.type === 'temperature') {
     return knownType(seedSchema.conditions as Array<{ type: string; subtypes?: string[] }>, c.type, c.temperature_type)
   }
@@ -153,8 +194,16 @@ function validRule(cfg: unknown): cfg is AutomationSaveInput {
     Array.isArray(c.actions) &&
     c.actions.every(validAction) &&
     (c.else_actions === undefined || (Array.isArray(c.else_actions) && c.else_actions.every(validAction))) &&
-    (c.condition === undefined || validCondition(c.condition))
+    // null is no condition, as on the device.
+    (c.condition == null || validCondition(c.condition))
   )
+}
+
+// What the engine refuses to build after the words have parsed: the device answers
+// that as a failed create or update, not as a parse error.
+function buildable(cfg: AutomationConfig): boolean {
+  if (cfg.triggers.length === 0) return false
+  return cfg.condition !== undefined || !cfg.triggers.some((t) => t.source === 'condition')
 }
 
 // The device's id parameter: the whole value, decimal, non-zero.
@@ -252,8 +301,15 @@ export function createAutomationMockStore(): AutomationMockStore {
         if (!validRule(parsed)) {
           return { status: 400, body: { success: false, error: 'Failed to parse automation config' } }
         }
-        // The device fills the defaults a client leaves out.
-        const cfg: AutomationConfig = { ...parsed, id: parsed.id ?? 0, enabled: parsed.enabled ?? true, mode: parsed.mode ?? 'single' }
+        // The device fills the defaults a client leaves out, and keeps no null condition.
+        const { condition, ...rest } = parsed
+        const cfg: AutomationConfig = {
+          ...rest,
+          ...(condition != null ? { condition } : {}),
+          id: parsed.id ?? 0,
+          enabled: parsed.enabled ?? true,
+          mode: parsed.mode ?? 'single'
+        }
         // Name clash by stored filename, as the backend checks it.
         if (isNameTaken(cfg.name, cfg.id, automations)) {
           return {
@@ -266,11 +322,17 @@ export function createAutomationMockStore(): AutomationMockStore {
           if (i < 0) {
             return { status: 404, body: { success: false, error: 'Automation not found' } }
           }
-          automations[i] = normalizeStoredCron({ ...cfg })
+          if (!buildable(cfg)) {
+            return { status: 400, body: { success: false, error: 'Failed to update automation' } }
+          }
+          automations[i] = normalizeStored({ ...cfg })
           return { status: 200, body: { success: true, message: 'Automation updated' } }
         }
+        if (!buildable(cfg)) {
+          return { status: 400, body: { success: false, error: 'Failed to create automation' } }
+        }
         const id = nextId++
-        automations.push(normalizeStoredCron({ ...cfg, id }))
+        automations.push(normalizeStored({ ...cfg, id }))
         return { status: 200, body: { success: true, message: 'Automation created', id } }
       }
 
