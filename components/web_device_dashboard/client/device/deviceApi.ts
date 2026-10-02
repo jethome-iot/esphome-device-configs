@@ -12,7 +12,7 @@ export interface DeviceApi {
   info(): Promise<DeviceInfo>
   /** GET /status — runtime status. */
   status(): Promise<DeviceStatus>
-  /** GET /capabilities — what this firmware has. Read once, on load. */
+  /** GET /capabilities — what this firmware has. Read on load, not polled. */
   capabilities(): Promise<Capabilities>
   /** POST /system/reboot — requires a confirmation. */
   reboot(confirm: ConfirmPayload): Promise<MutationResponse>

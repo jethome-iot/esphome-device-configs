@@ -72,7 +72,7 @@ failure `{"success": false, "error"}`. The same contract, machine-readable:
 ### Capabilities
 
 `/api/device/capabilities` answers which screens a client can draw and which routes exist. It
-is meant to be read once on load. A key is there only
+is meant to be read on load, not polled. A key is there only
 when the capability is, so the test is `if (caps.files)`; one that has no detail to carry is
 `true`. `reboot` and `factory_reset` are
 always there, the latter with `clears_storage` — whether a reset also takes the uploaded files
@@ -83,14 +83,16 @@ rollback the other slot is the *newer* firmware. It is there when
 absent after a serial flash, a failed or interrupted update, a rollback the bootloader did
 itself, or while a switch waits for its reboot. `storage`, `files`, `automations`,
 `entity_settings` and `board_info` follow the components the firmware was built with.
-`storage` says what the mount is, not how full it is: usage is live and this route is read
-once, so the byte counts stay in the file API's own `info`.
+`storage` says what the mount is, not how full it is: usage is live and this route is not
+polled, so the byte counts stay in the file API's own `info`.
 
-The embedded page reads this on its **Settings → System** tab and will not draw the tab
-without it: a firmware old enough to answer `404` here gets a message saying so rather than
-buttons that cannot work. It uses `factory_reset.clears_storage` to say whether a reset takes
-the uploaded files with it, and `rollback` to name the slot it would boot — with no key there,
-the action stays disabled instead of offering a `503`.
+The embedded page will not draw its **Settings → System** tab without this: a firmware old
+enough to answer `404` here gets a message saying so rather than buttons that cannot work. It
+uses `factory_reset.clears_storage` to say whether a reset takes the uploaded files with it.
+Its **Settings → Firmware** tab uses `rollback` to name the slot a rollback would boot — with
+no key there, the action stays disabled instead of offering a `503`. Since that key moves, the
+page reads this route again whenever it shows the rollback, and after an update fails or a
+rollback is refused, rather than only on load.
 
 ### System actions
 
