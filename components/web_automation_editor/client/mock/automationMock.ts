@@ -32,7 +32,9 @@ import { isNameTaken } from '../naming'
 // refuse is refused in /save before this runs.
 function normalizeConditionState(c: AutomationCondition): AutomationCondition {
   if (c.type === 'input' || c.type === 'switch') return { ...c, state: String(c.state ?? true) }
-  return c.conditions ? { ...c, conditions: c.conditions.map(normalizeConditionState) } : c
+  // Only groups have validated children; a leaf's stray `conditions` is ignored, as on the device.
+  const group = c.type === 'and' || c.type === 'or' || c.type === 'xor'
+  return group && Array.isArray(c.conditions) ? { ...c, conditions: c.conditions.map(normalizeConditionState) } : c
 }
 
 function normalizeStored(cfg: AutomationConfig): AutomationConfig {
