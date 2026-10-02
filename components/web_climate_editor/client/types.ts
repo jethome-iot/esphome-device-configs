@@ -232,6 +232,8 @@ export interface SaveResponse extends SuccessResponse {
 /** POST /enable: `persisted` is false when the change runs but did not reach flash. */
 export interface EnableResponse extends SuccessResponse {
   persisted: boolean
+  /** Present when it was enabled but does not run, worded and repeated as SaveResponse.warning. */
+  warning?: string
 }
 
 export interface ErrorResponse {

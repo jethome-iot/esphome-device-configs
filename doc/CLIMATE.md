@@ -52,11 +52,11 @@ its target, and watch what each one is doing. The routes and their contract are 
 [components/web_climate_editor/openapi.yaml](../components/web_climate_editor/openapi.yaml),
 the usage in [its README](../components/web_climate_editor/README.md).
 
-A Save of a thermostat that is to run is refused while another running thermostat drives its
-relay, or when its sensor does not report °C; one whose sensor or relay is missing is saved and
-waits, as above. Starting one over `enable` needs its sensor and relays on the device; it can
-take the relay over instead of being refused, which stops the other thermostat and stores it as
-disabled.
+A Save or a start over `enable` of a thermostat that is to run is refused while another running
+thermostat drives its relay, or when its sensor does not report °C; one whose sensor or relay is
+missing is stored enabled and waits, as above. A start can take the relay over instead of being
+refused, which stops the other thermostat and stores it as disabled; one whose sensor or relay
+is missing cannot.
 
 ## Home Assistant
 

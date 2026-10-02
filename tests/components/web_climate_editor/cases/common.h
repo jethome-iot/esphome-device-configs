@@ -8,7 +8,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <utility>
@@ -155,6 +157,7 @@ class TestHub : public climate_hub::ClimateHub {
       sub->last = climate_hub::Reading{};
     this->store_.clear();
     this->dirty_.clear();
+    this->waiting_.clear();
     this->cancel_timeout("ha_resync");
     this->ms = 100000;
     this->jobs = 0;
@@ -267,6 +270,12 @@ class Editor : public ::testing::Test {
     }
     closedir(dir);
     return names;
+  }
+
+  // What @p name in the folder holds, "" when it is not there.
+  std::string file(const std::string &name) const {
+    std::ifstream in(this->folder() + "/" + name);
+    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
   }
 
   // @p target is the path with its query; @p origin is what a page on another site would

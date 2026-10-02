@@ -140,7 +140,7 @@ paths:
         no refusal: it is saved, stays enabled, and waits without running (a
         running one is stopped). The `200` then carries a `warning` naming
         what is missing. It starts at the next boot that finds what it names,
-        or at a Save that names what is there.
+        or at a Save or an `/enable` that finds it there.
       requestBody:
         required: true
         content:
@@ -249,12 +249,18 @@ paths:
       operationId: enableThermostat
       summary: Start or stop a thermostat, and store the flag.
       description: >-
-        Starting refuses three ways: `400` when its sensor or a relay is not
-        on the device or its sensor does not report °C, then `409` when a
-        running thermostat holds its relay. Unlike `/save`, a missing sensor or
-        relay is refused here, for a thermostat already stored enabled too.
-        With `take_over=true` the thermostat holding the relay is stopped and
-        stored as disabled first, in the same step, and the answer names it.
+        Starting is refused as a `/save` of the thermostat would be: `400` when
+        its sensor does not report °C, then `409` when a running thermostat
+        holds its relay. With `take_over=true` the thermostat holding the relay
+        is stopped and stored as disabled first, in the same step, and the
+        answer names it; a take-over by one whose sensor or a relay is not on
+        the device is `400` instead, and the holder runs on.
+
+        Otherwise a sensor or a relay that is not on the device is no refusal,
+        for a thermostat already stored enabled too: it is stored enabled and
+        waits without running, and the `200` carries a `warning` naming what is
+        missing. It starts at the next boot that finds what it names, or at a
+        Save or an `/enable` that finds it there.
       parameters:
         - $ref: "#/components/parameters/IdQuery"
         - name: value
@@ -273,11 +279,32 @@ paths:
             enum: ["true", "false"]
       responses:
         "200":
-          description: Started or stopped.
+          description: >-
+            Started or stopped. A thermostat enabled that does not run gets a
+            `warning` saying why, which the message repeats after a `;`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/EnableResponse"
+              examples:
+                running:
+                  value:
+                    success: true
+                    message: Thermostat enabled
+                    persisted: true
+                takeOver:
+                  summary: Took the relay over
+                  value:
+                    success: true
+                    message: Thermostat enabled; "Living Room" stopped
+                    persisted: true
+                waiting:
+                  summary: Enabled, waiting for its relay
+                  value:
+                    success: true
+                    message: "Thermostat enabled; not started: relay 'relay_9' not found"
+                    persisted: true
+                    warning: "not started: relay 'relay_9' not found"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -470,8 +497,9 @@ components:
       description: >-
         Bad request — a missing or malformed parameter, a body that is empty or
         not JSON, a document that breaks a rule, an enabled thermostat whose
-        sensor does not report °C, or a start (`/enable`) whose sensor or relay
-        is not on the device.
+        sensor does not report °C, or a take-over (`/enable` with
+        `take_over=true`) by a thermostat whose sensor or relay is not on the
+        device.
       content:
         application/json:
           schema:
@@ -486,7 +514,7 @@ components:
                 success: false
                 error: "Name cannot contain '/'"
             entity:
-              summary: "/enable only"
+              summary: "/enable with take_over=true only"
               value:
                 success: false
                 error: No sensor "temp_3" on this device
@@ -1187,6 +1215,14 @@ components:
         persisted:
           type: boolean
           description: False when the change runs but the flag did not reach flash, so a reboot undoes it.
+        warning:
+          type: string
+          description: >-
+            Present only when the thermostat was enabled but does not run, in
+            the words of `SaveResponse.warning`. It waits, stored enabled.
+          examples:
+            - "not started: sensor 'temp_3' not found"
+            - "not started: no free climate entity"
       example:
         success: true
         message: Thermostat enabled; "Living Room" stopped

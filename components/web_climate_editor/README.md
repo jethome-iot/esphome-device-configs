@@ -62,7 +62,7 @@ seconds. Nothing was read or written then, and the call can simply be made again
 | GET | `get?id=` | One thermostat, in the file format of [climate_hub](../climate_hub/README.md#a-thermostat) |
 | POST | `save` | A thermostat as a JSON body. `id` absent or `""` creates one, an existing `id` replaces that one, renamed or not. Answers `{"success": true, "message", "id"}`, and a `warning` when it was saved enabled but does not run |
 | POST | `delete?id=` | Stops the thermostat and removes its file |
-| POST | `enable?id=&value=true\|false[&take_over=true]` | Starts or stops it and stores the flag. `{"success": true, "message", "persisted"}`; `persisted` is `false` when it runs but the flag did not reach flash |
+| POST | `enable?id=&value=true\|false[&take_over=true]` | Starts or stops it and stores the flag. `{"success": true, "message", "persisted"}`; `persisted` is `false` when it runs but the flag did not reach flash. A `warning` comes as from `save` when it was enabled but does not run |
 | POST | `setpoint?id=&value=` | Moves the target, clamped into the thermostat's range, whether it runs or not |
 | GET | `status[?id=]` | `{"success": true, "controllers": [...]}`: per thermostat whether it runs, what it does (`off`, `idle`, `heating`, `cooling`), its fault, the room temperature and its age, the target and range, the bang-bang switching points, the heat and cool duty and relay state, and a running PID's terms. A stopped thermostat still reports its sensor's reading |
 | GET | `entities` | `{"success": true, "sensors": [{"object_id", "name", "unit"}], "switches": [{"object_id", "name", "claimed_by"}]}`; `claimed_by` is the id of the running thermostat that holds the relay, or `""`. Internal entities are left out, and so is a sensor that does not report °C |
@@ -100,14 +100,17 @@ message repeats it:
  "id": "attic-room", "warning": "not started: sensor 'attic' not found"}
 ```
 
-It starts at the next boot that finds what it names, or at a Save that names what is there. The
-same `warning` comes, as `not started: no free climate entity`, if no climate entity is free.
+It starts at the next boot that finds what it names, or at a Save or an `enable` that finds it
+there. The same `warning` comes, as `not started: no free climate entity`, if no climate entity
+is free.
 
-`enable` refuses three ways when it starts a thermostat, one stored enabled and waiting too:
-`400` when its sensor or a relay is not on the device (`No sensor "attic" on this device`) or
-its sensor does not report °C, then `409` when a running thermostat holds its relay. With
-`take_over=true` the thermostat holding the relay is stopped and stored as disabled first, in
-the same step, and the answer names it: `Thermostat enabled; "Living Room" stopped`.
+`enable` starts a thermostat as a Save of it would: `400` when its sensor does not report °C,
+then `409` when a running thermostat holds its relay, and one whose sensor or a relay is not on
+the device is stored enabled and waits, with the same `warning` beside `persisted`, whether it
+was stored enabled before or not. With `take_over=true` the thermostat holding the relay is
+stopped and stored as disabled first, in the same step, and the answer names it:
+`Thermostat enabled; "Living Room" stopped`. A take-over by one whose sensor or a relay is not
+on the device is `400` instead (`No sensor "attic" on this device`), and the holder runs on.
 
 An `id` is the thermostat's slug (`a-z`, `0-9`, single dashes, at most 48): a missing one is
 `Missing id parameter`, anything else `Invalid id parameter`. `value` and `take_over` of

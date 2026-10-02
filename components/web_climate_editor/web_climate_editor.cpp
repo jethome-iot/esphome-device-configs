@@ -580,6 +580,9 @@ void WebClimateEditor::handle_enable_(AsyncWebServerRequest *request) {
     answer["success"] = true;
     answer["message"] = message;
     answer["persisted"] = result.persisted;
+    // Stored enabled but not running, as a Save answers it.
+    if (!result.warning.empty())
+      answer["warning"] = result.warning;
     serializeJson(answer, json);
     return true;
   });
