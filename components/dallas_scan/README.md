@@ -139,5 +139,7 @@ Slots are 0-based here.
 - `forget_and_save(slot)`, `assign_and_save(slot, rom)`: the same without the reboot, which
   the caller then owes, and the bus is not read until it comes; false, with the table
   unchanged, when nothing would change or the table could not be written
+- `awaiting_reboot()`: one of those wrote the table and the reboot has not come yet; the bus
+  is not read until it does
 - `valid_address(rom)`: a thermometer family and a valid CRC, the ROMs a slot can hold
 - `check_assign(slot, rom)`, `assign(slot, rom)`
