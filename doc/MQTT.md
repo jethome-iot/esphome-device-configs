@@ -168,6 +168,27 @@ one lose it.
   `zigbee2mqtt/bridge/…`, camera snapshots or `frigate/…`. See "Repeated crashes" for what the
   device does when it happens.
 
+## On the display
+
+The device with the display has an **MQTT** item in its menu, after Automations. Its rows only
+show; nothing is set there.
+
+| Row | Shows |
+| --- | --- |
+| `MQTT: Connected` | Or `Connecting`, `Disconnected`, `Off`, `Not set` (no broker saved yet), `Held back` (see "Repeated crashes") |
+| `192.168.1.10` | The broker, with `:<port>` when the port is not 1883; `Broker: --` when none is saved |
+| `HA discovery: Off` | Home Assistant discovery |
+| `Outdoor: 21.5 °C` | One row per running subscription slot, in slot order; `--` until it has a value. `No subscriptions` when none runs |
+
+- The rows follow the connection and the values as they change, with the menu open.
+- They show what runs: a change saved for the next reboot shows after it. While MQTT is off, the
+  broker and discovery rows show what is saved.
+- A row holds 18 characters. A longer one is cut and ends in `…`; a slot's name gives way to its
+  value, down to 6 characters.
+- The rows draw A–Z, Cyrillic, digits, the usual signs and `°`, `µ`, `²`, `³`. Any other
+  character (`é`, `日`, an emoji), a control character or a byte that is not valid UTF-8 shows as
+  `?`.
+
 ## Security
 
 - The device side has no access control of its own: anyone who can log in to the web server

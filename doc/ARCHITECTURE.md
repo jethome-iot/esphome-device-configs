@@ -35,6 +35,9 @@ boundaries; everything else is local to its file.
   menu follows whatever the board package put there. `temperatures_menu` gets a `Temp N` submenu per
   slot up to the last bound one at boot; a freed slot's submenu only says `Free slot`.
   `automations_menu` is filled at boot with a row per loaded rule, or one `No automations` row.
+  `mqtt_menu` (`display/menu-mqtt.yaml`) is filled at boot from `mqtt_settings` and `mqtt_subs`,
+  with the `f7x14_mod2` font deciding what it draws. Every root row is unweighted but Info (10)
+  and Settings (20), so a root row from another package sorts by its weight: MQTT sits at 5.
 - `automations_engine` (`features/automations.yaml`) is the rule engine; `display/menu.yaml`
   reads `configs()` for the Automations rows and calls `set_enable_automation` from them.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
@@ -89,7 +92,7 @@ boundaries; everything else is local to its file.
 | 700 | push the stored Modbus address, baud rate, parity and stop bits into `jxm_uart2`; build a submenu per entry of those vectors, named after the entity, with its settings rows |
 | 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); restore the timezone and read the RTC (`setup_time`, called from the device config). `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
 | 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created. `board_info` reads the EEPROM here too, once `eeprom_cpu` (600) has answered |
-| 500 | add a `Temp N` submenu per bound slot to the Temperatures menu; add a row per loaded rule to the Automations menu |
+| 500 | add a `Temp N` submenu per bound slot to the Temperatures menu; add a row per loaded rule to the Automations menu; add the MQTT menu's rows, one per slot `mqtt_subscriptions` (`HARDWARE + 3`) runs |
 | 210 | `mqtt_config` applies the stored MQTT settings: the topic prefix and status topics, discovery, and the broker and credentials when MQTT is on. Ahead of the client's own setup (200) and the entities' MQTT components (`AFTER_CONNECTION`), which build their topics from the prefix; after `dallas_scan` (600), whose `Temp N` it hands to the client |
 | 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
 
@@ -273,6 +276,11 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
     explicit template instantiation (which may name a protected member; the class is `final`)
     and told apart by their callback's type. The client's `unsubscribe()` would ask the broker,
     an error while disconnected, and drop a command topic of the same name too.
+- The MQTT menu's rows go through `mqtt_config`'s `panel_safe`, which refuses every byte
+  sequence `esphome::font`'s decoder refuses, because `Font::print` stops drawing a row at the
+  first one, and stands `?` in for what `Font::find_glyph` lacks, because a missing glyph logs a
+  warning on every redraw. Its tests carry a copy of that decoder (`extract_unicode_codepoint`,
+  static in `font.cpp`) as their oracle: re-copy it on a bump.
 - `tests/harness/components/mqtt` stands in for upstream's `mqtt` on the host: its schema and
   codegen are upstream's own module, its C++ copies the client's setters, topic prefix rule,
   discovery info, resend pass and when a subscription goes out. A signature drift shows in the

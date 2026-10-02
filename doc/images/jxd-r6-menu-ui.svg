@@ -19,8 +19,8 @@
     <text x="5" y="45" font-family="monospace" font-size="14" fill="#FFFFFF">Temperatures</text>
   </g>
 
-  <!-- Menu Row 4 - Info (normal) -->
+  <!-- Menu Row 4 - Automations (normal) -->
   <g id="menu_row4">
-    <text x="5" y="61" font-family="monospace" font-size="14" fill="#FFFFFF">Info</text>
+    <text x="5" y="61" font-family="monospace" font-size="14" fill="#FFFFFF">Automations</text>
   </g>
 </svg>
