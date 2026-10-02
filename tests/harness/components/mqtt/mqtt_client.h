@@ -188,8 +188,11 @@ class MQTTClientComponent : public Component {
   void disable_log_message() { this->log_message_.topic = ""; }
   bool is_log_message_enabled() const { return !this->log_message_.topic.empty(); }
 
+  // As upstream: kept in the list for every connect, and sent at once while connected.
   void subscribe(const std::string &topic, mqtt_callback_t callback, uint8_t qos = 0) {
     this->subscriptions_.push_back(MQTTSubscription{topic, qos, std::move(callback)});
+    if (this->connected_)
+      this->sent_subscribes.push_back(topic);
   }
   void subscribe_json(const std::string &topic, const mqtt_json_callback_t &callback, uint8_t qos = 0) {
     this->subscribe(
@@ -273,8 +276,20 @@ class MQTTClientComponent : public Component {
   // --- Test drivers, in place of the broker ---
 
   // The broker took the connection, in upstream's order: the callbacks run while the client
-  // still reads as not connected, then it is connected and every child is due a resend.
-  void connect_for_test(bool session_present = false);
+  // still reads as not connected, then it is connected, subscribes its whole list and every
+  // child is due a resend.
+  void connect_for_test(bool session_present = false) {
+    this->backend_connect_for_test(session_present);
+    this->take_connection_for_test();
+  }
+  // The two halves, apart when esp-mqtt reconnects on its own while the client's state machine
+  // is still on its way back: the callbacks, then later the client calling it connected.
+  void backend_connect_for_test(bool session_present = false) {
+    this->connected_ = false;
+    for (auto &callback : this->on_connect_)
+      callback(session_present);
+  }
+  void take_connection_for_test();
   // The connection went, or never came: each disconnect callback hears the reason once.
   void drop_for_test(MQTTClientDisconnectReason reason) {
     this->connected_ = false;
@@ -310,6 +325,8 @@ class MQTTClientComponent : public Component {
   int enable_calls{0};
   int disable_calls{0};
   std::vector<Published> published;
+  // Every SUBSCRIBE that went to the broker, in order.
+  std::vector<std::string> sent_subscribes;
   // Makes every publish fail, as a full outbox does.
   bool fail_publishes{false};
 
