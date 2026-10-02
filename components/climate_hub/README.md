@@ -120,7 +120,8 @@ what is not there yet.
   infinity, is no reading: it is neither shown nor acted on, so a sensor that sends nothing
   else reports `sensor_stale` once `sensor_timeout_s` has passed since its last good one.
 - `min_on_s` and `min_off_s` hold a relay closed or open that long after it moved, whichever
-  thermostat moved it or put it back; a safety cut-out does not wait for them.
+  thermostat moved it or put it back; a safety cut-out does not wait for them. Keeping an open
+  relay open, as while a thermostat waits for its first reading, is no move.
 - A Save keeps what the thermostat is doing: inside the band a hysteresis thermostat goes on
   heating, cooling or idling as it was in the modes it still has, and the PWM keeps its rhythm
   unless `period_s` changes. Unless it changes `kind` or `sensor_id`, it also keeps what a PID

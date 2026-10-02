@@ -41,7 +41,8 @@ bool RelayClaim::dwell_over_(uint32_t now_ms) const {
 }
 
 void RelayClaim::force_off(uint32_t now_ms) {
-  if (this->initialized_ && !this->state_ && !this->relay_state_())
+  // Already open, and known to be: nothing moves, so no dwell starts, not even on a fresh claim.
+  if (!this->state_ && !this->relay_state_())
     return;
   this->apply_(false, now_ms);
 }

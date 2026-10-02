@@ -30,7 +30,8 @@ class RelayClaim {
   bool request(bool want, uint32_t now_ms);
 
   /// Safety and teardown path: opens the relay regardless of the min-on floor, and also when
-  /// the claim already believes it open but something else closed it.
+  /// the claim already believes it open but something else closed it. A relay already open is
+  /// not touched, so a claim that has not moved it yet keeps its first request free.
   void force_off(uint32_t now_ms);
 
   /// Carries on from a switching an earlier claim on the relay made, dwell and all.

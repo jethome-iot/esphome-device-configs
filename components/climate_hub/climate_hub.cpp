@@ -719,7 +719,10 @@ void ClimateHub::release_claims_(const std::string &owner) {
 
 ClimateHub::ClaimMap::iterator ClimateHub::let_go_(ClaimMap::iterator it, uint32_t now_ms) {
   it->second->force_off(now_ms);
-  it->second->last_switching(&this->relay_history_[it->first]);
+  // A claim that never moved its relay leaves no switching to honour.
+  RelaySwitching last;
+  if (it->second->last_switching(&last))
+    this->relay_history_[it->first] = last;
   return this->claims_.erase(it);
 }
 

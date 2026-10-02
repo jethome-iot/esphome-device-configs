@@ -230,6 +230,21 @@ TEST(RelayClaim, ForceOffReopensARelayClosedByHand) {
   EXPECT_EQ(writes + 1, relay.writes) << "an open relay is left alone";
 }
 
+// Opening a relay that is open moves nothing, so it starts no dwell: the first request still
+// lands at once, min_off or not.
+TEST(RelayClaim, ForceOffOnAnOpenRelayLeavesTheFirstRequestFree) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.set_dwell(0, 60000);
+  claim.force_off(1000);
+  EXPECT_EQ(0, relay.writes) << "nothing to open";
+  RelaySwitching last;
+  EXPECT_FALSE(claim.last_switching(&last)) << "nothing switched yet";
+
+  EXPECT_TRUE(claim.request(true, 2000));
+  EXPECT_TRUE(relay.state);
+}
+
 // A claim made after another let the relay go carries on from where that one left it.
 TEST(RelayClaim, ResumesTheDwellOfAnEarlierClaim) {
   FakeSwitch relay;
