@@ -74,7 +74,8 @@ export interface MqttMockOptions {
   /**
    * Unset: the factory state. `connected`: on and connected, three slots set up and reading.
    * `unreachable`: on, and the broker never answers. `refused`: on, and the broker refuses the
-   * login. `held_back`: on with discovery, held back after repeated crashes until reboot().
+   * login. `held_back`: on with discovery, held back after repeated crashes until reboot(),
+   * and the three slots of `connected` suspended, as the crashes before suspended them.
    * `noslots`: the factory state on a firmware without mqtt_subscriptions. `none`: a firmware
    * without MQTT, so both routes are a 404 and neither /status nor /capabilities has it.
    * The dev server passes VITE_MOCK_MQTT as it is, so any string is taken here (`string & {}`
@@ -307,6 +308,8 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
   const units = o.units ?? MQTT_MOCK_UNITS
   const otherEntities = o.entities ?? (() => [])
   const reservedNames = o.reservedNames === undefined ? { prefix: 'Temp', count: 16 } : o.reservedNames
+  /** The crash guard keeps the slots' subscriptions off this boot (a streak of 2 or more). */
+  let slotsSuspended = mode === 'held_back'
   let savedSlots: MqttSlotFields[] = Array.from({ length: maxSlots }, () => ({ ...SLOT_DEFAULTS }))
   let runningSlots: MqttSlotFields[] = savedSlots.map((slot) => ({ ...slot }))
   let runs: SlotRun[] = runningSlots.map(freshRun)
@@ -325,6 +328,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
   const slotRuns = (i: number): boolean => runningSlots[i]!.enabled && runningSlots[i]!.topic !== ''
 
   function dispatch(topic: string, payload: string): void {
+    if (slotsSuspended) return  // nothing is subscribed
     runningSlots.forEach((slot, i) => {
       if (!slotRuns(i) || slot.topic !== topic) return
       const reading = readSlot(slot, payload)
@@ -348,19 +352,21 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
 
   function slotState(i: number): MqttSlotState {
     if (!slotRuns(i)) return 'off'
+    if (slotsSuspended) return 'suspended'
     const run = runs[i]!
     if (!connected || !run.has) return 'waiting'
     return run.error === null ? 'ok' : 'error'
   }
 
   const pendingAt = (i: number): boolean => slotPending(savedSlots[i]!, runningSlots[i]!, slotRuns(i))
-  const slotsWait = (): boolean => slotsServed && savedSlots.some((_, i) => pendingAt(i))
+  // A suspended boot counts, as on the device: a restart is what retries the subscriptions.
+  const slotsWait = (): boolean => slotsServed && (slotsSuspended || savedSlots.some((_, i) => pendingAt(i)))
 
   function subscriptions(): MqttSubscriptions {
     return {
       max_slots: maxSlots,
       reboot_required: slotsWait(),
-      suspended: false,
+      suspended: slotsSuspended,
       file_error: null,
       units: [...units],
       reserved_names: reservedNames && { ...reservedNames },
@@ -578,7 +584,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
   } else if (mode === 'held_back') {
     stored = { ...FACTORY, enabled: true, broker: '192.168.1.10', discovery: true }
   }
-  if (mode === 'connected' && slotsServed && maxSlots >= 3) {
+  if ((mode === 'connected' || mode === 'held_back') && slotsServed && maxSlots >= 3) {
     savedSlots[0] = {
       ...SLOT_DEFAULTS,
       enabled: true,
@@ -644,12 +650,14 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
     reboot() {
       if (connected && cleanup) finishCleanup()
       heldBack = false
+      slotsSuspended = false
       bootSlots()
       boot()
     },
     factoryReset() {
       stored = { ...FACTORY }
       heldBack = false
+      slotsSuspended = false
       savedSlots = savedSlots.map(() => ({ ...SLOT_DEFAULTS }))
       bootSlots()
       boot()
