@@ -96,7 +96,7 @@ export interface MqttMockOptions {
   nodeName: string
   /** The base MAC, `AA:BB:CC:DD:EE:FF`: the default client id ends with it. */
   mac: string
-  /** A firmware with mqtt_subscriptions and this many slots (the devices have 8). Left out,
+  /** A firmware with mqtt_subscriptions and this many slots (the devices have 16). Left out,
    *  one without, as `noslots` says too. */
   maxSlots?: number
   /** What a Number slot may show; MQTT_MOCK_UNITS by default. */

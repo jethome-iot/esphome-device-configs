@@ -24,7 +24,7 @@ web_server:
 mqtt_subscriptions:
   id: mqtt_subs
   storage: user_storage
-  max_slots: 8
+  max_slots: 16
   web_server:
     sorting_group_id: group_mqtt
     sorting_weight: 1
@@ -37,7 +37,7 @@ mqtt_subscriptions:
 | `id`             |         | The component, for the device API and the display menu |
 | `storage`        | required | The filesystem storage the slots are saved on |
 | `folder_path`    | `mqtt`  | One folder name below the storage. Not a folder another component keeps on the same storage (`automations`, `crash_report`, `config_json`) |
-| `max_slots`      | `8`     | 1 to 16 |
+| `max_slots`      | `16`    | 1 to 16 |
 | `units`          | 27 common units (`°C`, `%`, `W`, `kWh`, `ppm`, `µg/m³`, …) | What a Number slot may show: up to 32, each 1 to 16 bytes, none twice |
 | `web_server`     |         | The sorting group and weight of the slots' entities; slot N sorts at weight + N − 1 |
 | `mqtt_config_id` | the one `mqtt_config` | The MQTT settings whose client it subscribes through |

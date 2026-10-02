@@ -43,7 +43,7 @@ class Schema(unittest.TestCase):
 
     def test_the_defaults(self):
         config = validate()
-        self.assertEqual(config["max_slots"], 8)
+        self.assertEqual(config["max_slots"], 16)
         self.assertEqual(config["folder_path"], "mqtt")
         self.assertEqual(config["units"], subs.DEFAULT_UNITS)
         self.assertEqual(config["storage"].id, "user_storage")

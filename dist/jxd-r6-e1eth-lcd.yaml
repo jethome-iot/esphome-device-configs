@@ -1151,7 +1151,7 @@ mqtt_config:
 mqtt_subscriptions:
   id: mqtt_subs
   storage: user_storage
-  max_slots: 8
+  max_slots: 16
   web_server:
     sorting_group_id: group_mqtt
     sorting_weight: 1

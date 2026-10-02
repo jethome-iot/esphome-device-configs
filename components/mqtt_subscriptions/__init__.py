@@ -107,7 +107,7 @@ CONFIG_SCHEMA = cv.All(
                 filesystem_storage_abstract.FilesystemStorageAbstract
             ),
             cv.Optional(CONF_FOLDER_PATH, default="mqtt"): folder_name,
-            cv.Optional(CONF_MAX_SLOTS, default=8): cv.int_range(min=1, max=MAX_SLOTS),
+            cv.Optional(CONF_MAX_SLOTS, default=16): cv.int_range(min=1, max=MAX_SLOTS),
             cv.Optional(CONF_UNITS, default=DEFAULT_UNITS): unit_list,
         }
     )

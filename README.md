@@ -57,7 +57,7 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
   dashboard and kept across reboots ([details](components/web_auth/README.md))
 - **MQTT**: a client set up from the dashboard, idle until then, with Home Assistant discovery
   off by default; the settings that cut the device off its network or install firmware stay off
-  MQTT. Up to 8 subscribed topics show as entities of the device, for automations and relay
+  MQTT. Up to 16 subscribed topics show as entities of the device, for automations and relay
   bindings too ([details](doc/MQTT.md))
 
 ## Repository Layout
