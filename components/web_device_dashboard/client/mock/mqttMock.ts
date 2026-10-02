@@ -298,6 +298,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
   /** A discovery cleanup is due: it runs while connected and waits otherwise. */
   let cleanup = false
   let clock = 0
+  let ticked = false
 
   // Slots: what is saved, what this boot runs, what each running one read, and the broker's
   // retained messages, which outlive a reboot.
@@ -564,6 +565,9 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
   }
 
   function tick(now: number): void {
+    // The seeded messages came in before the clock was first set: they are as old as that.
+    if (!ticked) for (const run of runs) if (run.has) run.at = now
+    ticked = true
     clock = now
     if (attemptSince !== null && now - attemptSince >= MQTT_MOCK_CONNECT_MS) endAttempt()
     if (connected && cleanup) finishCleanup()
