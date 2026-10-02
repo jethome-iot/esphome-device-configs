@@ -1,7 +1,13 @@
 # Password protection for everything the web server carries — the dashboard, the file
-# manager, the automation editor and web_server's own REST API and /events. The pair below
-# is the factory default; the dashboard changes it and the device keeps the change.
+# manager, the automation editor and web_server's own REST API and /events — and for the
+# ESPHome OTA port. The pair below is the factory default; the dashboard changes it, the
+# device keeps the change and the OTA port takes the new password at once.
 # Details: components/web_auth/README.md
+substitutions:
+  # What `esphome upload` and the ESPHome Builder send to the OTA port. The device checks
+  # its web password there whatever this says, so set it to that password once it changes.
+  ota_password: admin
+
 external_components:
   - source: ${components}
     components: [web_auth]
@@ -12,5 +18,10 @@ web_server:
     username: admin
     password: admin
 
+ota:
+  - id: !extend esphome_ota
+    password: ${ota_password}
+
 web_auth:
   id: web_auth_credentials
+  ota_id: esphome_ota

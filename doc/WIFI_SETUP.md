@@ -65,3 +65,6 @@ of the repository, then recompile and upload:
 ```bash
 esphome run devices/JXD/jxd-r6-e1eth-lcd.yaml --device <IP_ADDRESS>
 ```
+
+The upload takes the device's web password; a changed one goes on the command line, see
+[First Flash](../README.md#first-flash).

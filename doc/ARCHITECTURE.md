@@ -58,7 +58,10 @@ boundaries; everything else is local to its file.
 - `web_auth_credentials` (`features/web-auth.yaml`) holds the credentials the web server checks.
   The `auth:` block in the same file is the factory pair; a pair set through the dashboard is
   kept in the device's flash preferences and replaces it from the next request on, so a factory
-  reset from the display menu brings `admin` / `admin` back.
+  reset from the display menu brings `admin` / `admin` back. `esphome_ota` is the ESPHome OTA
+  port of `boards/jxd-cpu-e1eth.yaml`; `features/web-auth.yaml` gives it a `password:` and
+  names it in `ota_id`, so it takes the web server's password, and the `ota_password`
+  substitution there is only what an uploader sends.
 - `web_device_dashboard` (`features/web-device-dashboard.yaml`) is the page at `/`, registered
   ahead of `web_server`'s own. Entity state and control go through `web_server`'s REST and
   `/events`, the Files screen through `web_file_browser` at `/files`, the Automations screen

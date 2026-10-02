@@ -25,6 +25,15 @@ so `${name}` and `${friendly_name}` stay symbolic for the Builder to rename. It:
 - refuses to run while a device config is missing from `firmwares.yaml`, or while a config's
   `fw_device` is not the slug that file publishes it under.
 
+## Installing from the Builder
+
+The Builder flashes an adopted device over the ESPHome OTA port, which takes the device's web
+password, and sends the `ota_password` substitution of the imported config: `admin`, the
+factory password. Once the password has been changed from the dashboard, set `ota_password`
+in that device's YAML in the Builder to the current one (a `!secret` will do), or the install
+is refused with `Authentication invalid`. The YAML only tells the Builder what to send; the
+password itself is changed from the dashboard.
+
 ## Adding a device
 
 1. `devices/<family>/<device>.yaml` with the path substitutions (`assets`, `components`, `boards`,

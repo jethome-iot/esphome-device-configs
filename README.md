@@ -53,8 +53,9 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
 - **Per-entity settings**: each relay's inversion, start mode and the input bound to it, and each
   input's inversion, set from the display menu and kept on that partition
   ([details](doc/ENTITY_SETTINGS.md))
-- **Password-protected web server**: `admin` / `admin` out of the factory, changed from the
-  dashboard and kept across reboots ([details](components/web_auth/README.md))
+- **Password-protected web server and OTA port**: `admin` / `admin` out of the factory, changed
+  from the dashboard and kept across reboots; firmware uploads over the ESPHome OTA port take
+  the same password ([details](components/web_auth/README.md))
 
 ## Repository Layout
 
@@ -205,6 +206,13 @@ example, the size of the storage partition) needs a USB flash: OTA keeps the tab
 
 ```bash
 esphome run devices/JXD/jxd-r6-e1eth-lcd.yaml --device <IP_ADDRESS>
+```
+
+The OTA port takes the device's web password, and the upload sends `admin`, the factory one.
+Once the password has been changed from the dashboard, pass the current one:
+
+```bash
+esphome -s ota_password '<PASSWORD>' run devices/JXD/jxd-r6-e1eth-lcd.yaml --device <IP_ADDRESS>
 ```
 
 ## Display UI Overview

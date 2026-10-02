@@ -121,6 +121,10 @@ curl -sX POST -d "" $A 'http://127.0.0.1:8080/switch/Drive%20input%203/turn_on' 
 A password set from the dashboard is kept in flash, so it outlives a restart of the emulator
 but not a fresh image.
 
+The OTA port takes the same password. `esphome upload` sends the `ota_password` substitution,
+`admin` as built, so after a change from the dashboard it goes on the command line too
+(`esphome -s ota_password <password> upload ...`).
+
 The `Drive input N` switches are deliberately `internal:`, so they are absent from the entity
 list and from the `/events` stream — but a command still reaches them, because the web server
 matches a request by name and the internal flag only gates listing and state pushes.

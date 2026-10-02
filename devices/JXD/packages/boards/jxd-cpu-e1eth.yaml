@@ -20,6 +20,7 @@ api:
 
 ota:
   - platform: esphome
+    id: esphome_ota
   - platform: web_server
 
 preferences:

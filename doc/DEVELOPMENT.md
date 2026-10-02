@@ -19,6 +19,7 @@ git sees.
 esphome config  devices/JXD/jxd-r6-e1eth-lcd.yaml                 # validate only, no toolchain
 esphome compile devices/JXD/jxd-r6-e1eth-lcd.yaml                 # full build
 esphome run     devices/JXD/jxd-r6-e1eth-lcd.yaml --device <ip>   # build + OTA (omit --device for USB)
+esphome -s ota_password <pw> run <config> --device <ip>           # OTA to a device whose web password was changed
 esphome -s version 2026.9.0.0 -s timezone Europe/Berlin compile <config>   # substitutions from the CLI
 
 python scripts/build-dist.py  [--check]    # regenerate / verify dist/ (imports esphome: use the venv)
@@ -36,6 +37,9 @@ SKIP=build-dist pre-commit run --all-files # what the CI lint job runs
 
 .venv/bin/python scripts/modbus_probe.py --port /dev/ttyUSB2 probe   # walk the Modbus map over RS485
 ```
+
+The OTA port takes the device's web password, `admin` until it is changed from the dashboard;
+`esphome upload` and `run` send the `ota_password` substitution there.
 
 Build output lands next to the config:
 `devices/JXD/.esphome/build/<name>/build/firmware.{factory,ota}.bin`.

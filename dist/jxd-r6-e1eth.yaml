@@ -19,7 +19,10 @@ api:
   reboot_timeout: 0s
 ota:
   - platform: esphome
+    id: esphome_ota
   - platform: web_server
+  - id: !extend 'esphome_ota'
+    password: ${ota_password}
 preferences:
   flash_write_interval: 5s
 external_components:
@@ -867,6 +870,7 @@ uart:
     stop_bits: 1
 web_auth:
   id: web_auth_credentials
+  ota_id: esphome_ota
 web_device_dashboard:
   board_info_id: board_info
   storage_id: user_storage
@@ -877,6 +881,7 @@ dashboard_import:
   import_full_config: true
 substitutions:
   timezone: UTC
+  ota_password: admin
   name: jxd-r6-e1eth
   friendly_name: JXD-R6-E1ETH
   version: 1.0.0
