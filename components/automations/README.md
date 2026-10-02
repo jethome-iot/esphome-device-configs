@@ -77,10 +77,9 @@ A `condition` trigger takes no parameters and makes the rule a state rather than
 fires whenever the condition's result changes, and once with the current result when the rule
 starts watching — at boot, and when it is added, updated or enabled. `actions` run on true and
 `else_actions` on false, so a switch that mirrors the result is turned on in one and off in the
-other; a lone `follow` in `actions` only ever sees true. A temperature moves
-the result only on a crossing, and a sensor with no reading is false. A rule with this trigger
-and no `condition` is refused. Give it `restart`: in `single`, a change that comes while a delay
-runs is ignored.
+other; a lone `follow` in `actions` only ever sees true. A temperature moves the result only on
+a crossing, and a sensor with no reading is false. A rule with this trigger and no `condition`
+is refused. Give it `restart`: in `single`, a change that comes while a delay runs is ignored.
 
 A condition may read the switch the rule drives. Start turns relay 1 on, the relay holds itself
 on, stop lets it go:
