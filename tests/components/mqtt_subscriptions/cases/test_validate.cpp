@@ -73,6 +73,14 @@ TEST(SlotRules, JsonPath) {
     EXPECT_EQ(check([bad](SlotConfig &s) { s.json_path = bad; }), "'json_path' must be up to 6 keys separated by '.'");
   }
   EXPECT_FALSE(json_path_valid(""));
+  // The path goes to the log and back to the dashboard, so it is text like the rest.
+  for (const char *bad : {"a\nb", "a.\xFF", "\x7F"}) {
+    SCOPED_TRACE(bad);
+    EXPECT_EQ(check([bad](SlotConfig &s) { s.json_path = bad; }),
+              "'json_path' must be text without control characters");
+  }
+  EXPECT_EQ(check([](SlotConfig &s) { s.json_path = "temperatura.значение"; }), "");
+  EXPECT_EQ(check([](SlotConfig &s) { s.json_path = std::string(65, '\n'); }), "'json_path' is over 64 bytes");
 }
 
 TEST(SlotRules, UnitAndDecimalsBindOnlyANumber) {
@@ -105,6 +113,19 @@ TEST(SlotRules, PayloadsBindOnlyAnOnOff) {
                 },
                 binary),
             "'payload_on' and 'payload_off' must differ");
+  EXPECT_EQ(check([](SlotConfig &s) { s.payload_on = "a\tb"; }, binary),
+            "'payload_on' must be text without control characters");
+  EXPECT_EQ(check([](SlotConfig &s) { s.payload_off = "\xC3"; }, binary),
+            "'payload_off' must be text without control characters");
+  // Length first, then the text, then the next payload.
+  EXPECT_EQ(check(
+                [](SlotConfig &s) {
+                  s.payload_on = "\n";
+                  s.payload_off = "";
+                },
+                binary),
+            "'payload_on' must be text without control characters");
+  EXPECT_EQ(check([](SlotConfig &s) { s.payload_on = "Открыто"; }, binary), "");
   EXPECT_EQ(check([](SlotConfig &s) { s.payload_on = ""; }), "");
 }
 

@@ -218,11 +218,14 @@ export const SLOT_MESSAGES = {
   topicSpace: "'topic' cannot start or end with a space",
   topicWildcard: "'topic' cannot contain '+' or '#': a slot takes one topic",
   jsonPathTooLong: "'json_path' is over 64 bytes",
+  jsonPathText: "'json_path' must be text without control characters",
   jsonPathKeys: "'json_path' must be up to 6 keys separated by '.'",
   unitUnknown: "'unit' is not one this firmware offers",
   decimalsRange: "'decimals' must be a whole number from 0 to 4",
   payloadOnLength: "'payload_on' must be 1 to 32 bytes",
+  payloadOnText: "'payload_on' must be text without control characters",
   payloadOffLength: "'payload_off' must be 1 to 32 bytes",
+  payloadOffText: "'payload_off' must be text without control characters",
   payloadsEqual: "'payload_on' and 'payload_off' must differ"
 } as const
 
@@ -301,6 +304,7 @@ export function validateSlot(slot: MqttSlotFields, units: readonly string[]): st
   if (topic.includes('+') || topic.includes('#')) return SM.topicWildcard
   if (slot.json_path !== '') {
     if (utf8Bytes(slot.json_path) > SLOT_LIMITS.json_path) return SM.jsonPathTooLong
+    if (!isText(slot.json_path)) return SM.jsonPathText
     if (!jsonPathValid(slot.json_path)) return SM.jsonPathKeys
   }
   if (slot.kind === 'sensor') {
@@ -308,12 +312,13 @@ export function validateSlot(slot: MqttSlotFields, units: readonly string[]): st
     if (!isWhole(slot.decimals) || slot.decimals < 0 || slot.decimals > SLOT_LIMITS.decimals) return SM.decimalsRange
   }
   if (slot.kind === 'binary_sensor') {
-    for (const [key, message] of [
-      ['payload_on', SM.payloadOnLength],
-      ['payload_off', SM.payloadOffLength]
+    for (const [key, length, text] of [
+      ['payload_on', SM.payloadOnLength, SM.payloadOnText],
+      ['payload_off', SM.payloadOffLength, SM.payloadOffText]
     ] as const) {
       const bytes = utf8Bytes(slot[key])
-      if (bytes === 0 || bytes > SLOT_LIMITS.payload) return message
+      if (bytes === 0 || bytes > SLOT_LIMITS.payload) return length
+      if (!isText(slot[key])) return text
     }
     if (asciiLower(slot.payload_on) === asciiLower(slot.payload_off)) return SM.payloadsEqual
   }

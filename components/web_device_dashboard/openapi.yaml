@@ -487,9 +487,10 @@ paths:
             slot that breaks a rule, the first in this order — `name` empty, over
             32 bytes, with control characters or a `/`; `topic` empty, over 128
             bytes, with control characters, a leading or trailing space, `+` or
-            `#`; `json_path` over 64 bytes or not 1 to 6 keys separated by `.`; a
-            `sensor`'s `unit` not in `units` or `decimals` outside 0–4; a
-            `binary_sensor`'s payloads not 1 to 32 bytes, or equal ignoring case;
+            `#`; `json_path` over 64 bytes, with control characters, or not 1 to 6
+            keys separated by `.`; a `sensor`'s `unit` not in `units` or
+            `decimals` outside 0–4; a `binary_sensor`'s payloads not 1 to 32 bytes
+            or with control characters, or equal ignoring case;
             and last, once the saved slots are read, a `name` giving the id of
             another slot, of another entity of its kind or (a `sensor`) of a
             temperature probe.
@@ -1571,7 +1572,8 @@ components:
           maxLength: 64
           description: >-
             Where the value sits in a JSON message: 1 to 6 keys separated by `.`,
-            a number picking an element of a list. `""` reads the whole message.
+            a number picking an element of a list, without control characters.
+            `""` reads the whole message.
         unit:
           type: string
           description: One of `units`, or `""`.
@@ -1581,10 +1583,10 @@ components:
           maximum: 4
         payload_on:
           type: string
-          description: 1 to 32 bytes, compared ignoring case.
+          description: 1 to 32 bytes of UTF-8 without control characters, compared ignoring case.
         payload_off:
           type: string
-          description: 1 to 32 bytes, not equal to `payload_on` ignoring case.
+          description: 1 to 32 bytes like `payload_on`, not equal to it ignoring case.
 
     MqttSlotSave:
       allOf:

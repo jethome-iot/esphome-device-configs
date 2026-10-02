@@ -188,6 +188,8 @@ std::string validate_slot(const SlotConfig &slot, const std::vector<std::string>
   if (!slot.json_path.empty()) {
     if (slot.json_path.size() > JSON_PATH_MAX)
       return "'json_path' is over 64 bytes";
+    if (!mqtt_config::is_text(slot.json_path))
+      return "'json_path' must be text without control characters";
     if (!json_path_valid(slot.json_path))
       return "'json_path' must be up to 6 keys separated by '.'";
   }
@@ -203,8 +205,12 @@ std::string validate_slot(const SlotConfig &slot, const std::vector<std::string>
     // Whole literals, as every fixed message here, so the dashboard can match them verbatim.
     if (!payload_state_fits(slot.payload_on))
       return "'payload_on' must be 1 to 32 bytes";
+    if (!mqtt_config::is_text(slot.payload_on))
+      return "'payload_on' must be text without control characters";
     if (!payload_state_fits(slot.payload_off))
       return "'payload_off' must be 1 to 32 bytes";
+    if (!mqtt_config::is_text(slot.payload_off))
+      return "'payload_off' must be text without control characters";
     if (equal_ignoring_case(slot.payload_on, slot.payload_off))
       return "'payload_on' and 'payload_off' must differ";
   }
