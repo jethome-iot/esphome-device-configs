@@ -179,10 +179,10 @@ scripts/mqtt-sink.py pub jxd-r6-e1eth-lcd-qemu/switch/relay_1/command ON   # Rel
 scripts/mqtt-sink.py sub 'homeassistant/#'       # the retained discovery entries, if any
 ```
 
-The first enable after a start connects at once; a later change waits for a restart, which
-here is `stop` and then `run --no-build`: **Reboot now** on the dashboard is a software reset,
-and the emulator falls over on those (below). Settings → MQTT in the dashboard does the same
-as the `curl` above.
+The first enable after a start connects at once, unless the effective topic prefix differs from
+the one the device started with; a later change waits for a restart, which here is `stop` and
+then `run --no-build`: **Reboot now** on the dashboard is a software reset, and the emulator
+falls over on those (below). Settings → MQTT in the dashboard does the same as the `curl` above.
 
 | Option | |
 |---|---|

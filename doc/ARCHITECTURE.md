@@ -218,7 +218,8 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   - esp-mqtt takes the broker and credentials when the client first connects and keeps them for
     the boot, so they are pushed once, before the first start; every later change waits for a
     reboot. Command topics are subscribed at the entities' setup with the boot's prefix, so a
-    first start that changes the prefix waits too. `disable()` does not take an ESP32 client off
+    first start waits too once the effective prefix differs from the boot's, whichever save
+    changed it. `disable()` does not take an ESP32 client off
     the broker, so nothing calls it.
   - `set_topic_prefix(prefix, check)` takes `prefix` literally unless it equals `check`; an empty
     check value makes a stored prefix literal. The birth, will and shutdown topics are compiled

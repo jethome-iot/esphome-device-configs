@@ -3,9 +3,10 @@
 // ../device/mqttApi.ts and ../device/types.ts. Dependency-free; the dev-server glue lives in
 // the dashboard's vite.config.ts.
 //
-// Behaviour follows mqtt_config: the first enable in a boot connects at once unless it also
-// changes the topic prefix, later changes wait for reboot(), and turning discovery off while
-// it runs removes the Home Assistant entries without one. Time moves only on tick(now): a dev
+// Behaviour follows mqtt_config: the first enable in a boot connects at once unless the
+// effective topic prefix differs from the one this boot started with, later changes wait for
+// reboot(), and turning discovery off while it runs removes the Home Assistant entries without
+// one. Time moves only on tick(now): a dev
 // server calls it with Date.now() before each request, a test when it wants an attempt over.
 import type {
   MqttDiscoveryCleanup,

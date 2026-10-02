@@ -142,7 +142,7 @@ routes are `404`. Behaviour for a user: [doc/MQTT.md](../../doc/MQTT.md).
 | Method | Path | |
 |---|---|---|
 | GET | `/api/device/mqtt` | the stored settings, never the password (`password_set` instead), the defaults for an empty `client_id` and `topic_prefix`, the client's `state` and `last_error`, what runs this boot (`running`), and whether a save applies now (`apply_now`), a change waits for a restart (`reboot_required`) and the Home Assistant entries are being removed (`discovery_cleanup`). Read on the loop task: `503` when it does not get to it |
-| POST | `/api/device/mqtt` | a partial update of `enabled`, `broker`, `port`, `username`, `password` (`""` clears it), `client_id`, `topic_prefix` and `discovery`. The first enable in a boot connects at once; later changes wait for a restart. Answers `{"success", "message", "reboot_required", "started", "discovery_cleanup"}`; `400` with the rule a value breaks, `500` when flash refused it, `503` when the loop task did not take it. Needs `Content-Type: application/json` |
+| POST | `/api/device/mqtt` | a partial update of `enabled`, `broker`, `port`, `username`, `password` (`""` clears it), `client_id`, `topic_prefix` and `discovery`. The first enable in a boot connects at once, unless the effective topic prefix differs from the one this boot started with; later changes wait for a restart. Answers `{"success", "message", "reboot_required", "started", "discovery_cleanup"}`; `400` with the rule a value breaks, `500` when flash refused it, `503` when the loop task did not take it. Needs `Content-Type: application/json` |
 
 ## client/
 

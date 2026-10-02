@@ -271,8 +271,9 @@ paths:
       description: >-
         A partial update: a key left out keeps its value, and `password: ""`
         clears the stored password. The first save in a boot that turns MQTT on
-        connects at once (`started`), unless it also changes the effective topic
-        prefix; every other change is stored and applies after a restart, which
+        connects at once (`started`), unless the effective topic prefix differs
+        from the one this boot started with, whether this save or an earlier one
+        changed it; every other change is stored and applies after a restart, which
         `reboot_required` says here and on `/status`. Turning Home Assistant
         discovery off applies at once: the device removes its retained entries
         from the broker, now when it is connected (`discovery_cleanup: running`)
@@ -1250,9 +1251,9 @@ components:
           type: boolean
           description: >-
             The client has not started this boot, is not held back, and the
-            stored topic prefix is still the one this boot runs: a save that
-            turns MQTT on connects at once, unless it also changes the effective
-            topic prefix.
+            effective topic prefix is still the one this boot started with: a
+            save that turns MQTT on connects at once, unless it changes that
+            prefix.
         reboot_required:
           type: boolean
           description: >-

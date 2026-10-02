@@ -28,7 +28,8 @@ curl --digest -u admin:admin -H 'Content-Type: application/json' \
 ## When a change applies
 
 - The first time MQTT is turned on after the device started, it connects at once, unless the
-  same save also changes the topic prefix: that one waits for a reboot.
+  effective topic prefix differs from the one the device started with, whether that save or an
+  earlier one changed it: then it waits for a reboot.
 - Every later change is saved and applies after the next reboot. The dashboard says so and
   offers **Reboot now**. Relays whose Start mode is Off switch off during a reboot, so check
   those first ([ENTITY_SETTINGS.md](ENTITY_SETTINGS.md)).

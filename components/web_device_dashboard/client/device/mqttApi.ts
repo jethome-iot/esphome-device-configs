@@ -8,9 +8,10 @@ export interface MqttApi {
   get(): Promise<MqttSettings>
   /**
    * POST /mqtt — a partial update: send only what changed; `password: ''` clears it. The
-   * first enable in a boot connects at once; later changes wait for a reboot, which the
-   * answer's `reboot_required` and its message say. Refusals carry the device's message,
-   * the same as mqttRules.ts gives.
+   * first enable in a boot connects at once, unless the effective topic prefix differs from
+   * the one this boot started with; later changes wait for a reboot, which the answer's
+   * `reboot_required` and its message say. Refusals carry the device's message, the same as
+   * mqttRules.ts gives.
    */
   set(update: MqttSettingsUpdate): Promise<MqttSaveResult>
 }

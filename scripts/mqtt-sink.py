@@ -12,7 +12,8 @@ with no dependencies, and it prints what it receives:
       http://127.0.0.1:8080/api/device/mqtt
 
 `10.0.2.2` is the host as the emulated device sees it (doc/QEMU.md, MQTT). The first enable
-connects at once; a later change waits for a restart.
+connects at once, unless the effective topic prefix differs from the one the device started
+with; a later change waits for a restart.
 
 It is a broker only as deep as those checks go: it routes publishes to subscribers (`+` and `#`
 included), keeps retained messages and replays them on subscribe, and delivers a client's will
