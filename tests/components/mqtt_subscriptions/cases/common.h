@@ -29,6 +29,7 @@
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
+#include "entity_tables.h"
 
 namespace esphome::mqtt_subscriptions::testing {
 
@@ -99,34 +100,6 @@ inline Entities &entities() {
   }();
   return *instance;
 }
-
-// How long App's entity lists were. Every boot in a test registers its slots' entities anew,
-// which lists of a fixed size would soon refuse, so each boot starts from the same lengths.
-// The entities themselves are never freed, as on a device.
-class TableMark {
- public:
-  static TableMark take() {
-    return TableMark{App.get_sensors().size(), App.get_binary_sensors().size(), App.get_text_sensors().size()};
-  }
-  void restore() const {
-    cut(App.get_sensors(), this->sensors_);
-    cut(App.get_binary_sensors(), this->binary_sensors_);
-    cut(App.get_text_sensors(), this->text_sensors_);
-  }
-
- protected:
-  TableMark(size_t sensors, size_t binary_sensors, size_t text_sensors)
-      : sensors_(sensors), binary_sensors_(binary_sensors), text_sensors_(text_sensors) {}
-  // App hands the lists out const; only a test shortens one.
-  template<typename L> static void cut(const L &list, size_t size) {
-    auto &writable = const_cast<L &>(list);  // NOLINT(cppcoreguidelines-pro-type-const-cast)
-    writable.assign(list.begin(), list.begin() + std::min(size, list.size()));
-  }
-
-  size_t sensors_;
-  size_t binary_sensors_;
-  size_t text_sensors_;
-};
 
 // The RTC record and the reset reason, which outlive a boot.
 struct Board {
@@ -256,7 +229,7 @@ class SlotsTest : public ::testing::Test {
     this->storage.set_base_path(folder);
     this->storage.setup();
     ASSERT_TRUE(this->storage.is_mounted());
-    this->mark = std::make_unique<TableMark>(TableMark::take());
+    this->mark = std::make_unique<esphome::testing::EntityTableMark>();
   }
   void TearDown() override {
     this->shutdown();
@@ -347,7 +320,7 @@ class SlotsTest : public ::testing::Test {
 
   Board board;
   dir_storage::DirStorage storage;
-  std::unique_ptr<TableMark> mark;
+  std::unique_ptr<esphome::testing::EntityTableMark> mark;
   std::unique_ptr<mqtt::MQTTClientComponent> client;
   std::unique_ptr<GuardConfig> config;
   std::unique_ptr<TestSubscriptions> subs;

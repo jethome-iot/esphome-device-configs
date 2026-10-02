@@ -5,7 +5,7 @@
 # stand-in, and play the broker through it.
 esphome:
   name: mqtt-subscriptions-test
-  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, ../../harness/entity_tables.h, cases]
   libraries: ["google/googletest@^1.15.2"]
   platformio_options:
     build_type: debug

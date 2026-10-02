@@ -19,6 +19,8 @@ tests/
   harness/
     main.cpp                # upstream's tests/components/main.cpp: runs the tests instead of setup()
     environment.cpp         # constructs App, which that setup would have done
+    entity_tables.h         # puts App's entity lists back to a length, for components that
+                            # register entities at setup
     components/
       dir_storage           # test-only storage backend: a directory on the host
       display_menu_host     # test-only key that pulls display_menu_base into a host build
@@ -77,7 +79,7 @@ tests/
 - `App` sizes its entity lists from the YAML and silently drops a registration past that. A new
   entity in the cases needs a matching declaration in the YAML. A component that creates its
   entities at setup is booted again and again in one process, so its suite puts the lists back
-  to their length before each boot, as `mqtt_subscriptions`' does.
+  to their length before each boot with `harness/entity_tables.h`, listed in its `includes:`.
 - A component that subscribed to an entity has to outlive the process: the entity keeps a
   callback into it. Keep such objects alive across tests instead of destroying them.
 - Nothing runs the scheduler, so a `set_timeout`, `set_interval` or `defer` never fires unless a

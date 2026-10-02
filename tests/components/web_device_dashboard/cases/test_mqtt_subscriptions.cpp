@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include "common.h"
+#include "entity_tables.h"
 #include "esphome/components/mqtt/mqtt_client.h"
 #include "esphome/components/mqtt_config/mqtt_config.h"
 #include "esphome/components/mqtt_subscriptions/mqtt_subscriptions.h"
@@ -47,29 +48,13 @@ class TestSlots : public MqttSubscriptions {
   void forget_schedule() { this->cancel_interval("mqtt-subs-check"); }
 };
 
-// How long App's entity lists were: every boot here creates its slots' entities anew.
-struct SlotTables {
-  size_t sensors{App.get_sensors().size()};
-  size_t binary_sensors{App.get_binary_sensors().size()};
-  size_t text_sensors{App.get_text_sensors().size()};
-
-  template<typename L> static void cut(const L &list, size_t size) {
-    auto &writable = const_cast<L &>(list);  // NOLINT(cppcoreguidelines-pro-type-const-cast)
-    writable.assign(list.begin(), list.begin() + std::min(size, list.size()));
-  }
-  void restore() const {
-    cut(App.get_sensors(), this->sensors);
-    cut(App.get_binary_sensors(), this->binary_sensors);
-    cut(App.get_text_sensors(), this->text_sensors);
-  }
-};
-
 // The dashboard on a firmware with mqtt_subscriptions: the client, mqtt_config and two slots
 // over a directory of their own, set up in boot order (803, 210, 200).
 class SlotsDashboard : public Dashboard {
  protected:
   void SetUp() override {
     Dashboard::SetUp();
+    this->tables = esphome::testing::EntityTableMark();
     mkdir(".storage", 0755);
     char folder[] = ".storage/slotsXXXXXX";
     ASSERT_NE(mkdtemp(folder), nullptr);
@@ -133,7 +118,8 @@ class SlotsDashboard : public Dashboard {
   Reply post_slot(const std::string &body) { return this->post(SLOTS, body); }
 
   SlotsBoard slots_board;
-  SlotTables tables;
+  // Every boot here creates its slots' entities anew.
+  esphome::testing::EntityTableMark tables;
   dir_storage::DirStorage slot_storage;
   std::unique_ptr<mqtt::MQTTClientComponent> client;
   std::unique_ptr<SlotsMqttConfig> config;
