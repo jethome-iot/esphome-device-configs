@@ -139,7 +139,7 @@ graphical_display_menu:
                 #ifdef USE_MQTT_CONFIG
                 // A running Home Assistant cleanup gets to finish first.
                 if (mqtt_config::global_mqtt_config != nullptr) {
-                  mqtt_config::global_mqtt_config->after_cleanup(5000, []() { App.safe_reboot(); });
+                  mqtt_config::global_mqtt_config->after_cleanup(mqtt_config::CLEANUP_WAIT_MS, []() { App.safe_reboot(); });
                   return;
                 }
                 #endif

@@ -197,7 +197,8 @@ MqttConfig::UpdateResult MqttConfig::update(const MqttPatch &patch) {
                          this->effective_prefix_(merged) == this->applied_.topic_prefix;
 
   // Stored before applied, so a failed write leaves the device as it was.
-  const StoredMqttV1 out = to_stored(merged, this->foreign_ ? StoredMqttV1{} : this->raw_);
+  // raw_ is still zero after a foreign record, so nothing of it is carried over.
+  const StoredMqttV1 out = to_stored(merged, this->raw_);
   if (!this->store_(out)) {
     // The flush reports for every key at once, so the failure may be another record's.
     if (!this->flash_holds_(out)) {
@@ -331,11 +332,8 @@ void MqttConfig::finish_cleanup_() {
   this->disable_loop();
 }
 
-void MqttConfig::loop() {
-  this->check_cleanup_();
-  if (!this->cleanup_active_)
-    this->disable_loop();
-}
+// Enabled only while a cleanup runs; finishing it disables the loop again.
+void MqttConfig::loop() { this->check_cleanup_(); }
 
 DiscoveryCleanup MqttConfig::discovery_cleanup() const {
   if (this->cleanup_active_)
@@ -381,7 +379,7 @@ void MqttConfig::before_factory_reset(std::function<void()> &&then) {
     this->applied_.discovery = false;
     this->update_reboot_required_();
   }
-  this->after_cleanup(5000, std::move(then));
+  this->after_cleanup(CLEANUP_WAIT_MS, std::move(then));
 }
 
 // --- Runtime sensors ---
@@ -461,6 +459,7 @@ void MqttConfig::on_disconnect_(mqtt::MQTTClientDisconnectReason reason) {
   }
   this->pending_error_ = MqttError::NONE;
   this->last_error_ = error;
+  ESP_LOGW(TAG, "Not connected: %s", error_label(error));
   this->refresh_state_();
 }
 

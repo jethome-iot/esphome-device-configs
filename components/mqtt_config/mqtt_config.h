@@ -44,6 +44,9 @@ enum class MqttError : uint8_t {
 // while one is due and the broker is not connected.
 enum class DiscoveryCleanup : uint8_t { NONE, RUNNING, PENDING };
 
+// How long a reboot or a factory reset waits for a running cleanup.
+static constexpr uint32_t CLEANUP_WAIT_MS = 5000;
+
 // The MQTT client's settings, kept in NVS and set from the dashboard. The stock client is
 // compiled idle; this applies the stored record at boot, starts the client the first time it
 // is turned on in a boot, and keeps every later change for the next one.

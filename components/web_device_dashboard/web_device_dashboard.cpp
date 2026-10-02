@@ -50,10 +50,6 @@ static const size_t API_PREFIX_LEN = 12;
 static const size_t MAX_BODY_BYTES = 4096;
 // The tail of the pretty MAC a confirmation has to carry: "DD:EE:FF", three octets.
 static const size_t CONFIRM_TOKEN_LEN = 8;
-#ifdef USE_MQTT_CONFIG
-// How long a reboot waits for this device's Home Assistant entries to leave the broker.
-static const uint32_t MQTT_CLEANUP_WAIT_MS = 5000;
-#endif
 
 // clang-format off
 static const Route ROUTES[] = {
@@ -836,7 +832,7 @@ void WebDeviceDashboard::reboot_() {
   this->set_timeout(this->action_delay_ms_, [this]() {
 #ifdef USE_MQTT_CONFIG
     if (auto *mqtt = mqtt_config::global_mqtt_config; mqtt != nullptr) {
-      mqtt->after_cleanup(MQTT_CLEANUP_WAIT_MS, [this]() { this->restart_(); });
+      mqtt->after_cleanup(mqtt_config::CLEANUP_WAIT_MS, [this]() { this->restart_(); });
       return;
     }
 #endif

@@ -196,6 +196,7 @@ TEST_F(ApplyTest, TheCallbacksAndTheLogListenerAreRegistered) {
   this->client->drop_for_test(mqtt::MQTTClientDisconnectReason::DNS_RESOLVE_ERROR);
   EXPECT_FALSE(c.connected());
   EXPECT_EQ(c.last_error(), MqttError::DNS);
+  EXPECT_TRUE(LogCapture::instance().has("Not connected: Broker name not found"));
 }
 
 // The client's own setup at 200 and the entities' at 100 come after this one at 210.
