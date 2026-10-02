@@ -43,9 +43,10 @@ class LogCapture {
     this->warnings.clear();
     this->config.clear();
   }
-  bool has(const std::vector<std::string> &lines, const char *needle) const {
-    return std::any_of(lines.begin(), lines.end(),
-                       [needle](const std::string &line) { return line.find(needle) != std::string::npos; });
+  bool has(const std::vector<std::string> &lines, const char *needle) const { return count(lines, needle) > 0; }
+  size_t count(const std::vector<std::string> &lines, const char *needle) const {
+    return std::count_if(lines.begin(), lines.end(),
+                         [needle](const std::string &line) { return line.find(needle) != std::string::npos; });
   }
 
  protected:
@@ -882,6 +883,64 @@ TEST_F(Storage, AConditionThatContradictsItsOwnActionStopsAtTheBound) {
   EXPECT_EQ(e.relay1.writes, 8);
   EXPECT_TRUE(log().has(log().warnings, "Automation 'Not relay': events nested 8 deep"));
   EXPECT_FALSE(engine->rule(0)->is_running());
+}
+
+// The loop's rules take the result the bound left them with: an unrelated event leaves them be,
+// a real change of the result sets them off again, and that is cut again.
+TEST_F(Storage, AfterTheBoundOnlyARealChangeSetsTheLoopOffAgain) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(R"({"name":"Not relay","mode":"restart","triggers":[{"source":"condition"}],
+      "condition":{"type":"switch","object_id":"relay_1","state":"false"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],
+      "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_1"}]})")),
+            0u);
+  ASSERT_NE(
+      engine->add_automation(rule(
+          R"({"name":"Press","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"actions":[{"source":"switch","type":"toggle","object_id":"relay_2"}]})")),
+      0u);
+  EXPECT_EQ(e.relay1.writes, 8);
+  EXPECT_FALSE(e.relay1.state);
+
+  e.in1.publish_state(true);
+  EXPECT_EQ(e.relay2.writes, 1);
+  EXPECT_EQ(e.relay1.writes, 8);
+  EXPECT_EQ(log().count(log().warnings, "events nested 8 deep"), 1u);
+
+  e.relay1.turn_on();  // from outside: the result moved
+  EXPECT_EQ(e.relay1.writes, 17);
+  EXPECT_EQ(log().count(log().warnings, "Automation 'Not relay': events nested 8 deep"), 2u);
+  e.in1.publish_state(false);
+  e.in1.publish_state(true);
+  EXPECT_EQ(e.relay2.writes, 2);
+  EXPECT_EQ(e.relay1.writes, 17);
+}
+
+// relay_1 = NOT relay_2 and relay_2 = relay_1: the rule the bound stopped is not the only one
+// left with an old result.
+TEST_F(Storage, AfterTheBoundTwoRulesInALoopStayPut) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(R"({"name":"Copy","mode":"restart","triggers":[{"source":"condition"}],
+      "condition":{"type":"switch","object_id":"relay_1","state":"true"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_2"}],
+      "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_2"}]})")),
+            0u);
+  ASSERT_NE(engine->add_automation(rule(R"({"name":"Negate","mode":"restart","triggers":[{"source":"condition"}],
+      "condition":{"type":"switch","object_id":"relay_2","state":"false"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],
+      "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_1"}]})")),
+            0u);
+  ASSERT_NE(engine->add_automation(rule(
+                R"({"name":"Listen","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"actions":[]})")),
+            0u);
+  EXPECT_EQ(log().count(log().warnings, "events nested 8 deep"), 1u);
+  const int writes1 = e.relay1.writes;
+  const int writes2 = e.relay2.writes;
+
+  e.in1.publish_state(true);
+  e.in1.publish_state(false);
+  EXPECT_EQ(e.relay1.writes, writes1);
+  EXPECT_EQ(e.relay2.writes, writes2);
+  EXPECT_EQ(log().count(log().warnings, "events nested 8 deep"), 1u);
 }
 
 // The plain state callback leaves out an input's first state when it does not trigger on it;

@@ -21,8 +21,8 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
 - **Mode**: `single` ignores a trigger while the rule is running, `restart` starts over,
   `parallel` runs up to 8 copies.
 
-Rules that keep setting each other off are cut off 8 nested events deep, with a warning naming
-the rule.
+Rules that keep setting each other off are cut 8 nested events deep, with a warning naming the
+rule; each time something sets the loop off again, it is cut again.
 
 ## Storage
 

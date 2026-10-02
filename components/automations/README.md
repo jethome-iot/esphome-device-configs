@@ -103,8 +103,9 @@ on, stop lets it go:
 ```
 
 Rules that keep setting each other off — one toggling the switch that triggers it, or a relay
-that follows its own negation — are cut off 8 nested events deep, with a warning naming the
-rule.
+that follows its own negation — are cut 8 nested events deep: the next event is dropped, with a
+warning naming the rule, and the switches stay where the loop left them until something sets it
+off again, which is cut the same way.
 
 ## Storage
 

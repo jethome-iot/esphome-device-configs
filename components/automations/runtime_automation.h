@@ -84,6 +84,8 @@ class RuntimeAutomation {
   void watch_condition();
   /// Fires a condition trigger if the result moved since it last acted on it.
   void recheck_condition();
+  /// Takes the current result as acted on, without firing.
+  void resync_condition();
 
   void on_binary_sensor(binary_sensor::BinarySensor *entity, bool state, bool level = false);
   void on_switch(switch_::Switch *entity, bool state);

@@ -76,12 +76,15 @@ template<typename F> void AutomationStorage::each_rule_(F call) {
   }
 }
 
-bool AutomationStorage::too_deep_() const {
-  if (this->dispatching_ < MAX_DISPATCH_DEPTH)
+bool AutomationStorage::too_deep_() {
+  if (this->driving_.size() < MAX_DISPATCH_DEPTH)
     return false;
   ESP_LOGW(TAG, "Automation '%s': events nested %u deep, dropping the next; do rules trigger each other in a loop?",
-           this->driving_ != nullptr ? this->driving_->get_name().c_str() : "?",
-           static_cast<unsigned>(this->dispatching_));
+           this->driving_.back()->get_name().c_str(), static_cast<unsigned>(this->driving_.size()));
+  // The rules being driven remember a result from before the event dropped here: the next event
+  // they see, however unrelated, would set the loop off again.
+  for (RuntimeAutomation *rule : this->driving_)
+    rule->resync_condition();
   return true;
 }
 
@@ -327,7 +330,7 @@ bool AutomationStorage::run_on_loop_(std::function<bool()> &&job) {
     return false;
   }
   if (this->dispatcher_.on_loop_task()) {
-    if (this->dispatching_ > 0) {
+    if (!this->driving_.empty()) {
       ESP_LOGE(TAG, "Rules cannot be edited from inside a rule's own action");
       return false;
     }

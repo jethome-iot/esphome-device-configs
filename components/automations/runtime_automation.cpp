@@ -287,6 +287,11 @@ void RuntimeAutomation::recheck_condition() {
   this->fire_(true, result);
 }
 
+void RuntimeAutomation::resync_condition() {
+  if (this->result_.has_value())
+    this->result_ = this->condition_->check();
+}
+
 void RuntimeAutomation::stop() {
   for (const auto &run : this->runs_)
     this->engine_->cancel_delay(this->timer_id_(run->seq));
