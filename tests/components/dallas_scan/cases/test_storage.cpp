@@ -16,7 +16,6 @@ static const uint64_t ROM_DS28EA00 = 0x4400000000000142ULL;
 
 class FileStorage : public Boots {};
 class NvsStorage : public Boots {};
-// Death tests run before the rest, while the process has one thread to fork.
 class Forget : public Boots {};
 
 #define EXPECT_FORGET_REBOOTS(scan, slot) \
@@ -311,11 +310,20 @@ TEST_F(Forget, ForgetAllLeavesOnlyTheListedSlot) {
   EXPECT_EQ(after.address(2), ROM_B);
 }
 
-TEST_F(Forget, OnlyAForgetWritesOverAFileThatDidNotLoad) {
-  this->write(R"({"records":[{"slot":1,"address":"0x8a01)");
-  TestScan &scan = this->boot({ROM_A, ROM_B});
-  EXPECT_FORGET_REBOOTS(scan, 0);
+TEST_F(Forget, OnlyAForgetOrAnAssignWritesOverAFileThatDidNotLoad) {
+  const std::string broken = R"({"records":[{"slot":1,"address":"0x8a01)";
+  this->write(broken);
+  TestScan &forgetting = this->boot({ROM_A, ROM_B});
+  ASSERT_EQ(this->read(), broken);
+  EXPECT_FORGET_REBOOTS(forgetting, 0);
   EXPECT_EQ(this->read(), slot_file({{2, HEX_B}}));
+
+  this->write(broken);
+  TestScan &assigning = this->boot({ROM_A, ROM_B});
+  ASSERT_EQ(this->read(), broken);
+  assigning.assign(0, ROM_C);
+  EXPECT_EQ(assigning.restarts, 1);
+  EXPECT_EQ(this->read(), slot_file({{1, HEX_C}, {2, HEX_B}}));
 }
 
 // --- storage: nvs ---

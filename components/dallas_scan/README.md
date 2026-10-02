@@ -93,8 +93,8 @@ lowering `max_sensors` does not empty the table; of two records for the same slo
 address, the later one wins; an address that is not a Dallas temperature sensor is dropped.
 
 A file that is there but cannot be read leaves the table empty for that boot and is not written
-over: the devices take slots in bus order until the next reboot, and only a forget replaces the
-file. When the partition does not mount, the same happens without a file. The two storages do
+over: the devices take slots in bus order until the next reboot, and only a forget or an assign
+replaces the file. When the partition does not mount, the same happens without a file. The two storages do
 not share anything: the first switch to the other one numbers the devices again in bus order,
 and switching back finds the table that storage held last.
 
@@ -136,5 +136,8 @@ Slots are 0-based here.
 - `can_forget(slot)`: the slot, or any slot for `-1`, holds a device and is not listed
 - `can_save()`: the table can be written; false for a file whose partition did not mount
 - `forget(slot)`, `-1` for every slot
+- `forget_and_save(slot)`, `assign_and_save(slot, rom)`: the same without the reboot, which
+  the caller then owes; false, with the table unchanged, when nothing would change or the
+  table could not be written
 - `valid_address(rom)`: a thermometer family and a valid CRC, the ROMs a slot can hold
 - `check_assign(slot, rom)`, `assign(slot, rom)`

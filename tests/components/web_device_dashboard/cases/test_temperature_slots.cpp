@@ -1,4 +1,6 @@
 #include "common.h"
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace esphome::web_device_dashboard::testing {
 
@@ -116,16 +118,16 @@ TEST_F(TemperatureSlots, AnEmptyTableListsNoSlots) {
 
 // --- forgetting ---
 
-TEST_F(TemperatureSlots, ForgetASlotAnswersThenForgetsItAndReboots) {
-  TestScan &scan = this->boot({ROM_A, ROM_B});
+TEST_F(TemperatureSlots, ForgetASlotWritesTheTableAnswersAndReboots) {
+  this->boot({ROM_A, ROM_B});
   Reply reply = this->post(FORGET, this->confirmed(R"("slot":1)"));
   EXPECT_EQ(reply.code, 200);
   EXPECT_TRUE(reply.success());
   EXPECT_EQ(reply.message(), "Forgetting slot 1, rebooting");
   // Still serving: the answer has to leave the socket first.
-  EXPECT_EQ(scan.restarts, 0);
+  EXPECT_EQ(this->dashboard->restarts, 0);
   this->loop();
-  EXPECT_EQ(scan.restarts, 1);
+  EXPECT_EQ(this->dashboard->restarts, 1);
   // The next boot finds slot 1 free, and B where it was.
   TestScan &after = this->boot({ROM_B});
   EXPECT_EQ(after.address(0), 0u);
@@ -141,7 +143,7 @@ TEST_F(TemperatureSlots, ForgetAllEmptiesEverySlotButTheListedOne) {
   EXPECT_EQ(reply.code, 200);
   EXPECT_EQ(reply.message(), "Forgetting every slot, rebooting");
   this->loop();
-  EXPECT_EQ(scan.restarts, 1);
+  EXPECT_EQ(this->dashboard->restarts, 1);
   // Numbered again in bus order, after the listed slot.
   TestScan &after = this->boot({ROM_A, ROM_B}, true);
   EXPECT_EQ(after.sensor(0), &boiler());
@@ -150,7 +152,7 @@ TEST_F(TemperatureSlots, ForgetAllEmptiesEverySlotButTheListedOne) {
 }
 
 TEST_F(TemperatureSlots, ForgetRefusesWhatWouldChangeNothing) {
-  TestScan &scan = this->boot({ROM_A}, true);
+  this->boot({ROM_A}, true);
   Reply listed = this->post(FORGET, this->confirmed(R"("slot":1)"));
   EXPECT_EQ(listed.code, 409);
   EXPECT_EQ(listed.error(), "Slot 1 belongs to a sensor listed in YAML");
@@ -158,20 +160,20 @@ TEST_F(TemperatureSlots, ForgetRefusesWhatWouldChangeNothing) {
   EXPECT_EQ(free.code, 409);
   EXPECT_EQ(free.error(), "Slot 3 is free");
   this->loop();
-  EXPECT_EQ(scan.restarts, 0);
+  EXPECT_EQ(this->dashboard->restarts, 0);
 }
 
 TEST_F(TemperatureSlots, ForgetAllRefusesATableWithOnlyTheListedSlot) {
-  TestScan &scan = this->boot({}, true);
+  this->boot({}, true);
   Reply reply = this->post(FORGET, this->confirmed(R"("all":true)"));
   EXPECT_EQ(reply.code, 409);
   EXPECT_EQ(reply.error(), "Nothing to forget: every slot is free or listed in YAML");
   this->loop();
-  EXPECT_EQ(scan.restarts, 0);
+  EXPECT_EQ(this->dashboard->restarts, 0);
 }
 
 TEST_F(TemperatureSlots, ForgetNeedsOneSlotInRangeOrAll) {
-  TestScan &scan = this->boot({ROM_A, ROM_B});
+  this->boot({ROM_A, ROM_B});
   Reply neither = this->post(FORGET, this->confirmation());
   EXPECT_EQ(neither.code, 400);
   EXPECT_EQ(neither.error(), "'slot' or 'all' is required");
@@ -197,11 +199,11 @@ TEST_F(TemperatureSlots, ForgetNeedsOneSlotInRangeOrAll) {
     EXPECT_EQ(reply.error(), "'all' must be true") << selector;
   }
   this->loop();
-  EXPECT_EQ(scan.restarts, 0);
+  EXPECT_EQ(this->dashboard->restarts, 0);
 }
 
 TEST_F(TemperatureSlots, ForgetTakesTheConfirmationTheSystemActionsTake) {
-  TestScan &scan = this->boot({ROM_A});
+  this->boot({ROM_A});
   Reply unconfirmed = this->post(FORGET, R"({"slot":1})");
   EXPECT_EQ(unconfirmed.code, 400);
   EXPECT_EQ(unconfirmed.error(), "'confirm' must be true");
@@ -214,7 +216,7 @@ TEST_F(TemperatureSlots, ForgetTakesTheConfirmationTheSystemActionsTake) {
   EXPECT_EQ(cross_site.code, 403);
   EXPECT_EQ(cross_site.body, "Cross-origin request refused");
   this->loop();
-  EXPECT_EQ(scan.restarts, 0);
+  EXPECT_EQ(this->dashboard->restarts, 0);
 }
 
 // --- assigning ---
@@ -237,6 +239,9 @@ TEST_F(TemperatureSlots, WritesAreUnavailableWhenTheTableCannotBeSaved) {
   this->dashboard->set_temperature_slots(&scan);
   this->boots.push_back(std::move(owned));
   ASSERT_EQ(scan.address(0), ROM_A);
+  // The list says so up front: no slot can be forgotten.
+  Reply list = this->get(SLOTS);
+  EXPECT_FALSE(list["slots"][0]["can_forget"].as<bool>());
 
   Reply forget = this->post(FORGET, this->confirmed(R"("slot":1)"));
   EXPECT_EQ(forget.code, 503);
@@ -247,18 +252,78 @@ TEST_F(TemperatureSlots, WritesAreUnavailableWhenTheTableCannotBeSaved) {
   // The confirmation still comes first.
   EXPECT_EQ(this->post(FORGET, R"({"slot":1})").code, 400);
   this->loop();
-  EXPECT_EQ(scan.restarts, 0);
+  EXPECT_EQ(this->dashboard->restarts, 0);
 }
 
-TEST_F(TemperatureSlots, AssignAnswersThenSwapsAndReboots) {
+// The write happens before the answer, so a table that could not be written is an error, not a
+// reboot that would bring the old table back.
+TEST_F(TemperatureSlots, AWriteThatFailsIsAnErrorAndTheDeviceKeepsRunning) {
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root writes into a read-only folder";
+  mkdir(".storage", 0755);
+  char folder[] = ".storage/XXXXXX";
+  ASSERT_NE(mkdtemp(folder), nullptr);
+  static dir_storage::DirStorage storage;
+  storage.set_base_path(folder);
+  storage.setup();
+  static config_json::ConfigJsonKeeper keeper;
+  keeper.set_storage(&storage);
+  keeper.setup();
+  this->bus.set_devices({ROM_A, ROM_B});
+  auto owned = std::make_unique<TestScan>();
+  TestScan &scan = *owned;
+  scan.set_one_wire_bus(&this->bus);
+  scan.set_max_sensors(4);
+  scan.set_slot_file(&keeper, "dallas_scan_temps");
+  scan.setup();
+  this->dashboard->set_temperature_slots(&scan);
+  this->boots.push_back(std::move(owned));
+  const std::string dir = std::string(folder) + "/config";
+  ASSERT_EQ(chmod(dir.c_str(), 0555), 0);
+
+  Reply forget = this->post(FORGET, this->confirmed(R"("slot":1)"));
+  Reply assign = this->post(ASSIGN, this->confirmed(R"("slot":1,"address":"0x9b01b5566e8a1f28")"));
+  chmod(dir.c_str(), 0755);
+  EXPECT_EQ(forget.code, 500);
+  EXPECT_EQ(forget.error(), "The slot table was not written");
+  EXPECT_EQ(assign.code, 500);
+  EXPECT_EQ(assign.error(), "The slot table was not written");
+  this->loop();
+  EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_EQ(scan.address(0), ROM_A);
+  EXPECT_EQ(scan.address(1), ROM_B);
+  remove((dir + "/dallas_scan_temps.json").c_str());
+  rmdir(dir.c_str());
+  rmdir(folder);
+}
+
+// The table is the loop task's: a busy loop answers for all three routes rather than reading or
+// writing it from the server task.
+TEST_F(TemperatureSlots, ABusyLoopIsUnavailableForEveryRoute) {
   TestScan &scan = this->boot({ROM_A, ROM_B});
+  this->dashboard->loop_busy = true;
+  Reply list = this->get(SLOTS);
+  Reply forget = this->post(FORGET, this->confirmed(R"("slot":1)"));
+  Reply assign = this->post(ASSIGN, this->confirmed(R"("slot":1,"address":"0x9b01b5566e8a1f28")"));
+  this->dashboard->loop_busy = false;
+  for (Reply *reply : {&list, &forget, &assign}) {
+    EXPECT_EQ(reply->code, 503);
+    EXPECT_EQ(reply->error(), "Device busy");
+  }
+  this->loop();
+  EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_EQ(scan.address(0), ROM_A);
+}
+
+TEST_F(TemperatureSlots, AssignSwapsWritesTheTableAnswersAndReboots) {
+  this->boot({ROM_A, ROM_B});
   Reply reply = this->post(ASSIGN, this->confirmed(R"("slot":1,"address":"0x8a0122791699dd28")"));
   EXPECT_EQ(reply.code, 200);
   EXPECT_TRUE(reply.success());
   EXPECT_EQ(reply.message(), "Assigning slot 1, rebooting");
-  EXPECT_EQ(scan.restarts, 0);
+  EXPECT_EQ(this->dashboard->restarts, 0);
   this->loop();
-  EXPECT_EQ(scan.restarts, 1);
+  EXPECT_EQ(this->dashboard->restarts, 1);
   TestScan &after = this->boot({ROM_A, ROM_B});
   EXPECT_EQ(after.address(0), ROM_B);
   EXPECT_EQ(after.address(1), ROM_A);
@@ -268,17 +333,18 @@ TEST_F(TemperatureSlots, AssignTakesANewAddressInEitherCaseWithOrWithoutThePrefi
   for (const char *address : {"0x9b01b5566e8a1f28", "0X9B01B5566E8A1F28", "9b01b5566e8a1f28"}) {
     // A table without C, for each spelling.
     global_preferences->reset();
-    TestScan &scan = this->boot({ROM_A});
+    this->boot({ROM_A});
+    const int restarts = this->dashboard->restarts;
     Reply reply = this->post(ASSIGN, this->confirmed(std::string(R"("slot":3,"address":")") + address + "\""));
     EXPECT_EQ(reply.code, 200) << address << ": " << reply.error();
     this->loop();
-    EXPECT_EQ(scan.restarts, 1) << address;
+    EXPECT_EQ(this->dashboard->restarts, restarts + 1) << address;
     EXPECT_EQ(this->boot({ROM_A}).address(2), ROM_C) << address;
   }
 }
 
 TEST_F(TemperatureSlots, AssignRefusesWhatIsNotARomAddress) {
-  TestScan &scan = this->boot({ROM_A});
+  this->boot({ROM_A});
   for (const char *address : {R"("")", R"("0x")", R"("0x9b01b5566e8a1f2")", R"("0x9b01b5566e8a1f288")",
                               R"("0x9b01b5566e8a1fzz")", R"("0x 9b01b5566e8a1f2")", "1234", "null"}) {
     Reply reply = this->post(ASSIGN, this->confirmed(std::string(R"("slot":2,"address":)") + address));
@@ -295,18 +361,18 @@ TEST_F(TemperatureSlots, AssignRefusesWhatIsNotARomAddress) {
   EXPECT_EQ(crc.code, 400);
   EXPECT_EQ(crc.error(), "0x9a01b5566e8a1f28 is not a thermometer ROM: wrong family or CRC");
   this->loop();
-  EXPECT_EQ(scan.restarts, 0);
+  EXPECT_EQ(this->dashboard->restarts, 0);
 }
 
 TEST_F(TemperatureSlots, AssignNeedsASlotInRange) {
-  TestScan &scan = this->boot({ROM_A});
+  this->boot({ROM_A});
   for (const char *slot : {"0", "5", R"("1")", "null"}) {
     Reply reply = this->post(ASSIGN, this->confirmed(std::string(R"("address":"0x9b01b5566e8a1f28","slot":)") + slot));
     EXPECT_EQ(reply.code, 400) << slot;
     EXPECT_EQ(reply.error(), "'slot' must be a number from 1 to 4") << slot;
   }
   this->loop();
-  EXPECT_EQ(scan.restarts, 0);
+  EXPECT_EQ(this->dashboard->restarts, 0);
 }
 
 TEST_F(TemperatureSlots, AssignRefusesWhatWouldChangeNothingOrFightTheYaml) {
@@ -322,11 +388,11 @@ TEST_F(TemperatureSlots, AssignRefusesWhatWouldChangeNothingOrFightTheYaml) {
   EXPECT_EQ(unchanged.code, 409);
   EXPECT_EQ(unchanged.error(), "0xeb01227905460228 is in slot 2 already");
   this->loop();
-  EXPECT_EQ(scan.restarts, 0);
+  EXPECT_EQ(this->dashboard->restarts, 0);
 }
 
 TEST_F(TemperatureSlots, AssignTakesTheConfirmationTheSystemActionsTake) {
-  TestScan &scan = this->boot({ROM_A, ROM_B});
+  this->boot({ROM_A, ROM_B});
   const char *selector = R"("slot":1,"address":"0x8a0122791699dd28")";
   Reply unconfirmed = this->post(ASSIGN, R"({"slot":1,"address":"0x8a0122791699dd28"})");
   EXPECT_EQ(unconfirmed.code, 400);
@@ -339,7 +405,7 @@ TEST_F(TemperatureSlots, AssignTakesTheConfirmationTheSystemActionsTake) {
       this->call(HTTP_POST, ASSIGN, this->confirmed(selector), 512, "application/json", "http://evil.example");
   EXPECT_EQ(cross_site.code, 403);
   this->loop();
-  EXPECT_EQ(scan.restarts, 0);
+  EXPECT_EQ(this->dashboard->restarts, 0);
 }
 
 TEST_F(TemperatureSlots, WithoutAScanAssignIsNotFound) {

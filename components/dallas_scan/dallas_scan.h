@@ -99,6 +99,9 @@ class DallasScan : public PollingComponent {
   bool can_save() const;
   /// Empty a slot (every slot for -1), then reboot to scan the bus again. Listed slots stay.
   void forget(int slot);
+  /// forget() without the reboot, which the caller then owes the scan: false, with the table as
+  /// it was, when nothing would change or the table could not be written.
+  bool forget_and_save(int slot);
   /// A ROM a slot can hold: a thermometer family, and the CRC the bus scan checks.
   static bool valid_address(uint64_t address);
   AssignCheck check_assign(size_t slot, uint64_t address) const;
@@ -106,6 +109,8 @@ class DallasScan : public PollingComponent {
   /// takes what @p slot held; otherwise the device @p slot held loses its slot and, still on the
   /// bus, takes the lowest free one at the next boot. Nothing happens unless check_assign() is OK.
   void assign(size_t slot, uint64_t address);
+  /// assign() without the reboot, as forget_and_save() is to forget().
+  bool assign_and_save(size_t slot, uint64_t address);
 
  protected:
   /// Virtual so the host tests can see the reboot: the real one ends the process.
@@ -121,7 +126,7 @@ class DallasScan : public PollingComponent {
   bool uses_file_() const;
   bool save_table_();
   bool store_for_reboot_();
-  void store_and_restart_(const std::vector<uint64_t> &before, const char *outcome);
+  bool store_or_roll_back_(const std::vector<uint64_t> &before, const char *outcome);
 
   one_wire::OneWireBus *bus_{nullptr};
   const char *name_prefix_{"Temp"};

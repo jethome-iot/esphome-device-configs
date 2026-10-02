@@ -143,7 +143,8 @@ void DallasScan::bind_devices_() {
   if (this->slots_ == before)
     return;
 #ifdef USE_DALLAS_SCAN_FILE
-  // A file that did not load stays as it is, for a person to fix; only a forget writes over it.
+  // A file that did not load stays as it is, for a person to fix; only a forget or an assign
+  // writes over it.
   if (this->file_ != nullptr && this->file_unreadable_) {
     ESP_LOGW(TAG, "%s.json did not load: these slots last until the next reboot", this->file_->get_key());
     return;
@@ -298,20 +299,25 @@ bool DallasScan::can_forget(int slot) const {
 }
 
 void DallasScan::forget(int slot) {
+  if (this->forget_and_save(slot))
+    this->restart_();
+}
+
+bool DallasScan::forget_and_save(int slot) {
   if (!this->can_save()) {
     ESP_LOGE(TAG, "Storage unavailable: nothing is forgotten");
-    return;
+    return false;
   }
   if (!this->can_forget(slot)) {
     ESP_LOGW(TAG, "Nothing to forget: the slot is empty or taken by a YAML sensor");
-    return;
+    return false;
   }
   const auto before = this->slots_;
   for (size_t i = 0; i < this->slots_.size(); i++) {
     if ((slot < 0 || (size_t) slot == i) && !this->pinned_[i])
       this->slots_[i] = 0;
   }
-  this->store_and_restart_(before, "nothing is forgotten");
+  return this->store_or_roll_back_(before, "nothing is forgotten");
 }
 
 bool DallasScan::valid_address(uint64_t address) {
@@ -338,13 +344,18 @@ AssignCheck DallasScan::check_assign(size_t slot, uint64_t address) const {
 }
 
 void DallasScan::assign(size_t slot, uint64_t address) {
+  if (this->assign_and_save(slot, address))
+    this->restart_();
+}
+
+bool DallasScan::assign_and_save(size_t slot, uint64_t address) {
   if (this->check_assign(slot, address) != AssignCheck::OK) {
     ESP_LOGW(TAG, "Not assigning 0x%016" PRIx64 " to slot %u", address, (unsigned) slot + 1);
-    return;
+    return false;
   }
   if (!this->can_save()) {
     ESP_LOGE(TAG, "Storage unavailable: nothing is assigned");
-    return;
+    return false;
   }
   const auto before = this->slots_;
   auto held = std::find(this->slots_.begin(), this->slots_.end(), address);
@@ -352,17 +363,16 @@ void DallasScan::assign(size_t slot, uint64_t address) {
     *held = this->slots_[slot];
   this->slots_[slot] = address;
   ESP_LOGI(TAG, "0x%016" PRIx64 " takes slot %u", address, (unsigned) slot + 1);
-  this->store_and_restart_(before, "nothing is assigned");
+  return this->store_or_roll_back_(before, "nothing is assigned");
 }
 
 // A reboot after a failed write would bring the old table back without a word.
-void DallasScan::store_and_restart_(const std::vector<uint64_t> &before, const char *outcome) {
-  if (!this->store_for_reboot_()) {
-    this->slots_ = before;
-    ESP_LOGE(TAG, "The slot table was not written: %s", outcome);
-    return;
-  }
-  this->restart_();
+bool DallasScan::store_or_roll_back_(const std::vector<uint64_t> &before, const char *outcome) {
+  if (this->store_for_reboot_())
+    return true;
+  this->slots_ = before;
+  ESP_LOGE(TAG, "The slot table was not written: %s", outcome);
+  return false;
 }
 
 void DallasScan::restart_() { App.safe_reboot(); }

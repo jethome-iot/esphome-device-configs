@@ -763,15 +763,28 @@ void WebDeviceDashboard::factory_reset_() {
 #ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
 // GET /api/device/temperature-slots: the dallas_scan slots up to the last bound one, numbered
 // from 1 as the sensor names and the log number them. A freed slot between bound ones keeps its
-// row, as it does in the panel's Temperatures menu. Read straight off the component: the table
-// only changes at setup and in forget() and assign(), which reboot.
+// row, as it does in the panel's Temperatures menu. Read on the loop task, where a forget or an
+// assign that cannot write the table puts it back.
 void WebDeviceDashboard::handle_temperature_slots_(AsyncWebServerRequest *request) {
   auto *scan = this->temperature_slots_;
   if (scan == nullptr) {
     this->send_error_(request, 404, "No temperature slots");
     return;
   }
-  auto body = json::build_json([scan](JsonObject root) {
+  std::string body;
+  const bool read = this->run_on_loop_([&]() {
+    body = this->temperature_slots_json_(scan);
+    return true;
+  });
+  if (!read) {
+    this->send_error_(request, 503, "Device busy");
+    return;
+  }
+  request->send(200, "application/json", body.c_str());
+}
+
+std::string WebDeviceDashboard::temperature_slots_json_(dallas_scan::DallasScan *scan) {
+  return json::build_json([scan](JsonObject root) {
     root["max_slots"] = scan->max_sensors();
     JsonArray slots = root["slots"].to<JsonArray>();
     for (size_t slot = 0; slot < scan->used_slots(); slot++) {
@@ -783,16 +796,16 @@ void WebDeviceDashboard::handle_temperature_slots_(AsyncWebServerRequest *reques
       // A string: a 64-bit ROM does not survive a JavaScript number.
       if (const uint64_t rom = scan->address(slot); rom != 0)
         entry["address"] = str_sprintf("0x%016" PRIx64, rom);
-      entry["can_forget"] = scan->can_forget(slot);
+      entry["can_forget"] = scan->can_save() && scan->can_forget(slot);
     }
   });
-  request->send(200, "application/json", body.c_str());
 }
 
 // POST /api/device/temperature-slots/forget: {"slot": N} or {"all": true}, confirmed as the
 // system actions are. What would change nothing is refused before anything happens, rather than
-// answered with a reboot that leaves the table as it was; the rest answers, then forget() empties
-// the slots and reboots, as the panel's Confirm does.
+// answered with a reboot that leaves the table as it was. The check and the write go over to the
+// loop task together, where the panel's Confirm runs too, and the answer says what they did:
+// only the reboot comes after it.
 void WebDeviceDashboard::handle_temperature_slots_forget_(AsyncWebServerRequest *request) {
   auto *scan = this->temperature_slots_;
   if (scan == nullptr) {
@@ -829,21 +842,36 @@ void WebDeviceDashboard::handle_temperature_slots_forget_(AsyncWebServerRequest 
       return;
     slot = static_cast<int>(index);
   }
-  if (!scan->can_forget(slot)) {
-    std::string why = all                  ? std::string("Nothing to forget: every slot is free or listed in YAML")
-                      : scan->pinned(slot) ? str_sprintf("Slot %d belongs to a sensor listed in YAML", slot + 1)
-                                           : str_sprintf("Slot %d is free", slot + 1);
-    this->send_error_(request, 409, why.c_str());
+  int code = 0;
+  std::string why;
+  const bool stored = this->run_on_loop_([&]() {
+    if (!scan->can_forget(slot)) {
+      code = 409;
+      why = all                  ? std::string("Nothing to forget: every slot is free or listed in YAML")
+            : scan->pinned(slot) ? str_sprintf("Slot %d belongs to a sensor listed in YAML", slot + 1)
+                                 : str_sprintf("Slot %d is free", slot + 1);
+      return false;
+    }
+    if (!scan->forget_and_save(slot)) {
+      code = 500;
+      why = "The slot table was not written";
+      return false;
+    }
+    return true;
+  });
+  if (!stored) {
+    // No code means the loop task never took the job: nothing was forgotten.
+    this->send_error_(request, code == 0 ? 503 : code, code == 0 ? "Device busy" : why.c_str());
     return;
   }
   if (all) {
-    ESP_LOGW(TAG, "Forgetting every temperature slot over the API");
+    ESP_LOGW(TAG, "Forgot every temperature slot over the API");
     this->send_success_(request, "Forgetting every slot, rebooting");
   } else {
-    ESP_LOGW(TAG, "Forgetting temperature slot %d over the API", slot + 1);
+    ESP_LOGW(TAG, "Forgot temperature slot %d over the API", slot + 1);
     this->send_success_(request, str_sprintf("Forgetting slot %d, rebooting", slot + 1).c_str());
   }
-  this->set_timeout(this->action_delay_ms_, [scan, slot]() { scan->forget(slot); });
+  this->reboot_();
 }
 
 // "0x" (or nothing) and 16 hex digits, the way /temperature-slots and the panel print a ROM.
@@ -867,7 +895,8 @@ static bool parse_rom(const char *text, uint64_t &rom) {
 // POST /api/device/temperature-slots/assign: {"slot": N, "address": "0x…"}, confirmed as the
 // system actions are. The device goes into slot N: a device already in another slot swaps with
 // what slot N held, a new one takes slot N from its device. What dallas_scan would refuse is
-// refused here first, with the reason; the rest answers, then assign() saves and reboots.
+// refused with the reason; the check and the write go over to the loop task together, as for a
+// forget, and only the reboot comes after the answer.
 void WebDeviceDashboard::handle_temperature_slots_assign_(AsyncWebServerRequest *request) {
   auto *scan = this->temperature_slots_;
   if (scan == nullptr) {
@@ -889,28 +918,50 @@ void WebDeviceDashboard::handle_temperature_slots_assign_(AsyncWebServerRequest 
     return;
   }
   const std::string hex = str_sprintf("0x%016" PRIx64, rom);
-  switch (scan->check_assign(slot, rom)) {
-    case dallas_scan::AssignCheck::OK:
-      break;
-    case dallas_scan::AssignCheck::BAD_SLOT:  // read_slot_ checked the range already
-    case dallas_scan::AssignCheck::BAD_ADDRESS:
-      this->send_error_(request, 400, (hex + " is not a thermometer ROM: wrong family or CRC").c_str());
-      return;
-    case dallas_scan::AssignCheck::LISTED_SLOT:
-      this->send_error_(request, 409,
-                        str_sprintf("Slot %u belongs to a sensor listed in YAML", (unsigned) slot + 1).c_str());
-      return;
-    case dallas_scan::AssignCheck::LISTED_ADDRESS:
-      this->send_error_(request, 409, (hex + " belongs to a sensor listed in YAML").c_str());
-      return;
-    case dallas_scan::AssignCheck::UNCHANGED:
-      this->send_error_(request, 409,
-                        str_sprintf("%s is in slot %u already", hex.c_str(), (unsigned) slot + 1).c_str());
-      return;
+  // About the address alone, so it does not wait for the loop task.
+  if (!dallas_scan::DallasScan::valid_address(rom)) {
+    this->send_error_(request, 400, (hex + " is not a thermometer ROM: wrong family or CRC").c_str());
+    return;
   }
-  ESP_LOGW(TAG, "Assigning %s to temperature slot %u over the API", hex.c_str(), (unsigned) slot + 1);
+  int code = 0;
+  std::string why;
+  const bool stored = this->run_on_loop_([&]() {
+    switch (scan->check_assign(slot, rom)) {
+      case dallas_scan::AssignCheck::OK:
+        break;
+      case dallas_scan::AssignCheck::BAD_SLOT:  // read_slot_ checked the range already
+      case dallas_scan::AssignCheck::BAD_ADDRESS:
+        code = 400;
+        why = hex + " is not a thermometer ROM: wrong family or CRC";
+        return false;
+      case dallas_scan::AssignCheck::LISTED_SLOT:
+        code = 409;
+        why = str_sprintf("Slot %u belongs to a sensor listed in YAML", (unsigned) slot + 1);
+        return false;
+      case dallas_scan::AssignCheck::LISTED_ADDRESS:
+        code = 409;
+        why = hex + " belongs to a sensor listed in YAML";
+        return false;
+      case dallas_scan::AssignCheck::UNCHANGED:
+        code = 409;
+        why = str_sprintf("%s is in slot %u already", hex.c_str(), (unsigned) slot + 1);
+        return false;
+    }
+    if (!scan->assign_and_save(slot, rom)) {
+      code = 500;
+      why = "The slot table was not written";
+      return false;
+    }
+    return true;
+  });
+  if (!stored) {
+    // No code means the loop task never took the job: nothing was assigned.
+    this->send_error_(request, code == 0 ? 503 : code, code == 0 ? "Device busy" : why.c_str());
+    return;
+  }
+  ESP_LOGW(TAG, "Assigned %s to temperature slot %u over the API", hex.c_str(), (unsigned) slot + 1);
   this->send_success_(request, str_sprintf("Assigning slot %u, rebooting", (unsigned) slot + 1).c_str());
-  this->set_timeout(this->action_delay_ms_, [scan, slot, rom]() { scan->assign(slot, rom); });
+  this->reboot_();
 }
 
 // A file table whose partition did not mount: forget() and assign() would change nothing, so the

@@ -83,8 +83,8 @@ address, and the device reboots with that device in that slot.
   number is then waiting for it. The sensor that held the slot loses it and, if still
   connected, takes the lowest free slot at the next boot.
 
-A sensor's `Temp N` name and Modbus register belong to the slot, so they move with it. Listed
-slots cannot be assigned.
+A `Temp N` name and its Modbus register belong to the slot: a sensor moved to slot 3 reads as
+`Temp 3`, on that slot's register. Listed slots cannot be assigned.
 
 ## More slots
 

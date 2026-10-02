@@ -400,6 +400,15 @@ paths:
           $ref: "#/components/responses/NoTemperatureSlots"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          description: The loop task did not take the request in time. Nothing was read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Device busy
 
   /temperature-slots/forget:
     post:
@@ -416,8 +425,9 @@ paths:
         or `all` with nothing but listed slots bound — is refused with `409`
         rather than answered with a reboot that leaves the table as it was; the
         slot's `can_forget` in `/temperature-slots` says beforehand. A table that
-        cannot be written is `503`. Otherwise it answers, then empties the slots
-        and restarts half a second later.
+        cannot be written is `503`. Otherwise it empties the slots and writes the
+        table, then answers and restarts half a second later; a write that fails
+        is `500`, and the device keeps running with the table as it was.
       requestBody:
         required: true
         content:
@@ -510,10 +520,23 @@ paths:
           $ref: "#/components/responses/BodyTooLarge"
         "415":
           $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          description: >-
+            The table could not be written, so it stays as it was and the device
+            keeps running. The log says why.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: The slot table was not written
         "503":
           description: >-
             The table is kept in a file and the user partition did not mount, so
-            nothing could be written. Nothing happened, and the device keeps running.
+            nothing could be written (`Temperature slot storage unavailable`), or
+            the loop task did not take the request in time (`Device busy`).
+            Nothing happened, and the device keeps running.
           content:
             application/json:
               schema:
@@ -537,8 +560,9 @@ paths:
         name and Modbus register with it. Refused before anything happens:
         a malformed or non-thermometer address (`400`), and a listed slot, a
         listed sensor's address, or a device already in that slot (`409`), and
-        a table that cannot be written (`503`). Otherwise it answers, then saves
-        the table and restarts half a second later.
+        a table that cannot be written (`503`). Otherwise it writes the table,
+        then answers and restarts half a second later; a write that fails is
+        `500`, and the device keeps running with the table as it was.
       requestBody:
         required: true
         content:
@@ -614,10 +638,23 @@ paths:
           $ref: "#/components/responses/BodyTooLarge"
         "415":
           $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          description: >-
+            The table could not be written, so it stays as it was and the device
+            keeps running. The log says why.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: The slot table was not written
         "503":
           description: >-
             The table is kept in a file and the user partition did not mount, so
-            nothing could be written. Nothing happened, and the device keeps running.
+            nothing could be written (`Temperature slot storage unavailable`), or
+            the loop task did not take the request in time (`Device busy`).
+            Nothing happened, and the device keeps running.
           content:
             application/json:
               schema:
@@ -1311,8 +1348,9 @@ components:
           type: boolean
           description: >-
             `/temperature-slots/forget` with this `slot` would empty it: it holds
-            a device and is not listed. Whether that device still answers does
-            not matter — an unplugged sensor is the usual reason to forget one.
+            a device, is not listed, and the table can be written. Whether that
+            device still answers does not matter — an unplugged sensor is the
+            usual reason to forget one.
 
     AssignSlotRequest:
       allOf:

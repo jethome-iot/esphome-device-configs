@@ -342,8 +342,9 @@ export interface TemperatureSlot {
   /** The 1-Wire ROM as `0x` and 16 lowercase hex digits — a string, because 64 bits do not
    *  survive a JS number. Absent for a free slot and for a listed sensor that is not 1-Wire. */
   address?: string
-  /** POST /temperature-slots/forget with this slot would empty it. Whether the device still
-   *  answers does not matter: an unplugged sensor is the usual reason to forget one. */
+  /** POST /temperature-slots/forget with this slot would empty it: it holds a device, is not
+   *  listed, and the table can be written. Whether the device still answers does not matter: an
+   *  unplugged sensor is the usual reason to forget one. */
   can_forget: boolean
 }
 
@@ -356,14 +357,16 @@ export interface TemperatureSlots {
 }
 
 /** POST /temperature-slots/forget — one slot, or every slot but the listed ones, under the
- *  system actions' confirmation. The device answers, then empties them and reboots. One that
+ *  system actions' confirmation. The device empties them and writes the table, answers, then
+ *  reboots; a write that fails is `500` and the device keeps running. One that
  *  would change nothing (a free or listed slot, or nothing to forget) is `409`, and the
  *  device keeps running; a slot out of range, `all` that is not `true`, or both keys or
  *  neither, is `400`; a table that cannot be written is `503`. */
 export type ForgetSlotsPayload = ConfirmPayload & ({ slot: number; all?: never } | { all: true; slot?: never })
 
 /** POST /temperature-slots/assign — put the device with `address` into `slot` (from 1), under
- *  the same confirmation, then reboot. A device already in another slot swaps with what `slot`
+ *  the same confirmation: the table is written, then the device answers and reboots, or answers
+ *  `500` and keeps running when the write fails. A device already in another slot swaps with what `slot`
  *  held; a new address takes `slot` from its device, which takes the lowest free slot at the
  *  next boot if it is still on the bus. `address` is `0x` and 16 hex digits, the prefix
  *  optional. `400` for a malformed or non-thermometer ROM (family or CRC), `409` for a listed
