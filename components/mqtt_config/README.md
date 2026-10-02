@@ -69,7 +69,8 @@ native API and the web server keep it. Entities created at run time by `dallas_s
 ## On a display
 
 `panel_state_text()`, `panel_broker()` and `panel_discovery()` are the rows the display menu's
-MQTT item shows (`devices/JXD/packages/display/menu-mqtt.yaml`), as this boot runs them.
+MQTT item shows (`devices/JXD/packages/display/menu-mqtt.yaml`), as this boot runs them, else
+as saved.
 `panel_text.h` fits any text to a row: `panel_safe()` stands `?` in for what the font cannot draw
 and for malformed UTF-8, `panel_fit()` cuts to a number of characters with `…`, and
 `panel_pair()` lays out `name: value`.
