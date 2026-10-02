@@ -14,7 +14,7 @@ from esphome.const import (
     PLATFORM_ESP8266,
     PLATFORM_HOST,
 )
-from esphome.core import CORE
+from esphome.core import CORE, ID
 
 # External components import each other as esphome.components.<name>: give them the finder
 # that external_components: installs when a config names the directory.
@@ -94,13 +94,83 @@ class FinalValidate(unittest.TestCase):
         self.validate(config)
 
 
+def ota_entry(entry_id, **keys):
+    return {"platform": "esphome", "id": ID(entry_id, is_declaration=True), **keys}
+
+
+class FinalValidateOta(unittest.TestCase):
+    """What `ota_id` asks of the OTA entry it names."""
+
+    def setUp(self):
+        CORE.data.setdefault(KEY_CORE, {})[KEY_TARGET_PLATFORM] = PLATFORM_HOST
+
+    def validate(self, ota, ota_id="device_ota"):
+        token = fv.full_config.set({**DIGEST, "ota": ota})
+        try:
+            return web_auth.FINAL_VALIDATE_SCHEMA({"ota_id": ID(ota_id)})
+        finally:
+            fv.full_config.reset(token)
+
+    # An empty password is how upstream compiles the check in without fixing its value, and
+    # web_auth supplies the value at boot.
+    def test_an_entry_with_an_empty_password_is_what_it_wants(self):
+        self.validate([ota_entry("device_ota", password="")])
+
+    # The device takes the web password whatever the entry says: `password:` is then only
+    # what `esphome upload` sends.
+    def test_an_entry_with_a_password_is_accepted(self):
+        self.validate([ota_entry("device_ota", password="admin")])
+
+    # Without `password:` upstream compiles neither the check nor the setter, so the port
+    # would go on taking uploads from anyone while the config claimed otherwise.
+    def test_an_entry_without_a_password_is_refused(self):
+        with self.assertRaisesRegex(
+            cv.Invalid,
+            re.escape(
+                "web_auth's 'ota_id' needs 'password:' on the 'device_ota' OTA entry "
+                "(an empty one will do)"
+            ),
+        ):
+            self.validate([ota_entry("device_ota")])
+
+    def test_only_the_named_entry_is_looked_at(self):
+        self.validate(
+            [
+                ota_entry("other_ota"),
+                {"platform": "web_server", "id": ID("web_ota", is_declaration=True)},
+                ota_entry("device_ota", password=""),
+            ]
+        )
+        with self.assertRaisesRegex(cv.Invalid, "on the 'device_ota' OTA entry"):
+            self.validate(
+                [ota_entry("other_ota", password=""), ota_entry("device_ota")]
+            )
+
+    # web_auth stands on its own: without `ota_id` an OTA entry is none of its business.
+    def test_without_ota_id_an_open_ota_entry_is_left_alone(self):
+        token = fv.full_config.set({**DIGEST, "ota": [ota_entry("device_ota")]})
+        try:
+            web_auth.FINAL_VALIDATE_SCHEMA({})
+        finally:
+            fv.full_config.reset(token)
+
+
 class Schema(unittest.TestCase):
     def setUp(self):
         CORE.data.setdefault(KEY_CORE, {})[KEY_TARGET_PLATFORM] = PLATFORM_HOST
 
-    def test_it_takes_no_options(self):
+    def test_it_needs_no_options(self):
         config = web_auth.CONFIG_SCHEMA({})
         self.assertIn("web_server_base_id", config)
+        self.assertNotIn("ota_id", config)
+
+    def test_it_takes_an_ota_id(self):
+        config = web_auth.CONFIG_SCHEMA({"ota_id": "device_ota"})
+        self.assertEqual(config["ota_id"].id, "device_ota")
+
+    def test_an_ota_id_that_is_not_an_id_is_refused(self):
+        with self.assertRaisesRegex(cv.Invalid, "ota_id"):
+            web_auth.CONFIG_SCHEMA({"ota_id": "not an id"})
 
     def test_an_unknown_option_is_refused(self):
         with self.assertRaisesRegex(cv.Invalid, "username"):

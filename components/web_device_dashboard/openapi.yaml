@@ -162,7 +162,9 @@ paths:
         printable ASCII, and a username may not contain `:`, `"` or `\`. The
         request must say `Content-Type: application/json`, a type no HTML form
         can send: that is what keeps a page on another site from steering a
-        browser's cached credentials at this route.
+        browser's cached credentials at this route. Where the `web_auth` names
+        an ESPHome OTA port in `ota_id`, that port takes the new password at the
+        same moment the web server does.
       requestBody:
         required: true
         content:

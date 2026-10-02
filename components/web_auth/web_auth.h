@@ -5,6 +5,7 @@
 #include "esphome/components/web_server_base/web_server_base.h"
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
+#include "esphome/core/helpers.h"
 #include "esphome/core/preferences.h"
 
 namespace esphome::web_auth {
@@ -46,6 +47,13 @@ class WebAuth : public Component {
   // keeps its pending writes in a list the loop task flushes, with no lock of its own.
   void set_credentials(const std::string &username, const std::string &password);
 
+  // Called with the pair the server takes from then on: once from setup(), then after every
+  // change that is applied, on the main loop either way. The strings live only for the call.
+  // Register before setup() to hear the first one; `ota_id:` hangs the OTA port on this.
+  template<typename F> void add_on_credentials_callback(F &&callback) {
+    this->credentials_callback_.add(std::forward<F>(callback));
+  }
+
   // One consistent view, latched from a single read of the live slot: a route answers from
   // the server's task while the loop may be publishing a new pair.
   struct Status {
@@ -82,6 +90,7 @@ class WebAuth : public Component {
   std::string username_[2];
   std::string password_[2];
   uint8_t slot_{0};
+  CallbackManager<void(const std::string &, const std::string &)> credentials_callback_;
 };
 
 extern WebAuth *global_web_auth;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)

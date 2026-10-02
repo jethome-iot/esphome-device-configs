@@ -153,6 +153,7 @@ void WebAuth::publish_(const std::string &username, const std::string &password)
   this->base_->set_auth_password(this->password_[next].c_str());
   this->base_->set_auth_username(this->username_[next].c_str());
 #endif
+  this->credentials_callback_.call(this->username_[next], this->password_[next]);
 }
 
 }  // namespace esphome::web_auth

@@ -4,10 +4,12 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 import esphome.final_validate as fv
 from esphome.components import web_server_base
+from esphome.components.esphome.ota import ESPHomeOTAComponent
 from esphome.components.web_server_base import CONF_WEB_SERVER_BASE_ID
 from esphome.const import (
     CONF_AUTH,
     CONF_ID,
+    CONF_OTA,
     CONF_PASSWORD,
     CONF_TYPE,
     CONF_USERNAME,
@@ -16,12 +18,14 @@ from esphome.const import (
     PLATFORM_HOST,
 )
 from esphome.core import CORE
+from esphome.cpp_generator import LambdaExpression
 from esphome.helpers import fnv1_hash
 
 CODEOWNERS = ["@jethome-iot"]
 DEPENDENCIES = ["web_server_base", "web_server"]
 
 AUTH_TYPE_DIGEST = "digest"
+CONF_OTA_ID = "ota_id"
 
 # WebAuth::validate's limits, so a build cannot ship a factory pair the running device would
 # refuse to take back — one a Digest client could never match leaves no way in at all, since a
@@ -40,6 +44,8 @@ CONFIG_SCHEMA = cv.All(
             cv.GenerateID(CONF_WEB_SERVER_BASE_ID): cv.use_id(
                 web_server_base.WebServerBase
             ),
+            # The `ota: - platform: esphome` port that takes the web server's password too.
+            cv.Optional(CONF_OTA_ID): cv.use_id(ESPHomeOTAComponent),
         }
     ).extend(cv.COMPONENT_SCHEMA),
     cv.only_on([PLATFORM_ESP32, PLATFORM_HOST]),  # host: the test suite
@@ -81,7 +87,28 @@ def _final_validate(config):
                 f"web_server's 'auth:' {field} {fault}: web_auth serves that pair as the "
                 "factory default and a device has no other way back to it"
             )
+    if CONF_OTA_ID in config:
+        _final_validate_ota(config[CONF_OTA_ID])
     return config
+
+
+def _final_validate_ota(ota_id):
+    ota = next(
+        (
+            conf
+            for conf in fv.full_config.get().get(CONF_OTA) or []
+            if conf.get(CONF_ID) is not None and conf[CONF_ID].id == ota_id.id
+        ),
+        None,
+    )
+    # Upstream compiles the password check, and the setter web_auth calls, only for an entry
+    # that says `password:`; without it the port would go on taking uploads from anyone.
+    if ota is not None and CONF_PASSWORD not in ota:
+        raise cv.Invalid(
+            f"web_auth's '{CONF_OTA_ID}' needs 'password:' on the '{ota_id.id}' OTA entry "
+            "(an empty one will do): without it the port has no password check to hand "
+            "the web server's password to"
+        )
 
 
 FINAL_VALIDATE_SCHEMA = _final_validate
@@ -98,3 +125,16 @@ async def to_code(config):
     # serves, and what the dashboard calls out as unchanged.
     auth = CORE.config[CONF_WEB_SERVER][CONF_AUTH]
     cg.add(var.set_default_credentials(auth[CONF_USERNAME], auth[CONF_PASSWORD]))
+
+    if CONF_OTA_ID in config:
+        ota = await cg.get_variable(config[CONF_OTA_ID])
+        const_string = cg.std_string.operator("const").operator("ref")
+        cg.add(
+            var.add_on_credentials_callback(
+                LambdaExpression(
+                    f"{ota}->set_auth_password(password);",
+                    [(const_string, ""), (const_string, "password")],
+                    capture="",
+                )
+            )
+        )

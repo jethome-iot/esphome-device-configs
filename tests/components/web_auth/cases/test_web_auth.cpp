@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 #include "esphome/components/host/preferences.h"
 #include "esphome/components/logger/logger.h"
@@ -57,6 +58,20 @@ class FlakyFlash : public WebAuth {
   }
 };
 
+// What a component following the credentials heard, in order — what `ota_id:` hands the OTA
+// port goes through the same callback.
+struct Follower {
+  std::vector<std::pair<std::string, std::string>> heard;
+
+  void follow(WebAuth &auth) {
+    auth.add_on_credentials_callback([this](const std::string &username, const std::string &password) {
+      this->heard.emplace_back(username, password);
+    });
+  }
+  // The password the follower holds now, as the OTA port would.
+  std::string password() const { return this->heard.empty() ? std::string() : this->heard.back().second; }
+};
+
 class WebAuthTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -71,9 +86,13 @@ class WebAuthTest : public ::testing::Test {
 
   // A device coming up: codegen's pair, then whatever was stored. Heap-held, because the
   // server is handed pointers into this object's strings.
-  template<typename T> std::unique_ptr<T> boot(std::unique_ptr<T> auth, uint32_t hash = PREF_HASH) {
+  // A follower is attached the way codegen attaches one: before setup().
+  template<typename T>
+  std::unique_ptr<T> boot(std::unique_ptr<T> auth, uint32_t hash = PREF_HASH, Follower *follower = nullptr) {
     auth->set_default_credentials("admin", "hunter2");
     auth->set_preference_hash(hash);
+    if (follower != nullptr)
+      follower->follow(*auth);
     auth->setup();
     return auth;
   }
@@ -81,9 +100,12 @@ class WebAuthTest : public ::testing::Test {
     return this->boot(std::make_unique<WebAuth>(base), hash);
   }
   std::unique_ptr<WebAuth> boot() { return this->boot(&this->base_); }
+  std::unique_ptr<WebAuth> boot_followed(web_server_base::WebServerBase *base, Follower *follower) {
+    return this->boot(std::make_unique<WebAuth>(base), PREF_HASH, follower);
+  }
   // The same device, with a flash that can be made to fail under it.
-  std::unique_ptr<FlakyFlash> boot_flaky(web_server_base::WebServerBase *base) {
-    return this->boot(std::make_unique<FlakyFlash>(base));
+  std::unique_ptr<FlakyFlash> boot_flaky(web_server_base::WebServerBase *base, Follower *follower = nullptr) {
+    return this->boot(std::make_unique<FlakyFlash>(base), PREF_HASH, follower);
   }
 
   web_server_base::WebServerBase base_;
@@ -336,6 +358,95 @@ TEST_F(WebAuthTest, AStoreThatWorksTakesTheErrorStatusBackDown) {
   auth->set_credentials("operator", "s3cret-phrase");
   EXPECT_FALSE(auth->status_has_error());
   EXPECT_EQ(std::string(this->base_.get_auth_username()), "operator");
+}
+
+// The OTA port listens only after every component at HARDWARE has set up, so a follower told
+// from setup() never answers an upload on the password the YAML compiled in.
+TEST_F(WebAuthTest, AFollowerHearsTheCompiledPairAtBootWhenNothingIsStored) {
+  Follower ota;
+  auto auth = this->boot_followed(&this->base_, &ota);
+  ASSERT_EQ(ota.heard.size(), 1u);
+  EXPECT_EQ(ota.heard[0].first, "admin");
+  EXPECT_EQ(ota.heard[0].second, "hunter2");
+}
+
+TEST_F(WebAuthTest, AFollowerHearsTheStoredPairAtBoot) {
+  auto first = this->boot();
+  first->set_credentials("operator", "s3cret-phrase");
+
+  web_server_base::WebServerBase fresh;
+  Follower ota;
+  auto second = this->boot_followed(&fresh, &ota);
+  ASSERT_EQ(ota.heard.size(), 1u);
+  EXPECT_EQ(ota.heard[0].first, "operator");
+  EXPECT_EQ(ota.password(), "s3cret-phrase");
+}
+
+// The web server and the OTA port take a new password in the same step, with no restart.
+TEST_F(WebAuthTest, AFollowerHearsAChangeAtOnce) {
+  Follower ota;
+  auto auth = this->boot_followed(&this->base_, &ota);
+  auth->set_credentials("operator", "s3cret-phrase");
+  ASSERT_EQ(ota.heard.size(), 2u);
+  EXPECT_EQ(ota.heard[1].first, "operator");
+  EXPECT_EQ(ota.password(), "s3cret-phrase");
+  EXPECT_EQ(ota.password(), std::string(this->base_.get_auth_password()));
+}
+
+TEST_F(WebAuthTest, EveryFollowerHearsTheSamePair) {
+  Follower ota;
+  Follower other;
+  auto auth = std::make_unique<WebAuth>(&this->base_);
+  auth->set_default_credentials("admin", "hunter2");
+  auth->set_preference_hash(PREF_HASH);
+  ota.follow(*auth);
+  other.follow(*auth);
+  auth->setup();
+  auth->set_credentials("operator", "s3cret-phrase");
+  EXPECT_EQ(ota.heard, other.heard);
+  EXPECT_EQ(other.password(), "s3cret-phrase");
+}
+
+TEST_F(WebAuthTest, ARefusedPairReachesNoFollower) {
+  Follower ota;
+  auto auth = this->boot_followed(&this->base_, &ota);
+  auth->set_credentials("adm:in", "secret");
+  EXPECT_EQ(ota.heard.size(), 1u);
+  EXPECT_EQ(ota.password(), "hunter2");
+}
+
+// The OTA port keeps the password the web server keeps: a pair that never reached flash is
+// in force nowhere, so the next boot cannot disagree with what was taken before it.
+TEST_F(WebAuthTest, APairThatNeverReachedFlashReachesNoFollower) {
+  Follower ota;
+  auto auth = this->boot_flaky(&this->base_, &ota);
+  auth->flush = FlakyFlash::Flush::FAILED_RECORD_LOST;
+  auth->set_credentials("operator", "s3cret-phrase");
+  EXPECT_EQ(ota.heard.size(), 1u);
+  EXPECT_EQ(ota.password(), "hunter2");
+}
+
+TEST_F(WebAuthTest, APairAlreadyInFlashReachesTheFollowerThoughTheFlushFailed) {
+  Follower ota;
+  auto auth = this->boot_flaky(&this->base_, &ota);
+  auth->flush = FlakyFlash::Flush::FAILED_RECORD_LANDED;
+  auth->set_credentials("operator", "s3cret-phrase");
+  EXPECT_EQ(ota.password(), "s3cret-phrase");
+}
+
+// A forgotten password is a factory reset away on the OTA port too.
+TEST_F(WebAuthTest, AFactoryResetGivesTheFollowerTheCompiledPairBack) {
+  auto first = this->boot();
+  first->set_credentials("operator", "s3cret-phrase");
+
+  global_preferences->reset();
+  global_preferences->sync();
+
+  web_server_base::WebServerBase fresh;
+  Follower ota;
+  auto second = this->boot_followed(&fresh, &ota);
+  ASSERT_EQ(ota.heard.size(), 1u);
+  EXPECT_EQ(ota.password(), "hunter2");
 }
 
 }  // namespace esphome::web_auth::testing

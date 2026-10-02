@@ -1,7 +1,8 @@
 # Google Test binary for components/web_auth, built through esphome compile by tests/run.py.
 # The harness main.cpp replaces the generated one, so nothing declared here is ever set up:
 # the sections exist to get the sources compiled and the USE_* defines set. The tests build
-# their own WebAuth over the web_server_base stand-in and read back what it hands the server.
+# their own WebAuth over the web_server_base stand-in and read back what it hands the server
+# and its callbacks.
 esphome:
   name: web-auth-test
   includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
@@ -41,5 +42,15 @@ web_server:
 
 web_server_base: {}
 
+# The port ota_id hands the password to. Built for real, so the callback codegen writes is
+# compiled against upstream's component; the cases follow the pair through the callback.
+network:
+
+ota:
+  - platform: esphome
+    id: test_ota
+    password: ""
+
 web_auth:
   id: test_auth
+  ota_id: test_ota

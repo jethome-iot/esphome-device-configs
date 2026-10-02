@@ -173,7 +173,12 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   called again after each change. It also needs a compiled `auth:` block to exist at all:
   `add_handler()` decides once, at registration, whether a handler gets the authentication
   middleware, and without credentials at that moment none is installed. A final-validate check
-  in the component insists on the block.
+  in the component insists on the block. Its `ota_id` hands the password to
+  `ESPHomeOTAComponent::set_auth_password()`, which upstream compiles only for an entry that
+  carries `password:` — another final-validate check. The first hand-over is in web_auth's
+  setup at `HARDWARE + 1`, well before the port listens at `AFTER_WIFI`. Since 2026.9 that
+  port also lets in an upload encrypted with the native API's key without the password, a
+  key provisioned at runtime included.
 - `components/virtual_display` (emulator only, see [QEMU.md](QEMU.md)) renders through
   `DisplayBuffer`'s protected `init_internal_` / `do_update_` and serves its endpoints as a
   `web_server_base` handler, setting the 405 status line through ESP-IDF's
