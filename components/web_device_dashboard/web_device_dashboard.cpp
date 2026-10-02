@@ -761,6 +761,10 @@ void WebDeviceDashboard::factory_reset_() {
 }
 
 #ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
+// Between a written forget or assign and its reboot the table and the sensors disagree, so the
+// slots are not read or written again until the device is back.
+static const char *const REBOOTING = "Rebooting: the slots change with it";
+
 // GET /api/device/temperature-slots: the dallas_scan slots up to the last bound one, numbered
 // from 1 as the sensor names and the log number them. A freed slot between bound ones keeps its
 // row, as it does in the panel's Temperatures menu. Read on the loop task, where a forget or an
@@ -772,12 +776,16 @@ void WebDeviceDashboard::handle_temperature_slots_(AsyncWebServerRequest *reques
     return;
   }
   std::string body;
+  bool rebooting = false;
   const bool read = this->run_on_loop_([&]() {
+    rebooting = scan->awaiting_reboot();
+    if (rebooting)
+      return false;
     body = this->temperature_slots_json_(scan);
     return true;
   });
   if (!read) {
-    this->send_error_(request, 503, "Device busy");
+    this->send_error_(request, 503, rebooting ? REBOOTING : "Device busy");
     return;
   }
   request->send(200, "application/json", body.c_str());
@@ -845,6 +853,11 @@ void WebDeviceDashboard::handle_temperature_slots_forget_(AsyncWebServerRequest 
   int code = 0;
   std::string why;
   const bool stored = this->run_on_loop_([&]() {
+    if (scan->awaiting_reboot()) {
+      code = 503;
+      why = REBOOTING;
+      return false;
+    }
     if (!scan->can_forget(slot)) {
       code = 409;
       why = all                  ? std::string("Nothing to forget: every slot is free or listed in YAML")
@@ -926,6 +939,11 @@ void WebDeviceDashboard::handle_temperature_slots_assign_(AsyncWebServerRequest 
   int code = 0;
   std::string why;
   const bool stored = this->run_on_loop_([&]() {
+    if (scan->awaiting_reboot()) {
+      code = 503;
+      why = REBOOTING;
+      return false;
+    }
     switch (scan->check_assign(slot, rom)) {
       case dallas_scan::AssignCheck::OK:
         break;

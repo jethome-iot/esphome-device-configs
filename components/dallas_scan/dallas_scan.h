@@ -111,6 +111,9 @@ class DallasScan : public PollingComponent {
   void assign(size_t slot, uint64_t address);
   /// assign() without the reboot, as forget_and_save() is to forget().
   bool assign_and_save(size_t slot, uint64_t address);
+  /// A forget or an assign wrote the table and its reboot has not come yet: the table describes
+  /// the next boot, the sensors this one, and the bus is not read.
+  bool awaiting_reboot() const { return this->awaiting_reboot_; }
 
  protected:
   /// Virtual so the host tests can see the reboot: the real one ends the process.

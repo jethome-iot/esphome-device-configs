@@ -317,6 +317,27 @@ TEST_F(TemperatureSlots, ABusyLoopIsUnavailableForEveryRoute) {
   EXPECT_EQ(scan.address(0), ROM_A);
 }
 
+// The table is written and the reboot half a second away: the table and the sensors disagree
+// until then, so neither a read nor a second write goes through.
+TEST_F(TemperatureSlots, BetweenAWriteAndItsRebootTheSlotsWait) {
+  this->boot({ROM_A, ROM_B});
+  ASSERT_EQ(this->post(FORGET, this->confirmed(R"("slot":1)")).code, 200);
+  Reply list = this->get(SLOTS);
+  Reply forget = this->post(FORGET, this->confirmed(R"("slot":2)"));
+  Reply assign = this->post(ASSIGN, this->confirmed(R"("slot":3,"address":"0x9b01b5566e8a1f28")"));
+  for (Reply *reply : {&list, &forget, &assign}) {
+    EXPECT_EQ(reply->code, 503);
+    EXPECT_EQ(reply->error(), "Rebooting: the slots change with it");
+  }
+  this->loop();
+  EXPECT_EQ(this->dashboard->restarts, 1);
+  // Only the first write is in the table.
+  TestScan &after = this->boot({ROM_B});
+  EXPECT_EQ(after.address(0), 0u);
+  EXPECT_EQ(after.address(1), ROM_B);
+  EXPECT_EQ(after.address(2), 0u);
+}
+
 TEST_F(TemperatureSlots, AssignSwapsWritesTheTableAnswersAndReboots) {
   TestScan &scan = this->boot({ROM_A, ROM_B});
   Reply reply = this->post(ASSIGN, this->confirmed(R"("slot":1,"address":"0x8a0122791699dd28")"));

@@ -401,7 +401,10 @@ paths:
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
         "503":
-          description: The loop task did not take the request in time. Nothing was read.
+          description: >-
+            The loop task did not take the request in time (`Device busy`), or a
+            forget or an assign has just been written and the reboot that applies
+            it is under way (`Rebooting: the slots change with it`). Nothing was read.
           content:
             application/json:
               schema:
@@ -534,9 +537,10 @@ paths:
         "503":
           description: >-
             The table is kept in a file and the user partition did not mount, so
-            nothing could be written (`Temperature slot storage unavailable`), or
-            the loop task did not take the request in time (`Device busy`).
-            Nothing happened, and the device keeps running.
+            nothing could be written (`Temperature slot storage unavailable`), the
+            loop task did not take the request in time (`Device busy`), or an
+            earlier forget or assign is waiting for its reboot (`Rebooting: the
+            slots change with it`). Nothing happened.
           content:
             application/json:
               schema:
@@ -652,9 +656,10 @@ paths:
         "503":
           description: >-
             The table is kept in a file and the user partition did not mount, so
-            nothing could be written (`Temperature slot storage unavailable`), or
-            the loop task did not take the request in time (`Device busy`).
-            Nothing happened, and the device keeps running.
+            nothing could be written (`Temperature slot storage unavailable`), the
+            loop task did not take the request in time (`Device busy`), or an
+            earlier forget or assign is waiting for its reboot (`Rebooting: the
+            slots change with it`). Nothing happened.
           content:
             application/json:
               schema:

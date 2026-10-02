@@ -365,8 +365,10 @@ bool DallasScan::assign_and_save(size_t slot, uint64_t address) {
   if (held != this->slots_.end())
     *held = this->slots_[slot];
   this->slots_[slot] = address;
+  if (!this->store_or_roll_back_(before, "nothing is assigned"))
+    return false;
   ESP_LOGI(TAG, "0x%016" PRIx64 " takes slot %u", address, (unsigned) slot + 1);
-  return this->store_or_roll_back_(before, "nothing is assigned");
+  return true;
 }
 
 // A reboot after a failed write would bring the old table back without a word.

@@ -242,9 +242,13 @@ TEST_F(FileStorage, AnAssignWhoseWriteFailsKeepsTheTableAndDoesNotReboot) {
   TestScan &scan = this->boot({ROM_A, ROM_B});
   const std::string text = this->read();
   ASSERT_EQ(chmod(this->dir().c_str(), 0555), 0);
+  this->log().clear();
   scan.assign(0, ROM_B);  // a swap
   chmod(this->dir().c_str(), 0755);
   EXPECT_EQ(scan.restarts, 0);
+  EXPECT_FALSE(scan.awaiting_reboot());
+  // Nothing claims the device moved.
+  EXPECT_FALSE(this->log().has(this->log().infos, "takes slot"));
   EXPECT_EQ(scan.address(0), ROM_A);
   EXPECT_EQ(scan.address(1), ROM_B);
   EXPECT_TRUE(this->log().has(this->log().errors, "nothing is assigned"));
@@ -262,7 +266,9 @@ TEST_F(FileStorage, AnAssignIsWrittenToTheFile) {
 TEST_F(FileStorage, SavingWithoutTheRebootLeavesTheRebootToTheCaller) {
   TestScan &scan = this->boot({ROM_A, ROM_B});
   EXPECT_FALSE(scan.forget_and_save(2));  // free
+  EXPECT_FALSE(scan.awaiting_reboot());
   EXPECT_TRUE(scan.forget_and_save(0));
+  EXPECT_TRUE(scan.awaiting_reboot());
   EXPECT_EQ(scan.restarts, 0);
   EXPECT_EQ(this->read(), slot_file({{2, HEX_B}}));
 

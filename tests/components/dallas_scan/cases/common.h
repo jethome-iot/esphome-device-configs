@@ -54,12 +54,13 @@ class TestScan : public DallasScan {
   void restart_() override { this->restarts++; }
 };
 
-// Every error, warning and dump_config() line the process logs. Registered once: the logger
+// Every error, warning, info and dump_config() line the process logs. Registered once: the logger
 // keeps its listeners.
 class LogCapture {
  public:
   std::vector<std::string> errors;
   std::vector<std::string> warnings;
+  std::vector<std::string> infos;
   std::vector<std::string> configs;
 
   static LogCapture &instance() {
@@ -73,6 +74,7 @@ class LogCapture {
   void clear() {
     this->errors.clear();
     this->warnings.clear();
+    this->infos.clear();
     this->configs.clear();
   }
   bool has(const std::vector<std::string> &lines, const char *needle) const {
@@ -87,6 +89,8 @@ class LogCapture {
       capture->errors.emplace_back(message, len);
     } else if (level == ESPHOME_LOG_LEVEL_WARN) {
       capture->warnings.emplace_back(message, len);
+    } else if (level == ESPHOME_LOG_LEVEL_INFO) {
+      capture->infos.emplace_back(message, len);
     } else if (level == ESPHOME_LOG_LEVEL_CONFIG) {
       capture->configs.emplace_back(message, len);
     }
