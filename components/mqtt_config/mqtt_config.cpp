@@ -566,7 +566,9 @@ void MqttConfig::write_settings_json(JsonObject root) const {
   } else {
     root["running"] = nullptr;
   }
-  root["apply_now"] = !this->started_ && !this->held_back_;
+  // A first enable starts at once only with the prefix this boot subscribed its commands with.
+  root["apply_now"] =
+      !this->started_ && !this->held_back_ && this->effective_prefix_(this->stored_) == this->applied_.topic_prefix;
   root["reboot_required"] = this->reboot_required_.load();
   root["discovery_cleanup"] = cleanup_key(this->discovery_cleanup());
   if (this->stored_notice_.empty()) {

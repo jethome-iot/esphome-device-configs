@@ -1249,9 +1249,10 @@ components:
         apply_now:
           type: boolean
           description: >-
-            The client has not started this boot and is not held back: a save
-            that turns MQTT on connects at once, unless it also changes the
-            effective topic prefix.
+            The client has not started this boot, is not held back, and the
+            stored topic prefix is still the one this boot runs: a save that
+            turns MQTT on connects at once, unless it also changes the effective
+            topic prefix.
         reboot_required:
           type: boolean
           description: >-

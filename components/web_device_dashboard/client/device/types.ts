@@ -455,7 +455,9 @@ export interface MqttSettings {
   last_error: MqttError | null
   /** Null while the client was not started this boot. */
   running: MqttRunning | null
-  /** A save that turns MQTT on connects at once, unless it changes the effective topic prefix. */
+  /** A save that turns MQTT on connects at once: the client has not started this boot, is not
+   *  held back, and the stored topic prefix is still the one this boot runs. A save that also
+   *  changes the effective prefix waits for a reboot all the same. */
   apply_now: boolean
   /** A saved change waits for a restart, or MQTT is held back and a restart retries it. */
   reboot_required: boolean

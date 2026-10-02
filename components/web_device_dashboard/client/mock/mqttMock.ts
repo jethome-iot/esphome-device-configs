@@ -201,7 +201,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
             discovery: applied.discovery
           }
         : null,
-      apply_now: !started && !heldBack,
+      apply_now: !started && !heldBack && effPrefix(stored) === applied.topic_prefix,
       reboot_required: rebootRequired(),
       discovery_cleanup: cleanupState(),
       stored_notice: null

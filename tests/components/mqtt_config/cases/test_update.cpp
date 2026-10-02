@@ -155,7 +155,7 @@ TEST_F(UpdateTest, AFirstEnableThatChangesThePrefixWaitsForAReboot) {
   EXPECT_FALSE(c.running());
   EXPECT_EQ(this->client->enable_calls, 0);
   EXPECT_EQ(c.state(), MqttState::OFF);
-  EXPECT_TRUE(this->settings_json()["apply_now"].as<bool>());
+  EXPECT_FALSE(this->settings_json()["apply_now"].as<bool>());
 
   // The prefix back to the boot's: now it starts.
   const auto again = this->save(patch_of([](MqttPatch &p) { p.topic_prefix = std::string(""); }));
@@ -340,6 +340,20 @@ TEST_F(UpdateTest, AChangeWhileOffWithARemovalDueSaysTheEntriesStay) {
   const auto result = this->save(patch_of([](MqttPatch &p) { p.port = 1884; }));
   EXPECT_STREQ(result.message, ENTRIES_STAY_OFF);
   EXPECT_EQ(result.cleanup, DiscoveryCleanup::PENDING);
+}
+
+// A first enable starts at once only with the prefix this boot subscribed its commands with,
+// so a new one saved earlier in the boot makes apply_now false.
+TEST_F(UpdateTest, ApplyNowFollowsAPrefixSavedEarlierInTheBoot) {
+  this->boot();
+  EXPECT_TRUE(this->settings_json()["apply_now"].as<bool>());
+  this->save(patch_of([](MqttPatch &p) { p.topic_prefix = std::string(NODE_PREFIX); }));
+  EXPECT_TRUE(this->settings_json()["apply_now"].as<bool>());  // the default, spelled out
+  this->save(patch_of([](MqttPatch &p) { p.topic_prefix = std::string("house"); }));
+  EXPECT_FALSE(this->settings_json()["apply_now"].as<bool>());
+  const auto on = this->save(turn_on());
+  EXPECT_STREQ(on.message, REBOOT);
+  EXPECT_FALSE(on.started);
 }
 
 // With the broker away the old one keeps the entries until it is back; MQTT stays on, so that
