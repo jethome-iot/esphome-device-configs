@@ -279,13 +279,17 @@ class SlotsTest : public ::testing::Test {
     return this->boot(before_setup);
   }
 
+  // Cancelled, then left allocated: the scheduler drops a cancelled entry only once it comes
+  // due, and asks the component it names whether it failed before it looks at the cancellation.
   void shutdown() {
-    if (this->subs != nullptr)
+    if (this->subs != nullptr) {
       this->subs->forget_schedule();
-    if (this->config != nullptr)
+      (void) this->subs.release();  // NOLINT(bugprone-unused-return-value)
+    }
+    if (this->config != nullptr) {
       this->config->forget_schedule();
-    this->subs.reset();
-    this->config.reset();
+      (void) this->config.release();  // NOLINT(bugprone-unused-return-value)
+    }
     this->client.reset();
   }
 
