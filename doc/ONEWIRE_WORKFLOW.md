@@ -19,7 +19,7 @@ DS28EA00. Any other 1-Wire device on the bus is skipped and logged as `Not a tem
 sensor`.
 
 To choose the order, connect the sensors one at a time, rebooting after each, or move them
-afterwards from the web dashboard (below).
+afterwards over HTTP (below).
 
 ## Addresses
 
@@ -67,22 +67,24 @@ before them keeps its `Temp N` row reading `--`; its menu entry says `Free slot`
 **Settings → Temp sensors → Confirm** clears every slot but the listed ones, so sensors are
 numbered again in bus order. Factory reset clears them too.
 
-The web dashboard does the same without the panel, which is the only way on a device without
-a display: **Settings → Temperature** lists every slot with its reading and ROM address, forgets
-one slot or all of them, and edits a slot.
+Over HTTP the web dashboard's API does the same without the panel, which is the only way on a
+device without a display: `GET /api/device/temperature-slots` lists every slot with its ROM
+address, and `POST /api/device/temperature-slots/forget` forgets one slot or all of them. The
+routes are in [components/web_device_dashboard](../components/web_device_dashboard/README.md).
 
 ## Moving and assigning
 
-Only the web dashboard does this: **Edit** on a slot in Settings → Temperature takes a slot
-number and a ROM address, and the device reboots with that device in that slot.
+Only over HTTP: `POST /api/device/temperature-slots/assign` takes a slot number and a ROM
+address, and the device reboots with that device in that slot.
 
-- Another slot number moves the sensor there; if a sensor holds that slot, the two swap.
+- The address of a sensor in another slot moves it there; if a sensor holds that slot, the two
+  swap.
 - Another address puts that device into the slot — for a sensor that is not plugged in yet, its
   number is then waiting for it. The sensor that held the slot loses it and, if still
   connected, takes the lowest free slot at the next boot.
 
 A sensor's `Temp N` name and Modbus register belong to the slot, so they move with it. Listed
-slots cannot be edited.
+slots cannot be assigned.
 
 ## More slots
 

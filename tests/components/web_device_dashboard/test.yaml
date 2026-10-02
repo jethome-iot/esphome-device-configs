@@ -95,9 +95,11 @@ one_wire:
   - platform: one_wire_host
     id: one_wire_bus
 
+# storage: file compiles the file table in, so a case can wire a scan to a keeper that failed.
 dallas_scan:
   id: temps
   max_sensors: 64
+  storage: file
 
 # board_info_id sets USE_WEB_DEVICE_DASHBOARD_BOARD_INFO, so /api/device/info carries the board;
 # storage_id sets USE_WEB_DEVICE_DASHBOARD_STORAGE, so the factory reset has a mount to wipe;

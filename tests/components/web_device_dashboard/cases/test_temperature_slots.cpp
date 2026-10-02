@@ -175,21 +175,23 @@ TEST_F(TemperatureSlots, ForgetNeedsOneSlotInRangeOrAll) {
   Reply neither = this->post(FORGET, this->confirmation());
   EXPECT_EQ(neither.code, 400);
   EXPECT_EQ(neither.error(), "'slot' or 'all' is required");
-  // Present is what counts, not the value: with "all": false the request still names both.
-  for (const char *selector : {R"("slot":1,"all":true)", R"("slot":1,"all":false)"}) {
+  // Present is what counts, not the value: with "all": false, or a null, the request still names
+  // both.
+  for (const char *selector : {R"("slot":1,"all":true)", R"("slot":1,"all":false)", R"("slot":null,"all":true)",
+                               R"("slot":null,"all":false)", R"("slot":1,"all":null)"}) {
     Reply both = this->post(FORGET, this->confirmed(selector));
     EXPECT_EQ(both.code, 400) << selector;
     EXPECT_EQ(both.error(), "'slot' and 'all' exclude each other") << selector;
   }
   // Numbered from 1, as the sensor names are; only a JSON integer is a slot.
-  for (const char *selector :
-       {R"("slot":0)", R"("slot":5)", R"("slot":-1)", R"("slot":"1")", R"("slot":1.5)", R"("slot":true)"}) {
+  for (const char *selector : {R"("slot":0)", R"("slot":5)", R"("slot":-1)", R"("slot":"1")", R"("slot":1.5)",
+                               R"("slot":true)", R"("slot":null)"}) {
     Reply reply = this->post(FORGET, this->confirmed(selector));
     EXPECT_EQ(reply.code, 400) << selector;
     EXPECT_EQ(reply.error(), "'slot' must be a number from 1 to 4") << selector;
   }
   // Only a JSON true asks for every slot, as only one confirms.
-  for (const char *selector : {R"("all":1)", R"("all":false)", R"("all":"true")", R"("slot":null,"all":false)"}) {
+  for (const char *selector : {R"("all":1)", R"("all":false)", R"("all":"true")", R"("all":null)"}) {
     Reply reply = this->post(FORGET, this->confirmed(selector));
     EXPECT_EQ(reply.code, 400) << selector;
     EXPECT_EQ(reply.error(), "'all' must be true") << selector;
@@ -216,6 +218,37 @@ TEST_F(TemperatureSlots, ForgetTakesTheConfirmationTheSystemActionsTake) {
 }
 
 // --- assigning ---
+
+// A table kept in a file whose partition did not mount: neither write could be kept, so neither
+// answers with a reboot.
+TEST_F(TemperatureSlots, WritesAreUnavailableWhenTheTableCannotBeSaved) {
+  static dir_storage::DirStorage storage;  // never set up: not mounted
+  static config_json::ConfigJsonKeeper keeper;
+  keeper.set_storage(&storage);
+  keeper.setup();
+  ASSERT_FALSE(keeper.can_save());
+  this->bus.set_devices({ROM_A});
+  auto owned = std::make_unique<TestScan>();
+  TestScan &scan = *owned;
+  scan.set_one_wire_bus(&this->bus);
+  scan.set_max_sensors(4);
+  scan.set_slot_file(&keeper, "dallas_scan_temps");
+  scan.setup();
+  this->dashboard->set_temperature_slots(&scan);
+  this->boots.push_back(std::move(owned));
+  ASSERT_EQ(scan.address(0), ROM_A);
+
+  Reply forget = this->post(FORGET, this->confirmed(R"("slot":1)"));
+  EXPECT_EQ(forget.code, 503);
+  EXPECT_EQ(forget.error(), "Temperature slot storage unavailable");
+  Reply assign = this->post(ASSIGN, this->confirmed(R"("slot":2,"address":"0x9b01b5566e8a1f28")"));
+  EXPECT_EQ(assign.code, 503);
+  EXPECT_EQ(assign.error(), "Temperature slot storage unavailable");
+  // The confirmation still comes first.
+  EXPECT_EQ(this->post(FORGET, R"({"slot":1})").code, 400);
+  this->loop();
+  EXPECT_EQ(scan.restarts, 0);
+}
 
 TEST_F(TemperatureSlots, AssignAnswersThenSwapsAndReboots) {
   TestScan &scan = this->boot({ROM_A, ROM_B});
@@ -250,10 +283,10 @@ TEST_F(TemperatureSlots, AssignRefusesWhatIsNotARomAddress) {
                               R"("0x9b01b5566e8a1fzz")", R"("0x 9b01b5566e8a1f2")", "1234", "null"}) {
     Reply reply = this->post(ASSIGN, this->confirmed(std::string(R"("slot":2,"address":)") + address));
     EXPECT_EQ(reply.code, 400) << address;
-    EXPECT_EQ(reply.error(), "'address' must be 0x and 16 hex digits") << address;
+    EXPECT_EQ(reply.error(), "'address' must be 16 hex digits, after an optional 0x") << address;
   }
   Reply missing = this->post(ASSIGN, this->confirmed(R"("slot":2)"));
-  EXPECT_EQ(missing.error(), "'address' must be 0x and 16 hex digits");
+  EXPECT_EQ(missing.error(), "'address' must be 16 hex digits, after an optional 0x");
   // Well formed, but no thermometer has it: a serial number chip, and a CRC one bit off.
   Reply serial = this->post(ASSIGN, this->confirmed(R"("slot":2,"address":"0x4e00001234567801")"));
   EXPECT_EQ(serial.code, 400);

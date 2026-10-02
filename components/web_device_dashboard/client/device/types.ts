@@ -348,7 +348,7 @@ export interface TemperatureSlot {
 }
 
 /** GET /temperature-slots — slots 1 up to the last bound one, a freed slot between them
- *  included. The table changes only at boot and through a forget, which reboots. */
+ *  included. The table changes only at boot and through a forget or an assign, which reboot. */
 export interface TemperatureSlots {
   /** The size of the table, `dallas_scan`'s `max_sensors`. */
   max_slots: number
@@ -359,7 +359,7 @@ export interface TemperatureSlots {
  *  system actions' confirmation. The device answers, then empties them and reboots. One that
  *  would change nothing (a free or listed slot, or nothing to forget) is `409`, and the
  *  device keeps running; a slot out of range, `all` that is not `true`, or both keys or
- *  neither, is `400`. */
+ *  neither, is `400`; a table that cannot be written is `503`. */
 export type ForgetSlotsPayload = ConfirmPayload & ({ slot: number; all?: never } | { all: true; slot?: never })
 
 /** POST /temperature-slots/assign — put the device with `address` into `slot` (from 1), under
@@ -367,7 +367,8 @@ export type ForgetSlotsPayload = ConfirmPayload & ({ slot: number; all?: never }
  *  held; a new address takes `slot` from its device, which takes the lowest free slot at the
  *  next boot if it is still on the bus. `address` is `0x` and 16 hex digits, the prefix
  *  optional. `400` for a malformed or non-thermometer ROM (family or CRC), `409` for a listed
- *  slot or device, or a device that is in `slot` already. */
+ *  slot or device, or a device that is in `slot` already, `503` for a table that cannot be
+ *  written. */
 export type AssignSlotPayload = ConfirmPayload & { slot: number; address: string }
 
 // --- Network (live status + saved config) ---

@@ -37,11 +37,12 @@ export interface DeviceApi {
    *  `capabilities.temperature_slots`. */
   temperatureSlots(): Promise<TemperatureSlots>
   /** POST /temperature-slots/forget — requires a confirmation. Empties one slot or every
-   *  unlisted one and reboots; `409` when that would change nothing. */
+   *  unlisted one and reboots; `409` when that would change nothing, `503` when the table
+   *  cannot be written. */
   forgetTemperatureSlots(payload: ForgetSlotsPayload): Promise<MutationResponse>
   /** POST /temperature-slots/assign — requires a confirmation. Puts a device into a slot,
    *  swapping or displacing, and reboots; `400` for a bad address, `409` when the YAML decides
-   *  that slot or device, or nothing would change. */
+   *  that slot or device, or nothing would change, `503` when the table cannot be written. */
   assignTemperatureSlot(payload: AssignSlotPayload): Promise<MutationResponse>
 }
 

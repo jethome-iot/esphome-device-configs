@@ -764,7 +764,7 @@ void WebDeviceDashboard::factory_reset_() {
 // GET /api/device/temperature-slots: the dallas_scan slots up to the last bound one, numbered
 // from 1 as the sensor names and the log number them. A freed slot between bound ones keeps its
 // row, as it does in the panel's Temperatures menu. Read straight off the component: the table
-// only changes at setup and in forget(), which reboots.
+// only changes at setup and in forget() and assign(), which reboot.
 void WebDeviceDashboard::handle_temperature_slots_(AsyncWebServerRequest *request) {
   auto *scan = this->temperature_slots_;
   if (scan == nullptr) {
@@ -802,18 +802,22 @@ void WebDeviceDashboard::handle_temperature_slots_forget_(AsyncWebServerRequest 
   JsonDocument doc;
   if (!this->check_confirm_(request, doc))
     return;
-  // By presence, not value: {"slot": 1, "all": false} names both, and which one won would be a guess.
-  JsonVariant number = doc["slot"];
-  JsonVariant every = doc["all"];
-  if (!number.isNull() && !every.isNull()) {
+  if (!this->check_slots_writable_(request, scan))
+    return;
+  // By presence, not value: {"slot": 1, "all": false} names both, and which one won would be a
+  // guess. isUnbound(), not isNull(): an explicit null is a key the caller wrote.
+  const bool has_slot = !doc["slot"].isUnbound();
+  const bool all = !doc["all"].isUnbound();
+  if (has_slot && all) {
     this->send_error_(request, 400, "'slot' and 'all' exclude each other");
     return;
   }
-  if (number.isNull() && every.isNull()) {
+  if (!has_slot && !all) {
     this->send_error_(request, 400, "'slot' or 'all' is required");
     return;
   }
-  const bool all = !every.isNull();
+  JsonVariant number = doc["slot"];
+  JsonVariant every = doc["all"];
   if (all && !(every.is<bool>() && every.as<bool>())) {
     this->send_error_(request, 400, "'all' must be true");
     return;
@@ -873,13 +877,15 @@ void WebDeviceDashboard::handle_temperature_slots_assign_(AsyncWebServerRequest 
   JsonDocument doc;
   if (!this->check_confirm_(request, doc))
     return;
+  if (!this->check_slots_writable_(request, scan))
+    return;
   size_t slot;
   if (!this->read_slot_(request, doc["slot"], slot))
     return;
   uint64_t rom;
   JsonVariant address = doc["address"];
   if (!address.is<const char *>() || !parse_rom(address.as<const char *>(), rom)) {
-    this->send_error_(request, 400, "'address' must be 0x and 16 hex digits");
+    this->send_error_(request, 400, "'address' must be 16 hex digits, after an optional 0x");
     return;
   }
   const std::string hex = str_sprintf("0x%016" PRIx64, rom);
@@ -905,6 +911,15 @@ void WebDeviceDashboard::handle_temperature_slots_assign_(AsyncWebServerRequest 
   ESP_LOGW(TAG, "Assigning %s to temperature slot %u over the API", hex.c_str(), (unsigned) slot + 1);
   this->send_success_(request, str_sprintf("Assigning slot %u, rebooting", (unsigned) slot + 1).c_str());
   this->set_timeout(this->action_delay_ms_, [scan, slot, rom]() { scan->assign(slot, rom); });
+}
+
+// A file table whose partition did not mount: forget() and assign() would change nothing, so the
+// request is refused rather than answered with a reboot that leaves the table as it was.
+bool WebDeviceDashboard::check_slots_writable_(AsyncWebServerRequest *request, dallas_scan::DallasScan *scan) {
+  if (scan->can_save())
+    return true;
+  this->send_error_(request, 503, "Temperature slot storage unavailable");
+  return false;
 }
 
 bool WebDeviceDashboard::read_slot_(AsyncWebServerRequest *request, JsonVariant value, size_t &slot) {

@@ -385,8 +385,9 @@ paths:
         The slots of the firmware's `dallas_scan` up to the last bound one,
         numbered from 1 as the `Temp N` sensors are. A slot freed between bound
         ones keeps its row, as it does in the panel's Temperatures menu. The table
-        changes only at boot and through `/temperature-slots/forget`, which
-        reboots, so this is read once per page load. Readings are not here: they
+        changes only at boot and through `/temperature-slots/forget` and
+        `/temperature-slots/assign`, which reboot, so this is read once per page
+        load. Readings are not here: they
         are the sensors' state on `web_server`'s `/events`, matched by `name`.
       responses:
         "200":
@@ -414,8 +415,9 @@ paths:
         order. A request that would change nothing — a free slot, a listed one,
         or `all` with nothing but listed slots bound — is refused with `409`
         rather than answered with a reboot that leaves the table as it was; the
-        slot's `can_forget` in `/temperature-slots` says beforehand. Otherwise it
-        answers, then empties the slots and restarts half a second later.
+        slot's `can_forget` in `/temperature-slots` says beforehand. A table that
+        cannot be written is `503`. Otherwise it answers, then empties the slots
+        and restarts half a second later.
       requestBody:
         required: true
         content:
@@ -453,7 +455,7 @@ paths:
           description: >-
             Not a confirmation (`'confirm' must be true`, as on the system
             routes), or not exactly one of a slot in range and `all: true`.
-            Both keys present is refused whatever their values.
+            Both keys present is refused whatever their values, `null` included.
           content:
             application/json:
               schema:
@@ -508,6 +510,17 @@ paths:
           $ref: "#/components/responses/BodyTooLarge"
         "415":
           $ref: "#/components/responses/UnsupportedMediaType"
+        "503":
+          description: >-
+            The table is kept in a file and the user partition did not mount, so
+            nothing could be written. Nothing happened, and the device keeps running.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Temperature slot storage unavailable
 
   /temperature-slots/assign:
     post:
@@ -523,9 +536,9 @@ paths:
         the next boot. A device whose slot changes takes that slot's `Temp N`
         name and Modbus register with it. Refused before anything happens:
         a malformed or non-thermometer address (`400`), and a listed slot, a
-        listed sensor's address, or a device already in that slot (`409`).
-        Otherwise it answers, then saves the table and restarts half a second
-        later.
+        listed sensor's address, or a device already in that slot (`409`), and
+        a table that cannot be written (`503`). Otherwise it answers, then saves
+        the table and restarts half a second later.
       requestBody:
         required: true
         content:
@@ -549,8 +562,8 @@ paths:
                 message: Assigning slot 1, rebooting
         "400":
           description: >-
-            Not a confirmation, a slot out of range, an address that is not
-            `0x` and 16 hex digits, or one no thermometer can have: a family
+            Not a confirmation, a slot out of range, an address that is not 16
+            hex digits after an optional `0x`, or one no thermometer can have: a family
             other than DS18B20, DS18S20, DS1822, DS1825 or DS28EA00, or a CRC
             that does not match.
           content:
@@ -565,7 +578,7 @@ paths:
                 format:
                   value:
                     success: false
-                    error: "'address' must be 0x and 16 hex digits"
+                    error: "'address' must be 16 hex digits, after an optional 0x"
                 rom:
                   value:
                     success: false
@@ -601,6 +614,17 @@ paths:
           $ref: "#/components/responses/BodyTooLarge"
         "415":
           $ref: "#/components/responses/UnsupportedMediaType"
+        "503":
+          description: >-
+            The table is kept in a file and the user partition did not mount, so
+            nothing could be written. Nothing happened, and the device keeps running.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Temperature slot storage unavailable
 
   /entities:
     get:
@@ -1314,6 +1338,8 @@ components:
         - oneOf:
             - type: object
               required: [slot]
+              not:
+                required: [all]
               properties:
                 slot:
                   type: integer
@@ -1321,6 +1347,8 @@ components:
                   description: The slot to empty, from 1 up to `max_slots`.
             - type: object
               required: [all]
+              not:
+                required: [slot]
               properties:
                 all:
                   type: boolean

@@ -137,6 +137,7 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   void handle_temperature_slots_forget_(AsyncWebServerRequest *request);
   void handle_temperature_slots_assign_(AsyncWebServerRequest *request);
   /// The body's `slot`, 1 to max_sensors(), as an index; answers 400 itself when it is not one.
+  bool check_slots_writable_(AsyncWebServerRequest *request, dallas_scan::DallasScan *scan);
   bool read_slot_(AsyncWebServerRequest *request, JsonVariant value, size_t &slot);
 #endif
 #ifdef USE_CONFIG_JSON

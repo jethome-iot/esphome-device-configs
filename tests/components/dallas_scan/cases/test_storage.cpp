@@ -193,9 +193,13 @@ TEST_F(FileStorage, WithoutAMountTheSlotsLastOneBootAndNothingIsForgotten) {
 
   this->log().clear();
   scan.forget(0);
+  scan.assign(2, ROM_C);
   EXPECT_EQ(scan.restarts, 0);
+  EXPECT_FALSE(scan.can_save());
   EXPECT_TRUE(this->log().has(this->log().errors, "Storage unavailable: nothing is forgotten"));
+  EXPECT_TRUE(this->log().has(this->log().errors, "Storage unavailable: nothing is assigned"));
   EXPECT_EQ(scan.address(0), ROM_A);
+  EXPECT_EQ(scan.address(2), 0u);
   EXPECT_EQ(this->read(), text);
 }
 
@@ -229,6 +233,28 @@ TEST_F(FileStorage, AForgetWhoseWriteFailsKeepsTheSlotAndDoesNotReboot) {
   EXPECT_EQ(scan.address(0), ROM_A);
   EXPECT_TRUE(this->log().has(this->log().errors, "nothing is forgotten"));
   EXPECT_EQ(this->read(), text);
+}
+
+TEST_F(FileStorage, AnAssignWhoseWriteFailsKeepsTheTableAndDoesNotReboot) {
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root writes into a read-only folder";
+  TestScan &scan = this->boot({ROM_A, ROM_B});
+  const std::string text = this->read();
+  ASSERT_EQ(chmod(this->dir().c_str(), 0555), 0);
+  scan.assign(0, ROM_B);  // a swap
+  chmod(this->dir().c_str(), 0755);
+  EXPECT_EQ(scan.restarts, 0);
+  EXPECT_EQ(scan.address(0), ROM_A);
+  EXPECT_EQ(scan.address(1), ROM_B);
+  EXPECT_TRUE(this->log().has(this->log().errors, "nothing is assigned"));
+  EXPECT_EQ(this->read(), text);
+}
+
+TEST_F(FileStorage, AnAssignIsWrittenToTheFile) {
+  TestScan &scan = this->boot({ROM_A, ROM_B});
+  scan.assign(0, ROM_B);
+  EXPECT_EQ(scan.restarts, 1);
+  EXPECT_EQ(this->read(), slot_file({{1, HEX_B}, {2, HEX_A}}));
 }
 
 TEST_F(FileStorage, DumpConfigNamesTheFile) {
