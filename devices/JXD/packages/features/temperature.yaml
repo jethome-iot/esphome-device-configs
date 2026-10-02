@@ -1,6 +1,7 @@
 # One Temp N sensor per DS18B20 found at boot. A new sensor takes the lowest free
-# slot in bus order and the slot then keeps its ROM address across reboots; sensors:
-# lists YAML sensors for the first slots. Details: doc/ONEWIRE_WORKFLOW.md
+# slot in bus order and the slot then keeps its ROM address across reboots, in a file
+# on the user partition so a backup carries it; sensors: lists YAML sensors for the
+# first slots. Details: doc/ONEWIRE_WORKFLOW.md
 external_components:
   - source: ${components}
     components: [dallas_scan]
@@ -9,6 +10,7 @@ dallas_scan:
   id: temps
   one_wire_id: one_wire_bus
   max_sensors: 16
+  storage: file
   update_interval: 20s
   web_server:
     sorting_group_id: group_temperature

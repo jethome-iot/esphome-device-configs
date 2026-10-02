@@ -14,7 +14,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [web_device_dashboard, web_origin_guard]
+    components: [web_device_dashboard, web_origin_guard, loop_job, firmware_rollback]
 
 web_server:
   port: 80
@@ -23,13 +23,15 @@ web_server:
 web_device_dashboard:
   board_info_id: board_info   # optional: the jethome_board_info to report
   storage_id: user_storage    # optional: the mount a factory reset wipes
+  dallas_scan_id: temps       # optional: the temperature slots to list, forget and assign
 ```
 
 `board_info_id` names a `jethome_board_info`; with it `/api/device/info` carries the identity the
 firmware read from the CPU board's EEPROM. `storage_id` names a `filesystem_storage_abstract`
 mount: `/api/device/system/factory-reset` wipes it, and `/api/device/capabilities` reports it.
 Both are optional and no route disappears without them — `/api/device/info` omits the board
-block, and a factory reset clears only the stored settings.
+block, and a factory reset clears only the stored settings. `dallas_scan_id` names a
+[`dallas_scan`](../dallas_scan/README.md); without it the temperature-slot routes are `404`.
 
 The Files, Automations and Climate screens need no option of their own: the component reads
 the `url_prefix` of a `web_file_browser`, a `web_automation_editor` and a `web_climate_editor`
@@ -67,28 +69,31 @@ failure `{"success": false, "error"}`. The same contract, machine-readable:
 | GET | `/api/device/capabilities` | what this firmware has, below |
 | POST | `/api/device/system/reboot` | restart, nothing cleared |
 | POST | `/api/device/system/factory-reset` | clear the stored settings and restart, wiping the storage on the way back up (with a `storage_id`) |
-| POST | `/api/device/system/rollback` | boot the other app slot — the firmware this one replaced |
+| POST | `/api/device/system/rollback` | boot the other app slot — after an update, the firmware it replaced |
 
 ### Capabilities
 
-`/api/device/capabilities` answers which screens a client can draw and which routes exist. It
-is meant to be read once on load. A key is there only
-when the capability is, so the test is `if (caps.files)`; one that has no detail to carry is
-`true`. `reboot` and `factory_reset` are
-always there, the latter with `clears_storage` — whether a reset also takes the uploaded files
-and the automation rules with it. `rollback` names the other app slot and the ESPHome version
-of the image in it; that version is what a confirmation dialog should show, because after one
-rollback the other slot is the *newer* firmware. It is absent on a board that has never been
-updated over the air. `storage`, `files`, `automations`, `climates`, `entity_settings` and
-`board_info` follow the components the firmware was built with. `storage` says what the mount
-is, not how full it is: usage is live and this route is read once, so the byte counts stay in
-the file API's own `info`.
+`/api/device/capabilities` answers which screens a client can draw and which routes exist. It is
+meant to be read on load, not polled. A key is there only when the capability is, so the test is
+`if (caps.files)`; one that has no detail to carry is `true`. `reboot` and `factory_reset` are
+always there, the latter with `clears_storage` — whether a reset also takes the uploaded files and
+the automation rules with it. `rollback` names the other app slot and the ESPHome version of the
+image in it; that version is what a confirmation dialog should show, because after one rollback the
+other slot is the *newer* firmware. It is there when
+[`firmware_rollback`](../firmware_rollback/README.md) finds a firmware to go back to, and absent
+after a serial flash, a failed or interrupted update, a rollback the bootloader did itself, or while
+a switch waits for its reboot. `storage`, `files`, `automations`, `climates`, `entity_settings`,
+`board_info` and `temperature_slots` follow the components the firmware was built with. `storage`
+says what the mount is, not how full it is: usage is live and this route is not polled, so the byte
+counts stay in the file API's own `info`.
 
-The embedded page reads this on its **Settings → System** tab and will not draw the tab
-without it: a firmware old enough to answer `404` here gets a message saying so rather than
-buttons that cannot work. It uses `factory_reset.clears_storage` to say whether a reset takes
-the uploaded files with it, and `rollback` to name the slot it would boot — with no key there,
-the action stays disabled instead of offering a `503`.
+The embedded page will not draw its **Settings → System** tab without this: a firmware old
+enough to answer `404` here gets a message saying so rather than buttons that cannot work. It
+uses `factory_reset.clears_storage` to say whether a reset takes the uploaded files with it.
+Its **Settings → Firmware** tab uses `rollback` to name the slot a rollback would boot — with
+no key there, the action stays disabled instead of offering a `503`. Since that key moves, the
+page reads this route again whenever it shows the rollback, and after an update fails or a
+rollback is refused, rather than only on load.
 
 ### System actions
 
@@ -108,7 +113,8 @@ gone once the device is back, not when it answers. A rollback selects the
 other app slot, checking the image while the request is still open — a slot that is not whole
 is a `500` here rather than a device that comes back unchanged — and the firmware it boots gets
 one monitored boot: if it fails before it marks itself good, the bootloader returns to this
-one. `503` means there is nothing to roll back to.
+one. `503` means there is nothing to roll back to, or that the device was too busy to take the
+request (`Device busy`) and selected nothing.
 
 With a [`web_auth`](../web_auth/README.md), the web server's own credentials; without one
 these routes are `404`:
@@ -117,6 +123,17 @@ these routes are `404`:
 |---|---|---|
 | GET | `/api/device/auth` | `{"username", "password_length", "is_default"}` — never the password |
 | POST | `/api/device/auth` | `{"username", "password"}` replaces both; needs `Content-Type: application/json`, which no HTML form can send. Answers `200` for a pair it accepted, under the old credentials; the change itself happens on the next turn of the main loop, and the `GET` confirms it |
+
+With a `dallas_scan_id`, the temperature slots; without one these routes are `404`:
+
+| Method | Path | |
+|---|---|---|
+| GET | `/api/device/temperature-slots` | `{"max_slots", "slots": [{"slot", "name", "free", "listed", "address", "can_forget"}]}`: slots 1 up to the last bound one, a freed slot between them included. `address` is the ROM as a hex string, absent for a free slot and a listed sensor that is not a 1-Wire one. `503` when the loop task does not take the read, or while a forget or an assign waits for its reboot |
+| POST | `/api/device/temperature-slots/forget` | `{"slot": N}` empties that slot, `{"all": true}` every slot but the listed ones, then the device restarts — what the panel's forget rows do. Takes the system actions' confirmation; a request that would change nothing — a free or listed slot, or nothing to forget at all — is `409` and the device keeps running; a table that cannot be written is `503`, a write that fails `500`, and the device keeps running; `503` too when the loop task does not take it or an earlier write waits for its reboot |
+| POST | `/api/device/temperature-slots/assign` | `{"slot": N, "address": "0x…"}` puts that device into slot N, then the device restarts. A device already in another slot swaps with what slot N held; a new address takes slot N from its device, which takes the lowest free slot at the next boot if it is still on the bus. Same confirmation; an address that is not a thermometer ROM with a valid CRC is `400`, a listed slot or device, or a device already there, `409`, a table that cannot be written `503`, a write that fails `500`, a loop task that does not take it or an earlier write that waits for its reboot `503` |
+
+Slots are numbered from 1, as the `Temp N` sensors are. A slot's reading is not here: it is the
+state of the sensor of that `name` on `web_server`'s `/events`.
 
 With a `config_json` store (`entity_config`'s `switch` and `binary_sensor` types), the entity
 settings too; without one these routes are `404`:
@@ -140,7 +157,10 @@ mirror. Nothing in this repository builds or type-checks them.
 `tests/components/web_device_dashboard/` drives the handler on the host through the
 `web_server_base` stand-in: the URLs it claims, the route table and its method matrix, the body
 accumulation and its 4 KiB cap, the JSON every route answers with, the confirmation the system
-actions take, and a factory reset wiping a stand-in storage and the preferences before it
-restarts. Out of reach there is the ESP-IDF half — the `Allow` header, URL decoding, the reset
-reason and the IP lookups, the eFuse block, a live WiFi or Ethernet link, the real reboot, the
-LittleFS format, and the `esp_ota_*` calls behind the rollback, which the tests stand in for.
+actions take, a factory reset wiping a stand-in storage and the preferences before it
+restarts, and the temperature slots listed, forgotten and assigned on a real `dallas_scan` over
+the harness's 1-Wire bus, booted again to see what the table kept. Out of reach there is the
+ESP-IDF half — the `Allow` header, URL decoding, the reset reason and the IP lookups, the
+eFuse block, a live WiFi or Ethernet link, the real reboot, the LittleFS format, and the
+rollback's reads and switch, which the tests stand in for; the rule that decides is covered by
+[`firmware_rollback`](../firmware_rollback/README.md)'s own suite.

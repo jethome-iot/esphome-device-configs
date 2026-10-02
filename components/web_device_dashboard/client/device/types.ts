@@ -286,7 +286,7 @@ export interface StorageCapability {
 
 /**
  * GET /capabilities — what this firmware has, so the page knows which screens to draw and
- * which routes exist. Read once on load, not polled.
+ * which routes exist. Read on load, not polled; read again where `rollback` may have moved.
  *
  * A key is present only when the capability is, so `if (caps.files)` is the test; one that
  * has no detail to carry is `true`. A `404` on this route is a firmware from before it
@@ -298,14 +298,17 @@ export interface Capabilities {
   /** POST /system/factory-reset is served. `clears_storage` says whether it also wipes the
    *  user partition, which is what the confirmation dialog has to warn about. */
   factory_reset: { clears_storage: boolean }
-  /** The slot POST /system/rollback would boot; present only when it holds an image, which
-   *  is also the only case where that route answers anything but `503`. `version` is the
-   *  ESPHome version string of that image, comparable to `DeviceInfo.version` — show it,
-   *  because after one rollback the other slot is the NEWER firmware. */
+  /** The slot POST /system/rollback would boot: after an update the firmware it replaced,
+   *  after a rollback the newer one. Absent after a serial flash, a failed or interrupted
+   *  update, a rollback the bootloader did itself, or while a switch waits for its reboot;
+   *  then that route answers `503`. `version` is the ESPHome version string of that image,
+   *  comparable to `DeviceInfo.version` — show it, because after one rollback the other slot
+   *  is the NEWER firmware. */
   rollback?: {
     /** The partition label, e.g. `"app1"`. */
     partition: string
     version?: string
+    /** The name the image was built under, the device's node name, e.g. `"jxd-r6-e1eth-lcd"`. */
     project_name?: string
   }
   /** Present with a storage component; then `factory_reset.clears_storage` is true. */
@@ -320,7 +323,58 @@ export interface Capabilities {
   entity_settings?: { types: string[] }
   /** The CPU board's EEPROM identity is in `/info`. */
   board_info?: true
+  /** A `dallas_scan` is wired in: GET /temperature-slots and POST /temperature-slots/forget
+   *  and /assign answer. Without it all three are `404`. */
+  temperature_slots?: true
 }
+
+// --- Temperature slots ---
+
+/** One `dallas_scan` slot. `slot` numbers from 1, as the `Temp N` sensors do. */
+export interface TemperatureSlot {
+  slot: number
+  /** The slot's sensor name — the entity web_server serves, and so the key to its reading on
+   *  `/events` — or `<prefix> N` for a free slot. */
+  name: string
+  /** No sensor: the slot was forgotten and nothing took it since. */
+  free: boolean
+  /** Taken by a sensor from `dallas_scan`'s `sensors:`: the YAML fixes it there, and nothing
+   *  here forgets it. */
+  listed: boolean
+  /** The 1-Wire ROM as `0x` and 16 lowercase hex digits — a string, because 64 bits do not
+   *  survive a JS number. Absent for a free slot and for a listed sensor that is not 1-Wire. */
+  address?: string
+  /** POST /temperature-slots/forget with this slot would empty it: it holds a device, is not
+   *  listed, and the table can be written. Whether the device still answers does not matter: an
+   *  unplugged sensor is the usual reason to forget one. */
+  can_forget: boolean
+}
+
+/** GET /temperature-slots — slots 1 up to the last bound one, a freed slot between them
+ *  included. The table changes only at boot and through a forget or an assign, which reboot. */
+export interface TemperatureSlots {
+  /** The size of the table, `dallas_scan`'s `max_sensors`. */
+  max_slots: number
+  slots: TemperatureSlot[]
+}
+
+/** POST /temperature-slots/forget — one slot, or every slot but the listed ones, under the
+ *  system actions' confirmation. The device empties them and writes the table, answers, then
+ *  reboots; a write that fails is `500` and the device keeps running. One that
+ *  would change nothing (a free or listed slot, or nothing to forget) is `409`, and the
+ *  device keeps running; a slot out of range, `all` that is not `true`, or both keys or
+ *  neither, is `400`; a table that cannot be written is `503`. */
+export type ForgetSlotsPayload = ConfirmPayload & ({ slot: number; all?: never } | { all: true; slot?: never })
+
+/** POST /temperature-slots/assign — put the device with `address` into `slot` (from 1), under
+ *  the same confirmation: the table is written, then the device answers and reboots, or answers
+ *  `500` and keeps running when the write fails. A device already in another slot swaps with what `slot`
+ *  held; a new address takes `slot` from its device, which takes the lowest free slot at the
+ *  next boot if it is still on the bus. `address` is `0x` and 16 hex digits, the prefix
+ *  optional. `400` for a malformed or non-thermometer ROM (family or CRC), `409` for a listed
+ *  slot or device, or a device that is in `slot` already, `503` for a table that cannot be
+ *  written. */
+export type AssignSlotPayload = ConfirmPayload & { slot: number; address: string }
 
 // --- Network (live status + saved config) ---
 

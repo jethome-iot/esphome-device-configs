@@ -23,6 +23,8 @@ display:
       enter: center_button_id
       home: home_button_id
       esc: back_button_id
+      # FN is on the CPU board; qemu.yaml makes it a template sensor.
+      fn: fn_button
 
 # A key press is injected with publish_state(), so nothing else may drive these
 # every loop; as `gpio` they would re-read the absent expander and overwrite it.

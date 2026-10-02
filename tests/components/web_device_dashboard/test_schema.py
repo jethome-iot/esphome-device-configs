@@ -42,14 +42,19 @@ class MinimalConfig(unittest.TestCase):
         self.assertEqual(server.type, "web_server_base::WebServerBase")
         self.assertFalse(server.is_declaration)
 
-    def test_the_board_and_the_storage_are_optional(self):
+    def test_the_board_the_storage_and_the_slots_are_optional(self):
         config = dashboard.CONFIG_SCHEMA({})
         self.assertNotIn(dashboard.CONF_BOARD_INFO_ID, config)
         self.assertNotIn(dashboard.CONF_STORAGE_ID, config)
+        self.assertNotIn(dashboard.CONF_DALLAS_SCAN_ID, config)
 
     def test_the_page_needs_a_server_to_hang_off(self):
         # Why the host suite stands web_server in: upstream builds it for ESP platforms only.
         self.assertEqual(dashboard.DEPENDENCIES, ["web_server_base", "web_server"])
+
+    def test_the_rollback_comes_from_its_own_component(self):
+        # The display menu's Rollback row asks the same one, so the two cannot disagree.
+        self.assertIn("firmware_rollback", dashboard.AUTO_LOAD)
 
 
 class BoardInfoId(unittest.TestCase):
@@ -85,6 +90,31 @@ class StorageId(unittest.TestCase):
         for value in (42, "not a name!", "9lives"):
             with self.subTest(value=value), self.assertRaises(cv.Invalid):
                 dashboard.CONFIG_SCHEMA({"storage_id": value})
+
+
+class DallasScanId(unittest.TestCase):
+    """The temperature slots /temperature-slots lists and forgets."""
+
+    def test_it_resolves_to_the_scan_component(self):
+        config = dashboard.CONFIG_SCHEMA({"dallas_scan_id": "temps"})
+        scan = config[dashboard.CONF_DALLAS_SCAN_ID]
+        self.assertEqual(scan.id, "temps")
+        self.assertEqual(scan.type, "dallas_scan::DallasScan")
+        # A reference: the scan is declared by dallas_scan:, which the dashboard does not load.
+        self.assertFalse(scan.is_declaration)
+        self.assertNotIn("dallas_scan", dashboard.AUTO_LOAD)
+
+    def test_the_component_has_the_setter_to_code_calls(self):
+        header = (
+            Path(__file__).resolve().parents[3]
+            / "components/web_device_dashboard/web_device_dashboard.h"
+        ).read_text()
+        self.assertIn("void set_temperature_slots(dallas_scan::DallasScan *", header)
+
+    def test_what_is_not_an_id_is_refused(self):
+        for value in (42, "not a name!", "9lives"):
+            with self.subTest(value=value), self.assertRaises(cv.Invalid):
+                dashboard.CONFIG_SCHEMA({"dallas_scan_id": value})
 
 
 class ServedScreens(unittest.TestCase):
@@ -154,7 +184,13 @@ class ServedScreens(unittest.TestCase):
 
 class UnknownKeys(unittest.TestCase):
     def test_a_misspelled_option_is_refused(self):
-        for key in ("board_info", "boardinfo_id", "url_prefix", "storage"):
+        for key in (
+            "board_info",
+            "boardinfo_id",
+            "url_prefix",
+            "storage",
+            "dallas_scan",
+        ):
             with (
                 self.subTest(key=key),
                 self.assertRaisesRegex(cv.Invalid, "extra keys not allowed"),

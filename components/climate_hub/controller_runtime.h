@@ -40,12 +40,12 @@ class ControllerRuntime {
 
   /// Runs `config` and puts its mode, target, traits and action on the entity. `last` is the
   /// latest reading the hub saw arrive from `sensor`: without one the entity shows the sensor's
-  /// state, which may be hours old, and control waits for a reading, sensor_timeout_s from now
-  /// at most. Also how a Save applies: the claims it keeps carry their relay state and dwell
-  /// over, the PWM keeps its phase while its period stands, the hysteresis keeps its latch in
-  /// the directions the mode still drives (a start latches on a closed relay instead), the PID
-  /// keeps its state while its law and sensor stand, and so does the wait for a first reading
-  /// while the sensor does.
+  /// state, if a finite one, which may be hours old, and control waits for a reading,
+  /// sensor_timeout_s from now at most. Also how a Save applies: the claims it keeps carry their
+  /// relay state and dwell over, the PWM keeps its phase while its period stands, the hysteresis
+  /// keeps its latch in the directions the mode still drives (a start latches on a closed relay
+  /// instead), the PID keeps its state while its law and sensor stand, and so does the wait for
+  /// a first reading while the sensor does.
   void start(ClimateConfig *config, sensor::Sensor *sensor, RelayClaim *heat, RelayClaim *cool, uint32_t now_ms,
              const Reading &last = Reading{});
   /// Opens both relays through the claims and lets go of them and the document. The entity
@@ -56,8 +56,8 @@ class ControllerRuntime {
 
   /// The control loop, with the clock passed in.
   void tick(uint32_t now_ms);
-  /// A reading from the sensor; the hub drops NaN before it gets here. The entity is
-  /// republished only when the temperature changed.
+  /// A reading from the sensor; the hub drops NaN and infinities before they get here. The
+  /// entity is republished only when the temperature changed.
   void on_sample(float value, uint32_t now_ms);
   /// A mode or target from Home Assistant, the web server or the API. True when the document
   /// changed and needs writing.

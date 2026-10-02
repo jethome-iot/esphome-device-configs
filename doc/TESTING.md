@@ -23,6 +23,7 @@ tests/
       dir_storage           # test-only storage backend: a directory on the host
       display_menu_host     # test-only key that pulls display_menu_base into a host build
       loop_job_host         # the same for loop_job
+      one_wire_host         # test-only 1-Wire bus: the cases set what the boot scan found
       web_server            # stand-in for upstream's, which builds for ESP platforms only
       web_server_base       # stand-in for upstream's, so HTTP handlers run on the host
   components/
@@ -33,8 +34,11 @@ tests/
     bindings/               # the same layout, one suite per component
     climate_hub/
     config_json/
+    crash_report/
+    dallas_scan/
     display_menu_base/
     entity_config/
+    firmware_rollback/
     i2c_eeprom/
     jethome_board_info/
     jethome_manifest/
@@ -42,6 +46,7 @@ tests/
                               # upstream refuses on the host platform
     littlefs_storage/         # test_schema.py alone: the C++ is ESP-IDF only
     loop_job/
+    status_indicator/
     virtual_display/          # test_schema.py alone: the C++ includes <esp_http_server.h>,
                               # which the host platform has no header for
     web_auth/
@@ -77,8 +82,14 @@ tests/
   config_json debounce test does. Otherwise a component gives the tests a seam instead: a virtual
   they override, or a step they call.
 - Logger listeners exist only when the YAML asks for them: `test.yaml` carries
-  `-DUSE_LOG_LISTENERS -DESPHOME_LOG_MAX_LISTENERS=1` so a suite can read what was logged.
+  `-DUSE_LOG_LISTENERS -DESPHOME_LOG_MAX_LISTENERS=1` so a suite can read what was logged. A
+  component that requests a listener slot of its own (`crash_report`) gets them from codegen
+  instead, and the hand-set flags would clash with it.
 - An I2C component validates on the host only with an `i2c:` bus that names a `device:`;
   nothing opens it. The suite drives the component over a fake `i2c::I2CBus` of its own.
+- A 1-Wire component needs `one_wire: - platform: one_wire_host` from the harness: upstream's
+  `gpio` bus compiles on the host but does not link. The case sets the devices the boot scan
+  found with `set_devices()`; every device answers all ones, so no scratch pad passes its
+  checksum and a reading is never published.
 - Entity strings (units, device classes, icons) are indices into tables codegen builds from the
   YAML: declare the unit in `test.yaml` and pass its index in `entity_fields`.

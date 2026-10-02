@@ -108,7 +108,7 @@ void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, Rel
   this->entity_->current_temperature = last.seen ? last.value : NAN;
 #ifdef USE_SENSOR
   // Shown, not acted on: a probe that fell silent long ago keeps its last state for good.
-  if (!last.seen && sensor != nullptr && sensor->has_state())
+  if (!last.seen && sensor != nullptr && sensor->has_state() && std::isfinite(sensor->state))
     this->entity_->current_temperature = sensor->state;
 #endif
 

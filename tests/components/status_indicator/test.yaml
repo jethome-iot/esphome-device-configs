@@ -1,0 +1,78 @@
+# Google Test binary for components/status_indicator, built through esphome compile by
+# tests/run.py. The harness main.cpp replaces the generated one, so nothing declared here is
+# ever set up: the instance and the automations exist to get the sources and every action's
+# codegen compiled. The cases build their own instances over a pin that records its writes.
+esphome:
+  name: status-indicator-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+      # The logger keeps listeners only when a component asks for them in codegen; the
+      # dump_config case reads the config lines through one.
+      - -DUSE_LOG_LISTENERS
+      - -DESPHOME_LOG_MAX_LISTENERS=1
+  # Compile-only: every action. No !lambda values here, as run.py reads this file with
+  # yaml.safe_load; the cases cover the templated fields.
+  on_boot:
+    - status_indicator.turn_on: led
+    - status_indicator.turn_off: led
+    - status_indicator.blink_slow: led
+    - status_indicator.blink_fast:
+        id: led
+    - status_indicator.blink_n: led
+    - status_indicator.blink_n:
+        id: led
+        count: 2
+        on_time: 100ms
+        off_time: 300ms
+        pause_time: 2s
+    - status_indicator.pulse: led
+    - status_indicator.pulse:
+        id: led
+        duration: 1s
+    - status_indicator.set_state:
+        id: led
+        state: blink_fast
+    - status_indicator.set_state:
+        id: led
+        state: PULSE
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../../components
+    components: [status_indicator]
+
+status_indicator:
+  id: led
+  pin: GPIO2
+  slow_on_time: 1s
+  fast_off_time: 100ms
+
+# The actions under a trigger that has arguments.
+script:
+  - id: show_code
+    parameters:
+      times: int
+    then:
+      - status_indicator.blink_n:
+          id: led
+          count: 5
+      - status_indicator.pulse:
+          id: led
+          duration: 50ms
+      - status_indicator.set_state:
+          id: led
+          state: ON

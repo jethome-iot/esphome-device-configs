@@ -9,9 +9,10 @@ from esphome.core import CORE
 
 CODEOWNERS = ["@jethome-iot"]
 DEPENDENCIES = ["web_server_base", "web_server"]
-AUTO_LOAD = ["web_origin_guard", "loop_job"]
+AUTO_LOAD = ["web_origin_guard", "loop_job", "firmware_rollback"]
 
 CONF_BOARD_INFO_ID = "board_info_id"
+CONF_DALLAS_SCAN_ID = "dallas_scan_id"
 CONF_STORAGE_ID = "storage_id"
 CONF_URL_PREFIX = "url_prefix"
 
@@ -34,6 +35,9 @@ JetHomeBoardInfo = cg.esphome_ns.namespace("jethome_board_info").class_(
 FilesystemStorageAbstract = cg.esphome_ns.namespace(
     "filesystem_storage_abstract"
 ).class_("FilesystemStorageAbstract", cg.Component)
+DallasScan = cg.esphome_ns.namespace("dallas_scan").class_(
+    "DallasScan", cg.PollingComponent
+)
 
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
@@ -44,6 +48,7 @@ CONFIG_SCHEMA = cv.All(
             ),
             cv.Optional(CONF_BOARD_INFO_ID): cv.use_id(JetHomeBoardInfo),
             cv.Optional(CONF_STORAGE_ID): cv.use_id(FilesystemStorageAbstract),
+            cv.Optional(CONF_DALLAS_SCAN_ID): cv.use_id(DallasScan),
         }
     ).extend(cv.COMPONENT_SCHEMA),
     cv.only_on([PLATFORM_ESP32, PLATFORM_HOST]),  # host: the test suite
@@ -61,6 +66,10 @@ async def to_code(config):
         cg.add_define("USE_WEB_DEVICE_DASHBOARD_STORAGE")
         storage = await cg.get_variable(config[CONF_STORAGE_ID])
         cg.add(var.set_storage(storage))
+    if CONF_DALLAS_SCAN_ID in config:
+        cg.add_define("USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS")
+        slots = await cg.get_variable(config[CONF_DALLAS_SCAN_ID])
+        cg.add(var.set_temperature_slots(slots))
     for component, setter in SERVED_BY.items():
         served = CORE.config.get(component)
         if served is not None:

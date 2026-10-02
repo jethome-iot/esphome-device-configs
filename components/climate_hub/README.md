@@ -96,9 +96,12 @@ component: it would list the entities no thermostat is using.
 Every number is clamped into its range, and a missing one takes its default: the ranges and the
 defaults are the table in `param_table.cpp`. A document built in C++ and handed to `create()` or
 `update()` is clamped the same way. A document that breaks a rule above is refused
-whole with a sentence that says which. A thermostat that is to run is created, saved or enabled
-only when its sensor and relays are on the device and its sensor reports °C; a disabled one may
-name what is not there yet.
+whole with a sentence that says which. A thermostat that is to run is created or saved only
+when its sensor, if it is on the device, reports °C, and no running thermostat holds its relays.
+One whose sensor or a relay is not on the device is saved all the same, enabled, and waits as it
+would at boot, with a `warning` that names what is missing. Enabling a stopped thermostat asks
+for everything: its sensor and relays on the device, the sensor in °C. A disabled one may name
+what is not there yet.
 
 ## Control
 
@@ -113,7 +116,9 @@ name what is not there yet.
   above `safety.max_temperature`, and in mode `off`. A thermostat that starts shows its
   sensor's last value at once, but acts on it only if it arrived within `sensor_timeout_s`
   while a thermostat was running on that sensor, and the timeout runs from that reading;
-  otherwise it waits for the next one.
+  otherwise it waits for the next one. A reading that is not a finite number, `NaN` or an
+  infinity, is no reading: it is neither shown nor acted on, so a sensor that sends nothing
+  else reports `sensor_stale` once `sensor_timeout_s` has passed since its last good one.
 - `min_on_s` and `min_off_s` hold a relay closed or open that long after it moved, whichever
   thermostat moved it or put it back; a safety cut-out does not wait for them.
 - A Save keeps what the thermostat is doing: inside the band a hysteresis thermostat goes on
@@ -174,7 +179,13 @@ The folder is writable by hand, so what it holds is checked at boot:
 - an enabled thermostat whose sensor or relay is missing, whose sensor does not report °C, or
   whose relay another one holds, stays enabled and does not run.
 
-A removal the partition refuses leaves the file empty, so the thermostat does not come back.
+A thermostat that waits is not started when what it names turns up later, only by the next boot
+that finds it, or by a Save or an enable once it is there.
+
+A removal the partition refuses empties the file instead: the next boot refuses an empty file,
+so the thermostat does not come back. When the file cannot be emptied either, the thermostat is
+gone only until the next boot, which loads it from that file again; `remove()` then returns
+`persisted` false.
 
 ## From C++
 
@@ -187,12 +198,14 @@ got to it.
 - `is_running(id)`, `runtime(id)`: the running thermostat's action, fault, duties, PID terms and
   sample age, `nullptr` when it is not running
 - `claimed_by(relay_object_id)`: the id of the running thermostat holding it, or `""`
-- `sensor_reading(sensor_object_id)`: what a sensor reads now, `NaN` without a reading
+- `sensor_reading(sensor_object_id)`: what a sensor reads now, `NaN` without a finite reading
+  in °C
 - `create(draft)`, `update(id, doc)`, `remove(id)`, `set_enabled(id, enabled, take_over)`,
   `set_setpoint(id, value)`: each returns a `Result` — `ok`, the HTTP `code` that fits (400,
   404, 409, 413 for a file that would be over 8 KiB, 500, 507), an `error` sentence (the one
   the editor shows), the new `id`, the `holder` of a relay, a `warning` when the thermostat was
-  saved but no climate entity was free to run it, and `persisted`, false when the change is
+  saved enabled but does not run (its sensor or a relay is not on the device, or no climate
+  entity was free), and `persisted`, false when the change is
   live but did not reach flash
 - `validate_name(name, &error)`, `is_name_taken(name, exclude_id, &error)`
 

@@ -1,5 +1,6 @@
 #include "web_device_dashboard.h"
 #include <ArduinoJson.h>
+#include <cinttypes>
 #include "dashboard_index.h"
 #include "esphome/components/json/json_util.h"
 #include "esphome/core/alloc_helpers.h"
@@ -34,7 +35,6 @@
 #endif
 #ifdef USE_ESP32
 #include <esp_netif.h>
-#include <esp_ota_ops.h>
 #include <esp_system.h>
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
 #include <esp_efuse.h>
@@ -64,6 +64,11 @@ static const Route ROUTES[] = {
     {"system/reboot", RouteId::SYSTEM_REBOOT, false, true},
     {"system/factory-reset", RouteId::SYSTEM_FACTORY_RESET, false, true},
     {"system/rollback", RouteId::SYSTEM_ROLLBACK, false, true},
+#ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
+    {"temperature-slots", RouteId::TEMPERATURE_SLOTS, true, false},
+    {"temperature-slots/forget", RouteId::TEMPERATURE_SLOTS_FORGET, false, true},
+    {"temperature-slots/assign", RouteId::TEMPERATURE_SLOTS_ASSIGN, false, true},
+#endif
 #ifdef USE_CONFIG_JSON
     {"entities", RouteId::ENTITIES, true, false},
     {"entity-settings", RouteId::ENTITY_SETTINGS, true, true},
@@ -174,6 +179,17 @@ void WebDeviceDashboard::handleRequest(AsyncWebServerRequest *request) {
       case RouteId::SYSTEM_ROLLBACK:
         this->handle_rollback_(request);
         break;
+#ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
+      case RouteId::TEMPERATURE_SLOTS:
+        this->handle_temperature_slots_(request);
+        break;
+      case RouteId::TEMPERATURE_SLOTS_FORGET:
+        this->handle_temperature_slots_forget_(request);
+        break;
+      case RouteId::TEMPERATURE_SLOTS_ASSIGN:
+        this->handle_temperature_slots_assign_(request);
+        break;
+#endif
 #ifdef USE_CONFIG_JSON
       case RouteId::ENTITIES:
         this->handle_entities_(request);
@@ -218,6 +234,8 @@ static const char *status_line(int code) {
   switch (code) {
     case 403:
       return "403 Forbidden";
+    case 409:
+      return "409 Conflict";
     case 413:
       return "413 Payload Too Large";
     case 415:
@@ -588,7 +606,7 @@ void WebDeviceDashboard::handle_capabilities_(AsyncWebServerRequest *request) {
 #ifdef USE_WEB_DEVICE_DASHBOARD_STORAGE
     if (this->storage_ != nullptr) {
       factory_reset["clears_storage"] = true;
-      // What the mount is, not how full it is: usage is live, this route is read once, and
+      // What the mount is, not how full it is: usage is live, this route is not polled, and
       // web_file_browser's own `info` already answers it from the same getter.
       JsonObject storage = root["storage"].to<JsonObject>();
       storage["type"] = this->storage_->get_filesystem_type();
@@ -629,22 +647,26 @@ void WebDeviceDashboard::handle_capabilities_(AsyncWebServerRequest *request) {
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
     root["board_info"] = true;
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
+    if (this->temperature_slots_ != nullptr)
+      root["temperature_slots"] = true;
+#endif
   });
   request->send(200, "application/json", body.c_str());
 }
 
-// A stray POST is one page load away, and all three system routes are one-way. The token is
+// A stray POST is one page load away, and every route that takes this is one-way. The token is
 // the tail of base_mac_address, so confirming means having read /api/device/info of this
 // device rather than having followed a link. Not the active MAC: on a build with Ethernet
 // that is a different one, and the answer names which is meant.
-bool WebDeviceDashboard::check_confirm_(AsyncWebServerRequest *request) {
+bool WebDeviceDashboard::check_confirm_(AsyncWebServerRequest *request, JsonDocument &doc) {
   if (!this->require_json_(request))
     return false;
   if (this->body_too_large_) {
     this->send_error_(request, 413, "Request body over 4 KiB");
     return false;
   }
-  JsonDocument doc = json::parse_json(this->body_);
+  doc = json::parse_json(this->body_);
   if (doc.isNull() || !doc.is<JsonObject>()) {
     this->send_error_(request, 400, "Invalid JSON");
     return false;
@@ -683,11 +705,11 @@ void WebDeviceDashboard::handle_factory_reset_(AsyncWebServerRequest *request) {
   this->factory_reset_();
 }
 
-// POST /api/device/system/rollback: the other app slot becomes the next boot -- the firmware
-// this one replaced, until a rollback makes the newer one the other slot. Availability is
-// answered before the confirmation because it is about the firmware, not about the request.
-// The image is checked here rather than optimistically, so a slot that turns out to be
-// broken is an error the caller sees instead of a device that reboots and comes back the same.
+// POST /api/device/system/rollback: the other app slot becomes the next boot, when
+// firmware_rollback says it holds one the bootloader would boot. Availability is answered
+// before the confirmation because it is about the firmware, not about the request. The select
+// runs on the loop task: the display menu selects there too, and the check and the switch
+// must not interleave with it; it also keeps the image hash off the server task's stack (#64).
 void WebDeviceDashboard::handle_rollback_(AsyncWebServerRequest *request) {
   const RollbackTarget target = this->rollback_target_();
   if (!target.available()) {
@@ -696,54 +718,25 @@ void WebDeviceDashboard::handle_rollback_(AsyncWebServerRequest *request) {
   }
   if (!this->check_confirm_(request))
     return;
-  const char *error = this->select_rollback_(target);
-  if (error != nullptr) {
-    ESP_LOGE(TAG, "Rollback to '%s' failed: %s", target.partition.c_str(), error);
-    this->send_error_(request, 500, error);
+  const char *error = nullptr;
+  const bool selected = this->run_on_loop_([&]() {
+    error = this->select_rollback_(target);
+    return error == nullptr;
+  });
+  if (!selected) {
+    // No error means the loop task never took the job: nothing was selected and nothing will be.
+    this->send_error_(request, error == nullptr ? 503 : 500, error == nullptr ? "Device busy" : error);
     return;
   }
-  ESP_LOGW(TAG, "Rolling back to '%s'", target.partition.c_str());
   this->send_success_(request, "Rolling back, rebooting");
   this->reboot_();
 }
 
-#ifdef USE_ESP32
-// The slot the next update would be written to is the one a rollback boots, and its app
-// descriptor says which firmware that is. Only the descriptor is read here — a
-// 256-byte header, not the image — because /capabilities is answered on every page load;
-// whether the image behind it is whole is what esp_ota_set_boot_partition() then checks.
-RollbackTarget WebDeviceDashboard::rollback_target_() const {
-  RollbackTarget target;
-  const esp_partition_t *other = esp_ota_get_next_update_partition(nullptr);
-  if (other == nullptr)
-    return target;
-  esp_app_desc_t desc;
-  if (esp_ota_get_partition_description(other, &desc) != ESP_OK)
-    return target;
-  target.partition = other->label;
-  target.version = std::string(desc.version, strnlen(desc.version, sizeof(desc.version)));
-  target.project_name = std::string(desc.project_name, strnlen(desc.project_name, sizeof(desc.project_name)));
-  return target;
-}
+RollbackTarget WebDeviceDashboard::rollback_target_() const { return firmware_rollback::rollback_target(); }
 
-// Reads the whole image back and hashes it before it writes the boot selection, so this
-// takes a moment on the server task. With rollback enabled — it is, through `ota:` — the
-// slot is selected for one monitored boot: a firmware that dies before safe_mode marks it
-// good brings the bootloader back to this one.
 const char *WebDeviceDashboard::select_rollback_(const RollbackTarget &target) {
-  const esp_partition_t *other = esp_ota_get_next_update_partition(nullptr);
-  if (other == nullptr || target.partition != other->label)
-    return "The firmware to roll back to is gone";
-  const esp_err_t err = esp_ota_set_boot_partition(other);
-  return err == ESP_OK ? nullptr : esp_err_to_name(err);
+  return firmware_rollback::select_rollback(target);
 }
-#else
-RollbackTarget WebDeviceDashboard::rollback_target_() const { return {}; }
-
-const char *WebDeviceDashboard::select_rollback_(const RollbackTarget & /*target*/) {
-  return "Rollback needs an ESP32";
-}
-#endif
 
 void WebDeviceDashboard::restart_() { App.safe_reboot(); }
 
@@ -770,6 +763,246 @@ void WebDeviceDashboard::factory_reset_() {
     this->restart_();
   });
 }
+
+#ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
+// Between a written forget or assign and its reboot the table and the sensors disagree, so the
+// slots are not read or written again until the device is back.
+static const char *const REBOOTING = "Rebooting: the slots change with it";
+
+// GET /api/device/temperature-slots: the dallas_scan slots up to the last bound one, numbered
+// from 1 as the sensor names and the log number them. A freed slot between bound ones keeps its
+// row, as it does in the panel's Temperatures menu. Read on the loop task, where a forget or an
+// assign that cannot write the table puts it back.
+void WebDeviceDashboard::handle_temperature_slots_(AsyncWebServerRequest *request) {
+  auto *scan = this->temperature_slots_;
+  if (scan == nullptr) {
+    this->send_error_(request, 404, "No temperature slots");
+    return;
+  }
+  std::string body;
+  bool rebooting = false;
+  const bool read = this->run_on_loop_([&]() {
+    rebooting = scan->awaiting_reboot();
+    if (rebooting)
+      return false;
+    body = this->temperature_slots_json_(scan);
+    return true;
+  });
+  if (!read) {
+    this->send_error_(request, 503, rebooting ? REBOOTING : "Device busy");
+    return;
+  }
+  request->send(200, "application/json", body.c_str());
+}
+
+std::string WebDeviceDashboard::temperature_slots_json_(dallas_scan::DallasScan *scan) {
+  return json::build_json([scan](JsonObject root) {
+    root["max_slots"] = scan->max_sensors();
+    JsonArray slots = root["slots"].to<JsonArray>();
+    for (size_t slot = 0; slot < scan->used_slots(); slot++) {
+      JsonObject entry = slots.add<JsonObject>();
+      entry["slot"] = slot + 1;
+      entry["name"] = scan->slot_name(slot);
+      entry["free"] = scan->sensor(slot) == nullptr;
+      entry["listed"] = scan->pinned(slot);
+      // A string: a 64-bit ROM does not survive a JavaScript number.
+      if (const uint64_t rom = scan->address(slot); rom != 0)
+        entry["address"] = str_sprintf("0x%016" PRIx64, rom);
+      entry["can_forget"] = scan->can_save() && scan->can_forget(slot);
+    }
+  });
+}
+
+// POST /api/device/temperature-slots/forget: {"slot": N} or {"all": true}, confirmed as the
+// system actions are. What would change nothing is refused before anything happens, rather than
+// answered with a reboot that leaves the table as it was. The check and the write go over to the
+// loop task together, where the panel's Confirm runs too, and the answer says what they did:
+// only the reboot comes after it.
+void WebDeviceDashboard::handle_temperature_slots_forget_(AsyncWebServerRequest *request) {
+  auto *scan = this->temperature_slots_;
+  if (scan == nullptr) {
+    this->send_error_(request, 404, "No temperature slots");
+    return;
+  }
+  JsonDocument doc;
+  if (!this->check_confirm_(request, doc))
+    return;
+  if (!this->check_slots_writable_(request, scan))
+    return;
+  // By presence, not value: {"slot": 1, "all": false} names both, and which one won would be a
+  // guess. isUnbound(), not isNull(): an explicit null is a key the caller wrote.
+  const bool has_slot = !doc["slot"].isUnbound();
+  const bool all = !doc["all"].isUnbound();
+  if (has_slot && all) {
+    this->send_error_(request, 400, "'slot' and 'all' exclude each other");
+    return;
+  }
+  if (!has_slot && !all) {
+    this->send_error_(request, 400, "'slot' or 'all' is required");
+    return;
+  }
+  JsonVariant number = doc["slot"];
+  JsonVariant every = doc["all"];
+  if (all && !(every.is<bool>() && every.as<bool>())) {
+    this->send_error_(request, 400, "'all' must be true");
+    return;
+  }
+  int slot = -1;
+  if (!all) {
+    size_t index;
+    if (!this->read_slot_(request, number, index))
+      return;
+    slot = static_cast<int>(index);
+  }
+  int code = 0;
+  std::string why;
+  const bool stored = this->run_on_loop_([&]() {
+    if (scan->awaiting_reboot()) {
+      code = 503;
+      why = REBOOTING;
+      return false;
+    }
+    if (!scan->can_forget(slot)) {
+      code = 409;
+      why = all                  ? std::string("Nothing to forget: every slot is free or listed in YAML")
+            : scan->pinned(slot) ? str_sprintf("Slot %d belongs to a sensor listed in YAML", slot + 1)
+                                 : str_sprintf("Slot %d is free", slot + 1);
+      return false;
+    }
+    if (!scan->forget_and_save(slot)) {
+      code = 500;
+      why = "The slot table was not written";
+      return false;
+    }
+    return true;
+  });
+  if (!stored) {
+    // No code means the loop task never took the job: nothing was forgotten.
+    this->send_error_(request, code == 0 ? 503 : code, code == 0 ? "Device busy" : why.c_str());
+    return;
+  }
+  if (all) {
+    ESP_LOGW(TAG, "Forgot every temperature slot over the API");
+    this->send_success_(request, "Forgetting every slot, rebooting");
+  } else {
+    ESP_LOGW(TAG, "Forgot temperature slot %d over the API", slot + 1);
+    this->send_success_(request, str_sprintf("Forgetting slot %d, rebooting", slot + 1).c_str());
+  }
+  this->reboot_();
+}
+
+// "0x" (or nothing) and 16 hex digits, the way /temperature-slots and the panel print a ROM.
+// A std::string, not a C string: a JSON string may carry a NUL, and the text would end there.
+static bool parse_rom(const std::string &text, uint64_t &rom) {
+  const size_t start = text.size() >= 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X') ? 2 : 0;
+  if (text.size() - start != 16)
+    return false;
+  rom = 0;
+  for (size_t i = start; i < text.size(); i++) {
+    const uint8_t digit = parse_hex_char(text[i]);
+    if (digit == INVALID_HEX_CHAR)
+      return false;
+    rom = (rom << 4) | static_cast<uint64_t>(digit);
+  }
+  return true;
+}
+
+// POST /api/device/temperature-slots/assign: {"slot": N, "address": "0x…"}, confirmed as the
+// system actions are. The device goes into slot N: a device already in another slot swaps with
+// what slot N held, a new one takes slot N from its device. What dallas_scan would refuse is
+// refused with the reason; the check and the write go over to the loop task together, as for a
+// forget, and only the reboot comes after the answer.
+void WebDeviceDashboard::handle_temperature_slots_assign_(AsyncWebServerRequest *request) {
+  auto *scan = this->temperature_slots_;
+  if (scan == nullptr) {
+    this->send_error_(request, 404, "No temperature slots");
+    return;
+  }
+  JsonDocument doc;
+  if (!this->check_confirm_(request, doc))
+    return;
+  if (!this->check_slots_writable_(request, scan))
+    return;
+  size_t slot;
+  if (!this->read_slot_(request, doc["slot"], slot))
+    return;
+  uint64_t rom;
+  JsonVariant address = doc["address"];
+  if (!address.is<const char *>() || !parse_rom(address.as<std::string>(), rom)) {
+    this->send_error_(request, 400, "'address' must be 16 hex digits, after an optional 0x");
+    return;
+  }
+  const std::string hex = str_sprintf("0x%016" PRIx64, rom);
+  // About the address alone, so it does not wait for the loop task.
+  if (!dallas_scan::DallasScan::valid_address(rom)) {
+    this->send_error_(request, 400, (hex + " is not a thermometer ROM: wrong family or CRC").c_str());
+    return;
+  }
+  int code = 0;
+  std::string why;
+  const bool stored = this->run_on_loop_([&]() {
+    if (scan->awaiting_reboot()) {
+      code = 503;
+      why = REBOOTING;
+      return false;
+    }
+    switch (scan->check_assign(slot, rom)) {
+      case dallas_scan::AssignCheck::OK:
+        break;
+      case dallas_scan::AssignCheck::BAD_SLOT:  // read_slot_ checked the range already
+      case dallas_scan::AssignCheck::BAD_ADDRESS:
+        code = 400;
+        why = hex + " is not a thermometer ROM: wrong family or CRC";
+        return false;
+      case dallas_scan::AssignCheck::LISTED_SLOT:
+        code = 409;
+        why = str_sprintf("Slot %u belongs to a sensor listed in YAML", (unsigned) slot + 1);
+        return false;
+      case dallas_scan::AssignCheck::LISTED_ADDRESS:
+        code = 409;
+        why = hex + " belongs to a sensor listed in YAML";
+        return false;
+      case dallas_scan::AssignCheck::UNCHANGED:
+        code = 409;
+        why = str_sprintf("%s is in slot %u already", hex.c_str(), (unsigned) slot + 1);
+        return false;
+    }
+    if (!scan->assign_and_save(slot, rom)) {
+      code = 500;
+      why = "The slot table was not written";
+      return false;
+    }
+    return true;
+  });
+  if (!stored) {
+    // No code means the loop task never took the job: nothing was assigned.
+    this->send_error_(request, code == 0 ? 503 : code, code == 0 ? "Device busy" : why.c_str());
+    return;
+  }
+  ESP_LOGW(TAG, "Assigned %s to temperature slot %u over the API", hex.c_str(), (unsigned) slot + 1);
+  this->send_success_(request, str_sprintf("Assigning slot %u, rebooting", (unsigned) slot + 1).c_str());
+  this->reboot_();
+}
+
+// A file table whose partition did not mount: forget() and assign() would change nothing, so the
+// request is refused rather than answered with a reboot that leaves the table as it was.
+bool WebDeviceDashboard::check_slots_writable_(AsyncWebServerRequest *request, dallas_scan::DallasScan *scan) {
+  if (scan->can_save())
+    return true;
+  this->send_error_(request, 503, "Temperature slot storage unavailable");
+  return false;
+}
+
+bool WebDeviceDashboard::read_slot_(AsyncWebServerRequest *request, JsonVariant value, size_t &slot) {
+  const int max = static_cast<int>(this->temperature_slots_->max_sensors());
+  if (!value.is<int>() || value.as<int>() < 1 || value.as<int>() > max) {
+    this->send_error_(request, 400, str_sprintf("'slot' must be a number from 1 to %d", max).c_str());
+    return false;
+  }
+  slot = static_cast<size_t>(value.as<int>() - 1);
+  return true;
+}
+#endif  // USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
 
 #ifdef USE_CONFIG_JSON
 template<typename T> static void write_entity_index(JsonObject root, const char *type, const T &entities) {

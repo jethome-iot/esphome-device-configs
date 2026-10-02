@@ -1,0 +1,24 @@
+name: Feature request
+description: Something the firmware cannot do yet
+labels: ['type:feature']
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What you would like
+      description: What the device should do, as you would use it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-for
+    attributes:
+      label: What for
+      description: What you are trying to get done, and how you manage without it today.
+
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: The model, as on its label, if the request is about one.
+      placeholder: JXD-R6-E1ETH-LCD

@@ -1,0 +1,45 @@
+# Google Test binary for components/firmware_rollback, built through esphome compile by
+# tests/run.py. The harness main.cpp replaces the generated one, so nothing declared here is
+# ever set up: the sections exist to get the sources compiled. The cases cover the rule that
+# decides, and the instance and its automations over the host build's answers; what feeds them is
+# esp_ota_* and exists only on ESP32.
+esphome:
+  name: firmware-rollback-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+      # The logger keeps listeners only when a component asks for them in codegen; the
+      # dump_config cases read the config lines through one.
+      - -DUSE_LOG_LISTENERS
+      - -DESPHOME_LOG_MAX_LISTENERS=1
+  # Compile-only, as the harness never runs the generated setup: all three, written without an id.
+  on_boot:
+    - firmware_rollback.refresh:
+    - if:
+        condition:
+          firmware_rollback.is_available:
+        then:
+          - firmware_rollback.rollback:
+              on_error:
+                - delay: 1s
+                - lambda: ESP_LOGW("test", "%s", x.c_str());
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../../components
+    components: [firmware_rollback]
+
+firmware_rollback:

@@ -71,6 +71,17 @@ static std::string not_celsius(const std::string &who, const sensor::Sensor &sen
 }
 #endif
 
+// For the editor: why `sensor`, found on the device, cannot feed a thermostat; "" when it can.
+static std::string unit_refusal(const sensor::Sensor *sensor) {
+#ifdef USE_SENSOR
+  if (sensor != nullptr && !reports_celsius(*sensor))
+    return not_celsius("\"" + std::string(sensor->get_name().c_str()) + "\"", *sensor);
+#else
+  (void) sensor;
+#endif
+  return "";
+}
+
 // The sensor a thermostat runs on, or nullptr with the reason for the log.
 static sensor::Sensor *find_input(const std::string &sensor_id, std::string *error) {
   sensor::Sensor *sensor = find_sensor(sensor_id);
@@ -312,8 +323,8 @@ std::string ClimateHub::claimed_by(const std::string &relay_object_id) const {
 float ClimateHub::sensor_reading(const std::string &sensor_object_id) const {
 #ifdef USE_SENSOR
   sensor::Sensor *sensor = find_sensor(sensor_object_id);
-  // Shown as a room temperature, so only a reading in °C.
-  if (sensor != nullptr && sensor->has_state() && reports_celsius(*sensor))
+  // Shown as a room temperature, so only a number in °C.
+  if (sensor != nullptr && sensor->has_state() && reports_celsius(*sensor) && std::isfinite(sensor->state))
     return sensor->state;
 #endif
   return NAN;
@@ -384,7 +395,7 @@ Result ClimateHub::create(ClimateConfig draft) {
   if (draft.id.empty())
     return failure(409, "Every id made from \"" + draft.name +
                             "\" is taken by a file in the thermostat folder; choose another name");
-  if (draft.enabled && !this->check_startable_(draft, &result))
+  if (draft.enabled && !this->check_savable_(draft, &result))
     return result;
   draft.version = 1;
   bool too_large = false;
@@ -425,7 +436,7 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
   // The path wins: a Save never re-keys a thermostat.
   doc.id = id;
   doc.version = 1;
-  if (doc.enabled && !this->check_startable_(doc, &result))
+  if (doc.enabled && !this->check_savable_(doc, &result))
     return result;
   // Written beside the old file and renamed over it: a failure leaves everything as it was.
   bool too_large = false;
@@ -598,12 +609,9 @@ bool ClimateHub::check_entities_(const ClimateConfig &config, std::string *error
     *error = "No sensor \"" + config.sensor_id + "\" on this device";
     return false;
   }
-#ifdef USE_SENSOR
-  if (!reports_celsius(*sensor)) {
-    *error = not_celsius("\"" + std::string(sensor->get_name().c_str()) + "\"", *sensor);
+  *error = unit_refusal(sensor);
+  if (!error->empty())
     return false;
-  }
-#endif
   for (const OutputConfig *out : {&config.heat, &config.cool}) {
     if (out->configured() && find_switch(out->relay_id) == nullptr) {
       *error = "No switch \"" + out->relay_id + "\" on this device";
@@ -613,10 +621,12 @@ bool ClimateHub::check_entities_(const ClimateConfig &config, std::string *error
   return true;
 }
 
-bool ClimateHub::check_startable_(const ClimateConfig &config, Result *result) const {
-  std::string error;
-  if (!this->check_entities_(config, &error)) {
-    *result = failure(400, error);
+// A missing sensor or relay is no refusal: the thermostat waits for it, as one loaded at boot
+// does. A unit never changes, and a held relay is the holder's to give up.
+bool ClimateHub::check_savable_(const ClimateConfig &config, Result *result) const {
+  const std::string unit = unit_refusal(find_sensor(config.sensor_id));
+  if (!unit.empty()) {
+    *result = failure(400, unit);
     return false;
   }
   std::string relay_id;
@@ -815,8 +825,9 @@ ClimateHub::SensorSubscription *ClimateHub::subscribe_(sensor::Sensor *sensor) {
 
 void ClimateHub::on_sample_(SensorSubscription *sub, float value) {
   // A NaN stored as a reading would pass the staleness and over-temperature guards, and one
-  // through the integrator would leave it NaN for good.
-  if (std::isnan(value))
+  // through the integrator would leave it NaN for good; an infinity would latch the heater on or
+  // wind the integral. Either is no reading: a sensor that sends only those goes stale.
+  if (!std::isfinite(value))
     return;
   const uint32_t now = this->now_ms();
   sub->last = Reading{value, now, true};

@@ -19,7 +19,7 @@ at the next boot. The file format and the C++ API are in
   as long as the sensor timeout before it reports a fault. A sensor silent for longer than its
   timeout, or a reading above the cut-out temperature, opens the relays until that clears. A
   thermostat that starts on a sensor that has fallen silent shows its last value but does not
-  act on it.
+  act on it. A reading that is not a number, or an infinite one, counts as no reading at all.
 - **Relay wear**: a minimum on and off time, 10 s each unless set otherwise, counted from the
   relay's last move, whichever thermostat made it. Saving a thermostat does not restart its
   cycle, and a PID keeps what it has learnt unless the Save changes its control law or its
@@ -37,8 +37,9 @@ The device keeps at most eight. OTA updates keep the files; a factory reset form
 partition, so the thermostats go with it. A file dropped into the folder, over the file API
 under `/files` for instance, is loaded at the next boot.
 
-A thermostat whose sensor or relay is missing at boot stays on disk, not running, until it is
-back.
+A thermostat whose sensor or relay is missing, at boot or when it is saved, stays enabled on disk
+but does not run; a Save of it succeeds with a warning that names what is missing. It starts at
+the next boot that finds what it names, or at a Save that names what is there.
 
 ## Over HTTP
 
