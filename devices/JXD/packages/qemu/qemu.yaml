@@ -37,9 +37,9 @@ select:
     restore_value: false
     initial_option: "Ethernet"
 
-# GPIO0 floats in emulation and, the pin being inverted, reads as held: FN would
-# factory-reset the device ten seconds into every boot. As a template sensor it
-# stays released until something publishes to it (the panel's `fn` key).
+# GPIO0 reads low in emulation, which the inverted pin takes as held from boot, so
+# FN could never be pressed. As a template sensor it starts released and the
+# panel's `fn` key drives it.
 binary_sensor:
   - id: !extend fn_button
     platform: template

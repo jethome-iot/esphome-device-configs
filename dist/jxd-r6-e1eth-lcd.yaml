@@ -287,6 +287,7 @@ binary_sensor:
   - platform: template
     id: fn_held
     internal: true
+    setup_priority: 600
     lambda: |-
       static bool armed = false;
       if (!id(fn_button).state)

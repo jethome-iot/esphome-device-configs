@@ -1,6 +1,7 @@
 #pragma once
 #include <gtest/gtest.h>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <memory>
 #include <thread>
@@ -29,24 +30,30 @@ class RecordingPin : public GPIOPin {
   void digital_write(bool value) override { this->writes.push_back({millis(), value}); }
   size_t dump_summary(char *buffer, size_t len) const override { return snprintf(buffer, len, "recording pin"); }
 
-  std::vector<bool> levels() const {
+  // The first n levels written, or all of them.
+  std::vector<bool> levels(size_t n = SIZE_MAX) const {
     std::vector<bool> out;
-    for (const Write &w : this->writes)
-      out.push_back(w.level);
+    for (size_t i = 0; i < this->writes.size() && i < n; i++)
+      out.push_back(this->writes[i].level);
     return out;
   }
   // Milliseconds from write i - 1 to write i.
   uint32_t gap(size_t i) const { return this->writes[i].at - this->writes[i - 1].at; }
 };
 
-// Times short enough to run in real time, each one distinct so a gap names its phase.
-constexpr uint32_t SLOW_ON = 60;
-constexpr uint32_t SLOW_OFF = 100;
-constexpr uint32_t FAST_ON = 20;
-constexpr uint32_t FAST_OFF = 40;
-constexpr uint32_t PULSE = 70;
-// How late a timeout may fire here: the 1 ms polling plus the host's scheduling noise.
-constexpr uint32_t SLACK = 30;
+// Distinct, so a gap names its phase, and long enough that a probe half way through the shortest
+// sits FAST_ON / 2 from either end.
+constexpr uint32_t FAST_ON = 150;
+constexpr uint32_t FAST_OFF = 250;
+constexpr uint32_t SLOW_ON = 400;
+constexpr uint32_t SLOW_OFF = 600;
+constexpr uint32_t PULSE = 500;
+// The blink_n the cases ask for, apart from the fast and slow times.
+constexpr uint32_t N_ON = 200;
+constexpr uint32_t N_OFF = 300;
+constexpr uint32_t N_PAUSE = 700;
+// How late a phase may end: half the shortest one, far above the polling and the host's noise.
+constexpr uint32_t SLACK = FAST_ON / 2;
 
 class StatusIndicatorTest : public ::testing::Test {
  protected:
@@ -84,10 +91,21 @@ class StatusIndicatorTest : public ::testing::Test {
     }
   }
 
-  // The first writes are `levels`, each one `gaps[i - 1]` ms after the last: never early, at
-  // most SLACK late.
-  void expect_writes(const std::vector<bool> &levels, const std::vector<uint32_t> &gaps) const {
+  // The main loop until the pin has seen `count` writes, so a late phase delays the check
+  // instead of falling out of a fixed window. The cap only ends a test that would hang.
+  void run_until_writes(size_t count) {
+    const uint32_t start = millis();
+    while (this->pin->writes.size() < count && millis() - start < 10000) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      App.scheduler.call(millis());
+    }
+  }
+
+  // Runs until the pin has seen `levels`, then checks them in order, each `gaps[i - 1]` ms
+  // after the last: never early, at most SLACK late.
+  void expect_writes(const std::vector<bool> &levels, const std::vector<uint32_t> &gaps) {
     ASSERT_EQ(gaps.size() + 1, levels.size());
+    this->run_until_writes(levels.size());
     ASSERT_GE(this->pin->writes.size(), levels.size());
     for (size_t i = 0; i < levels.size(); i++) {
       EXPECT_EQ(this->pin->writes[i].level, levels[i]) << "write " << i;
