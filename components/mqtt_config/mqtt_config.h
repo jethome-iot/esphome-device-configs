@@ -90,23 +90,28 @@ class MqttConfig : public Component {
   // GET /mqtt: the stored settings, never the password, and what runs this boot.
   void write_settings_json(JsonObject root) const;
 
-  // --- Any task: atomics only ---
+  // --- Any task: one atomic snapshot, so a reader never sees half a transition ---
   struct LiveStatus {
     bool running;
     bool connected;
     MqttState state;
     MqttError last_error;
+    // A saved change waits for a restart, or the client is held back and a restart retries it.
+    bool reboot_required;
+
+    bool operator==(const LiveStatus &other) const = default;
   };
-  LiveStatus live_status() const;
-  // A saved change waits for a restart, or the client is held back and a restart retries it.
-  bool reboot_required() const { return this->reboot_required_.load(); }
+  LiveStatus live_status() const { return unpack_status(this->status_.load()); }
+  bool reboot_required() const { return this->live_status().reboot_required; }
+  static uint32_t pack_status(const LiveStatus &status);
+  static LiveStatus unpack_status(uint32_t packed);
 
   // --- Loop task ---
-  MqttState state() const { return this->state_.load(); }
-  MqttError last_error() const { return this->last_error_.load(); }
+  MqttState state() const { return this->state_; }
+  MqttError last_error() const { return this->last_error_; }
   // The client was started this boot.
-  bool running() const { return this->started_.load(); }
-  bool connected() const { return this->connected_.load(); }
+  bool running() const { return this->started_; }
+  bool connected() const { return this->connected_; }
   DiscoveryCleanup discovery_cleanup() const;
   // This boot's crash streak, evaluated on the first call, whoever makes it.
   uint8_t crash_streak();
@@ -167,7 +172,10 @@ class MqttConfig : public Component {
   bool serves_(const EntityBase *entity) const;
   void on_connect_();
   void on_disconnect_(mqtt::MQTTClientDisconnectReason reason);
-  void refresh_state_();
+  // Works out the state and publishes the snapshot: once per transition, after every field moved.
+  void publish_status_();
+  // The one store other tasks read; virtual so the tests can watch every write.
+  virtual void store_status_(uint32_t packed) { this->status_.store(packed); }
   void update_reboot_required_();
   const std::string &effective_prefix_(const MqttRecord &record) const;
   const std::string &effective_client_id_(const MqttRecord &record) const;
@@ -186,11 +194,13 @@ class MqttConfig : public Component {
   bool held_back_{false};
   bool cleanup_active_{false};
 
-  std::atomic<bool> started_{false};
-  std::atomic<bool> connected_{false};
-  std::atomic<bool> reboot_required_{false};
-  std::atomic<MqttState> state_{MqttState::NOT_CONFIGURED};
-  std::atomic<MqttError> last_error_{MqttError::NONE};
+  // Loop task only; other tasks read them through status_.
+  bool started_{false};
+  bool connected_{false};
+  bool reboot_required_{false};
+  MqttState state_{MqttState::NOT_CONFIGURED};
+  MqttError last_error_{MqttError::NONE};
+  std::atomic<uint32_t> status_{0};  // pack_status() of the fields above; 0 is the state before setup
   std::atomic<MqttError> pending_error_{MqttError::NONE};  // read from the log, waiting for the drop
 
   bool guard_evaluated_{false};

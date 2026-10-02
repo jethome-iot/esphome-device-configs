@@ -1,3 +1,5 @@
+#include <functional>
+#include <set>
 #include "common.h"
 
 namespace esphome::mqtt_config::testing {
@@ -165,6 +167,65 @@ TEST_F(StatusTest, TheLiveStatusMatchesTheLoopsView) {
   check();
   EXPECT_EQ(c.live_status().state, MqttState::DISCONNECTED);
   EXPECT_EQ(c.live_status().last_error, MqttError::DNS);
+}
+
+// Other tasks read the status as one word, so every combination has to survive the trip.
+TEST(MqttConfigStatus, EveryCombinationRoundTripsThroughThePackedWord) {
+  std::set<uint32_t> seen;
+  for (int flags = 0; flags < 8; flags++) {
+    for (uint8_t state = 0; state <= static_cast<uint8_t>(MqttState::DISCONNECTED); state++) {
+      for (uint8_t error = 0; error <= static_cast<uint8_t>(MqttError::CRASH_GUARD); error++) {
+        const MqttConfig::LiveStatus status{(flags & 1) != 0, (flags & 2) != 0, static_cast<MqttState>(state),
+                                            static_cast<MqttError>(error), (flags & 4) != 0};
+        const uint32_t packed = MqttConfig::pack_status(status);
+        EXPECT_EQ(MqttConfig::unpack_status(packed), status) << packed;
+        seen.insert(packed);
+      }
+    }
+  }
+  EXPECT_EQ(seen.size(), 8u * 5u * 10u);
+  // Nothing published yet reads as an idle, unconfigured client.
+  EXPECT_EQ(MqttConfig::unpack_status(0),
+            (MqttConfig::LiveStatus{false, false, MqttState::NOT_CONFIGURED, MqttError::NONE, false}));
+}
+
+// A reader on another task sees only what one write published: one write per transition, and
+// never a combination the contract rules out.
+TEST_F(StatusTest, EachTransitionPublishesOneConsistentSnapshot) {
+  MqttRecord stored = enabled_record();
+  stored.discovery = true;
+  stored.enabled = false;
+  this->plant(stored);
+  TestConfig &c = this->boot();
+  size_t writes = c.status_writes.size();
+  EXPECT_EQ(writes, 1u);  // setup
+  const auto step = [&](const char *what, const std::function<void()> &transition) {
+    transition();
+    EXPECT_EQ(c.status_writes.size(), writes + 1) << what;
+    writes = c.status_writes.size();
+    EXPECT_EQ(c.status_writes.back(), c.live_status()) << what;
+  };
+  step("first enable", [&] { this->save(patch_of([](MqttPatch &p) { p.enabled = true; })); });
+  step("connect", [&] { this->client->connect_for_test(); });
+  step("drop", [&] { this->client->drop_for_test(Reason::TCP_DISCONNECTED); });
+  step("reconnect", [&] { this->client->connect_for_test(); });
+  step("later change", [&] { this->save(patch_of([](MqttPatch &p) { p.username = std::string("jxd"); })); });
+  step("refused", [&] { this->client->drop_for_test(Reason::MQTT_NOT_AUTHORIZED); });
+  step("back", [&] { this->client->connect_for_test(); });
+  step("factory reset", [&] { c.before_factory_reset([] {}); });
+
+  for (const MqttConfig::LiveStatus &s : c.status_writes) {
+    EXPECT_EQ(s.connected, s.state == MqttState::CONNECTED);
+    if (s.state == MqttState::CONNECTING)
+      EXPECT_EQ(s.last_error, MqttError::NONE);
+    if (s.state == MqttState::DISCONNECTED)
+      EXPECT_NE(s.last_error, MqttError::NONE);
+    if (!s.running)
+      EXPECT_TRUE(s.state == MqttState::NOT_CONFIGURED || s.state == MqttState::OFF);
+    else
+      EXPECT_TRUE(s.state != MqttState::NOT_CONFIGURED && s.state != MqttState::OFF);
+  }
+  EXPECT_TRUE(c.status_writes.back().reboot_required);
 }
 
 TEST_F(StatusTest, TheSettingsAnswerCarriesTheState) {

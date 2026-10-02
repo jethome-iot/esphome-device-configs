@@ -125,6 +125,8 @@ class TestConfig : public MqttConfig {
   enum class Flush { OK, FAILED_RECORD_LANDED, FAILED_RECORD_LOST };
   Flush flush{Flush::OK};
   int stores{0};
+  // Every snapshot other tasks could have read, in order.
+  std::vector<LiveStatus> status_writes;
 
   void set_disarm_after_ms(uint32_t ms) { this->disarm_after_ms_ = ms; }
   void log(uint8_t level, const char *tag, const std::string &line) {
@@ -150,6 +152,10 @@ class TestConfig : public MqttConfig {
   bool panic_reset_() const override { return this->board_->panic; }
   CrashGuardRecord &guard_record_() override { return this->board_->rtc; }
   void add_log_listener_() override { this->board_->log_listener_added = true; }
+  void store_status_(uint32_t packed) override {
+    this->status_writes.push_back(unpack_status(packed));
+    MqttConfig::store_status_(packed);
+  }
 
   Board *board_;
 };

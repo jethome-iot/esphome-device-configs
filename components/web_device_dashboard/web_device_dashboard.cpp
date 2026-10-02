@@ -449,7 +449,7 @@ void WebDeviceDashboard::handle_status_(AsyncWebServerRequest *request) {
     if (link.rssi_valid)
       root["rssi"] = link.rssi;
     write_ip_address(root);
-    // A saved change that applies on a restart. Atomics only: this runs on the server's task.
+    // A saved change that applies on a restart. One snapshot: this runs on the server's task.
     bool mqtt_waits = false;
 #ifdef USE_MQTT_CONFIG
     if (auto *mqtt = mqtt_config::global_mqtt_config; mqtt != nullptr) {
@@ -464,7 +464,7 @@ void WebDeviceDashboard::handle_status_(AsyncWebServerRequest *request) {
       } else {
         out["last_error"] = nullptr;
       }
-      mqtt_waits = mqtt->reboot_required();
+      mqtt_waits = live.reboot_required;
     }
 #endif
     root["reboot_required"] = mqtt_waits;

@@ -102,7 +102,7 @@ void MqttConfig::setup() {
   this->add_log_listener_();
 
   this->update_reboot_required_();
-  this->refresh_state_();
+  this->publish_status_();
   if (!this->cleanup_active_)
     this->disable_loop();
 }
@@ -233,13 +233,13 @@ MqttConfig::UpdateResult MqttConfig::update(const MqttPatch &patch) {
     ESP_LOGI(TAG, "MQTT turned on: connecting to %s:%u", merged.broker.c_str(), static_cast<unsigned>(merged.port));
   }
   this->update_reboot_required_();
-  this->refresh_state_();
+  this->publish_status_();
   return this->result_(200, this->save_message_(start_now, merged.enabled), start_now);
 }
 
 const char *MqttConfig::save_message_(bool started, bool enabled) const {
   const DiscoveryCleanup cleanup = this->discovery_cleanup();
-  const bool reboot = this->reboot_required_.load();
+  const bool reboot = this->reboot_required_;
   if (started)
     return "Saved; MQTT is connecting";
   if (reboot && cleanup == DiscoveryCleanup::RUNNING)
@@ -260,7 +260,7 @@ const char *MqttConfig::save_message_(bool started, bool enabled) const {
 }
 
 MqttConfig::UpdateResult MqttConfig::result_(int code, const char *message, bool started) const {
-  return UpdateResult{code, message, started, this->reboot_required_.load(), this->discovery_cleanup()};
+  return UpdateResult{code, message, started, this->reboot_required_, this->discovery_cleanup()};
 }
 
 bool MqttConfig::load_record_(StoredMqttV1 &out) { return this->pref_.load(&out); }
@@ -378,6 +378,7 @@ void MqttConfig::before_factory_reset(std::function<void()> &&then) {
     this->start_cleanup_();
     this->applied_.discovery = false;
     this->update_reboot_required_();
+    this->publish_status_();
   }
   this->after_cleanup(CLEANUP_WAIT_MS, std::move(then));
 }
@@ -418,12 +419,13 @@ void MqttConfig::on_connect_() {
     record.streak = 0;
     record.armed = 0;
   });
-  this->refresh_state_();
+  this->publish_status_();
 }
 
 void MqttConfig::on_disconnect_(mqtt::MQTTClientDisconnectReason reason) {
   using Reason = mqtt::MQTTClientDisconnectReason;
-  const bool was_connected = this->connected_.exchange(false);
+  const bool was_connected = this->connected_;
+  this->connected_ = false;
   this->cancel_timeout("mqtt-guard");
   MqttError error;
   switch (reason) {
@@ -460,7 +462,7 @@ void MqttConfig::on_disconnect_(mqtt::MQTTClientDisconnectReason reason) {
   this->pending_error_ = MqttError::NONE;
   this->last_error_ = error;
   ESP_LOGW(TAG, "Not connected: %s", error_label(error));
-  this->refresh_state_();
+  this->publish_status_();
 }
 
 void MqttConfig::add_log_listener_() {
@@ -506,7 +508,7 @@ void MqttConfig::on_log_(void *self, uint8_t level, const char *tag, const char 
   }
 }
 
-void MqttConfig::refresh_state_() {
+void MqttConfig::publish_status_() {
   MqttState state;
   if (!this->started_) {
     state = this->stored_.broker.empty() ? MqttState::NOT_CONFIGURED : MqttState::OFF;
@@ -518,10 +520,20 @@ void MqttConfig::refresh_state_() {
     state = MqttState::DISCONNECTED;
   }
   this->state_ = state;
+  this->store_status_(pack_status(
+      LiveStatus{this->started_, this->connected_, this->state_, this->last_error_, this->reboot_required_}));
 }
 
-MqttConfig::LiveStatus MqttConfig::live_status() const {
-  return LiveStatus{this->started_.load(), this->connected_.load(), this->state_.load(), this->last_error_.load()};
+// Bits 0-2 the flags, 3-5 the state, 8-11 the error: one 32-bit word, so a single load.
+uint32_t MqttConfig::pack_status(const LiveStatus &status) {
+  return static_cast<uint32_t>(status.running) | static_cast<uint32_t>(status.connected) << 1 |
+         static_cast<uint32_t>(status.reboot_required) << 2 | static_cast<uint32_t>(status.state) << 3 |
+         static_cast<uint32_t>(status.last_error) << 8;
+}
+
+MqttConfig::LiveStatus MqttConfig::unpack_status(uint32_t packed) {
+  return LiveStatus{(packed & 1u) != 0, (packed & 2u) != 0, static_cast<MqttState>((packed >> 3) & 0x7u),
+                    static_cast<MqttError>((packed >> 8) & 0xFu), (packed & 4u) != 0};
 }
 
 uint8_t MqttConfig::crash_streak() {
@@ -548,8 +560,8 @@ void MqttConfig::write_settings_json(JsonObject root) const {
   root["topic_prefix"] = s.topic_prefix;
   root["topic_prefix_default"] = this->default_prefix_;
   root["discovery"] = s.discovery;
-  root["state"] = state_key(this->state_.load());
-  if (const char *error = error_key(this->last_error_.load()); error != nullptr) {
+  root["state"] = state_key(this->state_);
+  if (const char *error = error_key(this->last_error_); error != nullptr) {
     root["last_error"] = error;
   } else {
     root["last_error"] = nullptr;
@@ -568,7 +580,7 @@ void MqttConfig::write_settings_json(JsonObject root) const {
   // A first enable starts at once only with the prefix this boot subscribed its commands with.
   root["apply_now"] =
       !this->started_ && !this->held_back_ && this->effective_prefix_(this->stored_) == this->applied_.topic_prefix;
-  root["reboot_required"] = this->reboot_required_.load();
+  root["reboot_required"] = this->reboot_required_;
   root["discovery_cleanup"] = cleanup_key(this->discovery_cleanup());
   if (this->stored_notice_.empty()) {
     root["stored_notice"] = nullptr;
@@ -591,7 +603,7 @@ void MqttConfig::dump_config() {
                                                   "  Running: %s",
                 YESNO(s.enabled), s.broker.c_str(), static_cast<unsigned>(s.port), s.username.c_str(),
                 s.password.empty() ? "not set" : "set", this->effective_client_id_(s).c_str(),
-                this->effective_prefix_(s).c_str(), ONOFF(s.discovery), YESNO(this->started_.load()));
+                this->effective_prefix_(s).c_str(), ONOFF(s.discovery), YESNO(this->started_));
   if (!this->stored_notice_.empty())
     ESP_LOGCONFIG(TAG, "  Stored notice: %s", this->stored_notice_.c_str());
   if (this->held_back_)
