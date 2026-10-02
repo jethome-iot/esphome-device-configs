@@ -73,6 +73,10 @@ class ClimateHub : public Component {
   uint8_t max_controllers() const { return this->max_controllers_; }
   /// Whether the thermostat is running: enabled, and its sensor and relays were there.
   bool is_running(const std::string &id) const { return this->slot_for_(id) != nullptr; }
+  /// Why an enabled thermostat is not running, worded as the `warning` that said so ("not
+  /// started: sensor 'attic' not found"): what its last start, at boot, a Save or an enable,
+  /// failed on. "" when it runs, is disabled or is not there.
+  std::string waiting_reason(const std::string &id) const;
   /// The running thermostat's control state (action, fault, duties, PID terms, sample age),
   /// nullptr when it is not running.
   const ControllerRuntime *runtime(const std::string &id) const;
@@ -139,6 +143,8 @@ class ClimateHub : public Component {
   void resolve_name_(ClimateConfig *config);
 
   bool start_(ClimateConfig *config, std::string *error);
+  /// Keeps `error` as why `id` waits, and returns it worded as a `warning`.
+  const std::string &note_waiting_(const std::string &id, const std::string &error);
   void stop_(Slot *slot);
   bool restart_(Slot *slot, const std::string &previous_name, std::string *error);
   bool acquire_claims_(const ClimateConfig &config, RelayClaim **heat, RelayClaim **cool, std::string *error);
@@ -207,6 +213,8 @@ class ClimateHub : public Component {
   // Each relay's last switching once its claim is gone, by object id: the next claim on it
   // honours min_on and min_off from there.
   std::map<std::string, RelaySwitching> relay_history_;
+  // Why each enabled thermostat that is not running did not start, by id, as a `warning`.
+  std::map<std::string, std::string> waiting_;
   // One per sensor, kept for the life of the device: upstream has no callback removal.
   std::vector<std::unique_ptr<SensorSubscription>> sensor_subs_;
 

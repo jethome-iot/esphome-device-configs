@@ -186,7 +186,7 @@ bool ClimateHub::load_() {
       continue;
     std::string error;
     if (!this->start_(config.get(), &error))
-      ESP_LOGW(TAG, "'%s' not started: %s", config->id.c_str(), error.c_str());
+      ESP_LOGW(TAG, "'%s' %s", config->id.c_str(), this->note_waiting_(config->id, error).c_str());
   }
   ESP_LOGD(TAG, "Loaded %u thermostats from '%s'", static_cast<unsigned>(this->store_.size()), folder.c_str());
   return true;
@@ -286,9 +286,14 @@ void ClimateHub::dump_config() {
   ESP_LOGCONFIG(TAG, "  Thermostats: %u of %u", static_cast<unsigned>(this->store_.size()),
                 static_cast<unsigned>(this->max_controllers_));
   for (const auto &config : this->store_.all()) {
+    std::string state = "disabled";
+    if (this->is_running(config->id)) {
+      state = "running";
+    } else if (config->enabled) {
+      state = this->waiting_reason(config->id);
+    }
     ESP_LOGCONFIG(TAG, "  '%s' (%s): %s, %s", config->name.c_str(), config->id.c_str(),
-                  enums::control_kind_to_string(config->kind),
-                  this->is_running(config->id) ? "running" : (config->enabled ? "not started" : "disabled"));
+                  enums::control_kind_to_string(config->kind), state.c_str());
   }
 }
 
@@ -313,6 +318,14 @@ ClimateHub::Slot *ClimateHub::slot_for_(const std::string &id) const {
 const ControllerRuntime *ClimateHub::runtime(const std::string &id) const {
   Slot *slot = this->slot_for_(id);
   return slot == nullptr ? nullptr : &slot->runtime;
+}
+
+std::string ClimateHub::waiting_reason(const std::string &id) const {
+  const ClimateConfig *config = this->store_.get(id);
+  if (config == nullptr || !config->enabled || this->is_running(id))
+    return "";
+  auto it = this->waiting_.find(id);
+  return it == this->waiting_.end() ? std::string() : it->second;
 }
 
 std::string ClimateHub::claimed_by(const std::string &relay_object_id) const {
@@ -410,7 +423,7 @@ Result ClimateHub::create(ClimateConfig draft) {
     if (this->start_(stored, &error)) {
       this->schedule_ha_resync_();
     } else {
-      result.warning = "not started: " + error;
+      result.warning = this->note_waiting_(stored->id, error);
       ESP_LOGW(TAG, "'%s' created but %s", stored->id.c_str(), result.warning.c_str());
     }
   }
@@ -450,6 +463,8 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
   this->dirty_.erase(id);
   result = success();
 
+  if (!stored->enabled)
+    this->waiting_.erase(id);
   if (slot != nullptr && !stored->enabled) {
     this->stop_(slot);
     structural = true;
@@ -462,14 +477,14 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
                    previous.visual.max_temperature != stored->visual.max_temperature ||
                    previous.visual.step != stored->visual.step;
     } else {
-      result.warning = "not started: " + error;
+      result.warning = this->note_waiting_(id, error);
       structural = true;
     }
   } else if (stored->enabled) {
     if (this->start_(stored, &error)) {
       structural = true;
     } else {
-      result.warning = "not started: " + error;
+      result.warning = this->note_waiting_(id, error);
     }
   }
   if (structural)
@@ -494,6 +509,7 @@ Result ClimateHub::remove(const std::string &id) {
   result = success();
   result.persisted = this->delete_file_(id);
   this->dirty_.erase(id);
+  this->waiting_.erase(id);
   ESP_LOGD(TAG, "Removed '%s'", id.c_str());
   // Last: `id` may be the document's own string.
   this->store_.remove(id);
@@ -511,6 +527,7 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
   result = success();
 
   if (!enabled) {
+    this->waiting_.erase(id);
     if (stored->enabled) {
       stored->enabled = false;
       result.persisted = this->save_(*stored);
@@ -544,6 +561,7 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
       result.persisted = this->save_(*held) && result.persisted;
       this->dirty_.erase(holder);
     }
+    this->waiting_.erase(holder);
     Slot *holding = this->slot_for_(holder);
     this->hand_over_(holder, holding, *stored);
     if (holding != nullptr) {
@@ -562,7 +580,7 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
   if (this->start_(stored, &error)) {
     this->schedule_ha_resync_();
   } else {
-    result.warning = "not started: " + error;
+    result.warning = this->note_waiting_(id, error);
     ESP_LOGW(TAG, "'%s' enabled but %s", id.c_str(), result.warning.c_str());
   }
   return result;
@@ -766,8 +784,13 @@ bool ClimateHub::start_(ClimateConfig *config, std::string *error) {
   this->park_names_like_(config->name, slot);
   slot->entity.show(config->name, this->entity_fields_);
   slot->entity.publish_state();
+  this->waiting_.erase(config->id);
   ESP_LOGD(TAG, "'%s' running as climate '%s'", config->id.c_str(), config->name.c_str());
   return true;
+}
+
+const std::string &ClimateHub::note_waiting_(const std::string &id, const std::string &error) {
+  return this->waiting_[id] = "not started: " + error;
 }
 
 bool ClimateHub::restart_(Slot *slot, const std::string &previous_name, std::string *error) {

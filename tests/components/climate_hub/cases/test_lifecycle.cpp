@@ -247,10 +247,13 @@ TEST_F(HubTest, TakeOverDisablesTheHolder) {
 TEST_F(HubTest, DisableStopsTheEntityAndEnableBringsItBack) {
   this->create(draft("Boiler"));
 
+  EXPECT_EQ("", hub().waiting_reason("boiler")) << "running: nothing to wait for";
   ASSERT_TRUE(hub().set_enabled("boiler", false).ok);
   EXPECT_FALSE(hub().is_running("boiler"));
   EXPECT_EQ("", hub().claimed_by("relay_1"));
   EXPECT_FALSE(hub().store().get("boiler")->enabled);
+  EXPECT_EQ("", hub().waiting_reason("boiler")) << "disabled: not waiting either";
+  EXPECT_EQ("", hub().waiting_reason("nope"));
 
   ASSERT_TRUE(hub().set_enabled("boiler", true).ok);
   EXPECT_TRUE(hub().is_running("boiler"));
@@ -403,6 +406,47 @@ TEST_F(HubTest, AHeldRelayStillRefusesAnEnableWhoseSensorIsMissing) {
   EXPECT_TRUE(hub().is_running("winter"));
 }
 
+// Why an enabled thermostat does not run is kept, worded as the `warning` that said so, for
+// whoever asks later: the newest failed start's reason, until it starts or is disabled.
+TEST_F(HubTest, AWaitingThermostatKeepsWhyItDoesNotRun) {
+  ClimateConfig ghost = draft("Ghost");
+  ghost.sensor_id = "no_such_sensor";
+  Result result = hub().create(ghost);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: sensor 'no_such_sensor' not found", hub().waiting_reason("ghost"));
+  EXPECT_EQ(result.warning, hub().waiting_reason("ghost"));
+
+  result = hub().update("ghost", draft("Ghost", "relay_9"));
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: relay 'relay_9' not found", hub().waiting_reason("ghost")) << "the newest";
+  EXPECT_EQ(result.warning, hub().waiting_reason("ghost"));
+
+  ClimateConfig uptime = draft("Ghost");
+  uptime.sensor_id = "uptime";
+  EXPECT_EQ(400, hub().update("ghost", uptime).code);
+  EXPECT_EQ("not started: relay 'relay_9' not found", hub().waiting_reason("ghost")) << "a refusal changes nothing";
+
+  ASSERT_TRUE(hub().set_enabled("ghost", false).ok);
+  EXPECT_EQ("", hub().waiting_reason("ghost"));
+  EXPECT_EQ(0u, hub().reasons_kept());
+
+  result = hub().set_enabled("ghost", true);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: relay 'relay_9' not found", hub().waiting_reason("ghost"));
+  EXPECT_EQ(result.warning, hub().waiting_reason("ghost"));
+
+  ClimateConfig off = draft("Ghost", "relay_9");
+  off.enabled = false;
+  ASSERT_TRUE(hub().update("ghost", off).ok);
+  EXPECT_EQ("", hub().waiting_reason("ghost")) << "a Save that disables it ends the wait too";
+  EXPECT_EQ(0u, hub().reasons_kept());
+
+  ASSERT_TRUE(hub().update("ghost", draft("Ghost", "relay_9")).ok);
+  ASSERT_EQ(1u, hub().reasons_kept());
+  ASSERT_TRUE(hub().remove("ghost").ok);
+  EXPECT_EQ(0u, hub().reasons_kept()) << "nor does a removed one leave its reason behind";
+}
+
 // A Save that points a running thermostat at a missing relay stops it: it opens its relay, lets
 // go of it and waits for the new one, saved and enabled.
 TEST_F(HubTest, ASaveOntoAMissingRelayStopsTheThermostatAndKeepsIt) {
@@ -416,6 +460,7 @@ TEST_F(HubTest, ASaveOntoAMissingRelayStopsTheThermostatAndKeepsIt) {
   Result result = hub().update("boiler", draft("Boiler", "relay_9"));
   ASSERT_TRUE(result.ok) << result.error;
   EXPECT_EQ("not started: relay 'relay_9' not found", result.warning);
+  EXPECT_EQ(result.warning, hub().waiting_reason("boiler"));
   EXPECT_EQ("relay_9", hub().store().get("boiler")->heat.relay_id);
   EXPECT_TRUE(hub().store().get("boiler")->enabled);
   EXPECT_FALSE(hub().is_running("boiler"));
@@ -431,6 +476,8 @@ TEST_F(HubTest, ASaveOntoAMissingRelayStopsTheThermostatAndKeepsIt) {
   ASSERT_TRUE(result.ok) << result.error;
   EXPECT_EQ("", result.warning);
   EXPECT_TRUE(hub().is_running("boiler"));
+  EXPECT_EQ("", hub().waiting_reason("boiler"));
+  EXPECT_EQ(0u, hub().reasons_kept());
 }
 
 // The same for a sensor: the relays it kept are opened and let go with it.
@@ -958,7 +1005,7 @@ TEST_F(HubTest, TheConfigDumpSaysWhatEachThermostatIsDoing) {
   EXPECT_TRUE(log.has("Thermostats: 3 of 4"));
   EXPECT_TRUE(log.has("'Boiler' (boiler): pid, running"));
   EXPECT_TRUE(log.has("'Kettle' (kettle): pid, disabled"));
-  EXPECT_TRUE(log.has("'Attic' (attic): bang_bang, not started"));
+  EXPECT_TRUE(log.has("'Attic' (attic): bang_bang, not started: sensor 'gone' not found"));
 }
 
 // A target that cannot be written stays live; the log says it will not survive a reboot.

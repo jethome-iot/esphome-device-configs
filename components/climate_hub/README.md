@@ -178,7 +178,7 @@ The folder is writable by hand, so what it holds is checked at boot:
   (a name whose every id is taken that way is refused);
 - a name another thermostat or a YAML climate already has becomes `<name> 2` and is written back;
 - an enabled thermostat whose sensor or relay is missing, whose sensor does not report °C, or
-  whose relay another one holds, stays enabled and does not run.
+  whose relay another one holds, stays enabled and does not run; `waiting_reason()` says which.
 
 A thermostat that waits is not started when what it names turns up later, only by the next boot
 that finds it, or by a Save or an enable once it is there.
@@ -198,6 +198,9 @@ got to it.
 - `store()`: the documents, sorted by id; `max_controllers()`
 - `is_running(id)`, `runtime(id)`: the running thermostat's action, fault, duties, PID terms and
   sample age, `nullptr` when it is not running
+- `waiting_reason(id)`: why an enabled thermostat does not run, the sentence its last failed
+  start gave as a `warning`, at boot, a Save or an enable (`not started: sensor 'attic' not
+  found`, `not started: no free climate entity`); `""` once it runs or is disabled
 - `claimed_by(relay_object_id)`: the id of the running thermostat holding it, or `""`
 - `sensor_reading(sensor_object_id)`: what a sensor reads now, `NaN` without a finite reading
   in °C

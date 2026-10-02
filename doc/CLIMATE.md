@@ -38,7 +38,8 @@ under `/files` for instance, is loaded at the next boot.
 A thermostat whose sensor or relay is missing, at boot or when it is saved or switched on, stays
 enabled on disk but does not run; the Save or the switch-on succeeds with a warning that names
 what is missing. It starts at the next boot that finds what it names, or at a Save or a
-switch-on that finds it there.
+switch-on that finds it there. Until then, or until it is switched off, the device keeps saying
+why it waits.
 
 ## Home Assistant
 
