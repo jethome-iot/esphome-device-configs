@@ -141,9 +141,10 @@ moves it — from the panel, over Modbus, from an automation or from Home Assist
 thermostats may name the same relay and take turns: only one of them can run at a time.
 Starting the second while the first runs is refused, naming the one that holds it, unless it
 takes the relay over, which stops the holder. A take-over by one whose sensor or a relay is not
-on the device is refused, and the holder runs on. Stopping a thermostat opens its relays. A Save
-that keeps a relay leaves it where it is, and so does a take-over: a relay both thermostats
-drive changes hands as it is, and the holder's other relays open.
+on the device is refused, and the holder runs on. Stopping a thermostat opens its relays; one
+that waits holds none and moves none. A Save that keeps a relay leaves it where it is, and so
+does a take-over: a relay both thermostats drive changes hands as it is, and the holder's other
+relays open.
 
 ## Names and Home Assistant
 

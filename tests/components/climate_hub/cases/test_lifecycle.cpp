@@ -493,6 +493,46 @@ TEST_F(HubTest, ASaveOntoAMissingSensorStopsTheThermostatAndKeepsIt) {
   EXPECT_EQ("", hub().claimed_by("relay_1"));
 }
 
+// A thermostat that only waits never held a relay: one it names that something else closed
+// stays closed, whether a create or an enable left it waiting.
+TEST_F(HubTest, AThermostatThatOnlyWaitsLeavesARelayItNeverHeldAlone) {
+  ClimateConfig porch = draft("Porch", "relay_2");
+  porch.cool.relay_id = "relay_9";
+  porch.mode = HubMode::HEAT_COOL;
+  entities().relay2.turn_on();  // an automation, or Home Assistant
+  const int writes = entities().relay2.writes;
+
+  Result result = hub().create(porch);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: relay 'relay_9' not found", result.warning);
+  result = hub().set_enabled("porch", true);
+  EXPECT_EQ("not started: relay 'relay_9' not found", result.warning);
+  EXPECT_TRUE(entities().relay2.state);
+  EXPECT_EQ(writes, entities().relay2.writes);
+  EXPECT_EQ("", hub().claimed_by("relay_2"));
+}
+
+// Nor does a Save that leaves a running thermostat waiting: it opens the relay it held, and only
+// that one.
+TEST_F(HubTest, ASaveThatLeavesAThermostatWaitingOpensOnlyTheRelayItHeld) {
+  this->create(draft("Boiler"));
+  ASSERT_EQ("boiler", hub().claimed_by("relay_1"));
+  entities().relay2.turn_on();  // an automation, or Home Assistant
+  const int writes = entities().relay2.writes;
+
+  ClimateConfig moved = draft("Boiler", "relay_2");
+  moved.cool.relay_id = "relay_9";
+  moved.mode = HubMode::HEAT_COOL;
+  Result result = hub().update("boiler", moved);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: relay 'relay_9' not found", result.warning);
+  EXPECT_FALSE(hub().is_running("boiler"));
+  EXPECT_EQ("", hub().claimed_by("relay_1"));
+  EXPECT_TRUE(entities().relay2.state);
+  EXPECT_EQ(writes, entities().relay2.writes);
+  EXPECT_EQ("", hub().claimed_by("relay_2"));
+}
+
 // A relay a running thermostat holds is still a 409, missing sensor or not: the holder decides.
 TEST_F(HubTest, AHeldRelayStillRefusesASaveWhoseSensorIsMissing) {
   this->create(draft("Winter", "relay_1"));
