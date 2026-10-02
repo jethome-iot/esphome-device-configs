@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include "esphome/components/mqtt_config/mqtt_record.h"
 
 namespace esphome::mqtt_subscriptions {
 
@@ -18,43 +19,12 @@ const JsonDocument *Message::json() {
   return this->document_ == nullptr ? nullptr : &this->document_->doc;
 }
 
-// The byte length of the well-formed sequence at `p`, 0 for a stray or cut one.
-static size_t sequence_at(const uint8_t *p, const uint8_t *end, uint32_t &cp) {
-  const uint8_t lead = *p;
-  size_t extra;
-  if (lead < 0x80) {
-    cp = lead;
-    return 1;
-  } else if (lead >= 0xC2 && lead <= 0xDF) {
-    cp = lead & 0x1F;
-    extra = 1;
-  } else if (lead >= 0xE0 && lead <= 0xEF) {
-    cp = lead & 0x0F;
-    extra = 2;
-  } else if (lead >= 0xF0 && lead <= 0xF4) {
-    cp = lead & 0x07;
-    extra = 3;
-  } else {
-    return 0;
-  }
-  if (static_cast<size_t>(end - p) <= extra)
-    return 0;
-  for (size_t i = 1; i <= extra; i++) {
-    if ((p[i] & 0xC0) != 0x80)
-      return 0;
-    cp = (cp << 6) | (p[i] & 0x3F);
-  }
-  if ((extra == 2 && cp < 0x800) || (extra == 3 && (cp < 0x10000 || cp > 0x10FFFF)) || (cp >= 0xD800 && cp <= 0xDFFF))
-    return 0;
-  return extra + 1;
-}
-
 bool utf8_valid(const std::string &text) {
   const auto *p = reinterpret_cast<const uint8_t *>(text.data());
   const auto *end = p + text.size();
   while (p < end) {
     uint32_t cp;
-    const size_t len = sequence_at(p, end, cp);
+    const size_t len = mqtt_config::utf8_sequence(p, end, cp);
     if (len == 0)
       return false;
     p += len;
@@ -77,7 +47,7 @@ std::string raw_preview(const std::string &payload) {
   const auto *end = p + payload.size();
   while (p < end) {
     uint32_t cp;
-    const size_t len = sequence_at(p, end, cp);
+    const size_t len = mqtt_config::utf8_sequence(p, end, cp);
     const char *piece;
     size_t piece_len = 1;
     if (len == 0) {
