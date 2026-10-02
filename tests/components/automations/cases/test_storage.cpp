@@ -884,6 +884,36 @@ TEST_F(Storage, AConditionThatContradictsItsOwnActionStopsAtTheBound) {
   EXPECT_FALSE(engine->rule(0)->is_running());
 }
 
+// The plain state callback leaves out an input's first state when it does not trigger on it;
+// a condition still reads it.
+TEST_F(Storage, AConditionTriggerSeesAnInputsFirstState) {
+  e.in1.invalidate_state();
+  e.in1.set_trigger_on_initial_state(false);
+  boot();
+  ASSERT_NE(engine->add_automation(rule(watching("Pump", R"({"type":"input","object_id":"in_1"})").c_str())), 0u);
+  EXPECT_EQ(e.relay2.writes, 1);  // no state yet: false
+  EXPECT_FALSE(e.relay1.state);
+  e.in1.publish_state(true);
+  EXPECT_EQ(e.relay2.writes, 2);
+  EXPECT_TRUE(e.relay1.state);
+}
+
+// ...and every loss of state, which reads as false.
+TEST_F(Storage, AConditionTriggerSeesAnInputLoseItsState) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(watching("Pump", R"({"type":"input","object_id":"in_1"})").c_str())), 0u);
+  e.in1.publish_state(true);
+  EXPECT_EQ(e.relay2.writes, 2);
+  EXPECT_TRUE(e.relay1.state);
+  e.in1.invalidate_state();
+  EXPECT_EQ(e.relay2.writes, 3);
+  EXPECT_FALSE(e.relay1.state);
+  e.in1.publish_state(false);  // still false
+  EXPECT_EQ(e.relay2.writes, 3);
+  e.in1.publish_state(true);
+  EXPECT_EQ(e.relay2.writes, 4);
+}
+
 TEST_F(Storage, AConditionTriggerWithoutAConditionIsRefused) {
   const char *bare =
       R"({"id":1,"name":"Bare","triggers":[{"source":"condition"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})";

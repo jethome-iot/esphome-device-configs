@@ -187,6 +187,7 @@ void AutomationStorage::subscribe_(const CompiledCondition &condition) {
   switch (condition.type) {
     case ConditionType::INPUT:
       this->subscribe_to_(condition.binary_sensor);
+      this->watch_every_state_(condition.binary_sensor);
       break;
     case ConditionType::SWITCH:
       this->subscribe_to_(condition.sw);
@@ -214,6 +215,23 @@ void AutomationStorage::subscribe_to_(binary_sensor::BinarySensor *entity) {
       sub->engine->dispatch_binary_sensor_(sub->entity, state, level);
     });
   });
+#endif
+}
+
+// The plain callback leaves out an input's first state when it does not trigger on it, and every
+// loss of state; a condition reads both.
+void AutomationStorage::watch_every_state_(binary_sensor::BinarySensor *entity) {
+#ifdef USE_BINARY_SENSOR
+  for (const auto &sub : this->binary_sensor_subs_) {
+    if (sub->entity != entity || sub->every_state)
+      continue;
+    sub->every_state = true;
+    entity->add_full_state_callback([this](optional<bool> previous, optional<bool> current) {
+      // A change from one state to another comes through the plain callback.
+      if (!previous.has_value() || !current.has_value())
+        this->recheck_conditions_();
+    });
+  }
 #endif
 }
 
@@ -253,6 +271,11 @@ void AutomationStorage::dispatch_switch_(switch_::Switch *entity, bool state) {
 void AutomationStorage::dispatch_sensor_(sensor::Sensor *entity, float value) {
   if (!this->too_deep_())
     this->each_rule_([=](RuntimeAutomation &rule) { rule.on_sensor(entity, value); });
+}
+
+void AutomationStorage::recheck_conditions_() {
+  if (!this->too_deep_())
+    this->each_rule_([](RuntimeAutomation &rule) { rule.recheck_condition(); });
 }
 
 // Same catch-up and clock-jump handling as the core cron trigger, for all rules at once.

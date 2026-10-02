@@ -272,9 +272,10 @@ void RuntimeAutomation::watch_condition() {
   this->fire_(true, result);
 }
 
-// Runs on every event the rule is handed: the result can only move when an entity the
-// condition reads publishes, and those are all subscribed.
-void RuntimeAutomation::recheck_condition_() {
+// Runs on every event the rule is handed. The engine hands it each state an entity the condition
+// reads takes, an input's first one and its loss included, except an event it drops at the
+// nesting bound.
+void RuntimeAutomation::recheck_condition() {
   if (!this->result_.has_value())
     return;
   const bool result = this->condition_->check();
@@ -329,7 +330,7 @@ void RuntimeAutomation::on_binary_sensor(binary_sensor::BinarySensor *entity, bo
     }
   }
   // A level too: the condition reads the state, whatever brought it.
-  this->recheck_condition_();
+  this->recheck_condition();
 }
 
 void RuntimeAutomation::on_switch(switch_::Switch *entity, bool state) {
@@ -341,7 +342,7 @@ void RuntimeAutomation::on_switch(switch_::Switch *entity, bool state) {
       continue;
     this->fire_(true, state);
   }
-  this->recheck_condition_();
+  this->recheck_condition();
 }
 
 void RuntimeAutomation::on_sensor(sensor::Sensor *entity, float value) {
@@ -374,7 +375,7 @@ void RuntimeAutomation::on_sensor(sensor::Sensor *entity, float value) {
       trigger.armed = true;
     }
   }
-  this->recheck_condition_();
+  this->recheck_condition();
 }
 
 void RuntimeAutomation::on_time(const ESPTime &time) {

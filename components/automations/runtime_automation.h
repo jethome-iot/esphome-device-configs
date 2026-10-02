@@ -82,6 +82,8 @@ class RuntimeAutomation {
   /// A condition trigger starts watching: fires once with the current result, then on each
   /// change. Called at startup and wherever the rule is built or enabled at run time.
   void watch_condition();
+  /// Fires a condition trigger if the result moved since it last acted on it.
+  void recheck_condition();
 
   void on_binary_sensor(binary_sensor::BinarySensor *entity, bool state, bool level = false);
   void on_switch(switch_::Switch *entity, bool state);
@@ -105,7 +107,6 @@ class RuntimeAutomation {
   RuntimeAutomation(AutomationStorage *engine, const AutomationConfig &config);
 
   void fire_(bool has_state, bool state);
-  void recheck_condition_();
   void step_(uint32_t token);
   Run *find_run_(uint32_t token);
   void finish_run_(uint32_t token);

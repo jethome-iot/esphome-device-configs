@@ -80,6 +80,8 @@ class AutomationStorage : public Component {
     E *entity;
     // The next state is a level, not an edge (expect_level()).
     bool level_only{false};
+    // Also told the states the plain callback leaves out (watch_every_state_()).
+    bool every_state{false};
   };
   // The next state from this input is a level, not an edge: a flipped inversion re-emits the
   // sensor's state, which conditions may read but press, release, change and click must not act
@@ -102,6 +104,8 @@ class AutomationStorage : public Component {
   void subscribe_to_(binary_sensor::BinarySensor *entity);
   void subscribe_to_(switch_::Switch *entity);
   void subscribe_to_(sensor::Sensor *entity);
+  void watch_every_state_(binary_sensor::BinarySensor *entity);
+  void recheck_conditions_();
   template<typename F> void each_rule_(F call);
   bool too_deep_() const;
   void check_time_();

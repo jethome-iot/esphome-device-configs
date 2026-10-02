@@ -134,6 +134,7 @@ inline Entities &entities() {
 // Back to the state a fresh boot would have, as far as a test can tell.
 inline void reset_entities() {
   Entities &e = entities();
+  e.in1.set_trigger_on_initial_state(true);
   e.in1.publish_state(false);
   e.in2.publish_state(false);
   e.temp.state = NAN;
