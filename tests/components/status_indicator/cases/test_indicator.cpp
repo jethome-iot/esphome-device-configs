@@ -145,6 +145,15 @@ TEST_F(StatusIndicatorTest, BlinkNOfZeroTurnsOff) {
   EXPECT_EQ(this->pin->levels(), Levels({true, false}));
 }
 
+TEST_F(StatusIndicatorTest, BlinkNWithAZeroTimeIsRefused) {
+  this->led->blink_fast();
+  this->led->blink_n(3, 0, N_OFF, N_PAUSE);
+  this->led->blink_n(3, N_ON, 0, N_PAUSE);
+  this->led->blink_n(3, N_ON, N_OFF, 0);
+  EXPECT_EQ(this->led->get_state(), State::BLINK_FAST);
+  expect_writes({true, false, true}, {FAST_ON, FAST_OFF});
+}
+
 TEST_F(StatusIndicatorTest, APulseLightsForItsDurationAndGoesBackToOff) {
   this->led->pulse(PULSE - 200);
   EXPECT_EQ(this->led->get_state(), State::PULSE);

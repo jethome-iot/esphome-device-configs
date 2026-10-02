@@ -60,6 +60,11 @@ void StatusIndicator::blink_n(uint8_t count, uint32_t on_ms, uint32_t off_ms, ui
     this->turn_off();
     return;
   }
+  // The schema refuses a zero time; one from a lambda would reschedule on every loop pass.
+  if (on_ms == 0 || off_ms == 0 || pause_ms == 0) {
+    ESP_LOGW(TAG, "Blink N refused: every time must be above zero");
+    return;
+  }
   this->cancel_timeout(TIMER);
   this->blink_count_ = count;
   this->blink_on_ms_ = on_ms;

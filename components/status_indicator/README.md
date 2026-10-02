@@ -63,7 +63,7 @@ The `id` may be left out when there is one instance. Every option but `id` takes
 - Asking for the state it is already in changes nothing: a blink keeps its rhythm.
 - `blink_n` always starts over with its own options. `set_state: BLINK_N` repeats the last
   `blink_n`, or 3 blinks of 200 ms with a 1.5 s pause before there was one. A count of 0 from
-  a lambda turns the LED off.
+  a lambda turns the LED off; a time of 0 is refused, and the LED goes on as it was.
 - `pulse` goes back to the state it interrupted; a blink starts over from its lit part. A pulse
   during a pulse runs for its own duration and still goes back to the state before the first.
   `set_state: PULSE` is a pulse of `pulse_duration`. Any other action ends a pulse early. Over
