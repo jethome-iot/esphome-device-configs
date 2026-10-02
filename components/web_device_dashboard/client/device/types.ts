@@ -1,6 +1,6 @@
 // Wire contract of the JetHome device API under /api/device, as the dashboard knows it:
-// device identity and status, network, and per-entity settings. A firmware implements a
-// subset — this one's is openapi.yaml. The app reaches these via the @da alias.
+// device identity and status, network, MQTT, and per-entity settings. A firmware
+// implements a subset — this one's is openapi.yaml. The app reaches these via the @da alias.
 
 // --- Device identity / runtime status ---
 
@@ -228,18 +228,14 @@ export interface DeviceStatus {
   connection_type: 'wifi' | 'ethernet' | 'none'
   ip_address: string | null
   rssi: number | null
-  /** Persisted but not yet applied; no config endpoint restarts on its own. */
+  /** A saved MQTT setting waits for a restart, or MQTT is held back and a restart retries
+   *  it; `reboot_reasons` names it. Modbus and Network mode, which also apply on restart,
+   *  are not tracked. */
   reboot_required: boolean
-  /** Omitted when nothing is waiting. */
+  /** Omitted when nothing is waiting. This firmware names only `mqtt`. */
   reboot_reasons?: RebootReason[]
-  /** Live MQTT client state. Lives here (not only in /network) so the frequently
-   *  polled status endpoint carries the dynamic connection flags and the Overview
-   *  need not also poll /network. Absent on builds without MQTT settings support. */
-  mqtt?: {
-    available: boolean
-    enabled: boolean
-    connected: boolean
-  }
+  /** The MQTT client as it runs this boot. Absent on a build without MQTT. */
+  mqtt?: MqttLiveStatus
   /** `available` = the API can be turned off here. No `connected`: see ha_connected. */
   api?: {
     available: boolean
@@ -251,8 +247,7 @@ export interface DeviceStatus {
 export interface MutationResponse {
   success: boolean
   message?: string
-  /** Set by a route whose change waits for a restart; no route here has one — /auth
-   *  applies what it stores. */
+  /** Set by a route whose change can wait for a restart: POST /mqtt. */
   reboot_required?: boolean
 }
 
@@ -321,6 +316,8 @@ export interface Capabilities {
   entity_settings?: { types: string[] }
   /** The CPU board's EEPROM identity is in `/info`. */
   board_info?: true
+  /** GET/POST /mqtt are served. */
+  mqtt?: true
 }
 
 // --- Network (live status + saved config) ---
@@ -336,11 +333,6 @@ export interface NetworkLiveStatus {
   ssid: string | null
   rssi: number | null
   ethernet_connected: boolean
-  mqtt?: {
-    available: boolean
-    enabled: boolean
-    connected: boolean
-  }
 }
 
 export interface ManualIPConfig {
@@ -405,22 +397,78 @@ export interface NetworkConfigUpdate {
   api_enabled?: boolean
 }
 
-// --- MQTT ---
+// --- MQTT (mqtt_config) ---
 
-export interface MqttSavedConfig {
+export type MqttState = 'not_configured' | 'off' | 'connecting' | 'connected' | 'disconnected'
+/** Why the client is not connected, as far as the firmware can tell. */
+export type MqttError =
+  | 'dns'
+  | 'unreachable'
+  | 'connection_lost'
+  | 'protocol'
+  | 'identifier_rejected'
+  | 'server_unavailable'
+  | 'bad_credentials'
+  | 'not_authorized'
+  | 'crash_guard'
+/** Removing this device's retained Home Assistant entries from the broker: `running` while
+ *  they go out, `pending` while one is due but the broker is not connected. */
+export type MqttDiscoveryCleanup = 'none' | 'running' | 'pending'
+
+/** GET /status `mqtt`: the client as it runs this boot. */
+export interface MqttLiveStatus {
+  available: true
+  /** The client was started this boot. */
+  enabled: boolean
+  connected: boolean
+  state: MqttState
+  last_error: MqttError | null
+}
+
+/** What runs this boot, with the defaults filled in. */
+export interface MqttRunning {
+  broker: string
+  port: number
+  client_id: string
+  topic_prefix: string
+  /** `<topic_prefix>/status`: `online` / `offline`. */
+  status_topic: string
+  discovery: boolean
+}
+
+/** GET /mqtt: the stored settings (never the password), and what runs this boot. */
+export interface MqttSettings {
   enabled: boolean
   broker: string
   port: number
   username: string
   password_set: boolean
+  /** '' = `client_id_default`. */
   client_id: string
-  /** Effective prefix: the device name when nothing is stored, never empty. */
+  client_id_default: string
+  /** '' = `topic_prefix_default`. */
   topic_prefix: string
-  /** Publish Home Assistant discovery topics. Applies live — no reboot. */
+  topic_prefix_default: string
+  /** Home Assistant discovery. */
   discovery: boolean
+  state: MqttState
+  last_error: MqttError | null
+  /** Null while the client was not started this boot. */
+  running: MqttRunning | null
+  /** A save that turns MQTT on connects at once: the client has not started this boot, is not
+   *  held back, and the effective topic prefix is still the one this boot started with. A save
+   *  that changes that prefix waits for a reboot all the same. */
+  apply_now: boolean
+  /** A saved change waits for a restart, or MQTT is held back and a restart retries it. */
+  reboot_required: boolean
+  discovery_cleanup: MqttDiscoveryCleanup
+  /** `newer_firmware`: the stored fields show the defaults and MQTT is off. `invalid: …`: the
+   *  stored record breaks a rule of this firmware, runs anyway, and the next save must fix it. */
+  stored_notice: 'newer_firmware' | `invalid: ${string}` | null
 }
 
-export interface MqttConfigUpdate {
+/** POST /mqtt: an absent key is unchanged; `password: ''` clears the stored one. */
+export interface MqttSettingsUpdate {
   enabled?: boolean
   broker?: string
   port?: number
@@ -429,6 +477,14 @@ export interface MqttConfigUpdate {
   client_id?: string
   topic_prefix?: string
   discovery?: boolean
+}
+
+/** POST /mqtt's 200. `message` is one of MQTT_SAVE_MESSAGES (mqttRules.ts). */
+export interface MqttSaveResult extends MutationResponse {
+  reboot_required: boolean
+  /** This save started the client: it is connecting now, no reboot needed. */
+  started: boolean
+  discovery_cleanup: MqttDiscoveryCleanup
 }
 
 // --- Auth (web_auth) ---

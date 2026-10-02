@@ -21,7 +21,8 @@ so `${name}` and `${friendly_name}` stay symbolic for the Builder to rename. It:
   round-trip leaves the config unchanged;
 - leaves out the packages named in `EXCLUDED_PACKAGES` — `firmware-update`, the menu rows that
   drive it and the install screen that reports it, because a firmware built from `dist/` is the
-  importing user's own and the update entity would offer to replace it with JetHome's build;
+  importing user's own and the update entity would offer to replace it with JetHome's build; and
+  `mqtt-firmware`, which keeps those entities off MQTT and has nothing to extend without them;
 - refuses to run while a device config is missing from `firmwares.yaml`, or while a config's
   `fw_device` is not the slug that file publishes it under.
 

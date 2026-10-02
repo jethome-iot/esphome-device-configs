@@ -164,6 +164,41 @@ what the page shows follows what the header holds, down to one written for anoth
 Images come from a dump of a real part or from JetHome's board tooling; v3 and v4 are both
 read.
 
+## MQTT
+
+`scripts/mqtt-sink.py` is a broker to point the emulated device at: one file, no
+dependencies, and it prints every connection and message it gets. The device reaches the host
+at `10.0.2.2`:
+
+```bash
+scripts/mqtt-sink.py serve                       # on the host, 127.0.0.1:1883
+A='--digest -u admin:admin'
+curl -s $A -H 'Content-Type: application/json' -d '{"enabled": true, "broker": "10.0.2.2"}' \
+  http://127.0.0.1:8080/api/device/mqtt
+scripts/mqtt-sink.py pub jxd-r6-e1eth-lcd-qemu/switch/relay_1/command ON   # Relay 1 on
+scripts/mqtt-sink.py sub 'homeassistant/#'       # the retained discovery entries, if any
+```
+
+The first enable after a start connects at once, unless the effective topic prefix differs from
+the one the device started with; a later change waits for a restart, which here is `stop` and
+then `run --no-build`: **Reboot now** on the dashboard is a software reset, and the emulator
+falls over on those (below). Settings → MQTT in the dashboard does the same as the `curl` above.
+
+| Option | |
+|---|---|
+| `serve --port <p>` | listen on another port; set the same `port` on the device |
+| `serve --login USER:PASSWORD` | let in only those credentials and refuse the rest as "not authorized", as mosquitto 2 does |
+| `serve --refuse <code>` | refuse every connection with that CONNACK code: 4 is a bad username or password, 5 not authorized |
+| `serve --stall` | stop reading from a client once it is connected, so what it sends backs up |
+| `serve --topic <filter>` | print only the messages matching the filter; repeatable |
+| `pub --retain`, `--size <n>`, `--file <path>` | keep the message on the sink; send `n` bytes, or a file, as the payload |
+| `sub --wait <s>`, `--count <n>` | how long to listen, or how many messages to wait for |
+
+The sink keeps retained messages until it stops, so `sub` shows what Home Assistant would find
+there. The device has no MAC here (see below) and no MAC suffix in its name, so the topic prefix
+is `jxd-r6-e1eth-lcd-qemu`, the client ID `jxd-r6-e1eth-lcd-qemu-000000000000`, and every
+emulated device announces the same unique IDs to Home Assistant.
+
 ## What works and what is dead
 
 | Works | Dead in QEMU |
@@ -174,6 +209,7 @@ read.
 | `PCB Temp` — QEMU's own TMP105 at `0x48`, a constant 25 °C | Wi-Fi and BT; Modbus sees an emulated UART with nothing on it |
 | `jethome_board_info`, reading the file `--eeprom` attaches | Without `--eeprom`: no chip answers at `0x54`, `i2c_eeprom` fails at setup and Info → Serial reads `--` |
 | Ethernet on 10.0.2.15, native API on 6053, OTA, outbound HTTPS | |
+| MQTT, to a broker on the host at `10.0.2.2` (above) | |
 | NVS and `preferences`; flash state survives restarts | |
 
 Two traps worth knowing:

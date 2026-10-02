@@ -24,6 +24,7 @@ generated files and runs the pre-commit hooks.
 | add a test, or wonder which suite a case belongs in | [doc/TESTING.md](doc/TESTING.md) |
 | change what a relay or an input remembers across reboots | [doc/ENTITY_SETTINGS.md](doc/ENTITY_SETTINGS.md) |
 | change WiFi provisioning | [doc/WIFI_SETUP.md](doc/WIFI_SETUP.md) |
+| set up MQTT, or change what an entity exposes over MQTT | [doc/MQTT.md](doc/MQTT.md) |
 
 The tree itself is in the README, "Repository Layout".
 

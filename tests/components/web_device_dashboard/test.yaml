@@ -17,18 +17,22 @@ esphome:
       - -fsanitize=undefined
       - -fno-sanitize-recover=all
       - -fno-omit-frame-pointer
-      # The Allow header is set through the ESP-IDF handle; off ESP32 the value only reaches
-      # check_method_'s warning, which the tests read through a log listener.
-      - -DUSE_LOG_LISTENERS
-      - -DESPHOME_LOG_MAX_LISTENERS=1
 
 host:
 
 logger:
   level: DEBUG
+  # mqtt_config asks for its own listener slot; this trigger sizes the list for a second one.
+  # The Allow header is set through the ESP-IDF handle, so off ESP32 the value only reaches
+  # check_method_'s warning, which the tests read through that slot. It is never set up.
+  on_message:
+    - level: ERROR
+      then:
+        - lambda: ""
 
 # host: auto-loads network, and the host IPAddress grows the is_set() that /status and /network
-# call only with IPv6 on. Nothing here opens a socket.
+# call only with IPv6 on. Nothing here opens a socket. It also gives mqtt_config the IPv6
+# broker rules, unlike the devices: the MQTT cases assert only what both share.
 network:
   enable_ipv6: true
 
@@ -45,8 +49,9 @@ external_components:
       - web_origin_guard
       - loop_job
       - firmware_rollback
+      - mqtt_config
   - source: ../../harness/components
-    components: [dir_storage, web_server_base, web_server]
+    components: [dir_storage, mqtt, web_server_base, web_server]
   # web_device_dashboard depends on web_server for the entity REST API its page calls, and
   # upstream builds that for ESP platforms only.
 
@@ -86,6 +91,23 @@ web_server_base: {}
 
 web_auth:
   id: test_auth
+
+# As devices/JXD/packages/features/mqtt.yaml: mqtt_config sets USE_MQTT_CONFIG, which compiles
+# the /mqtt route. The cases build their own client and component over the stand-in.
+mqtt:
+  id: mqtt_client
+  broker: ""
+  enable_on_boot: false
+  reboot_timeout: 0s
+  clean_session: true
+  discovery: true
+  discovery_retain: true
+  discovery_unique_id_generator: mac
+  discover_ip: false
+  log_topic: null
+
+mqtt_config:
+  id: mqtt_settings
 
 # board_info_id sets USE_WEB_DEVICE_DASHBOARD_BOARD_INFO, so /api/device/info carries the board;
 # storage_id sets USE_WEB_DEVICE_DASHBOARD_STORAGE, so the factory reset has a mount to wipe.

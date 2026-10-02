@@ -23,6 +23,8 @@ tests/
       dir_storage           # test-only storage backend: a directory on the host
       display_menu_host     # test-only key that pulls display_menu_base into a host build
       loop_job_host         # the same for loop_job
+      mqtt                  # stand-in for upstream's, which builds for ESP platforms only: a client
+                            # and entity components a test drives in place of a broker
       one_wire_host         # test-only 1-Wire bus: the cases set what the boot scan found
       web_server            # stand-in for upstream's, which builds for ESP platforms only
       web_server_base       # stand-in for upstream's, so HTTP handlers run on the host
@@ -45,6 +47,7 @@ tests/
                               # upstream refuses on the host platform
     littlefs_storage/         # test_schema.py alone: the C++ is ESP-IDF only
     loop_job/
+    mqtt_config/
     virtual_display/          # test_schema.py alone: the C++ includes <esp_http_server.h>,
                               # which the host platform has no header for
     web_auth/
@@ -80,8 +83,16 @@ tests/
   they override, or a step they call.
 - Logger listeners exist only when the YAML asks for them: `test.yaml` carries
   `-DUSE_LOG_LISTENERS -DESPHOME_LOG_MAX_LISTENERS=1` so a suite can read what was logged. A
-  component that requests a listener slot of its own (`crash_report`) gets them from codegen
-  instead, and the hand-set flags would clash with it.
+  component that requests a listener slot of its own (`crash_report`, `mqtt_config`) gets them
+  from codegen instead, and the hand-set flags would clash with it. A suite that has such a
+  component and reads the log itself sizes a slot of its own with a `logger: on_message:`
+  trigger, as `crash_report`'s does; the list drops a listener past its size without a word.
+- The host preferences keep no record over 255 bytes. A component that stores a larger one
+  (`mqtt_config`) reads and writes it through a virtual seam the tests override.
+- A suite that needs `mqtt:` loads the `mqtt` stand-in from `tests/harness/components`. Every
+  entity then gets a stand-in MQTT component, as on a device; `connect_for_test()`,
+  `drop_for_test()`, `deliver_for_test()` and `process_resends_for_test()` on the client play
+  the broker, and `published` holds what went out.
 - An I2C component validates on the host only with an `i2c:` bus that names a `device:`;
   nothing opens it. The suite drives the component over a fake `i2c::I2CBus` of its own.
 - A 1-Wire component needs `one_wire: - platform: one_wire_host` from the harness: upstream's

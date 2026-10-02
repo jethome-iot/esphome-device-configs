@@ -55,6 +55,14 @@ boundaries; everything else is local to its file.
 - `switch_settings` and `binary_sensor_settings` (`features/entity-settings.yaml`) are the
   settings objects the menu's Relay N and Input N rows call. Those two ids are set explicitly: a
   generated id cannot be named from a lambda.
+- `mqtt_client` and `mqtt_settings` (`features/mqtt.yaml`) are the stock MQTT client and the
+  `mqtt_config` component that sets it up from the stored settings. `features/mqtt.yaml` and
+  `features/mqtt-firmware.yaml` keep seven entities off MQTT with `state_topic: null` on
+  `!extend` of their ids, so those ids are part of the contract: `network_mode`,
+  `modbus_address`, `modbus_baud_rate`, `modbus_parity`, `modbus_stop_bits`, and
+  `firmware_update` and `firmware_channel` in the package `dist/` leaves out. The menu's Reboot
+  device and Factory reset reach `mqtt_config` through `mqtt_config::global_mqtt_config` under
+  `#ifdef USE_MQTT_CONFIG`, not `id()`, which a build without the component could not resolve.
 - `web_auth_credentials` (`features/web-auth.yaml`) holds the credentials the web server checks.
   The `auth:` block in the same file is the factory pair; a pair set through the dashboard is
   kept in the device's flash preferences and replaces it from the next request on, so a factory
@@ -78,6 +86,7 @@ boundaries; everything else is local to its file.
 | 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); restore the timezone and read the RTC (`setup_time`, called from the device config). `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
 | 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created. `board_info` reads the EEPROM here too, once `eeprom_cpu` (600) has answered |
 | 500 | add a `Temp N` submenu per bound slot to the Temperatures menu; add a row per loaded rule to the Automations menu |
+| 210 | `mqtt_config` applies the stored MQTT settings: the topic prefix and status topics, discovery, and the broker and credentials when MQTT is on. Ahead of the client's own setup (200) and the entities' MQTT components (`AFTER_CONNECTION`), which build their topics from the prefix; after `dallas_scan` (600), whose `Temp N` it hands to the client |
 | 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
 
 `littlefs_storage` mounts at 810, so the rule files are readable by the time `automations` loads
@@ -204,5 +213,41 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   `esp32.crash`, cut after the first `]: ` and stripped of colour codes, so the tag, the log
   line layout and `crash_handler_log()`'s wording are part of the report format the decoder
   reads.
+- `components/mqtt_config` runs the stock `mqtt` client from settings it stores, and leans on
+  how that client works:
+  - esp-mqtt takes the broker and credentials when the client first connects and keeps them for
+    the boot, so they are pushed once, before the first start; every later change waits for a
+    reboot. Command topics are subscribed at the entities' setup with the boot's prefix, so a
+    first start waits too once the effective prefix differs from the boot's, whichever save
+    changed it. `disable()` does not take an ESP32 client off
+    the broker, so nothing calls it.
+  - `set_topic_prefix(prefix, check)` takes `prefix` literally unless it equals `check`; an empty
+    check value makes a stored prefix literal. The birth, will and shutdown topics are compiled
+    as `<CORE.name>/status` and re-targeted at boot to the effective prefix, which carries the
+    MAC; final_validate holds the YAML to that.
+  - The default client id has no getter: the component rebuilds it with the client
+    constructor's formula (node name, `-`, MAC).
+  - `state_topic: null` hides an entity because an empty custom state topic makes
+    `compute_is_internal_()` true, and `call_setup()` caches that before it registers the
+    component. The `Temp N` bridge creates `MQTTSensorComponent`s itself and calls their
+    `call_setup()`.
+  - Removing Home Assistant entries is the client's own clean mode (`set_discovery_info(…,
+    clean=true)`) plus `schedule_resend_state()` on every component; it is finished once the
+    client is connected and no component `is_resend_pending()`, which holds because
+    `is_connected()` turns true in the same loop pass that schedules the resends.
+  - Why a connection failed comes from the ESP32 backend's log lines under the tag `mqtt`,
+    `Connection refused error: 0x%x` and `socket errno:`, read through a logger listener; a
+    reworded line degrades the reason to "unreachable". `set_on_connect` and
+    `set_on_disconnect` add to lists and run on the loop task.
+  - `USE_NETWORK_IPV6` is defined with a value, `false` on these builds, so it is tested with
+    `#if`, never `#ifdef`.
+  - Upstream's default `clean_session: false` would keep removed topics subscribed on the
+    broker; final_validate requires `true`. The client reserves the whole announced length of an
+    inbound message before it matches the topic, which with exceptions off can abort the device;
+    that is what the crash guard counts.
+- `tests/harness/components/mqtt` stands in for upstream's `mqtt` on the host: its schema and
+  codegen are upstream's own module, its C++ copies the client's setters, topic prefix rule,
+  discovery info and resend pass. A signature drift shows in the ESP32 builds; a behaviour drift
+  only by re-reading upstream's `mqtt_client.cpp` and `mqtt_component.cpp`.
 
 Re-check each of these on every ESPHome bump.

@@ -1,0 +1,8 @@
+# Kept off MQTT: what installs firmware. A package of its own so dist/, which has no
+# firmware_update, stays valid.
+update:
+  - id: !extend firmware_update
+    state_topic: null
+select:
+  - id: !extend firmware_channel
+    state_topic: null
