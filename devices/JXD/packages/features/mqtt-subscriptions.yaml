@@ -1,0 +1,19 @@
+# MQTT topics picked in the dashboard (Settings → MQTT → Subscriptions), each shown as an
+# entity in the MQTT group. Changes apply after a reboot. Details: doc/MQTT.md
+external_components:
+  - source: ${components}
+    components: [mqtt_subscriptions]
+
+web_server:
+  sorting_groups:
+    - id: group_mqtt
+      name: "MQTT"
+      sorting_weight: 35  # after Temperature (30): the Overview features the two lowest
+
+mqtt_subscriptions:
+  id: mqtt_subs
+  storage: user_storage
+  max_slots: 8
+  web_server:
+    sorting_group_id: group_mqtt
+    sorting_weight: 1
