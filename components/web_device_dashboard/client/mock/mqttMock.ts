@@ -23,14 +23,20 @@ export const MQTT_MOCK_CONNECT_MS = 1500
 /** A broker under this reserved domain fails the way an unknown host name does. */
 export const MQTT_MOCK_DNS_FAIL_SUFFIX = '.invalid'
 
+/** The states the mock can start in; leaving the mode unset (or empty) is the factory state. */
+export const MQTT_MOCK_MODES = ['connected', 'unreachable', 'refused', 'held_back', 'none'] as const
+export type MqttMockMode = (typeof MQTT_MOCK_MODES)[number]
+
 export interface MqttMockOptions {
   /**
    * Unset: the factory state. `connected`: on and connected. `unreachable`: on, and the
    * broker never answers. `refused`: on, and the broker refuses the login. `held_back`: on
    * with discovery, held back after repeated crashes until reboot(). `none`: a firmware
    * without MQTT, so the route is a 404 and neither /status nor /capabilities has it.
+   * The dev server passes VITE_MOCK_MQTT as it is, so any string is taken here (`string & {}`
+   * keeps the modes as completions) and anything but these throws.
    */
-  mode?: string
+  mode?: MqttMockMode | (string & {})
   /** The node name, MAC-suffixed as a device has it: the default topic prefix. */
   nodeName: string
   /** The base MAC, `AA:BB:CC:DD:EE:FF`: the default client id ends with it. */
@@ -99,6 +105,10 @@ function saysJson(contentType: string | undefined): boolean {
 
 export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
   const mode = o.mode ?? ''
+  if (mode !== '' && !(MQTT_MOCK_MODES as readonly string[]).includes(mode)) {
+    // A typo would otherwise start the factory state and look like a working mode.
+    throw new Error(`Unknown MQTT mock mode '${mode}': use one of ${MQTT_MOCK_MODES.join(', ')}, or leave it unset`)
+  }
   const served = mode !== 'none'
   const defaultClientId = `${o.nodeName}-${o.mac.replace(/:/g, '').toLowerCase()}`
   const defaultPrefix = o.nodeName
