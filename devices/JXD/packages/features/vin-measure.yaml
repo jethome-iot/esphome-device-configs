@@ -41,9 +41,19 @@ sensor:
           if (x <= 2.8) return 0;
           return x;
 
+  # The name the previous firmware gave it, so the Home Assistant entity keeps its id.
   - platform: template
+    name: "Input voltage"
     id: input_voltage
-    internal: true
-    update_interval: 1s
+    web_server:
+      sorting_group_id: group_system
+      sorting_weight: 2
+    entity_category: diagnostic
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: "V"
+    accuracy_decimals: 1
+    # The readings it picks from change every 2 s (median of 20 samples at 100 ms).
+    update_interval: 2s
     lambda: |-
       return std::max(id(vin_meas).state, id(poe_voltage).state);
