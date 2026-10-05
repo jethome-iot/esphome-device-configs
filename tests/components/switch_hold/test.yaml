@@ -1,0 +1,41 @@
+# Google Test binary for components/switch_hold, built through esphome compile by tests/run.py.
+# The harness main.cpp replaces the generated one, so nothing declared here is ever set up:
+# the block exists to get the header compiled and the switches sized. The cases register their
+# own holder and switches.
+esphome:
+  name: switch-hold-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../../components
+    components: [switch_hold]
+  - source: ../../harness/components
+    components: [switch_hold_host]
+
+switch_hold_host:
+
+switch:
+  - platform: template
+    id: relay_1_unused
+    name: "Relay 1"
+    optimistic: true
+  - platform: template
+    id: relay_2_unused
+    name: "Relay 2"
+    optimistic: true

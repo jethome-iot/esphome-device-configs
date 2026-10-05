@@ -28,7 +28,7 @@ logger:
 
 external_components:
   - source: ../../../components
-    components: [filesystem_storage_abstract, climate_hub, web_climate_editor, web_origin_guard, loop_job]
+    components: [filesystem_storage_abstract, climate_hub, web_climate_editor, web_origin_guard, loop_job, switch_hold]
   - source: ../../harness/components
     components: [dir_storage, web_server_base]
 

@@ -98,7 +98,10 @@ static sensor::Sensor *find_input(const std::string &sensor_id, std::string *err
   return sensor;
 }
 
-ClimateHub::ClimateHub() { global_climate_hub = this; }
+ClimateHub::ClimateHub() {
+  global_climate_hub = this;
+  switch_hold::set_holder(this);
+}
 
 uint32_t ClimateHub::now_ms() const { return millis(); }
 
@@ -333,6 +336,16 @@ std::string ClimateHub::claimed_by(const std::string &relay_object_id) const {
   return it == this->claims_.end() ? std::string() : it->second->owner();
 }
 
+std::string ClimateHub::holder_of(const switch_::Switch *sw) const {
+  for (const auto &entry : this->claims_) {
+    if (entry.second->relay() != sw)
+      continue;
+    const ClimateConfig *config = this->store_.get(entry.second->owner());
+    return config != nullptr ? config->name : entry.second->owner();
+  }
+  return "";
+}
+
 float ClimateHub::sensor_reading(const std::string &sensor_object_id) const {
 #ifdef USE_SENSOR
   sensor::Sensor *sensor = find_sensor(sensor_object_id);
@@ -492,6 +505,7 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
   if (!result.warning.empty())
     ESP_LOGW(TAG, "'%s' saved but %s", id.c_str(), result.warning.c_str());
   ESP_LOGD(TAG, "Updated '%s' (%s)", stored->name.c_str(), id.c_str());
+  this->announce_released_();
   return result;
 }
 
@@ -513,6 +527,7 @@ Result ClimateHub::remove(const std::string &id) {
   ESP_LOGD(TAG, "Removed '%s'", id.c_str());
   // Last: `id` may be the document's own string.
   this->store_.remove(id);
+  this->announce_released_();
   return result;
 }
 
@@ -537,6 +552,7 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
       this->stop_(slot);
       this->schedule_ha_resync_();
     }
+    this->announce_released_();
     return result;
   }
 
@@ -583,6 +599,7 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
     result.warning = this->note_waiting_(id, error);
     ESP_LOGW(TAG, "'%s' enabled but %s", id.c_str(), result.warning.c_str());
   }
+  this->announce_released_();
   return result;
 }
 
@@ -742,7 +759,21 @@ void ClimateHub::release_claims_(const std::string &owner) {
 ClimateHub::ClaimMap::iterator ClimateHub::let_go_(ClaimMap::iterator it, uint32_t now_ms) {
   it->second->force_off(now_ms);
   it->second->last_switching(&this->relay_history_[it->first]);
+  switch_::Switch *relay = it->second->relay();
+  if (relay != nullptr && std::find(this->released_.begin(), this->released_.end(), relay) == this->released_.end())
+    this->released_.push_back(relay);
   return this->claims_.erase(it);
+}
+
+// Only once the mutator is done, and only for a relay still free: a thermostat that started on
+// it in the same call keeps it, and nothing that hears of the release moves it under that one.
+void ClimateHub::announce_released_() {
+  std::vector<switch_::Switch *> released;
+  released.swap(this->released_);
+  for (switch_::Switch *relay : released) {
+    if (this->holder_of(relay).empty())
+      switch_hold::notify_released(relay);
+  }
 }
 
 // A relay both thermostats drive changes hands as it is, so one that both want closed never

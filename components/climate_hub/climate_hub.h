@@ -12,6 +12,7 @@
 #include "controller_runtime.h"
 #include "esphome/components/filesystem_storage_abstract/filesystem_storage_abstract.h"
 #include "esphome/components/loop_job/loop_job.h"
+#include "esphome/components/switch_hold/switch_hold.h"
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
 #include "hub_climate.h"
@@ -45,7 +46,10 @@ struct Result {
 ///
 /// Everything below runs on the loop task. A caller on another task (an ESP-IDF HTTP handler)
 /// wraps its whole read, decide and write in one run_on_loop() job.
-class ClimateHub : public Component {
+///
+/// It is the firmware's switch_hold::SwitchHolder: a running thermostat holds its relays, and
+/// the other writers ask switch_hold before they move one.
+class ClimateHub : public Component, public switch_hold::SwitchHolder {
  public:
   ClimateHub();
 
@@ -82,6 +86,8 @@ class ClimateHub : public Component {
   const ControllerRuntime *runtime(const std::string &id) const;
   /// The id of the running thermostat that holds this relay, or "".
   std::string claimed_by(const std::string &relay_object_id) const;
+  /// The name of the running thermostat that holds `sw`, or "".
+  std::string holder_of(const switch_::Switch *sw) const override;
   /// What a sensor reads now, NaN when there is no such sensor or its reading is not a finite
   /// number in °C: a stopped thermostat has no entity to ask.
   float sensor_reading(const std::string &sensor_object_id) const;
@@ -153,6 +159,8 @@ class ClimateHub : public Component {
   void release_claims_(const std::string &owner);
   /// Opens the claim's relay, remembers its last switching and drops the claim.
   ClaimMap::iterator let_go_(ClaimMap::iterator it, uint32_t now_ms);
+  /// The end of a mutator: tells switch_hold about each relay it let go of that is still free.
+  void announce_released_();
   /// Moves the claims `from` holds on relays `to` names over to `to`, relays as they are.
   void hand_over_(const std::string &from, Slot *holding, const ClimateConfig &to);
   /// The running thermostat, other than `config` itself, that holds one of its relays, and
@@ -215,6 +223,8 @@ class ClimateHub : public Component {
   // Each relay's last switching once its claim is gone, by object id: the next claim on it
   // honours min_on and min_off from there.
   std::map<std::string, RelaySwitching> relay_history_;
+  // Relays let go of since the last announce_released_().
+  std::vector<switch_::Switch *> released_;
   // Why each enabled thermostat that is not running did not start, by id, as a `warning`.
   std::map<std::string, std::string> waiting_;
   // One per sensor, kept for the life of the device: upstream has no callback removal.
