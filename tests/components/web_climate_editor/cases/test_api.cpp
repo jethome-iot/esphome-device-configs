@@ -25,7 +25,7 @@ TEST_F(Editor, SaveCreatesAThermostatTheOtherRoutesThenSee) {
   EXPECT_EQ(list.body, R"({"success":true,"count":1,"max_controllers":3,"controllers":[)"
                        R"({"id":"living-room","name":"Living Room","enabled":true,"kind":"pid","mode":"heat",)"
                        R"("sensor_id":"room","heat_relay_id":"relay_1","cool_relay_id":"","running":true,)"
-                       R"("waiting":""}]})");
+                       R"("waiting":"","active_preset":"","active_preset_name":""}]})");
 
   // The bare document, every key there, the same shape save takes back.
   Reply got = this->get("get?id=living-room");
@@ -37,8 +37,8 @@ TEST_F(Editor, SaveCreatesAThermostatTheOtherRoutesThenSee) {
   EXPECT_FLOAT_EQ(got["setpoint"].as<float>(), 22.f);
   EXPECT_EQ(got["heat"]["min_on_s"].as<int>(), 10);
   EXPECT_EQ(got["cool"]["relay_id"].as<std::string>(), "");
-  for (const char *key :
-       {"enabled", "kind", "sensor_id", "update_interval_s", "visual", "safety", "pid", "bang_bang", "mode"})
+  for (const char *key : {"enabled", "kind", "sensor_id", "update_interval_s", "visual", "safety", "pid", "bang_bang",
+                          "mode", "presets", "active_preset"})
     EXPECT_FALSE(got[key].isUnbound()) << key;
 }
 

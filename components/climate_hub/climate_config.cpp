@@ -89,7 +89,7 @@ bool check_mode(const ClimateConfig &config, std::string *error) {
 std::string preset_at(size_t index) { return "Preset " + std::to_string(index + 1); }
 
 const char *preset_mode_to_string(const optional<HubMode> &mode) {
-  return mode.has_value() ? enums::mode_to_string(*mode) : "keep";
+  return mode.has_value() ? enums::mode_to_string(*mode) : PRESET_MODE_KEEP;
 }
 
 // What a preset needs to be applied: a target, a mode its relays serve, a key fit for a rule.
@@ -163,7 +163,7 @@ bool read_presets(JsonVariantConst value, std::vector<PresetConfig> *out, std::s
     preset.name = trim_name(text_of(item["name"]));
     preset.setpoint = item["setpoint"] | NAN;
     JsonVariantConst mode = item["mode"];
-    if (!mode.isNull() && mode.as<std::string>() != "keep") {
+    if (!mode.isNull() && mode.as<std::string>() != PRESET_MODE_KEEP) {
       HubMode parsed;
       if (!enums::mode_from_string(mode.as<std::string>(), &parsed))
         return fail(error, at + ": mode must be one of keep/off/heat/cool/heat_cool");

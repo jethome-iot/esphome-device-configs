@@ -20,6 +20,8 @@ static constexpr size_t CONFIG_MAX_BYTES = 8192;
 static constexpr uint16_t CONFIG_VERSION = 2;
 /// Presets per thermostat.
 static constexpr size_t PRESET_MAX_COUNT = 8;
+/// A preset's mode word for "leave the thermostat's mode as it is".
+static constexpr const char *PRESET_MODE_KEEP = "keep";
 /// Longest name a controller may have; its entity keeps it in a fixed buffer.
 static constexpr size_t NAME_MAX_LENGTH = 48;
 /// Longest id; `<id>.json.tmp` has to stay inside LittleFS's 64-byte names.
