@@ -134,6 +134,31 @@ TEST(PidCore, AShorterWindowDropsTheOldestSamples) {
   EXPECT_TRUE(pid.in_deadband());
 }
 
+// The output window serves the deadband too, so it is sized for the longer of the two as the
+// controller starts: a pass inside a deadband averaging over more samples allocates nothing.
+TEST(PidCore, ADeadbandWindowLongerThanTheOutputWindowWins) {
+#ifndef __SANITIZE_ADDRESS__
+  GTEST_SKIP() << "only AddressSanitizer counts the heap exactly";
+#else
+  PidCore pid;
+  pid.set_gains(1.f, 0.f, 0.f);
+  pid.set_samples(1, 1);
+  pid.set_deadband(-1.f, 1.f, 1.f, 0.f, 0.f, 4);
+  const size_t sized = heap_in_use();
+  float out[5];
+  int i = 0;
+  for (float reading : {21.5f, 21.75f, 21.25f, 22.f, 21.5f})
+    out[i++] = pid.update(22.f, reading, 1.f);
+  EXPECT_EQ(sized, heap_in_use());
+  EXPECT_TRUE(pid.in_deadband());
+  EXPECT_FLOAT_EQ(0.5f, out[0]);
+  EXPECT_FLOAT_EQ(0.375f, out[1]) << "(0.5 + 0.25) / 2";
+  EXPECT_FLOAT_EQ(0.5f, out[2]) << "(0.5 + 0.25 + 0.75) / 3";
+  EXPECT_FLOAT_EQ(0.375f, out[3]) << "(0.5 + 0.25 + 0.75 + 0) / 4";
+  EXPECT_FLOAT_EQ(0.375f, out[4]) << "(0.25 + 0.75 + 0 + 0.5) / 4: the oldest dropped";
+#endif
+}
+
 // A window made wider keeps what it holds.
 TEST(PidCore, AWiderWindowKeepsWhatItHolds) {
   PidCore pid;
@@ -176,6 +201,16 @@ TEST(HysteresisCore, CoolsAboveHighAndStopsBelowLow) {
   EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::COOL, 19.f));
   EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::HEAT, 19.f)) << "no heating relay to call on";
   EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::HEAT, 22.f)) << "and too hot is not its to fix in HEAT";
+}
+
+// Both directions wired, the mode still decides: COOL below the band idles, and so does HEAT
+// above it.
+TEST(HysteresisCore, ASingleDirectionModeLeavesTheOtherAlone) {
+  HysteresisCore hyst;
+  hyst.set_setpoints(20.f, 21.f);
+  hyst.set_directions(true, true);
+  EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::COOL, 19.f));
+  EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::HEAT, 22.f)) << "nor does HEAT cool";
 }
 
 // Nothing latched, as the core starts, after a reset or after an unknown reading, is idle

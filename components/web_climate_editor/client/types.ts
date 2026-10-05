@@ -21,8 +21,11 @@ export type StandardPresetName = 'eco' | 'away' | 'boost' | 'comfort' | 'home' |
 /** What the controller is doing right now. */
 export type ClimateHubAction = 'off' | 'idle' | 'heating' | 'cooling'
 
-/** Why a controller is not controlling. Never persisted. */
-export type ClimateHubFault = 'none' | 'sensor_missing' | 'sensor_stale' | 'relay_missing' | 'overtemp'
+/**
+ * Why a running controller is not controlling. Never persisted. A sensor or relay
+ * the device does not have is no fault: the thermostat waits, and says why in `waiting`.
+ */
+export type ClimateHubFault = 'none' | 'sensor_stale' | 'overtemp'
 
 /** One driven direction. An empty relay_id means the direction is unused. */
 export interface OutputConfig {

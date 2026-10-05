@@ -273,15 +273,10 @@ void ControllerRuntime::refresh_fault_(uint32_t now_ms) {
   const uint32_t silent_ms = now_ms - (this->has_sample_ ? this->last_sample_ms_ : this->waiting_since_ms_);
 
   HubFault fault = HubFault::NONE;
-  if (this->sensor_ == nullptr) {
-    fault = HubFault::SENSOR_MISSING;
-  } else if (silent_ms > timeout_ms) {
+  if (silent_ms > timeout_ms) {
     fault = HubFault::SENSOR_STALE;
   } else if (this->has_sample_ && this->entity_->current_temperature > c.safety.max_temperature) {
     fault = HubFault::OVERTEMP;
-  } else if ((c.supports_heat() && this->heat_claim_ == nullptr) ||
-             (c.supports_cool() && this->cool_claim_ == nullptr)) {
-    fault = HubFault::RELAY_MISSING;
   }
 
   if (fault == this->fault_)

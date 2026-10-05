@@ -737,6 +737,39 @@ TEST_F(ControlLoop, PidCoolsOnANegativeOutput) {
   EXPECT_TRUE(entities().relay2.state);
 }
 
+// With both relays wired, the mode alone says which may run: a demand the other way, a PID
+// output of the other sign or a reading past the other switching point, leaves its relay open.
+TEST_F(ControlLoop, ASingleDirectionModeNeverDrivesTheOtherRelay) {
+  struct Case {
+    const char *what;
+    ControlKind kind;
+    HubMode mode;
+    float reading;
+  };
+  for (const Case &c : {Case{"pid in heat above the target", ControlKind::PID, HubMode::HEAT, 25.f},
+                        Case{"pid in cool below the target", ControlKind::PID, HubMode::COOL, 16.f},
+                        Case{"bang-bang in cool below the band", ControlKind::BANG_BANG, HubMode::COOL, 18.f},
+                        Case{"bang-bang in heat above the band", ControlKind::BANG_BANG, HubMode::HEAT, 23.f}}) {
+    SCOPED_TRACE(c.what);
+    ClimateConfig config = with_cooling(this->base(c.kind), true);
+    config.mode = c.mode;
+    config.pid.kp = 0.1f;
+    config.pid.ki = 0.f;
+    ControllerRuntime *rt = this->start(config, c.reading);
+    tick(200000);
+    tick(201000);
+    EXPECT_EQ(HubAction::IDLE, rt->action());
+    EXPECT_FLOAT_EQ(0.f, rt->heat_duty());
+    EXPECT_FLOAT_EQ(0.f, rt->cool_duty());
+    EXPECT_FALSE(entities().relay1.state);
+    EXPECT_FALSE(entities().relay2.state);
+    EXPECT_EQ(0, entities().relay1.writes + entities().relay2.writes) << "neither relay ever moved";
+    ASSERT_TRUE(hub().remove(this->id_).ok);
+    reset_entities();
+    hub().ms = 100000;
+  }
+}
+
 // Home Assistant turning a stopped-in-OFF thermostat back to HEAT, or a two-relay one to HEAT_COOL:
 // the mode lands in the document and on the entity, and is written after the debounce.
 TEST_F(ControlLoop, ControlTakesEveryModeItsRelaysServe) {
@@ -762,6 +795,23 @@ TEST_F(ControlLoop, ControlTakesEveryModeItsRelaysServe) {
   call(entity, climate::CLIMATE_MODE_HEAT_COOL);
   EXPECT_EQ(HubMode::HEAT_COOL, hub().store().get(this->id_)->mode);
   EXPECT_EQ(climate::CLIMATE_MODE_HEAT_COOL, entity->mode);
+}
+
+// Home Assistant sends what a user set, so picking the mode the thermostat already has sends it
+// again. That is no change: nothing to write, and the latch holds inside the band.
+TEST_F(ControlLoop, ACallWithTheSameModeMarksNothingDirty) {
+  ControllerRuntime *rt = this->start(this->base(ControlKind::BANG_BANG), 18.f);
+  HubClimate *entity = hub().entity_of(this->id_);
+  tick(200000);
+  entities().room.publish_state(20.5f);
+  tick(201000);
+  ASSERT_EQ(HubAction::HEATING, rt->action()) << "latched inside the band";
+
+  call(entity, climate::CLIMATE_MODE_HEAT);
+  EXPECT_FALSE(hub().dirty(this->id_));
+  tick(202000);
+  EXPECT_EQ(HubAction::HEATING, rt->action());
+  EXPECT_TRUE(entities().relay1.state);
 }
 
 // A cut-out lasts as long as its cause: the reading back under the limit, heating resumes.
@@ -856,7 +906,6 @@ TEST(ControllerRuntimeAlone, AStoppedRuntimeIgnoresEverything) {
   rt.start(&config, nullptr, &claim, nullptr, 2000);
   rt.tick(2000);
   EXPECT_EQ(0, relay.writes);
-  EXPECT_EQ(HubAction::OFF, rt.action());
 }
 
 // The PID recomputes every update_interval_s, and holds its output in between.

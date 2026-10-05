@@ -26,6 +26,8 @@
 // target or a mode set by hand keeps the label. A thermostat whose `version` is
 // above CONFIG_VERSION stands for a file a newer firmware wrote: its Save is 409,
 // and what changes it is not persisted.
+// tests/components/web_climate_editor/contract.json lists the requests it must
+// answer as the device does.
 // /status reads a first-order room model per sensor, heated and cooled by the
 // duties of the thermostats bound to it. control() stands in for Home Assistant
 // setting a running thermostat's mode, target or preset through its climate entity.
@@ -168,7 +170,7 @@ export function schemaFor(maxControllers: number): ClimateSchema {
   return {
     kinds: ['pid', 'bang_bang'],
     modes: [...MODES],
-    faults: ['none', 'sensor_missing', 'sensor_stale', 'relay_missing', 'overtemp'],
+    faults: ['none', 'sensor_stale', 'overtemp'],
     max_controllers: maxControllers,
     name_max_length: NAME_MAX_LENGTH,
     presets: { max_count: PRESET_MAX_COUNT, modes: ['keep', ...MODES], standard: [...STANDARD_PRESETS] },
