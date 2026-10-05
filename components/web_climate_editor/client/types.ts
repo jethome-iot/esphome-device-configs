@@ -12,6 +12,12 @@ export type ControlKind = 'pid' | 'bang_bang'
 /** Requested operating mode. */
 export type ClimateHubMode = 'off' | 'heat' | 'cool' | 'heat_cool'
 
+/** What a preset does to the mode: `keep` leaves the thermostat's as it is. */
+export type PresetMode = 'keep' | ClimateHubMode
+
+/** Home Assistant's built-in presets. A preset by one of these names, in any case, is that preset there. */
+export type StandardPresetName = 'eco' | 'away' | 'boost' | 'comfort' | 'home' | 'sleep' | 'activity'
+
 /** What the controller is doing right now. */
 export type ClimateHubAction = 'off' | 'idle' | 'heating' | 'cooling'
 
@@ -60,8 +66,35 @@ export interface BangBangConfig {
   above: number
 }
 
+/** A target, and a mode or `keep`, that a thermostat takes in one step. */
+export interface PresetConfig {
+  /**
+   * The slug of the name the preset was created with, `-2` and on when another preset has it.
+   * A rename keeps it, so a rule naming the preset still finds it. The device gives it: a form
+   * sends back the key it got, and a new preset none.
+   */
+  key: string
+  /**
+   * The thermostat name rules, `none` reserved in any case, and unique among the thermostat's
+   * presets ignoring case and runs of spaces. One of STANDARD_PRESETS, in any case, is that
+   * built-in preset in Home Assistant; any other name is shown as it is.
+   */
+  name: string
+  /** Held inside the thermostat's visual range. */
+  setpoint: number
+  /** One the thermostat's relays can serve, as for its own mode. */
+  mode: PresetMode
+}
+
+/** A preset as POST /save takes it: a new one has no key, and `mode` defaults to `keep`. */
+export type PresetInput = Pick<PresetConfig, 'name' | 'setpoint'> & Partial<Pick<PresetConfig, 'key' | 'mode'>>
+
 /** The stored document for one controller. */
 export interface ControllerDocument {
+  /**
+   * CONFIG_VERSION, or the higher number of a file a newer firmware wrote: that thermostat runs,
+   * but its Save is 409, since it would drop what this firmware does not know.
+   */
   version: number
   /** Immutable slug and the document's file name; a rename never changes it. */
   id: string
@@ -83,10 +116,18 @@ export interface ControllerDocument {
   mode: ClimateHubMode
   /** One target for both algorithms; bang-bang derives its band from it. */
   setpoint: number
+  /** At most PRESET_MAX_COUNT, in the order Home Assistant lists the custom ones. */
+  presets: PresetConfig[]
+  /**
+   * The key of the preset picked last, "" for none. A target or a mode set by hand keeps it.
+   * It is the thermostat's state, not the form's: /save ignores it.
+   */
+  active_preset: string
 }
 
-/** A document before the device has given it an id. */
-export type ControllerDraft = Omit<ControllerDocument, 'id' | 'version'> & Partial<Pick<ControllerDocument, 'version'>>
+/** A document before the device has given it an id, and its presets their keys. */
+export type ControllerDraft = Omit<ControllerDocument, 'id' | 'version' | 'presets' | 'active_preset'> &
+  Partial<Pick<ControllerDocument, 'version' | 'active_preset'>> & { presets: PresetInput[] }
 
 /** `T` with every key optional, in nested objects too. */
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
@@ -98,10 +139,13 @@ export type DrivenOutputInput = Pick<OutputConfig, 'relay_id'> & DeepPartial<Out
  * What POST /save takes. An absent or empty `id` creates a controller, an existing
  * one replaces that controller's document. Only `name` and `sensor_id` are required,
  * and `heat.relay_id` or `cool.relay_id` must name a relay; any other key left out
- * takes its default, and every number is clamped to the schema's range.
+ * takes its default, and every number is clamped to the schema's range. `presets`
+ * left out, or null, is none: a Save without them removes them.
  */
-export type ControllerSaveInput = DeepPartial<Omit<ControllerDocument, 'id' | 'name' | 'sensor_id' | 'heat' | 'cool'>> &
-  Pick<ControllerDocument, 'name' | 'sensor_id'> & { id?: string } & (
+export type ControllerSaveInput = DeepPartial<
+  Omit<ControllerDocument, 'id' | 'name' | 'sensor_id' | 'heat' | 'cool' | 'presets'>
+> &
+  Pick<ControllerDocument, 'name' | 'sensor_id'> & { id?: string; presets?: PresetInput[] | null } & (
     | { heat: DrivenOutputInput; cool?: DeepPartial<OutputConfig> }
     | { heat?: DeepPartial<OutputConfig>; cool: DrivenOutputInput }
   )
@@ -123,6 +167,10 @@ export interface ControllerSummary {
    * so first ("not started: sensor 'attic' not found"); "" when it runs or is disabled.
    */
   waiting: string
+  /** The key of the preset picked last, "" for none; kept while the thermostat is stopped. */
+  active_preset: string
+  /** That preset's name, "" for none. */
+  active_preset_name: string
 }
 
 /** Terms are `null` rather than NaN — JSON has no NaN and ArduinoJson emits null. */
@@ -145,6 +193,9 @@ export interface ControllerStatus {
   current_temperature: number | null
   sensor_age_s: number | null
   setpoint: number
+  /** As ControllerSummary.active_preset and active_preset_name. */
+  active_preset: string
+  active_preset_name: string
   /** The visual range, carried here so a list card can draw a stepper off /status alone. */
   min_temperature: number
   max_temperature: number
@@ -177,6 +228,16 @@ export interface ParamDesc {
   hint: string
 }
 
+/** What a preset may be. Its name follows `name_max_length`; its target, the thermostat's visual range. */
+export interface PresetSchema {
+  /** Presets per thermostat; a Save with more is refused. */
+  max_count: number
+  /** `keep` first, then the modes; a preset's mode must be one its thermostat's relays serve. */
+  modes: PresetMode[]
+  /** Home Assistant's built-in presets, in the order STANDARD_PRESETS has them. */
+  standard: StandardPresetName[]
+}
+
 export interface ClimateSchema {
   kinds: ControlKind[]
   modes: ClimateHubMode[]
@@ -185,6 +246,7 @@ export interface ClimateSchema {
   max_controllers: number
   /** Longest name the device accepts, in characters (printable ASCII only). */
   name_max_length: number
+  presets: PresetSchema
   /** Parameters by group, in the order the form shows them. */
   params: Record<string, ParamDesc[]>
 }
@@ -255,6 +317,23 @@ export interface ErrorResponse {
 
 /** A save body larger than this is refused with 413 before it is parsed. */
 export const CONFIG_MAX_BYTES = 8192
+
+/** The file format this contract describes; a document with a higher `version` came from a newer firmware. */
+export const CONFIG_VERSION = 2
+
+/** Presets per thermostat; the same number /schema serves. */
+export const PRESET_MAX_COUNT = 8
+
+/** Home Assistant's built-in presets, as /schema serves them. */
+export const STANDARD_PRESETS: ReadonlyArray<StandardPresetName> = [
+  'eco',
+  'away',
+  'boost',
+  'comfort',
+  'home',
+  'sleep',
+  'activity'
+]
 
 /** Longest thermostat name, in characters; the same number /schema serves. */
 export const NAME_MAX_LENGTH = 48
