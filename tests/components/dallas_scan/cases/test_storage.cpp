@@ -429,6 +429,7 @@ TEST_F(Forget, ForgetRebootsForWhatTheSavedTableForgotAlready) {
   this->log().clear();
   EXPECT_FORGET_REBOOTS(scan, 0);
   EXPECT_TRUE(this->log().has(this->log().infos, "Forgotten already; rebooting"));
+  EXPECT_FALSE(this->log().has(this->log().warnings, "Nothing to forget"));
   EXPECT_EQ(this->read(), text);
   ASSERT_TRUE(scan.forget_and_save(-1));
   EXPECT_FORGET_REBOOTS(scan, -1);

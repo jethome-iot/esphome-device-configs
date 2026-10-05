@@ -311,16 +311,15 @@ bool DallasScan::can_forget(int slot) const {
 }
 
 void DallasScan::forget(int slot) {
-  if (this->forget_and_save(slot)) {
+  // Forgotten in the saved table already, by the dashboard: the panel's Confirm applies it.
+  const bool unlisted = slot < 0 || ((size_t) slot < this->max_sensors() && !this->pinned(slot));
+  if (unlisted && this->can_save() && !this->can_forget(slot) && this->reboot_required()) {
+    ESP_LOGI(TAG, "Forgotten already; rebooting to apply the saved slots");
     this->restart_();
     return;
   }
-  // Forgotten in the saved table already, by the dashboard: the panel's Confirm applies it.
-  const bool saved_empty = slot < 0 || ((size_t) slot < this->max_sensors() && !this->pinned(slot));
-  if (saved_empty && this->can_save() && !this->can_forget(slot) && this->reboot_required()) {
-    ESP_LOGI(TAG, "Forgotten already; rebooting to apply the saved slots");
+  if (this->forget_and_save(slot))
     this->restart_();
-  }
 }
 
 bool DallasScan::forget_and_save(int slot) {
