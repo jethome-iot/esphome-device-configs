@@ -127,9 +127,14 @@ esphome:
         - lambda: |-
             using namespace display_menu_base;
             using Field = entity_config::SwitchSettingsJson::Field;
+            // Thermostat names are ASCII, so a cut is a substr; a space it ends on goes too.
+            auto cut = [](const std::string &name, size_t chars) {
+              const std::string head = name.substr(0, chars);
+              return head.substr(0, head.find_last_not_of(' ') + 1);
+            };
             // `held` names who keeps the value from changing, "" when nobody does: the row then
-            // opens on that name and does not step. Thermostat names are ASCII, so a cut is a substr.
-            auto add_row = [](MenuItemMenu *menu, const char *text, std::function<size_t()> count,
+            // opens on that name and does not step.
+            auto add_row = [cut](MenuItemMenu *menu, const char *text, std::function<size_t()> count,
                               std::function<std::string(int)> label, std::function<int()> index,
                               std::function<void(size_t)> set, std::function<std::string()> held) {
               auto *pending = new int(-1);  // the choice being edited; -1 outside editing
@@ -138,7 +143,7 @@ esphome:
               row->set_text(std::string(text));
               row->set_value_lambda([=](const MenuItem *) {
                 const std::string who = *pending >= 0 ? locked() : std::string();
-                return who.empty() ? label(*pending >= 0 ? *pending : index()) : who.substr(0, 7);
+                return who.empty() ? label(*pending >= 0 ? *pending : index()) : cut(who, 7);
               });
               row->add_on_enter_callback([=]() { *pending = index(); });
               row->add_on_next_callback([=]() {
@@ -170,9 +175,9 @@ esphome:
               auto *state_row = new MenuItemCustom();
               state_row->set_text(std::string("State"));
               state_row->set_immediate_edit(true);
-              state_row->set_value_lambda([sw](const MenuItem *) {
+              state_row->set_value_lambda([sw, cut](const MenuItem *) {
                 const std::string holder = switch_hold::holder(sw);
-                return holder.empty() ? std::string(sw->state ? "On" : "Off") : holder.substr(0, 10);
+                return holder.empty() ? std::string(sw->state ? "On" : "Off") : cut(holder, 10);
               });
               auto toggle = [sw]() {
                 if (switch_hold::holder(sw).empty())

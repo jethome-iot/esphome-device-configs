@@ -90,8 +90,8 @@ display:
           // Over the lower half; f5x7 fits 24 characters inside the frame.
           const int held = id(status_held_relay);
           if (!id(status_held_by).empty() && millis() - id(status_held_ms) < 3000 && held < (int) id(relays).size()) {
-            it.filled_rectangle(0, 33, 128, 31, black);
-            it.rectangle(0, 33, 128, 31);
-            it.printf(3, 37, id(f5x7), "%.11s is driven by", id(relays)[held]->get_name().c_str());
-            it.printf(3, 49, id(f5x7), "%.24s", id(status_held_by).c_str());
+            it.filled_rectangle(0, 32, 128, 32, black);
+            it.rectangle(0, 32, 128, 32);
+            it.printf(3, 36, id(f5x7), "%.11s is driven by", id(relays)[held]->get_name().c_str());
+            it.printf(3, 48, id(f5x7), "%.24s", id(status_held_by).c_str());
           }
