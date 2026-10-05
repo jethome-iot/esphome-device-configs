@@ -15,12 +15,14 @@
 // so only /save can be 413; the body is read the way ArduinoJson reads it. A
 // document is merged over the defaults and clamped to the parameter table like
 // climate_hub's codec does, a name is checked like the hub checks it, a sensor
-// not in °C is 400, and a relay held by a running thermostat is 409 unless the
-// enable asks to take it over. An enabled Save or an enable whose sensor or
-// relay the device does not have stores the thermostat enabled to wait, not
-// running, with a `warning` that /list and /status repeat as `waiting`. Taking a
-// running thermostat's relay over for one is 400; with no holder, take_over=true
-// answers the same 200.
+// not in °C is 400, and a relay held by a running thermostat, or named by an
+// enabled one that waits, is 409 unless the enable asks to take it over. An
+// enabled Save or an enable whose sensor or relay the device does not have
+// stores the thermostat enabled to wait, not running, with a `warning` that
+// /list and /status repeat as `waiting`. Taking another thermostat's relay over
+// for one is 400; with no other on its relays, take_over=true answers the same
+// 200. A relay a change frees starts the enabled thermostats that wait for it,
+// in id order, and the answer names them.
 // /status reads a first-order room model per sensor, heated and cooled by the
 // duties of the thermostats bound to it. control() stands in for Home Assistant
 // setting a running thermostat's mode or target through its climate entity.
@@ -629,6 +631,38 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     return docs.find((d) => d.id !== except && running.has(d.id) && relaysOf(d).includes(relayId))
   }
 
+  // ClimateHub::reserver_of_: the first other thermostat by id that is enabled, waits, and
+  // names one of `doc`'s relays, a relay `doc` holds already aside.
+  function reserverOf(doc: ControllerDocument): { relay: string; holder: ControllerDocument } | undefined {
+    const stored = find(doc.id)
+    const own = stored && running.has(doc.id) ? relaysOf(stored) : []
+    for (const other of docs) {
+      if (other.id === doc.id || !other.enabled || running.has(other.id)) continue
+      const relay = relaysOf(doc).find((r) => !own.includes(r) && relaysOf(other).includes(r))
+      if (relay) return { relay, holder: other }
+    }
+    return undefined
+  }
+
+  // The relays the running thermostats hold: what a change frees is what was here before it.
+  const heldRelays = () => new Set(docs.filter((d) => running.has(d.id)).flatMap(relaysOf))
+
+  const quoted = (names: string[]) => names.map((n) => `"${n}"`).join(' and ')
+
+  // ClimateHub::start_waiters_: every enabled thermostat but `skip` that names a relay held
+  // before the change and free after it tries to start, in id order. The answer's note on who
+  // started, '' when nobody did.
+  function startWaiters(before: Set<string>, skip: string): string {
+    const after = heldRelays()
+    const freed = [...before].filter((r) => !after.has(r))
+    const started: string[] = []
+    for (const doc of docs) {
+      if (!doc.enabled || doc.id === skip || running.has(doc.id)) continue
+      if (relaysOf(doc).some((r) => freed.includes(r)) && !start(doc)) started.push(doc.name)
+    }
+    return started.length ? `; ${quoted(started)} started` : ''
+  }
+
   // ControllerRuntime::start(). `prev` is what a Save replaces: the wait for a first
   // reading and the duties carry over, the PID too while its law and sensor stand, and
   // a relay a bang-bang keeps closed keeps its latch.
@@ -694,6 +728,10 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     return fail(409, `"${switchName(relay)}" is already driven by "${holder.name}"`)
   }
 
+  function reservedRefusal(relay: string, holder: ControllerDocument): MockResult {
+    return fail(409, `"${switchName(relay)}" is reserved by "${holder.name}", which is enabled and waits to start`)
+  }
+
   // ClimateHub::check_entities_: what a take-over asks before it stops the holder, an
   // entity the device does not have or a sensor not in °C (400).
   function entityRefusal(doc: ControllerDocument): MockResult | undefined {
@@ -715,7 +753,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       const holder = holderOf(relay, doc.id)
       if (holder) return heldRefusal(relay, holder)
     }
-    return undefined
+    const reserved = reserverOf(doc)
+    return reserved ? reservedRefusal(reserved.relay, reserved.holder) : undefined
   }
 
   // Why an enabled `doc` does not start, worded and ordered as ClimateHub::start_ finds it; ''
@@ -921,6 +960,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       if (refusal) return refusal
     }
 
+    const held = heldRelays()
     const before = find(doc.id)
     const rt = running.get(doc.id)
     running.delete(doc.id)
@@ -931,11 +971,13 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     const message = updating ? 'Thermostat updated' : 'Thermostat created'
     if (!doc.enabled) {
       waitReasons.delete(doc.id)
-      return ok(message, { id: doc.id })
+      return ok(message + startWaiters(held, doc.id), { id: doc.id })
     }
     // Stored all the same, and a running one stopped: it waits for what it names.
     const warning = start(doc, before && rt ? { doc: before, rt } : undefined)
-    return warning ? ok(`${message}; ${warning}`, { id: doc.id, warning }) : ok(message, { id: doc.id })
+    // Who started on a relay it let go, then its own warning, last.
+    const text = message + startWaiters(held, doc.id)
+    return warning ? ok(`${text}; ${warning}`, { id: doc.id, warning }) : ok(text, { id: doc.id })
   }
 
   function enable(search: URLSearchParams): MockResult {
@@ -951,36 +993,42 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     const doc = find(id)
     if (!doc) return fail(404, 'Thermostat not found')
 
+    const held = heldRelays()
     if (value === 'false') {
       doc.enabled = false
       running.delete(id)
       waitReasons.delete(id)
-      return ok('Thermostat disabled', { persisted: true })
+      return ok('Thermostat disabled' + startWaiters(held, id), { persisted: true })
     }
     if (running.has(id)) return ok('Thermostat enabled', { persisted: true })
-    // Refused as a Save would be, but for a held relay the call may take over.
-    const unit = unitRefusal(doc.sensor_id)
-    if (unit) return unit
+    // Refused as a Save would be, but for a relay another thermostat holds or waits for the
+    // call may take over.
+    const refused = saveRefusal(doc)
+    if (refused && (refused.status !== 409 || takeOverRaw !== 'true')) return refused
+    // The running holders, by relay, then the enabled ones that wait for a relay, by id.
     const holders: ControllerDocument[] = []
     for (const relay of relaysOf(doc)) {
       const holder = holderOf(relay, id)
-      if (!holder) continue
-      if (takeOverRaw !== 'true') return heldRefusal(relay, holder)
-      if (!holders.includes(holder)) holders.push(holder)
+      if (holder && !holders.includes(holder)) holders.push(holder)
     }
-    // A take-over stops the holder, so only for a thermostat that runs in its place.
-    const refusal = holders.length ? entityRefusal(doc) : undefined
+    const waiters = docs.filter(
+      (d) => d.id !== id && d.enabled && !running.has(d.id) && relaysOf(d).some((r) => relaysOf(doc).includes(r))
+    )
+    // A take-over stops the others, so only for a thermostat that runs in their place.
+    const refusal = refused ? entityRefusal(doc) : undefined
     if (refusal) return refusal
-    for (const holder of holders) {
-      holder.enabled = false
-      running.delete(holder.id)
-      waitReasons.delete(holder.id)
+    for (const other of [...holders, ...waiters]) {
+      other.enabled = false
+      running.delete(other.id)
+      waitReasons.delete(other.id)
     }
     doc.enabled = true
     // A sensor or relay that is not there is waited for, as on a Save.
     const warning = start(doc)
     let message = 'Thermostat enabled'
-    if (holders.length) message += `; ${holders.map((h) => `"${h.name}"`).join(' and ')} stopped`
+    if (holders.length || waiters.length) message += `; ${quoted([...holders, ...waiters].map((h) => h.name))} stopped`
+    // After it: the relays the holders drove alone go to whoever waits for them.
+    message += startWaiters(held, id)
     return warning ? ok(`${message}; ${warning}`, { persisted: true, warning }) : ok(message, { persisted: true })
   }
 
@@ -1058,10 +1106,11 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
         if (typeof id !== 'string') return id
         const i = docs.findIndex((d) => d.id === id)
         if (i < 0) return fail(404, 'Thermostat not found')
+        const held = heldRelays()
         running.delete(id)
         waitReasons.delete(id)
         docs.splice(i, 1)
-        return ok('Thermostat deleted', { persisted: true })
+        return ok('Thermostat deleted' + startWaiters(held, ''), { persisted: true })
       }
 
       case 'enable':
