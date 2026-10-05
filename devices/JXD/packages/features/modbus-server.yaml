@@ -102,9 +102,16 @@ script:
     then:
       - lambda: |-
           auto *bus = id(jxm_uart2);
-          bus->set_baud_rate(parse_number<uint32_t>(id(modbus_baud_rate).current_option().c_str()).value_or(9600));
-          bus->set_stop_bits(parse_number<uint8_t>(id(modbus_stop_bits).current_option().c_str()).value_or(1));
-          bus->set_parity((uart::UARTParityOptions) id(modbus_parity).active_index().value_or(0));
+          const uint32_t baud = parse_number<uint32_t>(id(modbus_baud_rate).current_option().c_str()).value_or(9600);
+          const uint8_t stop_bits = parse_number<uint8_t>(id(modbus_stop_bits).current_option().c_str()).value_or(1);
+          const auto parity = (uart::UARTParityOptions) id(modbus_parity).active_index().value_or(0);
+          // A select re-set to its own option fires too, and a reload drops what is on the wire.
+          if (baud == bus->get_baud_rate() && stop_bits == bus->get_stop_bits() && parity == bus->get_parity()) {
+            return;
+          }
+          bus->set_baud_rate(baud);
+          bus->set_stop_bits(stop_bits);
+          bus->set_parity(parity);
           bus->load_settings(false);
           // Modbus takes its frame timing from the UART in setup(), which ran before this.
           id(modbus_bus).setup();
