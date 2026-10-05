@@ -150,6 +150,23 @@ TEST_F(Dashboard, APostTheSettingsTypeRejectsIsRefused) {
   EXPECT_EQ(store().sw.report(), "");
 }
 
+// The type turned down a sound request over the device's state: a 409 that says why, and the
+// next request is judged on its own.
+TEST_F(Dashboard, APostTheDevicesStateStandsInTheWayOfIsAConflict) {
+  store().sw.conflict_with = "\"Relay 1\" is driven by \"Living room\": stop that thermostat to change Inverted";
+  Reply reply = this->post("/api/device/entity-settings", UPDATE_RELAY_1);
+  EXPECT_EQ(reply.code, 409);
+  EXPECT_EQ(reply.error(), "\"Relay 1\" is driven by \"Living room\": stop that thermostat to change Inverted");
+  EXPECT_EQ(store().sw.report(), "");
+  EXPECT_FALSE(store().keeper.is_save_pending());
+
+  store().sw.conflict_with.clear();
+  reply = this->post("/api/device/entity-settings", R"({"type":"switch","settings":{"inverted":true}})");
+  EXPECT_EQ(reply.code, 400) << "the last refusal does not stick";
+  EXPECT_EQ(reply.error(), "Failed to update settings record");
+  EXPECT_EQ(this->post("/api/device/entity-settings", UPDATE_RELAY_1).code, 200);
+}
+
 TEST_F(Dashboard, APostUpdatesTheRecordAndSchedulesTheSave) {
   Reply reply = this->post("/api/device/entity-settings", UPDATE_RELAY_1);
   ASSERT_EQ(reply.code, 200);

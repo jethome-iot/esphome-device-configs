@@ -1158,6 +1158,7 @@ void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *requ
   // device that had already moved on. `doc` outlives the call because run_on_loop blocks.
   int code = 0;
   const char *message = nullptr;
+  std::string conflict;
   const bool wrote = this->run_on_loop_([&]() {
     auto *settings = keeper->get_settings(type);
     if (settings == nullptr) {
@@ -1185,8 +1186,9 @@ void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *requ
       return true;
     }
     if (settings->update_record_from_json(doc.as<JsonObject>()) == nullptr) {
-      code = 400;
-      message = "Failed to update settings record";
+      conflict = settings->conflict();
+      code = conflict.empty() ? 400 : 409;
+      message = conflict.empty() ? "Failed to update settings record" : conflict.c_str();
       return false;
     }
     keeper->save(type);

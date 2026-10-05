@@ -43,6 +43,10 @@ entity_config:
 [`bindings`](../bindings/README.md) component, and the lambdas that edit them are compiled out
 with it.
 
+`inverted` does not change on a relay a running thermostat drives (a
+[`switch_hold`](../switch_hold/switch_hold.h) holder): the dashboard's write is refused with the
+thermostat's name, and so is the menu's. The relay's other fields change as usual.
+
 ## Naming the settings objects
 
 A `<type>_settings_id` that is left out is generated, and a generated id cannot be named from a
@@ -59,7 +63,9 @@ with the `bindings` component `BINDING_INPUT`, `BINDING_MODE`), each field is a 
 - `option_count(field)`, `option_label(sw, field, index)`
 - `option_index(sw, field)`: the stored value's index, `-1` when the list does not offer it (a
   hand-edited file); `option_label` with `-1` names that value
-- `set_option(sw, field, index)`
+- `set_option(sw, field, index)`: `false`, nothing changed, for an index out of range or an
+  `INVERTED` the relay's thermostat holds it at; `inverted_refusal(sw)` is the sentence that says
+  so, `""` when nothing holds the relay
 
 `binary_sensor` settings, given a `binary_sensor::BinarySensor *`: `is_inverted(sensor)`,
 `set_inverted(sensor, inverted)`.
