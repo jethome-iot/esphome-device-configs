@@ -48,6 +48,7 @@ external_components:
     components:
       - automations
       - loop_job
+      - switch_hold
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -65,6 +66,7 @@ external_components:
     components:
       - climate_hub
       - loop_job
+      - switch_hold
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -80,6 +82,7 @@ external_components:
     components:
       - entity_config
       - bindings
+      - switch_hold
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -427,7 +430,15 @@ binary_sensor:
           } else if (page == id(status_page)) {
             int sel = id(status_relay_sel);
             if (sel >= 0 && sel < (int) id(relays).size()) {
-              id(relays)[sel]->toggle();
+              // A relay a thermostat drives is the thermostat's: the page says whose instead.
+              const std::string holder = switch_hold::holder(id(relays)[sel]);
+              if (holder.empty()) {
+                id(relays)[sel]->toggle();
+              } else {
+                id(status_held_by) = holder;
+                id(status_held_relay) = sel;
+                id(status_held_ms) = millis();
+              }
               id(display1).update();
             }
           }
@@ -637,6 +648,14 @@ globals:
   - id: status_temp_scroll
     type: int
     initial_value: '0'
+  - id: status_held_by
+    type: std::string
+  - id: status_held_relay
+    type: int
+    initial_value: '0'
+  - id: status_held_ms
+    type: uint32_t
+    initial_value: '0'
 esphome:
   on_boot:
     - priority: 800
@@ -666,16 +685,27 @@ esphome:
         - lambda: |-
             using namespace display_menu_base;
             using Field = entity_config::SwitchSettingsJson::Field;
+            // `held` names who keeps the value from changing, "" when nobody does: the row then
+            // opens on that name and does not step. Thermostat names are ASCII, so a cut is a substr.
             auto add_row = [](MenuItemMenu *menu, const char *text, std::function<size_t()> count,
                               std::function<std::string(int)> label, std::function<int()> index,
-                              std::function<void(size_t)> set) {
+                              std::function<void(size_t)> set, std::function<std::string()> held) {
               auto *pending = new int(-1);  // the choice being edited; -1 outside editing
+              auto locked = [held]() { return held ? held() : std::string(); };
               auto *row = new MenuItemCustom();
               row->set_text(std::string(text));
-              row->set_value_lambda([=](const MenuItem *) { return label(*pending >= 0 ? *pending : index()); });
+              row->set_value_lambda([=](const MenuItem *) {
+                const std::string who = *pending >= 0 ? locked() : std::string();
+                return who.empty() ? label(*pending >= 0 ? *pending : index()) : who.substr(0, 7);
+              });
               row->add_on_enter_callback([=]() { *pending = index(); });
-              row->add_on_next_callback([=]() { *pending = (*pending + 1) % static_cast<int>(count()); });
+              row->add_on_next_callback([=]() {
+                if (locked().empty())
+                  *pending = (*pending + 1) % static_cast<int>(count());
+              });
               row->add_on_prev_callback([=]() {
+                if (!locked().empty())
+                  return;
                 const int n = count();
                 *pending = *pending < 0 ? n - 1 : (*pending + n - 1) % n;
               });
@@ -693,21 +723,31 @@ esphome:
               menu->set_text([sw](const MenuItem *) {
                 return sw->get_name().str() + (sw->state ? " (On)" : " (Off)");
               });
-              auto *state_row = new MenuItemSwitch();
+              // A relay a thermostat drives is the thermostat's: the row names it instead of
+              // toggling; 10 characters fill the row.
+              auto *state_row = new MenuItemCustom();
               state_row->set_text(std::string("State"));
-              state_row->set_switch_variable(sw);
-              state_row->set_on_text("On");
-              state_row->set_off_text("Off");
               state_row->set_immediate_edit(true);
+              state_row->set_value_lambda([sw](const MenuItem *) {
+                const std::string holder = switch_hold::holder(sw);
+                return holder.empty() ? std::string(sw->state ? "On" : "Off") : holder.substr(0, 10);
+              });
+              auto toggle = [sw]() {
+                if (switch_hold::holder(sw).empty())
+                  sw->toggle();
+              };
+              state_row->add_on_next_callback(toggle);
+              state_row->add_on_prev_callback(toggle);
               menu->add_item(state_row);
 
-              auto field_row = [&](const char *text, Field field) {
+              auto field_row = [&](const char *text, Field field, std::function<std::string()> held = nullptr) {
                 add_row(menu, text, [sws, field]() { return sws->option_count(field); },
                         [sws, sw, field](int index) { return sws->option_label(sw, field, index); },
                         [sws, sw, field]() { return sws->option_index(sw, field); },
-                        [sws, sw, field](size_t index) { sws->set_option(sw, field, index); });
+                        [sws, sw, field](size_t index) { sws->set_option(sw, field, index); }, held);
               };
-              field_row("Inverted", Field::INVERTED);
+              // Flipping the contact under a running thermostat would invert what it does.
+              field_row("Inverted", Field::INVERTED, [sw]() { return switch_hold::holder(sw); });
               field_row("Start mode", Field::RESTORE_MODE);
               field_row("Bind to", Field::BINDING_INPUT);
               field_row("Binding", Field::BINDING_MODE);
@@ -729,7 +769,7 @@ esphome:
               add_row(menu, "Inverted", []() { return 2; },
                       [](int index) { return index == 1 ? "Yes" : "No"; },
                       [bss, input]() { return bss->is_inverted(input) ? 1 : 0; },
-                      [bss, input](size_t index) { bss->set_inverted(input, index == 1); });
+                      [bss, input](size_t index) { bss->set_inverted(input, index == 1); }, nullptr);
               id(inputs_menu)->add_item(menu);
             }
     - priority: 500
@@ -1226,6 +1266,11 @@ modbus_server:
       - address: 0
         read_lambda: return id(relay_1).state;
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_1));
+          if (!holder.empty() && x != id(relay_1).state) {
+            ESP_LOGW("modbus", "Coil 0x0000 refused: thermostat '%s' drives relay_1", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_1).turn_on();
           } else {
@@ -1235,6 +1280,11 @@ modbus_server:
       - address: 1
         read_lambda: return id(relay_2).state;
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_2));
+          if (!holder.empty() && x != id(relay_2).state) {
+            ESP_LOGW("modbus", "Coil 0x0001 refused: thermostat '%s' drives relay_2", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_2).turn_on();
           } else {
@@ -1244,6 +1294,11 @@ modbus_server:
       - address: 2
         read_lambda: return id(relay_3).state;
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_3));
+          if (!holder.empty() && x != id(relay_3).state) {
+            ESP_LOGW("modbus", "Coil 0x0002 refused: thermostat '%s' drives relay_3", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_3).turn_on();
           } else {
@@ -1253,6 +1308,11 @@ modbus_server:
       - address: 3
         read_lambda: return id(relay_4).state;
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_4));
+          if (!holder.empty() && x != id(relay_4).state) {
+            ESP_LOGW("modbus", "Coil 0x0003 refused: thermostat '%s' drives relay_4", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_4).turn_on();
           } else {
@@ -1262,6 +1322,11 @@ modbus_server:
       - address: 4
         read_lambda: return id(relay_5).state;
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_5));
+          if (!holder.empty() && x != id(relay_5).state) {
+            ESP_LOGW("modbus", "Coil 0x0004 refused: thermostat '%s' drives relay_5", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_5).turn_on();
           } else {
@@ -1271,6 +1336,11 @@ modbus_server:
       - address: 5
         read_lambda: return id(relay_6).state;
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_6));
+          if (!holder.empty() && x != id(relay_6).state) {
+            ESP_LOGW("modbus", "Coil 0x0005 refused: thermostat '%s' drives relay_6", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_6).turn_on();
           } else {
@@ -1474,6 +1544,15 @@ display:
               it.printf(92, y, id(f5x7), "%.1f", value);
             }
             y += 11;
+          }
+
+          // Over the lower half; f5x7 fits 24 characters inside the frame.
+          const int held = id(status_held_relay);
+          if (!id(status_held_by).empty() && millis() - id(status_held_ms) < 3000 && held < (int) id(relays).size()) {
+            it.filled_rectangle(0, 33, 128, 31, black);
+            it.rectangle(0, 33, 128, 31);
+            it.printf(3, 37, id(f5x7), "%.11s is driven by", id(relays)[held]->get_name().c_str());
+            it.printf(3, 49, id(f5x7), "%.24s", id(status_held_by).c_str());
           }
   - platform: ssd1306_i2c
     id: !extend 'display1'

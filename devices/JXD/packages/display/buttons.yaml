@@ -109,7 +109,15 @@ binary_sensor:
           } else if (page == id(status_page)) {
             int sel = id(status_relay_sel);
             if (sel >= 0 && sel < (int) id(relays).size()) {
-              id(relays)[sel]->toggle();
+              // A relay a thermostat drives is the thermostat's: the page says whose instead.
+              const std::string holder = switch_hold::holder(id(relays)[sel]);
+              if (holder.empty()) {
+                id(relays)[sel]->toggle();
+              } else {
+                id(status_held_by) = holder;
+                id(status_held_relay) = sel;
+                id(status_held_ms) = millis();
+              }
               id(display1).update();
             }
           }

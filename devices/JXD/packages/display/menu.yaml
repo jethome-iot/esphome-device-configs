@@ -127,16 +127,27 @@ esphome:
         - lambda: |-
             using namespace display_menu_base;
             using Field = entity_config::SwitchSettingsJson::Field;
+            // `held` names who keeps the value from changing, "" when nobody does: the row then
+            // opens on that name and does not step. Thermostat names are ASCII, so a cut is a substr.
             auto add_row = [](MenuItemMenu *menu, const char *text, std::function<size_t()> count,
                               std::function<std::string(int)> label, std::function<int()> index,
-                              std::function<void(size_t)> set) {
+                              std::function<void(size_t)> set, std::function<std::string()> held) {
               auto *pending = new int(-1);  // the choice being edited; -1 outside editing
+              auto locked = [held]() { return held ? held() : std::string(); };
               auto *row = new MenuItemCustom();
               row->set_text(std::string(text));
-              row->set_value_lambda([=](const MenuItem *) { return label(*pending >= 0 ? *pending : index()); });
+              row->set_value_lambda([=](const MenuItem *) {
+                const std::string who = *pending >= 0 ? locked() : std::string();
+                return who.empty() ? label(*pending >= 0 ? *pending : index()) : who.substr(0, 7);
+              });
               row->add_on_enter_callback([=]() { *pending = index(); });
-              row->add_on_next_callback([=]() { *pending = (*pending + 1) % static_cast<int>(count()); });
+              row->add_on_next_callback([=]() {
+                if (locked().empty())
+                  *pending = (*pending + 1) % static_cast<int>(count());
+              });
               row->add_on_prev_callback([=]() {
+                if (!locked().empty())
+                  return;
                 const int n = count();
                 *pending = *pending < 0 ? n - 1 : (*pending + n - 1) % n;
               });
@@ -154,21 +165,31 @@ esphome:
               menu->set_text([sw](const MenuItem *) {
                 return sw->get_name().str() + (sw->state ? " (On)" : " (Off)");
               });
-              auto *state_row = new MenuItemSwitch();
+              // A relay a thermostat drives is the thermostat's: the row names it instead of
+              // toggling; 10 characters fill the row.
+              auto *state_row = new MenuItemCustom();
               state_row->set_text(std::string("State"));
-              state_row->set_switch_variable(sw);
-              state_row->set_on_text("On");
-              state_row->set_off_text("Off");
               state_row->set_immediate_edit(true);
+              state_row->set_value_lambda([sw](const MenuItem *) {
+                const std::string holder = switch_hold::holder(sw);
+                return holder.empty() ? std::string(sw->state ? "On" : "Off") : holder.substr(0, 10);
+              });
+              auto toggle = [sw]() {
+                if (switch_hold::holder(sw).empty())
+                  sw->toggle();
+              };
+              state_row->add_on_next_callback(toggle);
+              state_row->add_on_prev_callback(toggle);
               menu->add_item(state_row);
 
-              auto field_row = [&](const char *text, Field field) {
+              auto field_row = [&](const char *text, Field field, std::function<std::string()> held = nullptr) {
                 add_row(menu, text, [sws, field]() { return sws->option_count(field); },
                         [sws, sw, field](int index) { return sws->option_label(sw, field, index); },
                         [sws, sw, field]() { return sws->option_index(sw, field); },
-                        [sws, sw, field](size_t index) { sws->set_option(sw, field, index); });
+                        [sws, sw, field](size_t index) { sws->set_option(sw, field, index); }, held);
               };
-              field_row("Inverted", Field::INVERTED);
+              // Flipping the contact under a running thermostat would invert what it does.
+              field_row("Inverted", Field::INVERTED, [sw]() { return switch_hold::holder(sw); });
               field_row("Start mode", Field::RESTORE_MODE);
               field_row("Bind to", Field::BINDING_INPUT);
               field_row("Binding", Field::BINDING_MODE);
@@ -190,7 +211,7 @@ esphome:
               add_row(menu, "Inverted", []() { return 2; },
                       [](int index) { return index == 1 ? "Yes" : "No"; },
                       [bss, input]() { return bss->is_inverted(input) ? 1 : 0; },
-                      [bss, input](size_t index) { bss->set_inverted(input, index == 1); });
+                      [bss, input](size_t index) { bss->set_inverted(input, index == 1); }, nullptr);
               id(inputs_menu)->add_item(menu);
             }
 

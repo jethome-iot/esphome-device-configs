@@ -2,7 +2,7 @@
 # Details: doc/CLIMATE.md
 external_components:
   - source: ${components}
-    components: [climate_hub, loop_job]
+    components: [climate_hub, loop_job, switch_hold]
 
 climate_hub:
   id: climates
