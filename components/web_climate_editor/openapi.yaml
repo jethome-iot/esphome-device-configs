@@ -2,14 +2,14 @@ openapi: 3.1.0
 
 info:
   title: web_climate_editor HTTP API
-  version: 1.0.0
+  version: 1.1.0
   description: >-
     JSON/REST API of the `climate_hub` thermostats, served by the
     `web_climate_editor` component on the device's own web server (default
     prefix `/climate-editor`, routes under `<prefix>/api/`). List, read,
-    create, change, start, stop and delete thermostats, move a target, watch
-    the control loop, and discover the sensors and relays a thermostat may
-    name. ESP-IDF (ESP32) only.
+    create, change, start, stop and delete thermostats, edit their presets,
+    move a target, watch the control loop, and discover the sensors and
+    relays a thermostat may name. ESP-IDF (ESP32) only.
 
     This document is the wire contract; the TypeScript client and mock in
     `client/` implement it, and `client/types.ts` is where a shape changes
@@ -125,10 +125,21 @@ paths:
         answered `Empty request body`, and a longer one gets the server's own
         bare `400` before it reaches this API.
 
+        `presets` left out, or `null`, is none, so a Save without them removes
+        them. The device gives the presets their keys: a create makes every key
+        from its preset's name, and an update keeps the key of every preset
+        that comes back with it and makes one for a new preset. `active_preset`
+        is ignored: an update keeps the active preset while its key is in the
+        list and applies that preset's new target and mode at once, and a
+        create starts with none.
+
         The refusals come in this order, and the first one a document meets is
         the answer: `400` for an empty body, a body that is not JSON, or a
-        document that breaks a rule (the structure first, the name rules last);
-        `404` for an unknown `id`, or `507` for a create past
+        document that breaks a rule (the thermostat's structure first, then its
+        presets, its name rules last; a preset's sentence names its row from
+        1); `404` for an unknown `id`, `409` for a thermostat whose file a
+        newer firmware wrote, which a Save would strip of what this firmware
+        does not know, or `507` for a create past
         `max_controllers`; `409` for a name another thermostat or a YAML
         climate answers to, or on a create for a name whose every id is taken
         by a file in the folder; and, for an enabled thermostat, `400` when its
@@ -271,6 +282,10 @@ paths:
         waits without running, and the `200` carries a `warning` naming what is
         missing. It starts at the next boot that finds what it names, or at a
         Save or an `/enable` that finds it there.
+
+        A thermostat whose file a newer firmware wrote starts or stops all the
+        same, but its file is never written: `persisted` is false when the flag
+        changed, and the next boot finds it as before.
       parameters:
         - $ref: "#/components/parameters/IdQuery"
         - name: value
@@ -338,7 +353,8 @@ paths:
       description: >-
         Clamped into the thermostat's visual range. A running thermostat
         applies it at once, as a target from Home Assistant; the file follows
-        within three seconds.
+        within three seconds, unless a newer firmware wrote it. The active
+        preset stays.
       parameters:
         - $ref: "#/components/parameters/IdQuery"
         - name: value
@@ -533,6 +549,10 @@ components:
               value:
                 success: false
                 error: '"Uptime" reports s, not °C'
+            preset:
+              value:
+                success: false
+                error: 'Preset 2: "ECO" is already used by Preset 1'
     NotFound:
       description: No thermostat has that id, or the path names no route.
       content:
@@ -570,8 +590,8 @@ components:
     Conflict:
       description: >-
         The name is one another thermostat or a YAML climate answers to, every
-        id it gives is taken by a file in the folder, or a running thermostat
-        holds the relay.
+        id it gives is taken by a file in the folder, a running thermostat
+        holds the relay, or a newer firmware wrote the thermostat's file.
       content:
         application/json:
           schema:
@@ -595,6 +615,10 @@ components:
                 error: >-
                   Every id made from "Boiler" is taken by a file in the
                   thermostat folder; choose another name
+            newerFirmware:
+              value:
+                success: false
+                error: A newer firmware wrote this thermostat; update the firmware to change it
     NotWritten:
       description: >-
         Nothing changed: the thermostat's file could not be written, or the
@@ -649,6 +673,80 @@ components:
     Mode:
       type: string
       enum: ["off", heat, cool, heat_cool]
+
+    PresetMode:
+      type: string
+      enum: [keep, "off", heat, cool, heat_cool]
+      description: >-
+        `keep` leaves the thermostat's mode as it is; any other needs the
+        relays it drives, as the thermostat's own mode does.
+
+    PresetKey:
+      type: string
+      description: >-
+        The slug of the name the preset was created with, `-2` and on when
+        another preset of the thermostat has it. A rename keeps it, so a rule
+        naming the preset still finds it.
+      pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+      maxLength: 48
+      example: eco
+
+    PresetName:
+      type: string
+      description: >-
+        The thermostat name rules, trimmed; `none`, in any case, is reserved,
+        and two presets of one thermostat may not share a name compared
+        without case and runs of spaces. One of Home Assistant's standard
+        presets (`eco`, `away`, `boost`, `comfort`, `home`, `sleep`,
+        `activity`), in any case, is that built-in preset there; any other
+        name is shown as it is.
+      minLength: 1
+      maxLength: 48
+      example: Eco
+
+    Preset:
+      type: object
+      description: A target, and a mode or `keep`, that a thermostat takes in one step.
+      required: [key, name, setpoint, mode]
+      properties:
+        key:
+          $ref: "#/components/schemas/PresetKey"
+        name:
+          $ref: "#/components/schemas/PresetName"
+        setpoint:
+          type: number
+          description: Held inside the thermostat's visual range.
+        mode:
+          $ref: "#/components/schemas/PresetMode"
+
+    PresetInput:
+      type: object
+      description: >-
+        A preset as `/save` takes it. A new one has no key: the device gives
+        it. A key the thermostat never gave out is made again from the name.
+      required: [name, setpoint]
+      properties:
+        key:
+          $ref: "#/components/schemas/PresetKey"
+        name:
+          type: string
+        setpoint:
+          type: number
+        mode:
+          $ref: "#/components/schemas/PresetMode"
+          default: keep
+
+    ActivePreset:
+      type: string
+      description: >-
+        The key of the preset picked last, `""` for none. A target or a mode
+        set by hand keeps it, and it stays while the thermostat is stopped.
+      example: eco
+
+    ActivePresetName:
+      type: string
+      description: The active preset's name, `""` for none.
+      example: Eco
 
     Action:
       type: string
@@ -792,10 +890,16 @@ components:
         - bang_bang
         - mode
         - setpoint
+        - presets
+        - active_preset
       properties:
         version:
           type: integer
-          enum: [1]
+          minimum: 2
+          description: >-
+            `2`, the format this firmware writes, or the higher number of a
+            file a newer firmware wrote: that thermostat runs, but its Save is
+            `409`.
         id:
           $ref: "#/components/schemas/Id"
         name:
@@ -827,8 +931,16 @@ components:
         setpoint:
           type: number
           description: One target for both laws, held inside the visual range.
+        presets:
+          type: array
+          maxItems: 8
+          description: In the order Home Assistant lists the custom ones.
+          items:
+            $ref: "#/components/schemas/Preset"
+        active_preset:
+          $ref: "#/components/schemas/ActivePreset"
       example:
-        version: 1
+        version: 2
         id: living-room
         name: Living Room
         enabled: true
@@ -872,6 +984,16 @@ components:
           above: 0.5
         mode: heat
         setpoint: 21
+        presets:
+          - key: eco
+            name: Eco
+            setpoint: 18
+            mode: keep
+          - key: night
+            name: Night
+            setpoint: 19.5
+            mode: heat
+        active_preset: eco
 
     ControllerSaveInput:
       type: object
@@ -880,12 +1002,12 @@ components:
         too, each then taking its default. `name` and `sensor_id` are needed,
         and `heat.relay_id` or `cool.relay_id` must name a relay, not the same
         one for both. `mode` defaults to `heat`, which needs `heat.relay_id`.
-        `id` absent or `""` creates.
+        `id` absent or `""` creates. `presets` left out, or `null`, is none.
       required: [name, sensor_id]
       properties:
         version:
-          type: integer
-          enum: [1]
+          type: number
+          description: Ignored; a Save writes this firmware's format.
         id:
           type: string
         name:
@@ -918,6 +1040,14 @@ components:
           $ref: "#/components/schemas/Mode"
         setpoint:
           type: number
+        presets:
+          type: [array, "null"]
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/PresetInput"
+        active_preset:
+          type: string
+          description: Ignored; the active preset is the thermostat's state.
       anyOf:
         - required: [heat]
           properties:
@@ -941,7 +1071,19 @@ components:
 
     ControllerSummary:
       type: object
-      required: [id, name, enabled, kind, mode, sensor_id, heat_relay_id, cool_relay_id, running, waiting]
+      required:
+        - id
+        - name
+        - enabled
+        - kind
+        - mode
+        - sensor_id
+        - heat_relay_id
+        - cool_relay_id
+        - running
+        - waiting
+        - active_preset
+        - active_preset_name
       properties:
         id:
           $ref: "#/components/schemas/Id"
@@ -967,6 +1109,10 @@ components:
             and not running, it waits: see `waiting`.
         waiting:
           $ref: "#/components/schemas/Waiting"
+        active_preset:
+          $ref: "#/components/schemas/ActivePreset"
+        active_preset_name:
+          $ref: "#/components/schemas/ActivePresetName"
 
     ControllersResponse:
       type: object
@@ -999,6 +1145,8 @@ components:
             cool_relay_id: ""
             running: true
             waiting: ""
+            active_preset: eco
+            active_preset_name: Eco
 
     Waiting:
       type: string
@@ -1042,6 +1190,8 @@ components:
         - current_temperature
         - sensor_age_s
         - setpoint
+        - active_preset
+        - active_preset_name
         - min_temperature
         - max_temperature
         - step
@@ -1068,6 +1218,10 @@ components:
           description: Seconds since the running thermostat's last reading; `null` before one, or when stopped.
         setpoint:
           type: number
+        active_preset:
+          $ref: "#/components/schemas/ActivePreset"
+        active_preset_name:
+          $ref: "#/components/schemas/ActivePresetName"
         min_temperature:
           type: number
         max_temperature:
@@ -1138,7 +1292,7 @@ components:
 
     ClimateSchema:
       type: object
-      required: [kinds, modes, faults, max_controllers, name_max_length, params]
+      required: [kinds, modes, faults, max_controllers, name_max_length, presets, params]
       properties:
         kinds:
           type: array
@@ -1157,6 +1311,28 @@ components:
         name_max_length:
           type: integer
           enum: [48]
+        presets:
+          type: object
+          description: >-
+            What a preset may be. Its name follows `name_max_length`; its
+            target, the thermostat's visual range.
+          required: [max_count, modes, standard]
+          properties:
+            max_count:
+              type: integer
+              enum: [8]
+              description: Presets per thermostat.
+            modes:
+              type: array
+              description: "`keep` first, then the modes."
+              items:
+                $ref: "#/components/schemas/PresetMode"
+            standard:
+              type: array
+              description: Home Assistant's built-in presets; a preset by one of these names, in any case, is that one.
+              items:
+                type: string
+                enum: [eco, away, boost, comfort, home, sleep, activity]
         params:
           type: object
           description: The tunable numbers by group, in the order a form shows them.

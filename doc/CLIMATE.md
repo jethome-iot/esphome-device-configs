@@ -59,8 +59,9 @@ words of the warning.
 ## Over HTTP
 
 `features/climate-editor.yaml` serves the thermostats on the web server port under
-`/climate-editor/api`: list them, read, create, change and delete one, start or stop it, move
-its target, and watch what each one is doing. The routes and their contract are in
+`/climate-editor/api`: list them, read, create, change and delete one, edit its presets, start
+or stop it, move its target, and watch what each one is doing and which preset is active. The
+routes and their contract are in
 [components/web_climate_editor/openapi.yaml](../components/web_climate_editor/openapi.yaml),
 the usage in [its README](../components/web_climate_editor/README.md).
 
