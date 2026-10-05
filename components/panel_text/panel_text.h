@@ -6,6 +6,7 @@
 #include <string>
 
 // Text for the display menu's rows, which a monospace font draws one glyph per code point.
+// Every function may end a cut text in '…', so the font must have it (GF_Latin_Kernel does).
 namespace esphome::panel_text {
 
 // Whether the font has a glyph for a code point.
