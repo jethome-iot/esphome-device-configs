@@ -15,8 +15,17 @@ export type ClimateHubMode = 'off' | 'heat' | 'cool' | 'heat_cool'
 /** What the controller is doing right now. */
 export type ClimateHubAction = 'off' | 'idle' | 'heating' | 'cooling'
 
-/** Why a controller is not controlling. Never persisted. */
-export type ClimateHubFault = 'none' | 'sensor_missing' | 'sensor_stale' | 'relay_missing' | 'overtemp'
+/**
+ * Why a controller is not controlling. Never persisted. `relay_contested` alone
+ * keeps it controlling: something else keeps moving one of its relays.
+ */
+export type ClimateHubFault =
+  | 'none'
+  | 'sensor_missing'
+  | 'sensor_stale'
+  | 'relay_missing'
+  | 'overtemp'
+  | 'relay_contested'
 
 /** One driven direction. An empty relay_id means the direction is unused. */
 export interface OutputConfig {

@@ -656,7 +656,13 @@ components:
 
     Fault:
       type: string
-      enum: [none, sensor_missing, sensor_stale, relay_missing, overtemp]
+      enum: [none, sensor_missing, sensor_stale, relay_missing, overtemp, relay_contested]
+      description: >-
+        Why a running thermostat does not control, its relays held open.
+        `relay_contested` alone does not stop it: something else has moved
+        one of its relays five times without ten minutes of quiet after a
+        put-back, and the thermostat goes on putting it back. It clears by
+        itself after those ten minutes.
 
     PartialOutputConfig:
       type: object
