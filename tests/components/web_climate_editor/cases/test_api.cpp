@@ -31,7 +31,7 @@ TEST_F(Editor, SaveCreatesAThermostatTheOtherRoutesThenSee) {
   Reply got = this->get("get?id=living-room");
   ASSERT_EQ(got.code, 200) << got.body;
   EXPECT_TRUE(got["success"].isUnbound());
-  EXPECT_EQ(got["version"].as<int>(), 1);
+  EXPECT_EQ(got["version"].as<int>(), climate_hub::CONFIG_VERSION);
   EXPECT_EQ(got["id"].as<std::string>(), "living-room");
   EXPECT_EQ(got["name"].as<std::string>(), "Living Room");
   EXPECT_FLOAT_EQ(got["setpoint"].as<float>(), 22.f);

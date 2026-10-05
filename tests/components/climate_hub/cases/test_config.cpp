@@ -19,6 +19,19 @@ ClimateConfig sample() {
 }
 
 const char *const GOLDEN =
+    R"({"version":2,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
+    R"("update_interval_s":30,"heat":{"relay_id":"relay_1","period_s":300,"min_on_s":10,"min_off_s":10},)"
+    R"("cool":{"relay_id":"","period_s":300,"min_on_s":10,"min_off_s":10},)"
+    R"("visual":{"min_temperature":5,"max_temperature":45,"step":0.5},)"
+    R"("safety":{"sensor_timeout_s":300,"max_temperature":60},)"
+    R"("pid":{"kp":0.6,"ki":0.0025,"kd":0,"min_integral":-1,"max_integral":1,"starting_integral_term":0,)"
+    R"("output_samples":1,"derivative_samples":8,"deadband_threshold_low":0,"deadband_threshold_high":0,)"
+    R"("deadband_kp_multiplier":0,"deadband_ki_multiplier":0,"deadband_kd_multiplier":0,)"
+    R"("deadband_output_samples":1},"bang_bang":{"below":0.5,"above":0.5},"mode":"heat",)"
+    R"("setpoint":21,"presets":[],"active_preset":""})";
+
+// What the first firmware with thermostats wrote: no presets, version 1.
+const char *const GOLDEN_V1 =
     R"({"version":1,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
     R"("update_interval_s":30,"heat":{"relay_id":"relay_1","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("cool":{"relay_id":"","period_s":300,"min_on_s":10,"min_off_s":10},)"
@@ -30,6 +43,43 @@ const char *const GOLDEN =
     R"("deadband_output_samples":1},"bang_bang":{"below":0.5,"above":0.5},"mode":"heat",)"
     R"("setpoint":21})";
 
+ClimateConfig with_presets() {
+  ClimateConfig c = sample();
+  c.cool.relay_id = "relay_2";
+  PresetConfig eco;
+  eco.key = "eco";
+  eco.name = "Eco";
+  eco.setpoint = 18.f;
+  PresetConfig night;
+  night.key = "night";
+  night.name = "Night";
+  night.setpoint = 19.5f;
+  night.mode = HubMode::HEAT_COOL;
+  c.presets = {eco, night};
+  c.active_preset = "night";
+  return c;
+}
+
+const char *const GOLDEN_PRESETS =
+    R"({"version":2,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
+    R"("update_interval_s":30,"heat":{"relay_id":"relay_1","period_s":300,"min_on_s":10,"min_off_s":10},)"
+    R"("cool":{"relay_id":"relay_2","period_s":300,"min_on_s":10,"min_off_s":10},)"
+    R"("visual":{"min_temperature":5,"max_temperature":45,"step":0.5},)"
+    R"("safety":{"sensor_timeout_s":300,"max_temperature":60},)"
+    R"("pid":{"kp":0.6,"ki":0.0025,"kd":0,"min_integral":-1,"max_integral":1,"starting_integral_term":0,)"
+    R"("output_samples":1,"derivative_samples":8,"deadband_threshold_low":0,"deadband_threshold_high":0,)"
+    R"("deadband_kp_multiplier":0,"deadband_ki_multiplier":0,"deadband_kd_multiplier":0,)"
+    R"("deadband_output_samples":1},"bang_bang":{"below":0.5,"above":0.5},"mode":"heat",)"
+    R"("setpoint":21,"presets":[{"key":"eco","name":"Eco","setpoint":18,"mode":"keep"},)"
+    R"({"key":"night","name":"Night","setpoint":19.5,"mode":"heat_cool"}],"active_preset":"night"})";
+
+// A document with a heating and a cooling relay and `presets` spliced in as its preset list.
+std::string doc_with(const std::string &presets, const std::string &rest = "") {
+  return R"({"name":"B","sensor_id":"s","heat":{"relay_id":"r"},"cool":{"relay_id":"c"},"mode":"heat",)"
+         R"("presets":)" +
+         presets + rest + "}";
+}
+
 }  // namespace
 
 TEST(ClimateConfigJson, SerialisesToTheGoldenDocument) { EXPECT_EQ(GOLDEN, to_json(sample())); }
@@ -39,6 +89,293 @@ TEST(ClimateConfigJson, GoldenDocumentRoundTrips) {
   std::string error;
   ASSERT_TRUE(from_json(GOLDEN, &parsed, &error)) << error;
   EXPECT_EQ(GOLDEN, to_json(parsed));
+}
+
+TEST(ClimateConfigJson, PresetsSerialiseToTheGoldenDocumentAndRoundTrip) {
+  EXPECT_EQ(GOLDEN_PRESETS, to_json(with_presets()));
+  ClimateConfig parsed;
+  std::string error;
+  ASSERT_TRUE(from_json(GOLDEN_PRESETS, &parsed, &error)) << error;
+  EXPECT_EQ(GOLDEN_PRESETS, to_json(parsed));
+  ASSERT_EQ(2u, parsed.presets.size());
+  EXPECT_FALSE(parsed.presets[0].mode.has_value()) << "keep is no mode";
+  EXPECT_EQ(HubMode::HEAT_COOL, parsed.presets[1].mode);
+}
+
+// The change is additive: a file the first firmware wrote loads, with no presets, and is
+// written back in this version.
+TEST(ClimateConfigJson, AVersionOneFileReadsAsThisVersion) {
+  ClimateConfig parsed;
+  std::string error;
+  ASSERT_TRUE(from_json(GOLDEN_V1, &parsed, &error)) << error;
+  EXPECT_FALSE(parsed.from_newer_firmware());
+  EXPECT_TRUE(parsed.presets.empty());
+  EXPECT_EQ(GOLDEN, to_json(parsed));
+
+  ASSERT_TRUE(from_json(R"({"name":"B","sensor_id":"s","heat":{"relay_id":"r"}})", &parsed, &error, false));
+  EXPECT_EQ(CONFIG_VERSION, parsed.version) << "no version at all is an old file too";
+}
+
+// A newer firmware's file keeps its number, so the hub knows it must not write it, and keeps
+// what this firmware understands of it.
+TEST(ClimateConfigJson, ANewerVersionIsKept) {
+  struct Case {
+    const char *version;
+    uint16_t expected;
+  };
+  const Case cases[] = {{"3", 3}, {"2.5", 3}, {"70000", 65535}, {"2", 2}, {"0", 2}, {"-4", 2}, {"\"9\"", 2}};
+  for (const Case &c : cases) {
+    ClimateConfig parsed;
+    std::string error;
+    const std::string json = std::string(R"({"version":)") + c.version +
+                             R"(,"name":"B","sensor_id":"s","heat":{"relay_id":"r"},"future":{"x":1}})";
+    ASSERT_TRUE(from_json(json, &parsed, &error, false)) << c.version << ": " << error;
+    EXPECT_EQ(c.expected, parsed.version) << c.version;
+    EXPECT_EQ(c.expected > CONFIG_VERSION, parsed.from_newer_firmware()) << c.version;
+  }
+}
+
+// What Home Assistant knows a preset by: a standard name in any case is its built-in preset.
+TEST(PresetRules, AStandardNameInAnyCaseIsTheBuiltInPreset) {
+  const std::pair<const char *, climate::ClimatePreset> standard[] = {
+      {"eco", climate::CLIMATE_PRESET_ECO},           {"AWAY", climate::CLIMATE_PRESET_AWAY},
+      {"Boost", climate::CLIMATE_PRESET_BOOST},       {"comfort", climate::CLIMATE_PRESET_COMFORT},
+      {"hOmE", climate::CLIMATE_PRESET_HOME},         {"sleep", climate::CLIMATE_PRESET_SLEEP},
+      {"Activity", climate::CLIMATE_PRESET_ACTIVITY},
+  };
+  for (const auto &entry : standard) {
+    climate::ClimatePreset found = climate::CLIMATE_PRESET_NONE;
+    EXPECT_TRUE(standard_preset(entry.first, &found)) << entry.first;
+    EXPECT_EQ(entry.second, found) << entry.first;
+  }
+  for (const char *custom : {"none", "Night", "eco mode", "eco ", ""})
+    EXPECT_FALSE(standard_preset(custom)) << custom;
+}
+
+TEST(PresetRules, APresetWithoutAModeKeepsTheThermostats) {
+  ClimateConfig parsed;
+  std::string error;
+  ASSERT_TRUE(from_json(doc_with(R"([{"name":"A","setpoint":20},{"name":"B","setpoint":20,"mode":"keep"},)"
+                                 R"({"name":"C","setpoint":20,"mode":"off"}])"),
+                        &parsed, &error, false))
+      << error;
+  EXPECT_FALSE(parsed.presets[0].mode.has_value());
+  EXPECT_FALSE(parsed.presets[1].mode.has_value());
+  EXPECT_EQ(HubMode::OFF, parsed.presets[2].mode);
+}
+
+TEST(PresetRules, StructuralProblemsAreRejectedWithAReason) {
+  const std::string eight = R"({"name":"P1","setpoint":20},{"name":"P2","setpoint":20},{"name":"P3","setpoint":20},)"
+                            R"({"name":"P4","setpoint":20},{"name":"P5","setpoint":20},{"name":"P6","setpoint":20},)"
+                            R"({"name":"P7","setpoint":20},{"name":"P8","setpoint":20})";
+  struct Case {
+    std::string presets;
+    const char *error;
+  };
+  const Case cases[] = {
+      {R"({"name":"Eco"})", "presets must be a list"},
+      {R"("Eco")", "presets must be a list"},
+      {"[" + eight + R"(,{"name":"P9","setpoint":20}])", "A thermostat has at most 8 presets"},
+      {R"([{"name":"Eco","setpoint":18},"Night"])", "Preset 2 must be an object"},
+      {R"([{"name":"Eco"}])", "Preset 1: setpoint must be a number"},
+      {R"([{"name":"Eco","setpoint":"18"}])", "Preset 1: setpoint must be a number"},
+      {R"([{"name":"Eco","setpoint":18,"mode":"dry"}])", "Preset 1: mode must be one of keep/off/heat/cool/heat_cool"},
+      {R"([{"name":"Eco","setpoint":18,"key":"Eco!"}])",
+       "Preset 1: key must be a slug: lowercase letters, digits and single dashes"},
+      {R"([{"name":"Eco","setpoint":18,"key":"x"},{"name":"Night","setpoint":18,"key":"x"}])",
+       "Preset 2: key 'x' is already used by Preset 1"},
+  };
+  for (const Case &c : cases) {
+    ClimateConfig parsed;
+    std::string error;
+    EXPECT_FALSE(from_json(doc_with(c.presets), &parsed, &error, false)) << c.presets;
+    EXPECT_EQ(c.error, error) << c.presets;
+  }
+
+  ClimateConfig parsed;
+  std::string error;
+  EXPECT_TRUE(from_json(doc_with("[" + eight + "]"), &parsed, &error, false)) << error;
+  EXPECT_EQ(8u, parsed.presets.size());
+  EXPECT_TRUE(from_json(doc_with("null"), &parsed, &error, false)) << error;
+  EXPECT_TRUE(parsed.presets.empty());
+}
+
+// A preset's mode is held to what the thermostat's relays serve, as the thermostat's own is.
+TEST(PresetRules, APresetsModeNeedsItsRelays) {
+  const auto heat_only = [](const char *mode) {
+    return std::string(R"({"name":"B","sensor_id":"s","heat":{"relay_id":"r"},"presets":[)"
+                       R"({"name":"Eco","setpoint":18,"mode":")") +
+           mode + R"("}]})";
+  };
+  const std::pair<const char *, const char *> refused[] = {
+      {"cool", "Preset 1: mode 'cool' needs cool.relay_id"},
+      {"heat_cool", "Preset 1: mode 'heat_cool' needs both relays"},
+  };
+  for (const auto &c : refused) {
+    ClimateConfig parsed;
+    std::string error;
+    EXPECT_FALSE(from_json(heat_only(c.first), &parsed, &error, false)) << c.first;
+    EXPECT_EQ(c.second, error) << c.first;
+  }
+  for (const char *served : {"off", "heat"}) {
+    ClimateConfig parsed;
+    std::string error;
+    EXPECT_TRUE(from_json(heat_only(served), &parsed, &error, false)) << served << ": " << error;
+  }
+
+  ClimateConfig parsed;
+  std::string error;
+  const std::string cool_only = R"({"name":"B","sensor_id":"s","cool":{"relay_id":"c"},"mode":"cool",)"
+                                R"("presets":[{"name":"Eco","setpoint":18,"mode":"heat"}]})";
+  EXPECT_FALSE(from_json(cool_only, &parsed, &error, false));
+  EXPECT_EQ("Preset 1: mode 'heat' needs heat.relay_id", error);
+}
+
+// A preset's name follows the thermostat name rules, and the sentence says which preset.
+TEST(PresetRules, TheNameRulesHoldForEveryPreset) {
+  struct Case {
+    std::string name;
+    const char *error;
+  };
+  const Case cases[] = {
+      {"", "Preset 2: Name is required"},
+      {"   ", "Preset 2: Name is required"},
+      {std::string(49, 'a'), "Preset 2: Name is longer than 48 characters"},
+      {"Up/down", "Preset 2: Name cannot contain '/'"},
+      {"Back\\\\slash", "Preset 2: Name cannot contain '\\'"},
+      {"\u041d\u043e\u0447\u044c", "Preset 2: Use printable ASCII characters only"},
+      {"none", "Preset 2: \"none\" is reserved"},
+      {" NONE ", "Preset 2: \"NONE\" is reserved"},
+      {"Eco", "Preset 2: \"Eco\" is already used by Preset 1"},
+      {"ECO", "Preset 2: \"ECO\" is already used by Preset 1"},
+  };
+  for (const Case &c : cases) {
+    ClimateConfig parsed;
+    std::string error;
+    const std::string presets = R"([{"name":"eco","setpoint":18},{"name":")" + c.name + R"(","setpoint":18}])";
+    EXPECT_FALSE(from_json(doc_with(presets), &parsed, &error, false)) << c.name;
+    EXPECT_EQ(c.error, error) << c.name;
+  }
+
+  // Runs of spaces are one, as in a thermostat's name.
+  ClimateConfig parsed;
+  std::string error;
+  EXPECT_FALSE(from_json(doc_with(R"([{"name":"Day  time","setpoint":18},{"name":"day time","setpoint":18}])"), &parsed,
+                         &error, false));
+  EXPECT_EQ("Preset 2: \"day time\" is already used by Preset 1", error);
+
+  ASSERT_TRUE(from_json(doc_with(R"([{"name":"  Night \t","setpoint":18}])"), &parsed, &error, false)) << error;
+  EXPECT_EQ("Night", parsed.presets[0].name) << "trimmed, as a thermostat's name is";
+}
+
+// The presets come after the thermostat's own rules and before its name; within them, every
+// preset's values before any preset's name.
+TEST(PresetRules, TheFirstBrokenRuleIsTheOneReported) {
+  const std::string bad_presets = R"("presets":[{"name":"none","setpoint":18},{"name":"Eco"}])";
+  struct Case {
+    std::string json;
+    const char *error;
+  };
+  const Case cases[] = {
+      {R"({"name":"a/b","sensor_id":"s","heat":{"relay_id":"r"},"mode":"cool",)" + bad_presets + "}",
+       "mode 'cool' needs cool.relay_id"},
+      {R"({"name":"a/b","sensor_id":"s","heat":{"relay_id":"r"},)" + bad_presets + "}",
+       "Preset 2: setpoint must be a number"},
+      {R"({"name":"a/b","sensor_id":"s","heat":{"relay_id":"r"},"presets":[{"name":"none","setpoint":18}]})",
+       "Preset 1: \"none\" is reserved"},
+  };
+  for (const Case &c : cases) {
+    ClimateConfig parsed;
+    std::string error;
+    EXPECT_FALSE(from_json(c.json, &parsed, &error, false)) << c.json;
+    EXPECT_EQ(c.error, error) << c.json;
+  }
+}
+
+// A C++ document meets the same rules.
+TEST(PresetRules, ValidateAppliesThePresetRules) {
+  ClimateConfig config = with_presets();
+  std::string error;
+  EXPECT_TRUE(config.validate(&error)) << error;
+  config.presets[1].name = "eco";
+  EXPECT_FALSE(config.validate(&error));
+  EXPECT_EQ("Preset 2: \"eco\" is already used by Preset 1", error);
+  config.presets[1].setpoint = NAN;
+  EXPECT_FALSE(config.validate(&error));
+  EXPECT_EQ("Preset 2: setpoint must be a number", error);
+  config = with_presets();
+  config.presets.resize(PRESET_MAX_COUNT + 1, config.presets[0]);
+  EXPECT_FALSE(config.validate(&error));
+  EXPECT_EQ("A thermostat has at most 8 presets", error);
+}
+
+// A key is the slug of the name, "-2" and on when that is taken; one the file gives is kept.
+TEST(PresetRules, APresetWithoutAKeyGetsOneFromItsName) {
+  ClimateConfig parsed;
+  std::string error;
+  ASSERT_TRUE(
+      from_json(doc_with(R"([{"name":"Day Time","setpoint":18},{"name":"day-time!","setpoint":18},)"
+                         R"({"name":"Eco","setpoint":18,"key":"day-time-3"},{"name":"Day time 2","setpoint":18},)"
+                         R"({"name":"!!!","setpoint":18},{"name":"Night","setpoint":18,"key":7}])"),
+                &parsed, &error, false))
+      << error;
+  std::vector<std::string> keys;
+  for (const PresetConfig &preset : parsed.presets)
+    keys.push_back(preset.key);
+  EXPECT_EQ((std::vector<std::string>{"day-time", "day-time-2", "day-time-3", "day-time-2-2", "preset", "night"}),
+            keys);
+}
+
+// The active preset is state: one the presets do not have is no preset, not a broken file.
+TEST(PresetRules, AnActivePresetThatIsNotThereIsDropped) {
+  ClimateConfig parsed;
+  std::string error;
+  ASSERT_TRUE(
+      from_json(doc_with(R"([{"name":"Eco","setpoint":18}])", R"(,"active_preset":"eco")"), &parsed, &error, false))
+      << error;
+  EXPECT_EQ("eco", parsed.active_preset);
+  ASSERT_TRUE(
+      from_json(doc_with(R"([{"name":"Eco","setpoint":18}])", R"(,"active_preset":"night")"), &parsed, &error, false))
+      << error;
+  EXPECT_EQ("", parsed.active_preset);
+  ASSERT_TRUE(from_json(doc_with(R"([{"name":"Eco","setpoint":18}])", R"(,"active_preset":5)"), &parsed, &error, false))
+      << error;
+  EXPECT_EQ("", parsed.active_preset);
+}
+
+TEST(PresetRules, PresetTargetsAreHeldInsideTheVisualRange) {
+  ClimateConfig parsed;
+  std::string error;
+  ASSERT_TRUE(from_json(doc_with(R"([{"name":"Hot","setpoint":99},{"name":"Cold","setpoint":-40}])",
+                                 R"(,"visual":{"min_temperature":10,"max_temperature":30})"),
+                        &parsed, &error, false))
+      << error;
+  EXPECT_FLOAT_EQ(30.f, parsed.presets[0].setpoint);
+  EXPECT_FLOAT_EQ(10.f, parsed.presets[1].setpoint);
+}
+
+// A pick takes the target, clamped, the mode when the preset has one, and the label.
+TEST(PresetRules, APickTakesTheTargetTheModeAndTheLabel) {
+  ClimateConfig config = with_presets();
+  EXPECT_TRUE(config.pick_preset(config.presets[0]));
+  EXPECT_FLOAT_EQ(18.f, config.setpoint);
+  EXPECT_EQ(HubMode::HEAT, config.mode) << "keep";
+  EXPECT_EQ("eco", config.active_preset);
+  EXPECT_FALSE(config.pick_preset(config.presets[0])) << "already the eco's values";
+  EXPECT_TRUE(config.pick_preset(config.presets[1]));
+  EXPECT_FLOAT_EQ(19.5f, config.setpoint);
+  EXPECT_EQ(HubMode::HEAT_COOL, config.mode);
+  EXPECT_EQ("night", config.active_preset);
+
+  config.presets[0].setpoint = 99.f;
+  EXPECT_TRUE(config.pick_preset(config.presets[0]));
+  EXPECT_FLOAT_EQ(45.f, config.setpoint);
+
+  // Only a document built in C++ around the rules can hold a mode its relays do not serve.
+  config.cool.relay_id = "";
+  config.mode = HubMode::HEAT;
+  EXPECT_TRUE(config.pick_preset(config.presets[1]));
+  EXPECT_EQ(HubMode::HEAT, config.mode);
 }
 
 // The struct, the parameter table and therefore the form all start a relay's dwell at 10 s.
@@ -224,13 +561,23 @@ TEST(ClimateConfigJson, TheLargestDocumentTheRulesAllowFitsTheCap) {
   p.kp = p.ki = p.kd = p.min_integral = p.max_integral = p.starting_integral_term = wide;
   p.output_samples = p.derivative_samples = p.deadband_threshold_low = p.deadband_threshold_high = wide;
   p.deadband_kp_multiplier = p.deadband_ki_multiplier = p.deadband_kd_multiplier = p.deadband_output_samples = wide;
+  for (size_t i = 0; i < PRESET_MAX_COUNT; i++) {
+    PresetConfig preset;
+    preset.key = std::string(ID_MAX_LENGTH - 1, 'k') + std::to_string(i);
+    preset.name = std::string(NAME_MAX_LENGTH, '"');
+    preset.setpoint = wide;
+    preset.mode = HubMode::HEAT_COOL;
+    c.presets.push_back(preset);
+  }
+  c.active_preset = c.presets.back().key;
   std::string error;
   ASSERT_TRUE(validate_name(c.name, &error)) << error;
 
   std::string json;
   ASSERT_EQ(EncodeError::NONE, c.encode(&json));
   EXPECT_NE(std::string::npos, json.find("\\u0000")) << "the worst escape is the one measured";
-  EXPECT_LT(json.size(), CONFIG_MAX_BYTES / 2) << json;
+  // A quarter left for what later versions add.
+  EXPECT_LT(json.size(), CONFIG_MAX_BYTES * 3 / 4) << json;
 }
 
 TEST(ClimateConfigJson, AFileOverTheCapIsNotEncoded) {

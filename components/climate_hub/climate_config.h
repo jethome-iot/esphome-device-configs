@@ -1,16 +1,25 @@
 #pragma once
 
 #include <ArduinoJson.h>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 #include "enums.h"
+#include "esphome/components/climate/climate_mode.h"
 #include "esphome/core/entity_base.h"
+#include "esphome/core/optional.h"
 
 namespace esphome::climate_hub {
 
 /// A document larger than this is refused before it is parsed.
 static constexpr size_t CONFIG_MAX_BYTES = 8192;
+/// The file format this firmware writes. A file with a higher one came from a newer firmware:
+/// it is read as far as this one understands it and never written back.
+static constexpr uint16_t CONFIG_VERSION = 2;
+/// Presets per thermostat.
+static constexpr size_t PRESET_MAX_COUNT = 8;
 /// Longest name a controller may have; its entity keeps it in a fixed buffer.
 static constexpr size_t NAME_MAX_LENGTH = 48;
 /// Longest id; `<id>.json.tmp` has to stay inside LittleFS's 64-byte names.
@@ -67,10 +76,22 @@ struct BangBangParams {
   float above{0.5f};
 };
 
+/// A target, and a mode or none, that a thermostat takes in one step.
+struct PresetConfig {
+  /// The slug of the name it was created with; a rename keeps it. The file, the API and the
+  /// rules name a preset by it.
+  std::string key;
+  std::string name;
+  float setpoint{NAN};
+  /// None keeps the thermostat's mode.
+  optional<HubMode> mode;
+};
+
 /// The stored document of one controller. Keyed on `id`, never on the name, so a rename
 /// re-keys nothing: not the file, not the relay claims.
 struct ClimateConfig {
-  uint16_t version{1};
+  /// CONFIG_VERSION, or the higher one of a file a newer firmware wrote.
+  uint16_t version{CONFIG_VERSION};
   std::string id;
   std::string name;
   bool enabled{true};
@@ -90,6 +111,11 @@ struct ClimateConfig {
   // entity never needs climate::Climate's two-point union.
   float setpoint{21.f};
 
+  /// In the order Home Assistant lists the custom ones.
+  std::vector<PresetConfig> presets;
+  /// The key of the preset picked last, "" for none. A target or a mode set by hand keeps it.
+  std::string active_preset;
+
   /// Key order is fixed so a golden test can compare byte for byte.
   void serialize(JsonObject root) const;
 
@@ -99,8 +125,10 @@ struct ClimateConfig {
                      ArduinoJson::Allocator *allocator = ArduinoJson::detail::DefaultAllocator::instance()) const;
 
   /// Numbers are clamped, a broken rule is refused with a sentence in `error`: the first one
-  /// in the editor's order, the name rules last. The name is trimmed, and the setpoint clamped
-  /// into the visual range.
+  /// in the editor's order, the presets after the thermostat's own rules, its name rules last.
+  /// The names are trimmed, the setpoints clamped into the visual range, a preset without a key
+  /// gets one, and an active_preset no preset has is dropped. An older version reads as this
+  /// one; a newer one is kept, so the hub knows not to write the file.
   bool deserialize(const JsonObject &root, bool require_id, std::string *error);
 
   /// The rules deserialize() applies, in its order, for a document built in C++.
@@ -110,20 +138,39 @@ struct ClimateConfig {
   /// deserialize() does.
   void clamp_numbers();
 
-  /// Holds the setpoint inside the visual range.
+  /// Holds the setpoint and every preset's inside the visual range.
   void clamp_setpoint();
 
+  /// Gives every preset without a key the slug of its name, "-2" and on when that is taken.
+  void assign_preset_keys();
+  /// The preset with this key, nullptr for none.
+  const PresetConfig *find_preset(const std::string &key) const;
+  /// The preset whose name is Home Assistant's built-in `preset`, or that is the custom `name`.
+  const PresetConfig *find_preset(climate::ClimatePreset preset) const;
+  const PresetConfig *find_custom_preset(const char *name) const;
+  /// Takes the preset's target, clamped, and its mode if it has one the relays serve, and
+  /// labels it active. True when anything changed.
+  bool pick_preset(const PresetConfig &preset);
+
+  /// Written by a newer firmware: this one must not write it back.
+  bool from_newer_firmware() const { return this->version > CONFIG_VERSION; }
   /// The bang-bang switching points. Never stored: the band is.
   float switch_low() const { return this->setpoint - this->bang_bang.below; }
   float switch_high() const { return this->setpoint + this->bang_bang.above; }
 
   bool supports_heat() const { return this->heat.configured(); }
   bool supports_cool() const { return this->cool.configured(); }
+  bool supports_mode(HubMode mode) const;
+  /// `value` held inside the visual range.
+  float clamp_target(float value) const;
 };
 
 /// Reduces a display name to [a-z0-9-], collapsed and trimmed, at most ID_MAX_LENGTH chars.
-/// "climate" when nothing survives.
-std::string slugify_id(const std::string &name);
+/// `fallback` when nothing survives.
+std::string slugify_id(const std::string &name, const char *fallback = "climate");
+
+/// `base` with "-<n>" appended, cut so the whole stays within ID_MAX_LENGTH; n < 2 is `base`.
+std::string id_with_suffix(const std::string &base, unsigned n);
 
 /// The name with surrounding ASCII whitespace removed.
 std::string trim_name(const std::string &name);
@@ -134,6 +181,11 @@ bool validate_name(const std::string &name, std::string *error);
 
 /// The name as a person reads it: trimmed, inner whitespace collapsed, ASCII lowercased.
 std::string name_key(const std::string &name);
+
+/// Whether `name`, in any case, is one of Home Assistant's built-in presets (eco, away, boost,
+/// comfort, home, sleep, activity), and which. Upstream maps such a string to the built-in one
+/// before it looks at the custom presets, so a preset by that name has to be the built-in.
+bool standard_preset(const std::string &name, climate::ClimatePreset *out = nullptr);
 
 /// The object id ESPHome derives from an entity name: what Home Assistant and every
 /// object-id-keyed record in this repository know the entity by.
