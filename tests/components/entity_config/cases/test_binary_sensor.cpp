@@ -143,6 +143,10 @@ TEST_F(BinarySensorSettings, ALabelLeftOutKeepsItsValueWhileInvertedLeftOutIsFal
   EXPECT_EQ(settings.get_label("input_1"), "Door");
   EXPECT_TRUE(settings.is_inverted(&e.in1));
 
+  JsonDocument null_label = body(R"({"source_name":"input_1","settings":{"inverted":true,"label":null}})");
+  ASSERT_NE(settings.update_record(null_label.as<JsonObject>()), nullptr);
+  EXPECT_EQ(settings.get_label("input_1"), "Door");
+
   JsonDocument label_only = body(R"({"source_name":"input_1","settings":{"label":"Gate"}})");
   ASSERT_NE(settings.update_record(label_only.as<JsonObject>()), nullptr);
   EXPECT_EQ(settings.get_label("input_1"), "Gate");

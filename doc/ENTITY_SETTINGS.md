@@ -48,7 +48,8 @@ keyed by its object_id:
 
 They can be edited by hand on the partition; the format and what happens to a damaged file are
 in [components/config_json](../components/config_json/README.md). A factory reset — from the
-menu, the FN button or the API — formats the partition, so these files go with it.
+menu, the FN button or the API — formats the partition, so these files go with it. A firmware
+older than labels keeps the files but drops the labels the first time it saves one of them.
 
 ## Configuration
 

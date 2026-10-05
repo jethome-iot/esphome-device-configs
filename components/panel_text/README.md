@@ -30,7 +30,7 @@ In `esphome::panel_text`, `has_glyph` being whether the menu font has a code poi
 | `panel_fit(text, glyphs)` | at most `glyphs` code points; a cut text ends in `…`, with no space before it |
 | `panel_pair(name, value, width)` | `name: value` in `width` glyphs: whole when it fits, otherwise the name keeps at least six glyphs and each cut part ends in `…` |
 
-`f7x14_mod2`, the menu font, is 7 px wide per glyph, so a 128 px row holds 18. `…` is in
+`f7x14_mod2`, the menu font, is at most 7 px wide per glyph, so a 128 px row holds 18. `…` is in
 `GF_Latin_Kernel`, so a font built from that glyph set draws it.
 
 ## Tests

@@ -926,7 +926,7 @@ paths:
         type's file and applies the record on the loop task once the answer is
         out. A field left out keeps its current value on a `switch`; on a
         `binary_sensor`, `inverted` left out counts as false and `label` left
-        out keeps its value. The body is read
+        out keeps its value. A `null` counts as left out. The body is read
         raw, so the request needs a `Content-Type` that is not a form: a
         form-encoded body is parsed into fields by the server and answered
         `Invalid JSON`. `action: delete` removes the record on a type that
@@ -1955,10 +1955,9 @@ components:
 
     EntityLabel:
       type: string
-      maxLength: 24
       description: >-
         Shown on the panel and the page in place of the entity's name; empty for
-        none. The name, the object id and everything keyed by them stay as they
+        none, and `null` is a label left out. The name, the object id and everything keyed by them stay as they
         are. Valid UTF-8 with no control character, at most 24 characters (code
         points, not bytes) once the spaces at both ends are trimmed, which the
         device does before it stores it; anything else is refused. Applied at

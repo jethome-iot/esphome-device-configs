@@ -55,7 +55,8 @@ Home Assistant, `web_server`'s routes, Modbus, rules, thermostats, these records
 are. A label is valid UTF-8 with no control character and at most 24 characters (code points,
 not bytes); the spaces at both ends are trimmed. A write with anything else is refused, and a
 label in the file that breaks the rules is dropped with a warning. It is set through
-`web_device_dashboard`; a write that leaves it out keeps it, on both types. It applies at once.
+`web_device_dashboard`; a write that leaves it out, or sends `null`, keeps it, on both types. It
+applies at once.
 
 ## Naming the settings objects
 
