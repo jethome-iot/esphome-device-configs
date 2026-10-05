@@ -25,10 +25,17 @@ at the next boot. The file format and the C++ API are in
   cycle, and a PID keeps what it has learnt unless the Save changes its control law or its
   sensor.
 - **A relay belongs to the running thermostat.** Switched from anywhere else — the panel,
-  Modbus, an automation, Home Assistant — it is put back within a moment. Two thermostats may
-  name one relay and take turns, a summer and a winter profile on one boiler; only one of them
-  runs at a time, and taking the relay over from the other leaves it as it is. One that could
-  not run, its sensor or a relay missing, cannot take it over.
+  Modbus, an automation, Home Assistant — it is put back within a moment. Switched again, it is
+  put back once it has stayed there for its minimum on or off time, 10 s at least, so whatever
+  keeps switching it gets one switch per that time. After five switches with no ten quiet
+  minutes after a put-back, the thermostat reports `relay_contested`: it goes on working, and
+  the fault clears ten minutes after the last put-back. While the sensor is gone or silent or
+  the room is above the cut-out temperature, a relay switched on from elsewhere is switched off
+  again at once, every time. Mode off keeps holding the relay open; only switching the
+  thermostat off, or deleting it, frees the relay.
+- Two thermostats may name one relay and take turns, a summer and a winter profile on one
+  boiler; only one of them runs at a time, and taking the relay over from the other leaves it
+  as it is. One that could not run, its sensor or a relay missing, cannot take it over.
 
 ## Storage
 
@@ -74,8 +81,8 @@ is missing cannot.
   same entity id (`Room 1` and `Room_1`), nor a thermostat and a climate from the YAML.
 - The room temperature is shown to a tenth of a degree; the target moves in the thermostat's
   own step.
-- A running thermostat that neither heats nor cools shows as idle. Off means mode off, a fault,
-  or a thermostat that is not running.
+- A running thermostat that neither heats nor cools shows as idle. Off means mode off, a fault
+  other than `relay_contested`, or a thermostat that is not running.
 
 ## Testing without hardware
 

@@ -132,14 +132,25 @@ what is not there yet.
   either. A Save that keeps `sensor_id` does not restart the wait for a first reading.
 - The entity reports the room temperature to a tenth of a degree, the target in steps of
   `visual.step`, the mode and what it is doing: heating, cooling, idle, or off, which only
-  mode `off`, a fault or a stopped thermostat shows. Home Assistant and the web server can set
-  the mode and the target; a target outside the range is clamped to it.
+  mode `off`, a fault other than `relay_contested` or a stopped thermostat shows. Home
+  Assistant and the web server can set the mode and the target; a target outside the range is
+  clamped to it.
 
 ## Relays
 
-A running thermostat holds its relays, and puts one back within a loop pass if anything else
-moves it — from the panel, over Modbus, from an automation or from Home Assistant. Two
-thermostats may name the same relay and take turns: only one of them can run at a time.
+A running thermostat holds its relays, and puts one back if anything else moves it — from the
+panel, over Modbus, from an automation or from Home Assistant. The first move goes back within
+a loop pass. From the second on, the relay stays where it was moved until its `min_on_s` or
+`min_off_s` there is over, 10 s at least, so a writer that keeps at it gets one switch per
+dwell. A relay moved where the thermostat would switch it now stays and is not counted. After
+5 moves with no 10 minutes of quiet after a put-back, the thermostat reports
+`relay_contested`: it goes on controlling and putting the relay back, and the fault clears by
+itself 10 minutes after the last put-back. During `sensor_missing`, `sensor_stale` and
+`overtemp`, a relay closed from elsewhere is opened again on every pass, without waiting.
+Mode `off` keeps holding the relays open and puts them back the same way; only stopping the
+thermostat, by disabling or removing it, frees them.
+
+Two thermostats may name the same relay and take turns: only one of them can run at a time.
 Starting the second while the first runs is refused, naming the one that holds it, unless it
 takes the relay over, which stops the holder. A take-over by one whose sensor or a relay is not
 on the device is refused, and the holder runs on. Stopping a thermostat opens its relays; one
