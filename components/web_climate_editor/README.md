@@ -172,4 +172,5 @@ from the server's task to the loop task, and the methods the server answers itse
 `tests/components/web_climate_editor/contract.json` lists requests and the answers the device
 gives them. The suite sends each one through the handler, and the dashboard runs the same file
 against `client/mock`, so a change to an answer goes into the file, the C++ and the mock
-together. Its format is described at the top of `cases/test_contract.cpp`.
+together. Its format, and which cases go in it, are in
+[doc/TESTING.md](../../doc/TESTING.md#thermostat-editor-cases).

@@ -2,33 +2,7 @@
 #include "common.h"
 #include "esphome/components/climate_hub/entity_lookup.h"
 
-// ../contract.json lists requests to this API and the answers they get. The dashboard runs the
-// same file against client/mock/climateMock.ts, so the mock it is developed against and the
-// device cannot drift apart. The format:
-//
-//   environment   What both sides have: max_controllers, the YAML climates, the sensors
-//                 (object_id, name, unit) and switches (object_id, name) a case may name, and
-//                 the ids neither has (missing).
-//   fixtures      Thermostat documents by name. A case's setup lists the ones it needs, each
-//                 POSTed to save in that order and answered 200.
-//   cases         Each one starts on a device with no thermostat but its setup:
-//     name          A sentence, unique.
-//     setup         Fixture names, optional.
-//     device_only   A state only the device can be put in: loop_busy, storage_failed,
-//                   storage_unwritable, file_cap, no_free_entity, file_stays. The mock skips the
-//                   case. It holds for the case's own request, not for then.
-//     method, path  GET, POST or OPTIONS, and the route below <url_prefix>/api/ with its query,
-//                   sent as written.
-//     body          null for none, a string as written, anything else as its JSON.
-//     pad_to        Blanks appended to the body up to that many bytes, optional.
-//     status        The HTTP status.
-//     error         The exact error of a failure; or error_prefix, how it starts.
-//     headers       Headers the answer carries, by name.
-//     expect        Dotted paths into the answer and the value found there, numbers to a float's
-//                   precision and null for a null that is there: a segment is a key, an array
-//                   index, or key=value for the first element whose key has that value.
-//     absent        Paths the answer does not have.
-//     then          Requests that follow, with the keys above but no setup or device_only.
+// Runs ../contract.json, which the dashboard runs against its client mock too: see doc/TESTING.md.
 namespace esphome::web_climate_editor::testing {
 namespace {
 

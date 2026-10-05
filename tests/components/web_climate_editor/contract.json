@@ -1,5 +1,5 @@
 {
-  "$comment": "Requests to the web_climate_editor API and the answers they get. The format is described in tests/components/web_climate_editor/cases/test_contract.cpp.",
+  "$comment": "Requests to the web_climate_editor API and the answers they get. The format is in doc/TESTING.md.",
   "environment": {
     "max_controllers": 3,
     "climates": [
