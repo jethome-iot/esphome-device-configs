@@ -37,6 +37,11 @@ The Files, Automations and Climate screens need no option of their own: the comp
 the `url_prefix` of a `web_file_browser`, a `web_automation_editor` and a `web_climate_editor`
 off the config and reports whichever of them this firmware has in `/api/device/capabilities`.
 
+The **Settings → Network** and **Settings → Modbus** tabs show the entities of the `web_server`
+sorting groups named `Network` and `Modbus`, and the Entities screen leaves those groups out. The
+Entities screen also leaves out `Firmware channel` and `Check for updates` while
+**Settings → Firmware** shows them. The Modbus tab is there only when its group has an entity.
+
 The handler registers on the shared `web_server_base` ahead of `web_server`'s, so `/` is the
 dashboard and `web_server`'s own page is not reachable; its REST routes, `/events` and its
 `auth:` stay as they are, and the dashboard uses them for entity state and control and for the

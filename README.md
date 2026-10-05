@@ -166,7 +166,8 @@ python scripts/build-dist.py --check   # fail if stale (pre-commit and CI run th
 ### Network
 
 The firmware drives both the LAN8720 Ethernet controller and the ESP32's WiFi. The
-link is picked by **Settings → Network** or the `Network mode` entity:
+link is picked by **Settings → Network** on the display or the dashboard, or by the
+`Network mode` entity:
 
 - `Ethernet` (default) and `WiFi` run one link and keep the other off; the change
   applies at once and survives reboots
@@ -313,8 +314,8 @@ The device can act as a Modbus RTU server (slave) for integration with PLCs, SCA
 - **Holding Registers** `0x0000`-`0x000F` (FC 0x03/0x04): temperature 1-16, signed, 0.1 °C; `0x8000` = no reading
 - **Other registers**: a courtesy response answers `0` instead of an exception
 
-Address, baud rate, parity and stop bits are set in **Settings → Modbus** or through the
-`Modbus …` entities in Home Assistant, and take effect at once.
+Address, baud rate, parity and stop bits are set in **Settings → Modbus** on the display or
+the dashboard, or through the `Modbus …` entities in Home Assistant, and take effect at once.
 
 `modbus_server` keeps coils and discrete inputs in one bit address space (hence
 the offsets) and holding and input registers in one table (hence FC 0x03/0x04 alike).
