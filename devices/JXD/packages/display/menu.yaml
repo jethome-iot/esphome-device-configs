@@ -368,10 +368,12 @@ esphome:
               current->set_text([=](const MenuItem *) { return "Current: " + reading(thermostat_id); });
               menu->add_item(current);
 
-              // The dashboard's badge, with a fault in place of the action it holds open.
-              auto state_of = [=]() -> const char * {
+              // The dashboard's badge, with a fault in place of the Off it forces. Mode off shows
+              // Off even with a fault: the mode, not the fault, holds the relays open then.
+              auto doing_of = [=]() -> const char * {
                 using climate_hub::HubAction;
                 using climate_hub::HubFault;
+                using climate_hub::HubMode;
                 const auto *config = hub->store().get(thermostat_id);
                 if (config == nullptr)
                   return "--";
@@ -380,6 +382,8 @@ esphome:
                 const auto *runtime = hub->runtime(thermostat_id);
                 if (runtime == nullptr)
                   return "Waiting";
+                if (config->mode == HubMode::OFF)
+                  return "Off";
                 switch (runtime->fault()) {
                   case HubFault::SENSOR_MISSING:
                     return "No sensor";
@@ -404,9 +408,9 @@ esphome:
                 }
                 return "Off";
               };
-              auto *state = new MenuItem(MENU_ITEM_LABEL);
-              state->set_text([=](const MenuItem *) { return std::string("State: ") + state_of(); });
-              menu->add_item(state);
+              auto *doing = new MenuItem(MENU_ITEM_LABEL);
+              doing->set_text([=](const MenuItem *) { return std::string("State: ") + doing_of(); });
+              menu->add_item(doing);
 
               // Counted in steps from the target the row opened on, so the steps add no float
               // error, and written only when they moved it: an untouched row never puts that

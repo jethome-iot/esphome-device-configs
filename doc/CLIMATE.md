@@ -64,10 +64,10 @@ is missing cannot.
 
 **Thermostats** in the display menu of `jxd-r6-e1eth-lcd` lists the thermostats the device
 booted with, each with what its sensor reads; one created later shows after a reboot. A row
-opens its name, the reading, its state as the dashboard words it (Heating, Cooling, Idle, Off,
-Waiting, Disabled, or the fault that holds its relays open), the target and Enabled. The target
-moves in the thermostat's own step inside its range; Enabled starts or stops it like the start
-over HTTP, never taking a relay over: an On that is refused stays Off, and the log says why.
+opens its name, the reading, what it is doing (Heating, Cooling, Idle, Off, Waiting, Disabled,
+or in a word the fault that keeps it from controlling), the target and Enabled. The target moves
+in the thermostat's own step inside its range; Enabled starts or stops it like the start over
+HTTP, never taking a relay over: an On that is refused stays Off, and the log says why.
 
 ## Home Assistant
 
