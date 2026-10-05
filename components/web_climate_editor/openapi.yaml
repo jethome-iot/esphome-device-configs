@@ -1241,7 +1241,11 @@ components:
                 type: string
               claimed_by:
                 type: string
-                description: The id of the running thermostat that holds the relay, `""` when none does.
+                description: >-
+                  The id of the running thermostat that holds the relay, `""` when
+                  none does. An enabled thermostat that waits (`/list`) still
+                  reserves the relays it names: a Save or an `/enable` of
+                  another one on them is a `409` too.
       example:
         success: true
         sensors:
