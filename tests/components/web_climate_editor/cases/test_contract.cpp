@@ -19,6 +19,9 @@ JsonDocument load_contract() {
 // The keys this runner reads; a case's and a step's are the dashboard runner's too. Anything
 // else, a typo too, would pass having checked nothing.
 const std::set<std::string> TOP_KEYS{"$comment", "environment", "fixtures", "cases"};
+const std::set<std::string> ENVIRONMENT_KEYS{"max_controllers", "climates", "sensors", "switches", "missing"};
+const std::set<std::string> SENSOR_KEYS{"object_id", "name", "unit"};
+const std::set<std::string> SWITCH_KEYS{"object_id", "name"};
 const std::set<std::string> STEP_KEYS{"method", "path",         "body",    "pad_to", "status",
                                       "error",  "error_prefix", "headers", "expect", "absent"};
 const std::set<std::string> CASE_KEYS = [] {
@@ -285,6 +288,12 @@ TEST_F(Contract, TheContractCoversEveryStatusAndEveryRoute) {
 TEST_F(Contract, EveryKeyIsOneTheRunnersRead) {
   JsonDocument contract = load_contract();
   refuse_unknown_keys(contract.as<JsonObjectConst>(), TOP_KEYS, "the file");
+  JsonObjectConst environment = contract["environment"];
+  refuse_unknown_keys(environment, ENVIRONMENT_KEYS, "environment");
+  for (JsonObjectConst sensor : environment["sensors"].as<JsonArrayConst>())
+    refuse_unknown_keys(sensor, SENSOR_KEYS, "environment, a sensor");
+  for (JsonObjectConst relay : environment["switches"].as<JsonArrayConst>())
+    refuse_unknown_keys(relay, SWITCH_KEYS, "environment, a switch");
   for (JsonObjectConst c : contract["cases"].as<JsonArrayConst>()) {
     const std::string name = c["name"] | "a case with no name";
     refuse_unknown_keys(c, CASE_KEYS, name);
