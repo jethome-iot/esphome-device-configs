@@ -549,6 +549,14 @@
       "error": "JSON parse error: IncompleteInput"
     },
     {
+      "name": "A body nested past the parser's limit is 400, the reason named by the parser",
+      "method": "POST",
+      "path": "save",
+      "body": "{\"name\":\"Deep\",\"x\":[[[[[[[[[[[[]]]]]]]]]]]]}",
+      "status": 400,
+      "error_prefix": "JSON parse error: "
+    },
+    {
       "name": "A body that is not an object is 400",
       "method": "POST",
       "path": "save",
