@@ -884,7 +884,7 @@ void WebDeviceDashboard::handle_temperature_slots_forget_(AsyncWebServerRequest 
       code = 409;
       why = all                        ? std::string("Nothing to forget: every slot is free or listed in YAML")
             : scan->pinned(slot)       ? str_sprintf("Slot %d belongs to a sensor listed in YAML", slot + 1)
-            : scan->slot_pending(slot) ? str_sprintf("Slot %d is forgotten already; applies after a reboot", slot + 1)
+            : scan->slot_pending(slot) ? str_sprintf("Slot %d is free after a reboot", slot + 1)
                                        : str_sprintf("Slot %d is free", slot + 1);
       return false;
     }

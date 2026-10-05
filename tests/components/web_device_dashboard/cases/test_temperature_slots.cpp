@@ -193,10 +193,19 @@ TEST_F(TemperatureSlots, AForgottenSlotIsFreeAndStillRunsItsDevice) {
   EXPECT_EQ(slots[0]["running_address"].as<std::string>(), "0xeb01227905460228");
   EXPECT_TRUE(slots[0]["pending"].as<bool>());
   EXPECT_FALSE(slots[0]["can_forget"].as<bool>());
-  // Forgetting it again says it is done, not that the slot is free now.
+  // Forgetting it again says the slot is free from the reboot on, not that it is free now.
   Reply again = this->post(FORGET, this->confirmed(R"("slot":1)"));
   EXPECT_EQ(again.code, 409);
-  EXPECT_EQ(again.error(), "Slot 1 is forgotten already; applies after a reboot");
+  EXPECT_EQ(again.error(), "Slot 1 is free after a reboot");
+}
+
+// A move empties the slot it left as a forget does, so the refusal says the same.
+TEST_F(TemperatureSlots, ASlotAMoveEmptiedIsFreeAfterAReboot) {
+  this->boot({ROM_A});
+  ASSERT_EQ(this->post(ASSIGN, this->confirmed(R"("slot":3,"address":"0xeb01227905460228")")).code, 200);
+  Reply reply = this->post(FORGET, this->confirmed(R"("slot":1)"));
+  EXPECT_EQ(reply.code, 409);
+  EXPECT_EQ(reply.error(), "Slot 1 is free after a reboot");
 }
 
 // --- forgetting ---

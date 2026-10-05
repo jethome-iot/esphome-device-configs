@@ -513,7 +513,7 @@ paths:
         "409":
           description: >-
             Nothing would change in the saved table. Nothing happened. A slot
-            forgotten earlier that waits for the reboot says so.
+            emptied since boot, by a forget or a move, says so.
           content:
             application/json:
               schema:
@@ -523,10 +523,10 @@ paths:
                   value:
                     success: false
                     error: Slot 3 is free
-                forgottenAlready:
+                freeAfterReboot:
                   value:
                     success: false
-                    error: Slot 2 is forgotten already; applies after a reboot
+                    error: Slot 2 is free after a reboot
                 listed:
                   value:
                     success: false
