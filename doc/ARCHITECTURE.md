@@ -37,13 +37,17 @@ boundaries; everything else is local to its file.
   menu follows whatever the board package put there. `temperatures_menu` gets a `Temp N` submenu per
   slot up to the last bound one at boot; a freed slot's submenu only says `Free slot`.
   `automations_menu` is filled at boot with a row per loaded rule, or one `No automations` row.
+  `thermostats_menu` is filled at boot with a submenu per loaded thermostat, or one
+  `No thermostats` row.
 - `automations_engine` (`features/automations.yaml`) is the rule engine; `display/menu.yaml`
   reads `configs()` for the Automations rows and calls `set_enable_automation` from them.
 - `climates` (`features/climates.yaml`) is the `climate_hub` component: the thermostats, kept
   on `user_storage` under `climates/`. A thermostat names its sensor and relays by object id,
   so renaming a relay in YAML, or a `Temp N` slot that stays empty, leaves it not running. The
   QEMU overlay `qemu/climate-plant.yaml` gives it a room to control. `web_climate_editor`
-  (`features/climate-editor.yaml`) edits the thermostats under `/climate-editor/api`.
+  (`features/climate-editor.yaml`) edits the thermostats under `/climate-editor/api`;
+  `display/menu.yaml` reads `store()` and `sensor_reading()` for the Thermostats rows and calls
+  `set_setpoint` and `set_enabled` from them.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
   and expanded inside the main-page lambda in `display/display.yaml`. Package substitutions share
   one namespace with the device config's.

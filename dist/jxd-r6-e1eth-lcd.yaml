@@ -878,6 +878,15 @@ esphome:
                 return name.substr(0, ROW - 2 - glyphs(value)) + ": " + value;
               });
 
+              // The list row cuts the name to make room for the reading, so "Floor heating 1" and
+              // "Floor heating 2" look alike there; this says which one is open.
+              auto *title = new MenuItem(MENU_ITEM_LABEL);
+              title->set_text([=](const MenuItem *) {
+                const auto *config = hub->store().get(thermostat_id);
+                return (config != nullptr ? config->name : boot_name).substr(0, ROW);
+              });
+              menu->add_item(title);
+
               auto *current = new MenuItem(MENU_ITEM_LABEL);
               current->set_text([=](const MenuItem *) { return "Current: " + reading(thermostat_id); });
               menu->add_item(current);
@@ -907,14 +916,17 @@ esphome:
                 *opened = config != nullptr ? config->setpoint : NAN;
                 *steps = 0;
               });
+              // The margin keeps a float a hair inside a limit from taking a press that shows nothing.
               target->add_on_next_callback([=]() {
                 const auto *config = hub->store().get(thermostat_id);
-                if (config != nullptr && !std::isnan(*opened) && stepped() < config->visual.max_temperature)
+                if (config != nullptr && !std::isnan(*opened) &&
+                    stepped() < config->visual.max_temperature - config->visual.step / 1000)
                   (*steps)++;
               });
               target->add_on_prev_callback([=]() {
                 const auto *config = hub->store().get(thermostat_id);
-                if (config != nullptr && !std::isnan(*opened) && stepped() > config->visual.min_temperature)
+                if (config != nullptr && !std::isnan(*opened) &&
+                    stepped() > config->visual.min_temperature + config->visual.step / 1000)
                   (*steps)--;
               });
               target->add_on_leave_callback([=]() {
@@ -938,7 +950,8 @@ esphome:
               auto *enabled = new MenuItemCustom();
               enabled->set_text(std::string("Enabled"));
               enabled->set_value_lambda([=](const MenuItem *) {
-                const int state = *pending >= 0 ? *pending : enabled_of();
+                const int live = enabled_of();
+                const int state = live < 0 ? -1 : *pending >= 0 ? *pending : live;
                 return std::string(state < 0 ? "--" : state > 0 ? "On" : "Off");
               });
               enabled->add_on_enter_callback([=]() { *was = *pending = enabled_of(); });
