@@ -224,8 +224,12 @@ TEST_F(Slots, ATablePutBackAsBootedLeavesNothingWaiting) {
   EXPECT_FALSE(scan.reboot_required());
   ASSERT_TRUE(scan.assign_and_save(0, ROM_B));
   EXPECT_TRUE(scan.reboot_required());
+  EXPECT_TRUE(this->log().has(this->log().infos, "0x8a0122791699dd28 takes slot 1 after a reboot"));
+  this->log().clear();
   ASSERT_TRUE(scan.assign_and_save(0, ROM_A));  // swapped back
   EXPECT_FALSE(scan.reboot_required());
+  EXPECT_TRUE(this->log().has(this->log().infos, "0xeb01227905460228 takes slot 1"));
+  EXPECT_FALSE(this->log().has(this->log().infos, "after a reboot"));
   EXPECT_FALSE(scan.slot_pending(0));
   EXPECT_FALSE(scan.slot_pending(1));
 

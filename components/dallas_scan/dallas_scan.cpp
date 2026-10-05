@@ -383,7 +383,8 @@ bool DallasScan::assign_and_save(size_t slot, uint64_t address) {
   this->slots_[slot] = address;
   if (!this->store_or_roll_back_(before, "nothing is assigned"))
     return false;
-  ESP_LOGI(TAG, "0x%016" PRIx64 " takes slot %u after a reboot", address, (unsigned) slot + 1);
+  ESP_LOGI(TAG, "0x%016" PRIx64 " takes slot %u%s", address, (unsigned) slot + 1,
+           this->slot_pending(slot) ? " after a reboot" : "");
   return true;
 }
 
