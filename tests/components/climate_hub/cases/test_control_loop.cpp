@@ -797,8 +797,8 @@ TEST_F(ControlLoop, ControlTakesEveryModeItsRelaysServe) {
   EXPECT_EQ(climate::CLIMATE_MODE_HEAT_COOL, entity->mode);
 }
 
-// Home Assistant sends the whole state back, mode included. The mode the thermostat already has
-// is no change: nothing to write, and the latch holds inside the band.
+// Home Assistant sends what a user set, so picking the mode the thermostat already has sends it
+// again. That is no change: nothing to write, and the latch holds inside the band.
 TEST_F(ControlLoop, ACallWithTheSameModeMarksNothingDirty) {
   ControllerRuntime *rt = this->start(this->base(ControlKind::BANG_BANG), 18.f);
   HubClimate *entity = hub().entity_of(this->id_);

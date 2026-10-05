@@ -205,7 +205,7 @@ TEST(HysteresisCore, CoolsAboveHighAndStopsBelowLow) {
 
 // Both directions wired, the mode still decides: COOL below the band idles, and so does HEAT
 // above it.
-TEST(HysteresisCore, ACoolModeWithBothDirectionsNeverHeats) {
+TEST(HysteresisCore, ASingleDirectionModeLeavesTheOtherAlone) {
   HysteresisCore hyst;
   hyst.set_setpoints(20.f, 21.f);
   hyst.set_directions(true, true);
