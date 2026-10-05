@@ -174,12 +174,7 @@ class Contract : public Editor {
     storage().set_base_path(this->base_path);
     for (const std::string &name : this->files())
       remove((this->folder() + "/" + name).c_str());
-    for (sensor::Sensor *sensor : {&entities().room, &entities().floor, &entities().temp1, &entities().temp2}) {
-      sensor->state = NAN;
-      sensor->set_has_state(false);
-    }
-    for (FakeSwitch *relay : {&entities().relay1, &entities().relay2})
-      relay->publish_state(false);
+    reset_entities();
     hub().setup();
   }
 

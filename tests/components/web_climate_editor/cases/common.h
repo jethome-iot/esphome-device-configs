@@ -119,6 +119,16 @@ inline Entities &entities() {
   return *instance;
 }
 
+// The probes without a reading and the relays off, as each case starts.
+inline void reset_entities() {
+  for (sensor::Sensor *sensor : {&entities().room, &entities().floor, &entities().temp1, &entities().temp2}) {
+    sensor->state = NAN;
+    sensor->set_has_state(false);
+  }
+  for (FakeSwitch *relay : {&entities().relay1, &entities().relay2})
+    relay->publish_state(false);
+}
+
 inline dir_storage::DirStorage &storage() {
   static auto *instance = new dir_storage::DirStorage();
   return *instance;
@@ -241,13 +251,7 @@ inline std::string with(const char *json, const std::string &fields) {
 class Editor : public ::testing::Test {
  protected:
   void SetUp() override {
-    entities();
-    for (sensor::Sensor *sensor : {&entities().room, &entities().floor, &entities().temp1, &entities().temp2}) {
-      sensor->state = NAN;
-      sensor->set_has_state(false);
-    }
-    for (FakeSwitch *relay : {&entities().relay1, &entities().relay2})
-      relay->publish_state(false);
+    reset_entities();
     mkdir(".storage", 0755);
     char folder[] = ".storage/XXXXXX";
     ASSERT_NE(mkdtemp(folder), nullptr);
