@@ -343,6 +343,30 @@ TEST_F(Editor, AnEnabledSaveRefusesASensorNotInCelsiusAndAHeldRelay) {
   EXPECT_EQ(hub().store().get("kitchen"), nullptr);
 }
 
+// A document that breaks three rules gets the first in the README's order: the name, then the
+// sensor's unit, then the held relay. Each fix brings the next one to light.
+TEST_F(Editor, TheRefusalsComeInTheDocumentedOrder) {
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  std::string doc = LIVING_ROOM;
+  doc.replace(doc.find("Living Room"), 11, "living room");
+  doc.replace(doc.find("\"room\""), 6, "\"uptime\"");
+
+  Reply reply = this->post("save", doc);
+  EXPECT_EQ(reply.code, 409);
+  EXPECT_EQ(reply.error(), "\"living room\" is already used by another thermostat");
+
+  doc.replace(doc.find("living room"), 11, "Kitchen");
+  reply = this->post("save", doc);
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "\"Uptime\" reports s, not °C");
+
+  doc.replace(doc.find("\"uptime\""), 8, "\"floor\"");
+  reply = this->post("save", doc);
+  EXPECT_EQ(reply.code, 409);
+  EXPECT_EQ(reply.error(), "\"Relay 1\" is already driven by \"Living Room\"");
+  EXPECT_EQ(this->files(), std::vector<std::string>{"living-room.json"});
+}
+
 TEST_F(Editor, AFileThatCannotBeWrittenIsAServerError) {
   storage().set_base_path("/proc/definitely-not-writable");
   Reply reply = this->post("save", LIVING_ROOM);
