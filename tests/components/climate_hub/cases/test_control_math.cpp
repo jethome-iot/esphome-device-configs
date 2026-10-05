@@ -178,6 +178,16 @@ TEST(HysteresisCore, CoolsAboveHighAndStopsBelowLow) {
   EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::HEAT, 22.f)) << "and too hot is not its to fix in HEAT";
 }
 
+// Both directions wired, the mode still decides: COOL below the band idles, and so does HEAT
+// above it.
+TEST(HysteresisCore, ACoolModeWithBothDirectionsNeverHeats) {
+  HysteresisCore hyst;
+  hyst.set_setpoints(20.f, 21.f);
+  hyst.set_directions(true, true);
+  EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::COOL, 19.f));
+  EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::HEAT, 22.f)) << "nor does HEAT cool";
+}
+
 // Nothing latched, as the core starts, after a reset or after an unknown reading, is idle
 // inside the band: off belongs to mode off.
 TEST(HysteresisCore, NothingLatchedInsideTheBandIsIdle) {

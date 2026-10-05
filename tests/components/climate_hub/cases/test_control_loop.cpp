@@ -737,6 +737,39 @@ TEST_F(ControlLoop, PidCoolsOnANegativeOutput) {
   EXPECT_TRUE(entities().relay2.state);
 }
 
+// With both relays wired, the mode alone says which may run: a demand the other way, a PID
+// output of the other sign or a reading past the other switching point, leaves its relay open.
+TEST_F(ControlLoop, ASingleDirectionModeNeverDrivesTheOtherRelay) {
+  struct Case {
+    const char *what;
+    ControlKind kind;
+    HubMode mode;
+    float reading;
+  };
+  for (const Case &c : {Case{"pid in heat above the target", ControlKind::PID, HubMode::HEAT, 25.f},
+                        Case{"pid in cool below the target", ControlKind::PID, HubMode::COOL, 16.f},
+                        Case{"bang-bang in cool below the band", ControlKind::BANG_BANG, HubMode::COOL, 18.f},
+                        Case{"bang-bang in heat above the band", ControlKind::BANG_BANG, HubMode::HEAT, 23.f}}) {
+    SCOPED_TRACE(c.what);
+    ClimateConfig config = with_cooling(this->base(c.kind), true);
+    config.mode = c.mode;
+    config.pid.kp = 0.1f;
+    config.pid.ki = 0.f;
+    ControllerRuntime *rt = this->start(config, c.reading);
+    tick(200000);
+    tick(201000);
+    EXPECT_EQ(HubAction::IDLE, rt->action());
+    EXPECT_FLOAT_EQ(0.f, rt->heat_duty());
+    EXPECT_FLOAT_EQ(0.f, rt->cool_duty());
+    EXPECT_FALSE(entities().relay1.state);
+    EXPECT_FALSE(entities().relay2.state);
+    EXPECT_EQ(0, entities().relay1.writes + entities().relay2.writes) << "neither relay ever moved";
+    ASSERT_TRUE(hub().remove(this->id_).ok);
+    reset_entities();
+    hub().ms = 100000;
+  }
+}
+
 // Home Assistant turning a stopped-in-OFF thermostat back to HEAT, or a two-relay one to HEAT_COOL:
 // the mode lands in the document and on the entity, and is written after the debounce.
 TEST_F(ControlLoop, ControlTakesEveryModeItsRelaysServe) {
