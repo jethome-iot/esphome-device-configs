@@ -1544,6 +1544,16 @@ components:
             url_prefix:
               type: string
               example: /automation-editor
+        climates:
+          type: object
+          required: [url_prefix]
+          description: >-
+            The firmware serves the thermostat API the Climate screens use.
+            Absent without a `web_climate_editor`.
+          properties:
+            url_prefix:
+              type: string
+              example: /climate-editor
         entity_settings:
           type: object
           required: [types]
@@ -1582,6 +1592,8 @@ components:
           url_prefix: /files
         automations:
           url_prefix: /automation-editor
+        climates:
+          url_prefix: /climate-editor
         entity_settings:
           types: [switch, binary_sensor]
         board_info: true

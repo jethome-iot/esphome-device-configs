@@ -120,7 +120,11 @@ class DallasScanId(unittest.TestCase):
 class ServedScreens(unittest.TestCase):
     """The prefixes /capabilities reports come out of the other components' own configs."""
 
-    CONFIGS = {"web_file_browser": {"storage_id": "store"}, "web_automation_editor": {}}
+    CONFIGS = {
+        "web_file_browser": {"storage_id": "store"},
+        "web_automation_editor": {},
+        "web_climate_editor": {},
+    }
 
     def test_each_one_is_configured_under_the_key_the_dashboard_looks_up(self):
         self.assertEqual(sorted(dashboard.SERVED_BY), sorted(self.CONFIGS))

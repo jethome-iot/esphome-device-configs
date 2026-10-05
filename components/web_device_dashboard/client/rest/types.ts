@@ -135,13 +135,18 @@ export interface ClimateEntity extends BaseEntity {
   min_temp?: string
   max_temp?: string
   step?: number
+  current_humidity?: string // if the entity reports humidity
   fan_mode?: string
+  custom_fan_mode?: string
   swing_mode?: string
   preset?: string
+  custom_preset?: string
   modes?: string[] // detail=all
   fan_modes?: string[]
+  custom_fan_modes?: string[]
   swing_modes?: string[]
   presets?: string[]
+  custom_presets?: string[]
 }
 
 export interface EventEntity extends BaseEntity {
