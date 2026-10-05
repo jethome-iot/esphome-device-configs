@@ -31,8 +31,8 @@ at the next boot. The file format and the C++ API are in
   minutes after a put-back, the thermostat reports `relay_contested`: it goes on working, and
   the fault clears ten minutes after the last put-back. While the sensor is gone or silent or
   the room is above the cut-out temperature, a relay switched on from elsewhere is switched off
-  again at once, every time. Mode off keeps holding the relay open; only switching the
-  thermostat off, or deleting it, frees the relay.
+  again at once, every time. Mode off keeps holding the relay open; only stopping the
+  thermostat, by switching it off or deleting it, frees the relay.
 - Two thermostats may name one relay and take turns, a summer and a winter profile on one
   boiler; only one of them runs at a time, and taking the relay over from the other leaves it
   as it is. One that could not run, its sensor or a relay missing, cannot take it over.
