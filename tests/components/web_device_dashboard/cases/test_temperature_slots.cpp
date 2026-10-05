@@ -1,12 +1,16 @@
 #include "common.h"
 #include <sys/stat.h>
 #include <unistd.h>
+#include <array>
+#include <cmath>
+#include <map>
 
 namespace esphome::web_device_dashboard::testing {
 
 static const char *const SLOTS = "/api/device/temperature-slots";
 static const char *const FORGET = "/api/device/temperature-slots/forget";
 static const char *const ASSIGN = "/api/device/temperature-slots/assign";
+static const char *const OFFSET = "/api/device/temperature-slots/offset";
 static const char *const CAPABILITIES = "/api/device/capabilities";
 static const char *const STATUS = "/api/device/status";
 static const char *const REBOOT = "/api/device/system/reboot";
@@ -24,6 +28,32 @@ static sensor::Sensor &boiler() {
   }();
   return *instance;
 }
+
+// The harness bus, except that a device given a reading answers with a 12-bit DS18B20 scratch
+// pad that passes its checksum, as in the dallas_scan suite.
+class ReadingBus : public one_wire_host::HostOneWireBus {
+ public:
+  void set_reading(uint64_t address, float celsius) {
+    const auto raw = (int16_t) std::lround(celsius * 16);
+    std::array<uint8_t, 9> pad = {(uint8_t) (raw & 0xff), (uint8_t) (raw >> 8), 0x4b, 0x46, 0x7f, 0xff, 0x0c, 0x10, 0};
+    pad[8] = crc8(pad.data(), 8);
+    this->pads_[address] = pad;
+  }
+
+  void write64(uint64_t address) override {
+    this->selected_ = address;
+    this->next_ = 0;
+  }
+  uint8_t read8() override {
+    auto pad = this->pads_.find(this->selected_);
+    return pad == this->pads_.end() || this->next_ >= pad->second.size() ? 0xFF : pad->second[this->next_++];
+  }
+
+ protected:
+  std::map<uint64_t, std::array<uint8_t, 9>> pads_;
+  uint64_t selected_{0};
+  size_t next_{0};
+};
 
 // The dashboard wired to a scan of four slots. A boot is a new scan over the same bus and the
 // same flash, so a case can forget and see what the next boot binds.
@@ -65,7 +95,12 @@ class TemperatureSlots : public Dashboard {
     return true;
   }
 
-  one_wire_host::HostOneWireBus bus;
+  // {"slot": N, "offset": X} as a POST body; @p offset is the JSON text, so a case can send any.
+  Reply set_offset(int slot, const std::string &offset) {
+    return this->post(OFFSET, R"({"slot":)" + std::to_string(slot) + R"(,"offset":)" + offset + "}");
+  }
+
+  ReadingBus bus;
   std::vector<std::unique_ptr<TestScan>> boots;
 };
 
@@ -84,6 +119,9 @@ TEST_F(TemperatureSlots, WithoutAScanBothRoutesAreNotFound) {
   Reply forget = this->post(FORGET, this->confirmed(R"("all":true)"));
   EXPECT_EQ(forget.code, 404);
   EXPECT_EQ(forget.error(), "No temperature slots");
+  Reply offset = this->set_offset(1, "0.3");
+  EXPECT_EQ(offset.code, 404);
+  EXPECT_EQ(offset.error(), "No temperature slots");
 }
 
 TEST_F(TemperatureSlots, ListsEverySlotUpToTheLastBoundOne) {
@@ -353,8 +391,16 @@ TEST_F(TemperatureSlots, WritesAreUnavailableWhenTheTableCannotBeSaved) {
   Reply assign = this->post(ASSIGN, this->confirmed(R"("slot":2,"address":"0x9b01b5566e8a1f28")"));
   EXPECT_EQ(assign.code, 503);
   EXPECT_EQ(assign.error(), "Temperature slot storage unavailable");
-  // The confirmation still comes first.
+  // Refused up front, the offset a slot holds already included.
+  for (const char *value : {"0.3", "0"}) {
+    Reply offset = this->set_offset(1, value);
+    EXPECT_EQ(offset.code, 503) << value;
+    EXPECT_EQ(offset.error(), "Temperature slot storage unavailable") << value;
+  }
+  EXPECT_EQ(scan.offset(0), 0.0f);
+  // The confirmation still comes first, and a body that is not JSON.
   EXPECT_EQ(this->post(FORGET, R"({"slot":1})").code, 400);
+  EXPECT_EQ(this->post(OFFSET, "slot=1").code, 400);
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
   EXPECT_FALSE(this->waits());
@@ -388,22 +434,27 @@ TEST_F(TemperatureSlots, AWriteThatFailsIsAnErrorAndTheDeviceKeepsRunning) {
 
   Reply forget = this->post(FORGET, this->confirmed(R"("slot":1)"));
   Reply assign = this->post(ASSIGN, this->confirmed(R"("slot":1,"address":"0x9b01b5566e8a1f28")"));
+  Reply offset = this->set_offset(1, "0.3");
   chmod(dir.c_str(), 0755);
   EXPECT_EQ(forget.code, 500);
   EXPECT_EQ(forget.error(), "The slot table was not written");
   EXPECT_EQ(assign.code, 500);
   EXPECT_EQ(assign.error(), "The slot table was not written");
+  EXPECT_EQ(offset.code, 500);
+  EXPECT_EQ(offset.error(), "The offset was not written");
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
   EXPECT_EQ(scan.saved_address(0), ROM_A);
   EXPECT_EQ(scan.saved_address(1), ROM_B);
+  EXPECT_EQ(scan.offset(0), 0.0f);
+  EXPECT_EQ(this->get(SLOTS)["slots"][0]["offset"].as<float>(), 0.0f);
   EXPECT_FALSE(this->waits());
   remove((dir + "/dallas_scan_temps.json").c_str());
   rmdir(dir.c_str());
   rmdir(folder);
 }
 
-// The table is the loop task's: a busy loop answers for all three routes rather than reading or
+// The table is the loop task's: a busy loop answers for every route rather than reading or
 // writing it from the server task.
 TEST_F(TemperatureSlots, ABusyLoopIsUnavailableForEveryRoute) {
   TestScan &scan = this->boot({ROM_A, ROM_B});
@@ -411,14 +462,16 @@ TEST_F(TemperatureSlots, ABusyLoopIsUnavailableForEveryRoute) {
   Reply list = this->get(SLOTS);
   Reply forget = this->post(FORGET, this->confirmed(R"("slot":1)"));
   Reply assign = this->post(ASSIGN, this->confirmed(R"("slot":1,"address":"0x9b01b5566e8a1f28")"));
+  Reply offset = this->set_offset(1, "0.3");
   this->dashboard->loop_busy = false;
-  for (Reply *reply : {&list, &forget, &assign}) {
+  for (Reply *reply : {&list, &forget, &assign, &offset}) {
     EXPECT_EQ(reply->code, 503);
     EXPECT_EQ(reply->error(), "Device busy");
   }
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
   EXPECT_EQ(scan.saved_address(0), ROM_A);
+  EXPECT_EQ(scan.offset(0), 0.0f);
   EXPECT_FALSE(this->waits());
 }
 
@@ -593,6 +646,233 @@ TEST_F(TemperatureSlots, WithoutAScanAssignIsNotFound) {
   Reply reply = this->post(ASSIGN, this->confirmed(R"("slot":1,"address":"0x8a0122791699dd28")"));
   EXPECT_EQ(reply.code, 404);
   EXPECT_EQ(reply.error(), "No temperature slots");
+}
+
+// --- offsets ---
+
+// The range comes with the list, and every slot but a listed one carries its offset, 0 included.
+TEST_F(TemperatureSlots, TheListCarriesTheRangeAndEveryUnlistedSlotsOffset) {
+  this->boot({ROM_A, ROM_B}, true);
+  ASSERT_EQ(this->set_offset(3, "-0.3").code, 200);
+  Reply reply = this->get(SLOTS);
+  ASSERT_EQ(reply.code, 200);
+  EXPECT_EQ(reply["max_offset"].as<float>(), 5.0f);
+  EXPECT_FLOAT_EQ(reply["offset_step"].as<float>(), 0.1f);
+  JsonArray slots = reply["slots"].as<JsonArray>();
+  ASSERT_EQ(slots.size(), 3u) << reply.body;
+  EXPECT_TRUE(slots[0]["listed"].as<bool>());
+  EXPECT_TRUE(slots[0]["offset"].isUnbound()) << reply.body;
+  EXPECT_TRUE(slots[1]["offset"].is<float>());
+  EXPECT_EQ(slots[1]["offset"].as<float>(), 0.0f);
+  EXPECT_FLOAT_EQ(slots[2]["offset"].as<float>(), -0.3f);
+  // As printed: the step and the offset to one decimal, not the double nearest the float.
+  EXPECT_NE(reply.body.find(R"("max_offset":5,"offset_step":0.1,)"), std::string::npos) << reply.body;
+  EXPECT_NE(reply.body.find(R"("offset":0})"), std::string::npos) << reply.body;
+  EXPECT_NE(reply.body.find(R"("offset":-0.3})"), std::string::npos) << reply.body;
+}
+
+// The list runs to the last slot holding an offset too, so a free one past the sensors shows it.
+TEST_F(TemperatureSlots, AFreeSlotHoldingAnOffsetIsListed) {
+  this->boot({ROM_A});
+  Reply set = this->set_offset(4, "1.5");
+  ASSERT_EQ(set.code, 200) << set.error();
+  Reply list = this->get(SLOTS);
+  JsonArray slots = list["slots"].as<JsonArray>();
+  ASSERT_EQ(slots.size(), 4u) << list.body;
+  EXPECT_EQ(slots[1]["offset"].as<float>(), 0.0f);
+  EXPECT_EQ(slots[3]["slot"].as<int>(), 4);
+  EXPECT_EQ(slots[3]["name"].as<std::string>(), "Temp 4");
+  EXPECT_TRUE(slots[3]["free"].as<bool>());
+  EXPECT_TRUE(slots[3]["address"].isUnbound());
+  EXPECT_FALSE(slots[3]["can_forget"].as<bool>());
+  EXPECT_FALSE(slots[3]["pending"].as<bool>());
+  EXPECT_FLOAT_EQ(slots[3]["offset"].as<float>(), 1.5f);
+  // Nothing waits: an offset is in force already.
+  EXPECT_FALSE(list["reboot_required"].as<bool>());
+  EXPECT_FALSE(this->waits());
+  // Back to 0, the row goes with it.
+  ASSERT_EQ(this->set_offset(4, "0").code, 200);
+  EXPECT_EQ(this->get(SLOTS)["slots"].as<JsonArray>().size(), 1u);
+}
+
+// Written and in force before the answer: the reading moves without a poll, and the next boot
+// still has it.
+TEST_F(TemperatureSlots, AnOffsetAppliesAtOnceAndStays) {
+  this->bus.set_reading(ROM_A, 20.0f);
+  TestScan &scan = this->boot({ROM_A, ROM_B});
+  scan.poll();
+  ASSERT_FLOAT_EQ(scan.sensor(0)->state, 20.0f);
+  Reply reply = this->set_offset(1, "-0.3");
+  EXPECT_EQ(reply.code, 200);
+  EXPECT_EQ(reply.type, "application/json");
+  EXPECT_EQ(reply.body, R"({"success":true,"message":"Slot 1 offset -0.3 °C; applies now","offset":-0.3})");
+  EXPECT_FLOAT_EQ(scan.sensor(0)->state, 19.7f);
+  EXPECT_FLOAT_EQ(scan.offset(0), -0.3f);
+  this->loop();
+  EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_EQ(scan.restarts, 0);
+  EXPECT_FALSE(this->waits());
+
+  TestScan &after = this->boot({ROM_A, ROM_B});
+  EXPECT_FLOAT_EQ(after.offset(0), -0.3f);
+  after.poll();
+  EXPECT_FLOAT_EQ(after.sensor(0)->state, 19.7f);
+  EXPECT_FLOAT_EQ(this->get(SLOTS)["slots"][0]["offset"].as<float>(), -0.3f);
+}
+
+// The answer is the offset now held, after the rounding to 0.1; an integer is a number too.
+TEST_F(TemperatureSlots, AnOffsetIsRoundedToATenth) {
+  TestScan &scan = this->boot({ROM_A, ROM_B});
+  struct Case {
+    const char *sent;
+    const char *held;
+    const char *message;
+  };
+  for (const Case &c : std::vector<Case>{{"0.25", "0.3", "+0.3"},
+                                         {"-0.25", "-0.3", "-0.3"},
+                                         {"0.04", "0", "0.0"},
+                                         {"1", "1", "+1.0"},
+                                         {"5", "5", "+5.0"},
+                                         {"-5.04", "-5", "-5.0"},
+                                         {"4.96e0", "5", "+5.0"},
+                                         {"-0", "0", "0.0"}}) {
+    Reply reply = this->set_offset(2, c.sent);
+    EXPECT_EQ(reply.code, 200) << c.sent << ": " << reply.error();
+    EXPECT_EQ(reply.message(), std::string("Slot 2 offset ") + c.message + " °C; applies now") << c.sent;
+    EXPECT_NE(reply.body.find(std::string(R"("offset":)") + c.held + "}"), std::string::npos) << reply.body;
+    EXPECT_FLOAT_EQ(reply["offset"].as<float>(), scan.offset(1)) << c.sent;
+  }
+}
+
+// Nothing to write, nothing refused: the page may save a dialog whose offset it did not change.
+TEST_F(TemperatureSlots, SettingTheSameOffsetAgainIsFine) {
+  TestScan &scan = this->boot({ROM_A});
+  for (int i = 0; i < 2; i++) {
+    Reply reply = this->set_offset(1, "0.3");
+    EXPECT_EQ(reply.code, 200) << reply.error();
+    EXPECT_EQ(reply.message(), "Slot 1 offset +0.3 °C; applies now");
+  }
+  EXPECT_FLOAT_EQ(scan.offset(0), 0.3f);
+  Reply zero = this->set_offset(3, "0");
+  EXPECT_EQ(zero.code, 200);
+  EXPECT_EQ(zero.body, R"({"success":true,"message":"Slot 3 offset 0.0 °C; applies now","offset":0})");
+}
+
+TEST_F(TemperatureSlots, AnOffsetNeedsASlotInRangeAndANumberWithinFiveDegrees) {
+  TestScan &scan = this->boot({ROM_A});
+  for (const char *body : {R"({"slot":0,"offset":0.3})", R"({"slot":5,"offset":0.3})", R"({"slot":"1","offset":0.3})",
+                           R"({"slot":1.5,"offset":0.3})", R"({"slot":null,"offset":0.3})", R"({"offset":0.3})"}) {
+    Reply reply = this->post(OFFSET, body);
+    EXPECT_EQ(reply.code, 400) << body;
+    EXPECT_EQ(reply.error(), "'slot' must be a number from 1 to 4") << body;
+  }
+  // Past ±5.0 once rounded, far past what a float holds, and anything that is not a JSON number.
+  for (const char *value : {"5.05", "-5.05", "5.1", "-10", "1e300", "-1e300", "1e999", R"("0.3")", "null", "true",
+                            "[0.3]", R"({"value":0.3})"}) {
+    Reply reply = this->set_offset(1, value);
+    EXPECT_EQ(reply.code, 400) << value;
+    EXPECT_EQ(reply.error(), "'offset' must be a number from -5.0 to 5.0") << value;
+  }
+  Reply missing = this->post(OFFSET, R"({"slot":1})");
+  EXPECT_EQ(missing.code, 400);
+  EXPECT_EQ(missing.error(), "'offset' must be a number from -5.0 to 5.0");
+  for (const char *body : {"", "{", "[1,0.3]", "0.3"}) {
+    Reply reply = this->post(OFFSET, body);
+    EXPECT_EQ(reply.code, 400) << body;
+    EXPECT_EQ(reply.error(), "Invalid JSON") << body;
+  }
+  EXPECT_EQ(scan.offset(0), 0.0f);
+  EXPECT_FALSE(this->waits());
+}
+
+TEST_F(TemperatureSlots, AListedSlotTakesNoOffset) {
+  TestScan &scan = this->boot({ROM_A}, true);
+  Reply reply = this->set_offset(1, "0.3");
+  EXPECT_EQ(reply.code, 409);
+  EXPECT_EQ(reply.error(), "Slot 1 belongs to a sensor listed in YAML");
+  // The range is checked first, as dallas_scan checks it.
+  EXPECT_EQ(this->set_offset(1, "6").code, 400);
+  EXPECT_EQ(scan.offset(0), 0.0f);
+}
+
+// No confirmation, but every other guard a body-reading route has.
+TEST_F(TemperatureSlots, AnOffsetTakesNoConfirmationButJsonFromThisSite) {
+  TestScan &scan = this->boot({ROM_A});
+  const int jobs = this->dashboard->jobs;
+  Reply form = this->call(HTTP_POST, OFFSET, R"({"slot":1,"offset":0.3})", 512, "text/plain");
+  EXPECT_EQ(form.code, 415);
+  Reply cross_site =
+      this->call(HTTP_POST, OFFSET, R"({"slot":1,"offset":0.3})", 512, "application/json", "http://evil.example");
+  EXPECT_EQ(cross_site.code, 403);
+  Reply large = this->post(OFFSET, R"({"slot":1,"offset":0.3,"pad":")" + std::string(5000, 'x') + R"("})");
+  EXPECT_EQ(large.code, 413);
+  // None of it reached the loop task.
+  EXPECT_EQ(this->dashboard->jobs, jobs);
+  EXPECT_EQ(scan.offset(0), 0.0f);
+  // A confirmation is not asked for, and not in the way either.
+  Reply confirmed = this->post(OFFSET, this->confirmed(R"("slot":1,"offset":0.3)"));
+  EXPECT_EQ(confirmed.code, 200) << confirmed.error();
+  EXPECT_FLOAT_EQ(scan.offset(0), 0.3f);
+}
+
+// The offset belongs to the slot number: a forget of that slot and an assign into it leave it.
+TEST_F(TemperatureSlots, AForgetOrAnAssignLeavesTheOffsetOnItsSlot) {
+  TestScan &scan = this->boot({ROM_A, ROM_B});
+  ASSERT_EQ(this->set_offset(1, "0.3").code, 200);
+  Reply forget = this->post(FORGET, this->confirmed(R"("slot":1)"));
+  EXPECT_EQ(forget.message(), "Slot 1 forgotten; applies after a reboot");
+  Reply assign = this->post(ASSIGN, this->confirmed(R"("slot":1,"address":"0x8a0122791699dd28")"));
+  EXPECT_EQ(assign.code, 200) << assign.error();
+  EXPECT_FLOAT_EQ(scan.offset(0), 0.3f);
+  EXPECT_EQ(scan.offset(1), 0.0f);
+  Reply list = this->get(SLOTS);
+  JsonArray slots = list["slots"].as<JsonArray>();
+  EXPECT_FLOAT_EQ(slots[0]["offset"].as<float>(), 0.3f);
+  EXPECT_EQ(slots[1]["offset"].as<float>(), 0.0f);
+}
+
+// Forget All clears every offset at once, while the slots wait for the reboot as before.
+TEST_F(TemperatureSlots, ForgetAllClearsTheOffsetsAtOnce) {
+  this->bus.set_reading(ROM_A, 20.0f);
+  TestScan &scan = this->boot({ROM_A, ROM_B});
+  scan.poll();
+  ASSERT_EQ(this->set_offset(1, "0.5").code, 200);
+  ASSERT_EQ(this->set_offset(4, "-1").code, 200);
+  ASSERT_FLOAT_EQ(scan.sensor(0)->state, 20.5f);
+  Reply reply = this->post(FORGET, this->confirmed(R"("all":true)"));
+  EXPECT_EQ(reply.code, 200);
+  EXPECT_EQ(reply.message(), "Offsets cleared; every slot forgotten, applies after a reboot");
+  EXPECT_TRUE(reply["reboot_required"].as<bool>());
+  EXPECT_EQ(scan.offset(0), 0.0f);
+  EXPECT_EQ(scan.offset(3), 0.0f);
+  EXPECT_FLOAT_EQ(scan.sensor(0)->state, 20.0f);
+  Reply list = this->get(SLOTS);
+  JsonArray slots = list["slots"].as<JsonArray>();
+  ASSERT_EQ(slots.size(), 2u);  // what ran at boot; the free slot 4 has nothing to show now
+  for (JsonObject slot : slots)
+    EXPECT_EQ(slot["offset"].as<float>(), 0.0f);
+}
+
+// Offsets alone are something to forget: no longer a 409, and nothing waits for a reboot.
+TEST_F(TemperatureSlots, ForgetAllWithOnlyOffsetsLeftClearsThem) {
+  TestScan &scan = this->boot({}, true);
+  ASSERT_EQ(this->set_offset(2, "0.5").code, 200);
+  // Forgetting that one slot would keep its offset, so it has nothing to forget.
+  Reply list = this->get(SLOTS);
+  ASSERT_EQ(list["slots"].as<JsonArray>().size(), 2u);
+  EXPECT_FALSE(list["slots"][1]["can_forget"].as<bool>());
+  EXPECT_EQ(this->post(FORGET, this->confirmed(R"("slot":2)")).code, 409);
+  Reply reply = this->post(FORGET, this->confirmed(R"("all":true)"));
+  EXPECT_EQ(reply.code, 200) << reply.error();
+  EXPECT_EQ(reply.message(), "Offsets cleared; every slot forgotten");
+  EXPECT_FALSE(reply["reboot_required"].as<bool>());
+  EXPECT_EQ(scan.offset(1), 0.0f);
+  EXPECT_FALSE(this->waits());
+  EXPECT_EQ(this->get(SLOTS)["slots"].as<JsonArray>().size(), 1u);  // the listed slot alone
+  // Cleared, so a second time there is nothing left.
+  Reply again = this->post(FORGET, this->confirmed(R"("all":true)"));
+  EXPECT_EQ(again.code, 409);
+  EXPECT_EQ(again.error(), "Nothing to forget: every slot is free or listed in YAML");
 }
 
 }  // namespace esphome::web_device_dashboard::testing

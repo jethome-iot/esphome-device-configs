@@ -83,6 +83,13 @@ class TestScan : public dallas_scan::DallasScan {
  public:
   int restarts{0};
 
+  // One poll without the conversion wait: the scheduler runs the read of each slot after the first.
+  void poll() {
+    this->read_slot_(0);
+    for (size_t pass = 0; pass <= this->max_sensors(); pass++)
+      App.scheduler.call(millis());
+  }
+
  protected:
   void restart_() override { this->restarts++; }
 };
