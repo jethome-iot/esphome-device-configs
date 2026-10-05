@@ -1047,10 +1047,10 @@ components:
       description: >-
         Why an enabled thermostat does not run, word for word the `warning`
         the Save or the `/enable` that left it waiting answered with, or what
-        the boot found, or a relay it names coming free; `""` when it runs or
-        is disabled. One that waits for a relay another thermostat holds
-        starts as soon as the relay is free. A waiting thermostat's `fault` is
-        `none`: a fault is a running one's.
+        the boot found, or the retry when a relay it names came free; `""`
+        when it runs or is disabled. One that waits for a relay another
+        thermostat holds starts as soon as the relay is free. A waiting
+        thermostat's `fault` is `none`: a fault is a running one's.
       examples:
         - ""
         - "not started: sensor 'temp_3' not found"

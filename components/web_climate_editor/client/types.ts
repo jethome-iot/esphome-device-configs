@@ -198,7 +198,11 @@ export interface BindableSensor {
 export interface BindableSwitch {
   object_id: string
   name: string
-  /** Id of the running controller holding this relay, or "" when it is free. */
+  /**
+   * Id of the running controller holding this relay, or "" when none runs on it. An enabled
+   * controller that waits still reserves the relays it names (see ControllerSummary): saving
+   * or enabling another on one is a 409 too.
+   */
   claimed_by: string
 }
 
@@ -236,12 +240,19 @@ export interface SaveResponse extends SuccessResponse {
   warning?: string
 }
 
-/** POST /delete: `persisted` is false when it is gone but its file is not, so a reboot brings it back. */
+/**
+ * POST /delete: `persisted` is false when it is gone but its file is not, so a reboot brings it
+ * back. The controllers that waited for its relays start, and `message` names them.
+ */
 export interface DeleteResponse extends SuccessResponse {
   persisted: boolean
 }
 
-/** POST /enable: `persisted` is false when the change is live but the flag did not reach flash. */
+/**
+ * POST /enable: `persisted` is false when the change is live but the flag did not reach flash.
+ * `message` names who a take-over stopped and who started on a relay the change freed, before
+ * the warning.
+ */
 export interface EnableResponse extends SuccessResponse {
   persisted: boolean
   /** Present when it was enabled but does not run, worded and repeated as SaveResponse.warning. */
