@@ -388,12 +388,12 @@ TEST_F(HubTest, BootStartsOneOfTwoOnTheSameRelay) {
   EXPECT_TRUE(hub().store().get("winter")->enabled) << "still enabled, just not running";
   EXPECT_EQ("not started: relay 'relay_1' is held by 'summer'", hub().waiting_reason("winter"));
 
-  // Its turn comes with an enable once the relay is free: started, it has nothing left to say.
-  ASSERT_TRUE(hub().set_enabled("summer", false).ok);
-  EXPECT_EQ("not started: relay 'relay_1' is held by 'summer'", hub().waiting_reason("winter"))
-      << "never retried on its own";
-  ASSERT_TRUE(hub().set_enabled("winter", true).ok);
+  // Its turn comes the moment the relay is free: started, it has nothing left to say.
+  Result stopped = hub().set_enabled("summer", false);
+  ASSERT_TRUE(stopped.ok);
+  EXPECT_EQ(std::vector<std::string>{"winter"}, stopped.started);
   EXPECT_TRUE(hub().is_running("winter"));
+  EXPECT_EQ("winter", hub().claimed_by("relay_1"));
   EXPECT_EQ("", hub().waiting_reason("winter"));
   EXPECT_EQ(0u, hub().reasons_kept());
 }

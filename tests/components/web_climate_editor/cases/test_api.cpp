@@ -674,9 +674,11 @@ TEST_F(Editor, EnableOfAThermostatWhoseSensorOrRelayIsMissingStoresItEnabledToWa
   EXPECT_TRUE(hub().store().get("floor")->enabled);
   EXPECT_FALSE(hub().is_running("floor"));
 
-  // A running thermostat's enable, and any stop, carry none.
+  // A running thermostat's enable, and any stop, carry none. Relay 1 is Living Room's while it
+  // waits, enabled.
   std::string den = LIVING_ROOM;
   den.replace(den.find("Living Room"), 11, "Den");
+  den.replace(den.find("relay_1"), 7, "relay_2");
   ASSERT_EQ(this->create(den.c_str()), "den");
   EXPECT_TRUE(this->post("enable?id=den&value=true")["warning"].isUnbound());
   EXPECT_TRUE(this->post("enable?id=floor&value=false")["warning"].isUnbound());
@@ -707,6 +709,145 @@ TEST_F(Editor, EnableRefusesASensorNotInCelsius) {
   EXPECT_EQ(reply.code, 400);
   EXPECT_EQ(reply.error(), "\"Uptime\" reports s, not °C");
   EXPECT_FALSE(hub().store().get("living-room")->enabled);
+}
+
+// --- a relay an enabled thermostat waits for ---
+
+static const char *const ATTIC =
+    R"({"name":"Attic","kind":"bang_bang","sensor_id":"attic","heat":{"relay_id":"relay_1"},"mode":"heat"})";
+
+// The editor never makes two enabled thermostats on one relay: one that waits reserves it, and
+// the answer says so, ready for a take-over.
+TEST_F(Editor, SaveAndEnableRefuseARelayAThermostatWaitsFor) {
+  Reply saved = this->post("save", ATTIC);
+  ASSERT_EQ(saved.code, 200) << saved.body;
+  ASSERT_EQ(saved["warning"].as<std::string>(), "not started: sensor 'attic' not found");
+  const std::string reserved = "\"Relay 1\" is reserved by \"Attic\", which is enabled and waits to start";
+
+  Reply refused = this->post("save", LIVING_ROOM);
+  EXPECT_EQ(refused.code, 409);
+  EXPECT_EQ(refused.error(), reserved);
+  ASSERT_EQ(this->files(), std::vector<std::string>{"attic.json"});
+
+  ASSERT_EQ(this->create(with(LIVING_ROOM, R"("enabled":false)").c_str()), "living-room");
+  refused = this->post("enable?id=living-room&value=true");
+  EXPECT_EQ(refused.code, 409);
+  EXPECT_EQ(refused.error(), reserved);
+
+  Reply taken = this->post("enable?id=living-room&value=true&take_over=true");
+  ASSERT_EQ(taken.code, 200) << taken.body;
+  EXPECT_EQ(taken.body, R"({"success":true,"message":"Thermostat enabled; \"Attic\" stopped","persisted":true})");
+  EXPECT_TRUE(hub().is_running("living-room"));
+  Reply list = this->get("list");
+  EXPECT_EQ(list["controllers"][0]["id"].as<std::string>(), "attic");
+  EXPECT_FALSE(list["controllers"][0]["enabled"].as<bool>());
+  EXPECT_EQ(list["controllers"][0]["waiting"].as<std::string>(), "");
+}
+
+static const char *const SUMMER = R"({"version":1,"id":"summer","name":"Summer","kind":"bang_bang",)"
+                                  R"("sensor_id":"room","heat":{"relay_id":"relay_1"},"mode":"heat"})";
+static const char *const WINTER = R"({"version":1,"id":"winter","name":"Winter","kind":"bang_bang",)"
+                                  R"("sensor_id":"room","heat":{"relay_id":"relay_1"},"mode":"heat"})";
+
+// Files written by hand or restored: the boot runs the first by id on the relay, the other waits.
+class Waiters : public Editor {
+ protected:
+  void boot_with(const std::vector<std::string> &docs) {
+    for (const std::string &doc : docs) {
+      JsonDocument parsed;
+      ASSERT_EQ(deserializeJson(parsed, doc), DeserializationError::Ok) << doc;
+      std::ofstream(this->folder() + "/" + parsed["id"].as<std::string>() + ".json") << doc;
+    }
+    hub().reset();
+    hub().setup();
+  }
+};
+
+TEST_F(Waiters, StoppingTheHolderStartsTheOneThatWaitsAndSaysSo) {
+  this->boot_with({SUMMER, WINTER});
+  Reply list = this->get("list");
+  ASSERT_FALSE(list["controllers"][1]["running"].as<bool>());
+  ASSERT_EQ(list["controllers"][1]["waiting"].as<std::string>(), "not started: relay 'relay_1' is held by 'summer'");
+
+  Reply stopped = this->post("enable?id=summer&value=false");
+  ASSERT_EQ(stopped.code, 200) << stopped.body;
+  EXPECT_EQ(stopped.body, R"({"success":true,"message":"Thermostat disabled; \"Winter\" started","persisted":true})");
+  list = this->get("list");
+  EXPECT_TRUE(list["controllers"][1]["running"].as<bool>());
+  EXPECT_EQ(list["controllers"][1]["waiting"].as<std::string>(), "");
+  EXPECT_EQ(this->get("status?id=winter")["controllers"][0]["waiting"].as<std::string>(), "");
+
+  // Its relay now, and the one that stopped is refused it.
+  Reply refused = this->post("enable?id=summer&value=true");
+  EXPECT_EQ(refused.code, 409);
+  EXPECT_EQ(refused.error(), "\"Relay 1\" is already driven by \"Winter\"");
+}
+
+TEST_F(Waiters, DeletingTheHolderStartsTheOneThatWaitsAndSaysSo) {
+  this->boot_with({SUMMER, WINTER});
+  Reply deleted = this->post("delete?id=summer");
+  ASSERT_EQ(deleted.code, 200) << deleted.body;
+  EXPECT_EQ(deleted.body, R"({"success":true,"message":"Thermostat deleted; \"Winter\" started","persisted":true})");
+  Reply list = this->get("list");
+  ASSERT_EQ(list["controllers"].size(), 1u);
+  EXPECT_TRUE(list["controllers"][0]["running"].as<bool>());
+  EXPECT_EQ(list["controllers"][0]["waiting"].as<std::string>(), "");
+}
+
+// Gone until the next boot or not, the answer names who started.
+TEST_F(Waiters, ADeleteThatComesBackStillNamesWhoStarted) {
+  this->boot_with({SUMMER, WINTER});
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root writes a read-only file";
+  ASSERT_EQ(chmod((this->folder() + "/summer.json").c_str(), 0444), 0);
+  hub().refuse_remove = true;
+  Reply deleted = this->post("delete?id=summer");
+  ASSERT_EQ(deleted.code, 200) << deleted.body;
+  EXPECT_EQ(deleted.message(),
+            "Thermostat deleted; its file could not be removed, so it comes back at the next boot; \"Winter\" started");
+}
+
+// A Save that moves the holder off the relay hands it to the one that waits, before its own warning.
+TEST_F(Waiters, ASaveThatFreesARelayNamesWhoStarted) {
+  this->boot_with({SUMMER, WINTER});
+  std::string moved = SUMMER;
+  moved.replace(moved.find("relay_1"), 7, "relay_2");
+  Reply saved = this->post("save", moved);
+  ASSERT_EQ(saved.code, 200) << saved.body;
+  EXPECT_EQ(saved.body, R"({"success":true,"message":"Thermostat updated; \"Winter\" started","id":"summer"})");
+  EXPECT_EQ(hub().claimed_by("relay_1"), "winter");
+}
+
+// One that a Save leaves waiting lets its relay go too; its warning stays last, as a client
+// reads it off the end.
+TEST_F(Waiters, ASaveThatLeavesItWaitingNamesWhoStartedBeforeTheWarning) {
+  this->boot_with({SUMMER, WINTER});
+  std::string gone = SUMMER;
+  gone.replace(gone.find("\"room\""), 6, "\"attic\"");
+  Reply saved = this->post("save", gone);
+  ASSERT_EQ(saved.code, 200) << saved.body;
+  EXPECT_EQ(saved.body,
+            R"({"success":true,"message":"Thermostat updated; \"Winter\" started; not started: )"
+            R"(sensor 'attic' not found","id":"summer","warning":"not started: sensor 'attic' not found"})");
+  EXPECT_EQ(hub().claimed_by("relay_1"), "winter");
+}
+
+// The relay a holder drove alone comes free with the take-over: the answer names who stopped,
+// then who started after the one taking over.
+TEST_F(Waiters, ATakeOverNamesWhoStoppedThenWhoStarted) {
+  this->boot_with({R"({"version":1,"id":"attic","name":"Attic","kind":"bang_bang","sensor_id":"room",)"
+                   R"("heat":{"relay_id":"relay_1"},"cool":{"relay_id":"relay_2"},"mode":"heat_cool"})",
+                   R"({"version":1,"id":"den","name":"Den","kind":"bang_bang","sensor_id":"room",)"
+                   R"("heat":{"relay_id":"relay_1"},"mode":"heat"})",
+                   R"({"version":1,"id":"porch","name":"Porch","kind":"bang_bang","sensor_id":"floor",)"
+                   R"("cool":{"relay_id":"relay_2"},"mode":"cool"})"});
+  ASSERT_TRUE(hub().is_running("attic"));
+
+  Reply taken = this->post("enable?id=den&value=true&take_over=true");
+  ASSERT_EQ(taken.code, 200) << taken.body;
+  EXPECT_EQ(taken.message(), "Thermostat enabled; \"Attic\" stopped; \"Porch\" started");
+  EXPECT_EQ(hub().claimed_by("relay_1"), "den");
+  EXPECT_EQ(hub().claimed_by("relay_2"), "porch");
 }
 
 // --- setpoint ---
