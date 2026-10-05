@@ -294,8 +294,8 @@ TEST_F(Contract, TheContractsDeviceIsThisSuites) {
   }
 }
 
-// Every refusal the README documents, and a success of every route, is in the file.
-TEST_F(Contract, TheContractCoversEveryRefusalAndEveryRoute) {
+// Every status the API answers, and a success of every route, is in the file.
+TEST_F(Contract, TheContractCoversEveryStatusAndEveryRoute) {
   JsonDocument contract = load_contract();
   std::set<int> statuses;
   std::set<std::string> answered;
