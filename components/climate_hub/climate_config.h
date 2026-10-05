@@ -154,6 +154,7 @@ struct ClimateConfig {
 
   /// Written by a newer firmware: this one must not write it back.
   bool from_newer_firmware() const { return this->version > CONFIG_VERSION; }
+
   /// The bang-bang switching points. Never stored: the band is.
   float switch_low() const { return this->setpoint - this->bang_bang.below; }
   float switch_high() const { return this->setpoint + this->bang_bang.above; }
@@ -182,9 +183,21 @@ bool validate_name(const std::string &name, std::string *error);
 /// The name as a person reads it: trimmed, inner whitespace collapsed, ASCII lowercased.
 std::string name_key(const std::string &name);
 
-/// Whether `name`, in any case, is one of Home Assistant's built-in presets (eco, away, boost,
-/// comfort, home, sleep, activity), and which. Upstream maps such a string to the built-in one
-/// before it looks at the custom presets, so a preset by that name has to be the built-in.
+/// Home Assistant's built-in presets, by the name a preset takes to be one.
+struct StandardPreset {
+  const char *name;
+  climate::ClimatePreset preset;
+};
+inline constexpr StandardPreset STANDARD_PRESETS[] = {
+    {"eco", climate::CLIMATE_PRESET_ECO},           {"away", climate::CLIMATE_PRESET_AWAY},
+    {"boost", climate::CLIMATE_PRESET_BOOST},       {"comfort", climate::CLIMATE_PRESET_COMFORT},
+    {"home", climate::CLIMATE_PRESET_HOME},         {"sleep", climate::CLIMATE_PRESET_SLEEP},
+    {"activity", climate::CLIMATE_PRESET_ACTIVITY},
+};
+
+/// Whether `name`, in any case, is one of STANDARD_PRESETS, and which. Upstream maps such a
+/// string to the built-in preset before it looks at the custom ones, so a preset by that name
+/// has to be the built-in.
 bool standard_preset(const std::string &name, climate::ClimatePreset *out = nullptr);
 
 /// The object id ESPHome derives from an entity name: what Home Assistant and every

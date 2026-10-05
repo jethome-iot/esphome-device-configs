@@ -265,17 +265,7 @@ std::string name_key(const std::string &name) {
 }
 
 bool standard_preset(const std::string &name, climate::ClimatePreset *out) {
-  struct Standard {
-    const char *name;
-    climate::ClimatePreset preset;
-  };
-  static const Standard STANDARD[] = {
-      {"eco", climate::CLIMATE_PRESET_ECO},           {"away", climate::CLIMATE_PRESET_AWAY},
-      {"boost", climate::CLIMATE_PRESET_BOOST},       {"comfort", climate::CLIMATE_PRESET_COMFORT},
-      {"home", climate::CLIMATE_PRESET_HOME},         {"sleep", climate::CLIMATE_PRESET_SLEEP},
-      {"activity", climate::CLIMATE_PRESET_ACTIVITY},
-  };
-  for (const Standard &standard : STANDARD) {
+  for (const StandardPreset &standard : STANDARD_PRESETS) {
     if (strcasecmp(name.c_str(), standard.name) == 0) {
       if (out != nullptr)
         *out = standard.preset;

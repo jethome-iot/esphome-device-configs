@@ -150,6 +150,7 @@ TEST(PresetRules, AStandardNameInAnyCaseIsTheBuiltInPreset) {
   }
   for (const char *custom : {"none", "Night", "eco mode", "eco ", ""})
     EXPECT_FALSE(standard_preset(custom)) << custom;
+  EXPECT_EQ(std::size(standard), std::size(STANDARD_PRESETS)) << "the table the editor's schema serves";
 }
 
 TEST(PresetRules, APresetWithoutAModeKeepsTheThermostats) {
