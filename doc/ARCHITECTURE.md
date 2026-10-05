@@ -15,7 +15,7 @@ boundaries; everything else is local to its file.
 ## Shared ids
 
 - `web_server.sorting_groups` (`group_relays` … `group_system`) are declared in
-  `boards/jxd-cpu-e1eth.yaml`; every visible entity names one.
+  `boards/jxd-cpu-e1eth.yaml`; every visible entity names one, the thermostats `group_climate`.
 - `relays`, `inputs` (`boards/jxd-d6-r6-rev1.2.yaml`) are `globals` that the status page, buttons
   and menu iterate over. `temps` (`features/temperature.yaml`) is the `dallas_scan` component; the
   status page, the menu and the Modbus map read the temperatures through it (`used_slots()`,
@@ -39,6 +39,10 @@ boundaries; everything else is local to its file.
   `automations_menu` is filled at boot with a row per loaded rule, or one `No automations` row.
 - `automations_engine` (`features/automations.yaml`) is the rule engine; `display/menu.yaml`
   reads `configs()` for the Automations rows and calls `set_enable_automation` from them.
+- `climates` (`features/climates.yaml`) is the `climate_hub` component: the thermostats, kept
+  on `user_storage` under `climates/`. A thermostat names its sensor and relays by object id,
+  so renaming a relay in YAML, or a `Temp N` slot that stays empty, leaves it not running. The
+  QEMU overlay `qemu/climate-plant.yaml` gives it a room to control.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
   and expanded inside the main-page lambda in `display/display.yaml`. Package substitutions share
   one namespace with the device config's.
@@ -81,6 +85,7 @@ boundaries; everything else is local to its file.
 | 800 | fill the `relays` / `inputs` vectors |
 | 700 | push the stored Modbus address, baud rate, parity and stop bits into `jxm_uart2`; build a submenu per entry of those vectors, named after the entity, with its settings rows |
 | 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); restore the timezone and read the RTC (`setup_time`, called from the device config). `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
+| 599.5 | `climate_hub` sets up: it registers its pool of climate entities, loads the thermostats and starts the enabled ones, so it sits below the `Temp N` sensors (600) and above `automations`, which may one day name a thermostat |
 | 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created. `board_info` reads the EEPROM here too, once `eeprom_cpu` (600) has answered |
 | 500 | add a `Temp N` submenu per bound slot to the Temperatures menu; add a row per loaded rule to the Automations menu |
 | 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
@@ -184,6 +189,30 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
   `DisplayBuffer`'s protected `init_internal_` / `do_update_` and serves its endpoints as a
   `web_server_base` handler, setting the 405 status line through ESP-IDF's
   `httpd_resp_set_status` because the IDF response layer maps no such code.
+- `components/climate_hub` has one climate entity per thermostat and nothing upstream lets a
+  component add, remove or rename an entity after setup. So codegen reserves `max_controllers`
+  places (`CORE.register_platform_component`, before any `await` in `to_code`), and `setup()`
+  registers a pool of that many through the four-argument `App.register_climate`, each
+  internal under the name `climate_hub/free` and in the web server's sorting map already. A
+  thermostat that starts takes a slot, one that stops gives it back, internal again but under
+  its own name. It leans on:
+  - `EntityBase::configure_entity_` staying protected and callable from a subclass with this
+    signature: the entity calls it again to rename a slot, show it or hide it, with hash 0 so
+    the object id derives from the name. Upstream keeps a pointer to the name, not a copy.
+  - `is_internal()` being read when the API and the web server list and push, not cached at
+    setup (MQTT caches it, which is one reason the component has no MQTT support). The API
+    reads it when it queues an entity for a client but reads the name and key only when it
+    encodes it, so hiding a slot changes the internal bit alone; the placeholder goes only onto
+    a hidden slot whose name a thermostat is about to take.
+  - `web_server` matching a climate by name on its own task, first match wins, hidden or not,
+    and a `/` never reaching a URL segment, which keeps an unused slot unaddressable. The name
+    and the traits change only in `setup()` or in a loop job an HTTP handler waits on, so that
+    task is never mid-read.
+  - `StaticVector::capacity()` for the room check, and `ClimateTraits` built with no custom
+    modes, so a copy owns no vector.
+  - `api::APIServer::active_clients()`, `APIConnection::send_message(DisconnectRequest)` and
+    `on_fatal_error()`: after a structural change the component makes Home Assistant reconnect
+    the way upstream does after a new API key, since a client lists entities only on connect.
 - `components/automations` names entities by `fnv1_hash` of their object id and walks
   `App.get_binary_sensors()` / `get_sensors()` / `get_switches()` itself, so the hash and
   `EntityBase::get_object_id_to` are part of the on-disk rule format.

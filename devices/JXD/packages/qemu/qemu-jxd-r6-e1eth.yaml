@@ -1,0 +1,6 @@
+# Per-device QEMU overlay, applied last by `scripts/qemu.sh`: the board this
+# device carries, and a room for its thermostats.
+
+packages:
+  board: !include board-d6-r6.yaml
+  climate_plant: !include climate-plant.yaml
