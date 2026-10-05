@@ -64,10 +64,10 @@ failure `{"success": false, "error"}`. The same contract, machine-readable:
 | Method | Path | |
 |---|---|---|
 | GET | `/api/device/info` | `{"name", "base_mac_address", "mac_address", "version"}`; with `board_info_id` also `serial_number`, `device_model`, `hw_revision` and `board` — what `jethome_board_info` read, verbatim, plus the chip's eFuses |
-| GET | `/api/device/status` | `{"ha_connected", "uptime_s", "reset_reason", "connection_type", "rssi", "ip_address", "reboot_required"}` |
+| GET | `/api/device/status` | `{"ha_connected", "uptime_s", "reset_reason", "connection_type", "rssi", "ip_address", "reboot_required", "reboot_reasons"}`: `reboot_reasons` names what waits for a restart — `temperature_slots` after a forget or an assign — and is absent when nothing does |
 | GET | `/api/device/network` | `{"hostname", "connection_type", "ip_address", "gateway", "subnet", "dns1", "dns2", "ssid", "rssi", "ethernet_connected"}` |
 | GET | `/api/device/capabilities` | what this firmware has, below |
-| POST | `/api/device/system/reboot` | restart, nothing cleared |
+| POST | `/api/device/system/reboot` | restart, nothing cleared; what waits for a restart applies |
 | POST | `/api/device/system/factory-reset` | clear the stored settings and restart, wiping the storage on the way back up (with a `storage_id`) |
 | POST | `/api/device/system/rollback` | boot the other app slot — after an update, the firmware it replaced |
 
@@ -130,12 +130,14 @@ With a `dallas_scan_id`, the temperature slots; without one these routes are `40
 
 | Method | Path | |
 |---|---|---|
-| GET | `/api/device/temperature-slots` | `{"max_slots", "slots": [{"slot", "name", "free", "listed", "address", "can_forget"}]}`: slots 1 up to the last bound one, a freed slot between them included. `address` is the ROM as a hex string, absent for a free slot and a listed sensor that is not a 1-Wire one. `503` when the loop task does not take the read, or while a forget or an assign waits for its reboot |
-| POST | `/api/device/temperature-slots/forget` | `{"slot": N}` empties that slot, `{"all": true}` every slot but the listed ones, then the device restarts — what the panel's forget rows do. Takes the system actions' confirmation; a request that would change nothing — a free or listed slot, or nothing to forget at all — is `409` and the device keeps running; a table that cannot be written is `503`, a write that fails `500`, and the device keeps running; `503` too when the loop task does not take it or an earlier write waits for its reboot |
-| POST | `/api/device/temperature-slots/assign` | `{"slot": N, "address": "0x…"}` puts that device into slot N, then the device restarts. A device already in another slot swaps with what slot N held; a new address takes slot N from its device, which takes the lowest free slot at the next boot if it is still on the bus. Same confirmation; an address that is not a thermometer ROM with a valid CRC is `400`, a listed slot or device, or a device already there, `409`, a table that cannot be written `503`, a write that fails `500`, a loop task that does not take it or an earlier write that waits for its reboot `503` |
+| GET | `/api/device/temperature-slots` | `{"max_slots", "reboot_required", "slots": [{"slot", "name", "free", "listed", "address", "can_forget", "pending", "running_address"}]}`: slots 1 up to the last one bound at boot or held in the saved table, a freed slot between them included. `free`, `address` and `can_forget` describe the saved table; `pending` marks a slot that differs from boot, and `running_address` is the ROM its sensor reads until the reboot. `address` is the ROM as a hex string, absent for a free slot and a listed sensor that is not a 1-Wire one. `503` when the loop task does not take the read |
+| POST | `/api/device/temperature-slots/forget` | `{"slot": N}` empties that slot, `{"all": true}` every slot but the listed ones — what the panel's forget rows do, without the restart: the change is saved and applies after a reboot. Takes the system actions' confirmation; a request that would change nothing in the saved table — a free or listed slot, or nothing to forget at all — is `409`; a table that cannot be written is `503`, a write that fails `500`; `503` too when the loop task does not take it |
+| POST | `/api/device/temperature-slots/assign` | `{"slot": N, "address": "0x…"}` puts that device into slot N, applied after a reboot. A device already in another slot swaps with what slot N held; a new address takes slot N from its device, which takes the lowest free slot at the next boot if it is still on the bus. Same confirmation; an address that is not a thermometer ROM with a valid CRC is `400`, a listed slot or device, or a device already there, `409`, a table that cannot be written `503`, a write that fails `500`, a loop task that does not take it `503` |
 
-Slots are numbered from 1, as the `Temp N` sensors are. A slot's reading is not here: it is the
-state of the sensor of that `name` on `web_server`'s `/events`.
+Slots are numbered from 1, as the `Temp N` sensors are. A forget or an assign answers
+`{"success", "message", "reboot_required"}`; changes add up until a reboot applies them all, and
+one that puts the table back as the device booted leaves nothing waiting. A slot's reading is
+not here: it is the state of the sensor of that `name` on `web_server`'s `/events`.
 
 With a `config_json` store (`entity_config`'s `switch` and `binary_sensor` types), the entity
 settings too; without one these routes are `404`:
@@ -159,10 +161,10 @@ mirror. Nothing in this repository builds or type-checks them.
 `tests/components/web_device_dashboard/` drives the handler on the host through the
 `web_server_base` stand-in: the URLs it claims, the route table and its method matrix, the body
 accumulation and its 4 KiB cap, the JSON every route answers with, the confirmation the system
-actions take, a factory reset wiping a stand-in storage and the preferences before it
-restarts, and the temperature slots listed, forgotten and assigned on a real `dallas_scan` over
-the harness's 1-Wire bus, booted again to see what the table kept. Out of reach there is the
-ESP-IDF half — the `Allow` header, URL decoding, the reset reason and the IP lookups, the
-eFuse block, a live WiFi or Ethernet link, the real reboot, the LittleFS format, and the
-rollback's reads and switch, which the tests stand in for; the rule that decides is covered by
-[`firmware_rollback`](../firmware_rollback/README.md)'s own suite.
+actions take, a factory reset wiping a stand-in storage and the preferences before it restarts,
+and the temperature slots listed, forgotten and assigned on a real `dallas_scan` over the
+harness's 1-Wire bus, with `/status` reporting what waits, booted again to see what the table
+kept. Out of reach there is the ESP-IDF half — the `Allow` header, URL decoding, the reset
+reason and the IP lookups, the eFuse block, a live WiFi or Ethernet link, the real reboot, the
+LittleFS format, and the rollback's reads and switch, which the tests stand in for; the rule
+that decides is covered by [`firmware_rollback`](../firmware_rollback/README.md)'s own suite.

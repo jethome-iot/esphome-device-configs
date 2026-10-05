@@ -249,7 +249,8 @@ paths:
       summary: Restart the device.
       description: >-
         Answers first and restarts half a second later, so the answer reaches the
-        caller. Nothing is cleared: settings and files are as they were.
+        caller. Nothing is cleared: settings and files are as they were, and
+        what waits for a restart (`/status` `reboot_reasons`) applies.
       requestBody:
         $ref: "#/components/requestBodies/Confirmation"
       responses:
@@ -382,13 +383,16 @@ paths:
       operationId: getTemperatureSlots
       summary: The temperature slots and what is in them.
       description: >-
-        The slots of the firmware's `dallas_scan` up to the last bound one,
-        numbered from 1 as the `Temp N` sensors are. A slot freed between bound
-        ones keeps its row, as it does in the panel's Temperatures menu. The table
-        changes only at boot and through `/temperature-slots/forget` and
-        `/temperature-slots/assign`, which reboot, so this is read once per page
-        load. Readings are not here: they
-        are the sensors' state on `web_server`'s `/events`, matched by `name`.
+        The slots of the firmware's `dallas_scan` up to the last one bound at
+        boot or holding a device in the saved table, numbered from 1 as the
+        `Temp N` sensors are. A slot freed between bound ones keeps its row, as it
+        does in the panel's Temperatures menu. A slot's `free`, `address` and
+        `can_forget` describe the saved table, the one
+        `/temperature-slots/forget` and `/temperature-slots/assign` change and
+        the next boot binds; the sensors keep reading the devices they booted
+        with until then, and `pending` marks a slot where the two differ. Read
+        again after a forget or an assign. Readings are not here: they are the
+        sensors' state on `web_server`'s `/events`, matched by `name`.
       responses:
         "200":
           description: The slots.
@@ -401,10 +405,7 @@ paths:
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
         "503":
-          description: >-
-            The loop task did not take the request in time (`Device busy`), or a
-            forget or an assign has just been written and the reboot that applies
-            it is under way (`Rebooting: the slots change with it`). Nothing was read.
+          description: The loop task did not take the request in time (`Device busy`). Nothing was read.
           content:
             application/json:
               schema:
@@ -417,20 +418,21 @@ paths:
     post:
       tags: [write]
       operationId: forgetTemperatureSlots
-      summary: Empty one slot, or every slot but the listed ones, and restart.
+      summary: Empty one slot, or every slot but the listed ones, from the next boot on.
       description: >-
         What **Temperatures → Temp N → Confirm** and **Settings → Temp sensors →
-        Confirm** do on the panel. `slot` empties that slot: the device in it, if
-        it is still on the bus, takes the lowest free slot again at the next
-        boot, and the other slots keep their numbers. `all` empties every slot
-        but the ones `sensors:` lists, so the devices are numbered again in bus
-        order. A request that would change nothing — a free slot, a listed one,
-        or `all` with nothing but listed slots bound — is refused with `409`
-        rather than answered with a reboot that leaves the table as it was; the
-        slot's `can_forget` in `/temperature-slots` says beforehand. A table that
-        cannot be written is `503`. Otherwise it empties the slots and writes the
-        table, then answers and restarts half a second later; a write that fails
-        is `500`, and the device keeps running with the table as it was.
+        Confirm** do on the panel, except that the device does not restart: the
+        change is saved and applies after a reboot, and changes made before that
+        add up. `slot` empties that slot: the device in it, if it is still on the
+        bus, takes the lowest free slot again at the next boot, and the other
+        slots keep their numbers. `all` empties every slot but the ones
+        `sensors:` lists, so the devices are numbered again in bus order. A
+        request that would change nothing in the saved table — a free slot, a
+        listed one, or `all` with nothing but listed slots left — is refused with
+        `409`; the slot's `can_forget` in `/temperature-slots` says beforehand. A
+        table that cannot be written is `503`. Otherwise it empties the slots and
+        writes the table before it answers; a write that fails is `500`, and the
+        table stays as it was.
       requestBody:
         required: true
         content:
@@ -450,20 +452,28 @@ paths:
                   confirm_token: "DD:EE:FF"
       responses:
         "200":
-          description: Forgetting.
+          description: Forgotten in the saved table.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SuccessEnvelope"
+                $ref: "#/components/schemas/TemperatureSlotChangeResult"
               examples:
                 one:
                   value:
                     success: true
-                    message: Forgetting slot 2, rebooting
+                    message: Slot 2 forgotten; applies after a reboot
+                    reboot_required: true
                 all:
                   value:
                     success: true
-                    message: Forgetting every slot, rebooting
+                    message: Every slot forgotten; applies after a reboot
+                    reboot_required: true
+                undone:
+                  summary: The table is back as the device booted with it
+                  value:
+                    success: true
+                    message: Slot 4 forgotten
+                    reboot_required: false
         "400":
           description: >-
             Not a confirmation (`'confirm' must be true`, as on the system
@@ -501,7 +511,9 @@ paths:
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
         "409":
-          description: Nothing would change. Nothing happened, and the device keeps running.
+          description: >-
+            Nothing would change in the saved table. Nothing happened. A slot
+            forgotten earlier that waits for the reboot says so.
           content:
             application/json:
               schema:
@@ -511,6 +523,10 @@ paths:
                   value:
                     success: false
                     error: Slot 3 is free
+                forgottenAlready:
+                  value:
+                    success: false
+                    error: Slot 2 is forgotten already; applies after a reboot
                 listed:
                   value:
                     success: false
@@ -537,10 +553,9 @@ paths:
         "503":
           description: >-
             The table is kept in a file and the user partition did not mount, so
-            nothing could be written (`Temperature slot storage unavailable`), the
-            loop task did not take the request in time (`Device busy`), or an
-            earlier forget or assign is waiting for its reboot (`Rebooting: the
-            slots change with it`). Nothing happened.
+            nothing could be written (`Temperature slot storage unavailable`), or
+            the loop task did not take the request in time (`Device busy`).
+            Nothing happened.
           content:
             application/json:
               schema:
@@ -553,7 +568,7 @@ paths:
     post:
       tags: [write]
       operationId: assignTemperatureSlot
-      summary: Put a device into a slot, and restart.
+      summary: Put a device into a slot, from the next boot on.
       description: >-
         Puts the device with this ROM into `slot`. If the table holds it in
         another slot already, the two slots swap what they hold, which is how a
@@ -564,9 +579,10 @@ paths:
         name and Modbus register with it. Refused before anything happens:
         a malformed or non-thermometer address (`400`), and a listed slot, a
         listed sensor's address, or a device already in that slot (`409`), and
-        a table that cannot be written (`503`). Otherwise it writes the table,
-        then answers and restarts half a second later; a write that fails is
-        `500`, and the device keeps running with the table as it was.
+        a table that cannot be written (`503`), each judged against the saved
+        table. Otherwise it writes the table before it answers, and the change
+        applies after a reboot, together with any made before it; a write that
+        fails is `500`, and the table stays as it was.
       requestBody:
         required: true
         content:
@@ -580,14 +596,23 @@ paths:
               confirm_token: "DD:EE:FF"
       responses:
         "200":
-          description: Assigning.
+          description: Assigned in the saved table.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SuccessEnvelope"
-              example:
-                success: true
-                message: Assigning slot 1, rebooting
+                $ref: "#/components/schemas/TemperatureSlotChangeResult"
+              examples:
+                waits:
+                  value:
+                    success: true
+                    message: Slot 1 assigned; applies after a reboot
+                    reboot_required: true
+                undone:
+                  summary: The table is back as the device booted with it
+                  value:
+                    success: true
+                    message: Slot 1 assigned
+                    reboot_required: false
         "400":
           description: >-
             Not a confirmation, a slot out of range, an address that is not 16
@@ -619,8 +644,8 @@ paths:
           $ref: "#/components/responses/MethodNotAllowed"
         "409":
           description: >-
-            The YAML decides this slot or this device, or nothing would change.
-            Nothing happened, and the device keeps running.
+            The YAML decides this slot or this device, or the saved table has
+            this device in this slot already. Nothing happened.
           content:
             application/json:
               schema:
@@ -656,10 +681,9 @@ paths:
         "503":
           description: >-
             The table is kept in a file and the user partition did not mount, so
-            nothing could be written (`Temperature slot storage unavailable`), the
-            loop task did not take the request in time (`Device busy`), or an
-            earlier forget or assign is waiting for its reboot (`Rebooting: the
-            slots change with it`). Nothing happened.
+            nothing could be written (`Temperature slot storage unavailable`), or
+            the loop task did not take the request in time (`Device busy`).
+            Nothing happened.
           content:
             application/json:
               schema:
@@ -1209,7 +1233,19 @@ components:
           description: The first address the network stack has, null before one is set.
         reboot_required:
           type: boolean
-          description: Always false; nothing here changes a saved setting. Kept for the client's contract.
+          description: >-
+            A saved change waits for a restart; `reboot_reasons` names it.
+            `/system/reboot` applies it. Modbus and Network mode, which also
+            apply on restart, are not tracked.
+        reboot_reasons:
+          type: array
+          description: What waits for the restart; omitted when nothing does.
+          items:
+            type: string
+            enum: [temperature_slots]
+            description: >-
+              `temperature_slots`: a forget or an assign changed the saved slot
+              table, see `/temperature-slots`.
       example:
         ha_connected: true
         uptime_s: 86400
@@ -1217,7 +1253,8 @@ components:
         connection_type: ethernet
         rssi: null
         ip_address: 192.168.1.50
-        reboot_required: false
+        reboot_required: true
+        reboot_reasons: [temperature_slots]
 
     ConnectionType:
       type: string
@@ -1286,22 +1323,28 @@ components:
 
     TemperatureSlots:
       type: object
-      required: [max_slots, slots]
+      required: [max_slots, reboot_required, slots]
       properties:
         max_slots:
           type: integer
           minimum: 1
           maximum: 64
           description: The size of the table, `dallas_scan`'s `max_sensors`.
+        reboot_required:
+          type: boolean
+          description: >-
+            Some slot is `pending`; `/status` names `temperature_slots` in
+            `reboot_reasons` too.
         slots:
           type: array
           description: >-
-            Slots 1 up to the last bound one, in order; empty when nothing was
-            ever bound.
+            Slots 1 up to the last one bound at boot or holding a device in the
+            saved table, in order; empty when there is none.
           items:
             $ref: "#/components/schemas/TemperatureSlot"
       example:
         max_slots: 16
+        reboot_required: true
         slots:
           - slot: 1
             name: Boiler
@@ -1309,21 +1352,29 @@ components:
             listed: true
             address: "0x8a0122791699dd28"
             can_forget: false
+            pending: false
           - slot: 2
             name: Temp 2
             free: true
             listed: false
             can_forget: false
+            pending: true
+            running_address: "0x9b01b5566e8a1f28"
           - slot: 3
             name: Temp 3
             free: false
             listed: false
             address: "0xeb01227905460228"
             can_forget: true
+            pending: false
 
     TemperatureSlot:
       type: object
-      required: [slot, name, free, listed, can_forget]
+      description: >-
+        `free`, `address` and `can_forget` describe the saved table, the one the
+        next boot binds; `name` and `running_address` describe what runs until
+        then.
+      required: [slot, name, free, listed, can_forget, pending]
       properties:
         slot:
           type: integer
@@ -1333,10 +1384,13 @@ components:
           type: string
           description: >-
             The name of the slot's sensor — the entity `web_server` serves, so
-            the key to its reading — or `<prefix> N` for a free slot.
+            the key to its reading — or `<prefix> N` for a slot with no sensor
+            this boot.
         free:
           type: boolean
-          description: No sensor — the slot was forgotten and nothing took it since.
+          description: >-
+            The saved table holds no device here: the slot was forgotten and
+            nothing took it since.
         listed:
           type: boolean
           description: >-
@@ -1346,16 +1400,42 @@ components:
           type: string
           pattern: "^0x[0-9a-f]{16}$"
           description: >-
-            The device's 1-Wire ROM, as the panel prints it. A string, because 64
-            bits do not survive a JavaScript number. Absent for a free slot and
-            for a listed sensor that is not a 1-Wire one.
+            The device's 1-Wire ROM in the saved table, as the panel prints it. A
+            string, because 64 bits do not survive a JavaScript number. Absent
+            for a free slot and for a listed sensor that is not a 1-Wire one.
         can_forget:
           type: boolean
           description: >-
             `/temperature-slots/forget` with this `slot` would empty it: it holds
-            a device, is not listed, and the table can be written. Whether that
-            device still answers does not matter — an unplugged sensor is the
-            usual reason to forget one.
+            a device in the saved table, is not listed, and the table can be
+            written. Whether that device still answers does not matter — an
+            unplugged sensor is the usual reason to forget one.
+        pending:
+          type: boolean
+          description: >-
+            A forget or an assign changed this slot since boot; it applies after
+            a reboot.
+        running_address:
+          type: string
+          pattern: "^0x[0-9a-f]{16}$"
+          description: >-
+            The ROM this slot's sensor reads until the reboot. Only on a
+            `pending` slot that had a device at boot.
+
+    TemperatureSlotChangeResult:
+      description: What a forget or an assign answers once the saved table is written.
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          required: [reboot_required]
+          properties:
+            reboot_required:
+              type: boolean
+              description: >-
+                The saved table differs from the one the device booted with,
+                after this change; `/status` reports it too. False when the
+                change put the table back as it booted, and the message then
+                has no `; applies after a reboot`.
 
     AssignSlotRequest:
       allOf:
