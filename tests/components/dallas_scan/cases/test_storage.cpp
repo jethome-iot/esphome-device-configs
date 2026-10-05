@@ -421,23 +421,63 @@ TEST_F(Forget, OnlyAForgetOrAnAssignWritesOverAFileThatDidNotLoad) {
   EXPECT_EQ(this->read(), slot_file({{1, HEX_C}, {2, HEX_B}}));
 }
 
-// The panel's Confirm on a slot the dashboard forgot already applies what waits.
-TEST_F(Forget, ForgetRebootsForWhatTheSavedTableForgotAlready) {
+// The panel's Confirm on a slot the dashboard changed since boot applies what it saved, and
+// writes nothing.
+TEST_F(Forget, ForgetOfASlotForgottenSinceBootOnlyReboots) {
   TestScan &scan = this->boot({ROM_A, ROM_B});
   ASSERT_TRUE(scan.forget_and_save(0));
   const std::string text = this->read();
   this->log().clear();
   EXPECT_FORGET_REBOOTS(scan, 0);
-  EXPECT_TRUE(this->log().has(this->log().infos, "Forgotten already; rebooting"));
+  EXPECT_TRUE(this->log().has(this->log().infos, "Rebooting to apply the saved slot table"));
   EXPECT_FALSE(this->log().has(this->log().warnings, "Nothing to forget"));
   EXPECT_EQ(this->read(), text);
-  ASSERT_TRUE(scan.forget_and_save(-1));
-  EXPECT_FORGET_REBOOTS(scan, -1);
+}
+
+TEST_F(Forget, ForgetOfASlotGivenAnotherDeviceSinceBootKeepsThatDevice) {
+  TestScan &scan = this->boot({ROM_A, ROM_B});
+  ASSERT_TRUE(scan.assign_and_save(0, ROM_B));  // a swap
+  const std::string text = this->read();
+  ASSERT_EQ(text, slot_file({{1, HEX_B}, {2, HEX_A}}));
+  EXPECT_FORGET_REBOOTS(scan, 0);
+  EXPECT_EQ(scan.saved_address(0), ROM_B);
+  EXPECT_EQ(this->read(), text);
+  TestScan &after = this->boot({ROM_A, ROM_B});
+  EXPECT_EQ(after.address(0), ROM_B);
+  EXPECT_EQ(after.address(1), ROM_A);
+}
+
+// A slot empty at boot and in the saved table forgets nothing, whatever else waits; a slot
+// unchanged since boot is forgotten as without a change waiting.
+TEST_F(Forget, AnEmptySlotForgetsNothingWhileAnotherWaits) {
+  TestScan &scan = this->boot({ROM_A, ROM_B});
+  ASSERT_TRUE(scan.forget_and_save(0));
+  this->log().clear();
+  scan.forget(2);
+  EXPECT_EQ(scan.restarts, 0);
+  EXPECT_TRUE(this->log().has(this->log().warnings, "Nothing to forget"));
+  EXPECT_FALSE(this->log().has(this->log().infos, "Rebooting to apply"));
+  EXPECT_FORGET_REBOOTS(scan, 1);
   EXPECT_EQ(this->read(), slot_file({}));
 }
 
-// Only an empty slot in the saved table is forgotten already: a listed slot, one past the table,
-// a write that fails and a store that cannot be written do not reboot, whatever waits.
+// Forget all empties what the saved table still holds; with nothing left there, it applies what
+// waits.
+TEST_F(Forget, ForgetAllEmptiesWhatIsLeftOrAppliesWhatWaits) {
+  TestScan &scan = this->boot({ROM_A, ROM_B});
+  ASSERT_TRUE(scan.forget_and_save(0));
+  ASSERT_TRUE(scan.assign_and_save(2, ROM_C));
+  this->log().clear();
+  EXPECT_FORGET_REBOOTS(scan, -1);
+  EXPECT_FALSE(this->log().has(this->log().infos, "Rebooting to apply"));
+  EXPECT_EQ(this->read(), slot_file({}));
+  EXPECT_FORGET_REBOOTS(scan, -1);
+  EXPECT_TRUE(this->log().has(this->log().infos, "Rebooting to apply the saved slot table"));
+  EXPECT_EQ(this->read(), slot_file({}));
+}
+
+// What forgets nothing does not reboot, whatever waits: a listed slot, one past the table, a
+// write that fails, and a store that cannot be written even for a slot changed since boot.
 TEST_F(Forget, WhileAChangeWaitsWhatForgetsNothingStillDoesNotReboot) {
   if (geteuid() == 0)
     GTEST_SKIP() << "root writes into a read-only folder";
@@ -451,11 +491,14 @@ TEST_F(Forget, WhileAChangeWaitsWhatForgetsNothingStillDoesNotReboot) {
   scan.forget(0);  // listed
   scan.forget(4);  // past the table
   ASSERT_EQ(chmod(this->dir().c_str(), 0555), 0);
-  scan.forget(2);  // the write fails
+  scan.forget(2);   // the write fails
+  scan.forget(-1);  // so does emptying what is left
   chmod(this->dir().c_str(), 0755);
   EXPECT_EQ(scan.saved_address(2), ROM_B);
+  ASSERT_TRUE(scan.forget_and_save(2));  // nothing left to forget
   this->keepers.back()->mark_failed();
-  scan.forget(1);  // the store went away
+  scan.forget(1);   // the store went away
+  scan.forget(-1);  // likewise
   EXPECT_EQ(scan.restarts, 0);
 }
 
@@ -522,6 +565,17 @@ TEST_F(Forget, ForgetInPreferencesSyncsTheTableAndReboots) {
   EXPECT_FORGET_REBOOTS(scan, 0);
   EXPECT_EQ(stored_table(4), (std::vector<uint64_t>{0, ROM_B, 0, 0}));
   EXPECT_TRUE(this->files().empty());
+}
+
+// The preferences record stays as the dashboard saved it, a device it gave the slot included.
+TEST_F(Forget, ForgetInPreferencesOfASlotGivenANewDeviceSinceBootKeepsThatDevice) {
+  TestScan &scan = this->boot_nvs({ROM_A, ROM_B});
+  ASSERT_TRUE(scan.assign_and_save(0, ROM_C));
+  const auto stored = stored_table(4);
+  ASSERT_EQ(stored, (std::vector<uint64_t>{ROM_C, ROM_B, 0, 0}));
+  EXPECT_FORGET_REBOOTS(scan, 0);
+  EXPECT_EQ(scan.saved_address(0), ROM_C);
+  EXPECT_EQ(stored_table(4), stored);
 }
 
 // The flush reports for every record at once. On the host a record lives in memory from save()

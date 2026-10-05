@@ -74,7 +74,7 @@ and **Forget** on a slot or **Forget All**, clicked twice, clears them. The dash
 reboot: the change is saved, the sensors keep reading as before, and a banner offers
 **Reboot now** until the device restarts. Several changes add up and one reboot applies them
 all; putting a slot back as it was clears the banner. The panel's Confirm on a slot the
-dashboard already cleared reboots to apply what waits. Scripts can use its routes, in
+dashboard changed reboots into what the dashboard saved. Scripts can use its routes, in
 [components/web_device_dashboard](../components/web_device_dashboard/README.md).
 
 ## Moving and assigning

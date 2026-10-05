@@ -104,9 +104,10 @@ and switching back finds the table that storage held last.
 in it, or a new one, takes the lowest free slot again. `forget(-1)` clears every slot, so the
 devices are numbered again in bus order. Listed slots are skipped, and nothing happens at all
 when no slot changes, or when the table cannot be written; `can_forget(slot)` says beforehand
-whether a slot would change, `can_save()` whether the table can be written. One exception: a
-slot already empty in the saved table while a change waits (below) still reboots, so the
-panel's Confirm applies a forget the dashboard saved.
+whether a slot would change, `can_save()` whether the table can be written. While a change
+waits for a reboot (below), `forget(slot)` on a slot changed since boot, and `forget(-1)` with
+nothing left to forget, only reboot when the table can be written: the saved table applies as
+it is.
 `global_preferences->reset()` clears a table in preferences; a file goes with its partition.
 
 ## Assigning

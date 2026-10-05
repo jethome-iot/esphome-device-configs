@@ -105,7 +105,8 @@ class DallasScan : public PollingComponent {
   /// and assign() then change nothing.
   bool can_save() const;
   /// Empty a slot (every slot for -1), then reboot to scan the bus again. Listed slots stay.
-  /// Also reboots when the saved table has that slot empty already and a change waits.
+  /// A slot changed since boot (for -1: nothing left to forget while a change waits) only
+  /// reboots, so the saved table applies as it is.
   void forget(int slot);
   /// forget() without the reboot: the saved table changes, the sensors keep their boot devices
   /// until a reboot. False, with the table as it was, when nothing would change or the table
