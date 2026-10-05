@@ -8,6 +8,8 @@ static const char *const SLOTS = "/api/device/temperature-slots";
 static const char *const FORGET = "/api/device/temperature-slots/forget";
 static const char *const ASSIGN = "/api/device/temperature-slots/assign";
 static const char *const CAPABILITIES = "/api/device/capabilities";
+static const char *const STATUS = "/api/device/status";
+static const char *const REBOOT = "/api/device/system/reboot";
 
 static const uint64_t ROM_A = 0xeb01227905460228ULL;
 static const uint64_t ROM_B = 0x8a0122791699dd28ULL;
@@ -50,6 +52,19 @@ class TemperatureSlots : public Dashboard {
     return body.substr(0, body.size() - 1) + "," + selector + "}";
   }
 
+  // What the page's reboot notice reads: /status says a slot change waits, and why.
+  bool waits() {
+    Reply status = this->get(STATUS);
+    EXPECT_EQ(status.code, 200);
+    if (!status["reboot_required"].as<bool>()) {
+      EXPECT_TRUE(status["reboot_reasons"].isUnbound()) << status.body;
+      return false;
+    }
+    EXPECT_EQ(status["reboot_reasons"].size(), 1u) << status.body;
+    EXPECT_EQ(status["reboot_reasons"][0].as<std::string>(), "temperature_slots") << status.body;
+    return true;
+  }
+
   one_wire_host::HostOneWireBus bus;
   std::vector<std::unique_ptr<TestScan>> boots;
 };
@@ -80,8 +95,15 @@ TEST_F(TemperatureSlots, ListsEverySlotUpToTheLastBoundOne) {
   ASSERT_EQ(reply.code, 200);
   EXPECT_EQ(reply.type, "application/json");
   EXPECT_EQ(reply["max_slots"].as<int>(), 4);
+  EXPECT_FALSE(reply["reboot_required"].as<bool>());
   JsonArray slots = reply["slots"].as<JsonArray>();
   ASSERT_EQ(slots.size(), 3u);
+  // Just booted: every slot is what runs.
+  for (JsonObject slot : slots) {
+    EXPECT_TRUE(slot["pending"].is<bool>());
+    EXPECT_FALSE(slot["pending"].as<bool>());
+    EXPECT_TRUE(slot["running_address"].isUnbound());
+  }
 
   // The listed sensor: its own name, no address, not to be forgotten from here.
   EXPECT_EQ(slots[0]["slot"].as<int>(), 1);
@@ -113,26 +135,101 @@ TEST_F(TemperatureSlots, AnEmptyTableListsNoSlots) {
   Reply reply = this->get(SLOTS);
   ASSERT_EQ(reply.code, 200);
   EXPECT_EQ(reply["max_slots"].as<int>(), 4);
+  EXPECT_FALSE(reply["reboot_required"].as<bool>());
   EXPECT_EQ(reply["slots"].as<JsonArray>().size(), 0u);
+}
+
+// Rows describe the saved table, the one the next boot binds; `name` and `running_address` are
+// what runs until then. Booted {A, B}, then A and B swapped and C put into slot 4.
+TEST_F(TemperatureSlots, TheListShowsTheSavedTableNextToWhatRuns) {
+  this->boot({ROM_A, ROM_B});
+  ASSERT_EQ(this->post(ASSIGN, this->confirmed(R"("slot":1,"address":"0x8a0122791699dd28")")).code, 200);
+  ASSERT_EQ(this->post(ASSIGN, this->confirmed(R"("slot":4,"address":"0x9b01b5566e8a1f28")")).code, 200);
+
+  Reply reply = this->get(SLOTS);
+  ASSERT_EQ(reply.code, 200);
+  EXPECT_TRUE(reply["reboot_required"].as<bool>());
+  JsonArray slots = reply["slots"].as<JsonArray>();
+  ASSERT_EQ(slots.size(), 4u) << reply.body;
+
+  EXPECT_EQ(slots[0]["name"].as<std::string>(), "Temp 1");
+  EXPECT_FALSE(slots[0]["free"].as<bool>());
+  EXPECT_EQ(slots[0]["address"].as<std::string>(), "0x8a0122791699dd28");
+  EXPECT_EQ(slots[0]["running_address"].as<std::string>(), "0xeb01227905460228");
+  EXPECT_TRUE(slots[0]["pending"].as<bool>());
+  EXPECT_TRUE(slots[0]["can_forget"].as<bool>());
+
+  EXPECT_EQ(slots[1]["address"].as<std::string>(), "0xeb01227905460228");
+  EXPECT_EQ(slots[1]["running_address"].as<std::string>(), "0x8a0122791699dd28");
+  EXPECT_TRUE(slots[1]["pending"].as<bool>());
+
+  // Not touched: no running_address, as on a fresh boot.
+  EXPECT_EQ(slots[2]["name"].as<std::string>(), "Temp 3");
+  EXPECT_TRUE(slots[2]["free"].as<bool>());
+  EXPECT_FALSE(slots[2]["pending"].as<bool>());
+  EXPECT_TRUE(slots[2]["address"].isUnbound());
+  EXPECT_TRUE(slots[2]["running_address"].isUnbound());
+
+  // Past the slots bound at boot, so listed for the saved table alone; nothing runs there yet.
+  EXPECT_EQ(slots[3]["slot"].as<int>(), 4);
+  EXPECT_EQ(slots[3]["name"].as<std::string>(), "Temp 4");
+  EXPECT_FALSE(slots[3]["free"].as<bool>());
+  EXPECT_EQ(slots[3]["address"].as<std::string>(), "0x9b01b5566e8a1f28");
+  EXPECT_TRUE(slots[3]["pending"].as<bool>());
+  EXPECT_TRUE(slots[3]["running_address"].isUnbound());
+  EXPECT_TRUE(slots[3]["can_forget"].as<bool>());
+}
+
+// A forgotten slot with a device at boot: free in the saved table, still read until the reboot.
+TEST_F(TemperatureSlots, AForgottenSlotIsFreeAndStillRunsItsDevice) {
+  this->boot({ROM_A, ROM_B});
+  ASSERT_EQ(this->post(FORGET, this->confirmed(R"("slot":1)")).code, 200);
+  Reply list = this->get(SLOTS);
+  JsonArray slots = list["slots"].as<JsonArray>();
+  ASSERT_EQ(slots.size(), 2u);
+  EXPECT_EQ(slots[0]["name"].as<std::string>(), "Temp 1");
+  EXPECT_TRUE(slots[0]["free"].as<bool>());
+  EXPECT_TRUE(slots[0]["address"].isUnbound());
+  EXPECT_EQ(slots[0]["running_address"].as<std::string>(), "0xeb01227905460228");
+  EXPECT_TRUE(slots[0]["pending"].as<bool>());
+  EXPECT_FALSE(slots[0]["can_forget"].as<bool>());
+  // Forgetting it again says the slot is free from the reboot on, not that it is free now.
+  Reply again = this->post(FORGET, this->confirmed(R"("slot":1)"));
+  EXPECT_EQ(again.code, 409);
+  EXPECT_EQ(again.error(), "Slot 1 is free after a reboot");
+}
+
+// A move empties the slot it left as a forget does, so the refusal says the same.
+TEST_F(TemperatureSlots, ASlotAMoveEmptiedIsFreeAfterAReboot) {
+  this->boot({ROM_A});
+  ASSERT_EQ(this->post(ASSIGN, this->confirmed(R"("slot":3,"address":"0xeb01227905460228")")).code, 200);
+  Reply reply = this->post(FORGET, this->confirmed(R"("slot":1)"));
+  EXPECT_EQ(reply.code, 409);
+  EXPECT_EQ(reply.error(), "Slot 1 is free after a reboot");
 }
 
 // --- forgetting ---
 
-TEST_F(TemperatureSlots, ForgetASlotWritesTheTableAnswersAndReboots) {
+TEST_F(TemperatureSlots, ForgetASlotSavesTheTableAndWaitsForAReboot) {
   TestScan &scan = this->boot({ROM_A, ROM_B});
+  EXPECT_FALSE(this->waits());
   Reply reply = this->post(FORGET, this->confirmed(R"("slot":1)"));
   EXPECT_EQ(reply.code, 200);
   EXPECT_TRUE(reply.success());
-  EXPECT_EQ(reply.message(), "Forgetting slot 1, rebooting");
-  // Still serving: the answer has to leave the socket first.
-  EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_EQ(reply.message(), "Slot 1 forgotten; applies after a reboot");
+  EXPECT_TRUE(reply["reboot_required"].as<bool>());
   this->loop();
-  EXPECT_EQ(this->dashboard->restarts, 1);
-  EXPECT_EQ(scan.restarts, 0);  // the scan's own reboot would have come before the answer
-  // The next boot finds slot 1 free, and B where it was.
+  EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_EQ(scan.restarts, 0);
+  // /status says so, read where the request is: no job for the loop task.
+  const int jobs = this->dashboard->jobs;
+  EXPECT_TRUE(this->waits());
+  EXPECT_EQ(this->dashboard->jobs, jobs);
+  // The next boot finds slot 1 free, and B where it was; nothing waits then.
   TestScan &after = this->boot({ROM_B});
   EXPECT_EQ(after.address(0), 0u);
   EXPECT_EQ(after.address(1), ROM_B);
+  EXPECT_FALSE(this->waits());
 }
 
 TEST_F(TemperatureSlots, ForgetAllEmptiesEverySlotButTheListedOne) {
@@ -142,9 +239,10 @@ TEST_F(TemperatureSlots, ForgetAllEmptiesEverySlotButTheListedOne) {
   ASSERT_EQ(scan.address(2), ROM_A);
   Reply reply = this->post(FORGET, this->confirmed(R"("all":true)"));
   EXPECT_EQ(reply.code, 200);
-  EXPECT_EQ(reply.message(), "Forgetting every slot, rebooting");
+  EXPECT_EQ(reply.message(), "Every slot forgotten; applies after a reboot");
+  EXPECT_TRUE(reply["reboot_required"].as<bool>());
   this->loop();
-  EXPECT_EQ(this->dashboard->restarts, 1);
+  EXPECT_EQ(this->dashboard->restarts, 0);
   EXPECT_EQ(scan.restarts, 0);
   // Numbered again in bus order, after the listed slot.
   TestScan &after = this->boot({ROM_A, ROM_B}, true);
@@ -163,6 +261,7 @@ TEST_F(TemperatureSlots, ForgetRefusesWhatWouldChangeNothing) {
   EXPECT_EQ(free.error(), "Slot 3 is free");
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_FALSE(this->waits());
 }
 
 TEST_F(TemperatureSlots, ForgetAllRefusesATableWithOnlyTheListedSlot) {
@@ -172,6 +271,7 @@ TEST_F(TemperatureSlots, ForgetAllRefusesATableWithOnlyTheListedSlot) {
   EXPECT_EQ(reply.error(), "Nothing to forget: every slot is free or listed in YAML");
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_FALSE(this->waits());
 }
 
 TEST_F(TemperatureSlots, ForgetNeedsOneSlotInRangeOrAll) {
@@ -202,6 +302,7 @@ TEST_F(TemperatureSlots, ForgetNeedsOneSlotInRangeOrAll) {
   }
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_FALSE(this->waits());
 }
 
 TEST_F(TemperatureSlots, ForgetTakesTheConfirmationTheSystemActionsTake) {
@@ -219,12 +320,13 @@ TEST_F(TemperatureSlots, ForgetTakesTheConfirmationTheSystemActionsTake) {
   EXPECT_EQ(cross_site.body, "Cross-origin request refused");
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_FALSE(this->waits());
 }
 
 // --- assigning ---
 
-// A table kept in a file whose partition did not mount: neither write could be kept, so neither
-// answers with a reboot.
+// A table kept in a file whose partition did not mount: neither write could be kept, so both
+// are refused up front.
 TEST_F(TemperatureSlots, WritesAreUnavailableWhenTheTableCannotBeSaved) {
   static dir_storage::DirStorage storage;  // never set up: not mounted
   static config_json::ConfigJsonKeeper keeper;
@@ -255,10 +357,11 @@ TEST_F(TemperatureSlots, WritesAreUnavailableWhenTheTableCannotBeSaved) {
   EXPECT_EQ(this->post(FORGET, R"({"slot":1})").code, 400);
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_FALSE(this->waits());
 }
 
-// The write happens before the answer, so a table that could not be written is an error, not a
-// reboot that would bring the old table back.
+// The write happens before the answer, so a table that could not be written is an error, and
+// nothing waits for a reboot that would bring the old table back.
 TEST_F(TemperatureSlots, AWriteThatFailsIsAnErrorAndTheDeviceKeepsRunning) {
   if (geteuid() == 0)
     GTEST_SKIP() << "root writes into a read-only folder";
@@ -292,8 +395,9 @@ TEST_F(TemperatureSlots, AWriteThatFailsIsAnErrorAndTheDeviceKeepsRunning) {
   EXPECT_EQ(assign.error(), "The slot table was not written");
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
-  EXPECT_EQ(scan.address(0), ROM_A);
-  EXPECT_EQ(scan.address(1), ROM_B);
+  EXPECT_EQ(scan.saved_address(0), ROM_A);
+  EXPECT_EQ(scan.saved_address(1), ROM_B);
+  EXPECT_FALSE(this->waits());
   remove((dir + "/dallas_scan_temps.json").c_str());
   rmdir(dir.c_str());
   rmdir(folder);
@@ -314,40 +418,84 @@ TEST_F(TemperatureSlots, ABusyLoopIsUnavailableForEveryRoute) {
   }
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
-  EXPECT_EQ(scan.address(0), ROM_A);
+  EXPECT_EQ(scan.saved_address(0), ROM_A);
+  EXPECT_FALSE(this->waits());
 }
 
-// The table is written and the reboot half a second away: the table and the sensors disagree
-// until then, so neither a read nor a second write goes through.
-TEST_F(TemperatureSlots, BetweenAWriteAndItsRebootTheSlotsWait) {
-  this->boot({ROM_A, ROM_B});
-  ASSERT_EQ(this->post(FORGET, this->confirmed(R"("slot":1)")).code, 200);
-  Reply list = this->get(SLOTS);
-  Reply forget = this->post(FORGET, this->confirmed(R"("slot":2)"));
-  Reply assign = this->post(ASSIGN, this->confirmed(R"("slot":3,"address":"0x9b01b5566e8a1f28")"));
-  for (Reply *reply : {&list, &forget, &assign}) {
-    EXPECT_EQ(reply->code, 503);
-    EXPECT_EQ(reply->error(), "Rebooting: the slots change with it");
-  }
+// Every change is saved as it comes and the device keeps running; one reboot applies them all.
+TEST_F(TemperatureSlots, SeveralChangesWaitForOneReboot) {
+  this->boot({ROM_A, ROM_B, ROM_C});
+  Reply first = this->post(FORGET, this->confirmed(R"("slot":3)"));
+  ASSERT_EQ(first.code, 200) << first.error();
+  EXPECT_EQ(this->get(SLOTS).code, 200);
+  Reply swap = this->post(ASSIGN, this->confirmed(R"("slot":1,"address":"0x8a0122791699dd28")"));
+  EXPECT_EQ(swap.code, 200) << swap.error();
+  EXPECT_EQ(swap.message(), "Slot 1 assigned; applies after a reboot");
+  Reply ahead = this->post(ASSIGN, this->confirmed(R"("slot":4,"address":"0x9b01b5566e8a1f28")"));
+  EXPECT_EQ(ahead.code, 200) << ahead.error();
+  EXPECT_TRUE(ahead["reboot_required"].as<bool>());
+  this->loop();
+  EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_TRUE(this->waits());
+
+  // "Reboot now" is the system route; the next boot binds all three changes.
+  ASSERT_EQ(this->post(REBOOT, this->confirmation()).code, 200);
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 1);
-  // Only the first write is in the table.
-  TestScan &after = this->boot({ROM_B});
-  EXPECT_EQ(after.address(0), 0u);
-  EXPECT_EQ(after.address(1), ROM_B);
+  TestScan &after = this->boot({ROM_A, ROM_B, ROM_C});
+  EXPECT_EQ(after.address(0), ROM_B);
+  EXPECT_EQ(after.address(1), ROM_A);
   EXPECT_EQ(after.address(2), 0u);
+  EXPECT_EQ(after.address(3), ROM_C);
+  EXPECT_FALSE(this->waits());
 }
 
-TEST_F(TemperatureSlots, AssignSwapsWritesTheTableAnswersAndReboots) {
+// A change that puts the table back as booted leaves nothing for a reboot to do.
+TEST_F(TemperatureSlots, UndoingAChangeLeavesNothingWaiting) {
+  this->boot({ROM_A, ROM_B});
+  ASSERT_EQ(this->post(ASSIGN, this->confirmed(R"("slot":1,"address":"0x8a0122791699dd28")")).code, 200);
+  EXPECT_TRUE(this->waits());
+  Reply back = this->post(ASSIGN, this->confirmed(R"("slot":1,"address":"0xeb01227905460228")"));
+  EXPECT_EQ(back.code, 200) << back.error();
+  EXPECT_EQ(back.message(), "Slot 1 assigned");
+  EXPECT_FALSE(back["reboot_required"].as<bool>());
+  EXPECT_FALSE(this->waits());
+  Reply list = this->get(SLOTS);
+  EXPECT_FALSE(list["reboot_required"].as<bool>());
+  for (JsonObject slot : list["slots"].as<JsonArray>())
+    EXPECT_FALSE(slot["pending"].as<bool>());
+
+  // A forget undone by putting the device back: its answer says nothing waits.
+  ASSERT_EQ(this->post(FORGET, this->confirmed(R"("slot":2)")).code, 200);
+  EXPECT_TRUE(this->waits());
+  Reply restored = this->post(ASSIGN, this->confirmed(R"("slot":2,"address":"0x8a0122791699dd28")"));
+  EXPECT_EQ(restored.message(), "Slot 2 assigned");
+  EXPECT_FALSE(this->waits());
+}
+
+// A forget can be the undo too: of an assign into a slot that was free at boot.
+TEST_F(TemperatureSlots, AForgetThatLeavesTheTableAsBootedSaysNothingWaits) {
+  this->boot({ROM_A});
+  ASSERT_EQ(this->post(ASSIGN, this->confirmed(R"("slot":3,"address":"0x9b01b5566e8a1f28")")).code, 200);
+  EXPECT_TRUE(this->waits());
+  Reply forget = this->post(FORGET, this->confirmed(R"("slot":3)"));
+  EXPECT_EQ(forget.code, 200) << forget.error();
+  EXPECT_EQ(forget.message(), "Slot 3 forgotten");
+  EXPECT_FALSE(forget["reboot_required"].as<bool>());
+  EXPECT_FALSE(this->waits());
+}
+
+TEST_F(TemperatureSlots, AssignSwapsAndWaitsForAReboot) {
   TestScan &scan = this->boot({ROM_A, ROM_B});
   Reply reply = this->post(ASSIGN, this->confirmed(R"("slot":1,"address":"0x8a0122791699dd28")"));
   EXPECT_EQ(reply.code, 200);
   EXPECT_TRUE(reply.success());
-  EXPECT_EQ(reply.message(), "Assigning slot 1, rebooting");
-  EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_EQ(reply.message(), "Slot 1 assigned; applies after a reboot");
+  EXPECT_TRUE(reply["reboot_required"].as<bool>());
   this->loop();
-  EXPECT_EQ(this->dashboard->restarts, 1);
+  EXPECT_EQ(this->dashboard->restarts, 0);
   EXPECT_EQ(scan.restarts, 0);
+  EXPECT_TRUE(this->waits());
   TestScan &after = this->boot({ROM_A, ROM_B});
   EXPECT_EQ(after.address(0), ROM_B);
   EXPECT_EQ(after.address(1), ROM_A);
@@ -358,11 +506,10 @@ TEST_F(TemperatureSlots, AssignTakesANewAddressInEitherCaseWithOrWithoutThePrefi
     // A table without C, for each spelling.
     global_preferences->reset();
     this->boot({ROM_A});
-    const int restarts = this->dashboard->restarts;
     Reply reply = this->post(ASSIGN, this->confirmed(std::string(R"("slot":3,"address":")") + address + "\""));
     EXPECT_EQ(reply.code, 200) << address << ": " << reply.error();
     this->loop();
-    EXPECT_EQ(this->dashboard->restarts, restarts + 1) << address;
+    EXPECT_EQ(this->dashboard->restarts, 0) << address;
     EXPECT_EQ(this->boot({ROM_A}).address(2), ROM_C) << address;
   }
 }
@@ -392,6 +539,7 @@ TEST_F(TemperatureSlots, AssignRefusesWhatIsNotARomAddress) {
   EXPECT_EQ(this->dashboard->jobs, jobs);
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_FALSE(this->waits());
 }
 
 TEST_F(TemperatureSlots, AssignNeedsASlotInRange) {
@@ -403,6 +551,7 @@ TEST_F(TemperatureSlots, AssignNeedsASlotInRange) {
   }
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_FALSE(this->waits());
 }
 
 TEST_F(TemperatureSlots, AssignRefusesWhatWouldChangeNothingOrFightTheYaml) {
@@ -419,6 +568,7 @@ TEST_F(TemperatureSlots, AssignRefusesWhatWouldChangeNothingOrFightTheYaml) {
   EXPECT_EQ(unchanged.error(), "0xeb01227905460228 is in slot 2 already");
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_FALSE(this->waits());
 }
 
 TEST_F(TemperatureSlots, AssignTakesTheConfirmationTheSystemActionsTake) {
@@ -436,6 +586,7 @@ TEST_F(TemperatureSlots, AssignTakesTheConfirmationTheSystemActionsTake) {
   EXPECT_EQ(cross_site.code, 403);
   this->loop();
   EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_FALSE(this->waits());
 }
 
 TEST_F(TemperatureSlots, WithoutAScanAssignIsNotFound) {

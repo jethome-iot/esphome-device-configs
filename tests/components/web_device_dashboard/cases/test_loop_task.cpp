@@ -20,9 +20,9 @@ TEST_F(Dashboard, BothEntitySettingsRoutesGoOverToTheLoopTask) {
   EXPECT_EQ(this->dashboard->jobs, 1) << "the record was serialized on the server task";
 }
 
-// The routes that answer from what the build already fixed: App's entity lists and the form
-// fields a settings type declares. Holding the loop task up for them would be a cost for no
-// reason -- the page polls them.
+// The routes that touch no record: App's entity lists, the form fields a settings type declares,
+// and /status, whose reboot reasons are atomics. Holding the loop task up for them would be a
+// cost for no reason -- the page polls them.
 TEST_F(Dashboard, TheRoutesThatTouchNoRecordStayOnTheServerTask) {
   for (const char *url : {"/api/device/entities", "/api/device/entity-settings-meta", "/api/device/status"}) {
     this->dashboard->jobs = 0;

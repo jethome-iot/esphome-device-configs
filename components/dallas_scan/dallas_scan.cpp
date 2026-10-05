@@ -52,6 +52,7 @@ void DallasScan::set_web_server_sorting(web_server::WebServer *server, uint64_t 
 void DallasScan::setup() {
   this->load_table_();
   this->bind_devices_();
+  this->booted_ = this->slots_;
 
   this->sensors_.assign(this->slots_.size(), nullptr);
   this->missing_.assign(this->slots_.size(), false);
@@ -196,8 +197,8 @@ void DallasScan::write_resolution_(uint64_t address) {
 }
 
 void DallasScan::update() {
-  // Listed sensors read their devices themselves; a rewritten table waits for its reboot.
-  if (this->automatic_ == 0 || this->awaiting_reboot_)
+  // Listed sensors read their devices themselves.
+  if (this->automatic_ == 0)
     return;
   // One conversion for the whole bus; the scratch pads are read one per loop pass.
   if (this->bus_->skip())
@@ -206,8 +207,6 @@ void DallasScan::update() {
 }
 
 void DallasScan::read_slot_(size_t slot) {
-  if (this->awaiting_reboot_)
-    return;
   // Slots served by YAML sensors are theirs to read.
   while (slot < this->slots_.size() && (this->sensors_[slot] == nullptr || this->given_[slot] != nullptr))
     slot++;
@@ -216,7 +215,8 @@ void DallasScan::read_slot_(size_t slot) {
     return;
   }
   auto *sensor = this->sensors_[slot];
-  const uint64_t address = this->slots_[slot];
+  // The boot table, not the saved one: a sensor keeps its device until the reboot.
+  const uint64_t address = this->booted_[slot];
   uint8_t scratch_pad[9];
   // A sensor that stops answering is logged once, not on every read.
   if (!this->read_scratch_pad_(address, scratch_pad)) {
@@ -282,6 +282,15 @@ size_t DallasScan::used_slots() const {
   return used;
 }
 
+size_t DallasScan::saved_slots() const {
+  size_t used = 0;
+  for (size_t slot = 0; slot < this->slots_.size(); slot++) {
+    if (this->slots_[slot] != 0)
+      used = slot + 1;
+  }
+  return used;
+}
+
 std::string DallasScan::slot_name(size_t slot) const {
   if (auto *sensor = this->sensor(slot); sensor != nullptr)
     return sensor->get_name().c_str();
@@ -302,6 +311,13 @@ bool DallasScan::can_forget(int slot) const {
 }
 
 void DallasScan::forget(int slot) {
+  // The dashboard changed this since boot: the panel's Confirm applies what it saved instead of erasing it.
+  const bool saved_already = slot < 0 ? !this->can_forget(slot) && this->reboot_required() : this->slot_pending(slot);
+  if (saved_already && this->can_save()) {
+    ESP_LOGI(TAG, "Rebooting to apply the saved slot table");
+    this->restart_();
+    return;
+  }
   if (this->forget_and_save(slot))
     this->restart_();
 }
@@ -367,16 +383,15 @@ bool DallasScan::assign_and_save(size_t slot, uint64_t address) {
   this->slots_[slot] = address;
   if (!this->store_or_roll_back_(before, "nothing is assigned"))
     return false;
-  ESP_LOGI(TAG, "0x%016" PRIx64 " takes slot %u", address, (unsigned) slot + 1);
+  ESP_LOGI(TAG, "0x%016" PRIx64 " takes slot %u%s", address, (unsigned) slot + 1,
+           this->slot_pending(slot) ? " after a reboot" : "");
   return true;
 }
 
-// A reboot after a failed write would bring the old table back without a word.
+// The next boot would bring the old table back without a word, so memory follows storage.
 bool DallasScan::store_or_roll_back_(const std::vector<uint64_t> &before, const char *outcome) {
-  if (this->store_for_reboot_()) {
-    // The table now describes the next boot, the sensors this one: reading by it would publish
-    // a slot's new device, or none, under its old sensor until the reboot.
-    this->awaiting_reboot_ = true;
+  if (this->store_now_()) {
+    this->reboot_required_.store(this->slots_ != this->booted_);
     return true;
   }
   this->slots_ = before;
@@ -386,8 +401,8 @@ bool DallasScan::store_or_roll_back_(const std::vector<uint64_t> &before, const 
 
 void DallasScan::restart_() { App.safe_reboot(); }
 
-// The reboot comes next, so the table has to be on flash now rather than queued.
-bool DallasScan::store_for_reboot_() {
+// The caller is told the change is saved, so the table has to be on flash now, not queued.
+bool DallasScan::store_now_() {
   if (!this->save_table_())
     return false;
   if (this->uses_file_() || global_preferences->sync())
@@ -458,8 +473,8 @@ void DallasScan::dump_config() {
       ESP_LOGCONFIG(TAG, "  %s: YAML sensor in slot %u", sensor->get_name().c_str(), (unsigned) slot + 1);
       continue;
     }
-    ESP_LOGCONFIG(TAG, "  %s: 0x%016" PRIx64 " (%s)", sensor->get_name().c_str(), this->slots_[slot],
-                  LOG_STR_ARG(this->bus_->get_model_str(this->slots_[slot] & 0xff)));
+    ESP_LOGCONFIG(TAG, "  %s: 0x%016" PRIx64 " (%s)", sensor->get_name().c_str(), this->booted_[slot],
+                  LOG_STR_ARG(this->bus_->get_model_str(this->booted_[slot] & 0xff)));
   }
 }
 

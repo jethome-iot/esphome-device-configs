@@ -1,5 +1,6 @@
 #include "web_device_dashboard.h"
 #include <ArduinoJson.h>
+#include <algorithm>
 #include <cinttypes>
 #include "dashboard_index.h"
 #include "esphome/components/json/json_util.h"
@@ -439,7 +440,7 @@ static void write_ip_address(JsonObject root) {
 }
 
 void WebDeviceDashboard::handle_status_(AsyncWebServerRequest *request) {
-  auto body = json::build_json([](JsonObject root) {
+  auto body = json::build_json([this](JsonObject root) {
 #ifdef USE_API
     root["ha_connected"] = api::global_api_server != nullptr && api::global_api_server->is_connected();
 #endif
@@ -456,7 +457,16 @@ void WebDeviceDashboard::handle_status_(AsyncWebServerRequest *request) {
     if (link.rssi_valid)
       root["rssi"] = link.rssi;
     write_ip_address(root);
-    root["reboot_required"] = false;
+    // A saved change that applies on a restart, named by what saved it. Atomics only: this runs
+    // on the server's task.
+    JsonArray reasons = root["reboot_reasons"].to<JsonArray>();
+#ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
+    if (this->temperature_slots_ != nullptr && this->temperature_slots_->reboot_required())
+      reasons.add("temperature_slots");
+#endif
+    root["reboot_required"] = reasons.size() != 0;
+    if (reasons.size() == 0)
+      root.remove("reboot_reasons");
   });
   request->send(200, "application/json", body.c_str());
 }
@@ -761,14 +771,13 @@ void WebDeviceDashboard::factory_reset_() {
 }
 
 #ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
-// Between a written forget or assign and its reboot the table and the sensors disagree, so the
-// slots are not read or written again until the device is back.
-static const char *const REBOOTING = "Rebooting: the slots change with it";
+// A string: a 64-bit ROM does not survive a JavaScript number.
+static std::string rom_text(uint64_t rom) { return str_sprintf("0x%016" PRIx64, rom); }
 
-// GET /api/device/temperature-slots: the dallas_scan slots up to the last bound one, numbered
-// from 1 as the sensor names and the log number them. A freed slot between bound ones keeps its
-// row, as it does in the panel's Temperatures menu. Read on the loop task, where a forget or an
-// assign that cannot write the table puts it back.
+// GET /api/device/temperature-slots: the dallas_scan slots up to the last one bound at boot or
+// in the saved table, numbered from 1 as the sensor names and the log number them. A freed slot
+// between bound ones keeps its row, as it does in the panel's Temperatures menu. Read on the
+// loop task, where a forget or an assign that cannot write the table puts it back.
 void WebDeviceDashboard::handle_temperature_slots_(AsyncWebServerRequest *request) {
   auto *scan = this->temperature_slots_;
   if (scan == nullptr) {
@@ -776,44 +785,61 @@ void WebDeviceDashboard::handle_temperature_slots_(AsyncWebServerRequest *reques
     return;
   }
   std::string body;
-  bool rebooting = false;
   const bool read = this->run_on_loop_([&]() {
-    rebooting = scan->awaiting_reboot();
-    if (rebooting)
-      return false;
     body = this->temperature_slots_json_(scan);
     return true;
   });
   if (!read) {
-    this->send_error_(request, 503, rebooting ? REBOOTING : "Device busy");
+    this->send_error_(request, 503, "Device busy");
     return;
   }
   request->send(200, "application/json", body.c_str());
 }
 
+// What a forget or an assign edits is the saved table, so that is what a row describes; `name`
+// and `running_address` are what this boot's sensor is until the reboot.
 std::string WebDeviceDashboard::temperature_slots_json_(dallas_scan::DallasScan *scan) {
   return json::build_json([scan](JsonObject root) {
     root["max_slots"] = scan->max_sensors();
+    root["reboot_required"] = scan->reboot_required();
     JsonArray slots = root["slots"].to<JsonArray>();
-    for (size_t slot = 0; slot < scan->used_slots(); slot++) {
+    const bool writable = scan->can_save();
+    const size_t rows = std::max(scan->used_slots(), scan->saved_slots());
+    for (size_t slot = 0; slot < rows; slot++) {
       JsonObject entry = slots.add<JsonObject>();
       entry["slot"] = slot + 1;
       entry["name"] = scan->slot_name(slot);
-      entry["free"] = scan->sensor(slot) == nullptr;
+      const uint64_t saved = scan->saved_address(slot);
+      entry["free"] = saved == 0 && !scan->pinned(slot);
       entry["listed"] = scan->pinned(slot);
-      // A string: a 64-bit ROM does not survive a JavaScript number.
-      if (const uint64_t rom = scan->address(slot); rom != 0)
-        entry["address"] = str_sprintf("0x%016" PRIx64, rom);
-      entry["can_forget"] = scan->can_save() && scan->can_forget(slot);
+      if (saved != 0)
+        entry["address"] = rom_text(saved);
+      entry["can_forget"] = writable && scan->can_forget(slot);
+      const bool pending = scan->slot_pending(slot);
+      entry["pending"] = pending;
+      if (const uint64_t running = scan->address(slot); pending && running != 0)
+        entry["running_address"] = rom_text(running);
     }
   });
 }
 
+// What a forget or an assign answers once the saved table is written: whether it now waits for a
+// reboot, read on the loop task right after the write, so a /status poll after it agrees.
+void WebDeviceDashboard::send_slot_change_(AsyncWebServerRequest *request, std::string message, bool reboot_required) {
+  if (reboot_required)
+    message += "; applies after a reboot";
+  auto body = json::build_json([&message, reboot_required](JsonObject root) {
+    root["success"] = true;
+    root["message"] = message;
+    root["reboot_required"] = reboot_required;
+  });
+  request->send(200, "application/json", body.c_str());
+}
+
 // POST /api/device/temperature-slots/forget: {"slot": N} or {"all": true}, confirmed as the
-// system actions are. What would change nothing is refused before anything happens, rather than
-// answered with a reboot that leaves the table as it was. The check and the write go over to the
-// loop task together, where the panel's Confirm runs too, and the answer says what they did:
-// only the reboot comes after it.
+// system actions are. What would change nothing is refused before anything happens. The check
+// and the write go over to the loop task together, where the panel's Confirm runs too, and the
+// answer says what they did.
 void WebDeviceDashboard::handle_temperature_slots_forget_(AsyncWebServerRequest *request) {
   auto *scan = this->temperature_slots_;
   if (scan == nullptr) {
@@ -852,17 +878,14 @@ void WebDeviceDashboard::handle_temperature_slots_forget_(AsyncWebServerRequest 
   }
   int code = 0;
   std::string why;
+  bool waits = false;
   const bool stored = this->run_on_loop_([&]() {
-    if (scan->awaiting_reboot()) {
-      code = 503;
-      why = REBOOTING;
-      return false;
-    }
     if (!scan->can_forget(slot)) {
       code = 409;
-      why = all                  ? std::string("Nothing to forget: every slot is free or listed in YAML")
-            : scan->pinned(slot) ? str_sprintf("Slot %d belongs to a sensor listed in YAML", slot + 1)
-                                 : str_sprintf("Slot %d is free", slot + 1);
+      why = all                        ? std::string("Nothing to forget: every slot is free or listed in YAML")
+            : scan->pinned(slot)       ? str_sprintf("Slot %d belongs to a sensor listed in YAML", slot + 1)
+            : scan->slot_pending(slot) ? str_sprintf("Slot %d is free after a reboot", slot + 1)
+                                       : str_sprintf("Slot %d is free", slot + 1);
       return false;
     }
     if (!scan->forget_and_save(slot)) {
@@ -870,6 +893,7 @@ void WebDeviceDashboard::handle_temperature_slots_forget_(AsyncWebServerRequest 
       why = "The slot table was not written";
       return false;
     }
+    waits = scan->reboot_required();
     return true;
   });
   if (!stored) {
@@ -879,12 +903,11 @@ void WebDeviceDashboard::handle_temperature_slots_forget_(AsyncWebServerRequest 
   }
   if (all) {
     ESP_LOGW(TAG, "Forgot every temperature slot over the API");
-    this->send_success_(request, "Forgetting every slot, rebooting");
+    this->send_slot_change_(request, "Every slot forgotten", waits);
   } else {
     ESP_LOGW(TAG, "Forgot temperature slot %d over the API", slot + 1);
-    this->send_success_(request, str_sprintf("Forgetting slot %d, rebooting", slot + 1).c_str());
+    this->send_slot_change_(request, str_sprintf("Slot %d forgotten", slot + 1), waits);
   }
-  this->reboot_();
 }
 
 // "0x" (or nothing) and 16 hex digits, the way /temperature-slots and the panel print a ROM.
@@ -907,7 +930,7 @@ static bool parse_rom(const std::string &text, uint64_t &rom) {
 // system actions are. The device goes into slot N: a device already in another slot swaps with
 // what slot N held, a new one takes slot N from its device. What dallas_scan would refuse is
 // refused with the reason; the check and the write go over to the loop task together, as for a
-// forget, and only the reboot comes after the answer.
+// forget.
 void WebDeviceDashboard::handle_temperature_slots_assign_(AsyncWebServerRequest *request) {
   auto *scan = this->temperature_slots_;
   if (scan == nullptr) {
@@ -928,7 +951,7 @@ void WebDeviceDashboard::handle_temperature_slots_assign_(AsyncWebServerRequest 
     this->send_error_(request, 400, "'address' must be 16 hex digits, after an optional 0x");
     return;
   }
-  const std::string hex = str_sprintf("0x%016" PRIx64, rom);
+  const std::string hex = rom_text(rom);
   // About the address alone, so it does not wait for the loop task.
   if (!dallas_scan::DallasScan::valid_address(rom)) {
     this->send_error_(request, 400, (hex + " is not a thermometer ROM: wrong family or CRC").c_str());
@@ -936,12 +959,8 @@ void WebDeviceDashboard::handle_temperature_slots_assign_(AsyncWebServerRequest 
   }
   int code = 0;
   std::string why;
+  bool waits = false;
   const bool stored = this->run_on_loop_([&]() {
-    if (scan->awaiting_reboot()) {
-      code = 503;
-      why = REBOOTING;
-      return false;
-    }
     switch (scan->check_assign(slot, rom)) {
       case dallas_scan::AssignCheck::OK:
         break;
@@ -968,6 +987,7 @@ void WebDeviceDashboard::handle_temperature_slots_assign_(AsyncWebServerRequest 
       why = "The slot table was not written";
       return false;
     }
+    waits = scan->reboot_required();
     return true;
   });
   if (!stored) {
@@ -976,12 +996,11 @@ void WebDeviceDashboard::handle_temperature_slots_assign_(AsyncWebServerRequest 
     return;
   }
   ESP_LOGW(TAG, "Assigned %s to temperature slot %u over the API", hex.c_str(), (unsigned) slot + 1);
-  this->send_success_(request, str_sprintf("Assigning slot %u, rebooting", (unsigned) slot + 1).c_str());
-  this->reboot_();
+  this->send_slot_change_(request, str_sprintf("Slot %u assigned", (unsigned) slot + 1), waits);
 }
 
-// A file table whose partition did not mount: forget() and assign() would change nothing, so the
-// request is refused rather than answered with a reboot that leaves the table as it was.
+// A file table whose partition did not mount: a forget or an assign would change nothing, so the
+// request is refused up front.
 bool WebDeviceDashboard::check_slots_writable_(AsyncWebServerRequest *request, dallas_scan::DallasScan *scan) {
   if (scan->can_save())
     return true;

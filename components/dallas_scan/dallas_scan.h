@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <string>
 #include <utility>
 #include <vector>
@@ -77,8 +78,8 @@ class DallasScan : public PollingComponent {
   void dump_config() override;
 
   size_t max_sensors() const { return this->slots_.size(); }
-  /// ROM address in a slot, 0 when the slot is empty.
-  uint64_t address(size_t slot) const { return slot < this->slots_.size() ? this->slots_[slot] : 0; }
+  /// The ROM this boot's sensor in the slot reads, 0 when the slot had none at boot.
+  uint64_t address(size_t slot) const { return slot < this->booted_.size() ? this->booted_[slot] : 0; }
   /// The slot's sensor, nullptr when the slot is empty.
   sensor::Sensor *sensor(size_t slot) const { return slot < this->sensors_.size() ? this->sensors_[slot] : nullptr; }
   /// The slot's last reading, NAN when the slot is empty or the sensor did not answer.
@@ -89,18 +90,27 @@ class DallasScan : public PollingComponent {
   size_t used_slots() const;
   /// The slot's sensor name, "<prefix> N" when the slot is empty.
   std::string slot_name(size_t slot) const;
+  /// The ROM the saved table holds in the slot, the one the next boot binds; 0 when empty.
+  uint64_t saved_address(size_t slot) const { return slot < this->slots_.size() ? this->slots_[slot] : 0; }
+  /// Slots up to the last one holding a device in the saved table.
+  size_t saved_slots() const;
+  /// The saved table differs from boot in this slot: a reboot changes what it reads.
+  bool slot_pending(size_t slot) const { return this->saved_address(slot) != this->address(slot); }
   /// Taken by a sensor from sensors:, so forget leaves it alone.
   bool pinned(size_t slot) const { return slot < this->pinned_.size() && this->pinned_[slot]; }
-  /// Whether forget(slot) would empty anything: the slot (any slot for -1) holds a device
-  /// and is not listed.
+  /// Whether forget(slot) would empty anything: the slot (any slot for -1) holds a device in
+  /// the saved table and is not listed.
   bool can_forget(int slot) const;
   /// False when the table cannot be written (a file whose partition did not mount): forget()
   /// and assign() then change nothing.
   bool can_save() const;
   /// Empty a slot (every slot for -1), then reboot to scan the bus again. Listed slots stay.
+  /// A slot changed since boot (for -1: nothing left to forget while a change waits) only
+  /// reboots, so the saved table applies as it is.
   void forget(int slot);
-  /// forget() without the reboot, which the caller then owes the scan: false, with the table as
-  /// it was, when nothing would change or the table could not be written.
+  /// forget() without the reboot: the saved table changes, the sensors keep their boot devices
+  /// until a reboot. False, with the table as it was, when nothing would change or the table
+  /// could not be written.
   bool forget_and_save(int slot);
   /// A ROM a slot can hold: a thermometer family, and the CRC the bus scan checks.
   static bool valid_address(uint64_t address);
@@ -111,9 +121,8 @@ class DallasScan : public PollingComponent {
   void assign(size_t slot, uint64_t address);
   /// assign() without the reboot, as forget_and_save() is to forget().
   bool assign_and_save(size_t slot, uint64_t address);
-  /// A forget or an assign wrote the table and its reboot has not come yet: the table describes
-  /// the next boot, the sensors this one, and the bus is not read.
-  bool awaiting_reboot() const { return this->awaiting_reboot_; }
+  /// The saved table differs from the one this boot bound: a reboot applies it. Any task.
+  bool reboot_required() const { return this->reboot_required_.load(); }
 
  protected:
   /// Virtual so the host tests can see the reboot: the real one ends the process.
@@ -128,7 +137,7 @@ class DallasScan : public PollingComponent {
   float to_celsius_(uint64_t address, const uint8_t *scratch_pad) const;
   bool uses_file_() const;
   bool save_table_();
-  bool store_for_reboot_();
+  bool store_now_();
   bool store_or_roll_back_(const std::vector<uint64_t> &before, const char *outcome);
 
   one_wire::OneWireBus *bus_{nullptr};
@@ -138,7 +147,7 @@ class DallasScan : public PollingComponent {
   uint32_t entity_fields_{0};
   uint32_t preference_hash_{0};
   std::vector<std::pair<size_t, uint64_t>> pins_;
-  std::vector<uint64_t> slots_;  // slot -> ROM address, 0 = empty
+  std::vector<uint64_t> slots_;  // slot -> ROM address, 0 = empty; the saved table, which edits change
   std::vector<bool> pinned_;     // slot -> taken by sensors:
 #ifdef USE_SENSOR_FILTER
   std::vector<std::vector<sensor::Filter *>> filters_;  // slot -> filter chain
@@ -147,9 +156,10 @@ class DallasScan : public PollingComponent {
   std::vector<sensor::Sensor *> sensors_;  // slot -> sensor, nullptr = empty
   std::vector<sensor::Sensor *> bound_;    // sensors_ without the gaps
   size_t automatic_{0};                    // slots the component reads itself
-  bool awaiting_reboot_{false};            // the table was rewritten: no reads until the reboot
   std::vector<bool> missing_;              // slot -> the sensor did not answer the last read
   ESPPreferenceObject pref_;
+  std::vector<uint64_t> booted_;              // slots_ as this boot bound it: the sensors read by it
+  std::atomic<bool> reboot_required_{false};  // slots_ != booted_, for readers off the loop task
 #ifdef USE_DALLAS_SCAN_FILE
   config_json::ConfigJsonKeeper *keeper_{nullptr};
   SlotFile *file_{nullptr};      // nullptr: the table is in preferences

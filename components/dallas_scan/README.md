@@ -104,7 +104,10 @@ and switching back finds the table that storage held last.
 in it, or a new one, takes the lowest free slot again. `forget(-1)` clears every slot, so the
 devices are numbered again in bus order. Listed slots are skipped, and nothing happens at all
 when no slot changes, or when the table cannot be written; `can_forget(slot)` says beforehand
-whether a slot would change, `can_save()` whether the table can be written.
+whether a slot would change, `can_save()` whether the table can be written. While a change
+waits for a reboot (below), `forget(slot)` on a slot changed since boot, and `forget(-1)` with
+nothing left to forget, only reboot when the table can be written: the saved table applies as
+it is.
 `global_preferences->reset()` clears a table in preferences; a file goes with its partition.
 
 ## Assigning
@@ -118,29 +121,42 @@ listed sensor's address, an address that is not a thermometer ROM with a valid C
 device already in that slot change nothing; `check_assign(slot, address)` says which, first.
 Like a forget, an assign that cannot write the table changes nothing.
 
-[`web_device_dashboard`](../web_device_dashboard/README.md) with `dallas_scan_id:` lists the
-slots, forgets and assigns them over HTTP, numbered from 1; its page does the same under
-**Settings → Temperature**.
+`forget_and_save()` and `assign_and_save()` change the saved table without the reboot. The
+sensors keep reading the devices they booted with until the next boot binds the saved table, so
+several changes add up and one reboot applies them all; a change that puts the table back as
+booted leaves nothing waiting. [`web_device_dashboard`](../web_device_dashboard/README.md) with
+`dallas_scan_id:` lists the slots, forgets and assigns them over HTTP this way, numbered from 1;
+its page does the same under **Settings → Temperature**.
 
 ## From lambdas
 
 Slots are 0-based here.
 
+What this boot runs, fixed until the reboot:
+
+- `max_sensors()`
+- `pinned(slot)`: taken by `sensors:`, so it has no forget entry in a menu
 - `sensors()`: the bound slots' sensors, in slot order
 - `used_slots()`: slots up to the last bound one, free slots between them included, so a
   freed slot keeps its row
 - `slot_name(slot)`: the sensor's name, `<prefix> N` for an empty slot
 - `sensor(slot)`, `temperature(slot)`, `address(slot)`: `nullptr`, `NaN` and `0` when the slot
-  is empty; the address is `0` for a listed sensor that is not a 1-Wire device
-- `pinned(slot)`: taken by `sensors:`, so it has no forget entry in a menu
-- `max_sensors()`
+  is empty; the address is the ROM the sensor reads, `0` for a listed sensor that is not a
+  1-Wire device
+
+The saved table, the one the next boot binds:
+
+- `saved_address(slot)`: the ROM it holds in the slot, `0` when empty
+- `saved_slots()`: slots up to the last one holding a device
+- `slot_pending(slot)`: the slot differs from boot
+- `reboot_required()`: some slot does; safe to call from any task
 - `can_forget(slot)`: the slot, or any slot for `-1`, holds a device and is not listed
-- `can_save()`: the table can be written; false for a file whose partition did not mount
-- `forget(slot)`, `-1` for every slot
-- `forget_and_save(slot)`, `assign_and_save(slot, rom)`: the same without the reboot, which
-  the caller then owes, and the bus is not read until it comes; false, with the table
-  unchanged, when nothing would change or the table could not be written
-- `awaiting_reboot()`: one of those wrote the table and the reboot has not come yet; the bus
-  is not read until it does
+- `check_assign(slot, rom)`: what an assign would do, checked against it
 - `valid_address(rom)`: a thermometer family and a valid CRC, the ROMs a slot can hold
-- `check_assign(slot, rom)`, `assign(slot, rom)`
+- `can_save()`: the table can be written; false for a file whose partition did not mount
+
+Changing it:
+
+- `forget(slot)`, `-1` for every slot, and `assign(slot, rom)`: save and reboot
+- `forget_and_save(slot)`, `assign_and_save(slot, rom)`: save without the reboot; false, with
+  the table unchanged, when nothing would change or the table could not be written
