@@ -86,7 +86,9 @@ refusals come in this order, and the first one a document meets is the answer:
    a name whose every id is taken by a file in the folder;
 4. for an enabled thermostat, `400` when its sensor does not report °C
    (`"Uptime" reports s, not °C`), then `409` when a running thermostat holds its relay:
-   `"Relay 1" is already driven by "Living Room"`;
+   `"Relay 1" is already driven by "Living Room"`, and then when another enabled thermostat that
+   waits names it: `"Relay 1" is reserved by "Attic", which is enabled and waits to start`. A
+   relay the thermostat holds already is never refused;
 5. `413` when the file the document makes would be over 8 KiB, a guard no document within the
    rules reaches.
 
@@ -104,16 +106,25 @@ there. The same `warning` comes, as `not started: no free climate entity`, if no
 is free. Until it starts or is stopped, `list` and `status` show it enabled, not running and with
 no fault, with the same words in `waiting`. One the boot left waiting shows there too, and the
 boot has two reasons more: a sensor not in °C (`not started: sensor 'uptime' reports s, not °C`)
-and a relay another thermostat holds (`not started: relay 'relay_1' is held by 'living-room'`).
+and a relay another thermostat holds (`not started: relay 'relay_1' is held by 'living-room'`),
+which only files written by hand or a restore bring about.
+
+One that waits for a relay starts as soon as the relay is free, the first by id when several
+wait for it, and one that still cannot start gets the reason it has now. The answer to the
+`enable`, `delete` or `save` that freed the relay names who started, before any `warning` of
+its own: `Thermostat disabled; "Winter" started`.
 
 `enable` starts a thermostat as a Save of it would: `400` when its sensor does not report °C,
-then `409` when a running thermostat holds its relay, and one whose sensor or a relay is not on
-the device is stored enabled and waits, with the same `warning` beside `persisted`, whether it
-was stored enabled before or not. With `take_over=true` the thermostat holding the relay is
-stopped and stored as disabled first, in the same step, and the answer names it:
-`Thermostat enabled; "Living Room" stopped`. A take-over by one whose sensor or a relay is not
-on the device is `400` instead (`No sensor "attic" on this device`), and the holder runs on.
-With no running thermostat on its relays, `take_over=true` changes nothing.
+then `409` when a running thermostat holds its relay or an enabled one that waits names it, and
+one whose sensor or a relay is not on the device is stored enabled and waits, with the same
+`warning` beside `persisted`, whether it was stored enabled before or not. With
+`take_over=true` each of those is stored as disabled first, the running one stopped, in the
+same step, and the answer names them, the running one first:
+`Thermostat enabled; "Living Room" and "Attic" stopped`. A relay the stopped one drove alone is
+then free for whoever waits for it, after this one has started. A take-over by one whose sensor
+or a relay is not on the device is `400` instead (`No sensor "attic" on this device`), and
+nothing changes. With no other enabled thermostat on its relays, `take_over=true` changes
+nothing.
 
 An `id` is the thermostat's slug (`a-z`, `0-9`, single dashes, at most 48): a missing one is
 `Missing id parameter`, anything else `Invalid id parameter`. `value` and `take_over` of
@@ -123,8 +134,8 @@ to a space.
 
 Every failure is `{"success": false, "error"}`, with the sentence an editor shows: `400` for a
 bad request, `404` for an unknown `id` or path, `405` for a `GET` or `POST` the route does not
-take, `409` for a name or a relay in use, `413` for an oversized body or file, `500` when
-nothing could be written, `503` when the loop was busy and `507` at `max_controllers`. A `500`
+take, `409` for a name or a relay in use or reserved, `413` for an oversized body or file, `500`
+when nothing could be written, `503` when the loop was busy and `507` at `max_controllers`. A `500`
 changed nothing: `The thermostat's file could not be written`, or
 `Thermostat storage is not available` when the storage was not usable at boot — then every write
 gets it, a save before its body is even read. The same contract, machine-readable:

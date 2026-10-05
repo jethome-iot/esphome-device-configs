@@ -97,10 +97,11 @@ Every number is clamped into its range, and a missing one takes its default: the
 defaults are the table in `param_table.cpp`. A document built in C++ and handed to `create()` or
 `update()` is clamped the same way. A document that breaks a rule above is refused
 whole with a sentence that says which. A thermostat that is to run is created, saved or enabled
-only when its sensor, if it is on the device, reports °C, and no running thermostat holds its
-relays. One whose sensor or a relay is not on the device is saved or enabled all the same, and
-waits as it would at boot, with a `warning` that names what is missing. A disabled one may name
-what is not there yet.
+only when its sensor, if it is on the device, reports °C, and no other enabled thermostat names
+its relays: neither a running one, which holds them, nor one that waits, which reserves them. A
+relay it holds already is never refused. One whose sensor or a relay is not on the device is
+saved or enabled all the same, and waits as it would at boot, with a `warning` that names what
+is missing. A disabled one may name what is not there yet.
 
 ## Control
 
@@ -139,13 +140,19 @@ what is not there yet.
 
 A running thermostat holds its relays, and puts one back within a loop pass if anything else
 moves it — from the panel, over Modbus, from an automation or from Home Assistant. Two
-thermostats may name the same relay and take turns: only one of them can run at a time.
-Starting the second while the first runs is refused, naming the one that holds it, unless it
-takes the relay over, which stops the holder. A take-over by one whose sensor or a relay is not
-on the device is refused, and the holder runs on. Stopping a thermostat opens its relays; one
-that waits holds none and moves none. A Save that keeps a relay leaves it where it is, and so
-does a take-over: a relay both thermostats drive changes hands as it is, and the holder's other
-relays open.
+thermostats may name the same relay and take turns: only one of them is enabled at a time.
+Enabling the second, or saving it enabled, while the first is enabled is refused, naming the
+first, whether it runs or waits; unless it takes the relay over, which stores the first disabled
+and stops it if it runs. A take-over by one whose sensor or a relay is not on the device is
+refused, and nothing changes. Stopping a thermostat opens its relays; one that waits holds none
+and moves none. A Save that keeps a relay leaves it where it is, and so does a take-over: a
+relay both thermostats drive changes hands as it is, and the holder's other relays open.
+
+Two enabled thermostats on one relay come only from files written by hand or a restore. The
+boot runs the first by id and the other waits for the relay. It starts as soon as the relay is
+free: when the holder is disabled or removed, saved onto other relays or onto a sensor that is
+not there, or stopped by a take-over that does not want this relay. Of several waiting for it,
+the first by id starts, and the next one's reason names that one.
 
 ## Names and Home Assistant
 
@@ -184,8 +191,9 @@ The folder is writable by hand, so what it holds is checked at boot:
 - an enabled thermostat whose sensor or relay is missing, whose sensor does not report °C, or
   whose relay another one holds, stays enabled and does not run; `waiting_reason()` says which.
 
-A thermostat that waits is not started when what it names turns up later, only by the next boot
-that finds it, or by a Save or an enable once it is there.
+One that waits for a relay another thermostat holds starts when the relay is free (see
+[Relays](#relays)). A sensor or a relay never turns up while the device runs, so one that waits
+for it starts at the next boot that finds it, or at a Save or an enable once it is there.
 
 A removal the partition refuses empties the file instead: the next boot refuses an empty file,
 so the thermostat does not come back. When the file cannot be emptied either, the thermostat is
@@ -203,17 +211,20 @@ got to it.
 - `is_running(id)`, `runtime(id)`: the running thermostat's action, fault, duties, PID terms and
   sample age, `nullptr` when it is not running
 - `waiting_reason(id)`: why an enabled thermostat does not run, the sentence its last failed
-  start gave as a `warning`, at boot, a Save or an enable (`not started: sensor 'temp_3' not
-  found`, `not started: no free climate entity`); `""` once it runs or is disabled
+  start gave as a `warning`, at boot, a Save, an enable or when a relay it names came free
+  (`not started: sensor 'temp_3' not found`, `not started: no free climate entity`); `""` once
+  it runs or is disabled
 - `claimed_by(relay_object_id)`: the id of the running thermostat holding it, or `""`
 - `sensor_reading(sensor_object_id)`: what a sensor reads now, `NaN` without a finite reading
   in °C
 - `create(draft)`, `update(id, doc)`, `remove(id)`, `set_enabled(id, enabled, take_over)`,
   `set_setpoint(id, value)`: each returns a `Result` — `ok`, the HTTP `code` that fits (400,
   404, 409, 413 for a file that would be over 8 KiB, 500, 507), an `error` sentence (the one
-  the editor shows), the new `id`, the `holder` of a relay, a `warning` when the thermostat was
-  saved enabled but does not run (its sensor or a relay is not on the device, or no climate
-  entity was free), and `persisted`, false when the change is live but did not reach flash
+  the editor shows), the new `id`, the `holder` of a relay (running, or enabled and waiting), a
+  `warning` when the thermostat was saved enabled but does not run (its sensor or a relay is not
+  on the device, or no climate entity was free), `persisted`, false when the change is live but
+  did not reach flash, the ids a take-over `stopped`, and the ids of the waiting thermostats
+  that `started` on a relay the change freed
 - `validate_name(name, &error)`, `is_name_taken(name, exclude_id, &error)`
 
 ## Testing
