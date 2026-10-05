@@ -71,10 +71,10 @@ numbered again in bus order. Factory reset clears them too.
 The web dashboard does the same without the panel, which is the only way on a device without
 a display: **Settings → Temperature** lists the slots with their readings and ROM addresses,
 and **Forget** on a slot or **Forget All**, clicked twice, clears them. The dashboard does not
-reboot: the change is saved, the sensors keep reading as before, and a banner offers
-**Reboot now** until the device restarts. Several changes add up and one reboot applies them
-all; putting a slot back as it was clears the banner. The panel's Confirm on a slot the
-dashboard changed reboots into what the dashboard saved. Scripts can use its routes, in
+reboot: the sensors keep reading as before, and a banner offers **Reboot now** until the
+restart, or until every change is undone. Several changes add up and one reboot applies them
+all. The panel's Confirm on a slot the dashboard changed reboots into what it saved. Scripts
+can use its routes, in
 [components/web_device_dashboard](../components/web_device_dashboard/README.md).
 
 ## Moving and assigning

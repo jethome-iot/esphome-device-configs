@@ -152,11 +152,11 @@ The saved table, the one the next boot binds:
 - `reboot_required()`: some slot does; safe to call from any task
 - `can_forget(slot)`: the slot, or any slot for `-1`, holds a device and is not listed
 - `check_assign(slot, rom)`: what an assign would do, checked against it
+- `valid_address(rom)`: a thermometer family and a valid CRC, the ROMs a slot can hold
+- `can_save()`: the table can be written; false for a file whose partition did not mount
 
 Changing it:
 
-- `can_save()`: the table can be written; false for a file whose partition did not mount
 - `forget(slot)`, `-1` for every slot, and `assign(slot, rom)`: save and reboot
 - `forget_and_save(slot)`, `assign_and_save(slot, rom)`: save without the reboot; false, with
   the table unchanged, when nothing would change or the table could not be written
-- `valid_address(rom)`: a thermometer family and a valid CRC, the ROMs a slot can hold
