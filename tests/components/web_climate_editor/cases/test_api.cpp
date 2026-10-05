@@ -245,7 +245,8 @@ TEST_F(Editor, SaveStopsAtTheLimitBeforeItLooksAtTheName) {
 // Files the hub left alone keep their ids; when they hold every id a name gives, the create is
 // a 409 that says so, and none of them is written over.
 TEST_F(Editor, SaveRefusesANameWhoseIdsAreAllTakenByFiles) {
-  for (unsigned n = 1; n <= 1000; n++) {
+  // Every id a create tries: climate_hub.cpp's MAX_ID_SUFFIX.
+  for (unsigned n = 1; n <= 999; n++) {
     std::ofstream(this->folder() + "/" + climate_hub::id_with_suffix("living-room", n) + ".json") << "left alone";
   }
   Reply reply = this->post("save", LIVING_ROOM);
@@ -253,7 +254,8 @@ TEST_F(Editor, SaveRefusesANameWhoseIdsAreAllTakenByFiles) {
   EXPECT_EQ(reply.error(),
             "Every id made from \"Living Room\" is taken by a file in the thermostat folder; choose another name");
   EXPECT_EQ(hub().store().size(), 0u);
-  EXPECT_EQ(this->file("living-room-1000.json"), "left alone");
+  EXPECT_EQ(this->file("living-room.json"), "left alone");
+  EXPECT_EQ(this->file("living-room-999.json"), "left alone");
 }
 
 // A sensor or relay the device does not have is no refusal: the thermostat is stored enabled
