@@ -72,8 +72,9 @@ arms again when the value goes back. `above` and `below` are strict, a range inc
 for triggers and conditions alike. `follow` drives its target from the state the trigger
 carried. A `switch` action on a relay a running thermostat drives (a
 [`switch_hold`](../switch_hold/switch_hold.h) holder) does nothing but log the rule and the
-thermostat, and the run goes on. `cron` is six fields, seconds first — `"*/2 * * * * *"`, `"0 30 6,18 1 * *"` — with
-`*`, `*/N`, `X-Y`, `X-Y/N` and lists; a field that matches nothing is rejected.
+thermostat, and the run goes on. `cron` is six fields, seconds first — `"*/2 * * * * *"`,
+`"0 30 6,18 1 * *"` — with `*`, `*/N`, `X-Y`, `X-Y/N` and lists; a field that matches nothing
+is rejected.
 
 A jump of the `time_id` clock back by more than 15 minutes is not handled: the moments it
 passes again fire a second time.

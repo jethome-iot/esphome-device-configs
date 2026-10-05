@@ -142,8 +142,8 @@ hub is the firmware's [`switch_hold`](../switch_hold/switch_hold.h) holder: what
 before moving a relay — the panel, the Modbus coils, automation rules, input bindings, the
 relay's Inverted setting — leaves a held one alone, and is told when a stop, a removal or a
 Save that drops a relay leaves it free. What moves a held relay all the same, Home Assistant or
-the web server's REST, is put back within a loop pass. Two thermostats may name the same relay and take turns: only one of them can run at
-a time.
+the web server's REST, is put back within a loop pass. Two thermostats may name the same relay
+and take turns: only one of them can run at a time.
 Starting the second while the first runs is refused, naming the one that holds it, unless it
 takes the relay over, which stops the holder. A take-over by one whose sensor or a relay is not
 on the device is refused, and the holder runs on. Stopping a thermostat opens its relays; one
