@@ -42,6 +42,24 @@ JsonDocument load_contract() {
   return doc;
 }
 
+// The keys this runner reads; a case's and a step's are the dashboard runner's too. Anything
+// else, a typo too, would pass having checked nothing.
+const std::set<std::string> TOP_KEYS{"$comment", "environment", "fixtures", "cases"};
+const std::set<std::string> STEP_KEYS{"method", "path",         "body",    "pad_to", "status",
+                                      "error",  "error_prefix", "headers", "expect", "absent"};
+const std::set<std::string> CASE_KEYS = [] {
+  std::set<std::string> keys = STEP_KEYS;
+  keys.insert({"name", "setup", "device_only", "then"});
+  return keys;
+}();
+
+void refuse_unknown_keys(JsonObjectConst object, const std::set<std::string> &known, const std::string &where) {
+  for (JsonPairConst member : object) {
+    if (!known.contains(member.key().c_str()))
+      ADD_FAILURE() << where << ": \"" << member.key().c_str() << "\" is a key this runner does not check";
+  }
+}
+
 std::string text_of(JsonVariantConst value) {
   std::string out;
   serializeJson(value, out);
@@ -293,6 +311,18 @@ TEST_F(Contract, TheContractCoversEveryRefusalAndEveryRoute) {
   for (const char *route :
        {"list", "get", "status", "entities", "schema", "ping", "save", "delete", "enable", "setpoint"})
     EXPECT_EQ(answered.count(route), 1u) << route;
+}
+
+TEST_F(Contract, EveryKeyIsOneTheRunnersRead) {
+  JsonDocument contract = load_contract();
+  refuse_unknown_keys(contract.as<JsonObjectConst>(), TOP_KEYS, "the file");
+  for (JsonObjectConst c : contract["cases"].as<JsonArrayConst>()) {
+    const std::string name = c["name"] | "a case with no name";
+    refuse_unknown_keys(c, CASE_KEYS, name);
+    int index = 0;
+    for (JsonObjectConst then : c["then"].as<JsonArrayConst>())
+      refuse_unknown_keys(then, STEP_KEYS, name + ", then #" + std::to_string(++index));
+  }
 }
 
 TEST_F(Contract, EveryContractCaseGetsItsAnswer) {
