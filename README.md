@@ -314,7 +314,7 @@ The device can act as a Modbus RTU server (slave) for integration with PLCs, SCA
 - **Other registers**: a courtesy response answers `0` instead of an exception
 
 Address, baud rate, parity and stop bits are set in **Settings → Modbus** or through the
-`Modbus …` entities in Home Assistant, and take effect after a reboot.
+`Modbus …` entities in Home Assistant, and take effect at once.
 
 `modbus_server` keeps coils and discrete inputs in one bit address space (hence
 the offsets) and holding and input registers in one table (hence FC 0x03/0x04 alike).

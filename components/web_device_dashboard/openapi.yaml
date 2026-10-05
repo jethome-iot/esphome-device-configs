@@ -1235,8 +1235,7 @@ components:
           type: boolean
           description: >-
             A saved change waits for a restart; `reboot_reasons` names it.
-            `/system/reboot` applies it. The Modbus settings, which also apply
-            on restart, are not tracked.
+            `/system/reboot` applies it.
         reboot_reasons:
           type: array
           description: What waits for the restart; omitted when nothing does.

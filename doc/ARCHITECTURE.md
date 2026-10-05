@@ -85,7 +85,7 @@ boundaries; everything else is local to its file.
 | Priority | What runs |
 | --- | --- |
 | 800 | fill the `relays` / `inputs` vectors |
-| 700 | push the stored Modbus address, baud rate, parity and stop bits into `jxm_uart2`; build a submenu per entry of those vectors, named after the entity, with its settings rows |
+| 700 | `apply_modbus_bus` (the stored baud rate, parity and stop bits into `jxm_uart2`, and the Modbus frame timing re-derived from them), then `modbus_bus_applied = true`; the selects' `on_value` is a no-op before that flag. Build a submenu per entry of those vectors, named after the entity, with its settings rows |
 | 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); restore the timezone and read the RTC (`setup_time`, called from the device config). `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
 | 599.5 | `climate_hub` sets up: it registers its pool of climate entities, loads the thermostats and starts the enabled ones, so it sits below the `Temp N` sensors (600) and above `automations`, which may one day name a thermostat |
 | 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created. `board_info` reads the EEPROM here too, once `eeprom_cpu` (600) has answered |
@@ -110,8 +110,8 @@ once there; until then input changes are ignored. See [ENTITY_SETTINGS.md](ENTIT
 
 ## Settings
 
-Template `select` / `number` entities with `optimistic: true` and `restore_value: true`; boot
-lambdas read them. Network mode applies live, Modbus settings on the next reboot.
+Template `select` / `number` entities with `optimistic: true` and `restore_value: true`; lambdas
+read them at boot, and Network mode and the Modbus settings again on every change.
 
 Per-relay and per-input settings are a separate mechanism — JSON files on the user storage
 partition rather than preferences — because there is one record per entity and they are meant to
