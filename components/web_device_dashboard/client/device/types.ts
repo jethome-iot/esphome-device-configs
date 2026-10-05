@@ -218,7 +218,7 @@ export interface DeviceGroup {
 }
 
 /** Which group of saved-but-unapplied settings is waiting for a restart. */
-export type RebootReason = 'network' | 'wifi' | 'mqtt' | 'auth' | 'api'
+export type RebootReason = 'network' | 'wifi' | 'mqtt' | 'auth' | 'api' | 'temperature_slots'
 
 export interface DeviceStatus {
   /** An API client is connected. Absent — not false — on a build with no API server. */
@@ -230,7 +230,7 @@ export interface DeviceStatus {
   rssi: number | null
   /** Persisted but not yet applied; no config endpoint restarts on its own. */
   reboot_required: boolean
-  /** Omitted when nothing is waiting. */
+  /** Omitted when nothing is waiting. This firmware names only `temperature_slots`. */
   reboot_reasons?: RebootReason[]
   /** Live MQTT client state. Lives here (not only in /network) so the frequently
    *  polled status endpoint carries the dynamic connection flags and the Overview
@@ -251,8 +251,8 @@ export interface DeviceStatus {
 export interface MutationResponse {
   success: boolean
   message?: string
-  /** Set by a route whose change waits for a restart; no route here has one — /auth
-   *  applies what it stores. */
+  /** Set by a route whose change waits for a restart: /temperature-slots/forget and
+   *  /assign. */
   reboot_required?: boolean
 }
 
@@ -328,13 +328,15 @@ export interface Capabilities {
 
 // --- Temperature slots ---
 
-/** One `dallas_scan` slot. `slot` numbers from 1, as the `Temp N` sensors do. */
+/** One `dallas_scan` slot. `slot` numbers from 1, as the `Temp N` sensors do. `free`,
+ *  `address` and `can_forget` describe the saved table, the one the next boot binds; the
+ *  sensors read the table the device booted with until then, and `pending` says the two differ. */
 export interface TemperatureSlot {
   slot: number
   /** The slot's sensor name — the entity web_server serves, and so the key to its reading on
-   *  `/events` — or `<prefix> N` for a free slot. */
+   *  `/events` — or `<prefix> N` for a slot with no sensor. */
   name: string
-  /** No sensor: the slot was forgotten and nothing took it since. */
+  /** The saved table holds no device here: forgotten, and nothing took it since. */
   free: boolean
   /** Taken by a sensor from `dallas_scan`'s `sensors:`: the YAML fixes it there, and nothing
    *  here forgets it. */
@@ -346,29 +348,42 @@ export interface TemperatureSlot {
    *  listed, and the table can be written. Whether the device still answers does not matter: an
    *  unplugged sensor is the usual reason to forget one. */
   can_forget: boolean
+  /** A forget or an assign changed this slot since boot; it applies after a reboot. */
+  pending: boolean
+  /** The ROM this slot's sensor reads until the reboot. Only on a `pending` slot that had a
+   *  device at boot. */
+  running_address?: string
 }
 
-/** GET /temperature-slots — slots 1 up to the last bound one, a freed slot between them
- *  included. The table changes only at boot and through a forget or an assign, which reboot. */
+/** GET /temperature-slots — slots 1 up to the last one bound at boot or in the saved table, a
+ *  freed slot between them included. */
 export interface TemperatureSlots {
   /** The size of the table, `dallas_scan`'s `max_sensors`. */
   max_slots: number
+  /** Some slot is `pending`: `/status` names `temperature_slots` too. */
+  reboot_required: boolean
   slots: TemperatureSlot[]
 }
 
+/** What POST /temperature-slots/forget and /assign answer. */
+export interface TemperatureSlotChangeResult extends MutationResponse {
+  /** The saved table differs from the one the device booted with, after this change. */
+  reboot_required: boolean
+}
+
 /** POST /temperature-slots/forget — one slot, or every slot but the listed ones, under the
- *  system actions' confirmation. The device empties them and writes the table, answers, then
- *  reboots; a write that fails is `500` and the device keeps running. One that
- *  would change nothing (a free or listed slot, or nothing to forget) is `409`, and the
- *  device keeps running; a slot out of range, `all` that is not `true`, or both keys or
- *  neither, is `400`; a table that cannot be written is `503`. */
+ *  system actions' confirmation. The device empties them in the saved table and writes it; the
+ *  change applies after a reboot, and a write that fails is `500`. One that would change
+ *  nothing (a free or listed slot, or nothing to forget) is `409`; a slot out of range, `all`
+ *  that is not `true`, or both keys or neither, is `400`; a table that cannot be written is
+ *  `503`. */
 export type ForgetSlotsPayload = ConfirmPayload & ({ slot: number; all?: never } | { all: true; slot?: never })
 
 /** POST /temperature-slots/assign — put the device with `address` into `slot` (from 1), under
- *  the same confirmation: the table is written, then the device answers and reboots, or answers
- *  `500` and keeps running when the write fails. A device already in another slot swaps with what `slot`
- *  held; a new address takes `slot` from its device, which takes the lowest free slot at the
- *  next boot if it is still on the bus. `address` is `0x` and 16 hex digits, the prefix
+ *  the same confirmation: the saved table is written and the change applies after a reboot, or
+ *  `500` when the write fails. A device already in another slot swaps with what `slot` held; a
+ *  new address takes `slot` from its device, which takes the lowest free slot at the next boot
+ *  if it is still on the bus. `address` is `0x` and 16 hex digits, the prefix
  *  optional. `400` for a malformed or non-thermometer ROM (family or CRC), `409` for a listed
  *  slot or device, or a device that is in `slot` already, `503` for a table that cannot be
  *  written. */

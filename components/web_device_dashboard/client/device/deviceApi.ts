@@ -9,6 +9,7 @@ import type {
   DeviceStatus,
   ForgetSlotsPayload,
   MutationResponse,
+  TemperatureSlotChangeResult,
   TemperatureSlots
 } from './types'
 
@@ -34,20 +35,18 @@ export interface DeviceApi {
    *  whole image or stopped being one to go back to. */
   rollback(confirm: ConfirmPayload): Promise<MutationResponse>
   /** GET /temperature-slots — the `dallas_scan` slots; `404` without
-   *  `capabilities.temperature_slots`, `503` when the loop task does not take it or a write
-   *  waits for its reboot. */
+   *  `capabilities.temperature_slots`, `503` when the loop task does not take it. */
   temperatureSlots(): Promise<TemperatureSlots>
   /** POST /temperature-slots/forget — requires a confirmation. Empties one slot or every
-   *  unlisted one and reboots; `409` when that would change nothing, `503` when the table
-   *  cannot be written, the loop task is busy or a write waits for its reboot (the error says
-   *  which), `500` when the write fails. */
-  forgetTemperatureSlots(payload: ForgetSlotsPayload): Promise<MutationResponse>
-  /** POST /temperature-slots/assign — requires a confirmation. Puts a device into a slot,
-   *  swapping or displacing, and reboots; `400` for a bad address, `409` when the YAML decides
-   *  that slot or device, or nothing would change, `503` when the table cannot be written, the
-   *  loop task is busy or a write waits for its reboot (the error says which), `500` when the
+   *  unlisted one, applied after a reboot; `409` when that would change nothing, `503` when the
+   *  table cannot be written or the loop task is busy (the error says which), `500` when the
    *  write fails. */
-  assignTemperatureSlot(payload: AssignSlotPayload): Promise<MutationResponse>
+  forgetTemperatureSlots(payload: ForgetSlotsPayload): Promise<TemperatureSlotChangeResult>
+  /** POST /temperature-slots/assign — requires a confirmation. Puts a device into a slot,
+   *  swapping or displacing, applied after a reboot; `400` for a bad address, `409` when the
+   *  YAML decides that slot or device, or nothing would change, `503` when the table cannot be
+   *  written or the loop task is busy (the error says which), `500` when the write fails. */
+  assignTemperatureSlot(payload: AssignSlotPayload): Promise<TemperatureSlotChangeResult>
 }
 
 export function createDeviceApi(options: HttpOptions): DeviceApi {
@@ -75,10 +74,10 @@ export function createDeviceApi(options: HttpOptions): DeviceApi {
       return http.jget<TemperatureSlots>('/temperature-slots')
     },
     forgetTemperatureSlots(payload) {
-      return http.jpost<MutationResponse>('/temperature-slots/forget', payload)
+      return http.jpost<TemperatureSlotChangeResult>('/temperature-slots/forget', payload)
     },
     assignTemperatureSlot(payload) {
-      return http.jpost<MutationResponse>('/temperature-slots/assign', payload)
+      return http.jpost<TemperatureSlotChangeResult>('/temperature-slots/assign', payload)
     }
   }
 }
