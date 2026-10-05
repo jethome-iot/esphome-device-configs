@@ -147,9 +147,12 @@ class DallasScan : public PollingComponent {
   /// Whether set_offset_and_save() would take @p value, rounded to OFFSET_STEP. A free slot takes
   /// one too: it waits for the sensor that takes the slot.
   OffsetCheck check_offset(size_t slot, float value) const;
+  /// False when the table cannot be written, or its file did not load this boot: this boot's slots
+  /// are not the table then, and an offset must not write them over the file a person is to fix.
+  bool can_set_offset() const;
   /// Save the slot's offset now and apply it at once: the slot's last reading is published again
   /// with it. True without a write when the slot has that offset already; false, with nothing
-  /// changed, unless check_offset() is OK and the offset could be written.
+  /// changed, unless check_offset() is OK, can_set_offset() holds and the offset could be written.
   bool set_offset_and_save(size_t slot, float value);
 
  protected:
@@ -168,6 +171,7 @@ class DallasScan : public PollingComponent {
   bool uses_file_() const;
   bool save_table_();
   bool store_now_();
+  bool store_offsets_now_();
   bool store_or_roll_back_(const std::vector<uint64_t> &before, const std::vector<int16_t> &offsets,
                            const char *outcome);
 

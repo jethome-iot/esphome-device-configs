@@ -60,6 +60,9 @@ class TestScan : public DallasScan {
       App.scheduler.call(millis());
   }
 
+  // An offset in memory that no write put there, for a store that could not have taken it.
+  void seed_offset(size_t slot, int16_t tenths) { this->offsets_[slot] = tenths; }
+
  protected:
   void restart_() override { this->restarts++; }
 };

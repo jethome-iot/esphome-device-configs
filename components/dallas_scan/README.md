@@ -99,10 +99,11 @@ is skipped and the records still load. Firmware older than offsets reads the rec
 the list and drops it the next time it writes the file.
 
 A file that is there but cannot be read leaves the table empty for that boot and is not written
-over: the devices take slots in bus order until the next reboot, and only a forget, an assign or
-an offset change replaces the file. When the partition does not mount, the same happens without a file. The two storages do
-not share anything: the first switch to the other one numbers the devices again in bus order,
-and switching back finds the table that storage held last.
+over: the devices take slots in bus order until the next reboot, only a forget or an assign
+replaces the file, and no offset can be set until it loads. When the partition does not mount,
+the same happens without a file. The two storages do not share anything: the first switch to the
+other one numbers the devices again in bus order, and switching back finds the table that storage
+held last.
 
 ## Forgetting
 
@@ -110,9 +111,11 @@ and switching back finds the table that storage held last.
 in it, or a new one, takes the lowest free slot again, and the slot keeps its offset.
 `forget(-1)` clears every slot and every offset, so the devices are numbered again in bus order
 and no offset lands on another sensor; with no device left in the table, it still clears the
-offsets. Listed slots are skipped, and nothing happens at all when no slot changes, or when the
-table cannot be written; `can_forget(slot)` says beforehand whether a slot would change,
-`can_save()` whether the table can be written. While a change
+offsets. Listed slots are skipped, and nothing happens at all when nothing would change (for
+`-1`: no device and no offset left), or when the table cannot be written; `can_forget(slot)` says
+beforehand whether anything would change, `can_save()` whether the table can be written. With
+`storage: nvs`, a `forget(-1)` whose offsets are written but whose table is not keeps the offsets
+cleared and reports the failure, the slots unchanged. While a change
 waits for a reboot (below), `forget(slot)` on a slot changed since boot, and `forget(-1)` with
 nothing left to forget, only reboot when the table can be written: the saved table applies as
 it is.
@@ -147,9 +150,11 @@ none: their sensors have filters of their own.
 
 `set_offset_and_save(slot, value)` saves the offset and applies it at once, with no reboot: the
 slot's last reading is published again with it, so the change shows without waiting for the
-next poll. A value is rounded to the nearest 0.1, halves away from zero: 0.15 is 0.2, -0.25 is
--0.3. Nothing changes when the value is out of range, the slot is listed or past the table, or
-the offset cannot be written; `check_offset(slot, value)` says which, first.
+next poll; with `filters:`, the filters decide when it shows. A value is rounded to the nearest
+0.1, halves away from zero: 0.15 is 0.2, -0.25 is -0.3. Nothing changes when the value is out of
+range, the slot is listed or past the table, the table cannot be written or its file did not
+load this boot, or the write fails; `check_offset(slot, value)` and `can_set_offset()` say which,
+first.
 
 ## From lambdas
 
@@ -191,6 +196,7 @@ Offsets, saved and applied at once:
 - `offset(slot)`: °C, `0` when the slot has none
 - `check_offset(slot, value)`: what a set would do: `OK`, `BAD_SLOT`, `BAD_VALUE` (NaN, or past
   ±5.0 once rounded) or `LISTED_SLOT`
+- `can_set_offset()`: `can_save()`, and the slot file loaded at boot
 - `set_offset_and_save(slot, value)`: save, apply and publish the last reading again; true without
   a write when the slot has that offset already, false, with nothing changed, unless
-  `check_offset()` is `OK` and the offset could be written
+  `check_offset()` is `OK`, `can_set_offset()` holds and the offset could be written

@@ -385,13 +385,25 @@ bool DallasScan::forget_and_save(int slot) {
         this->offsets_[i] = 0;
     }
   }
-  if (!this->store_or_roll_back_(before, offsets, "nothing is forgotten"))
-    return false;
+  // In preferences these are two records, and a flush writes each on its own. The offsets go
+  // first: zeros on flash land on no wrong sensor, a new table with the old offsets would.
+  auto keep = offsets;
+  if (!this->uses_file_() && this->offsets_ != offsets) {
+    if (!this->store_offsets_now_()) {
+      this->slots_ = before;
+      this->offsets_ = offsets;
+      ESP_LOGE(TAG, "The offsets were not written: nothing is forgotten");
+      return false;
+    }
+    keep = this->offsets_;  // on flash already, so a table that fails keeps them
+  }
+  const bool stored = this->store_or_roll_back_(
+      before, keep, keep == offsets ? "nothing is forgotten" : "only the offsets are cleared");
   for (size_t i = 0; i < this->offsets_.size(); i++) {
     if (this->offsets_[i] != offsets[i])
       this->republish_(i);
   }
-  return true;
+  return stored;
 }
 
 bool DallasScan::valid_address(uint64_t address) {
@@ -466,8 +478,9 @@ bool DallasScan::set_offset_and_save(size_t slot, float value) {
   }
   if (this->offsets_[slot] == tenths)
     return true;
-  if (!this->can_save()) {
-    ESP_LOGE(TAG, "Storage unavailable: the offset is not changed");
+  if (!this->can_set_offset()) {
+    ESP_LOGE(TAG, "%s: the offset is not changed",
+             this->can_save() ? "The slot file did not load" : "Storage unavailable");
     return false;
   }
   const auto offsets = this->offsets_;
@@ -514,6 +527,17 @@ bool DallasScan::store_now_() {
   return false;
 }
 
+// The offsets record alone, flushed and checked as store_now_() checks both.
+bool DallasScan::store_offsets_now_() {
+  const size_t bytes = this->offsets_.size() * sizeof(int16_t);
+  if (!this->offsets_pref_.save(reinterpret_cast<const uint8_t *>(this->offsets_.data()), bytes))
+    return false;
+  if (global_preferences->sync())
+    return true;
+  std::vector<int16_t> stored(this->offsets_.size(), 0);
+  return this->offsets_pref_.load(reinterpret_cast<uint8_t *>(stored.data()), bytes) && stored == this->offsets_;
+}
+
 bool DallasScan::uses_file_() const {
 #ifdef USE_DALLAS_SCAN_FILE
   return this->file_ != nullptr;
@@ -528,6 +552,14 @@ bool DallasScan::can_save() const {
     return this->keeper_->can_save();
 #endif
   return true;
+}
+
+bool DallasScan::can_set_offset() const {
+#ifdef USE_DALLAS_SCAN_FILE
+  if (this->file_ != nullptr && this->file_unreadable_)
+    return false;
+#endif
+  return this->can_save();
 }
 
 bool DallasScan::save_table_() {

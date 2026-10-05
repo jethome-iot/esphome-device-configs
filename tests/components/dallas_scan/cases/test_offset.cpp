@@ -171,6 +171,38 @@ TEST_F(Offsets, WithoutAMountNothingChanges) {
   EXPECT_EQ(this->read(), text);
 }
 
+// A file that did not load is left for a person to fix, and this boot's slots are not the table:
+// no offset is written over it until a boot loads it. A forget or an assign still is.
+TEST_F(Offsets, AnOffsetWaitsForASlotFileThatLoads) {
+  const std::string text = R"({"version":1,"records":[{"slot":1,"address":"0x8a01)";
+  this->write(text);
+  TestScan &scan = this->boot({ROM_A});
+  this->bus.set_reading(ROM_A, 20.0f);
+  scan.poll();
+  this->log().clear();
+  EXPECT_TRUE(scan.can_save());
+  EXPECT_FALSE(scan.can_set_offset());
+  EXPECT_FALSE(scan.set_offset_and_save(0, 0.5f));
+  EXPECT_TRUE(this->log().has(this->log().errors, "The slot file did not load: the offset is not changed"));
+  EXPECT_EQ(scan.offset(0), 0.0f);
+  EXPECT_FLOAT_EQ(scan.temperature(0), 20.0f);
+  EXPECT_TRUE(scan.set_offset_and_save(0, 0.0f));  // what it has: nothing to write
+  EXPECT_EQ(this->read(), text);
+
+  ASSERT_TRUE(scan.forget_and_save(0));
+  EXPECT_EQ(this->read(), slot_file({}));
+  EXPECT_FALSE(scan.set_offset_and_save(0, 0.5f));  // until the reboot
+  TestScan &after = this->boot({ROM_A});
+  EXPECT_TRUE(after.can_set_offset());
+  EXPECT_TRUE(after.set_offset_and_save(0, 0.5f));
+}
+
+TEST_F(Offsets, WithoutAMountNoOffsetCanBeSet) {
+  TestScan &scan = this->boot({ROM_A}, 4, nullptr, false);
+  EXPECT_FALSE(scan.can_set_offset());
+  EXPECT_TRUE(this->boot_nvs({ROM_A}).can_set_offset());
+}
+
 TEST_F(Offsets, AWriteThatFailsChangesNothing) {
   if (geteuid() == 0)
     GTEST_SKIP() << "root writes into a read-only folder";
@@ -282,6 +314,27 @@ TEST_F(Offsets, AnAssignOrASwapLeavesTheOffsetsOnTheirSlots) {
   EXPECT_FLOAT_EQ(after.temperature(1), 19.8f);
 }
 
+// Until the reboot a slot reads the device it booted with, and a new offset goes on that reading.
+TEST_F(Offsets, AnOffsetSetWhileASwapWaitsGoesOnTheBootedDevicesReading) {
+  TestScan &scan = this->boot({ROM_A, ROM_B});
+  this->bus.set_reading(ROM_A, 20.0f);
+  this->bus.set_reading(ROM_B, 30.0f);
+  scan.poll();
+  ASSERT_TRUE(scan.assign_and_save(0, ROM_B));
+  ASSERT_TRUE(scan.slot_pending(0));
+  ASSERT_TRUE(scan.set_offset_and_save(0, 0.5f));
+  EXPECT_FLOAT_EQ(scan.temperature(0), 20.5f);
+  EXPECT_FLOAT_EQ(scan.temperature(1), 30.0f);
+  scan.poll();
+  EXPECT_FLOAT_EQ(scan.temperature(0), 20.5f);
+  EXPECT_TRUE(scan.reboot_required());
+  // The reboot puts B into slot 1, which reads with that slot's offset.
+  TestScan &after = this->boot({ROM_A, ROM_B});
+  after.poll();
+  EXPECT_FLOAT_EQ(after.temperature(0), 30.5f);
+  EXPECT_FLOAT_EQ(after.temperature(1), 20.0f);
+}
+
 // --- forget all ---
 
 TEST_F(Offsets, ForgetAllClearsTheOffsetsOfTheSlotsItEmpties) {
@@ -341,6 +394,17 @@ TEST_F(Offsets, AListedSlotDropsAStoredOffset) {
   EXPECT_FLOAT_EQ(scan.offset(1), 0.2f);
   ASSERT_TRUE(scan.set_offset_and_save(1, 0.3f));
   EXPECT_EQ(this->read(), slot_file({{1, OFFSET_HEX_C}, {2, OFFSET_HEX_A}}, {{2, "0.3"}}));
+}
+
+// The offset a listed slot has in the file is not one to forget: it is dropped at boot already.
+TEST_F(Offsets, AListedSlotsStoredOffsetIsNothingToForget) {
+  const std::string text = slot_file({{1, OFFSET_HEX_C}}, {{1, "0.5"}});
+  this->write(text);
+  TestScan &scan = this->boot({ROM_C}, 4, listed_c());
+  EXPECT_EQ(scan.offset(0), 0.0f);
+  EXPECT_FALSE(scan.can_forget(-1));
+  EXPECT_FALSE(scan.forget_and_save(-1));
+  EXPECT_EQ(this->read(), text);
 }
 
 TEST_F(Offsets, DumpConfigListsTheOffsets) {
@@ -404,6 +468,42 @@ TEST_F(Offsets, PreferencesForgetAllWritesTheTableAndTheOffsets) {
   EXPECT_EQ(after.offset(0), 0.0f);
 }
 
+// The host preferences refuse a record over 255 bytes: with 32 slots the table (256 bytes) cannot
+// be written and the offsets (64 bytes) can, what a flush that fails for one record leaves on the
+// device. The offsets go first, so they are cleared on flash and in memory; the table stays.
+TEST_F(Offsets, PreferencesForgetAllWhoseTableFailsKeepsTheOffsetsCleared) {
+  std::vector<int16_t> seeded(32, 0);
+  seeded[0] = 5;
+  ASSERT_TRUE(global_preferences->make_preference(seeded.size() * sizeof(int16_t), offsets_key())
+                  .save(reinterpret_cast<const uint8_t *>(seeded.data()), seeded.size() * sizeof(int16_t)));
+  TestScan &scan = this->boot_nvs({ROM_A}, 32);
+  this->bus.set_reading(ROM_A, 20.0f);
+  scan.poll();
+  ASSERT_FLOAT_EQ(scan.temperature(0), 20.5f);
+  this->log().clear();
+  EXPECT_FALSE(scan.forget_and_save(-1));
+  EXPECT_TRUE(this->log().has(this->log().errors, "The slot table was not written: only the offsets are cleared"));
+  EXPECT_EQ(scan.offset(0), 0.0f);
+  EXPECT_EQ(stored_offsets(32), std::vector<int16_t>(32, 0));
+  EXPECT_FLOAT_EQ(scan.temperature(0), 20.0f);  // published again, as on success
+  EXPECT_EQ(scan.saved_address(0), ROM_A);
+  EXPECT_FALSE(scan.reboot_required());
+  EXPECT_TRUE(scan.can_forget(-1));  // the device is still there to forget
+}
+
+// Past 127 slots, more than YAML allows, even the offsets are over those 255 bytes: a Forget All
+// whose offsets cannot be written changes nothing at all.
+TEST_F(Offsets, PreferencesForgetAllWhoseOffsetsFailChangesNothing) {
+  TestScan &scan = this->boot_nvs({ROM_A}, 130);
+  scan.seed_offset(0, 5);
+  this->log().clear();
+  EXPECT_FALSE(scan.forget_and_save(-1));
+  EXPECT_TRUE(this->log().has(this->log().errors, "The offsets were not written: nothing is forgotten"));
+  EXPECT_FLOAT_EQ(scan.offset(0), 0.5f);
+  EXPECT_EQ(scan.saved_address(0), ROM_A);
+  EXPECT_FALSE(scan.reboot_required());
+}
+
 TEST_F(Offsets, AMaxSensorsChangeEmptiesTheOffsetsInPreferences) {
   ASSERT_TRUE(this->boot_nvs({ROM_A}).set_offset_and_save(0, 1.0f));
   TestScan &wider = this->boot_nvs({ROM_A}, 5);
@@ -447,6 +547,23 @@ TEST_F(Offsets, AFailedFlushWithTheOffsetsOnFlashStillSucceeds) {
   chmod(offset_prefs_path().c_str(), 0644);
   EXPECT_TRUE(this->log().has(this->log().warnings, "the slot table is stored all the same"));
   EXPECT_FLOAT_EQ(scan.offset(0), 0.2f);
+}
+
+// Forget All flushes twice, the offsets first: a flush that fails for another record leaves both
+// on flash all the same.
+TEST_F(Offsets, PreferencesForgetAllWithFailedFlushesStillSucceeds) {
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root writes a read-only file";
+  TestScan &scan = this->boot_nvs({ROM_A, ROM_B});
+  ASSERT_TRUE(scan.set_offset_and_save(1, 0.6f));
+  ASSERT_EQ(chmod(offset_prefs_path().c_str(), 0444), 0);
+  this->log().clear();
+  EXPECT_TRUE(scan.forget_and_save(-1));
+  chmod(offset_prefs_path().c_str(), 0644);
+  EXPECT_TRUE(this->log().has(this->log().warnings, "the slot table is stored all the same"));
+  EXPECT_EQ(scan.offset(1), 0.0f);
+  EXPECT_EQ(scan.saved_address(0), 0u);
+  EXPECT_TRUE(scan.reboot_required());
 }
 
 // --- the slot file ---
