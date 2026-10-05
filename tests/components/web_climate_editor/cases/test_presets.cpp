@@ -1,8 +1,8 @@
 #include "common.h"
 
-// The presets over HTTP: what get and save carry, the refusals in the order client/mock gives
-// them, the active preset in list and status, what schema offers, and a file a newer firmware
-// wrote, which a Save may not overwrite.
+// The presets over HTTP where only the device can show them: a preset picked from Home Assistant
+// or the hub, the body as get writes it, the schema against the hub's tables, and a file a newer
+// firmware wrote. The requests the client mock answers too are in ../contract.json.
 namespace esphome::web_climate_editor::testing {
 namespace {
 
@@ -60,20 +60,6 @@ TEST_F(Editor, GetAndSaveCarryThePresets) {
   Reply saved = this->post("save", got.body);
   ASSERT_EQ(saved.code, 200) << saved.body;
   EXPECT_EQ(text_of(this->get("get?id=studio")["presets"]), STUDIO_PRESETS);
-}
-
-// The keys are the device's to give, as the id is: made from the names, never from the body.
-TEST_F(Editor, ACreateMakesTheKeysAndPicksNoPreset) {
-  std::string body = with(LIVING_ROOM, R"("active_preset":"mine","presets":[)"
-                                       R"({"key":"mine","name":"Day!","setpoint":20},)"
-                                       R"({"name":"Day?","setpoint":21},{"name":"!!!","setpoint":17}])");
-  ASSERT_EQ(this->create(body.c_str()), "living-room");
-  Reply got = this->get("get?id=living-room");
-  EXPECT_EQ(text_of(got["presets"]), R"([{"key":"day","name":"Day!","setpoint":20,"mode":"keep"},)"
-                                     R"({"key":"day-2","name":"Day?","setpoint":21,"mode":"keep"},)"
-                                     R"({"key":"preset","name":"!!!","setpoint":17,"mode":"keep"}])");
-  EXPECT_EQ(got["active_preset"].as<std::string>(), "");
-  EXPECT_FLOAT_EQ(got["setpoint"].as<float>(), 22.f);
 }
 
 // A rename keeps the key, so a rule naming it still finds it; a key the thermostat never gave
@@ -149,95 +135,6 @@ TEST_F(Editor, ASaveWithoutPresetsRemovesThem) {
 
   ASSERT_EQ(this->post("save", with(LIVING_ROOM, R"("enabled":false,"presets":null)")).code, 200);
   EXPECT_EQ(text_of(this->get("get?id=living-room")["presets"]), "[]");
-}
-
-// Each rule a preset can break, in the device's words, the row named from 1. The mock gives the
-// same sentence for each body.
-TEST_F(Editor, SaveRefusesABrokenPreset) {
-  const char *cellar = R"({"name":"Cellar","sensor_id":"floor","cool":{"relay_id":"relay_2"},"mode":"cool"})";
-  std::string nine = "[";
-  for (int i = 1; i <= 9; i++)
-    nine += std::string(i > 1 ? "," : "") + R"({"name":"P)" + std::to_string(i) + R"(","setpoint":20})";
-  nine += "]";
-  struct Case {
-    const char *body;
-    std::string presets;
-    const char *error;
-  };
-  for (const Case &c : {
-           Case{LIVING_ROOM, "{}", "presets must be a list"},
-           Case{LIVING_ROOM, R"("eco")", "presets must be a list"},
-           Case{LIVING_ROOM, nine, "A thermostat has at most 8 presets"},
-           Case{LIVING_ROOM, R"([{"name":"Eco","setpoint":18},5])", "Preset 2 must be an object"},
-           Case{LIVING_ROOM, R"([[{"name":"Eco","setpoint":18}]])", "Preset 1 must be an object"},
-           Case{LIVING_ROOM, R"([{"name":"Eco","setpoint":18,"mode":"dry"}])",
-                "Preset 1: mode must be one of keep/off/heat/cool/heat_cool"},
-           Case{LIVING_ROOM, R"([{"name":"Eco","setpoint":18,"mode":"KEEP"}])",
-                "Preset 1: mode must be one of keep/off/heat/cool/heat_cool"},
-           Case{LIVING_ROOM, R"([{"name":"Eco","setpoint":18,"mode":1}])",
-                "Preset 1: mode must be one of keep/off/heat/cool/heat_cool"},
-           Case{LIVING_ROOM, R"([{"name":"Eco"}])", "Preset 1: setpoint must be a number"},
-           Case{LIVING_ROOM, R"([{"name":"Eco","setpoint":"18"}])", "Preset 1: setpoint must be a number"},
-           Case{LIVING_ROOM, R"([{"name":"Eco","setpoint":18,"mode":"cool"}])",
-                "Preset 1: mode 'cool' needs cool.relay_id"},
-           Case{LIVING_ROOM, R"([{"name":"Eco","setpoint":18,"mode":"heat_cool"}])",
-                "Preset 1: mode 'heat_cool' needs both relays"},
-           Case{cellar, R"([{"name":"Eco","setpoint":18,"mode":"heat"}])", "Preset 1: mode 'heat' needs heat.relay_id"},
-           Case{LIVING_ROOM, R"([{"key":"Eco","name":"Eco","setpoint":18}])",
-                "Preset 1: key must be a slug: lowercase letters, digits and single dashes"},
-           Case{LIVING_ROOM, R"([{"key":"eco","name":"Eco","setpoint":18},{"key":"eco","name":"Away","setpoint":12}])",
-                "Preset 2: key 'eco' is already used by Preset 1"},
-           Case{LIVING_ROOM, R"([{"setpoint":18}])", "Preset 1: Name is required"},
-           Case{LIVING_ROOM, R"([{"name":5,"setpoint":18}])", "Preset 1: Name is required"},
-           Case{LIVING_ROOM, R"([{"name":"   ","setpoint":18}])", "Preset 1: Name is required"},
-           Case{LIVING_ROOM, R"([{"name":")" + std::string(49, 'a') + R"(","setpoint":18}])",
-                "Preset 1: Name is longer than 48 characters"},
-           Case{LIVING_ROOM, R"([{"name":"Ночь","setpoint":18}])", "Preset 1: Use printable ASCII characters only"},
-           Case{LIVING_ROOM, R"([{"name":"Up/down","setpoint":18}])", "Preset 1: Name cannot contain '/'"},
-           Case{LIVING_ROOM, R"([{"name":"a\\b","setpoint":18}])", "Preset 1: Name cannot contain '\\'"},
-           Case{LIVING_ROOM, R"([{"name":"Eco","setpoint":18},{"name":" NONE ","setpoint":5}])",
-                "Preset 2: \"NONE\" is reserved"},
-           Case{LIVING_ROOM, R"([{"name":"Eco","setpoint":18},{"name":"ECO","setpoint":5}])",
-                "Preset 2: \"ECO\" is already used by Preset 1"},
-           Case{LIVING_ROOM, R"([{"name":"Night Time","setpoint":18},{"name":"night   time","setpoint":5}])",
-                "Preset 2: \"night   time\" is already used by Preset 1"},
-       }) {
-    Reply reply = this->post("save", with(c.body, R"("presets":)" + c.presets));
-    EXPECT_EQ(reply.code, 400) << c.presets;
-    EXPECT_EQ(reply.error(), c.error) << c.presets;
-  }
-  EXPECT_TRUE(this->files().empty());
-}
-
-// The thermostat's own rules first, then the list's structure, every preset's values, every
-// preset's name, and the thermostat's name last.
-TEST_F(Editor, APresetRefusalComesInTheDevicesOrder) {
-  struct Case {
-    std::string body;
-    const char *error;
-  };
-  for (const Case &c : {
-           Case{R"({"name":"A","heat":{"relay_id":"relay_1"},"presets":{}})", "sensor_id is required"},
-           Case{R"({"name":"A","sensor_id":"room","heat":{"relay_id":"relay_1"},"mode":"cool","presets":{}})",
-                "mode 'cool' needs cool.relay_id"},
-           Case{with(LIVING_ROOM, R"("presets":[{"name":"Eco"},{"name":"Day","setpoint":20,"mode":"dry"}])"),
-                "Preset 2: mode must be one of keep/off/heat/cool/heat_cool"},
-           Case{with(LIVING_ROOM, R"("presets":[{"name":"Eco"},7])"), "Preset 2 must be an object"},
-           Case{with(LIVING_ROOM, R"("presets":[{"name":"","setpoint":18},{"name":"Day"}])"),
-                "Preset 2: setpoint must be a number"},
-           Case{with(LIVING_ROOM, R"("presets":[{"name":"none","setpoint":18,"key":"X"}])"),
-                "Preset 1: key must be a slug: lowercase letters, digits and single dashes"},
-           Case{R"({"name":"Up/down","sensor_id":"room","heat":{"relay_id":"relay_1"},)"
-                R"("presets":[{"name":"none","setpoint":5}]})",
-                "Preset 1: \"none\" is reserved"},
-           Case{R"({"name":"Up/down","sensor_id":"room","heat":{"relay_id":"relay_1"},)"
-                R"("presets":[{"name":"Eco","setpoint":5}]})",
-                "Name cannot contain '/'"},
-       }) {
-    Reply reply = this->post("save", c.body);
-    EXPECT_EQ(reply.code, 400) << c.body;
-    EXPECT_EQ(reply.error(), c.error) << c.body;
-  }
 }
 
 // Picked from Home Assistant, the hub or by hand, and kept while the thermostat is stopped.
