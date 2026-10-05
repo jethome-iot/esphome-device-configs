@@ -213,6 +213,15 @@ TEST_F(Bindings, AReleaseWhileTheInputHasNoStateDrivesNothing) {
   EXPECT_EQ(e.relay1.writes, 1);
 }
 
+// An output this build lacks is kept like a missing input, and only logged when driven.
+TEST_F(Bindings, AMissingOutputIsLoggedWhenDriven) {
+  manager->setup();
+  manager->set_binding(NO_SUCH, IN_1, BindingMode::FOLLOW);
+  e.in1.publish_state(true);
+  EXPECT_TRUE(log().has("Output 0x"));
+  EXPECT_TRUE(manager->remove_binding(NO_SUCH));
+}
+
 // After the thermostats have claimed their relays (climate_hub, DATA - 0.5), before the rules
 // (automations, DATA - 1).
 TEST_F(Bindings, SetsUpBetweenTheThermostatsAndTheRules) {
