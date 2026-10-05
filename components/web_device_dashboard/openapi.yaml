@@ -848,10 +848,11 @@ paths:
       summary: The entities that have settings, per type.
       description: >-
         For every settings type the firmware keeps, the entities of that type:
-        the object id, which keys the settings records, and the display name,
-        which `web_server`'s routes and `/events` address entities by. Internal
-        entities are left out. The types are `entity_config`'s: `switch` and
-        `binary_sensor`.
+        the object id, which keys the settings records, the display name, which
+        `web_server`'s routes and `/events` address entities by, and the label
+        the owner gave the entity, which the page shows in place of the name.
+        Internal entities are left out. The types are `entity_config`'s:
+        `switch` and `binary_sensor`.
       responses:
         "200":
           description: The index.
@@ -865,6 +866,15 @@ paths:
           $ref: "#/components/responses/NoStore"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          description: The loop task did not take the request in time (`Device busy`). Nothing was read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Device busy
 
   /entity-settings:
     get:
@@ -915,7 +925,8 @@ paths:
         An update replaces the entity's record with the fields given, saves the
         type's file and applies the record on the loop task once the answer is
         out. A field left out keeps its current value on a `switch`; on a
-        `binary_sensor`, `inverted` left out counts as false. The body is read
+        `binary_sensor`, `inverted` left out counts as false and `label` left
+        out keeps its value. The body is read
         raw, so the request needs a `Content-Type` that is not a form: a
         form-encoded body is parsed into fields by the server and answered
         `Invalid JSON`. `action: delete` removes the record on a type that
@@ -954,7 +965,8 @@ paths:
             refuses (`Failed to update settings record`: no `source_name`, one
             naming no entity of that type, an `inverted` that is not a boolean, a
             `restore_mode` or `binding_mode` outside its options, a
-            `binding_input` naming no input); a delete on a type that keeps its
+            `binding_input` naming no input, a `label` that is not a string or
+            breaks its rules); a delete on a type that keeps its
             records (`Cannot delete: record not found`).
           content:
             application/json:
@@ -1849,13 +1861,15 @@ components:
         switch:
           - source_name: relay_1
             name: Relay 1
+            label: Kitchen light
         binary_sensor:
           - source_name: input_1
             name: Input 1
+            label: ""
 
     EntityIndexEntry:
       type: object
-      required: [source_name, name]
+      required: [source_name, name, label]
       properties:
         source_name:
           type: string
@@ -1863,6 +1877,12 @@ components:
         name:
           type: string
           description: The display name, the key of `web_server`'s routes and `/events`.
+        label:
+          type: string
+          description: >-
+            What the panel and the page show in place of `name`; empty when the
+            entity has none, and then they show `name`. Changes with the record:
+            read again after a write.
 
     SettingsRecords:
       type: object
@@ -1882,6 +1902,7 @@ components:
             inverted: false
             binding_input: input_1
             binding_mode: toggle
+            label: Kitchen light
 
     SettingsRecord:
       type: object
@@ -1918,13 +1939,31 @@ components:
         binding_mode:
           type: string
           enum: [none, toggle, follow]
+        label:
+          $ref: "#/components/schemas/EntityLabel"
 
     BinarySensorSettings:
       type: object
-      description: The `binary_sensor` fields. On write, `inverted` left out counts as false.
+      description: >-
+        The `binary_sensor` fields. On write, `inverted` left out counts as
+        false; `label` left out keeps its current value.
       properties:
         inverted:
           type: boolean
+        label:
+          $ref: "#/components/schemas/EntityLabel"
+
+    EntityLabel:
+      type: string
+      maxLength: 24
+      description: >-
+        Shown on the panel and the page in place of the entity's name; empty for
+        none. The name, the object id and everything keyed by them stay as they
+        are. Valid UTF-8 with no control character, at most 24 characters (code
+        points, not bytes) once the spaces at both ends are trimmed, which the
+        device does before it stores it; anything else is refused. Applied at
+        once.
+      example: Kitchen light
 
     EntitySettingsUpdate:
       type: object
@@ -1956,6 +1995,7 @@ components:
           inverted: false
           binding_input: input_1
           binding_mode: toggle
+          label: Kitchen light
 
     EntitySettingsDelete:
       type: object
@@ -1992,6 +2032,12 @@ components:
       example:
         settings:
           switch:
+            label:
+              type: string
+              label: Label
+              description: Shown on the panel and the dashboard in place of the name. Empty shows the name.
+              default: ""
+              max_length: 24
             restore_mode:
               type: enum
               label: Start Mode
@@ -2032,6 +2078,12 @@ components:
               description: "Swaps the physical output: the app's On drives the pin low, Off drives it high."
               default: false
           binary_sensor:
+            label:
+              type: string
+              label: Label
+              description: Shown on the panel and the dashboard in place of the name. Empty shows the name.
+              default: ""
+              max_length: 24
             inverted:
               type: boolean
               label: Inverted
@@ -2070,6 +2122,9 @@ components:
           description: "For `number`: the unit the page shows, `unit` times `display_factor`."
         display_factor:
           type: number
+        max_length:
+          type: integer
+          description: "For `string`: the most characters (code points, not bytes) the field takes."
 
     FieldOption:
       type: object

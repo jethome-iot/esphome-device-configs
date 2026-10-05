@@ -7,6 +7,7 @@
 #include <iterator>
 #include <string>
 #include <vector>
+#include "entity_label.h"
 #include "entity_lookup.h"
 #include "esphome/components/config_json/config_json.h"
 #include "esphome/components/config_json/settings_base_json.h"
@@ -17,6 +18,9 @@
 #include "esphome/core/log.h"
 #ifdef ENTITY_CONFIG_BINDINGS
 #include "esphome/components/bindings/bindings.h"
+#endif
+#ifdef ENTITY_CONFIG_BINARY_SENSOR
+#include "binary_sensor_settings_json.h"
 #endif
 
 namespace esphome::entity_config {
@@ -99,6 +103,8 @@ struct SwitchSettingsRecord {
   // Plain strings, so a build without the bindings component round-trips them.
   std::string binding_input;
   std::string binding_mode{"none"};
+  // Shown in place of the name; empty for none.
+  std::string label;
   // False for a field the file left out (or named wrongly): the switch keeps its compiled value,
   // which apply fills in here so the record is complete from then on.
   bool has_restore_mode = true;
@@ -113,6 +119,7 @@ struct SwitchSettingsRecord {
     obj["inverted"] = this->inverted;
     obj["binding_input"] = this->binding_input;
     obj["binding_mode"] = this->binding_mode;
+    obj["label"] = this->label;
   }
 
   bool from_json(JsonObject obj, uint32_t version) {
@@ -132,6 +139,9 @@ struct SwitchSettingsRecord {
     this->inverted = obj["inverted"] | false;
     this->binding_input = obj["binding_input"] | "";
     this->binding_mode = obj["binding_mode"] | "none";
+    this->label.clear();
+    if (!obj["label"].isNull() && !parse_label(obj["label"], this->label))
+      ESP_LOGW("entity_config.switch", "Invalid label for '%s', showing the name", src_name);
     return true;
   }
 };
@@ -191,7 +201,24 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     return true;
   }
 
-  // REST: {"source_name": ..., "settings": {"restore_mode", "inverted", "binding_input", "binding_mode"}}.
+#ifdef ENTITY_CONFIG_BINARY_SENSOR
+  // Where Bind to's options find the inputs' labels.
+  void set_input_settings(BinarySensorSettingsJson *inputs) { this->inputs_ = inputs; }
+#endif
+
+  std::string get_label(const char *source_name) override {
+    const auto *record = this->find_(source_name);
+    return record != nullptr ? record->label : std::string();
+  }
+
+  // What shows the switch: its label, or its name when it has none. A copy, so a record
+  // replaced later cannot pull it from under the caller.
+  std::string display_name(switch_::Switch *sw) {
+    const std::string label = this->get_label(object_id_of(*sw).c_str());
+    return label.empty() ? sw->get_name().str() : label;
+  }
+
+  // REST: {"source_name": ..., "settings": {"restore_mode", "inverted", "binding_input", "binding_mode", "label"}}.
   SwitchSettingsRecord *update_record(JsonObject obj) {
     const char *source_name = obj["source_name"];
     if (source_name == nullptr || strlen(source_name) == 0)
@@ -208,6 +235,11 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     const bool inverted = inverted_value | effective.inverted;
     auto restore_mode = effective.restore_mode;
     if (!settings["restore_mode"].isNull() && !parse_restore_mode(settings["restore_mode"] | "", restore_mode))
+      return nullptr;
+    // Left out keeps the current label.
+    std::string label;
+    const bool has_label = !settings["label"].isNull();
+    if (has_label && !parse_label(settings["label"], label))
       return nullptr;
 
 #ifdef ENTITY_CONFIG_BINDINGS
@@ -248,6 +280,8 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     }
 
     auto *record = this->make_record(sw, restore_mode, inverted);
+    if (record != nullptr && has_label)
+      record->label = std::move(label);
 #ifdef ENTITY_CONFIG_BINDINGS
     if (record != nullptr && has_binding_keys)
       record = this->make_binding_record(sw, binding_input, binding_mode_name);
@@ -328,7 +362,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
         if (input.empty())
           return "None";
         auto *sensor = find_binary_sensor(fnv1_hash(input));
-        return sensor != nullptr ? sensor->get_name().str() : input;  // missing in this build: the stored id
+        return sensor != nullptr ? this->input_name_(sensor) : input;  // missing in this build: the stored id
       }
       case Field::BINDING_MODE:
         return index < 0 ? record.binding_mode : BINDING_MODE_OPTIONS[index].label;
@@ -366,6 +400,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
   }
 
   void write_settings_meta(JsonObject obj) override {
+    write_label_meta(obj);
     JsonObject start_field = obj["restore_mode"].to<JsonObject>();
     start_field["type"] = "enum";
     start_field["label"] = "Start Mode";
@@ -437,6 +472,14 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
         return true;
     }
     return false;
+  }
+
+  std::string input_name_(binary_sensor::BinarySensor *sensor) {
+#ifdef ENTITY_CONFIG_BINARY_SENSOR
+    if (this->inputs_ != nullptr)
+      return this->inputs_->display_name(sensor);
+#endif
+    return sensor->get_name().str();
   }
 #endif
 
@@ -548,6 +591,9 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
   }
 
   bool live_{false};
+#ifdef ENTITY_CONFIG_BINARY_SENSOR
+  BinarySensorSettingsJson *inputs_{nullptr};
+#endif
 };
 
 }  // namespace esphome::entity_config
