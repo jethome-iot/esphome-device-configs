@@ -132,6 +132,7 @@ before its name rules.
 - **A target or a mode set by hand** keeps the label, as ESPHome's own thermostat does.
 - **The active preset** is written to the file with the target and the mode, and shown again
   after a reboot; its values are not applied again, so a target set by hand since stays.
+- **A create** makes every key from its preset's name and starts with no preset active.
 - **A Save** keeps the key of every preset it brings back, makes one from the name for a new
   preset, and ignores `active_preset`: the active preset stays while its key is in the list,
   and goes when its preset is removed. New values for the active preset apply at once.
