@@ -171,6 +171,8 @@ class Contract : public Editor {
       hub().refuse_remove = true;
       for (const std::string &name : this->files())
         chmod((this->folder() + "/" + name).c_str(), 0444);
+    } else if (state == "newer_file") {
+      this->reboot_with_version(climate_hub::CONFIG_VERSION + 1);
     } else {
       ADD_FAILURE() << "unknown device_only: " << state;
     }
@@ -185,6 +187,22 @@ class Contract : public Editor {
     if (state == "no_free_entity")
       hub().free_idle_slots();
     hub().refuse_remove = false;
+    if (state == "newer_file")
+      this->reboot_with_version(climate_hub::CONFIG_VERSION);
+  }
+
+  // Every file in the folder rewritten with this version, and read by a boot.
+  void reboot_with_version(unsigned version) {
+    for (const std::string &name : this->files()) {
+      JsonDocument file;
+      ASSERT_EQ(deserializeJson(file, this->file(name)), DeserializationError::Ok) << name;
+      file["version"] = version;
+      std::string text;
+      serializeJson(file, text);
+      std::ofstream(this->folder() + "/" + name) << text;
+    }
+    hub().reset();
+    hub().setup();
   }
 
   // Sends one request of the contract's and checks its answer against it.

@@ -2926,6 +2926,54 @@
           "error": "Thermostat not found"
         }
       ]
+    },
+    {
+      "name": "Get of a thermostat a newer firmware wrote answers its file's version",
+      "setup": [
+        "living-room"
+      ],
+      "device_only": "newer_file",
+      "method": "GET",
+      "path": "get?id=living-room",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "version": 3,
+        "name": "Living Room"
+      }
+    },
+    {
+      "name": "A Save over a file a newer firmware wrote is 409 and changes nothing",
+      "setup": [
+        "living-room"
+      ],
+      "device_only": "newer_file",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Lounge",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "id": "living-room"
+      },
+      "status": 409,
+      "error": "A newer firmware wrote this thermostat; update the firmware to change it",
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "name": "Living Room"
+          }
+        }
+      ]
     }
   ]
 }
