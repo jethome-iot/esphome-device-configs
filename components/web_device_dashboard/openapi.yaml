@@ -1954,14 +1954,15 @@ components:
           $ref: "#/components/schemas/EntityLabel"
 
     EntityLabel:
-      type: string
+      type: [string, "null"]
       description: >-
         Shown on the panel and the page in place of the entity's name; empty for
-        none, and `null` is a label left out. The name, the object id and everything keyed by them stay as they
-        are. Valid UTF-8 with no control character, at most 24 characters (code
-        points, not bytes) once the spaces at both ends are trimmed, which the
-        device does before it stores it; anything else is refused. Applied at
-        once.
+        none, and `null` on write is a label left out. The name, the object id
+        and everything keyed by them stay as they are. Valid UTF-8 with no
+        control character, at most 24 characters (code points, not bytes) once
+        the spaces at both ends are trimmed, which the device does before it
+        stores it, so there is no `maxLength`; anything else is refused. Applied
+        at once.
       example: Kitchen light
 
     EntitySettingsUpdate:
