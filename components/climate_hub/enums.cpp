@@ -84,6 +84,8 @@ const char *fault_to_string(HubFault v) {
       return "relay_missing";
     case HubFault::OVERTEMP:
       return "overtemp";
+    case HubFault::RELAY_CONTESTED:
+      return "relay_contested";
   }
   return "none";
 }
