@@ -242,6 +242,20 @@ TEST_F(Editor, SaveStopsAtTheLimitBeforeItLooksAtTheName) {
   EXPECT_EQ(this->files().size(), 3u);
 }
 
+// Files the hub left alone keep their ids; when they hold every id a name gives, the create is
+// a 409 that says so, and none of them is written over.
+TEST_F(Editor, SaveRefusesANameWhoseIdsAreAllTakenByFiles) {
+  for (unsigned n = 1; n <= 1000; n++) {
+    std::ofstream(this->folder() + "/" + climate_hub::id_with_suffix("living-room", n) + ".json") << "left alone";
+  }
+  Reply reply = this->post("save", LIVING_ROOM);
+  EXPECT_EQ(reply.code, 409);
+  EXPECT_EQ(reply.error(),
+            "Every id made from \"Living Room\" is taken by a file in the thermostat folder; choose another name");
+  EXPECT_EQ(hub().store().size(), 0u);
+  EXPECT_EQ(this->file("living-room-1000.json"), "left alone");
+}
+
 // A sensor or relay the device does not have is no refusal: the thermostat is stored enabled
 // and waits for it, and the answer says so in a key of its own as well as in the message.
 TEST_F(Editor, AnEnabledThermostatWhoseSensorOrRelayIsMissingIsSavedAndWaits) {
@@ -495,6 +509,23 @@ TEST_F(Editor, AnIdMustBeASlug) {
   Reply reply = this->get("get?id=" + std::string(48, 'a'));
   EXPECT_EQ(reply.code, 404);
   EXPECT_EQ(reply.error(), "Thermostat not found");
+}
+
+// The routes that change something check it as strictly, before the hub is asked: unchecked, an
+// id that is no slug would come back as an unknown thermostat's 404.
+TEST_F(Editor, AWriteRouteRefusesAnIdThatIsNoSlug) {
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  hub().jobs = 0;
+  for (const char *id : {"Living-Room", "living_room", "../living-room", ""}) {
+    for (const std::string &route : {"delete?id=" + std::string(id), "enable?id=" + std::string(id) + "&value=false"}) {
+      Reply reply = this->post(route);
+      EXPECT_EQ(reply.code, 400) << route;
+      EXPECT_EQ(reply.error(), "Invalid id parameter") << route;
+    }
+  }
+  EXPECT_EQ(hub().jobs, 0);
+  EXPECT_TRUE(hub().is_running("living-room"));
+  EXPECT_EQ(this->files(), std::vector<std::string>{"living-room.json"});
 }
 
 // --- enable ---

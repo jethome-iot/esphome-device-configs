@@ -797,6 +797,23 @@ TEST_F(ControlLoop, ControlTakesEveryModeItsRelaysServe) {
   EXPECT_EQ(climate::CLIMATE_MODE_HEAT_COOL, entity->mode);
 }
 
+// Home Assistant sends the whole state back, mode included. The mode the thermostat already has
+// is no change: nothing to write, and the latch holds inside the band.
+TEST_F(ControlLoop, ACallWithTheSameModeMarksNothingDirty) {
+  ControllerRuntime *rt = this->start(this->base(ControlKind::BANG_BANG), 18.f);
+  HubClimate *entity = hub().entity_of(this->id_);
+  tick(200000);
+  entities().room.publish_state(20.5f);
+  tick(201000);
+  ASSERT_EQ(HubAction::HEATING, rt->action()) << "latched inside the band";
+
+  call(entity, climate::CLIMATE_MODE_HEAT);
+  EXPECT_FALSE(hub().dirty(this->id_));
+  tick(202000);
+  EXPECT_EQ(HubAction::HEATING, rt->action());
+  EXPECT_TRUE(entities().relay1.state);
+}
+
 // A cut-out lasts as long as its cause: the reading back under the limit, heating resumes.
 TEST_F(ControlLoop, AFaultClearsWhenItsCauseDoes) {
   ClimateConfig config = this->base(ControlKind::BANG_BANG);
