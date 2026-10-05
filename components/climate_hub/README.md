@@ -140,10 +140,9 @@ what is not there yet.
 A running thermostat holds its relays, in mode `off` too, and only stopping it frees them. The
 hub is the firmware's [`switch_hold`](../switch_hold/switch_hold.h) holder: whatever asks it
 before moving a relay — the panel, the Modbus coils, automation rules, input bindings, the
-relay's Inverted setting — leaves a held one alone, and hears when a stop, a removal or a Save
-that drops a relay frees it, once nothing that started in the same call holds it again. What
-moves a held relay all the same, Home Assistant or the web server's REST, is put back within a
-loop pass. Two thermostats may name the same relay and take turns: only one of them can run at
+relay's Inverted setting — leaves a held one alone, and is told when a stop, a removal or a
+Save that drops a relay leaves it free. What moves a held relay all the same, Home Assistant or
+the web server's REST, is put back within a loop pass. Two thermostats may name the same relay and take turns: only one of them can run at
 a time.
 Starting the second while the first runs is refused, naming the one that holds it, unless it
 takes the relay over, which stops the holder. A take-over by one whose sensor or a relay is not
