@@ -47,6 +47,7 @@ tests/
                               # upstream refuses on the host platform
     littlefs_storage/         # test_schema.py alone: the C++ is ESP-IDF only
     loop_job/
+    panel_text/
     status_indicator/
     switch_hold/
     virtual_display/          # test_schema.py alone: the C++ includes <esp_http_server.h>,
