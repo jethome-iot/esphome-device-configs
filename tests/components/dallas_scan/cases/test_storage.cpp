@@ -199,8 +199,9 @@ TEST_F(FileStorage, WithoutAMountTheSlotsLastOneBootAndNothingIsForgotten) {
   EXPECT_FALSE(scan.can_save());
   EXPECT_TRUE(this->log().has(this->log().errors, "Storage unavailable: nothing is forgotten"));
   EXPECT_TRUE(this->log().has(this->log().errors, "Storage unavailable: nothing is assigned"));
-  EXPECT_EQ(scan.address(0), ROM_A);
-  EXPECT_EQ(scan.address(2), 0u);
+  EXPECT_EQ(scan.saved_address(0), ROM_A);
+  EXPECT_EQ(scan.saved_address(2), 0u);
+  EXPECT_FALSE(scan.reboot_required());
   EXPECT_EQ(this->read(), text);
 }
 
@@ -231,7 +232,8 @@ TEST_F(FileStorage, AForgetWhoseWriteFailsKeepsTheSlotAndDoesNotReboot) {
   scan.forget(0);
   chmod(this->dir().c_str(), 0755);
   EXPECT_EQ(scan.restarts, 0);
-  EXPECT_EQ(scan.address(0), ROM_A);
+  EXPECT_EQ(scan.saved_address(0), ROM_A);
+  EXPECT_FALSE(scan.reboot_required());
   EXPECT_TRUE(this->log().has(this->log().errors, "nothing is forgotten"));
   EXPECT_EQ(this->read(), text);
 }
@@ -246,13 +248,33 @@ TEST_F(FileStorage, AnAssignWhoseWriteFailsKeepsTheTableAndDoesNotReboot) {
   scan.assign(0, ROM_B);  // a swap
   chmod(this->dir().c_str(), 0755);
   EXPECT_EQ(scan.restarts, 0);
-  EXPECT_FALSE(scan.awaiting_reboot());
+  EXPECT_FALSE(scan.reboot_required());
   // Nothing claims the device moved.
   EXPECT_FALSE(this->log().has(this->log().infos, "takes slot"));
-  EXPECT_EQ(scan.address(0), ROM_A);
-  EXPECT_EQ(scan.address(1), ROM_B);
+  EXPECT_EQ(scan.saved_address(0), ROM_A);
+  EXPECT_EQ(scan.saved_address(1), ROM_B);
   EXPECT_TRUE(this->log().has(this->log().errors, "nothing is assigned"));
   EXPECT_EQ(this->read(), text);
+}
+
+// The table in memory follows the file: a failed write in a stack undoes itself, not the edits
+// before it, even one that would have put the table back as booted.
+TEST_F(FileStorage, AFailedWriteInAStackUndoesOnlyItself) {
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root writes into a read-only folder";
+  TestScan &scan = this->boot({ROM_A, ROM_B});
+  ASSERT_TRUE(scan.assign_and_save(0, ROM_B));
+  const std::string text = this->read();
+  ASSERT_EQ(text, slot_file({{1, HEX_B}, {2, HEX_A}}));
+  ASSERT_EQ(chmod(this->dir().c_str(), 0555), 0);
+  EXPECT_FALSE(scan.forget_and_save(0));
+  EXPECT_FALSE(scan.assign_and_save(0, ROM_A));  // the swap back
+  chmod(this->dir().c_str(), 0755);
+  EXPECT_EQ(scan.saved_address(0), ROM_B);
+  EXPECT_EQ(scan.saved_address(1), ROM_A);
+  EXPECT_TRUE(scan.reboot_required());
+  EXPECT_EQ(this->read(), text);
+  EXPECT_EQ(scan.restarts, 0);
 }
 
 TEST_F(FileStorage, AnAssignIsWrittenToTheFile) {
@@ -262,44 +284,62 @@ TEST_F(FileStorage, AnAssignIsWrittenToTheFile) {
   EXPECT_EQ(this->read(), slot_file({{1, HEX_B}, {2, HEX_A}}));
 }
 
-// The halves the web dashboard calls: it answers between the write and the reboot it owes.
+// The halves the web dashboard calls: the change is saved and waits for a reboot the user picks.
 TEST_F(FileStorage, SavingWithoutTheRebootLeavesTheRebootToTheCaller) {
   TestScan &scan = this->boot({ROM_A, ROM_B});
   EXPECT_FALSE(scan.forget_and_save(2));  // free
-  EXPECT_FALSE(scan.awaiting_reboot());
+  EXPECT_FALSE(scan.reboot_required());
   EXPECT_TRUE(scan.forget_and_save(0));
-  EXPECT_TRUE(scan.awaiting_reboot());
+  EXPECT_TRUE(scan.reboot_required());
   EXPECT_EQ(scan.restarts, 0);
   EXPECT_EQ(this->read(), slot_file({{2, HEX_B}}));
 
   TestScan &next = this->boot({ROM_B});
+  EXPECT_FALSE(next.reboot_required());
   EXPECT_FALSE(next.assign_and_save(1, ROM_B));  // there already
   EXPECT_TRUE(next.assign_and_save(2, ROM_C));
+  EXPECT_TRUE(next.reboot_required());
+  EXPECT_TRUE(this->log().has(this->log().infos, "0x9b01b5566e8a1f28 takes slot 3 after a reboot"));
   EXPECT_EQ(next.restarts, 0);
   EXPECT_EQ(this->read(), slot_file({{2, HEX_B}, {3, HEX_C}}));
 }
 
-// Between that write and the reboot the table describes the next boot: nothing reads the bus by
-// it under this boot's sensors.
-TEST_F(FileStorage, ARewrittenTableStopsTheReadsUntilTheReboot) {
-  auto read_once = [](TestScan &scan) {
-    scan.update();
-    std::this_thread::sleep_for(std::chrono::milliseconds(800));  // the 12-bit conversion
-    for (int pass = 0; pass < 8; pass++)
-      App.scheduler.call(millis());
-  };
-  TestScan &rewritten = this->boot({ROM_A, ROM_B});
-  ASSERT_TRUE(rewritten.forget_and_save(0));
-  this->log().clear();
-  read_once(rewritten);
-  EXPECT_FALSE(this->log().has(this->log().warnings, "does not answer"));
+TEST_F(FileStorage, SeveralEditsStackUntilOneRebootBindsThemAll) {
+  TestScan &scan = this->boot({ROM_A, ROM_B, ROM_C});
+  ASSERT_TRUE(scan.forget_and_save(2));
+  EXPECT_EQ(this->read(), slot_file({{1, HEX_A}, {2, HEX_B}}));
+  ASSERT_TRUE(scan.assign_and_save(0, ROM_B));  // a swap
+  EXPECT_EQ(this->read(), slot_file({{1, HEX_B}, {2, HEX_A}}));
+  ASSERT_TRUE(scan.assign_and_save(3, ROM_C));  // the forgotten device, past the bound slots
+  EXPECT_EQ(this->read(), slot_file({{1, HEX_B}, {2, HEX_A}, {4, HEX_C}}));
+  EXPECT_TRUE(scan.reboot_required());
+  EXPECT_EQ(scan.restarts, 0);
 
-  // The same reads on a scan that kept its table: the harness bus answers all ones, so every
-  // device fails its checksum and says so.
-  TestScan &kept = this->boot({ROM_A, ROM_B});
+  TestScan &after = this->boot({ROM_A, ROM_B, ROM_C});
+  EXPECT_EQ(after.address(0), ROM_B);
+  EXPECT_EQ(after.address(1), ROM_A);
+  EXPECT_EQ(after.address(2), 0u);
+  EXPECT_EQ(after.address(3), ROM_C);
+  EXPECT_FALSE(after.reboot_required());
+  EXPECT_EQ(this->read(), slot_file({{1, HEX_B}, {2, HEX_A}, {4, HEX_C}}));
+}
+
+// Until the reboot each sensor reads the device it booted with: the harness bus answers all
+// ones, so every read fails its checksum and names the ROM it went to.
+TEST_F(FileStorage, AnEditedTableKeepsTheReadsOnTheBootDevices) {
+  TestScan &scan = this->boot({ROM_A, ROM_B});
+  ASSERT_TRUE(scan.assign_and_save(0, ROM_B));  // {B, A}
+  ASSERT_TRUE(scan.forget_and_save(1));         // {B, -}
   this->log().clear();
-  read_once(kept);
-  EXPECT_TRUE(this->log().has(this->log().warnings, "does not answer"));
+  scan.update();
+  std::this_thread::sleep_for(std::chrono::milliseconds(800));  // the 12-bit conversion
+  for (int pass = 0; pass < 8; pass++)
+    App.scheduler.call(millis());
+  EXPECT_TRUE(this->log().has(this->log().warnings, "Temp 1: 0xeb01227905460228 does not answer"));
+  EXPECT_TRUE(this->log().has(this->log().warnings, "Temp 2: 0x8a0122791699dd28 does not answer"));
+  EXPECT_FALSE(this->log().has(this->log().warnings, "Temp 1: 0x8a0122791699dd28"));
+  EXPECT_FALSE(this->log().has(this->log().warnings, "0x0000000000000000"));
+  EXPECT_TRUE(scan.status_has_warning());
 }
 
 TEST_F(FileStorage, DumpConfigNamesTheFile) {
@@ -308,6 +348,15 @@ TEST_F(FileStorage, DumpConfigNamesTheFile) {
   scan.dump_config();
   EXPECT_TRUE(this->log().has(this->log().configs, "Slot file: config/dallas_scan_temps.json"));
   EXPECT_TRUE(this->log().has(this->log().configs, "Temp 1: 0xeb01227905460228 (DS18B20)"));
+}
+
+TEST_F(FileStorage, DumpConfigNamesTheBootDevicesAfterAnEdit) {
+  TestScan &scan = this->boot({ROM_A, ROM_B});
+  ASSERT_TRUE(scan.assign_and_save(0, ROM_B));
+  this->log().clear();
+  scan.dump_config();
+  EXPECT_TRUE(this->log().has(this->log().configs, "Temp 1: 0xeb01227905460228 (DS18B20)"));
+  EXPECT_TRUE(this->log().has(this->log().configs, "Temp 2: 0x8a0122791699dd28 (DS18B20)"));
 }
 
 TEST_F(FileStorage, TheTwoStoragesShareNothing) {
@@ -372,6 +421,43 @@ TEST_F(Forget, OnlyAForgetOrAnAssignWritesOverAFileThatDidNotLoad) {
   EXPECT_EQ(this->read(), slot_file({{1, HEX_C}, {2, HEX_B}}));
 }
 
+// The panel's Confirm on a slot the dashboard forgot already applies what waits.
+TEST_F(Forget, ForgetRebootsForWhatTheSavedTableForgotAlready) {
+  TestScan &scan = this->boot({ROM_A, ROM_B});
+  ASSERT_TRUE(scan.forget_and_save(0));
+  const std::string text = this->read();
+  this->log().clear();
+  EXPECT_FORGET_REBOOTS(scan, 0);
+  EXPECT_TRUE(this->log().has(this->log().infos, "Forgotten already; rebooting"));
+  EXPECT_EQ(this->read(), text);
+  ASSERT_TRUE(scan.forget_and_save(-1));
+  EXPECT_FORGET_REBOOTS(scan, -1);
+  EXPECT_EQ(this->read(), slot_file({}));
+}
+
+// Only an empty slot in the saved table is forgotten already: a listed slot, one past the table,
+// a write that fails and a store that cannot be written do not reboot, whatever waits.
+TEST_F(Forget, WhileAChangeWaitsWhatForgetsNothingStillDoesNotReboot) {
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root writes into a read-only folder";
+  auto listing = [](TestScan &s) {
+    s.set_sensor(0, &boiler());
+    s.pin(0, ROM_C);
+  };
+  TestScan &scan = this->boot({ROM_C, ROM_A, ROM_B}, 4, listing);
+  ASSERT_TRUE(scan.forget_and_save(1));
+  ASSERT_TRUE(scan.reboot_required());
+  scan.forget(0);  // listed
+  scan.forget(4);  // past the table
+  ASSERT_EQ(chmod(this->dir().c_str(), 0555), 0);
+  scan.forget(2);  // the write fails
+  chmod(this->dir().c_str(), 0755);
+  EXPECT_EQ(scan.saved_address(2), ROM_B);
+  this->keepers.back()->mark_failed();
+  scan.forget(1);  // the store went away
+  EXPECT_EQ(scan.restarts, 0);
+}
+
 // --- storage: nvs ---
 
 static std::string prefs_path() {
@@ -406,6 +492,27 @@ TEST_F(NvsStorage, TheTableComesBackFromPreferencesAndNoFileIsWritten) {
   EXPECT_EQ(scan.address(0), ROM_A);
   EXPECT_EQ(scan.address(1), ROM_B);
   EXPECT_EQ(scan.address(2), ROM_C);
+  EXPECT_TRUE(this->files().empty());
+}
+
+// Each edit is on flash before it answers, and the next boot binds them all.
+TEST_F(NvsStorage, EveryEditIsSyncedAndTheyStackUntilOneReboot) {
+  TestScan &scan = this->boot_nvs({ROM_A, ROM_B});
+  ASSERT_TRUE(scan.forget_and_save(0));
+  EXPECT_EQ(stored_table(4), (std::vector<uint64_t>{0, ROM_B, 0, 0}));
+  ASSERT_TRUE(scan.assign_and_save(2, ROM_A));
+  EXPECT_EQ(stored_table(4), (std::vector<uint64_t>{0, ROM_B, ROM_A, 0}));
+  EXPECT_TRUE(scan.reboot_required());
+  ASSERT_TRUE(scan.assign_and_save(0, ROM_C));
+  EXPECT_EQ(stored_table(4), (std::vector<uint64_t>{ROM_C, ROM_B, ROM_A, 0}));
+  EXPECT_EQ(scan.restarts, 0);
+  EXPECT_EQ(scan.address(0), ROM_A);
+
+  TestScan &after = this->boot_nvs({ROM_A, ROM_B});
+  EXPECT_EQ(after.address(0), ROM_C);
+  EXPECT_EQ(after.address(1), ROM_B);
+  EXPECT_EQ(after.address(2), ROM_A);
+  EXPECT_FALSE(after.reboot_required());
   EXPECT_TRUE(this->files().empty());
 }
 

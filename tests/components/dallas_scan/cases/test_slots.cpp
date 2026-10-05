@@ -178,4 +178,63 @@ TEST_F(Slots, ForgetThatWouldChangeNothingDoesNotReboot) {
             ROM_A);
 }
 
+// --- edits that wait for a reboot ---
+
+// What this boot's sensors are stays as booted; the saved table and its pending slots show the
+// edits, and each edit is checked against the ones before it.
+TEST_F(Slots, TheBootViewAndTheSavedViewStayApart) {
+  TestScan &scan = this->boot({ROM_A, ROM_B});
+  sensor::Sensor *first = scan.sensor(0);
+  EXPECT_FALSE(scan.slot_pending(0));
+  EXPECT_EQ(scan.saved_slots(), 2u);
+  ASSERT_TRUE(scan.assign_and_save(0, ROM_B));  // a swap
+  ASSERT_TRUE(scan.assign_and_save(3, ROM_C));  // past the bound slots
+  ASSERT_TRUE(scan.forget_and_save(1));
+
+  EXPECT_EQ(scan.address(0), ROM_A);
+  EXPECT_EQ(scan.address(1), ROM_B);
+  EXPECT_EQ(scan.address(3), 0u);
+  EXPECT_EQ(scan.sensor(0), first);
+  EXPECT_EQ(scan.sensor(3), nullptr);
+  EXPECT_EQ(scan.slot_name(3), "Temp 4");
+  EXPECT_EQ(scan.used_slots(), 2u);
+  EXPECT_EQ(scan.sensors().size(), 2u);
+
+  EXPECT_EQ(scan.saved_address(0), ROM_B);
+  EXPECT_EQ(scan.saved_address(1), 0u);
+  EXPECT_EQ(scan.saved_address(2), 0u);
+  EXPECT_EQ(scan.saved_address(3), ROM_C);
+  EXPECT_EQ(scan.saved_address(4), 0u);
+  EXPECT_EQ(scan.saved_slots(), 4u);
+  EXPECT_TRUE(scan.slot_pending(0));
+  EXPECT_TRUE(scan.slot_pending(1));
+  EXPECT_FALSE(scan.slot_pending(2));
+  EXPECT_TRUE(scan.slot_pending(3));
+  EXPECT_FALSE(scan.slot_pending(4));
+
+  EXPECT_EQ(scan.check_assign(0, ROM_B), AssignCheck::UNCHANGED);
+  EXPECT_FALSE(scan.can_forget(1));
+  EXPECT_FALSE(scan.forget_and_save(1));
+  EXPECT_TRUE(scan.can_forget(3));
+  EXPECT_EQ(scan.restarts, 0);
+}
+
+TEST_F(Slots, ATablePutBackAsBootedLeavesNothingWaiting) {
+  TestScan &scan = this->boot({ROM_A, ROM_B});
+  EXPECT_FALSE(scan.reboot_required());
+  ASSERT_TRUE(scan.assign_and_save(0, ROM_B));
+  EXPECT_TRUE(scan.reboot_required());
+  ASSERT_TRUE(scan.assign_and_save(0, ROM_A));  // swapped back
+  EXPECT_FALSE(scan.reboot_required());
+  EXPECT_FALSE(scan.slot_pending(0));
+  EXPECT_FALSE(scan.slot_pending(1));
+
+  ASSERT_TRUE(scan.forget_and_save(1));
+  EXPECT_TRUE(scan.reboot_required());
+  ASSERT_TRUE(scan.assign_and_save(1, ROM_B));  // back in its slot
+  EXPECT_FALSE(scan.reboot_required());
+  EXPECT_EQ(this->read(), slot_file({{1, "0xeb01227905460228"}, {2, "0x8a0122791699dd28"}}));
+  EXPECT_EQ(scan.restarts, 0);
+}
+
 }  // namespace esphome::dallas_scan::testing
