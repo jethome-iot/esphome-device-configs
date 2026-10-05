@@ -1,5 +1,5 @@
 # RS485 bus on jxm_uart2 (pins: packages/features/uarts.yaml). Address, baud rate,
-# parity and stop bits are settings kept in flash and applied at boot.
+# parity and stop bits are settings kept in flash; a change applies at once.
 modbus:
   - id: modbus_bus
     uart_id: jxm_uart2
@@ -20,6 +20,8 @@ number:
     min_value: 1
     max_value: 247
     step: 1
+    on_value:
+      - lambda: 'id(modbus_server1).set_address((uint8_t) x);'
 
 select:
   - platform: template
@@ -41,6 +43,12 @@ select:
       - "38400"
       - "57600"
       - "115200"
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(modbus_bus_applied);'
+          then:
+            - script.execute: apply_modbus_bus
 
   # Order matches uart::UARTParityOptions.
   - platform: template
@@ -57,6 +65,12 @@ select:
       - "None"
       - "Even"
       - "Odd"
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(modbus_bus_applied);'
+          then:
+            - script.execute: apply_modbus_bus
 
   - platform: template
     name: "Modbus stop bits"
@@ -71,18 +85,39 @@ select:
     options:
       - "1"
       - "2"
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(modbus_bus_applied);'
+          then:
+            - script.execute: apply_modbus_bus
+
+globals:
+  - id: modbus_bus_applied
+    type: bool
+    initial_value: 'false'
+
+script:
+  - id: apply_modbus_bus
+    then:
+      - lambda: |-
+          auto *bus = id(jxm_uart2);
+          bus->set_baud_rate(parse_number<uint32_t>(id(modbus_baud_rate).current_option().c_str()).value_or(9600));
+          bus->set_stop_bits(parse_number<uint8_t>(id(modbus_stop_bits).current_option().c_str()).value_or(1));
+          bus->set_parity((uart::UARTParityOptions) id(modbus_parity).active_index().value_or(0));
+          bus->load_settings(false);
+          // Modbus takes its frame timing from the UART in setup(), which ran before this.
+          id(modbus_bus).setup();
 
 esphome:
   on_boot:
+    # The selects restore one by one before this; applying once they all have.
     - priority: 700
       then:
-        - lambda: |-
-            id(modbus_server1).set_address((uint8_t) id(modbus_address).state);
-            auto *bus = id(jxm_uart2);
-            bus->set_baud_rate(parse_number<uint32_t>(id(modbus_baud_rate).current_option().c_str()).value_or(9600));
-            bus->set_stop_bits(parse_number<uint8_t>(id(modbus_stop_bits).current_option().c_str()).value_or(1));
-            bus->set_parity((uart::UARTParityOptions) id(modbus_parity).active_index().value_or(0));
-            bus->load_settings(false);
+        - script.execute: apply_modbus_bus
+        - globals.set:
+            id: modbus_bus_applied
+            value: 'true'
 
 # FC 0x01 and FC 0x02 read one shared bit table, so a bit counts as a coil or
 # as a discrete input only by having a write_lambda or not:

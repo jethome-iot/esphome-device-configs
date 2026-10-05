@@ -619,6 +619,9 @@ globals:
     type: uint32_t
   - id: display_off_s
     type: uint32_t
+  - id: modbus_bus_applied
+    type: bool
+    initial_value: 'false'
   - id: network_mode_applied
     type: bool
     initial_value: 'false'
@@ -645,13 +648,10 @@ esphome:
                           id(input_4), id(input_5), id(input_6)};
     - priority: 700
       then:
-        - lambda: |-
-            id(modbus_server1).set_address((uint8_t) id(modbus_address).state);
-            auto *bus = id(jxm_uart2);
-            bus->set_baud_rate(parse_number<uint32_t>(id(modbus_baud_rate).current_option().c_str()).value_or(9600));
-            bus->set_stop_bits(parse_number<uint8_t>(id(modbus_stop_bits).current_option().c_str()).value_or(1));
-            bus->set_parity((uart::UARTParityOptions) id(modbus_parity).active_index().value_or(0));
-            bus->load_settings(false);
+        - script.execute: apply_modbus_bus
+        - globals.set:
+            id: modbus_bus_applied
+            value: 'true'
     - priority: 600
       then:
         - script.execute: set_wifi_ap
@@ -909,6 +909,12 @@ select:
       - '38400'
       - '57600'
       - '115200'
+    on_value:
+      - if:
+          condition:
+            lambda: return id(modbus_bus_applied);
+          then:
+            - script.execute: apply_modbus_bus
   - platform: template
     name: Modbus parity
     id: modbus_parity
@@ -923,6 +929,12 @@ select:
       - None
       - Even
       - Odd
+    on_value:
+      - if:
+          condition:
+            lambda: return id(modbus_bus_applied);
+          then:
+            - script.execute: apply_modbus_bus
   - platform: template
     name: Modbus stop bits
     id: modbus_stop_bits
@@ -936,6 +948,12 @@ select:
     options:
       - '1'
       - '2'
+    on_value:
+      - if:
+          condition:
+            lambda: return id(modbus_bus_applied);
+          then:
+            - script.execute: apply_modbus_bus
   - platform: template
     name: Network mode
     id: network_mode
@@ -1003,6 +1021,16 @@ script:
       - status_indicator.blink_fast: red_led
       - delay: 5s
       - script.execute: run_factory_reset
+  - id: apply_modbus_bus
+    then:
+      - lambda: |-
+          auto *bus = id(jxm_uart2);
+          bus->set_baud_rate(parse_number<uint32_t>(id(modbus_baud_rate).current_option().c_str()).value_or(9600));
+          bus->set_stop_bits(parse_number<uint8_t>(id(modbus_stop_bits).current_option().c_str()).value_or(1));
+          bus->set_parity((uart::UARTParityOptions) id(modbus_parity).active_index().value_or(0));
+          bus->load_settings(false);
+          // Modbus takes its frame timing from the UART in setup(), which ran before this.
+          id(modbus_bus).setup();
   - id: set_wifi_ap
     then:
       - lambda: |-
@@ -1098,6 +1126,8 @@ number:
     min_value: 1
     max_value: 247
     step: 1
+    on_value:
+      - lambda: id(modbus_server1).set_address((uint8_t) x);
 modbus_server:
   - id: modbus_server1
     modbus_id: modbus_bus
@@ -1529,8 +1559,6 @@ graphical_display_menu:
           text: Modbus
           weight: 10
           items:
-            - type: label
-              text: Applied on reboot
             - type: number
               text: Address
               number: modbus_address
