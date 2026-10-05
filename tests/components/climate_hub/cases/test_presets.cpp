@@ -156,6 +156,21 @@ TEST_F(Presets, TheCustomNamesStayInTheSlotsBuffers) {
   EXPECT_EQ(6u, after.size());
 }
 
+// The slot has room for eight custom names, however many it is handed.
+TEST_F(Presets, ASlotListsAtMostEightCustomNames) {
+  HubClimate *entity = hub().slot_entity(0);
+  std::vector<PresetConfig> many;
+  for (int i = 0; i < 10; i++)
+    many.push_back(preset(("Custom " + std::to_string(i)).c_str(), 20.f));
+  many.push_back(preset("Eco", 18.f));
+  entity->set_presets(many);
+  const std::vector<std::string> names = custom_presets(entity);
+  ASSERT_EQ(PRESET_MAX_COUNT, names.size());
+  EXPECT_EQ("Custom 7", names.back());
+  EXPECT_TRUE(entity->get_traits().supports_preset(climate::CLIMATE_PRESET_ECO)) << "only the custom names are capped";
+  entity->park(0);
+}
+
 // A built-in preset from Home Assistant: its target, and the thermostat's own mode for "keep".
 TEST_F(Presets, HomeAssistantPicksABuiltInPreset) {
   this->create(with_presets());

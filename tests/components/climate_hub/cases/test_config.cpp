@@ -354,6 +354,20 @@ TEST(PresetRules, PresetTargetsAreHeldInsideTheVisualRange) {
   EXPECT_FLOAT_EQ(10.f, parsed.presets[1].setpoint);
 }
 
+// How a call from Home Assistant finds its preset: a built-in one by its enum, a custom one by
+// its exact name, never one by the other.
+TEST(PresetRules, APresetIsFoundTheWayHomeAssistantNamesIt) {
+  const ClimateConfig config = with_presets();
+  EXPECT_EQ(&config.presets[0], config.find_preset(climate::CLIMATE_PRESET_ECO));
+  EXPECT_EQ(nullptr, config.find_preset(climate::CLIMATE_PRESET_BOOST));
+  EXPECT_EQ(&config.presets[1], config.find_custom_preset("Night"));
+  EXPECT_EQ(nullptr, config.find_custom_preset("night"));
+  EXPECT_EQ(nullptr, config.find_custom_preset("Eco")) << "a built-in one is not custom";
+  EXPECT_EQ(&config.presets[1], config.find_preset("night"));
+  EXPECT_EQ(nullptr, config.find_preset("")) << "no key is no preset";
+  EXPECT_EQ(nullptr, config.find_preset("Night"));
+}
+
 // A pick takes the target, clamped, the mode when the preset has one, and the label.
 TEST(PresetRules, APickTakesTheTargetTheModeAndTheLabel) {
   ClimateConfig config = with_presets();

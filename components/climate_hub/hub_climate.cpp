@@ -65,8 +65,9 @@ void HubClimate::set_presets(const std::vector<PresetConfig> &presets) {
       standard_presets.insert(standard);
       continue;
     }
+    // The document rules keep it under; the buffers are what must never overflow.
     if (custom.size() >= PRESET_MAX_COUNT)
-      break;
+      continue;
     // In place, the terminator untouched: a reader mid-copy sees a mix of names, never past the end.
     char *buffer = this->custom_presets_[custom.size()];
     const size_t length = std::min(preset.name.size(), NAME_MAX_LENGTH);
