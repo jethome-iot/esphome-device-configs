@@ -875,7 +875,10 @@ esphome:
                 const auto *config = hub->store().get(thermostat_id);
                 const std::string value = reading(thermostat_id);
                 const std::string &name = config != nullptr ? config->name : boot_name;
-                return name.substr(0, ROW - 2 - glyphs(value)) + ": " + value;
+                std::string cut = name.substr(0, ROW - 2 - glyphs(value));
+                while (!cut.empty() && cut.back() == ' ')
+                  cut.pop_back();  // a cut between words would leave "Floor heating : --"
+                return cut + ": " + value;
               });
 
               // The list row cuts the name to make room for the reading, so "Floor heating 1" and
