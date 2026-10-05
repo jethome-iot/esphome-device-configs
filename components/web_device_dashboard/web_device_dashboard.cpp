@@ -822,13 +822,15 @@ void WebDeviceDashboard::handle_temperature_slots_(AsyncWebServerRequest *reques
 // and `running_address` are what this boot's sensor is until the reboot.
 std::string WebDeviceDashboard::temperature_slots_json_(dallas_scan::DallasScan *scan) {
   return json::build_json([scan](JsonObject root) {
+    const bool writable = scan->can_save();
     root["max_slots"] = scan->max_sensors();
     root["reboot_required"] = scan->reboot_required();
+    // Not the rows' can_forget: offsets alone are something to forget for every slot.
+    root["can_forget_all"] = writable && scan->can_forget(-1);
     // Floats, which print to their own precision: 0.1f as a double would print 0.100000001.
     root["max_offset"] = dallas_scan::DallasScan::MAX_OFFSET;
     root["offset_step"] = dallas_scan::DallasScan::OFFSET_STEP;
     JsonArray slots = root["slots"].to<JsonArray>();
-    const bool writable = scan->can_save();
     size_t rows = std::max(scan->used_slots(), scan->saved_slots());
     // A free slot past them may hold an offset for the sensor that takes it.
     for (size_t slot = rows; slot < scan->max_sensors(); slot++) {
@@ -1058,6 +1060,11 @@ void WebDeviceDashboard::handle_temperature_slots_offset_(AsyncWebServerRequest 
     return;
   if (!this->check_slots_writable_(request, scan))
     return;
+  // This boot's slots are not the table then, and the file waits for a person to fix it.
+  if (!scan->can_set_offset()) {
+    this->send_error_(request, 503, "The slot file did not load; fix it and reboot");
+    return;
+  }
   size_t slot;
   if (!this->read_slot_(request, doc["slot"], slot))
     return;

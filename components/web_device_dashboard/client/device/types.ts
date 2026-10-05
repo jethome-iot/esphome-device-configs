@@ -367,6 +367,10 @@ export interface TemperatureSlots {
   max_slots: number
   /** Some slot is `pending`: `/status` names `temperature_slots` too. */
   reboot_required: boolean
+  /** POST /temperature-slots/forget with `all` would change something: an unlisted slot holds a
+   *  device or an offset, and the table can be written. The rows' `can_forget` does not say it:
+   *  offsets alone are something to forget for every slot, not for one. */
+  can_forget_all: boolean
   /** An offset runs from `-max_offset` to `max_offset` °C, in steps of `offset_step`. */
   max_offset: number
   offset_step: number
@@ -383,9 +387,9 @@ export interface TemperatureSlotChangeResult extends MutationResponse {
  *  system actions' confirmation. The device empties them in the saved table and writes it; the
  *  change applies after a reboot, and a write that fails is `500`. `all` clears every unlisted
  *  slot's offset too, at once; one slot keeps its offset. One that would change nothing (a free
- *  or listed slot, or no device and no offset left to forget) is `409`; a slot out of range,
- *  `all` that is not `true`, or both keys or neither, is `400`; a table that cannot be written
- *  is `503`. */
+ *  or listed slot, or no device and no offset left to forget) is `409`, which a slot's
+ *  `can_forget` and `can_forget_all` say beforehand; a slot out of range, `all` that is not
+ *  `true`, or both keys or neither, is `400`; a table that cannot be written is `503`. */
 export type ForgetSlotsPayload = ConfirmPayload & ({ slot: number; all?: never } | { all: true; slot?: never })
 
 /** POST /temperature-slots/assign — put the device with `address` into `slot` (from 1), under
@@ -401,8 +405,8 @@ export type AssignSlotPayload = ConfirmPayload & { slot: number; address: string
 /** POST /temperature-slots/offset — set `slot`'s offset (from 1) in °C, rounded to
  *  `offset_step`; `0` removes it. No confirmation: it is written and in force at once, the
  *  slot's reading published again with it. `400` for a slot out of range or an offset outside
- *  ±`max_offset`, `409` for a listed slot, `503` for a table that cannot be written, `500` when
- *  the write fails. */
+ *  ±`max_offset`, `409` for a listed slot, `503` for a table that cannot be written or a slot
+ *  file that did not load at boot (left for a person to fix), `500` when the write fails. */
 export interface SlotOffsetPayload {
   slot: number
   offset: number

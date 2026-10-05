@@ -52,7 +52,8 @@ export interface DeviceApi {
   assignTemperatureSlot(payload: AssignSlotPayload): Promise<TemperatureSlotChangeResult>
   /** POST /temperature-slots/offset — sets a slot's offset, in force at once, no confirmation;
    *  `400` for a slot or offset out of range, `409` for a listed slot, `503` when the table
-   *  cannot be written or the loop task is busy, `500` when the write fails. */
+   *  cannot be written, its file did not load at boot or the loop task is busy (the error says
+   *  which), `500` when the write fails. */
   setTemperatureSlotOffset(payload: SlotOffsetPayload): Promise<TemperatureSlotOffsetResult>
 }
 

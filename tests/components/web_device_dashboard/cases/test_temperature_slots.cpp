@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <array>
 #include <cmath>
+#include <fstream>
 #include <map>
 
 namespace esphome::web_device_dashboard::testing {
@@ -381,9 +382,10 @@ TEST_F(TemperatureSlots, WritesAreUnavailableWhenTheTableCannotBeSaved) {
   this->dashboard->set_temperature_slots(&scan);
   this->boots.push_back(std::move(owned));
   ASSERT_EQ(scan.address(0), ROM_A);
-  // The list says so up front: no slot can be forgotten.
+  // The list says so up front: no slot can be forgotten, nor all of them.
   Reply list = this->get(SLOTS);
   EXPECT_FALSE(list["slots"][0]["can_forget"].as<bool>());
+  EXPECT_FALSE(list["can_forget_all"].as<bool>());
 
   Reply forget = this->post(FORGET, this->confirmed(R"("slot":1)"));
   EXPECT_EQ(forget.code, 503);
@@ -873,6 +875,103 @@ TEST_F(TemperatureSlots, ForgetAllWithOnlyOffsetsLeftClearsThem) {
   Reply again = this->post(FORGET, this->confirmed(R"("all":true)"));
   EXPECT_EQ(again.code, 409);
   EXPECT_EQ(again.error(), "Nothing to forget: every slot is free or listed in YAML");
+}
+
+// What the page's Forget All asks before it offers itself: a device or an offset to forget.
+TEST_F(TemperatureSlots, CanForgetAllSaysWhetherForgetAllWouldChangeAnything) {
+  this->boot({ROM_A});
+  Reply devices = this->get(SLOTS);
+  EXPECT_TRUE(devices["can_forget_all"].is<bool>());
+  EXPECT_TRUE(devices["can_forget_all"].as<bool>());
+
+  global_preferences->reset();
+  this->boot({}, true);
+  Reply nothing = this->get(SLOTS);
+  EXPECT_FALSE(nothing["can_forget_all"].as<bool>());
+  ASSERT_EQ(this->set_offset(3, "0.5").code, 200);
+  Reply offsets = this->get(SLOTS);
+  EXPECT_TRUE(offsets["can_forget_all"].as<bool>());
+  // No row says it: forgetting slot 3 alone would keep its offset.
+  for (JsonObject slot : offsets["slots"].as<JsonArray>())
+    EXPECT_FALSE(slot["can_forget"].as<bool>()) << offsets.body;
+}
+
+// A listed slot's offset left in storage is dropped at boot, so it is not one to forget.
+TEST_F(TemperatureSlots, AListedSlotsStoredOffsetIsNothingToForget) {
+  const int16_t stored[] = {5, 0, 0, 0};
+  ASSERT_TRUE(global_preferences->make_preference(sizeof(stored), fnv1_hash_extend(fnv1_hash("temps"), "offsets"))
+                  .save(reinterpret_cast<const uint8_t *>(stored), sizeof(stored)));
+  this->boot({}, true);
+  Reply list = this->get(SLOTS);
+  EXPECT_FALSE(list["can_forget_all"].as<bool>());
+  EXPECT_TRUE(list["slots"][0]["offset"].isUnbound());
+  Reply reply = this->post(FORGET, this->confirmed(R"("all":true)"));
+  EXPECT_EQ(reply.code, 409);
+  EXPECT_EQ(reply.error(), "Nothing to forget: every slot is free or listed in YAML");
+}
+
+// Until the reboot a swapped slot reads the device it booted with; the offset goes on that.
+TEST_F(TemperatureSlots, AnOffsetSetWhileASwapWaitsGoesOnTheBootedDevicesReading) {
+  this->bus.set_reading(ROM_A, 20.0f);
+  this->bus.set_reading(ROM_B, 30.0f);
+  TestScan &scan = this->boot({ROM_A, ROM_B});
+  scan.poll();
+  ASSERT_EQ(this->post(ASSIGN, this->confirmed(R"("slot":1,"address":"0x8a0122791699dd28")")).code, 200);
+  Reply set = this->set_offset(1, "0.5");
+  EXPECT_EQ(set.code, 200) << set.error();
+  EXPECT_FLOAT_EQ(scan.sensor(0)->state, 20.5f);
+  EXPECT_FLOAT_EQ(scan.sensor(1)->state, 30.0f);
+  Reply list = this->get(SLOTS);
+  EXPECT_TRUE(list["slots"][0]["pending"].as<bool>());
+  EXPECT_EQ(list["slots"][0]["running_address"].as<std::string>(), "0xeb01227905460228");
+  EXPECT_FLOAT_EQ(list["slots"][0]["offset"].as<float>(), 0.5f);
+  EXPECT_TRUE(this->waits());
+}
+
+// A slot file that did not load waits for a person to fix it: no offset is written over it this
+// boot, while a forget and an assign still are.
+TEST_F(TemperatureSlots, AnOffsetWaitsForASlotFileThatLoads) {
+  mkdir(".storage", 0755);
+  char folder[] = ".storage/XXXXXX";
+  ASSERT_NE(mkdtemp(folder), nullptr);
+  const std::string dir = std::string(folder) + "/config";
+  const std::string file = dir + "/dallas_scan_temps.json";
+  ASSERT_EQ(mkdir(dir.c_str(), 0755), 0);
+  {
+    std::ofstream out(file);
+    out << R"({"version":1,"records":[)";
+  }
+  static dir_storage::DirStorage storage;
+  storage.set_base_path(folder);
+  storage.setup();
+  static config_json::ConfigJsonKeeper keeper;
+  keeper.set_storage(&storage);
+  keeper.setup();
+  this->bus.set_devices({ROM_A});
+  auto owned = std::make_unique<TestScan>();
+  TestScan &scan = *owned;
+  scan.set_one_wire_bus(&this->bus);
+  scan.set_max_sensors(4);
+  scan.set_slot_file(&keeper, "dallas_scan_temps");
+  scan.setup();
+  this->dashboard->set_temperature_slots(&scan);
+  this->boots.push_back(std::move(owned));
+  ASSERT_FALSE(scan.can_set_offset());
+
+  for (const char *value : {"0.3", "0"}) {
+    Reply offset = this->set_offset(1, value);
+    EXPECT_EQ(offset.code, 503) << value;
+    EXPECT_EQ(offset.error(), "The slot file did not load; fix it and reboot") << value;
+  }
+  EXPECT_EQ(scan.offset(0), 0.0f);
+  Reply list = this->get(SLOTS);
+  EXPECT_EQ(list.code, 200);
+  EXPECT_TRUE(list["can_forget_all"].as<bool>());
+  Reply forget = this->post(FORGET, this->confirmed(R"("slot":1)"));
+  EXPECT_EQ(forget.code, 200) << forget.error();
+  remove(file.c_str());
+  rmdir(dir.c_str());
+  rmdir(folder);
 }
 
 }  // namespace esphome::web_device_dashboard::testing

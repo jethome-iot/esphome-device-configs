@@ -431,11 +431,11 @@ paths:
         bus order, and clears every offset at once, so none lands on another
         sensor: the readings move straight away, with no reboot. A request that
         would change nothing — a free slot, a listed one, or `all` with nothing
-        but listed slots and no offset left — is refused with `409`; the slot's
-        `can_forget` in `/temperature-slots` says beforehand. A table that cannot
-        be written is `503`. Otherwise it empties the slots and writes the table
-        before it answers; a write that fails is `500`, and the table stays as it
-        was.
+        but listed slots and no offset left — is refused with `409`; a slot's
+        `can_forget` in `/temperature-slots` says beforehand, and
+        `can_forget_all` for `all`. A table that cannot be written is `503`.
+        Otherwise it empties the slots and writes the table before it answers; a
+        write that fails is `500`, and the table stays as it was.
       requestBody:
         required: true
         content:
@@ -557,7 +557,9 @@ paths:
         "500":
           description: >-
             The table could not be written, so it stays as it was and the device
-            keeps running. The log says why.
+            keeps running. The log says why. With the table in preferences
+            (`storage: nvs`), `all` writes the offsets first, and they stay
+            cleared when only the table fails.
           content:
             application/json:
               schema:
@@ -725,8 +727,9 @@ paths:
         with it on `/events`. Setting the offset a slot holds already is a
         success with nothing written. Refused before anything happens: a slot
         out of range or an offset out of range (`400`), a slot `sensors:` lists,
-        whose sensor has `filters:` of its own (`409`), and a table that cannot
-        be written (`503`).
+        whose sensor has `filters:` of its own (`409`), a table that cannot be
+        written, and a slot file that did not load at boot (`503`): this boot's
+        slots are not the table then, and the file is left for a person to fix.
       requestBody:
         required: true
         content:
@@ -815,16 +818,28 @@ paths:
         "503":
           description: >-
             The table is kept in a file and the user partition did not mount, so
-            nothing could be written (`Temperature slot storage unavailable`), or
-            the loop task did not take the request in time (`Device busy`).
-            Nothing happened.
+            nothing could be written (`Temperature slot storage unavailable`); the
+            slot file is there but did not load at boot, so it waits for a person
+            to fix it and a reboot (`The slot file did not load; fix it and
+            reboot`); or the loop task did not take the request in time (`Device
+            busy`). Nothing happened.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-              example:
-                success: false
-                error: Temperature slot storage unavailable
+              examples:
+                unavailable:
+                  value:
+                    success: false
+                    error: Temperature slot storage unavailable
+                unloaded:
+                  value:
+                    success: false
+                    error: The slot file did not load; fix it and reboot
+                busy:
+                  value:
+                    success: false
+                    error: Device busy
 
   /entities:
     get:
@@ -1456,7 +1471,7 @@ components:
 
     TemperatureSlots:
       type: object
-      required: [max_slots, reboot_required, max_offset, offset_step, slots]
+      required: [max_slots, reboot_required, can_forget_all, max_offset, offset_step, slots]
       properties:
         max_slots:
           type: integer
@@ -1468,6 +1483,13 @@ components:
           description: >-
             Some slot is `pending`; `/status` names `temperature_slots` in
             `reboot_reasons` too.
+        can_forget_all:
+          type: boolean
+          description: >-
+            `/temperature-slots/forget` with `all` would change something: a slot
+            `sensors:` does not list holds a device or an offset, and the table
+            can be written. Not the same as any slot's `can_forget`: offsets alone
+            are something to forget for every slot, not for one.
         max_offset:
           type: number
           description: An offset runs from `-max_offset` to `max_offset` °C.
@@ -1486,6 +1508,7 @@ components:
       example:
         max_slots: 16
         reboot_required: true
+        can_forget_all: true
         max_offset: 5
         offset_step: 0.1
         slots:
