@@ -383,9 +383,9 @@ export interface TemperatureSlotChangeResult extends MutationResponse {
  *  system actions' confirmation. The device empties them in the saved table and writes it; the
  *  change applies after a reboot, and a write that fails is `500`. `all` clears every unlisted
  *  slot's offset too, at once; one slot keeps its offset. One that would change nothing (a free
- *  or listed slot, or nothing to forget) is `409`; a slot out of range, `all`
- *  that is not `true`, or both keys or neither, is `400`; a table that cannot be written is
- *  `503`. */
+ *  or listed slot, or no device and no offset left to forget) is `409`; a slot out of range,
+ *  `all` that is not `true`, or both keys or neither, is `400`; a table that cannot be written
+ *  is `503`. */
 export type ForgetSlotsPayload = ConfirmPayload & ({ slot: number; all?: never } | { all: true; slot?: never })
 
 /** POST /temperature-slots/assign — put the device with `address` into `slot` (from 1), under
@@ -409,7 +409,8 @@ export interface SlotOffsetPayload {
 }
 
 /** What POST /temperature-slots/offset answers. */
-export interface TemperatureSlotOffsetResult extends MutationResponse {
+// Never reboot_required: an offset is in force at once.
+export interface TemperatureSlotOffsetResult extends Omit<MutationResponse, 'reboot_required'> {
   /** The offset the slot holds now, after the rounding. */
   offset: number
 }
