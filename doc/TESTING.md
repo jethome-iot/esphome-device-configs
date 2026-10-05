@@ -51,7 +51,8 @@ tests/
                               # which the host platform has no header for
     web_auth/
     web_automation_editor/
-    web_climate_editor/
+    web_climate_editor/       # contract.json: requests and their answers, which the dashboard
+                              # also runs against the client mock
     web_device_dashboard/
     web_file_browser/
     web_origin_guard/

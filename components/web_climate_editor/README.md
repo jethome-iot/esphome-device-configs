@@ -168,3 +168,8 @@ stand-in, and drives every route through it; the cases are in
 `tests/components/web_climate_editor/`. See [doc/TESTING.md](../../doc/TESTING.md). What the
 host cannot reach is ESP-IDF's side of the answer: the status lines written by hand, the hop
 from the server's task to the loop task, and the methods the server answers itself.
+
+`tests/components/web_climate_editor/contract.json` lists requests and the answers the device
+gives them. The suite sends each one through the handler, and the dashboard runs the same file
+against `client/mock`, so a change to an answer goes into the file, the C++ and the mock
+together. Its format is described at the top of `cases/test_contract.cpp`.

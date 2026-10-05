@@ -991,7 +991,9 @@ TEST_F(Editor, EntitiesListsThermostatInputsAndWhoHoldsEachRelay) {
   ASSERT_EQ(reply.code, 200);
   EXPECT_EQ(reply.body, R"({"success":true,)"
                         R"("sensors":[{"object_id":"room","name":"Room","unit":"°C"},)"
-                        R"({"object_id":"floor","name":"Floor","unit":"°C"}],)"
+                        R"({"object_id":"floor","name":"Floor","unit":"°C"},)"
+                        R"({"object_id":"temp_1","name":"Temp 1","unit":"°C"},)"
+                        R"({"object_id":"temp_2","name":"Temp 2","unit":"°C"}],)"
                         R"("switches":[{"object_id":"relay_1","name":"Relay 1","claimed_by":"living-room"},)"
                         R"({"object_id":"relay_2","name":"Relay 2","claimed_by":""}]})");
 }
