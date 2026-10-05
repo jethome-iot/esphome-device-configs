@@ -1009,7 +1009,7 @@ TEST_F(Editor, SchemaIsTheParameterTable) {
   EXPECT_EQ(words, R"(["off","heat","cool","heat_cool"])");
   words.clear();
   serializeJson(reply["faults"], words);
-  EXPECT_EQ(words, R"(["none","sensor_missing","sensor_stale","relay_missing","overtemp"])");
+  EXPECT_EQ(words, R"(["none","sensor_stale","overtemp"])");
   EXPECT_EQ(reply["max_controllers"].as<int>(), 3);
   EXPECT_EQ(reply["name_max_length"].as<int>(), 48);
 

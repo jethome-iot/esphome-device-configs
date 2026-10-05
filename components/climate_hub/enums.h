@@ -27,12 +27,11 @@ enum class HubAction : uint8_t {
   COOLING,
 };
 
-/// Why a controller is not controlling. Reported over HTTP, never persisted.
+/// Why a running controller is not controlling. Reported over HTTP, never persisted. A missing
+/// sensor or relay is no fault: a thermostat starts only once both are there, and waits till then.
 enum class HubFault : uint8_t {
   NONE = 0,
-  SENSOR_MISSING,
   SENSOR_STALE,
-  RELAY_MISSING,
   OVERTEMP,
 };
 

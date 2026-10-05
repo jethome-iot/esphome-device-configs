@@ -77,7 +77,7 @@ class ControllerRuntime {
 
  protected:
   void apply_config_();
-  /// Sets fault_ from the sensor, the reading and the claims; logs a change.
+  /// Sets fault_ from the reading and how old it is; logs a change.
   void refresh_fault_(uint32_t now_ms);
   /// What the thermostat is doing until its next pass: the latch, or the PID's duties as the
   /// mode lets them run.

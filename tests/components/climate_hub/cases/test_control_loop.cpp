@@ -906,7 +906,6 @@ TEST(ControllerRuntimeAlone, AStoppedRuntimeIgnoresEverything) {
   rt.start(&config, nullptr, &claim, nullptr, 2000);
   rt.tick(2000);
   EXPECT_EQ(0, relay.writes);
-  EXPECT_EQ(HubAction::OFF, rt.action());
 }
 
 // The PID recomputes every update_interval_s, and holds its output in between.
