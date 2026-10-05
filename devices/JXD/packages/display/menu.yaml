@@ -39,6 +39,11 @@ graphical_display_menu:
               return str_sprintf("%s: --", s->get_name().c_str());
             return str_sprintf("%s: %.1f°C", s->get_name().c_str(), s->state);
 
+    # A submenu per loaded thermostat is added at boot (esphome: on_boot below).
+    - type: menu
+      text: "Thermostats"
+      id: thermostats_menu
+
     # A row per loaded rule is added at boot (esphome: on_boot below).
     - type: menu
       text: "Automations"
@@ -314,4 +319,130 @@ esphome:
               auto *note = new MenuItem(MENU_ITEM_LABEL);
               note->set_text("No automations");
               id(automations_menu)->add_item(note);
+            }
+
+    # After climate_hub (setup priority DATA - 0.5) has loaded the thermostats. The list is the
+    # one boot found: a thermostat added over HTTP afterwards shows after a reboot.
+    - priority: 500
+      then:
+        - lambda: |-
+            using namespace display_menu_base;
+            static constexpr size_t ROW = 18;  // f7x14_mod2 glyphs across the panel
+            auto *hub = id(climates);
+            // Rows hold the thermostat's id, not a pointer: the store moves its documents. One
+            // deleted since boot is not found, and its rows say --.
+            auto reading = [hub](const std::string &thermostat_id) {
+              const auto *config = hub->store().get(thermostat_id);
+              const float value = config != nullptr ? hub->sensor_reading(config->sensor_id) : NAN;
+              return std::isnan(value) ? std::string("--") : str_sprintf("%.1f°C", value);
+            };
+            auto glyphs = [](const std::string &text) -> size_t {
+              return std::count_if(text.begin(), text.end(),
+                                   [](char c) { return (static_cast<unsigned char>(c) & 0xC0) != 0x80; });
+            };
+            for (const auto &doc : hub->store().all()) {
+              const std::string thermostat_id = doc->id;
+              const std::string boot_name = doc->name;
+              auto *menu = new MenuItemMenu();
+              // Names are ASCII; the name gives way so the reading stays on the panel.
+              menu->set_text([=](const MenuItem *) {
+                const auto *config = hub->store().get(thermostat_id);
+                const std::string value = reading(thermostat_id);
+                const std::string &name = config != nullptr ? config->name : boot_name;
+                return name.substr(0, ROW - 2 - glyphs(value)) + ": " + value;
+              });
+
+              auto *current = new MenuItem(MENU_ITEM_LABEL);
+              current->set_text([=](const MenuItem *) { return "Current: " + reading(thermostat_id); });
+              menu->add_item(current);
+
+              // Counted in steps from the target the row opened on, so the steps add no float
+              // error, and written only when they moved it: an untouched row never puts that
+              // target back over one Home Assistant or the dashboard set meanwhile.
+              auto *opened = new float(NAN);  // NaN outside editing
+              auto *steps = new int(0);
+              auto stepped = [=]() -> float {
+                const auto *config = hub->store().get(thermostat_id);
+                if (config == nullptr)
+                  return NAN;
+                if (std::isnan(*opened))
+                  return config->setpoint;
+                const auto &visual = config->visual;
+                return std::clamp(*opened + *steps * visual.step, visual.min_temperature, visual.max_temperature);
+              };
+              auto *target = new MenuItemCustom();
+              target->set_text(std::string("Target"));
+              target->set_value_lambda([=](const MenuItem *) {
+                const float value = stepped();
+                return std::isnan(value) ? std::string("--") : str_sprintf("%.1f°C", value);
+              });
+              target->add_on_enter_callback([=]() {
+                const auto *config = hub->store().get(thermostat_id);
+                *opened = config != nullptr ? config->setpoint : NAN;
+                *steps = 0;
+              });
+              target->add_on_next_callback([=]() {
+                const auto *config = hub->store().get(thermostat_id);
+                if (config != nullptr && !std::isnan(*opened) && stepped() < config->visual.max_temperature)
+                  (*steps)++;
+              });
+              target->add_on_prev_callback([=]() {
+                const auto *config = hub->store().get(thermostat_id);
+                if (config != nullptr && !std::isnan(*opened) && stepped() > config->visual.min_temperature)
+                  (*steps)--;
+              });
+              target->add_on_leave_callback([=]() {
+                const float value = stepped();
+                if (*steps != 0 && !std::isnan(value) && value != *opened) {
+                  const auto result = hub->set_setpoint(thermostat_id, value);
+                  if (!result.ok)
+                    ESP_LOGW("menu", "Thermostat '%s' target: %s", thermostat_id.c_str(), result.error.c_str());
+                }
+                *opened = NAN;
+                *steps = 0;
+              });
+              menu->add_item(target);
+
+              auto enabled_of = [=]() {
+                const auto *config = hub->store().get(thermostat_id);
+                return config == nullptr ? -1 : config->enabled ? 1 : 0;
+              };
+              auto *was = new int(-1);      // the flag the row opened on; -1 outside editing
+              auto *pending = new int(-1);  // the choice being edited
+              auto *enabled = new MenuItemCustom();
+              enabled->set_text(std::string("Enabled"));
+              enabled->set_value_lambda([=](const MenuItem *) {
+                const int state = *pending >= 0 ? *pending : enabled_of();
+                return std::string(state < 0 ? "--" : state > 0 ? "On" : "Off");
+              });
+              enabled->add_on_enter_callback([=]() { *was = *pending = enabled_of(); });
+              auto flip = [=]() {
+                if (*pending >= 0)
+                  *pending = 1 - *pending;
+              };
+              enabled->add_on_next_callback(flip);
+              enabled->add_on_prev_callback(flip);
+              // Never a take-over: the panel does not stop another thermostat to free a relay. A
+              // refused On leaves the row at Off, and the log says why.
+              enabled->add_on_leave_callback([=]() {
+                if (*pending >= 0 && *pending != *was && enabled_of() >= 0) {
+                  const auto result = hub->set_enabled(thermostat_id, *pending > 0);
+                  if (!result.ok) {
+                    ESP_LOGW("menu", "Thermostat '%s' not %s: %s", thermostat_id.c_str(),
+                             *pending > 0 ? "enabled" : "disabled", result.error.c_str());
+                  } else if (!result.persisted) {
+                    ESP_LOGW("menu", "Thermostat '%s' changed but not saved; a reboot undoes it",
+                             thermostat_id.c_str());
+                  }
+                }
+                *was = *pending = -1;
+              });
+              menu->add_item(enabled);
+              id(thermostats_menu)->add_item(menu);
+            }
+            if (id(thermostats_menu)->items_size() == 0) {
+              // An empty submenu cannot be entered, so the row would do nothing at all.
+              auto *note = new MenuItem(MENU_ITEM_LABEL);
+              note->set_text("No thermostats");
+              id(thermostats_menu)->add_item(note);
             }

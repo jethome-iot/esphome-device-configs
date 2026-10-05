@@ -60,6 +60,14 @@ missing is stored enabled and waits, as above. A start can take the relay over i
 refused, which stops the other thermostat and stores it as disabled; one whose sensor or relay
 is missing cannot.
 
+## On the display
+
+**Thermostats** in the display menu of `jxd-r6-e1eth-lcd` lists the thermostats the device
+booted with, each with what its sensor reads; one created later shows after a reboot. A row
+opens the reading, the target and Enabled. The target moves in the thermostat's own step inside
+its range; Enabled starts or stops it like the start over HTTP, never taking a relay over: an
+On that is refused stays Off, and the log says why.
+
 ## Home Assistant
 
 - Home Assistant knows an entity by its name, so **renaming a thermostat makes a new entity
