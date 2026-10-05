@@ -28,7 +28,8 @@ enum class HubAction : uint8_t {
 };
 
 /// Why a running controller is not controlling. Reported over HTTP, never persisted. A missing
-/// sensor or relay is no fault: a thermostat starts only once both are there, and waits till then.
+/// sensor or relay is no fault: a thermostat starts only once its sensor and relays are there,
+/// and waits till then.
 enum class HubFault : uint8_t {
   NONE = 0,
   SENSOR_STALE,
