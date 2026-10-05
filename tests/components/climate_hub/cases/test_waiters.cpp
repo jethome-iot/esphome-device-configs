@@ -161,6 +161,29 @@ TEST_F(HubTest, ATakeOverDisablesAThermostatThatWaits) {
   EXPECT_TRUE(hub().is_running("boiler"));
 }
 
+// The partition cannot record the waiter's flag: the take-over happens now all the same, and
+// says a reboot undoes it.
+TEST_F(HubTest, ATakeOverFromAWaiterThatCannotBeWrittenSaysSo) {
+  ClimateConfig attic = draft("Attic");
+  attic.sensor_id = "gone";
+  this->create(attic);
+  ClimateConfig boiler = draft("Boiler");
+  boiler.enabled = false;
+  this->create(boiler);
+  ASSERT_EQ(0, mkdir((this->file_of("attic") + ".tmp").c_str(), 0755));
+
+  Result result = hub().set_enabled("boiler", true, true);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_FALSE(result.persisted);
+  EXPECT_EQ(Ids{"attic"}, result.stopped);
+  EXPECT_TRUE(hub().is_running("boiler"));
+  EXPECT_FALSE(hub().store().get("attic")->enabled);
+
+  this->reboot();
+  EXPECT_TRUE(hub().store().get("attic")->enabled) << "its file still says enabled";
+  EXPECT_EQ("not started: sensor 'gone' not found", hub().waiting_reason("attic"));
+}
+
 // The holder and everyone else enabled on the relay, in one step: running ones first.
 TEST_F(HubTest, ATakeOverDisablesTheHolderAndEveryThermostatWaitingOnTheRelay) {
   write_file(this->file_of("summer"), file_doc("summer", "Summer", "relay_1"));
@@ -260,10 +283,10 @@ TEST_F(HubTest, AWaiterThatStillCannotStartWaitsWithAFreshReason) {
 }
 
 // The relays a holder drove alone come free with the take-over: the one taking over starts
-// first, then whoever waits for those.
+// first, then whoever waits for those, a cooling relay as much as a heating one.
 TEST_F(HubTest, AfterATakeOverTheWaiterOnTheHoldersOtherRelayStartsSecond) {
   write_file(this->file_of("house"), file_doc("house", "House", "relay_1", "relay_2"));
-  write_file(this->file_of("porch"), file_doc("porch", "Porch", "relay_2"));
+  write_file(this->file_of("porch"), file_doc("porch", "Porch", "", "relay_2"));
   write_file(this->file_of("study"), file_doc("study", "Study", "relay_1", "", false));
   this->reboot();
   ASSERT_EQ("not started: relay 'relay_2' is held by 'house'", hub().waiting_reason("porch"));
