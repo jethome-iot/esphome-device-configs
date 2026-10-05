@@ -13,7 +13,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [filesystem_storage_abstract, littlefs_storage, climate_hub, loop_job]
+    components: [filesystem_storage_abstract, littlefs_storage, climate_hub, loop_job, switch_hold]
 
 littlefs_storage:
   id: user_storage
@@ -137,9 +137,14 @@ what is not there yet.
 
 ## Relays
 
-A running thermostat holds its relays, and puts one back within a loop pass if anything else
-moves it — from the panel, over Modbus, from an automation or from Home Assistant. Two
-thermostats may name the same relay and take turns: only one of them can run at a time.
+A running thermostat holds its relays, in mode `off` too, and only stopping it frees them. The
+hub is the firmware's [`switch_hold`](../switch_hold/switch_hold.h) holder: whatever asks it
+before moving a relay — the panel, the Modbus coils, automation rules, input bindings, the
+relay's Inverted setting — leaves a held one alone, and hears when a stop, a removal or a Save
+that drops a relay frees it, once nothing that started in the same call holds it again. What
+moves a held relay all the same, Home Assistant or the web server's REST, is put back within a
+loop pass. Two thermostats may name the same relay and take turns: only one of them can run at
+a time.
 Starting the second while the first runs is refused, naming the one that holds it, unless it
 takes the relay over, which stops the holder. A take-over by one whose sensor or a relay is not
 on the device is refused, and the holder runs on. Stopping a thermostat opens its relays; one
@@ -205,7 +210,8 @@ got to it.
 - `waiting_reason(id)`: why an enabled thermostat does not run, the sentence its last failed
   start gave as a `warning`, at boot, a Save or an enable (`not started: sensor 'temp_3' not
   found`, `not started: no free climate entity`); `""` once it runs or is disabled
-- `claimed_by(relay_object_id)`: the id of the running thermostat holding it, or `""`
+- `claimed_by(relay_object_id)`: the id of the running thermostat holding it, or `""`;
+  `holder_of(sw)`: its name, which `switch_hold::holder(sw)` answers with
 - `sensor_reading(sensor_object_id)`: what a sensor reads now, `NaN` without a finite reading
   in °C
 - `create(draft)`, `update(id, doc)`, `remove(id)`, `set_enabled(id, enabled, take_over)`,

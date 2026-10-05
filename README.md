@@ -95,7 +95,7 @@ Shared code and tooling stay at the repository root:
 
 | Directory  | Contents |
 | ---------- | -------- |
-| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `climate_hub` (the thermostats, each a climate entity), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `web_climate_editor` (the thermostat API of `climate_hub`), `crash_report` (the last panic's record, written to that partition at the next boot), `web_device_dashboard` (the web UI at `/` and its device API), `web_auth` (the web server's credentials, changeable at runtime), `web_origin_guard` (the cross-origin refusal every handler on that server answers with), `loop_job` (what a web handler hands the loop task so it does not edit its state from the server's), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), `entity_config` (the per-entity settings) with the `config_base` / `config_json` it is built on, `bindings` (an input driving a relay), `jethome_update` (the firmware update entity) over the `jethome_manifest` parser of the firmware server's answer, `firmware_rollback` (booting the firmware in the other app slot, for the dashboard and the display menu), `status_indicator` (the CPU board's LED: on, off, blinking, pulses), and `display_menu_base` with `graphical_display_menu` (upstream's, with the menu options `packages/display/menu.yaml` needs) |
+| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `climate_hub` (the thermostats, each a climate entity), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `web_climate_editor` (the thermostat API of `climate_hub`), `crash_report` (the last panic's record, written to that partition at the next boot), `web_device_dashboard` (the web UI at `/` and its device API), `web_auth` (the web server's credentials, changeable at runtime), `web_origin_guard` (the cross-origin refusal every handler on that server answers with), `loop_job` (what a web handler hands the loop task so it does not edit its state from the server's), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), `entity_config` (the per-entity settings) with the `config_base` / `config_json` it is built on, `bindings` (an input driving a relay), `switch_hold` (who holds a relay: a running thermostat, which the panel, Modbus, the rules, the bindings and the relay settings ask before they move one), `jethome_update` (the firmware update entity) over the `jethome_manifest` parser of the firmware server's answer, `firmware_rollback` (booting the firmware in the other app slot, for the dashboard and the display menu), `status_indicator` (the CPU board's LED: on, off, blinking, pulses), and `display_menu_base` with `graphical_display_menu` (upstream's, with the menu options `packages/display/menu.yaml` needs) |
 | `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `device-files.py` (the `web_file_browser` API from a terminal), `qemu.sh` (the emulator), `setup.sh` / `setup.bat` |
 | `dist/`    | Generated self-contained configs the ESPHome Builder imports |
 | `doc/`     | Guides, plus the README's UI mockups in `doc/images/` |
@@ -237,8 +237,9 @@ address is the access point's.
 
 Relay states, digital input states and temperature readings at a glance, and it switches
 the relays: LEFT and RIGHT move the selection along the relay row — the selected number is
-drawn inverted on the device — and CENTER toggles that relay. UP and DOWN scroll the
-temperature column.
+drawn inverted on the device — and CENTER toggles that relay. A relay a running thermostat
+drives is not toggled: CENTER names the thermostat for three seconds instead. UP and DOWN
+scroll the temperature column.
 
 **Getting here**: LEFT from the main page.
 
@@ -266,7 +267,7 @@ untouched; any button then takes the page away, and it leaves on its own after h
 
 <img src="doc/images/jxd-r6-menu-ui.svg" width="400" alt="Menu">
 
-- **Relays** - a submenu per relay: toggle it, and set its inversion, start mode and bound input
+- **Relays** - a submenu per relay: toggle it, and set its inversion, start mode and bound input; on a relay a running thermostat drives, the State row shows the thermostat and does not toggle, and Inverted opens on the thermostat's name and does not change
 - **Inputs** - a submenu per input: live state and inversion
 - **Temperatures** - temperature sensor readings; a DS18B20 row opens its slot: the ROM address and a forget command
 - **Info** - network information (Ethernet and WiFi IP and MAC addresses, access point password), then the serial number from the CPU board's EEPROM (`--` when it holds none)
@@ -290,7 +291,7 @@ page, anything else on the main page.
 | `BACK`      | Main page; from the main page blanks the screen; in the menu goes up one level, then exits |
 | `LEFT`      | Main page → status page; on the status page selects the previous relay; adjusts menu values |
 | `RIGHT`     | Main page → time page; on the status page selects the next relay; adjusts menu values      |
-| `CENTER`    | Main page → menu; on the status page toggles the selected relay; in the menu enters        |
+| `CENTER`    | Main page → menu; on the status page toggles the selected relay, or names the thermostat that drives it; in the menu enters |
 | `UP` `DOWN` | Move through the menu; on the status page scroll the temperatures                          |
 
 ## Documentation
@@ -309,7 +310,7 @@ The device can act as a Modbus RTU server (slave) for integration with PLCs, SCA
 
 - **Slave Address**: 1 by default
 - **Serial**: 9600 8N1 by default
-- **Coils** `0x0000`-`0x0005` (FC 0x01/0x05/0x0F): read/write relay 1-6
+- **Coils** `0x0000`-`0x0005` (FC 0x01/0x05/0x0F): read/write relay 1-6. A write that would move a relay a running thermostat drives answers exception `0x04`; writing the state it already has is accepted, and FC 0x0F writes the coils before a refused one
 - **Discrete Inputs** `0x0010`-`0x0015` (FC 0x02): read digital input 1-6
 - **Holding Registers** `0x0000`-`0x000F` (FC 0x03/0x04): temperature 1-16, signed, 0.1 °C; `0x8000` = no reading
 - **Other registers**: a courtesy response answers `0` instead of an exception

@@ -9,20 +9,25 @@ set themselves up.
 
 | Entity | Setting | Choices | Effect |
 | --- | --- | --- | --- |
-| Relay | `Inverted` | `No`, `Yes` | Swaps the physical output: the app's On drives the pin low |
-| Relay | `Start mode` | `Off`, `On`, `Last` | What the relay does at power-up |
+| Relay | `Inverted` | `No`, `Yes` | Swaps the physical output: the app's On drives the pin low. Refused, naming the thermostat, while a running thermostat drives the relay |
+| Relay | `Start mode` | `Off`, `On`, `Last` | What the relay does at power-up. On a relay a thermostat drives, `On` and `Last` close it until the thermostat takes it over |
 | Relay | `Bind to` | `None`, `Input 1` … `Input 6` | The input that drives this relay directly; needs a `Binding` other than `Disabled` |
 | Relay | `Binding` | `Disabled`, `Toggle`, `Follow` | `Toggle` flips the relay on each rising edge of the input as reported, after its `Inverted`; `Follow` makes the relay copy the input, at boot too, so it wins over `Start mode` |
 | Input | `Inverted` | `No`, `Yes` | A closed contact is reported as Off. Flipping it re-reports the input at once; bindings and automations take that as a level, not as a press or release |
 
-The binding rules are in [components/bindings](../components/bindings/README.md).
+The binding rules are in [components/bindings](../components/bindings/README.md). A binding
+does not move a relay a running thermostat drives; once the thermostat frees it, a `Follow`
+relay takes its input's state at once. What else such a relay does and does not do is in
+[Thermostats](CLIMATE.md#a-running-thermostats-relays).
 
 ## Display menu
 
 **Relays → Relay N** holds `State`, `Inverted`, `Start mode`, `Bind to` and `Binding`;
 **Inputs → Input N** holds the live state and `Inverted`. CENTER opens a setting, LEFT and
 RIGHT step through its choices, CENTER or BACK closes it; the choice is applied when the row
-closes and written to the partition a few seconds later.
+closes and written to the partition a few seconds later. On a relay a running thermostat
+drives, `State` shows the thermostat's name and does not toggle, and `Inverted` opens on that
+name and does not step.
 
 ## Files
 

@@ -44,6 +44,15 @@ boundaries; everything else is local to its file.
   so renaming a relay in YAML, or a `Temp N` slot that stays empty, leaves it not running. The
   QEMU overlay `qemu/climate-plant.yaml` gives it a room to control. `web_climate_editor`
   (`features/climate-editor.yaml`) edits the thermostats under `/climate-editor/api`.
+- `climates` is also the firmware's `switch_hold` holder: `switch_hold::holder(id(relay_N))`
+  names the running thermostat that drives a relay, `""` when none does. Everything that moves
+  a relay on its own asks it first — the status page's CENTER (`display/buttons.yaml`, with
+  the note `display/status-page.yaml` draws), the menu's State and Inverted rows
+  (`display/menu.yaml`), the Modbus coils, `automations`, `bindings` and the `switch_settings`
+  Inverted field — and `bindings` hears from it when a relay is freed. Home Assistant and the
+  web server's REST do not ask; the thermostat puts the relay back. The list of writers and what
+  each gets is in [CLIMATE.md](CLIMATE.md#a-running-thermostats-relays); a new writer of a relay
+  asks too.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
   and expanded inside the main-page lambda in `display/display.yaml`. Package substitutions share
   one namespace with the device config's.
@@ -88,6 +97,7 @@ boundaries; everything else is local to its file.
 | 700 | `apply_modbus_bus` (the stored baud rate, parity and stop bits into `jxm_uart2`, and the Modbus frame timing re-derived from them), then `modbus_bus_applied = true`; the selects' `on_value` is a no-op before that flag. Build a submenu per entry of those vectors, named after the entity, with its settings rows |
 | 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); restore the timezone and read the RTC (`setup_time`, called from the device config). `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
 | 599.5 | `climate_hub` sets up: it registers its pool of climate entities, loads the thermostats and starts the enabled ones, so it sits below the `Temp N` sensors (600) and above `automations`, which may one day name a thermostat |
+| 599.25 | `bindings` sets up and drives the `Follow` relays once, skipping those a thermostat claimed at 599.5 |
 | 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created. `board_info` reads the EEPROM here too, once `eeprom_cpu` (600) has answered |
 | 500 | add a `Temp N` submenu per bound slot to the Temperatures menu; add a row per loaded rule to the Automations menu |
 | 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
@@ -105,8 +115,10 @@ the next, saying nothing either time.
 Entity settings ride on `setup_priority` instead, ahead of every `on_boot` block: the
 `config_json` keeper loads the files at `HARDWARE + 5`, and one apply component per settings type
 pushes the values into the entities at `HARDWARE + 1`, before the switches and binary sensors set
-themselves up. `bindings` sets up at `DATA`, after every entity, and drives the `Follow` relays
-once there; until then input changes are ignored. See [ENTITY_SETTINGS.md](ENTITY_SETTINGS.md).
+themselves up. `bindings` sets up at `DATA - 0.75`, after every entity and after the thermostats
+have claimed their relays, and drives the `Follow` relays they left free once there; until then
+input changes are ignored. A relay whose start mode closes it at boot stays closed until its
+thermostat's first loop pass. See [ENTITY_SETTINGS.md](ENTITY_SETTINGS.md).
 
 ## Settings
 
@@ -132,8 +144,9 @@ see "More slots" in [ONEWIRE_WORKFLOW.md](ONEWIRE_WORKFLOW.md).
 
 `modbus_server` on `jxm_uart2`. Coils and discrete inputs share one bit table (a bit is a coil iff
 it has a `write_lambda`), holding and input registers share one register table, hence inputs sit
-at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; keep
-`scripts/modbus_probe.py` and the README in step with it.
+at `0x0010`. A coil's `write_lambda` returns `false`, which `modbus_server` answers with exception
+`0x04`, when the write would move a relay a thermostat holds. The map is documented at the top of
+`features/modbus-server.yaml`; keep `scripts/modbus_probe.py` and the README in step with it.
 
 ## Coupled to upstream internals
 

@@ -24,11 +24,30 @@ at the next boot. The file format and the C++ API are in
   relay's last move, whichever thermostat made it. Saving a thermostat does not restart its
   cycle, and a PID keeps what it has learnt unless the Save changes its control law or its
   sensor.
-- **A relay belongs to the running thermostat.** Switched from anywhere else — the panel,
-  Modbus, an automation, Home Assistant — it is put back within a moment. Two thermostats may
-  name one relay and take turns, a summer and a winter profile on one boiler; only one of them
-  runs at a time, and taking the relay over from the other leaves it as it is. One that could
-  not run, its sensor or a relay missing, cannot take it over.
+- **A relay belongs to the running thermostat**, in mode off too, which keeps it open; only
+  stopping the thermostat frees it. What the rest of the device does with such a relay is
+  below. Two thermostats may name one relay and take turns, a summer and a winter profile on
+  one boiler; only one of them runs at a time, and taking the relay over from the other leaves
+  it as it is. One that could not run, its sensor or a relay missing, cannot take it over.
+
+## A running thermostat's relays
+
+What everything else that switches a relay does with one a running thermostat drives:
+
+| Writer | On a relay a running thermostat drives |
+| --- | --- |
+| The panel: CENTER on the status page | does not toggle it, and names the thermostat for three seconds |
+| The panel: **Relays → Relay N → State** | shows the thermostat's name instead of On or Off, and does not toggle |
+| Modbus coils `0x0000`–`0x0005` | a write that would move it answers exception `0x04`; writing the state it already has is accepted |
+| Automation rules, `switch` actions | leave it alone and log the rule and the thermostat; the rest of the rule runs |
+| Input bindings, Toggle and Follow | leave it alone; once the thermostat frees it, a Follow relay takes its input's state at once |
+| Home Assistant, the web server's REST | switch it, and the thermostat puts it back within a moment; the dashboard locks its own toggle |
+| **Inverted** in the relay's settings, on the panel or the dashboard | refused, naming the thermostat; Start mode and the binding change as usual |
+
+**The boot pulse.** A relay whose Start mode is On or Last closes when the device starts, before
+any thermostat runs, and stays closed until the thermostat that drives it takes it over at its
+first pass, a moment later; an input binding does not move it in between. Start mode Off on
+that relay avoids the pulse.
 
 ## Storage
 

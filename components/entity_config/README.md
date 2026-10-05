@@ -11,7 +11,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [config_base, config_json, entity_config]
+    components: [config_base, config_json, entity_config, switch_hold]
 
 config_json:
   id: config_json_keeper
