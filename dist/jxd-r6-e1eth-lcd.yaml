@@ -140,6 +140,7 @@ external_components:
     components:
       - display_menu_base
       - graphical_display_menu
+      - panel_text
 i2c_eeprom:
   - id: eeprom_cpu
     size: 64KB
@@ -676,14 +677,27 @@ esphome:
       then:
         - lambda: |-
             using namespace display_menu_base;
+            using namespace panel_text;
             using Field = entity_config::SwitchSettingsJson::Field;
+            static constexpr size_t ROW = 18;  // f7x14_mod2 glyphs across the panel
+            auto *font = id(f7x14_mod2);
+            const HasGlyph has = [font](uint32_t code_point) { return font->find_glyph(code_point) != nullptr; };
+            // The same cut for On and Off, so the label does not change as the state does.
+            auto with_state = [has](const std::string &name, bool on) {
+              return panel_fit(panel_safe(name, 4 * ROW, has), ROW - 6) + (on ? " (On)" : " (Off)");
+            };
             auto add_row = [](MenuItemMenu *menu, const char *text, std::function<size_t()> count,
                               std::function<std::string(int)> label, std::function<int()> index,
                               std::function<void(size_t)> set) {
               auto *pending = new int(-1);  // the choice being edited; -1 outside editing
+              // The row reads "text (value)" or "text >value<": a value too long for the rest
+              // of it is cut, so the closing mark stays on the panel.
+              const size_t taken = panel_glyphs(text) + 3;
+              const size_t room = taken < ROW ? ROW - taken : 0;
               auto *row = new MenuItemCustom();
               row->set_text(std::string(text));
-              row->set_value_lambda([=](const MenuItem *) { return label(*pending >= 0 ? *pending : index()); });
+              row->set_value_lambda(
+                  [=](const MenuItem *) { return panel_fit(label(*pending >= 0 ? *pending : index()), room); });
               row->add_on_enter_callback([=]() { *pending = index(); });
               row->add_on_next_callback([=]() { *pending = (*pending + 1) % static_cast<int>(count()); });
               row->add_on_prev_callback([=]() {
@@ -701,8 +715,8 @@ esphome:
             auto *sws = id(switch_settings);
             for (auto *sw : id(relays)) {
               auto *menu = new MenuItemMenu();
-              menu->set_text([sw](const MenuItem *) {
-                return sw->get_name().str() + (sw->state ? " (On)" : " (Off)");
+              menu->set_text([sws, sw, with_state](const MenuItem *) {
+                return with_state(sws->display_name(sw), sw->state);
               });
               // Not a MenuItemSwitch: a relay a thermostat drives is the thermostat's, and the row
               // only logs whose it is.
@@ -725,7 +739,9 @@ esphome:
               // set_option refuses only an Inverted change on a relay a thermostat drives.
               auto field_row = [&](const char *text, Field field) {
                 add_row(menu, text, [sws, field]() { return sws->option_count(field); },
-                        [sws, sw, field](int index) { return sws->option_label(sw, field, index); },
+                        [sws, sw, field, has](int index) {
+                          return panel_safe(sws->option_label(sw, field, index), 4 * ROW, has);
+                        },
                         [sws, sw, field]() { return sws->option_index(sw, field); },
                         [sws, sw, field](size_t index) {
                           if (!sws->set_option(sw, field, index))
@@ -743,8 +759,8 @@ esphome:
             auto *bss = id(binary_sensor_settings);
             for (auto *input : id(inputs)) {
               auto *menu = new MenuItemMenu();
-              menu->set_text([input](const MenuItem *) {
-                return input->get_name().str() + (input->state ? " (On)" : " (Off)");
+              menu->set_text([bss, input, with_state](const MenuItem *) {
+                return with_state(bss->display_name(input), input->state);
               });
               auto *state_row = new MenuItem(MENU_ITEM_LABEL);
               state_row->set_text([input](const MenuItem *) {
@@ -1771,12 +1787,16 @@ image:
 font:
   - file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/fonts/7x14-mod2.bdf
     id: f7x14_mod2
+    glyphsets:
+      - GF_Latin_Kernel
+      - GF_Cyrillic_Core
   - file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/fonts/6x12.bdf
     id: f6x12
   - file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/fonts/5x7.bdf
     id: f5x7
   - file: https://raw.githubusercontent.com/jethome-iot/esphome-device-configs/master/assets/fonts/spleen-12x24.bdf
     id: big_label_font
+panel_text: null
 graphical_display_menu:
   id: display_menu
   display: display1

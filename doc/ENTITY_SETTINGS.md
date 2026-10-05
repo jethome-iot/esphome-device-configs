@@ -30,6 +30,11 @@ closes and written to the partition a few seconds later. On a relay a running th
 drives, `State` does not toggle and an `Inverted` change is refused; the log names the
 thermostat.
 
+A relay or an input with a label goes by it in the Relays and Inputs lists and in `Bind to`'s
+choices, as soon as it is set. A label too long for its row is cut, to 12 characters in the
+lists, where the state follows it, and to 8 in `Bind to`, the last of them `…`. A character the
+menu font cannot draw shows as `?`; the font has Latin and Cyrillic.
+
 ## Files
 
 `/littlefs/config/switch.json` and `/littlefs/config/binary_sensor.json`, one record per entity
