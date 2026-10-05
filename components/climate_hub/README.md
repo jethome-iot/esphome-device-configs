@@ -145,10 +145,12 @@ a loop pass. From the second on, the relay stays where it was moved until its `m
 dwell. A relay moved where the thermostat would switch it now stays and is not counted. After
 5 moves with no 10 minutes of quiet after a put-back, the thermostat reports
 `relay_contested`: it goes on controlling and putting the relay back, and the fault clears by
-itself 10 minutes after the last put-back. During `sensor_missing`, `sensor_stale` and
-`overtemp`, a relay closed from elsewhere is opened again on every pass, without waiting.
-Mode `off` keeps holding the relays open and puts them back the same way; only stopping the
-thermostat, by disabling or removing it, frees them.
+itself 10 minutes after the last put-back. The count starts over when a thermostat starts or
+takes the relay over, not at a Save, and a relay the thermostat finds moved when it claims it,
+closed by Start mode On at boot say, counts as no move. During `sensor_missing`,
+`sensor_stale` and `overtemp`, a relay closed from elsewhere is opened again on every pass,
+without waiting. Mode `off` keeps holding the relays open and puts them back the same way; only
+stopping the thermostat, by disabling or removing it, frees them.
 
 Two thermostats may name the same relay and take turns: only one of them can run at a time.
 Starting the second while the first runs is refused, naming the one that holds it, unless it
