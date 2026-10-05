@@ -4,9 +4,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <functional>
+#include <map>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -49,6 +52,13 @@ inline void fail_on_reboot() { host::arm_reexec("/nonexistent/dallas-scan-test-r
 class TestScan : public DallasScan {
  public:
   int restarts{0};
+
+  // One poll without the conversion wait: the scheduler runs the read of each slot after the first.
+  void poll() {
+    this->read_slot_(0);
+    for (size_t pass = 0; pass <= this->max_sensors(); pass++)
+      App.scheduler.call(millis());
+  }
 
  protected:
   void restart_() override { this->restarts++; }
@@ -107,6 +117,34 @@ inline sensor::Sensor &boiler() {
   }();
   return *instance;
 }
+
+// The harness bus, except that a device given a reading answers with a 12-bit DS18B20 scratch
+// pad that passes its checksum.
+class ReadingBus : public one_wire_host::HostOneWireBus {
+ public:
+  void set_reading(uint64_t address, float celsius) {
+    const auto raw = (int16_t) std::lround(celsius * 16);
+    std::array<uint8_t, 9> pad = {(uint8_t) (raw & 0xff), (uint8_t) (raw >> 8), 0x4b, 0x46, 0x7f, 0xff, 0x0c, 0x10, 0};
+    pad[8] = crc8(pad.data(), 8);
+    this->pads_[address] = pad;
+  }
+  // Silent again, as if unplugged.
+  void clear_readings() { this->pads_.clear(); }
+
+  void write64(uint64_t address) override {
+    this->selected_ = address;
+    this->next_ = 0;
+  }
+  uint8_t read8() override {
+    auto pad = this->pads_.find(this->selected_);
+    return pad == this->pads_.end() || this->next_ >= pad->second.size() ? 0xFF : pad->second[this->next_++];
+  }
+
+ protected:
+  std::map<uint64_t, std::array<uint8_t, 9>> pads_;
+  uint64_t selected_{0};
+  size_t next_{0};
+};
 
 // Listed sensors are set before boot(), as codegen sets them before setup().
 using Listing = std::function<void(TestScan &)>;
@@ -215,7 +253,7 @@ class Boots : public ::testing::Test {
 
   static LogCapture &log() { return LogCapture::instance(); }
 
-  one_wire_host::HostOneWireBus bus;
+  ReadingBus bus;
   std::string folder;
   std::vector<std::unique_ptr<TestScan>> boots;
   std::vector<std::unique_ptr<dir_storage::DirStorage>> storages;
@@ -225,15 +263,27 @@ class Boots : public ::testing::Test {
 // The slot and assign cases, over the file storage the JXD configs use.
 class Slots : public Boots {};
 
-// The file a table is written as: {"slot": N, "address": "0x..."} for each bound slot.
-inline std::string slot_file(const std::vector<std::pair<int, const char *>> &records) {
+// The file a table is written as: {"slot": N, "address": "0x..."} for each bound slot, then
+// {"slot": N, "offset": X} for each slot with an offset, the list left out with none.
+inline std::string slot_file(const std::vector<std::pair<int, const char *>> &records,
+                             const std::vector<std::pair<int, const char *>> &offsets = {}) {
   std::string out = R"({"version":1,"records":[)";
   for (size_t i = 0; i < records.size(); i++) {
     if (i > 0)
       out += ",";
     out += R"({"slot":)" + std::to_string(records[i].first) + R"(,"address":")" + records[i].second + R"("})";
   }
-  return out + "]}";
+  out += "]";
+  if (!offsets.empty()) {
+    out += R"(,"offsets":[)";
+    for (size_t i = 0; i < offsets.size(); i++) {
+      if (i > 0)
+        out += ",";
+      out += R"({"slot":)" + std::to_string(offsets[i].first) + R"(,"offset":)" + offsets[i].second + "}";
+    }
+    out += "]";
+  }
+  return out + "}";
 }
 
 }  // namespace esphome::dallas_scan::testing
