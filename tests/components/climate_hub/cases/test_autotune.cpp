@@ -109,6 +109,7 @@ TEST_F(Calibration, ARoomWithRadiatorsGetsItsGainsInAboutTwoHours) {
   EXPECT_LT(hours, 3.f);
   EXPECT_EQ(run->elapsed_ms(hub().ms + 60000), run->elapsed_ms(hub().ms)) << "an ended run's clock stops";
   EXPECT_EQ(6u, run->tuner().extremes().size());
+  EXPECT_FALSE(run->tuner().noisy());
 
   // ZN PI from the measured Ku and Pu, to the six decimals the file keeps, written and run.
   const float ku = run->tuner().ku();
@@ -452,6 +453,20 @@ TEST_F(Calibration, ADayEndsIt) {
   EXPECT_LE(run->elapsed_ms(hub().ms), AUTOTUNE_MAX_MS + 61000);
 }
 
+// A probe that hovers at the target crosses it on every other reading and never swings the relay.
+TEST_F(Calibration, ANoisyProbeAtTheTargetEndsIt) {
+  const std::string id = this->start(living_room(), 21.f);
+  ASSERT_TRUE(this->calibrate(id).ok);
+  // The first crossing starts the clock; each after it is one interval.
+  for (uint32_t i = 0; i <= PidAutotuner::MAX_INTERVALS; i++)
+    hold(i % 2 == 0 ? 20.9f : 21.1f, 10, 1);
+  EXPECT_TRUE(hub().autotune(id)->running());
+  hold(21.1f, 10, 1);
+  EXPECT_EQ(AutotuneEnd::NOISY, hub().autotune(id)->reason());
+  EXPECT_EQ(nullptr, hub().runtime_of(id)->autotune()) << "back to the PID";
+  EXPECT_EQ(0u, hub().autotune(id)->tuner().phase_count());
+}
+
 // A heater that cannot lift the room across the band.
 TEST_F(Calibration, SixHoursWithoutASwitchEndIt) {
   const std::string id = this->start(living_room(), 19.f);
@@ -746,6 +761,13 @@ TEST(AutotuneRun, ItsLimitsCountFromTheStartAndTheLastSwitch) {
   run.feed(20.f, 1000 + 5 * 3600000u);
   EXPECT_EQ(AutotuneEnd::NONE, run.limit_reached(1000 + 10 * 3600000u)) << "it switched at five hours";
   EXPECT_EQ(AutotuneEnd::TIMEOUT, run.limit_reached(1000 + AUTOTUNE_MAX_MS));
+}
+
+TEST(AutotuneRun, CrossingsPastTheCapAreNoise) {
+  AutotuneRun run(AutotuneDirection::HEAT, AutotuneRule::ZN_PI, PidGains{}, 21.f, 1000);
+  for (uint32_t n = 0; n < PidAutotuner::MAX_INTERVALS + 3; n++)
+    run.feed(n % 2 == 0 ? 20.9f : 21.1f, 1000 + n * 10000);
+  EXPECT_EQ(AutotuneEnd::NOISY, run.limit_reached(1000 + 3600000u));
 }
 
 }  // namespace esphome::climate_hub::testing

@@ -58,6 +58,7 @@ enum class AutotuneEnd : uint8_t {
   RELAY_CONTESTED,
   TIMEOUT,
   NO_SWITCH,
+  NOISY,
 };
 
 /// The tuning rule that turns Ku and Pu into gains. A wire format.

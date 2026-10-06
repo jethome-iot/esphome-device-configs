@@ -205,14 +205,15 @@ them. A room with radiators takes about an hour and a half, a floor heating eigh
 mode's otherwise. Home Assistant sees only heating and idle, as from any PID.
 
 A run ends without gains on `value=false`, a target or a mode changed from anywhere, a Save, the
-thermostat stopped or taken over, any fault, 24 hours in all, or 6 hours without a relay switch;
-the thermostat goes back to its PID with the gains it had. It lives in memory only, so a reboot
+thermostat stopped or taken over, any fault, 24 hours in all, 6 hours without a relay switch, or
+readings that cross the target more than 64 times, as a noisy probe at the target makes them; the
+thermostat goes back to its PID with the gains it had. It lives in memory only, so a reboot
 ends it too.
 
 `status` shows the last run as `autotune` until the next one, a delete or a reboot: `state`
 (`running`, `succeeded`, `failed`), the `reason` a failed one ended (`cancelled`, `target_changed`,
 `mode_changed`, `saved`, `stopped`, `taken_over`, `sensor_stale`, `overtemp`, `relay_contested`,
-`timeout`, `no_switch`), `direction`, `rule`, `phase` (`on` or `off`) and `aim`, the reading that
+`timeout`, `no_switch`, `noisy`), `direction`, `rule`, `phase` (`on` or `off`) and `aim`, the reading that
 switches the relay next, while it runs; `swings`, `elapsed_s`, the `extremes` of each swing in
 order (`at_s`, `temperature`), `ku` and `pu` (seconds) once it succeeded, the `flags` that warn
 about a result (`asymmetric`: the room rose and fell at very different rates; `uneven`: the swings

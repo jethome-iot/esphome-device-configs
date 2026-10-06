@@ -639,6 +639,8 @@ const RULE_FACTORS: Record<AutotuneRule, [number, number, number]> = {
 }
 const AUTOTUNE_MAX_MS = 24 * 3600 * 1000
 const AUTOTUNE_STALL_MS = 6 * 3600 * 1000
+// PidAutotuner::MAX_INTERVALS: more crossings are noise around the target, and end the run.
+const AUTOTUNE_MAX_INTERVALS = 64
 const AUTOTUNE_EVEN_RATIO = 0.66
 
 type Side = 'init' | 'positive' | 'negative'
@@ -651,6 +653,7 @@ class Tuner {
   crossing: Side = 'init'
   lastCrossing: number | null = null
   intervals: number[] = []
+  noisy = false
   lastRelay: Side = 'init'
   phaseMin = NaN
   phaseMax = NaN
@@ -688,7 +691,8 @@ class Tuner {
       (this.crossing === 'positive' && error < -quarter) || (this.crossing === 'negative' && error > quarter)
     if (crossed) {
       this.crossing = this.crossing === 'positive' ? 'negative' : 'positive'
-      if (this.lastCrossing !== null) this.intervals.push(at - this.lastCrossing)
+      if (this.lastCrossing !== null && this.intervals.length >= AUTOTUNE_MAX_INTERVALS) this.noisy = true
+      else if (this.lastCrossing !== null) this.intervals.push(at - this.lastCrossing)
       this.lastCrossing = at
     }
     if (this.relay !== this.lastRelay) {
@@ -709,7 +713,7 @@ class Tuner {
 
     // The first pass with enough data ends it.
     const pairs = Math.min(this.mins.length, this.maxs.length)
-    if (this.intervals.length < 2 || pairs < 3) return output
+    if (this.noisy || this.intervals.length < 2 || pairs < 3) return output
     let total = 0
     for (let i = 1; i < pairs - 1; i++) total += Math.abs(this.maxs[i]! - this.mins[i + 1]!)
     const amplitude = total / (pairs - 2) / 2
@@ -1097,6 +1101,10 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       return false
     }
     feedRun(doc, rt, run, temp, t)
+    if (run.tuner.noisy) {
+      endRun(doc, rt, 'noisy', t)
+      return false
+    }
     if (!run.tuner.finished) return true
     const [kp, ki, kd] = RULE_FACTORS[run.rule]
     const { ku, pu } = run.tuner

@@ -69,6 +69,8 @@ AutotuneEnd AutotuneRun::limit_reached(uint32_t now_ms) const {
     return AutotuneEnd::TIMEOUT;
   if (now_ms - this->last_switch_ms_ >= AUTOTUNE_STALL_MS)
     return AutotuneEnd::NO_SWITCH;
+  if (this->tuner_.noisy())
+    return AutotuneEnd::NOISY;
   return AutotuneEnd::NONE;
 }
 

@@ -169,6 +169,22 @@ TEST(PidAutotuner, AFinishedTunerChangesNothing) {
   EXPECT_EQ(ku, tuner.ku());
 }
 
+// A probe hovering at the target crosses it on every other reading, inside the relay's band: past
+// MAX_INTERVALS crossings the tuner keeps no more of them, and never finishes.
+TEST(PidAutotuner, AProbeHoveringAtTheTargetIsNoisy) {
+  PidAutotuner tuner = heating();
+  // The first reading picks a side and the second crosses with no interval yet: 64 more fill it.
+  uint32_t n = 0;
+  for (; n < PidAutotuner::MAX_INTERVALS + 2; n++)
+    tuner.update(20.f, n % 2 == 0 ? 19.9f : 20.1f, 1000 + n * 10000);
+  EXPECT_FALSE(tuner.noisy());
+  tuner.update(20.f, n % 2 == 0 ? 19.9f : 20.1f, 1000 + n * 10000);
+  EXPECT_TRUE(tuner.noisy());
+  EXPECT_EQ(0u, tuner.phase_count()) << "never past the relay's band";
+  EXPECT_FALSE(feed(&tuner, SWINGS, std::size(SWINGS), 2000000)) << "a swing after it finds nothing";
+  EXPECT_EQ(0.f, tuner.ku());
+}
+
 // Cooling alone swings between off and full cooling, so d is a half as for heating.
 TEST(PidAutotuner, ConfigNarrowsTheRelayToOneDirection) {
   PidAutotuner cooling;

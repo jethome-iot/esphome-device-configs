@@ -124,6 +124,8 @@ const char *autotune_end_to_string(AutotuneEnd v) {
       return "timeout";
     case AutotuneEnd::NO_SWITCH:
       return "no_switch";
+    case AutotuneEnd::NOISY:
+      return "noisy";
   }
   return "";
 }

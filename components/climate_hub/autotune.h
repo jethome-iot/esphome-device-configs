@@ -31,7 +31,7 @@ class AutotuneRun {
 
   /// One sample: whether the run's relay should be closed now.
   bool feed(float value, uint32_t now_ms);
-  /// The limit the run has reached at `now_ms`, NONE within both.
+  /// The limit the run has reached at `now_ms`, NONE within every one.
   AutotuneEnd limit_reached(uint32_t now_ms) const;
   /// The tuner has measured Ku and Pu; the hub then stores result() and calls succeed().
   bool found() const { return this->tuner_.finished(); }

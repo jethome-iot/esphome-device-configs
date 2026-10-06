@@ -9,7 +9,8 @@ namespace esphome::climate_hub {
 /// ESPHome's relay-oscillation autotuner (components/pid/pid_autotuner) with the clock passed in
 /// and every member initialised: the same relay function, the same two detectors, the same stop
 /// point and the same Ku and Pu, so a run gives upstream's numbers. Added beside them: the
-/// extremes in the order they came, for a chart and for the spread of the swings.
+/// extremes in the order they came, for a chart and for the spread of the swings, and a cap on
+/// the crossings it keeps.
 class PidAutotuner {
  public:
   struct Gains {
@@ -44,6 +45,13 @@ class PidAutotuner {
   /// The smallest peak-to-peak swing over the largest, the first phase left out; NaN with
   /// fewer than two swings.
   float swing_ratio() const;
+
+  /// Crossings of the target it keeps the time between: a run stops at a handful, a probe that
+  /// hovers at the target crosses on every other reading.
+  static constexpr size_t MAX_INTERVALS = 64;
+  /// More crossings came than that: the readings are noise around the target, not a swing, and
+  /// the run neither keeps them nor finishes.
+  bool noisy() const { return this->frequency_.overflowed; }
 
   /// Relay switches so far.
   uint32_t phase_count() const { return this->relay_.phase_count; }
@@ -83,6 +91,7 @@ class PidAutotuner {
     float noiseband{0.05f};
     // Upstream takes a crossing at 0 ms for none yet; the flag tells them apart.
     bool crossed{false};
+    bool overflowed{false};
     uint32_t last_crossing_ms{0};
     std::vector<uint32_t> intervals;
   };

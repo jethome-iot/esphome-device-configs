@@ -55,9 +55,10 @@ the next calibration, a delete or a reboot.
 
 A calibration ends without new gains when it is cancelled, when the target or the mode changes
 from anywhere (Home Assistant, the web server, the editor, a rule, a preset), when the thermostat
-is saved, switched off, deleted or taken over, on any fault, after 24 hours, or after 6 hours
-without a relay switch: a heater that cannot cross the band. A reboot ends it too. The status
-says which, and the thermostat goes back to its PID with the gains it had.
+is saved, switched off, deleted or taken over, on any fault, after 24 hours, after 6 hours
+without a relay switch (a heater that cannot cross the band), or when a noisy probe crosses the
+target more than 64 times. A reboot ends it too. The status says which, and the thermostat goes
+back to its PID with the gains it had.
 
 ## A running thermostat's relays
 

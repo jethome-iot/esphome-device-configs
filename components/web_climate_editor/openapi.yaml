@@ -509,9 +509,10 @@ paths:
         A run ends without gains when it is cancelled (`value=false`), when the
         target or the mode changes from anywhere, at a Save, when the
         thermostat stops or another takes its relay over, on any fault, after
-        24 hours in all, and after 6 hours without a relay switch. The
-        thermostat then goes back to its PID with the gains it had, from a
-        clean start.
+        24 hours in all, after 6 hours without a relay switch, and when the
+        readings cross the target more than 64 times, as a noisy probe at the
+        target makes them. The thermostat then goes back to its PID with the
+        gains it had, from a clean start.
 
         The parameters are read first: `400` for a missing or malformed `id`
         or `value`, a `direction` other than `heat` or `cool`, a `rule` not
@@ -1567,8 +1568,9 @@ components:
             Why a failed run ended: `cancelled`; a target or a mode changed
             from anywhere; a Save; the thermostat stopped (`stopped`) or
             another took its relay over (`taken_over`); a fault; 24 hours in
-            all (`timeout`); 6 hours without a relay switch (`no_switch`). `""`
-            while it runs and after a success.
+            all (`timeout`); 6 hours without a relay switch (`no_switch`);
+            readings that crossed the target more than 64 times, a noisy probe
+            at the target (`noisy`). `""` while it runs and after a success.
           enum:
             - ""
             - cancelled
@@ -1582,6 +1584,7 @@ components:
             - relay_contested
             - timeout
             - no_switch
+            - noisy
         direction:
           $ref: "#/components/schemas/AutotuneDirection"
         rule:

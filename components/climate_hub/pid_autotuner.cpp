@@ -31,8 +31,8 @@ float PidAutotuner::update(float setpoint, float process_value, uint32_t now_ms)
 
   // Upstream waits up to six more phases while its checks fail, but sets the phase to wait
   // from on the very pass it would wait on, and goes on: it stops here, at the first pass with
-  // enough data, and so does this.
-  if (!this->frequency_.has_enough_data() || !this->amplitude_.has_enough_data())
+  // enough data, and so does this. A Pu from noise is no result.
+  if (this->frequency_.overflowed || !this->frequency_.has_enough_data() || !this->amplitude_.has_enough_data())
     return output;
 
   const float osc_ampl = this->amplitude_.mean_amplitude();
@@ -107,8 +107,12 @@ void PidAutotuner::FrequencyDetector::update(uint32_t now_ms, float error) {
   }
   if (!crossing)
     return;
-  if (this->crossed)
+  // Upstream keeps every one: a probe hovering at the target would add one every other reading.
+  if (this->crossed && this->intervals.size() >= MAX_INTERVALS) {
+    this->overflowed = true;
+  } else if (this->crossed) {
     this->intervals.push_back(now_ms - this->last_crossing_ms);
+  }
   this->crossed = true;
   this->last_crossing_ms = now_ms;
 }

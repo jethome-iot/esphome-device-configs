@@ -64,6 +64,7 @@ TEST(Enums, CalibrationNamesAreStable) {
       {AutotuneEnd::RELAY_CONTESTED, "relay_contested"},
       {AutotuneEnd::TIMEOUT, "timeout"},
       {AutotuneEnd::NO_SWITCH, "no_switch"},
+      {AutotuneEnd::NOISY, "noisy"},
   };
   for (const auto &end : ends)
     EXPECT_STREQ(end.second, enums::autotune_end_to_string(end.first));
