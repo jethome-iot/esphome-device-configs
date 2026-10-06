@@ -139,19 +139,20 @@ what is not there yet.
 
 ## Relays
 
-A running thermostat holds its relays, and puts one back if anything else moves it — from the
-panel, over Modbus, from an automation or from Home Assistant. The first move goes back within a
-loop pass. From the second on, the relay stays where it was moved until its `min_on_s` or
-`min_off_s` there is over, 10 s at least, so a writer that keeps at it gets one switch per
-dwell. A relay moved where the thermostat would switch it now stays and is not counted. After 5
-moves with no 10 minutes of quiet after a put-back, the thermostat reports `relay_contested`: it
-goes on controlling and putting the relay back, and the fault clears by itself 10 minutes after
-the last put-back. The count starts over when a thermostat starts or takes the relay over, not
-at a Save, and a relay the thermostat finds moved when it claims it, closed by Start mode On at
-boot say, counts as no move. Until the first reading and during `sensor_stale` and `overtemp`, a
-relay closed from elsewhere is opened again on every pass, without waiting. Mode `off` keeps
-holding the relays open and puts them back the same way; only stopping the thermostat, by
-disabling or removing it, frees them.
+A running thermostat holds its relays, and puts one back if something else moves it, Home
+Assistant or the web server's REST API say. The first move goes back within a loop pass. From
+the second on, the relay stays where it was moved until its `min_on_s` or `min_off_s` there is
+over, 10 s at least, so a writer that keeps at it gets one switch per dwell. A relay moved where
+the thermostat would switch it now stays and is not counted; moved there before the thermostat's
+own `min_on_s` or `min_off_s` is over, it goes back but is not counted either. Once 5 moves come
+without 10 quiet minutes after a put-back between them, the thermostat reports
+`relay_contested`: it goes on controlling and putting the relay back, and the fault clears by
+itself 10 minutes after the last put-back. The count starts over when a thermostat starts or
+takes the relay over, not at a Save, and a relay the thermostat finds moved when it claims it,
+closed by Start mode On at boot say, counts as no move. Until the first reading and during
+`sensor_stale` and `overtemp`, a relay closed from elsewhere is opened again on every pass,
+without waiting. Mode `off` keeps holding the relays open and puts them back the same way; only
+stopping the thermostat, by disabling or removing it, frees them.
 
 Two thermostats may name the same relay and take turns: only one of them can run at a time.
 Starting the second while the first runs is refused, naming the one that holds it, unless it
