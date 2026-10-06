@@ -11,8 +11,8 @@
 // 404, the wrong method 405 (before any id is looked at), query parameters 400,
 // and only then the lookup (404) and the change itself. On the device a PUT,
 // DELETE, HEAD or PATCH, to any path, is ESP-IDF's text/html 405 without Allow;
-// here it is answered in JSON, as a GET or POST is. Only /save reads a body,
-// so only /save can be 413; the body is read the way ArduinoJson reads it. A
+// here it is answered in JSON, as a GET or POST is. Only /save and /import read
+// a body, so only they can be 413; the body is read the way ArduinoJson reads it. A
 // document is merged over the defaults and clamped to the parameter table like
 // climate_hub's codec does, a name is checked like the hub checks it, a sensor
 // not in °C is 400, and a relay held by a running thermostat, or named by an
@@ -26,8 +26,10 @@
 // Presets follow the hub: the keys are the device's to give, a Save keeps the
 // active preset while its key is there and applies its new values at once, and a
 // target or a mode set by hand keeps the label; /preset picks one by its key,
-// running or not. A thermostat whose `version` is above CONFIG_VERSION stands for
-// a file a newer firmware wrote: its Save is 409, and what changes it is not
+// running or not. /import is a Save under the id the body brings that keeps its
+// presets' keys and its active preset, and creates the thermostat when no one has
+// the id. A thermostat whose `version` is above CONFIG_VERSION stands for a file a
+// newer firmware wrote: its Save or import is 409, and what changes it is not
 // persisted.
 // tests/components/web_climate_editor/contract.json lists the requests it must
 // answer as the device does.
@@ -64,7 +66,16 @@ import {
   STANDARD_PRESETS
 } from '../types'
 import type { FetchImpl } from '../climateApi'
-import { nameError, presetKey, presetNameError, slugify, standardPreset, trimName, uniqueId } from '../naming'
+import {
+  nameError,
+  presetKey,
+  presetNameError,
+  RESERVED_IDS,
+  slugify,
+  standardPreset,
+  trimName,
+  uniqueId
+} from '../naming'
 
 const MAX_CONTROLLERS = 8
 const MODES = ['off', 'heat', 'cool', 'heat_cool'] as const
@@ -519,12 +530,22 @@ function pickPreset(doc: ControllerDocument, preset: PresetConfig) {
   if (preset.mode !== 'keep' && modeSupported(doc, preset.mode)) doc.mode = preset.mode
 }
 
-export function decodeDocument(raw: unknown): { doc: ControllerDocument } | { error: string } {
+/**
+ * `requireId` reads the document as the device reads a file, and an import: the id first, a
+ * slug.
+ */
+export function decodeDocument(raw: unknown, requireId = false): { doc: ControllerDocument } | { error: string } {
   const root = objectOf(raw)
   if (!root) return { error: 'document is not an object' }
   const doc = blankDocument()
   doc.version = readVersion(root.version)
-  if (root.id !== undefined && root.id !== null) doc.id = textOf(root.id)
+  if (requireId) {
+    doc.id = textOf(root.id)
+    if (doc.id === '') return { error: 'id is required' }
+    if (slugify(doc.id) !== doc.id) return { error: 'id must be a slug: lowercase letters, digits and single dashes' }
+  } else if (root.id !== undefined && root.id !== null) {
+    doc.id = textOf(root.id)
+  }
 
   if (typeof root.name !== 'string' || root.name === '') return { error: 'name is required' }
   doc.name = root.name
@@ -678,6 +699,7 @@ const ROUTES = new Map<string, boolean>([
   ['schema', false],
   ['ping', false],
   ['save', true],
+  ['import', true],
   ['delete', true],
   ['enable', true],
   ['setpoint', true],
@@ -1195,28 +1217,63 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     if (!was || now.setpoint !== was.setpoint || now.mode !== was.mode) pickPreset(doc, now)
   }
 
-  function save(body: string): MockResult {
+  // The body as /save and /import read it, up to the document's own rules, its name's last.
+  function readDocument(body: string, requireId: boolean): { doc: ControllerDocument } | MockResult {
     if (new TextEncoder().encode(body).length > CONFIG_MAX_BYTES) return fail(413, 'Request body over 8 KiB')
     if (!body) return fail(400, 'Empty request body')
     const parsed = readJson(body)
     if ('error' in parsed) return fail(400, `JSON parse error: ${parsed.error}`)
-    const decoded = decodeDocument(parsed.value)
+    const decoded = decodeDocument(parsed.value, requireId)
     if ('error' in decoded) return fail(400, decoded.error)
     const doc = decoded.doc
     const badName = nameError(doc.name, doc.id, [])
     if (badName) return fail(400, badName)
     doc.name = trimName(doc.name)
+    return { doc }
+  }
+
+  // What /save and /import refuse once the document is sound, in the device's order: the
+  // limit, the name, then the unit and the relays of an enabled one.
+  function refusalOf(doc: ControllerDocument, stored: ControllerDocument | undefined): MockResult | undefined {
+    if (!stored && docs.length >= maxControllers) {
+      return fail(507, `This device allows ${maxControllers} thermostats; delete one to add another`)
+    }
+    const taken = nameError(doc.name, doc.id, [...docs, ...yamlClimates])
+    if (taken) return fail(409, taken)
+    return doc.enabled ? saveRefusal(doc) : undefined
+  }
+
+  // The change itself: `doc` takes `stored`'s place, or joins the list, and runs if it can.
+  function store(doc: ControllerDocument, stored: ControllerDocument | undefined, message: string): MockResult {
+    doc.version = CONFIG_VERSION
+    const held = heldRelays()
+    const rt = running.get(doc.id)
+    running.delete(doc.id)
+    const i = docs.findIndex((d) => d.id === doc.id)
+    if (i >= 0) docs[i] = doc
+    else docs.push(doc)
+    docs.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    if (!doc.enabled) {
+      waitReasons.delete(doc.id)
+      return ok(message + startWaiters(held, doc.id), { id: doc.id })
+    }
+    // Stored all the same, and a running one stopped: it waits for what it names.
+    const warning = start(doc, stored && rt ? { doc: stored, rt } : undefined)
+    // Who started on a relay it let go, then its own warning, last.
+    const text = message + startWaiters(held, doc.id)
+    return warning ? ok(`${text}; ${warning}`, { id: doc.id, warning }) : ok(text, { id: doc.id })
+  }
+
+  function save(body: string): MockResult {
+    const read = readDocument(body, false)
+    if (!('doc' in read)) return read
+    const doc = read.doc
 
     // From here on the device is on its loop task, where the documents live.
     const updating = doc.id !== ''
     const stored = updating ? find(doc.id) : undefined
     if (updating && !stored) return fail(404, 'Thermostat not found')
     if (stored && newer(stored)) return fail(409, NEWER_FILE)
-    if (!updating && docs.length >= maxControllers) {
-      return fail(507, `This device allows ${maxControllers} thermostats; delete one to add another`)
-    }
-    const taken = nameError(doc.name, doc.id, [...docs, ...yamlClimates])
-    if (taken) return fail(409, taken)
     if (stored) {
       keepPresetState(stored, doc)
     } else {
@@ -1226,30 +1283,24 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       assignPresetKeys(doc)
       doc.active_preset = ''
     }
-    doc.version = CONFIG_VERSION
-    if (doc.enabled) {
-      const refusal = saveRefusal(doc)
-      if (refusal) return refusal
-    }
+    const refusal = refusalOf(doc, stored)
+    if (refusal) return refusal
+    return store(doc, stored, updating ? 'Thermostat updated' : 'Thermostat created')
+  }
 
-    const held = heldRelays()
-    const before = stored
-    const rt = running.get(doc.id)
-    running.delete(doc.id)
-    const i = docs.findIndex((d) => d.id === doc.id)
-    if (i >= 0) docs[i] = doc
-    else docs.push(doc)
-    docs.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-    const message = updating ? 'Thermostat updated' : 'Thermostat created'
-    if (!doc.enabled) {
-      waitReasons.delete(doc.id)
-      return ok(message + startWaiters(held, doc.id), { id: doc.id })
-    }
-    // Stored all the same, and a running one stopped: it waits for what it names.
-    const warning = start(doc, before && rt ? { doc: before, rt } : undefined)
-    // Who started on a relay it let go, then its own warning, last.
-    const text = message + startWaiters(held, doc.id)
-    return warning ? ok(`${text}; ${warning}`, { id: doc.id, warning }) : ok(text, { id: doc.id })
+  // ClimateHub::restore: a Save under the body's id, its presets' keys and active preset as
+  // they come, since rules name them.
+  function importDocument(body: string): MockResult {
+    const read = readDocument(body, true)
+    if (!('doc' in read)) return read
+    const doc = read.doc
+    // A boot refuses such a file, so the thermostat would be gone after the next one.
+    if (RESERVED_IDS.includes(doc.id)) return fail(400, `id '${doc.id}' is reserved`)
+    const stored = find(doc.id)
+    if (stored && newer(stored)) return fail(409, NEWER_FILE)
+    const refusal = refusalOf(doc, stored)
+    if (refusal) return refusal
+    return store(doc, stored, stored ? 'Thermostat replaced' : 'Thermostat created')
   }
 
   function enable(search: URLSearchParams): MockResult {
@@ -1404,6 +1455,9 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
 
       case 'save':
         return save(body)
+
+      case 'import':
+        return importDocument(body)
 
       case 'delete': {
         const id = idParam(search)

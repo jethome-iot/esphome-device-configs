@@ -90,7 +90,7 @@ component: it would list the entities no thermostat is using.
 | Key                  | Values                                                                     |
 | -------------------- | -------------------------------------------------------------------------- |
 | `version`            | `2`, the format this firmware writes; a file without one, or with `1`, is read as `2`. A higher one is a file from a newer firmware, see [Storage](#storage) |
-| `id`                 | Made from the name when the thermostat is created (`a-z`, `0-9`, single dashes, at most 48; `New` gets `new-2`, since the dashboard opens a blank editor at `new`), then never changes; the file is `<id>.json` |
+| `id`                 | Made from the name when the thermostat is created (`a-z`, `0-9`, single dashes, at most 48; `New` gets `new-2`, since the dashboard opens a blank editor at `new`), or the one a restore brings, then never changes; the file is `<id>.json` |
 | `name`               | 1 to 48 printable ASCII characters, neither `/` nor `\`, trimmed; also the climate entity's name |
 | `kind`               | `bang_bang` (the default) or `pid`                                         |
 | `sensor_id`          | The object id of a temperature sensor that reports °C, `temp_1` for `Temp 1`; at most 120 characters, the longest an object id gets |
@@ -102,8 +102,8 @@ component: it would list the entities no thermostat is using.
 | `active_preset`      | The `key` of the preset picked last, `""` for none; one no preset has is read as `""` |
 
 Every number is clamped into its range, and a missing one takes its default: the ranges and the
-defaults are the table in `param_table.cpp`. A document built in C++ and handed to `create()` or
-`update()` is clamped the same way. A document that breaks a rule above is refused
+defaults are the table in `param_table.cpp`. A document built in C++ and handed to `create()`,
+`update()` or `restore()` is clamped the same way. A document that breaks a rule above is refused
 whole with a sentence that says which. A thermostat that is to run is created, saved or enabled
 only when its sensor, if it is on the device, reports °C, and no other enabled thermostat names
 its relays: neither a running one, which holds them, nor one that waits, which reserves them. A
@@ -137,6 +137,8 @@ before its name rules.
 - **A Save** keeps the key of every preset it brings back, makes one from the name for a new
   preset, and ignores `active_preset`: the active preset stays while its key is in the list,
   and goes when its preset is removed. New values for the active preset apply at once.
+- **A restore** keeps every key and the active preset the document brings, as a file at boot
+  does, and applies nothing again: the target and the mode are the document's.
 
 ## Control
 
@@ -250,7 +252,7 @@ The folder is writable by hand, so what it holds is checked at boot:
 - at most `max_controllers` files are loaded, in file name order; the rest are left alone;
 - a file whose `id` is not its file name or is `new`, that is not valid JSON, or that breaks a
   rule above is refused and left exactly as it is, and its id is not given to a new thermostat
-  (a name whose every id is taken that way is refused);
+  (a name whose every id is taken that way is refused) nor taken by a restore;
 - a name another thermostat or a YAML climate already has becomes `<name> 2` and is written back;
 - an enabled thermostat whose sensor or relay is missing, whose sensor does not report °C, or
   whose relay another one holds, stays enabled and does not run; `waiting_reason()` says which;
@@ -293,15 +295,19 @@ got to it.
   `holder_of(sw)`: its name, which `switch_hold::holder(sw)` answers with
 - `sensor_reading(sensor_object_id)`: what a sensor reads now, `NaN` without a finite reading
   in °C
-- `create(draft)`, `update(id, doc)`, `remove(id)`, `set_enabled(id, enabled, take_over)`,
-  `set_setpoint(id, value)`, `apply_preset(id, key)`: each returns a `Result` — `ok`, the HTTP
-  `code` that fits (400, 404, 409, 413 for a file that would be over 8 KiB, 500, 507), an
-  `error` sentence (the one the editor shows), the new `id`, the `holder` of a relay (running,
-  or enabled and waiting), a `warning` when the thermostat was saved enabled but does not run
-  (its sensor or a relay is not on the device, or no climate entity was free), `persisted`,
-  false when the change is live but did not reach flash, the ids a take-over `stopped`, and the
-  ids of the waiting thermostats that `started` on a relay the change freed. `apply_preset()`
-  picks a preset by its key, running or not: 404 `Thermostat not found` or `Preset not found`
+- `create(draft)`, `update(id, doc)`, `restore(doc)`, `remove(id)`,
+  `set_enabled(id, enabled, take_over)`, `set_setpoint(id, value)`, `apply_preset(id, key)`: each
+  returns a `Result` — `ok`, the HTTP `code` that fits (400, 404, 409, 413 for a file that would
+  be over 8 KiB, 500, 507), an `error` sentence (the one the editor shows), the new `id`, the
+  `holder` of a relay (running, or enabled and waiting), a `warning` when the thermostat was
+  saved enabled but does not run (its sensor or a relay is not on the device, or no climate
+  entity was free), `persisted`, false when the change is live but did not reach flash, the ids
+  a take-over `stopped`, and the ids of the waiting thermostats that `started` on a relay the
+  change freed. `restore()` brings a thermostat back under the id `doc` names, from a backup:
+  it replaces the thermostat with that id as `update()` does, or creates it under that id, and
+  refuses as those two do, besides a 400 for an id that is no slug or is `new` and a 409 for an
+  id a file the boot refused holds. `apply_preset()` picks a preset by its key, running or not:
+  404 `Thermostat not found` or `Preset not found`
 - a document's `from_newer_firmware()`: its file came from a newer firmware, so `update()`
   refuses it
 - `validate_name(name, &error)`, `is_name_taken(name, exclude_id, &error)`
