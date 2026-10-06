@@ -28,7 +28,9 @@ so `${name}` and `${friendly_name}` stay symbolic for the Builder to rename. It:
 ## Adding a device
 
 1. `devices/<family>/<device>.yaml` with the path substitutions (`assets`, `components`, `boards`,
-   `features`, `display`) and the package list.
+   `features`, `display`) and the package list. A device with the display module also lists its
+   board's page and menu rows (see the board page in [ARCHITECTURE.md](ARCHITECTURE.md#shared-ids))
+   and sets `display_model` when its panel is not an SH1106.
 2. The import pointing at the generated file:
 
    ```yaml

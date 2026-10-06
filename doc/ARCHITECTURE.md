@@ -14,56 +14,78 @@ boundaries; everything else is local to its file.
 
 ## Shared ids
 
-- `web_server.sorting_groups` (`group_relays` … `group_system`) are declared in
-  `boards/jxd-cpu-e1eth.yaml`; every visible entity names one, the thermostats `group_climate`.
-- `relays`, `inputs` (`boards/jxd-d6-r6-rev1.2.yaml`) are `globals` that the status page, buttons
-  and menu iterate over. `temps` (`features/temperature.yaml`) is the `dallas_scan` component; the
-  status page, the menu and the Modbus map read the temperatures through it (`used_slots()`,
-  `display_name(slot)`, `sensor(slot)`, `temperature(slot)`), and `forget_temperatures` (a script)
-  clears slots. `features/web-device-dashboard.yaml` hands it to the dashboard as
+- `web_server.sorting_groups`: `group_network` and `group_system`, which every device has, are
+  declared in `boards/jxd-cpu-e1eth.yaml`; a group of one package's entities is declared in that
+  package: `group_relays` and `group_inputs` in `boards/jxd-d6-r6-rev1.2.yaml`,
+  `group_temperature` in `features/temperature.yaml`, `group_climate` in `features/climates.yaml`,
+  `group_modbus` in `features/modbus-server.yaml`. Every visible entity names one.
+- `relays`, `inputs` (`boards/jxd-d6-r6-rev1.2.yaml`) are `globals` that the status page and the
+  Relays and Inputs rows iterate over. `temps` (`features/temperature.yaml`) is the `dallas_scan`
+  component; the status page, the menu and the Modbus map read the temperatures through it
+  (`used_slots()`, `display_name(slot)`, `sensor(slot)`, `temperature(slot)`), and
+  `forget_temperatures` (a script) clears slots. The same file hands it to the dashboard as
   `dallas_scan_id`, for `/api/device/temperature-slots`, which forgets, assigns and sets offsets
-  and labels through the component itself.
+  and labels through the component itself; it counts on `features/web-device-dashboard.yaml`
+  being in the firmware.
 - `board_info` (`boards/jxd-cpu-e1eth.yaml`) is the `jethome_board_info` component over the
   CPU board's EEPROM `eeprom_cpu`; `display/menu-serial.yaml` reads it for the Serial row and
   `features/web-device-dashboard.yaml` for `/api/device/info`.
-- `display1` and `main_page` come from `display/display.yaml`; the other pages attach with
-  `id: !extend display1`. `display_menu` (`display/menu.yaml`) exposes `info_submenu` and
+- `display1` and `main_page` come from `display/display.yaml`, whose `display_model`
+  substitution (`SH1106_128X64` unless the device config sets another) names the panel's
+  controller; the other pages attach with `id: !extend display1`.
+- `display_menu` (`display/menu.yaml`) holds the rows every device's menu has: Info, and Settings
+  with Display off, Reboot device and Factory reset. It exposes `info_submenu` and
   `menu_settings_id` as extension points that `menu-items-network.yaml`, `menu-serial.yaml`
   and `menu-firmware.yaml` fill via `!extend` (`firmware_rollback_id`, the instance the
-  Rollback row reads, is local to `menu-firmware.yaml`); their rows follow the device config's
-  package order unless a `weight` moves them, and rows added from C++ at boot come after all of
-  them. A submenu may be empty, and `info_submenu`, `relays_menu` and `inputs_menu` declare no
-  rows of their own: the last two are filled at boot from the `relays` / `inputs` vectors, so the
-  menu follows whatever the board package put there. `temperatures_menu` gets a `Temp N` submenu per
-  slot up to the last bound one at boot, named after the slot's label or name; a freed slot's
-  submenu only names the slot and says `Free slot`.
-  `automations_menu` is filled at boot with a row per loaded rule, or one `No automations` row.
-  `thermostats_menu` is filled at boot with a submenu per loaded thermostat, or one
-  `No thermostats` row.
-- `automations_engine` (`features/automations.yaml`) is the rule engine; `display/menu.yaml`
-  reads `configs()` for the Automations rows and calls `set_enable_automation` from them.
+  Rollback row reads, is local to `menu-firmware.yaml`). A board's rows come in packages of their
+  own, which only a device with that board includes; for the relay board, `menu-relays.yaml`
+  (Relays, Inputs), `menu-temperatures.yaml` (Temperatures, Settings → Temp sensors),
+  `menu-thermostats.yaml`, `menu-automations.yaml` and `menu-modbus.yaml` (Settings → Modbus).
+  A `weight` places every row: at the root a board's rows sit below 100, then Info (100) and
+  Settings (110); in Settings, below 10 is everyday settings, 10-19 commissioning, 20-29 erases
+  data, 30 and up the whole device, and a board's rows take a band's first weight so the shared
+  ones follow them. Rows of equal weight follow the device config's package order, and rows
+  added from C++ at boot come after all of them. A submenu may be empty, and `info_submenu`,
+  `relays_menu` and `inputs_menu` declare no rows of their own: the last two are filled at boot
+  from the `relays` / `inputs` vectors, so the menu follows whatever the board package put there.
+  `temperatures_menu` gets a `Temp N` submenu per slot up to the last bound one at boot, named
+  after the slot's label or name; a freed slot's submenu only names the slot and says
+  `Free slot`. `automations_menu` is filled at boot with a row per loaded rule, or one
+  `No automations` row. `thermostats_menu` is filled at boot with a submenu per loaded
+  thermostat, or one `No thermostats` row.
+- The board page is the page LEFT opens from the main or the blank page. `display/buttons.yaml`
+  knows it only by two scripts, which the board's package defines: `board_page_show` opens it,
+  and `board_page_key` gets every press the menu and the main and blank pages leave unused, with
+  `button` set to `up`, `down`, `left`, `right` or `center`, on whatever page is shown, so it acts
+  only while its own page is up. The relay board's is `display/status-page.yaml`. A device with
+  the display packages and no board page fails to build.
+- `automations_engine` (`features/automations.yaml`) is the rule engine;
+  `display/menu-automations.yaml` reads `configs()` for the Automations rows and calls
+  `set_enable_automation` from them.
 - `climates` (`features/climates.yaml`) is the `climate_hub` component: the thermostats, kept
   on `user_storage` under `climates/`. A thermostat names its sensor and relays by object id,
   so renaming a relay in YAML, or a `Temp N` slot that stays empty, leaves it not running. The
   QEMU overlay `qemu/climate-plant.yaml` gives it a room to control. `web_climate_editor`
   (`features/climate-editor.yaml`) edits the thermostats under `/climate-editor/api`;
-  `display/menu.yaml` reads `store()` and `sensor_reading()` for the Thermostats rows and calls
-  `set_setpoint` and `set_enabled` from them.
+  `display/menu-thermostats.yaml` reads `store()` and `sensor_reading()` for the Thermostats rows
+  and calls `set_setpoint` and `set_enabled` from them.
 - `climates` is also the firmware's `switch_hold` holder: `switch_hold::holder(id(relay_N))`
   names the running thermostat that drives a relay, `""` when none does. Everything that moves
-  a relay on its own asks it first — the status page's CENTER (`display/buttons.yaml`), the
-  menu's State and Inverted rows (`display/menu.yaml`), the Modbus coils, `automations`,
+  a relay on its own asks it first — the status page's CENTER (`display/status-page.yaml`), the
+  menu's State and Inverted rows (`display/menu-relays.yaml`), the Modbus coils, `automations`,
   `bindings` and the `switch_settings` Inverted field — and `bindings` hears from it when a
   relay is freed. Home Assistant and the web server's REST do not ask; the thermostat puts the
   relay back. The list of writers and what each gets is in
   [CLIMATE.md](CLIMATE.md#a-running-thermostats-relays); a new writer of a relay asks too.
   `features/climates.yaml`, `automations.yaml` and `entity-settings.yaml` load `switch_hold`;
-  `display/buttons.yaml` and `features/modbus-server.yaml` call `switch_hold::` without loading
-  it, so they count on one of those three being in the same firmware, as `display/menu.yaml`
-  counts on all of them.
-- `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
-  and expanded inside the main-page lambda in `display/display.yaml`. Package substitutions share
-  one namespace with the device config's.
+  `display/status-page.yaml`, `display/menu-relays.yaml` and `features/modbus-server.yaml` call
+  `switch_hold::` without loading it, so they count on one of those three being in the same
+  firmware. The menu packages count on the feature their rows show: `menu-relays.yaml` on
+  `entity-settings.yaml`, `menu-thermostats.yaml` on `climates.yaml`, `menu-automations.yaml` on
+  `automations.yaml`.
+- `${link_icon}` is a substitution holding a C++ expression, defined in
+  `display/network-icons.yaml` and expanded inside the main-page lambda in `display/display.yaml`.
+  Package substitutions share one namespace with the device config's.
 - `display_off_s` (`features/display-off.yaml`) is reset by the `check_blank_page` script
   (`display/display.yaml`), which every button handler runs last.
 - `user_storage` (`features/storage.yaml`) is the LittleFS partition mounted at `/littlefs`; code
