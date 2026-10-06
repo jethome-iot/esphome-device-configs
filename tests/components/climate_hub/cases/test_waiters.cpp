@@ -379,10 +379,16 @@ TEST_F(HubTest, NoRelayFreedStartsNobody) {
   result = hub().set_enabled("winter", true);
   EXPECT_EQ(409, result.code);
   EXPECT_EQ("\"Relay 1\" is already driven by \"Summer\"", result.error);
-  result = hub().create(draft("Porch", "relay_2"));
+  ClimateConfig porch = draft("Porch", "relay_2");
+  porch.enabled = false;
+  result = hub().create(porch);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_TRUE(result.started.empty());
+  result = hub().set_enabled("porch", true);
   ASSERT_TRUE(result.ok) << result.error;
   EXPECT_TRUE(result.started.empty());
   EXPECT_TRUE(result.stopped.empty());
+  EXPECT_EQ("porch", hub().claimed_by("relay_2"));
   EXPECT_EQ("summer", hub().claimed_by("relay_1"));
 }
 
