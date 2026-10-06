@@ -827,17 +827,21 @@ Result ClimateHub::relay_held_(const std::string &relay_id, const std::string &h
   return result;
 }
 
-ClimateHub::Slot *ClimateHub::take_free_slot_(const std::string &name) {
+std::deque<ClimateHub::Slot *>::iterator ClimateHub::free_slot_like_(const std::string &name) {
   // The exact name first: the web server matches that, so no hidden slot is left answering it.
   auto it = std::find_if(this->free_.begin(), this->free_.end(), [&name](const Slot *slot) {
     return slot->entity.is_named() && name == slot->entity.get_name().c_str();
   });
-  if (it == this->free_.end()) {
-    const std::string object_id = object_id_of_name(name);
-    it = std::find_if(this->free_.begin(), this->free_.end(), [&object_id](const Slot *slot) {
-      return slot->entity.is_named() && object_id_of(slot->entity) == object_id;
-    });
-  }
+  if (it != this->free_.end())
+    return it;
+  const std::string object_id = object_id_of_name(name);
+  return std::find_if(this->free_.begin(), this->free_.end(), [&object_id](const Slot *slot) {
+    return slot->entity.is_named() && object_id_of(slot->entity) == object_id;
+  });
+}
+
+ClimateHub::Slot *ClimateHub::take_free_slot_(const std::string &name) {
+  auto it = this->free_slot_like_(name);
   if (it == this->free_.end())
     it = this->free_.begin();
   Slot *slot = *it;
@@ -845,15 +849,10 @@ ClimateHub::Slot *ClimateHub::take_free_slot_(const std::string &name) {
   return slot;
 }
 
-void ClimateHub::give_way_(const std::string &name, Slot *renamed) {
-  for (Slot *slot : this->slots_) {
-    if (slot != renamed && slot->entity.is_free() && slot->entity.is_named() &&
-        name == slot->entity.get_name().c_str()) {
-      // At most one: no two slots carry one name.
-      slot->entity.hide_as(renamed->entity.get_name().c_str(), this->entity_fields_);
-      return;
-    }
-  }
+void ClimateHub::give_way_(const std::string &name, const Slot *renamed) {
+  auto it = this->free_slot_like_(name);
+  if (it != this->free_.end())
+    (*it)->entity.hide_as(renamed->entity.get_name().c_str(), this->entity_fields_);
 }
 
 bool ClimateHub::acquire_claims_(const ClimateConfig &config, RelayClaim **heat, RelayClaim **cool,

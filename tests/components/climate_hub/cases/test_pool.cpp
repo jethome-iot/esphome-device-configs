@@ -38,6 +38,13 @@ class ApiListing : public ComponentIterator {
       names.emplace_back(climate->get_name().c_str());
     return names;
   }
+  // The keys it receives with them: two alike are one entity listed twice.
+  std::vector<uint32_t> keys() const {
+    std::vector<uint32_t> keys;
+    for (const climate::Climate *climate : this->climates_)
+      keys.push_back(climate->get_object_id_hash());
+    return keys;
+  }
 
  protected:
   template<typename T> bool queue_(T *) { return true; }
@@ -57,6 +64,18 @@ void expect_names_unique(const char *step) {
     if (name != FREE_SLOT_NAME)
       EXPECT_TRUE(seen.insert(name).second) << step << ": two climates are \"" << name << "\"";
   }
+}
+
+// What the listing sends: never the placeholder, and no name or key twice.
+void expect_listing_sound(const ApiListing &listing, const std::string &step) {
+  std::set<std::string> names;
+  for (const std::string &name : listing.encode()) {
+    EXPECT_NE(FREE_SLOT_NAME, name) << step;
+    EXPECT_TRUE(names.insert(name).second) << step << ": \"" << name << "\" twice";
+  }
+  std::set<uint32_t> keys;
+  for (uint32_t key : listing.keys())
+    EXPECT_TRUE(keys.insert(key).second) << step << ": key " << key << " twice";
 }
 
 const char *const DOC = R"({"version":1,"id":"%s","name":"%s","enabled":%s,"kind":"bang_bang",)"
@@ -272,8 +291,7 @@ TEST_F(HubTest, ARenameOntoAHiddenSlotsNameSwapsTheNames) {
 
   ASSERT_TRUE(hub().remove("room-1").ok);
   ASSERT_TRUE(hub().update("kettle", draft("Room 1", "relay_2")).ok);
-  for (const std::string &name : listing.encode())
-    EXPECT_NE(FREE_SLOT_NAME, name);
+  expect_listing_sound(listing, "rename");
   EXPECT_EQ(kettle, hub().entity_of("kettle")) << "a rename stays on its own slot";
   EXPECT_STREQ("Kettle", hidden->get_name().c_str()) << "the name the rename let go of";
   EXPECT_EQ(fnv1_hash("kettle"), hidden->get_object_id_hash());
@@ -289,9 +307,9 @@ TEST_F(HubTest, ARenameOntoAHiddenSlotsNameSwapsTheNames) {
   EXPECT_EQ(kettle, web_server_match("Kettle"));
 }
 
-// A name that only spells the hidden one's entity id another way is not its name to the web
-// server: both slots keep their names, and the hidden one its traits.
-TEST_F(HubTest, ARenameOntoAHiddenSlotsEntityIdLeavesThatSlotItsName) {
+// A name that only spells the hidden one's entity id another way is its key all the same: the
+// hidden slot takes the name the rename leaves too, or a listing would send room_1 twice.
+TEST_F(HubTest, ARenameOntoAHiddenSlotsEntityIdSwapsTheNames) {
   this->create(draft("Room 1", "relay_1"));
   this->create(draft("Kettle", "relay_2"));
   HubClimate *hidden = hub().entity_of("room-1");
@@ -300,19 +318,26 @@ TEST_F(HubTest, ARenameOntoAHiddenSlotsEntityIdLeavesThatSlotItsName) {
 
   ASSERT_TRUE(hub().remove("room-1").ok);
   ASSERT_TRUE(hub().update("kettle", draft("Room_1", "relay_2")).ok);
-  for (const std::string &name : listing.encode())
-    EXPECT_NE(FREE_SLOT_NAME, name);
-  EXPECT_STREQ("Room 1", hidden->get_name().c_str()) << "same object id: room_1";
+  expect_listing_sound(listing, "rename");
+  EXPECT_STREQ("Kettle", hidden->get_name().c_str());
+  EXPECT_EQ(fnv1_hash("kettle"), hidden->get_object_id_hash());
   EXPECT_TRUE(hidden->is_internal());
-  EXPECT_TRUE(hidden->is_named());
-  EXPECT_EQ(2u, hidden->get_traits().get_supported_modes().size()) << "off and heat, as it had";
+  EXPECT_TRUE(hidden->is_free());
   EXPECT_EQ(kettle, web_server_match("Room_1"));
-  EXPECT_EQ(hidden, web_server_match("Room 1"));
-  EXPECT_EQ(kettle, App.get_climate_by_key(fnv1_hash("room_1"))) << "the API skips the hidden one";
+  EXPECT_EQ(hidden, web_server_match("Kettle"));
+  EXPECT_EQ(nullptr, web_server_match("Room 1"));
+  EXPECT_EQ(kettle, App.get_climate_by_key(fnv1_hash("room_1"), true)) << "no hidden slot ahead of it under room_1";
+
+  // Stopped and started again, it comes back on its own slot.
+  ASSERT_TRUE(hub().set_enabled("kettle", false).ok);
+  ASSERT_TRUE(hub().set_enabled("kettle", true).ok);
+  EXPECT_EQ(kettle, hub().entity_of("kettle"));
+  EXPECT_STREQ("Kettle", hidden->get_name().c_str());
+  expect_names_unique("restart");
 }
 
-// The same for a start under a name that differs from the hidden one only in case and spacing:
-// another object id, so another slot.
+// A start under a name that differs from the hidden one's only in case and spacing has another
+// object id, so it takes another slot and leaves the hidden one its name.
 TEST_F(HubTest, AStartUnderAHiddenSlotsNameInOtherSpacingLeavesThatSlotItsName) {
   this->create(draft("Room 1", "relay_1"));
   HubClimate *hidden = hub().entity_of("room-1");
@@ -320,8 +345,7 @@ TEST_F(HubTest, AStartUnderAHiddenSlotsNameInOtherSpacingLeavesThatSlotItsName) 
 
   ASSERT_TRUE(hub().remove("room-1").ok);
   this->create(draft("room  1", "relay_1"));
-  for (const std::string &name : listing.encode())
-    EXPECT_NE(FREE_SLOT_NAME, name);
+  expect_listing_sound(listing, "start");
   HubClimate *started = hub().entity_of("room-1");
   EXPECT_NE(hidden, started) << "room__1 is not room_1";
   EXPECT_STREQ("Room 1", hidden->get_name().c_str());
@@ -329,29 +353,9 @@ TEST_F(HubTest, AStartUnderAHiddenSlotsNameInOtherSpacingLeavesThatSlotItsName) 
   expect_names_unique("start");
 }
 
-// A start under the exact name a hidden slot carries takes that slot, even when another hidden
-// slot has the same object id and was freed first: two slots answering one name would hide the
-// thermostat from the web server behind the first.
-TEST_F(HubTest, AStartTakesTheSlotWithItsExactNameFirst) {
-  this->create(draft("Room 1", "relay_1"));
-  this->create(draft("Kettle", "relay_2"));
-  HubClimate *first = hub().entity_of("room-1");
-  HubClimate *kettle = hub().entity_of("kettle");
-  ASSERT_TRUE(hub().remove("room-1").ok);
-  ASSERT_TRUE(hub().update("kettle", draft("Room_1", "relay_2")).ok);
-  ASSERT_TRUE(hub().set_enabled("kettle", false).ok);
-  ASSERT_STREQ("Room 1", first->get_name().c_str());
-  ASSERT_STREQ("Room_1", kettle->get_name().c_str());
-
-  ASSERT_TRUE(hub().set_enabled("kettle", true).ok);
-  EXPECT_EQ(kettle, hub().entity_of("kettle")) << "not the room_1 slot freed before it";
-  EXPECT_STREQ("Room 1", first->get_name().c_str());
-  expect_names_unique("start");
-}
-
 // Thermostats coming and going under names that collide every way the rules know, a few changes
-// between a listing being queued and encoded: none ever encodes the placeholder, and the web
-// server always reaches a running thermostat under its name.
+// between a listing being queued and encoded: none ever encodes the placeholder or one key twice,
+// and the web server always reaches a running thermostat under its name.
 TEST_F(HubTest, NoListingSendsThePlaceholderWhateverTheThermostatsDo) {
   const char *const names[] = {"Room 1", "Room_1", "room  1", "ROOM 1", "Kettle", "kettle", "Porch"};
   const char *const relays[] = {"relay_1", "relay_2", "relay_3"};
@@ -387,9 +391,9 @@ TEST_F(HubTest, NoListingSendsThePlaceholderWhateverTheThermostatsDo) {
     ApiListing listing;
     for (size_t changes = next(3) + 1; changes > 0; changes--)
       change();
-    for (const std::string &name : listing.encode())
-      ASSERT_NE(FREE_SLOT_NAME, name) << at;
+    expect_listing_sound(listing, at);
     expect_names_unique(at.c_str());
+    ASSERT_FALSE(HasFailure()) << at;
     for (const auto &config : hub().store().all()) {
       HubClimate *entity = hub().entity_of(config->id);
       if (entity != nullptr)

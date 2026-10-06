@@ -220,9 +220,9 @@ Home Assistant knows an entity by its name. Renaming a thermostat therefore show
 new entity, and the old one becomes unavailable. A thermostat that stops or is removed drops out
 of the entity lists; its entity keeps its name, and the web server still answers that name with
 a stopped state, as it does for any `internal: true` entity, until another thermostat takes it.
-A running thermostat renamed onto that name leaves its old name answering so instead. A command
-sent to such a name is accepted and does nothing. One that starts again under that name gets its
-entity back.
+A running thermostat renamed onto that name, or onto a name with the same entity id, leaves its
+old name answering so instead. A command sent to such a name is accepted and does nothing. One
+that starts again under that name gets its entity back.
 
 The device asks Home Assistant to reconnect, so that it lists the entities again, when a
 thermostat starts or stops (removing a running one stops it), and when a running one is

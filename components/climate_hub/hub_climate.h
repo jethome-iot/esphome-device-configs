@@ -39,9 +39,9 @@ class HubClimate final : public climate::Climate {
   /// Internal, keeping its name, key and traits: an API client may still be encoding the
   /// entity it listed a moment ago, and upstream reads the name then, not when it queued it.
   void hide(uint32_t entity_fields);
-  /// A hidden slot under `name` instead of its own, which a running thermostat is about to take:
-  /// `name` is the one that thermostat leaves, so an API client still encoding this slot sends a
-  /// thermostat's name, never the placeholder.
+  /// A hidden slot under `name` instead of its own, whose name or object id a running thermostat
+  /// is about to take: `name` is the one that thermostat leaves, so an API client still encoding
+  /// this slot sends a thermostat's name and key, never the placeholder or one key twice.
   void hide_as(const std::string &name, uint32_t entity_fields);
   /// Back under the placeholder with no traits, as setup() registered it: for a hub starting
   /// over. A slot shown since boot never goes back to it, since a listing may still hold it.
