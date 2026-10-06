@@ -86,6 +86,22 @@ static bool is_decimal(const std::string &text) {
   return i == text.size();
 }
 
+// `"Living Room" and "Floor"`: the thermostats by the names a person knows them by.
+static std::string names_of(const climate_hub::ClimateHub &hub, const std::vector<std::string> &ids) {
+  std::string names;
+  for (size_t i = 0; i < ids.size(); i++) {
+    const ClimateConfig *config = hub.store().get(ids[i]);
+    names += std::string(i == 0 ? "" : " and ") + "\"" + (config != nullptr ? config->name : ids[i]) + "\"";
+  }
+  return names;
+}
+
+// What a change did besides itself, for the end of its message: the waiting thermostats that
+// started on a relay it freed. The warning, when there is one, comes after it.
+static std::string started_note(const climate_hub::ClimateHub &hub, const Result &result) {
+  return result.started.empty() ? "" : "; " + names_of(hub, result.started) + " started";
+}
+
 static std::string success_json(const std::string &message) {
   JsonDocument doc;
   doc["success"] = true;
@@ -509,6 +525,7 @@ void WebClimateEditor::handle_save_(AsyncWebServerRequest *request) {
       return true;
     }
     std::string message = id.empty() ? "Thermostat created" : "Thermostat updated";
+    message += started_note(*this->hub_, result);
     if (!result.warning.empty())
       message += "; " + result.warning;
     JsonDocument answer;
@@ -541,9 +558,10 @@ void WebClimateEditor::handle_delete_(AsyncWebServerRequest *request) {
     JsonDocument answer;
     answer["success"] = true;
     // The hub blanks a file it cannot unlink; this is the rarer case where that failed too.
-    answer["message"] = result.persisted ? "Thermostat deleted"
-                                         : "Thermostat deleted; its file could not be removed, so it comes back "
-                                           "at the next boot";
+    answer["message"] = std::string(result.persisted ? "Thermostat deleted"
+                                                     : "Thermostat deleted; its file could not be removed, so it "
+                                                       "comes back at the next boot") +
+                        started_note(*this->hub_, result);
     // As on /enable, so a client need not parse the message for it.
     answer["persisted"] = result.persisted;
     serializeJson(answer, json);
@@ -566,32 +584,10 @@ void WebClimateEditor::handle_enable_(AsyncWebServerRequest *request) {
     return;
   if (request->hasParam("take_over") && !this->read_bool_(request, "take_over", take_over))
     return;
-  // Before the lookup below: a failed hub's store is empty, and its answer is this 500, not a 404.
-  if (this->hub_->is_failed()) {
-    this->send_error_(request, STORAGE_UNAVAILABLE, 500);
-    return;
-  }
   std::string json;
   std::string error;
   int code = 400;
   const bool ran = this->hub_->run_on_loop([&]() {
-    const ClimateConfig *config = this->hub_->store().get(id);
-    if (config == nullptr) {
-      code = 404;
-      error = NOT_FOUND;
-      return true;
-    }
-    // Named now: a take-over stops them, and the answer says who.
-    std::vector<std::string> stopped;
-    if (enabled && take_over && !this->hub_->is_running(id)) {
-      for (const std::string &relay : {config->heat.relay_id, config->cool.relay_id}) {
-        const std::string holder = relay.empty() ? "" : this->hub_->claimed_by(relay);
-        const ClimateConfig *held = holder.empty() || holder == id ? nullptr : this->hub_->store().get(holder);
-        const std::string name = held != nullptr ? "\"" + held->name + "\"" : "";
-        if (!name.empty() && std::find(stopped.begin(), stopped.end(), name) == stopped.end())
-          stopped.push_back(name);
-      }
-    }
     const Result result = this->hub_->set_enabled(id, enabled, take_over);
     if (!result.ok) {
       code = result.code;
@@ -599,10 +595,10 @@ void WebClimateEditor::handle_enable_(AsyncWebServerRequest *request) {
       return true;
     }
     std::string message = enabled ? "Thermostat enabled" : "Thermostat disabled";
-    for (size_t i = 0; i < stopped.size(); i++)
-      message += (i == 0 ? "; " : " and ") + stopped[i];
-    if (!stopped.empty())
-      message += " stopped";
+    // Who a take-over stored disabled, then who started on a relay it freed.
+    if (!result.stopped.empty())
+      message += "; " + names_of(*this->hub_, result.stopped) + " stopped";
+    message += started_note(*this->hub_, result);
     if (!result.warning.empty())
       message += "; " + result.warning;
     JsonDocument answer;

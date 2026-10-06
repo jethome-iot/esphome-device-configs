@@ -32,8 +32,9 @@ at the next boot. The file format and the C++ API are in
 - **A relay belongs to the running thermostat.** Switched from anywhere else — the panel,
   Modbus, an automation, Home Assistant — it is put back within a moment. Two thermostats may
   name one relay and take turns, a summer and a winter profile on one boiler; only one of them
-  runs at a time, and taking the relay over from the other leaves it as it is. One that could
-  not run, its sensor or a relay missing, cannot take it over.
+  is switched on at a time, and taking the relay over from the other switches the other off
+  and leaves the relay as it is. One that could not run, its sensor or a relay missing, cannot
+  take it over.
 
 ## Storage
 
@@ -47,10 +48,10 @@ A file written by a newer firmware, after a rollback say, loads and runs as far 
 understands it, but this firmware never writes it: a change from Home Assistant, the panel or a
 rule lasts until the next reboot, and a Save from the editor is refused with a sentence that
 says a newer firmware wrote it. Starting it in another thermostat's place lasts until the next
-reboot too: the one it took the relay from stays enabled in its file. Deleting the thermostat
-still works. A newer file that breaks this firmware's rules — a preset mode it does not know,
-more than eight presets, a control law it does not have — is not loaded and is left as it is,
-as any file that breaks them.
+reboot too: the ones it took the relay from, running or waiting, stay enabled in their files.
+Deleting the thermostat still works. A newer file that breaks this firmware's rules — a preset
+mode it does not know, more than eight presets, a control law it does not have — is not loaded
+and is left as it is, as any file that breaks them.
 
 A thermostat whose sensor or relay is missing, at boot or when it is saved or switched on, stays
 enabled on disk but does not run; the Save or the switch-on succeeds with a warning that names
@@ -59,6 +60,11 @@ switch-on that finds it there. Until then, or until it is switched off, the devi
 why it waits: when the start fails, and again in the configuration it prints whenever a log
 viewer connects. Over HTTP, the list and the status say it in their `waiting` field, in the
 words of the warning.
+
+Two thermostats switched on for one relay come only from files written by hand or a restore.
+The boot runs the first by id, and the other waits for the relay: it starts as soon as the
+first is switched off, removed or saved onto another relay, and the answer to that change names
+it.
 
 ## Over HTTP
 
@@ -69,11 +75,20 @@ routes and their contract are in
 [components/web_climate_editor/openapi.yaml](../components/web_climate_editor/openapi.yaml),
 the usage in [its README](../components/web_climate_editor/README.md).
 
-A Save or a start over `enable` of a thermostat that is to run is refused while another running
-thermostat drives its relay, or when its sensor does not report °C; one whose sensor or relay is
-missing is stored enabled and waits, as above. A start can take the relay over instead of being
-refused, which stops the other thermostat and stores it as disabled; one whose sensor or relay
-is missing cannot.
+A Save or a start over `enable` of a thermostat that is to run is refused while another
+thermostat that is switched on names its relay, running or waiting, or when its sensor does not
+report °C; one whose sensor or relay is missing is stored enabled and waits, as above. A start
+can take the relay over instead of being refused, which stores the other thermostats on it as
+disabled and stops the one that runs; one whose sensor or relay is missing cannot.
+
+## On the display
+
+**Thermostats** in the display menu of `jxd-r6-e1eth-lcd` lists the thermostats the device
+booted with, each with what its sensor reads; one created later shows after a reboot. A row
+opens its name, the reading, what it is doing (Heating, Cooling, Idle, Off, Waiting, Disabled,
+or in a word the fault that keeps it from controlling), the target and Enabled. The target moves
+in the thermostat's own step inside its range; Enabled starts or stops it like the start over
+HTTP, never taking a relay over: an On that is refused stays Off, and the log says why.
 
 ## Home Assistant
 

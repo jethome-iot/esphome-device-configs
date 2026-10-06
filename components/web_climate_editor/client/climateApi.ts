@@ -46,7 +46,7 @@ export interface ClimateApiOptions {
 }
 
 export interface EnableOptions {
-  /** Stop (and persist as disabled) whichever running controller holds this one's relay first. */
+  /** Store as disabled every other enabled controller on its relays, stopping the running one. */
   takeOver?: boolean
 }
 
