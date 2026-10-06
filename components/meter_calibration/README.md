@@ -46,7 +46,7 @@ None of them stops metering; they decide which coefficients a driver may take.
 | `corrupt`     | A CRC fails (board header, file chain, file, record), the record is not 256 bytes, or a field holds a value the format does not allow | warning |
 | `foreign`     | The chip, channel count, board model or board serial differs from this board's, or the chip type is unknown | warning |
 | `unsupported` | An unknown record, signature, header or filesystem version; flag bits or reserved bytes version 1 leaves zero; a CT nominal ratio other than 2000; a PGA setting other than the firmware's; a file longer than 256 bytes | warning |
-| `no_eeprom`   | The metering board's EEPROM does not answer | warning |
+| `no_eeprom`   | The metering board's EEPROM does not answer; its `i2c_eeprom` is marked failed | warning |
 
 `dump_config` prints the status, why, and with a usable record its board, date, station and
 coefficients.

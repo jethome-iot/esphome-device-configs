@@ -25,7 +25,7 @@ so a second instance declared that way would overwrite the first instead of join
 | ---------------- | ------- | ------- |
 | `eeprom_id`      |         | The `i2c_eeprom` holding the identity |
 | `protect_eeprom` | `true`  | Refuse every write to that EEPROM |
-| `required`       | `true`  | Whether the EEPROM must hold a usable header. With `false`, a part that is blank, holds no JEEFS, is damaged or does not answer is logged as a warning and the component keeps running; with `true` it is an error and the component is marked failed |
+| `required`       | `true`  | Whether the EEPROM must hold a usable header. With `false`, a part that is blank, holds no JEEFS, is damaged or does not answer is logged as a warning and the component keeps running; with `true` it is an error and the component is marked failed. A part that does not answer at all still fails its `i2c_eeprom` either way |
 
 ## What it reads
 
