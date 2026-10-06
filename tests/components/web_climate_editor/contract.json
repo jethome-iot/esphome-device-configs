@@ -3729,6 +3729,7 @@
             "controllers.0.autotune.reason": "",
             "controllers.0.autotune.direction": "heat",
             "controllers.0.autotune.rule": "zn_pi",
+            "controllers.0.autotune.setpoint": 22,
             "controllers.0.autotune.swings": 0,
             "controllers.0.autotune.elapsed_s": 0,
             "controllers.0.autotune.extremes": [],
@@ -4076,7 +4077,9 @@
           "body": null,
           "status": 200,
           "expect": {
-            "controllers.0.autotune.reason": "target_changed"
+            "controllers.0.autotune.reason": "target_changed",
+            "controllers.0.autotune.setpoint": 22,
+            "controllers.0.setpoint": 21
           }
         }
       ]

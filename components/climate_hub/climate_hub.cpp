@@ -785,8 +785,8 @@ Result ClimateHub::start_autotune(const std::string &id, optional<AutotuneDirect
                             "; calibrate it once that clears");
 
   const uint32_t now = this->now_ms();
-  auto run =
-      std::make_unique<AutotuneRun>(*direction, rule, PidGains{stored->pid.kp, stored->pid.ki, stored->pid.kd}, now);
+  auto run = std::make_unique<AutotuneRun>(*direction, rule, PidGains{stored->pid.kp, stored->pid.ki, stored->pid.kd},
+                                           stored->setpoint, now);
   AutotuneRun *running = run.get();
   // The last one's numbers go: they stay until the next run.
   this->autotunes_[id] = std::move(run);

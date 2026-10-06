@@ -735,6 +735,8 @@ interface Run {
   reason: AutotuneReason
   direction: AutotuneDirection
   rule: AutotuneRule
+  // The target when it started: a later one ends the run and leaves its chart where it was.
+  setpoint: number
   startedAt: number
   endedAt: number
   lastSwitch: number
@@ -1124,7 +1126,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
 
   function feedRun(doc: ControllerDocument, rt: Runtime, run: Run, temp: number, t: number) {
     const switches = run.tuner.switches
-    const output = run.tuner.update(doc.setpoint, temp, t)
+    const output = run.tuner.update(run.setpoint, temp, t)
     if (run.tuner.switches !== switches) run.lastSwitch = t
     if (run.tuner.finished) return
     const on = run.direction === 'heat' ? output > 0 : output < 0
@@ -1153,7 +1155,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     if (rt) restartPid(doc, rt)
   }
 
-  function runStatus(doc: ControllerDocument, run: Run, t: number): AutotuneStatus {
+  function runStatus(run: Run, t: number): AutotuneStatus {
     const live = run.state === 'running' && run.tuner.relay !== 'init'
     const positive = run.tuner.relay === 'positive'
     const found = run.state === 'succeeded'
@@ -1162,13 +1164,14 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       reason: run.reason,
       direction: run.direction,
       rule: run.rule,
+      setpoint: run.setpoint,
       phase: live ? (positive === (run.direction === 'heat') ? 'on' : 'off') : null,
-      aim: live ? doc.setpoint + (positive ? AUTOTUNE_NOISEBAND : -AUTOTUNE_NOISEBAND) : null,
+      aim: live ? run.setpoint + (positive ? AUTOTUNE_NOISEBAND : -AUTOTUNE_NOISEBAND) : null,
       swings: run.tuner.switches,
       elapsed_s: Math.floor(((run.state === 'running' ? t : run.endedAt) - run.startedAt) / 1000),
       extremes: run.tuner.extremes.map((e) => ({
         at_s: Math.floor((e.at - run.startedAt) / 1000),
-        temperature: round(doc.setpoint - e.error, 3)
+        temperature: round(run.setpoint - e.error, 3)
       })),
       ku: found ? run.tuner.ku : null,
       pu: found ? run.tuner.pu : null,
@@ -1222,6 +1225,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       reason: '',
       direction,
       rule,
+      setpoint: doc.setpoint,
       startedAt: t,
       endedAt: t,
       lastSwitch: t,
@@ -1387,7 +1391,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     }
     if (rt && doc.kind === 'pid') status.pid = { ...rt.terms }
     const run = runs.get(doc.id)
-    if (run) status.autotune = runStatus(doc, run, t)
+    if (run) status.autotune = runStatus(run, t)
     return status
   }
 

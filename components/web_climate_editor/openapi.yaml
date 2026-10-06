@@ -1555,7 +1555,8 @@ components:
         A thermostat's last calibration since boot, running or ended, present
         until the next one, a delete or a reboot.
       required:
-        [state, reason, direction, rule, phase, aim, swings, elapsed_s, extremes, ku, pu, flags, old, new, persisted]
+        [state, reason, direction, rule, setpoint, phase, aim, swings, elapsed_s, extremes, ku, pu, flags, old, new,
+         persisted]
       properties:
         state:
           type: string
@@ -1585,13 +1586,18 @@ components:
           $ref: "#/components/schemas/AutotuneDirection"
         rule:
           $ref: "#/components/schemas/AutotuneRule"
+        setpoint:
+          type: number
+          description: >-
+            The target the run swings the room around: the thermostat's when
+            it started, kept after a later target ended it or moved on.
         phase:
           type: [string, "null"]
           enum: ["on", "off", null]
           description: Whether the run holds its relay closed now; `null` once it ended, or before its first reading.
         aim:
           type: [number, "null"]
-          description: The reading that switches the relay next, 0.25 °C from the target; `null` as `phase`.
+          description: The reading that switches the relay next, 0.25 °C from `setpoint`; `null` as `phase`.
         swings:
           type: integer
           description: Relay switches so far; the run has its numbers at the sixth.
@@ -1645,6 +1651,7 @@ components:
         reason: ""
         direction: heat
         rule: zn_pi
+        setpoint: 21
         phase: null
         aim: null
         swings: 6

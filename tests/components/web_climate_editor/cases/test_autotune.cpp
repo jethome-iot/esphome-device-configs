@@ -91,6 +91,38 @@ TEST_F(Editor, AFinishedRunShowsWhatItFoundAndGetHasIt) {
   EXPECT_FLOAT_EQ(doc["pid"]["kd"].as<float>(), found->new_gains().kd);
 }
 
+// The chart is the run's: a target that ended it, or one set after it succeeded, leaves it alone.
+TEST_F(Editor, ALaterTargetLeavesTheRunsChartWhereItWas) {
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  reading(22.f);
+  ASSERT_EQ(this->post("autotune?id=living-room&value=true").code, 200);
+  reading(21.7f);
+  reading(22.3f);
+  ASSERT_EQ(this->post("setpoint?id=living-room&value=25").code, 200);
+  Reply ended = this->get("status?id=living-room");
+  JsonVariant run = autotune_of(ended);
+  ASSERT_EQ(run["reason"], "target_changed");
+  EXPECT_FLOAT_EQ(run["setpoint"].as<float>(), 22.f);
+  ASSERT_EQ(run["extremes"].size(), 2u);
+  EXPECT_FLOAT_EQ(run["extremes"][0]["temperature"].as<float>(), 22.f);
+  EXPECT_FLOAT_EQ(run["extremes"][1]["temperature"].as<float>(), 21.7f);
+
+  ASSERT_EQ(this->post("setpoint?id=living-room&value=22").code, 200);
+  reading(22.f);
+  ASSERT_EQ(this->post("autotune?id=living-room&value=true").code, 200);
+  swing();
+  Reply before = this->get("status?id=living-room");
+  ASSERT_EQ(autotune_of(before)["state"], "succeeded");
+  ASSERT_EQ(this->post("setpoint?id=living-room&value=19").code, 200);
+  Reply after = this->get("status?id=living-room");
+  EXPECT_FLOAT_EQ(autotune_of(after)["setpoint"].as<float>(), 22.f);
+  std::string was;
+  std::string is;
+  serializeJson(autotune_of(before)["extremes"], was);
+  serializeJson(autotune_of(after)["extremes"], is);
+  EXPECT_EQ(was, is);
+}
+
 TEST_F(Editor, AFlaggedRunListsItsFlags) {
   ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
   reading(22.f);

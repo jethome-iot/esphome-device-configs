@@ -276,7 +276,7 @@ void ControllerRuntime::begin_autotune(AutotuneRun *run, uint32_t now_ms) {
 
 bool ControllerRuntime::feed_autotune_(float value, uint32_t now_ms) {
   AutotuneRun &run = *this->autotune_;
-  const bool on = run.feed(this->config_->setpoint, value, now_ms);
+  const bool on = run.feed(value, now_ms);
   // The pass that found the gains leaves the relays to the PID the hub starts next.
   if (run.found())
     return false;

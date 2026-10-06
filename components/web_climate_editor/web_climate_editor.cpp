@@ -95,13 +95,16 @@ static void set_gains(JsonObject obj, const climate_hub::PidGains &gains) {
 }
 
 // A thermostat's last calibration since boot: where it is, how far it got and what it found.
-static void set_autotune(JsonObject obj, const climate_hub::AutotuneRun &run, float setpoint, uint32_t now) {
+static void set_autotune(JsonObject obj, const climate_hub::AutotuneRun &run, uint32_t now) {
   using climate_hub::AutotuneState;
   const climate_hub::PidAutotuner &tuner = run.tuner();
+  // The run's own, not the thermostat's: a target moved since ended it and must not move its chart.
+  const float setpoint = run.setpoint();
   obj["state"] = climate_hub::enums::autotune_state_to_string(run.state());
   obj["reason"] = climate_hub::enums::autotune_end_to_string(run.reason());
   obj["direction"] = climate_hub::enums::autotune_direction_to_string(run.direction());
   obj["rule"] = climate_hub::enums::autotune_rule_to_string(run.rule());
+  obj["setpoint"] = setpoint;
   // Which way the relay goes now and the reading that turns it, while it runs and has a reading.
   const bool live = run.running() && tuner.started();
   if (live) {
@@ -456,7 +459,7 @@ void WebClimateEditor::handle_status_(AsyncWebServerRequest *request) {
       }
       // Kept after the run ends, stopped or not, until the next one, a delete or a reboot.
       if (const climate_hub::AutotuneRun *run = this->hub_->autotune(config->id))
-        set_autotune(row["autotune"].to<JsonObject>(), *run, config->setpoint, now);
+        set_autotune(row["autotune"].to<JsonObject>(), *run, now);
     }
     serializeJson(doc, json);
     return true;

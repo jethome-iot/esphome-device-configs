@@ -250,6 +250,11 @@ export interface AutotuneStatus {
   reason: AutotuneReason
   direction: AutotuneDirection
   rule: AutotuneRule
+  /**
+   * The target the run swings the room around: the thermostat's when it started, kept after a
+   * later target ended it or moved on. `aim` and `extremes` are around it.
+   */
+  setpoint: number
   /** Whether the run has its relay closed now; null when it does not run, or has no reading yet. */
   phase: 'on' | 'off' | null
   /** The reading that switches the relay next, AUTOTUNE_NOISEBAND from the target; null as `phase`. */

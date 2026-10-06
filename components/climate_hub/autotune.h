@@ -27,10 +27,10 @@ struct PidGains {
 /// delete or a reboot; the thermostat's ControllerRuntime feeds it while it runs. Loop task only.
 class AutotuneRun {
  public:
-  AutotuneRun(AutotuneDirection direction, AutotuneRule rule, const PidGains &gains, uint32_t now_ms);
+  AutotuneRun(AutotuneDirection direction, AutotuneRule rule, const PidGains &gains, float setpoint, uint32_t now_ms);
 
   /// One sample: whether the run's relay should be closed now.
-  bool feed(float setpoint, float value, uint32_t now_ms);
+  bool feed(float value, uint32_t now_ms);
   /// The limit the run has reached at `now_ms`, NONE within both.
   AutotuneEnd limit_reached(uint32_t now_ms) const;
   /// The tuner has measured Ku and Pu; the hub then stores result() and calls succeed().
@@ -45,6 +45,8 @@ class AutotuneRun {
   AutotuneEnd reason() const { return this->reason_; }
   AutotuneDirection direction() const { return this->direction_; }
   AutotuneRule rule() const { return this->rule_; }
+  /// The target it swings the room around, the thermostat's when it started: a later one ends it.
+  float setpoint() const { return this->setpoint_; }
   /// Since the start, up to the end once it ended.
   uint32_t elapsed_ms(uint32_t now_ms) const;
   uint32_t started_ms() const { return this->started_ms_; }
@@ -67,6 +69,7 @@ class AutotuneRun {
   AutotuneEnd reason_{AutotuneEnd::NONE};
   PidGains old_gains_;
   PidGains new_gains_;
+  float setpoint_;
   uint32_t started_ms_;
   uint32_t ended_ms_{0};
   uint32_t last_switch_ms_;

@@ -38,8 +38,14 @@ float clamp_gain(const char *key, float value, bool *clamped) {
 
 }  // namespace
 
-AutotuneRun::AutotuneRun(AutotuneDirection direction, AutotuneRule rule, const PidGains &gains, uint32_t now_ms)
-    : direction_(direction), rule_(rule), old_gains_(gains), started_ms_(now_ms), last_switch_ms_(now_ms) {
+AutotuneRun::AutotuneRun(AutotuneDirection direction, AutotuneRule rule, const PidGains &gains, float setpoint,
+                         uint32_t now_ms)
+    : direction_(direction),
+      rule_(rule),
+      old_gains_(gains),
+      setpoint_(setpoint),
+      started_ms_(now_ms),
+      last_switch_ms_(now_ms) {
   // One relay, full or nothing: d is half of 1 either way.
   if (direction == AutotuneDirection::HEAT) {
     this->tuner_.config(0.f, 1.f);
@@ -49,8 +55,8 @@ AutotuneRun::AutotuneRun(AutotuneDirection direction, AutotuneRule rule, const P
   this->tuner_.set_noiseband(AUTOTUNE_NOISEBAND);
 }
 
-bool AutotuneRun::feed(float setpoint, float value, uint32_t now_ms) {
-  const float output = this->tuner_.update(setpoint, value, now_ms);
+bool AutotuneRun::feed(float value, uint32_t now_ms) {
+  const float output = this->tuner_.update(this->setpoint_, value, now_ms);
   if (this->tuner_.phase_count() != this->switches_) {
     this->switches_ = this->tuner_.phase_count();
     this->last_switch_ms_ = now_ms;

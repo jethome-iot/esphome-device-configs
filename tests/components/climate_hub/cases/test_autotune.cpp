@@ -647,10 +647,10 @@ namespace {
 // Half-periods of ten hours and a swing of half a degree: Some Overshoot asks for a kd past the
 // table's ceiling.
 AutotuneRun slow_run(AutotuneRule rule) {
-  AutotuneRun run(AutotuneDirection::HEAT, rule, PidGains{1.f, 2.f, 3.f}, 0);
+  AutotuneRun run(AutotuneDirection::HEAT, rule, PidGains{1.f, 2.f, 3.f}, 21.f, 0);
   const float readings[] = {21.f, 20.7f, 21.3f, 20.7f, 21.3f, 20.7f, 21.3f};
   for (size_t i = 0; i < std::size(readings); i++)
-    run.feed(21.f, readings[i], static_cast<uint32_t>(i) * 36000000u);
+    run.feed(readings[i], static_cast<uint32_t>(i) * 36000000u);
   return run;
 }
 
@@ -672,12 +672,12 @@ TEST(AutotuneRun, AGainPastItsRangeIsClampedAndFlagged) {
 }
 
 TEST(AutotuneRun, TheFlagsWarnOnSuccess) {
-  AutotuneRun run(AutotuneDirection::HEAT, AutotuneRule::ZN_PI, PidGains{}, 0);
+  AutotuneRun run(AutotuneDirection::HEAT, AutotuneRule::ZN_PI, PidGains{}, 21.f, 0);
   // Two short half-periods and a long one, a small swing among large ones.
   const std::pair<uint32_t, float> readings[] = {{0, 21.f},    {60, 20.7f}, {120, 21.3f}, {180, 20.7f},
                                                  {900, 21.9f}, {960, 20.f}, {1020, 21.3f}};
   for (const auto &reading : readings)
-    run.feed(21.f, reading.second, reading.first * 1000);
+    run.feed(reading.second, reading.first * 1000);
   ASSERT_TRUE(run.found());
   EXPECT_FALSE(run.asymmetric()) << "flags come with the result";
   run.succeed(PidGains{}, false, true, 1020000);
@@ -687,11 +687,11 @@ TEST(AutotuneRun, TheFlagsWarnOnSuccess) {
 }
 
 TEST(AutotuneRun, ItsLimitsCountFromTheStartAndTheLastSwitch) {
-  AutotuneRun run(AutotuneDirection::HEAT, AutotuneRule::ZN_PI, PidGains{}, 1000);
+  AutotuneRun run(AutotuneDirection::HEAT, AutotuneRule::ZN_PI, PidGains{}, 21.f, 1000);
   EXPECT_EQ(AutotuneEnd::NONE, run.limit_reached(1000 + AUTOTUNE_STALL_MS - 1));
   EXPECT_EQ(AutotuneEnd::NO_SWITCH, run.limit_reached(1000 + AUTOTUNE_STALL_MS));
-  run.feed(21.f, 21.f, 1000);
-  run.feed(21.f, 20.f, 1000 + 5 * 3600000u);
+  run.feed(21.f, 1000);
+  run.feed(20.f, 1000 + 5 * 3600000u);
   EXPECT_EQ(AutotuneEnd::NONE, run.limit_reached(1000 + 10 * 3600000u)) << "it switched at five hours";
   EXPECT_EQ(AutotuneEnd::TIMEOUT, run.limit_reached(1000 + AUTOTUNE_MAX_MS));
 }
