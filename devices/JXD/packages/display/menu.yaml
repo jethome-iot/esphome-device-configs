@@ -28,9 +28,8 @@ graphical_display_menu:
       text: "Settings"
       id: menu_settings_id
       weight: 110
-      # Weights, not the package order, group these by what a row does: below 10 everyday
-      # settings, 10-19 commissioning, 20-29 erases data, 30+ the whole device. A board's rows
-      # take a band's first weight and the shared ones follow them.
+      # Weights group these by what a row does: below 10 everyday, 10-19 commissioning, 20-29
+      # erases data, 30+ the whole device; a board's rows take a band's first weight.
       items:
         - type: select
           text: "Display off"

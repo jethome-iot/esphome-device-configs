@@ -1,7 +1,5 @@
-# The board page (LEFT from the main page) belongs to the board's package, which defines two
-# scripts: board_page_show opens the page, and board_page_key(button) gets "up", "down", "left",
-# "right" or "center" whenever the menu is closed and the button does nothing else on the page
-# shown. A press reaches it on any page, so it acts only while its own page is up.
+# The board page is the board package's: board_page_show opens it and board_page_key gets the
+# presses nothing here takes (doc/ARCHITECTURE.md, the board page).
 pca9554:
   - id: jxd_display_exp
     pin_count: 16
