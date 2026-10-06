@@ -807,34 +807,18 @@ void ClimateHub::release_claims_(const std::string &owner) {
 ClimateHub::ClaimMap::iterator ClimateHub::let_go_(ClaimMap::iterator it, uint32_t now_ms) {
   it->second->force_off(now_ms);
   it->second->last_switching(&this->relay_history_[it->first]);
-  switch_::Switch *relay = it->second->relay();
-  if (relay != nullptr && std::find(this->released_.begin(), this->released_.end(), relay) == this->released_.end())
-    this->released_.push_back(relay);
-  this->freed_.insert(it->first);
+  this->freed_[it->first] = it->second->relay();
   return this->claims_.erase(it);
-}
-
-// Only once the mutator is done, and only for a relay still free: a thermostat that started on
-// it in the same call keeps it, and nothing that hears of the release moves it under that one.
-void ClimateHub::announce_released_() {
-  std::vector<switch_::Switch *> released;
-  released.swap(this->released_);
-  for (switch_::Switch *relay : released) {
-    if (this->holder_of(relay).empty())
-      switch_hold::notify_released(relay);
-  }
 }
 
 // So waiting means what it says: one whose relay comes free tries again at once, and one that
 // still cannot start gets a fresh reason. A waiter holds no claim, so its start frees nothing.
 void ClimateHub::start_waiters_(const std::string &skip_id, Result *result) {
-  std::set<std::string> freed;
-  freed.swap(this->freed_);
-  if (freed.empty())
+  if (this->freed_.empty())
     return;
   for (const auto &config : this->store_.all()) {
     if (!config->enabled || config->id == skip_id || this->is_running(config->id) ||
-        (freed.count(config->heat.relay_id) == 0 && freed.count(config->cool.relay_id) == 0))
+        (this->freed_.count(config->heat.relay_id) == 0 && this->freed_.count(config->cool.relay_id) == 0))
       continue;
     std::string error;
     if (this->start_(config.get(), &error)) {
@@ -844,6 +828,18 @@ void ClimateHub::start_waiters_(const std::string &skip_id, Result *result) {
     } else {
       ESP_LOGW(TAG, "'%s' %s", config->id.c_str(), this->note_waiting_(config->id, error).c_str());
     }
+  }
+}
+
+// Only once the waiters had their turn, and only for a relay still free: a thermostat that
+// started on it in the same call keeps it, and nothing that hears of the release moves it
+// under that one.
+void ClimateHub::announce_released_() {
+  std::map<std::string, switch_::Switch *> freed;
+  freed.swap(this->freed_);
+  for (const auto &relay : freed) {
+    if (this->claimed_by(relay.first).empty())
+      switch_hold::notify_released(relay.second);
   }
 }
 

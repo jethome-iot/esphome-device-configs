@@ -170,7 +170,8 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   void release_claims_(const std::string &owner);
   /// Opens the claim's relay, remembers its last switching and drops the claim.
   ClaimMap::iterator let_go_(ClaimMap::iterator it, uint32_t now_ms);
-  /// The end of a mutator: tells switch_hold about each relay it let go of that is still free.
+  /// The end of a mutator, after start_waiters_(): tells switch_hold about each relay let go of
+  /// that is still free, and forgets them all.
   void announce_released_();
   /// Moves the claims `from` holds on relays `to` names over to `to`, relays as they are.
   void hand_over_(const std::string &from, Slot *holding, const ClimateConfig &to);
@@ -190,7 +191,7 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// The 409 naming `holder`, which holds the relay or, `waits`, is enabled and waits for it.
   Result relay_held_(const std::string &relay_id, const std::string &holder, bool waits) const;
   /// Starts the enabled thermostats, `skip_id` aside, that name a relay let go since the last
-  /// call, in id order, and adds the ones that started to `result`.
+  /// announce_released_(), in id order, and adds the ones that started to `result`.
   void start_waiters_(const std::string &skip_id, Result *result);
   Slot *slot_for_(const std::string &id) const;
   /// The hidden slot that last carried `name` (by object id), so a thermostat back under its
@@ -242,12 +243,10 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   // Each relay's last switching once its claim is gone, by object id: the next claim on it
   // honours min_on and min_off from there.
   std::map<std::string, RelaySwitching> relay_history_;
-  // Relays let go of since the last announce_released_().
-  std::vector<switch_::Switch *> released_;
   // Why each enabled thermostat that is not running did not start, by id, as a `warning`.
   std::map<std::string, std::string> waiting_;
-  // Relays let go since the last start_waiters_(), by object id.
-  std::set<std::string> freed_;
+  // Relays let go since the last announce_released_(), by object id.
+  std::map<std::string, switch_::Switch *> freed_;
   // One per sensor, kept for the life of the device: upstream has no callback removal.
   std::vector<std::unique_ptr<SensorSubscription>> sensor_subs_;
 
