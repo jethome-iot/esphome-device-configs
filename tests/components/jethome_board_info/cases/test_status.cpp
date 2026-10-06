@@ -12,6 +12,7 @@ TEST(ReadStatus, ANoMagicHeaderIsNoHeaderAndABadCrcIsCorrupt) {
   EXPECT_EQ(header_read_status(HeaderStatus::BAD_MAGIC), ReadStatus::NO_HEADER);
   EXPECT_EQ(header_read_status(HeaderStatus::UNSUPPORTED_VERSION), ReadStatus::UNSUPPORTED);
   EXPECT_EQ(header_read_status(HeaderStatus::BAD_CRC), ReadStatus::CORRUPT);
+  EXPECT_EQ(header_read_status(static_cast<HeaderStatus>(0xEE)), ReadStatus::CORRUPT);
 }
 
 TEST(ReadStatus, AWalkEndsInTheStatusItsCallerActsOn) {

@@ -98,6 +98,49 @@ TEST(ReadFile, AV3HeaderWithAFilesystemHasItsChainRead) {
   EXPECT_EQ(read_wifi(board), ReadStatus::OK);
 }
 
+// Each way a device.id can be unusable is named in the log, and the header stands without it.
+TEST(ReadFile, AnUnusableDeviceIdIsLoggedAndLeftOut) {
+  struct Case {
+    const char *name;
+    std::vector<uint8_t> data;
+    const char *error;
+  };
+  auto record_with = [](size_t off, uint8_t value, bool reseal) {
+    RecordBuf record = make_record();
+    record[off] = value;
+    if (reseal)
+      seal_record(record);
+    return std::vector<uint8_t>(record.begin(), record.end());
+  };
+  const std::vector<Case> cases = {
+      {"short", std::vector<uint8_t>(100, 0x5A), "device.id is not 256 bytes"},
+      {"magic", record_with(REC_OFF_MAGIC, 'X', true), "Invalid device.id magic"},
+      {"version", record_with(REC_OFF_RECORD_VERSION, 9, true), "Unsupported device identity version: 9"},
+      {"signature", record_with(REC_OFF_SIG_VERSION, 7, true), "Unsupported device.id signature version: 7"},
+      {"record CRC", record_with(REC_OFF_HW_REVISION, 'Z', false), "device.id record CRC32 mismatch"},
+  };
+  for (const Case &c : cases) {
+    SCOPED_TRACE(c.name);
+    Board board(make_image({FileSpec{DEVICE_ID_NAME, c.data}}));
+    board.boot();
+    EXPECT_TRUE(board.info.is_valid());
+    EXPECT_FALSE(board.info.has_device_identity());
+    EXPECT_TRUE(board.log().has_error(c.error));
+  }
+}
+
+// A timestamp no calendar holds is reported as such, not formatted.
+TEST(ReadFile, ATimestampPastTheCalendarStillDumps) {
+  std::vector<uint8_t> image = one_file_image();
+  put_u32(image.data(), HDR_OFF_TIMESTAMP, 0xFFFFFFFF);
+  put_u32(image.data(), HDR_OFF_TIMESTAMP + 4, 0x7FFFFFFF);
+  reseal_header(image);
+  Board board(image);
+  board.boot();
+  EXPECT_TRUE(board.info.is_valid());
+  board.info.dump_config();
+}
+
 // A part that may be blank: each header it cannot use leaves the component running, says why,
 // and hands that reason to every read.
 struct OptionalCase {
