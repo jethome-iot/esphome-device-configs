@@ -104,7 +104,7 @@ a `warning` that names what is missing, and the message repeats it:
 It starts at the next boot that finds what it names, or at a Save or an `enable` that finds it
 there. The same `warning` comes, as `not started: no free climate entity`, if no climate entity
 is free. Until it starts or is stopped, `list` and `status` show it enabled, not running and with
-no fault, with the same words in `waiting`. One the boot left waiting shows there too, and the
+no fault, with the latest reason in `waiting`. One the boot left waiting shows there too, and the
 boot has two reasons more: a sensor not in °C (`not started: sensor 'uptime' reports s, not °C`)
 and a relay another thermostat holds (`not started: relay 'relay_1' is held by 'living-room'`),
 which only files written by hand or a restore bring about.

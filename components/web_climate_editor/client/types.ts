@@ -122,8 +122,8 @@ export interface ControllerSummary {
   /** Enabled and bound to its sensor and relays. Enabled but not running, it waits: see `waiting`. */
   running: boolean
   /**
-   * Why an enabled thermostat does not run, in the words of the SaveResponse.warning that said
-   * so first ("not started: sensor 'attic' not found"); "" when it runs or is disabled.
+   * Why an enabled thermostat does not run, the latest reason in a SaveResponse.warning's words
+   * ("not started: sensor 'attic' not found"); "" when it runs or is disabled.
    */
   waiting: string
 }
@@ -232,7 +232,10 @@ export interface SuccessResponse {
   message: string
 }
 
-/** POST /save: the id of the controller created or updated. */
+/**
+ * POST /save: the id of the controller created or updated. The controllers that waited for a
+ * relay it let go start, and `message` names them before the warning.
+ */
 export interface SaveResponse extends SuccessResponse {
   id: string
   /**

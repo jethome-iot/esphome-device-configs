@@ -181,7 +181,7 @@ class ClimateHub : public Component {
   /// The 409 naming `holder`, which holds the relay or, `waits`, is enabled and waits for it.
   Result relay_held_(const std::string &relay_id, const std::string &holder, bool waits) const;
   /// Starts the enabled thermostats, `skip_id` aside, that name a relay let go since the last
-  /// call, in id order, and adds the ones that ran to `result`.
+  /// call, in id order, and adds the ones that started to `result`.
   void start_waiters_(const std::string &skip_id, Result *result);
   Slot *slot_for_(const std::string &id) const;
   /// The hidden slot that last carried `name` (by object id), so a thermostat back under its
