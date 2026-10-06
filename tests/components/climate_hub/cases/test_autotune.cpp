@@ -547,7 +547,7 @@ TEST_F(Calibration, ADayEndsIt) {
 TEST_F(Calibration, AReadingPastTheDayThatWouldFinishItEndsIt) {
   const std::string id = this->start(living_room(), 21.f);
   ASSERT_TRUE(this->calibrate(id).ok);
-  const uint32_t started = hub().ms;
+  const uint64_t started = hub().ms;
   // A switch every 4.8 hours, a reading a minute: the last pass comes a minute short of the day.
   const float readings[] = {20.7f, 21.3f, 20.7f, 21.3f, 20.7f};
   for (size_t i = 0; i < std::size(readings); i++)
