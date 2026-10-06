@@ -277,13 +277,17 @@ void ControllerRuntime::refresh_fault_(uint32_t now_ms) {
 
   if (fault == this->fault_)
     return;
-  if (fault != HubFault::NONE) {
-    ESP_LOGW(TAG, "'%s': %s", c.id.c_str(), enums::fault_to_string(fault));
-  } else {
+  const bool cut_out_ends = cuts_out(this->fault_) && !cuts_out(fault);
+  if (fault == HubFault::NONE) {
     ESP_LOGI(TAG, "'%s': fault cleared", c.id.c_str());
+  } else {
+    // Straight into relay_contested, the end of the cut-out would go unsaid.
+    if (cut_out_ends)
+      ESP_LOGI(TAG, "'%s': %s cleared", c.id.c_str(), enums::fault_to_string(this->fault_));
+    ESP_LOGW(TAG, "'%s': %s", c.id.c_str(), enums::fault_to_string(fault));
   }
   // The cut-out zeroed the duties: waiting out update_interval_s would leave it off for up to an hour.
-  if (cuts_out(this->fault_) && !cuts_out(fault))
+  if (cut_out_ends)
     this->control_due_ = true;
   this->fault_ = fault;
 }

@@ -1475,7 +1475,8 @@ TEST_F(ControlLoop, AContestedCoolingRelayIsReported) {
 }
 
 // A cut-out beats relay_contested: the relay opens, a close from elsewhere is undone on every
-// pass, and when the cut-out clears control resumes at once, with an hour's interval too.
+// pass, and when the cut-out clears, which the log says, control resumes at once, with an
+// hour's interval too.
 TEST_F(ControlLoop, ACutOutWinsOverRelayContested) {
   ClimateConfig config = this->base(ControlKind::BANG_BANG);
   config.update_interval_s = 3600.f;
@@ -1501,9 +1502,12 @@ TEST_F(ControlLoop, ACutOutWinsOverRelayContested) {
     EXPECT_FALSE(entities().relay1.state) << "pass " << pass;
   }
 
+  LogCapture::instance().clear();
   entities().room.publish_state(18.f);
   tick(t += 1000);
   EXPECT_EQ(HubFault::RELAY_CONTESTED, rt->fault()) << "the contest is still on";
+  EXPECT_TRUE(LogCapture::instance().has("'loop': overtemp cleared"));
+  EXPECT_TRUE(LogCapture::instance().has("'loop': relay_contested"));
   EXPECT_EQ(HubAction::HEATING, rt->action());
   EXPECT_TRUE(entities().relay1.state);
 }
