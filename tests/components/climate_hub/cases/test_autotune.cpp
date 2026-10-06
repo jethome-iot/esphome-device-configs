@@ -489,6 +489,57 @@ TEST_F(Calibration, AResultTheFileDidNotTakeStillRuns) {
   EXPECT_EQ(0.6f, this->on_flash(id).pid.kp);
 }
 
+// The write is tried again, as a target's is, and a write that goes through says so.
+TEST_F(Calibration, AResultTheFileDidNotTakeIsWrittenAgain) {
+  const RoomModel model = radiator_room();
+  Room room(model);
+  const std::string id = this->start(living_room(), room.reading());
+  ASSERT_TRUE(this->calibrate(id).ok);
+  hub().max_file_bytes = 100;
+  swing(room, model, 24.f, [&id] { return ended(id); });
+  const AutotuneRun *run = hub().autotune(id);
+  ASSERT_FALSE(run->persisted());
+  hub().max_file_bytes = CONFIG_MAX_BYTES;
+  hub().ms += 3000;
+  hub().loop();
+  EXPECT_EQ(run->new_gains().kp, this->on_flash(id).pid.kp);
+  EXPECT_EQ(1u, this->on_flash(id).revision);
+  EXPECT_TRUE(run->persisted());
+}
+
+TEST_F(Calibration, AResultTheFileDidNotTakeIsWrittenAtShutdown) {
+  const RoomModel model = radiator_room();
+  Room room(model);
+  const std::string id = this->start(living_room(), room.reading());
+  ASSERT_TRUE(this->calibrate(id).ok);
+  hub().max_file_bytes = 100;
+  swing(room, model, 24.f, [&id] { return ended(id); });
+  hub().max_file_bytes = CONFIG_MAX_BYTES;
+  hub().on_shutdown();
+  EXPECT_EQ(hub().autotune(id)->new_gains().kp, this->on_flash(id).pid.kp);
+}
+
+// Failed again at the retry, the gains reach the file with the next change, and the warning goes.
+TEST_F(Calibration, ALaterWriteOfTheThermostatClearsTheWarning) {
+  const RoomModel model = radiator_room();
+  Room room(model);
+  const std::string id = this->start(living_room(), room.reading());
+  ASSERT_TRUE(this->calibrate(id).ok);
+  hub().max_file_bytes = 100;
+  swing(room, model, 24.f, [&id] { return ended(id); });
+  hub().ms += 3000;
+  hub().loop();
+  const AutotuneRun *run = hub().autotune(id);
+  ASSERT_FALSE(run->persisted()) << "the retry failed too";
+  hub().max_file_bytes = CONFIG_MAX_BYTES;
+  ASSERT_TRUE(hub().set_setpoint(id, 22.f).ok);
+  hub().ms += 3000;
+  hub().loop();
+  EXPECT_EQ(22.f, this->on_flash(id).setpoint);
+  EXPECT_EQ(run->new_gains().kp, this->on_flash(id).pid.kp);
+  EXPECT_TRUE(run->persisted());
+}
+
 // --- What a start is refused for ---
 
 TEST_F(Calibration, OnlyARunningPidThermostatInHeatOrCoolStarts) {

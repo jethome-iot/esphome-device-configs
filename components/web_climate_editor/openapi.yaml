@@ -1645,7 +1645,10 @@ components:
           description: The gains it wrote; `null` unless it succeeded.
         persisted:
           type: boolean
-          description: False when the gains it found run but did not reach the file, so a reboot loses them.
+          description: >-
+            False when the gains it found run but did not reach the file, so a
+            reboot loses them; true again once the thermostat is written, by the
+            device's retry a few seconds later or any later change.
       example:
         state: succeeded
         reason: ""

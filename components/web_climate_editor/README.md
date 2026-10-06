@@ -218,7 +218,8 @@ order (`at_s`, `temperature`), `ku` and `pu` (seconds) once it succeeded, the `f
 about a result (`asymmetric`: the room rose and fell at very different rates; `uneven`: the swings
 differed, something else moved the room; `clamped`: a gain had to be held in its range), the
 gains it replaced as `old` and wrote as `new`, and `persisted`, false when they did not reach the
-file.
+file. The device tries the write again a few seconds later and at shutdown, and `persisted` turns
+true once the thermostat's file is written, by that or by any later change.
 
 The parameters are read first: `400` for a missing or malformed `id` or `value`, or a `direction`
 or `rule` it does not know. A start is then `404`, `409` for a bang-bang or stopped thermostat,

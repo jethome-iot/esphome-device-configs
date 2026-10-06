@@ -193,8 +193,10 @@ sixth relay switch it has the room's ultimate gain Ku and period Pu, the same nu
 | `no_overshoot`   | 0.2 Ku     | 0.4 Ku / Pu   | 0.0625 Ku · Pu   |
 
 Each gain is held in its range and written to the file as the file keeps it, and the `revision`
-moves on; the thermostat goes on with them from a clean PID. A room with radiators takes about an
-hour and a half, a floor heating eight to ten hours.
+moves on; the thermostat goes on with them from a clean PID. Gains the file did not take run all
+the same and are written again with the next flush, three seconds later, or at shutdown; the run
+says `persisted()` false until a write of the thermostat succeeds. A room with radiators takes
+about an hour and a half, a floor heating eight to ten hours.
 
 A run ends without gains on `cancel_autotune()`, a target or a mode changed from anywhere, an
 `update()`, a stop or a take-over, any fault, `relay_contested` too, 24 hours in all, or 6 hours

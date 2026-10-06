@@ -273,7 +273,10 @@ export interface AutotuneStatus {
   old: PidGains
   /** What it wrote in their place, null unless it succeeded. */
   new: PidGains | null
-  /** False when the gains run but did not reach the file, so a reboot loses them. */
+  /**
+   * False when the gains run but did not reach the file, so a reboot loses them; true again once
+   * the thermostat is written, by the device's retry or any later change.
+   */
   persisted: boolean
 }
 

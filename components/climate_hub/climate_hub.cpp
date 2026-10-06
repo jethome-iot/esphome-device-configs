@@ -830,8 +830,12 @@ void ClimateHub::complete_autotune_(Slot *slot) {
   // A form read before now would write the old gains back.
   config->revision++;
   const bool persisted = this->save_(*config);
-  if (persisted)
+  // Tried again at the next flush or the shutdown, as a target from Home Assistant would be.
+  if (persisted) {
     this->dirty_.erase(config->id);
+  } else {
+    this->mark_dirty_(config->id);
+  }
   const uint32_t now = this->now_ms();
   run->succeed(gains, clamped, persisted, now);
   runtime.end_autotune(AutotuneEnd::NONE, now);
@@ -1240,6 +1244,10 @@ bool ClimateHub::save_(const ClimateConfig &config, bool *too_large) {
     ::remove(tmp.c_str());
     return false;
   }
+  // Gains a calibration could not write are in the file now.
+  auto run = this->autotunes_.find(config.id);
+  if (run != this->autotunes_.end())
+    run->second->mark_persisted();
   return true;
 }
 

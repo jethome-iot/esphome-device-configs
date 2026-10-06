@@ -38,6 +38,8 @@ class AutotuneRun {
   /// The rule's gains, each clamped into the parameter table; `clamped` says whether one had to be.
   PidGains result(bool *clamped) const;
   void succeed(const PidGains &gains, bool clamped, bool persisted, uint32_t now_ms);
+  /// The thermostat's file was written since: the gains are in it, or whatever replaced them.
+  void mark_persisted() { this->persisted_ = true; }
   void fail(AutotuneEnd why, uint32_t now_ms);
 
   AutotuneState state() const { return this->state_; }
@@ -58,7 +60,7 @@ class AutotuneRun {
   bool asymmetric() const { return this->asymmetric_; }
   bool uneven() const { return this->uneven_; }
   bool clamped() const { return this->clamped_; }
-  /// False when the gains run but did not reach the file.
+  /// False when the gains run but did not reach the file, until the next write of it.
   bool persisted() const { return this->persisted_; }
 
  protected:
