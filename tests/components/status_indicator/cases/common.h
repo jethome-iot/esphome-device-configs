@@ -98,6 +98,8 @@ class StatusIndicatorTest : public ::testing::Test {
     const uint32_t start = millis();
     while (millis() - start < ms)
       this->tick_();
+    // A stall after the last pass can end the wait without another one.
+    this->mark_(0);
   }
 
   // The main loop until the pin has seen `count` writes, so a late phase delays the check
@@ -106,6 +108,7 @@ class StatusIndicatorTest : public ::testing::Test {
     const uint32_t start = millis();
     while (this->pin->writes.size() < count && millis() - start < 10000)
       this->tick_();
+    this->mark_(0);
   }
 
   // How late a phase may end: SLACK, and as long again as the host held the loop up. A busy CI
