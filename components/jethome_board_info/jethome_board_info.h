@@ -17,13 +17,19 @@ class JetHomeBoardInfo : public Component {
   float get_setup_priority() const override { return setup_priority::DATA - 1.0f; }
 
   void set_eeprom(i2c_eeprom::I2CEeprom *eeprom) { this->eeprom_ = eeprom; }
+  // Off for a part that may legitimately be blank: what is wrong with it is then a warning,
+  // not a failed component.
+  void set_required(bool required) { this->required_ = required; }
+  bool is_required() const { return this->required_; }
 
   // Locates a file by walking the chain; outputs where its data starts, its length and its CRC32.
-  bool find_file(const char *name, uint16_t &offset, uint16_t &size, uint32_t &crc32);
+  ReadStatus find_file(const char *name, uint16_t &offset, uint16_t &size, uint32_t &crc32);
   // Reads a file's data into `data` and verifies it against the CRC32 the chain records.
-  bool read_file(const char *name, uint8_t *data, size_t size, uint16_t *read_size = nullptr);
+  ReadStatus read_file(const char *name, uint8_t *data, size_t size, uint16_t *read_size = nullptr);
 
   bool is_valid() const { return this->valid_; }
+  // Why the header is not valid: OK once it is.
+  ReadStatus get_header_status() const { return this->header_status_; }
   bool is_crc_valid() const { return this->crc_valid_; }
   bool has_device_identity() const { return this->devid_valid_; }
   // Cross-check of device.id against the header's USID.
@@ -51,14 +57,19 @@ class JetHomeBoardInfo : public Component {
   const uint8_t *get_signature() const;
 
  protected:
-  bool read_header_();
+  ReadStatus read_header_();
   bool read_device_identity_();
   void log_walk_status_(WalkStatus status, const char *name);
   void log_record_status_(RecordStatus status);
+  // An error on a required part, a warning on an optional one.
+  void report_(const char *format, ...) __attribute__((format(printf, 2, 3)));
+  const char *where_();
 
   i2c_eeprom::I2CEeprom *eeprom_{nullptr};
   JetHomeBoardData data_{};
   JetHomeDeviceIdentity devid_{};
+  ReadStatus header_status_{ReadStatus::NO_EEPROM};
+  bool required_{true};
   bool valid_{false};
   bool crc_valid_{false};
   bool devid_valid_{false};
@@ -74,6 +85,7 @@ class JetHomeBoardInfo : public Component {
   std::string usid_;
   std::string cpuid_;
   std::string mac_str_;
+  char where_buf_[16]{};
 };
 
 }  // namespace esphome::jethome_board_info

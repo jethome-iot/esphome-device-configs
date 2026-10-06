@@ -1,4 +1,4 @@
-"""The identity in a JetHome CPU board's EEPROM: board, model, serial and the factory signature, as read."""
+"""The identity in a JetHome board's EEPROM: board, model, serial and the factory signature, as read."""
 
 import esphome.codegen as cg
 from esphome.components import i2c_eeprom
@@ -7,9 +7,12 @@ from esphome.const import CONF_ID
 
 CODEOWNERS = ["@jethome-iot"]
 DEPENDENCIES = ["i2c_eeprom"]
+# The CPU board and a peripheral board each carry an EEPROM of their own.
+MULTI_CONF = True
 
 CONF_EEPROM_ID = "eeprom_id"
 CONF_PROTECT_EEPROM = "protect_eeprom"
+CONF_REQUIRED = "required"
 
 jethome_board_info_ns = cg.esphome_ns.namespace("jethome_board_info")
 JetHomeBoardInfo = jethome_board_info_ns.class_("JetHomeBoardInfo", cg.Component)
@@ -19,6 +22,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.GenerateID(): cv.declare_id(JetHomeBoardInfo),
         cv.Required(CONF_EEPROM_ID): cv.use_id(i2c_eeprom.I2CEeprom),
         cv.Optional(CONF_PROTECT_EEPROM, default=True): cv.boolean,
+        cv.Optional(CONF_REQUIRED, default=True): cv.boolean,
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -31,3 +35,5 @@ async def to_code(config):
     cg.add(var.set_eeprom(eeprom))
     # Generated code runs before App.setup(), so no on_setup automation can write first.
     cg.add(eeprom.set_write_protected(config[CONF_PROTECT_EEPROM]))
+    if not config[CONF_REQUIRED]:
+        cg.add(var.set_required(False))

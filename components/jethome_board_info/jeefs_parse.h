@@ -118,6 +118,44 @@ enum class RecordStatus : uint8_t {
   BAD_RECORD_CRC,
 };
 
+// What a caller gets back for the board header and for a file read: enough to tell an EEPROM
+// that never carried JEEFS from one whose contents went bad.
+enum class ReadStatus : uint8_t {
+  OK,
+  NO_EEPROM,    // the part did not answer
+  NO_HEADER,    // no board header: blank, erased, or not JEEFS at all
+  UNSUPPORTED,  // a header or filesystem version this reader does not know
+  CORRUPT,      // a CRC or a chain link that does not hold
+  NOT_FOUND,    // no such file, or no file area
+  TOO_LARGE,    // the file does not fit the caller's buffer
+  BAD_NAME,     // not a name a JEEFS file can have
+  READ_ERROR,   // the part stopped answering part way through
+};
+
+inline const char *read_status_str(ReadStatus status) {
+  switch (status) {
+    case ReadStatus::OK:
+      return "OK";
+    case ReadStatus::NO_EEPROM:
+      return "NO_EEPROM";
+    case ReadStatus::NO_HEADER:
+      return "NO_HEADER";
+    case ReadStatus::UNSUPPORTED:
+      return "UNSUPPORTED";
+    case ReadStatus::CORRUPT:
+      return "CORRUPT";
+    case ReadStatus::NOT_FOUND:
+      return "NOT_FOUND";
+    case ReadStatus::TOO_LARGE:
+      return "TOO_LARGE";
+    case ReadStatus::BAD_NAME:
+      return "BAD_NAME";
+    case ReadStatus::READ_ERROR:
+      return "READ_ERROR";
+  }
+  return "UNKNOWN";
+}
+
 // Pull model: the walker owns the state machine, the caller owns every read. Offsets are
 // 32-bit so a link at the top of a 64 KiB image cannot wrap while its end is computed.
 struct JeefsWalk {
@@ -155,6 +193,43 @@ inline HeaderStatus validate_header(const uint8_t *raw) {
     return HeaderStatus::BAD_CRC;
   }
   return HeaderStatus::OK;
+}
+
+// No magic means nothing JEEFS was ever written there; a magic over bad bytes is damage.
+inline ReadStatus header_read_status(HeaderStatus status) {
+  switch (status) {
+    case HeaderStatus::OK:
+      return ReadStatus::OK;
+    case HeaderStatus::BAD_MAGIC:
+      return ReadStatus::NO_HEADER;
+    case HeaderStatus::UNSUPPORTED_VERSION:
+      return ReadStatus::UNSUPPORTED;
+    case HeaderStatus::BAD_CRC:
+      return ReadStatus::CORRUPT;
+  }
+  return ReadStatus::CORRUPT;
+}
+
+// fs_version 0 says there is no file area, which is "no such file"; any other unknown value is
+// a layout this reader cannot walk.
+inline ReadStatus walk_read_status(WalkStatus status, uint8_t fs_version) {
+  switch (status) {
+    case WalkStatus::FOUND:
+      return ReadStatus::OK;
+    case WalkStatus::NOT_FOUND:
+      return ReadStatus::NOT_FOUND;
+    case WalkStatus::NO_FILESYSTEM:
+      return fs_version == FS_VERSION_NONE ? ReadStatus::NOT_FOUND : ReadStatus::UNSUPPORTED;
+    case WalkStatus::BAD_NAME:
+      return ReadStatus::BAD_NAME;
+    case WalkStatus::BAD_FILE_HEADER_CRC:
+    case WalkStatus::CORRUPT_CHAIN:
+      return ReadStatus::CORRUPT;
+    case WalkStatus::WANT_HEADER:
+      break;
+  }
+  // A walk the caller stopped feeding: the bytes never came.
+  return ReadStatus::READ_ERROR;
 }
 
 // A name must fit with its terminator: truncating it would compare equal to a shorter file

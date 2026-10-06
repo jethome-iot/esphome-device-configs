@@ -110,9 +110,10 @@ TEST(BoardInfo, AnEepromThatDoesNotAnswerMarksTheComponentFailed) {
 
   EXPECT_TRUE(board.info.is_failed());
   EXPECT_FALSE(board.info.is_valid());
+  EXPECT_EQ(board.info.get_header_status(), ReadStatus::NO_EEPROM);
   EXPECT_EQ(board.info.get_boardname(), "");
   EXPECT_EQ(board.info.get_signature_version(), SIG_NONE);
-  EXPECT_TRUE(board.log().has_error("Failed to read 256 bytes from EEPROM"));
+  EXPECT_TRUE(board.log().has_error("EEPROM 0x54: Failed to read the 256-byte header"));
 }
 
 // The EEPROM component already found no chip: nothing more goes out on the bus.
@@ -125,7 +126,8 @@ TEST(BoardInfo, AFailedEepromComponentIsNotAskedAgain) {
   board.boot();
 
   EXPECT_TRUE(board.info.is_failed());
-  EXPECT_TRUE(board.log().has_error("EEPROM not available"));
+  EXPECT_EQ(board.info.get_header_status(), ReadStatus::NO_EEPROM);
+  EXPECT_TRUE(board.log().has_error("EEPROM 0x54: not available"));
   EXPECT_FALSE(board.log().has_error("Failed to read"));
   EXPECT_EQ(board.bus.reads, 0);
 }
@@ -139,6 +141,7 @@ TEST(BoardInfo, ACorruptHeaderMarksTheComponentFailed) {
   EXPECT_TRUE(board.info.is_failed());
   EXPECT_FALSE(board.info.is_valid());
   EXPECT_FALSE(board.info.is_crc_valid());
+  EXPECT_EQ(board.info.get_header_status(), ReadStatus::CORRUPT);
   EXPECT_TRUE(board.log().has_error("CRC32 mismatch"));
 }
 
@@ -147,6 +150,7 @@ TEST(BoardInfo, AForeignEepromMarksTheComponentFailed) {
   board.boot();
 
   EXPECT_TRUE(board.info.is_failed());
+  EXPECT_EQ(board.info.get_header_status(), ReadStatus::NO_HEADER);
   EXPECT_TRUE(board.log().has_error("Invalid magic"));
 }
 
@@ -157,6 +161,7 @@ TEST(BoardInfo, AnOlderHeaderVersionMarksTheComponentFailed) {
   board.boot();
 
   EXPECT_TRUE(board.info.is_failed());
+  EXPECT_EQ(board.info.get_header_status(), ReadStatus::UNSUPPORTED);
   EXPECT_TRUE(board.log().has_error("Unsupported header version: 2"));
 }
 
@@ -239,25 +244,26 @@ TEST(BoardInfo, ReadFileReturnsAFileAndChecksItsCrc) {
 
   uint8_t buf[64];
   uint16_t read = 0;
-  ASSERT_TRUE(board.info.read_file("wifi.conf", buf, sizeof(buf), &read));
+  ASSERT_EQ(board.info.read_file("wifi.conf", buf, sizeof(buf), &read), ReadStatus::OK);
   EXPECT_EQ(read, 64);
   EXPECT_EQ(memcmp(buf, data.data(), data.size()), 0);
 
   uint8_t small[10];
-  EXPECT_FALSE(board.info.read_file("wifi.conf", small, sizeof(small)));
+  EXPECT_EQ(board.info.read_file("wifi.conf", small, sizeof(small)), ReadStatus::TOO_LARGE);
   EXPECT_TRUE(board.log().has_error("wifi.conf is 64 bytes, the buffer holds 10"));
 
-  EXPECT_FALSE(board.info.read_file("nothing", buf, sizeof(buf)));
+  EXPECT_EQ(board.info.read_file("nothing", buf, sizeof(buf)), ReadStatus::NOT_FOUND);
 
   board.bus.image[FILE_HEADER_ADDR + FILE_HEADER_SIZE] ^= 0xFF;
-  EXPECT_FALSE(board.info.read_file("wifi.conf", buf, sizeof(buf)));
+  EXPECT_EQ(board.info.read_file("wifi.conf", buf, sizeof(buf)), ReadStatus::CORRUPT);
   EXPECT_TRUE(board.log().has_error("wifi.conf file CRC32 mismatch"));
 }
 
+// Nothing has been read before setup, so nothing goes out on the bus either.
 TEST(BoardInfo, ReadFileNeedsAValidHeader) {
   Board board(make_image({FileSpec{"wifi.conf", std::vector<uint8_t>(64, 0x5A)}}));
   uint8_t buf[64];
-  EXPECT_FALSE(board.info.read_file("wifi.conf", buf, sizeof(buf)));
+  EXPECT_EQ(board.info.read_file("wifi.conf", buf, sizeof(buf)), ReadStatus::NO_EEPROM);
   EXPECT_EQ(board.bus.reads, 0);
 }
 

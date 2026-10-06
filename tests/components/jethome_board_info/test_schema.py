@@ -40,6 +40,26 @@ class Schema(unittest.TestCase):
                 {"eeprom_id": "eeprom_cpu", "protect_eeprom": "sometimes"}
             )
 
+    def test_the_eeprom_is_required_by_default(self):
+        config = jethome_board_info.CONFIG_SCHEMA({"eeprom_id": "eeprom_cpu"})
+        self.assertIs(config[jethome_board_info.CONF_REQUIRED], True)
+
+    def test_an_eeprom_can_be_optional(self):
+        config = jethome_board_info.CONFIG_SCHEMA(
+            {"eeprom_id": "eeprom_meter", "required": False}
+        )
+        self.assertIs(config[jethome_board_info.CONF_REQUIRED], False)
+
+    def test_a_required_that_is_not_a_boolean_is_refused(self):
+        with self.assertRaisesRegex(cv.Invalid, "Expected boolean"):
+            jethome_board_info.CONFIG_SCHEMA(
+                {"eeprom_id": "eeprom_meter", "required": "maybe"}
+            )
+
+    # A metering board carries its own EEPROM next to the CPU board's.
+    def test_several_instances_are_allowed(self):
+        self.assertIs(jethome_board_info.MULTI_CONF, True)
+
     def test_unknown_keys_are_refused(self):
         with self.assertRaisesRegex(cv.Invalid, "address"):
             jethome_board_info.CONFIG_SCHEMA(

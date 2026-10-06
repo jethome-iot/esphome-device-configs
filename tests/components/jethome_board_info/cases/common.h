@@ -3,12 +3,20 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <ostream>
 #include <string>
 #include <vector>
 #include "esphome/components/i2c_eeprom/i2c_eeprom.h"
 #include "esphome/components/jethome_board_info/jethome_board_info.h"
 #include "esphome/components/logger/logger.h"
 #include "jeefs_vectors.h"
+
+namespace esphome::jethome_board_info {
+
+// Found by gtest through ADL, so a failed comparison names the status instead of a byte.
+inline void PrintTo(ReadStatus status, std::ostream *os) { *os << read_status_str(status); }
+
+}  // namespace esphome::jethome_board_info
 
 namespace esphome::jethome_board_info::testing {
 

@@ -39,6 +39,12 @@ i2c_eeprom:
   - id: eeprom
     size: 64KB
     address: 0x54
+  - id: eeprom_peripheral
+    size: 64KB
+    address: 0x56
 
+# Two instances, the second on a part that may be blank, so codegen is built for both.
 jethome_board_info:
-  eeprom_id: eeprom
+  - eeprom_id: eeprom
+  - eeprom_id: eeprom_peripheral
+    required: false
