@@ -21,8 +21,8 @@ bool RelayClaim::relay_state_() const {
   return this->state_;
 }
 
-bool RelayClaim::request(bool want, uint32_t now_ms) {
-  // Forgotten on a pass rather than only judged by the clock, which wraps back into the window.
+bool RelayClaim::request(bool want, uint64_t now_ms) {
+  // Forgotten on a pass, not only outgrown: the next move starts a new count, not the sixth.
   if (this->moved_ && this->quiet_(now_ms))
     this->forget_moves_();
   if (!this->initialized_) {
@@ -41,7 +41,7 @@ bool RelayClaim::request(bool want, uint32_t now_ms) {
   return this->state_;
 }
 
-void RelayClaim::settle_move_(bool want, uint32_t now_ms, bool paced) {
+void RelayClaim::settle_move_(bool want, uint64_t now_ms, bool paced) {
   const bool moved_to = !this->state_;
   // Where the demand may go now anyway, it stays.
   if (want == moved_to && this->dwell_over_(now_ms)) {
@@ -92,27 +92,27 @@ void RelayClaim::count_move_(uint32_t wait_ms) {
 #endif
 }
 
-void RelayClaim::settled_(uint32_t now_ms) {
+void RelayClaim::settled_(uint64_t now_ms) {
   if (!this->pending_)
     return;
   this->pending_ = false;
   this->put_back_ms_ = now_ms;
 }
 
-bool RelayClaim::quiet_(uint32_t now_ms) const {
+bool RelayClaim::quiet_(uint64_t now_ms) const {
   return !this->pending_ && now_ms - this->put_back_ms_ >= CONTEST_QUIET_MS;
 }
 
-bool RelayClaim::contested(uint32_t now_ms) const { return this->moves_ >= CONTEST_MOVES && !this->quiet_(now_ms); }
+bool RelayClaim::contested(uint64_t now_ms) const { return this->moves_ >= CONTEST_MOVES && !this->quiet_(now_ms); }
 
-bool RelayClaim::dwell_over_(uint32_t now_ms) const {
+bool RelayClaim::dwell_over_(uint64_t now_ms) const {
   uint32_t dwell = this->state_ ? this->min_on_ms_ : this->min_off_ms_;
   if (this->pending_ && dwell < PUT_BACK_FLOOR_MS)
     dwell = PUT_BACK_FLOOR_MS;
   return now_ms - this->last_change_ms_ >= dwell;
 }
 
-void RelayClaim::force_off(uint32_t now_ms, bool paced) {
+void RelayClaim::force_off(uint64_t now_ms, bool paced) {
   if (this->moved_ && this->quiet_(now_ms))
     this->forget_moves_();
   if (!this->relay_state_()) {
@@ -163,7 +163,7 @@ bool RelayClaim::last_switching(RelaySwitching *out) const {
   return true;
 }
 
-void RelayClaim::apply_(bool on, uint32_t now_ms) {
+void RelayClaim::apply_(bool on, uint64_t now_ms) {
   this->settled_(now_ms);
   this->state_ = on;
   this->last_change_ms_ = now_ms;

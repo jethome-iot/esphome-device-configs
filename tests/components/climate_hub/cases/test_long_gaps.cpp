@@ -1,12 +1,11 @@
-// Gaps a device takes weeks to reach: a sensor silent past the point where a 32-bit millis()
-// wraps, about 49.7 days, and a PID that stood still for days. The hub's clock is the test's.
+// Gaps a device takes weeks to reach: a sensor silent or a relay left alone past the point where
+// a 32-bit millis() wraps, about 49.7 days, and a PID that stood still. The hub's clock is the
+// test's.
 #include "common.h"
 
 namespace esphome::climate_hub::testing {
 namespace {
 
-// 2^32 ms: where a 32-bit millis() count starts again from zero.
-constexpr uint64_t MILLIS_WRAP = 1ull << 32;
 constexpr uint64_t TEN_DAYS_MS = 10ull * 86400 * 1000;
 
 class LongGaps : public HubTest {
@@ -120,8 +119,7 @@ TEST_F(LongGaps, AReadingHeardBeforeTheMillisWrapIsStaleAtAStart) {
 
 // --- The rest of the clock ---
 
-// The relays and the PWM count in the low 32 bits of the clock, which wrap 3 s in here: the
-// rhythm goes on through it, 5 s on in every 10.
+// 3 s in, a 32-bit millis() would wrap: the PWM's rhythm goes on through it, 5 s on in every 10.
 TEST_F(LongGaps, ThePwmKeepsItsRhythmAcrossTheMillisWrap) {
   ClimateConfig config = base(ControlKind::PID);
   config.setpoint = 25.f;
@@ -160,6 +158,56 @@ TEST_F(LongGaps, TheHubCountsOnMillis64) {
   const uint64_t now = hub().ClimateHub::now_ms();
   EXPECT_LE(before, now);
   EXPECT_LE(now, millis_64());
+}
+
+// --- Relays ---
+
+// Ten minutes of min_off do not hold a relay that has been open for 49.7 days and a second: in
+// 32 bits that would read as a second, and the thermostat would wait the dwell out again.
+TEST_F(LongGaps, ARelayLeftOpenPastTheMillisWrapClosesAtOnce) {
+  ClimateConfig config = base(ControlKind::BANG_BANG);
+  config.heat.min_off_s = 600.f;
+  // Past the min_off the boot started.
+  hub().ms = 1000000;
+  this->start(config, 18.f);
+  tick(1000000);
+  ASSERT_TRUE(entities().relay1.state);
+  this->mode(climate::CLIMATE_MODE_OFF);
+  tick(1001000);
+  ASSERT_FALSE(entities().relay1.state);
+
+  hub().ms = 1001000 + MILLIS_WRAP + 1000;
+  entities().room.publish_state(18.f);
+  this->mode(climate::CLIMATE_MODE_HEAT);
+  tick(hub().ms);
+  EXPECT_TRUE(entities().relay1.state);
+}
+
+// A relay counts as opened at boot: 49.7 days of uptime and a second later, that is long past.
+TEST_F(LongGaps, ARelayOpenedAtBootClosesAtOnceOnALongUptime) {
+  ClimateConfig config = base(ControlKind::BANG_BANG);
+  config.heat.min_off_s = 600.f;
+  hub().ms = MILLIS_WRAP + 1000;
+  this->start(config, 18.f);
+  tick(hub().ms);
+  EXPECT_TRUE(entities().relay1.state);
+}
+
+// The switching a thermostat left a relay at is as old for the next one on it.
+TEST_F(LongGaps, ARelayLetGoBeforeTheMillisWrapClosesAtOnceAfterIt) {
+  ClimateConfig config = base(ControlKind::BANG_BANG);
+  config.heat.min_off_s = 600.f;
+  hub().ms = 1000000;
+  this->start(config, 18.f);
+  tick(1000000);
+  ASSERT_TRUE(entities().relay1.state);
+  ASSERT_TRUE(hub().remove(this->id_).ok);
+  ASSERT_FALSE(entities().relay1.state);
+
+  hub().ms += MILLIS_WRAP + 1000;
+  this->start(config, 18.f);
+  tick(hub().ms);
+  EXPECT_TRUE(entities().relay1.state);
 }
 
 // --- A PID after a pause ---

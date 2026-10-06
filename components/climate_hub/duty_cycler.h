@@ -13,16 +13,16 @@ class DutyCycler {
   void set_duty(float duty);
   float duty() const { return this->duty_; }
 
-  void start(uint32_t now_ms);
+  void start(uint64_t now_ms);
   void reset() { this->started_ = false; }
 
-  /// The state the relay should be in now. Unsigned arithmetic makes the millis rollover a
-  /// non-event; the phase resyncs across however many periods were missed.
-  bool update(uint32_t now_ms);
+  /// The state the relay should be in now; the phase resyncs across however many periods were
+  /// missed.
+  bool update(uint64_t now_ms);
 
  protected:
   uint32_t period_ms_{300000};
-  uint32_t period_start_ms_{0};
+  uint64_t period_start_ms_{0};
   float duty_{0.f};
   bool started_{false};
 };

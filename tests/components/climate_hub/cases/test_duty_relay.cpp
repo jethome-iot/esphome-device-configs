@@ -43,12 +43,12 @@ TEST(DutyCycler, HalfDutyIsOnForHalfThePeriod) {
   EXPECT_TRUE(duty.update(1000));
 }
 
-// millis() wraps every 49.7 days and the duty cycle must not notice.
-TEST(DutyCycler, SurvivesMillisRollover) {
+// The rhythm goes on through the point where a 32-bit millis() would wrap.
+TEST(DutyCycler, KeepsItsRhythmPastTheMillisWrap) {
   DutyCycler duty;
   duty.set_period(1000);
   duty.set_duty(0.5f);
-  const uint32_t before_wrap = 0xFFFFFC00u;
+  const uint64_t before_wrap = MILLIS_WRAP - 1024;
   duty.start(before_wrap);
 
   EXPECT_TRUE(duty.update(before_wrap));
@@ -56,6 +56,23 @@ TEST(DutyCycler, SurvivesMillisRollover) {
   EXPECT_FALSE(duty.update(before_wrap + 500));
   EXPECT_TRUE(duty.update(before_wrap + 1000));
   EXPECT_FALSE(duty.update(before_wrap + 1500));
+  EXPECT_TRUE(duty.update(before_wrap + 2000)) << "past the wrap";
+  EXPECT_FALSE(duty.update(before_wrap + 2500));
+}
+
+// After a gap longer than the wrap the phase is still counted from the start: in 32 bits it
+// would be off by the 296 ms that 2^32 ms leave over a whole number of periods.
+TEST(DutyCycler, KeepsItsPhaseAcrossAGapLongerThanTheMillisWrap) {
+  DutyCycler duty;
+  duty.set_period(1000);
+  duty.set_duty(0.5f);
+  duty.start(0);
+  ASSERT_TRUE(duty.update(0));
+
+  EXPECT_FALSE(duty.update(MILLIS_WRAP + 250)) << "546 ms into a period";
+  EXPECT_FALSE(duty.update(MILLIS_WRAP + 703));
+  EXPECT_TRUE(duty.update(MILLIS_WRAP + 704)) << "a new period";
+  EXPECT_FALSE(duty.update(MILLIS_WRAP + 1204));
 }
 
 // A loop that stalled for minutes resyncs in one call, not one period per iteration.
@@ -717,19 +734,19 @@ TEST(RelayClaim, EachMoveAgainstItIsLogged) {
   relay.publish_state(false);
 }
 
-// millis() wraps every 49.7 days, and neither the floor nor the quiet may notice.
-TEST(RelayClaim, PacingSurvivesMillisRollover) {
+// Neither the floor nor the quiet notices the point where a 32-bit millis() would wrap.
+TEST(RelayClaim, PacingGoesOnPastTheMillisWrap) {
   FakeSwitch relay;
   RelayClaim claim(&relay, "boiler");
-  const uint32_t t0 = 0xFFFFFFFFu - 5000;
+  const uint64_t t0 = MILLIS_WRAP - 5000;
   claim.request(true, t0);
   relay.turn_off();
   claim.request(true, t0 + 1000);
   relay.turn_off();
   ASSERT_FALSE(claim.request(true, t0 + 2000));
   EXPECT_FALSE(claim.request(true, t0 + 2000 + PUT_BACK_FLOOR_MS - 1)) << "across the wrap";
-  const uint32_t put_back = t0 + 2000 + PUT_BACK_FLOOR_MS;
-  ASSERT_LT(put_back, t0) << "past the wrap";
+  const uint64_t put_back = t0 + 2000 + PUT_BACK_FLOOR_MS;
+  ASSERT_GT(put_back, MILLIS_WRAP);
   EXPECT_TRUE(claim.request(true, put_back));
 
   claim.request(true, put_back + CONTEST_QUIET_MS - 1);
@@ -738,21 +755,42 @@ TEST(RelayClaim, PacingSurvivesMillisRollover) {
   EXPECT_EQ(0u, claim.moves());
 }
 
-// Forgotten, not just outgrown: once the quiet ran out on a pass, a clock that wraps all the way
-// round to the put-back does not bring the contest back.
+// A relay left open for 49.7 days and a second has had its ten minutes of min_off: in 32 bits
+// the second would read as the time since it opened, and it would wait out the dwell again.
+TEST(RelayClaim, ARelayIdlePastTheMillisWrapSwitchesAtOnce) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.set_dwell(600000, 600000);
+  claim.request(true, 0);
+  ASSERT_FALSE(claim.request(false, 600000));
+  EXPECT_TRUE(claim.request(true, 600000 + MILLIS_WRAP + 1000));
+
+  // The same from a switching an earlier claim made, as a boot that opened the relay leaves it.
+  relay.publish_state(false);
+  RelayClaim next(&relay, "boiler");
+  next.set_dwell(600000, 600000);
+  next.resume(RelaySwitching{false, 0});
+  EXPECT_TRUE(next.request(true, MILLIS_WRAP + 1000));
+}
+
+// Forgotten, not just outgrown: once the quiet ran out on a pass, the next move starts a new
+// count instead of contesting the relay again.
 TEST(RelayClaim, AContestIsForgottenForGood) {
   FakeSwitch relay;
   RelayClaim claim(&relay, "boiler");
   claim.request(true, 0);
-  uint32_t t = 0;
+  uint64_t t = 0;
   for (uint32_t n = 1; n <= CONTEST_MOVES; n++) {
     relay.turn_off();
     claim.request(true, t += 1000);
     claim.request(true, t += PUT_BACK_FLOOR_MS);
   }
   ASSERT_TRUE(claim.contested(t));
-  claim.request(true, t + CONTEST_QUIET_MS);
-  EXPECT_FALSE(claim.contested(t)) << "the same millis() 49.7 days on";
+  claim.request(true, t += CONTEST_QUIET_MS);
+  relay.turn_off();
+  EXPECT_TRUE(claim.request(true, t += 1000)) << "back at once";
+  EXPECT_EQ(1u, claim.moves());
+  EXPECT_FALSE(claim.contested(t));
 }
 
 }  // namespace esphome::climate_hub::testing

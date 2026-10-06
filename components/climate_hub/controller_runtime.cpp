@@ -283,8 +283,8 @@ void ControllerRuntime::refresh_fault_(uint64_t now_ms) {
     fault = HubFault::SENSOR_STALE;
   } else if (this->has_sample_ && this->entity_->current_temperature > c.safety.max_temperature) {
     fault = HubFault::OVERTEMP;
-  } else if ((this->heat_claim_ != nullptr && this->heat_claim_->contested(clock_32(now_ms))) ||
-             (this->cool_claim_ != nullptr && this->cool_claim_->contested(clock_32(now_ms)))) {
+  } else if ((this->heat_claim_ != nullptr && this->heat_claim_->contested(now_ms)) ||
+             (this->cool_claim_ != nullptr && this->cool_claim_->contested(now_ms))) {
     fault = HubFault::RELAY_CONTESTED;
   }
 
@@ -357,20 +357,19 @@ void ControllerRuntime::run_control_(uint64_t now_ms) {
 }
 
 void ControllerRuntime::drive_outputs_(uint64_t now_ms) {
-  const uint32_t now = clock_32(now_ms);
   if (this->heat_claim_ != nullptr)
-    this->heat_claim_->request(this->heat_duty_.update(now), now);
+    this->heat_claim_->request(this->heat_duty_.update(now_ms), now_ms);
   if (this->cool_claim_ != nullptr)
-    this->cool_claim_->request(this->cool_duty_.update(now), now);
+    this->cool_claim_->request(this->cool_duty_.update(now_ms), now_ms);
 }
 
 void ControllerRuntime::all_relays_off_(uint64_t now_ms, bool paced) {
   this->heat_duty_.set_duty(0.f);
   this->cool_duty_.set_duty(0.f);
   if (this->heat_claim_ != nullptr)
-    this->heat_claim_->force_off(clock_32(now_ms), paced);
+    this->heat_claim_->force_off(now_ms, paced);
   if (this->cool_claim_ != nullptr)
-    this->cool_claim_->force_off(clock_32(now_ms), paced);
+    this->cool_claim_->force_off(now_ms, paced);
 }
 
 float ControllerRuntime::sensor_age_s(uint64_t now_ms) const {

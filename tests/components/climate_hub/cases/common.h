@@ -31,6 +31,9 @@ extern "C" size_t __sanitizer_get_current_allocated_bytes();
 
 namespace esphome::climate_hub::testing {
 
+// 2^32 ms, about 49.7 days: where a 32-bit millis() count starts again from zero.
+constexpr uint64_t MILLIS_WRAP = 1ull << 32;
+
 #ifdef __SANITIZE_ADDRESS__
 // Bytes the process holds on the heap right now. Only the sanitizer's allocator says exactly:
 // glibc counts a small block waiting in its cache as in use.

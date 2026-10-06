@@ -20,17 +20,17 @@ void DutyCycler::set_duty(float duty) {
   this->duty_ = duty < 0.f ? 0.f : (duty > 1.f ? 1.f : duty);
 }
 
-void DutyCycler::start(uint32_t now_ms) {
+void DutyCycler::start(uint64_t now_ms) {
   this->period_start_ms_ = now_ms;
   this->started_ = true;
 }
 
-bool DutyCycler::update(uint32_t now_ms) {
+bool DutyCycler::update(uint64_t now_ms) {
   if (!this->started_)
     this->start(now_ms);
 
   const uint32_t period = this->period_ms_ == 0 ? 1 : this->period_ms_;
-  uint32_t elapsed = now_ms - this->period_start_ms_;
+  uint64_t elapsed = now_ms - this->period_start_ms_;
   if (elapsed >= period) {
     elapsed %= period;
     this->period_start_ms_ = now_ms - elapsed;

@@ -24,10 +24,6 @@ struct Reading {
   bool seen{false};
 };
 
-/// The relay claims and the PWM count in the low 32 bits of the hub's clock: what they time is
-/// minutes long, and unsigned arithmetic carries that across the wrap.
-inline uint32_t clock_32(uint64_t ms) { return static_cast<uint32_t>(ms); }
-
 /// The control loop of one running thermostat, paired for life with one entity of the pool.
 /// Loop task only: the hub starts and stops it, ticks it, and hands it samples and calls. Its
 /// clock is the hub's 64-bit one, so a silence or a pause of any length measures as it is.
