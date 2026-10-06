@@ -87,7 +87,7 @@ the device. Those packages live under the family's `packages/`, split by role:
 | Directory            | Contents |
 | -------------------- | -------- |
 | `packages/boards/`   | Platform and the chips sitting on each board — `jxd-cpu-e1eth.yaml` (ESP32, api/ota/logger/web_server, TMP102, LED, FN button, the identity EEPROM) and `jxd-d6-r6-rev1.2.yaml` (PCA9554 expander, 6 relays, 6 inputs, DS2484 1-Wire bridge) |
-| `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `entity-settings`, `factory-reset`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network`, `web-auth`, `web-device-dashboard`, `web-file-browser`, `automations`, `automation-editor`, `climates`, `climate-editor`, `crash-report`, `firmware-update` |
+| `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `entity-settings`, `factory-reset`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network`, `web-auth`, `web-device-dashboard`, `web-file-browser`, `automations`, `automation-editor`, `climates`, `climate-editor`, `crash-report`, `firmware-update`, `fram` |
 | `packages/display/`  | Display, pages, menu and buttons — `display.yaml`, `menu.yaml`, `buttons.yaml`, `menu-items-network.yaml`, `menu-serial.yaml`, `menu-firmware.yaml`, `firmware-page.yaml` |
 | `packages/qemu/`     | Overlays that `scripts/qemu.sh` layers over the real config to run it in the emulator — never part of a firmware build |
 

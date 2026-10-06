@@ -1,0 +1,49 @@
+# The CPU board's FRAM (FM24CL64B at 0x52, 8 KiB, WP grounded) and the regions the meters keep
+# their energy state in. Details: components/fram_store/README.md
+#
+# Layout v1. Changing a region's id, kind or size, adding one or removing one empties the store
+# on every device that boots that firmware, so the regions carry headroom and version what they
+# hold inside their payload. tests/components/fram_store/test_schema.py pins it.
+#
+#   0x0000-0x01FF  the factory station's; never read or written here
+#   0x0200         superblock, 32 B
+#   0x0220         fram_meter_board   slot 64 B: which metering board the energy belongs to
+#   0x02B0         fram_odometers     slot 256 B: lifetime energy per channel and direction
+#   0x04C0         fram_counter_00-15 slots 48 B: the state of each user counter
+#   0x0BC0         fram_history       ring 64 x 24 B: closed periods, reserved
+#   0x1340-0x1FFF  spare, 3264 B
+external_components:
+  - source: ${components}
+    components: [fram_store]
+
+i2c_eeprom:
+  - id: fram_cpu
+    size: 64KB
+    type: fram
+    address: 0x52
+
+fram_store:
+  - id: fram_store_cpu
+    eeprom_id: fram_cpu
+    size: 8192
+    base_offset: 0x200
+    regions:
+      - {id: fram_meter_board, type: slot, size: 64}
+      - {id: fram_odometers, type: slot, size: 256}
+      - {id: fram_counter_00, type: slot, size: 48}
+      - {id: fram_counter_01, type: slot, size: 48}
+      - {id: fram_counter_02, type: slot, size: 48}
+      - {id: fram_counter_03, type: slot, size: 48}
+      - {id: fram_counter_04, type: slot, size: 48}
+      - {id: fram_counter_05, type: slot, size: 48}
+      - {id: fram_counter_06, type: slot, size: 48}
+      - {id: fram_counter_07, type: slot, size: 48}
+      - {id: fram_counter_08, type: slot, size: 48}
+      - {id: fram_counter_09, type: slot, size: 48}
+      - {id: fram_counter_10, type: slot, size: 48}
+      - {id: fram_counter_11, type: slot, size: 48}
+      - {id: fram_counter_12, type: slot, size: 48}
+      - {id: fram_counter_13, type: slot, size: 48}
+      - {id: fram_counter_14, type: slot, size: 48}
+      - {id: fram_counter_15, type: slot, size: 48}
+      - {id: fram_history, type: ring, record_size: 24, capacity: 64}

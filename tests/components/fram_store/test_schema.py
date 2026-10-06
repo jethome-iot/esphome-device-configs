@@ -1,4 +1,4 @@
-"""The component's YAML schema: where it places regions and what it refuses."""
+"""The component's YAML schema: where it places regions, what it refuses, and the shipped layout."""
 
 import re
 import unittest
@@ -9,6 +9,7 @@ import esphome.final_validate as fv
 from esphome import loader
 from esphome.const import KEY_CORE, KEY_TARGET_PLATFORM, PLATFORM_HOST
 from esphome.core import CORE, ID
+import yaml
 
 REPO = Path(__file__).resolve().parents[3]
 loader.install_meta_finder(REPO / "components")
@@ -203,6 +204,48 @@ class Constants(unittest.TestCase):
         self.assertEqual(
             fram_store.RING_HEADER_SIZE,
             int(re.search(r"\bHEADER_SIZE = (\d+);", ring_part).group(1)),
+        )
+
+
+class ShippedLayout(unittest.TestCase):
+    """features/fram.yaml as devices carry it. A change here empties every meter's store."""
+
+    @classmethod
+    def setUpClass(cls):
+        package = REPO / "devices" / "JXD" / "packages" / "features" / "fram.yaml"
+        cls.package = yaml.safe_load(package.read_text())
+        (store,) = cls.package["fram_store"]
+        cls.config = validate(store)
+
+    def test_the_part_is_the_cpu_boards_fram(self):
+        (fram,) = self.package["i2c_eeprom"]
+        self.assertEqual(fram["id"], "fram_cpu")
+        self.assertEqual(fram["address"], 0x52)
+        self.assertEqual(fram["type"], "fram")
+        self.assertEqual(i2c_eeprom.EEPROM_SIZES[fram["size"]], self.config["size"])
+
+    def test_the_factory_stations_bytes_are_left_alone(self):
+        self.assertEqual(self.config["base_offset"], 0x200)
+
+    def test_the_layout_is_v1(self):
+        offsets, end, layout_hash = fram_store.layout(self.config)
+        names = [str(region["id"]) for region in self.config["regions"]]
+        self.assertEqual(
+            dict(zip(names, offsets)),
+            {
+                "fram_meter_board": 0x0220,
+                "fram_odometers": 0x02B0,
+                **{f"fram_counter_{n:02d}": 0x04C0 + n * 112 for n in range(16)},
+                "fram_history": 0x0BC0,
+            },
+        )
+        self.assertEqual(end, 0x1340)
+        self.assertEqual(8192 - end, 3264)
+        self.assertEqual(
+            layout_hash,
+            0xF62347B9,
+            "the shipped FRAM layout changed: every device that boots this firmware loses "
+            "its stored energy",
         )
 
 

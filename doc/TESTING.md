@@ -40,7 +40,7 @@ tests/
     display_menu_base/
     entity_config/
     firmware_rollback/
-    fram_store/
+    fram_store/               # test_schema.py also pins the layout of features/fram.yaml
     i2c_eeprom/
     jethome_board_info/
     jethome_manifest/
