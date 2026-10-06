@@ -344,7 +344,7 @@
       "body": null,
       "status": 200,
       "expect": {
-        "version": 3,
+        "version": 4,
         "id": "living-room",
         "name": "Living Room",
         "enabled": true,
@@ -2483,7 +2483,7 @@
           "body": null,
           "status": 200,
           "expect": {
-            "version": 3,
+            "version": 4,
             "id": "lounge",
             "name": "Living Room",
             "setpoint": 20.5,
@@ -2678,7 +2678,7 @@
           "body": null,
           "status": 200,
           "expect": {
-            "version": 3
+            "version": 4
           }
         }
       ]

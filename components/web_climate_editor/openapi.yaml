@@ -1307,9 +1307,9 @@ components:
       properties:
         version:
           type: integer
-          minimum: 3
+          minimum: 4
           description: >-
-            `3`, the format this firmware writes, or the higher number of a
+            `4`, the format this firmware writes, or the higher number of a
             file a newer firmware wrote: that thermostat runs, but its Save is
             `409`.
         revision:
@@ -1362,7 +1362,7 @@ components:
         active_preset:
           $ref: "#/components/schemas/ActivePreset"
       example:
-        version: 3
+        version: 4
         revision: 0
         id: living-room
         name: Living Room

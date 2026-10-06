@@ -16,9 +16,10 @@ namespace esphome::climate_hub {
 /// A document larger than this is refused before it is parsed.
 static constexpr size_t CONFIG_MAX_BYTES = 8192;
 /// The file format this firmware writes: 2 brought presets, 3 the revision and calibrated gains
-/// past 2's ranges. A file with a higher one came from a newer firmware: it is read as far as this
-/// one understands it and never written back, so an older firmware cannot clamp those gains into it.
-static constexpr uint16_t CONFIG_VERSION = 3;
+/// past 2's ranges, 4 the mode a turn-on goes back to. A file with a higher one came from a newer
+/// firmware: it is read as far as this one understands it and never written back, so an older
+/// firmware cannot clamp those gains into it.
+static constexpr uint16_t CONFIG_VERSION = 4;
 /// Presets per thermostat.
 static constexpr size_t PRESET_MAX_COUNT = 8;
 /// A preset's mode word for "leave the thermostat's mode as it is".

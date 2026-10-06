@@ -228,7 +228,8 @@ TEST_F(OnOff, ASaveAndACreateIgnoreTheDocumentsOwn) {
 
 // A newer firmware's file is never written: the change lasts until the next boot.
 TEST_F(OnOff, ANewerFirmwaresThermostatTurnsOffInMemory) {
-  const std::string text = R"({"version":4,"id":"boiler","name":"Boiler","kind":"bang_bang","sensor_id":"room",)"
+  const std::string text = R"({"version":)" + std::to_string(CONFIG_VERSION + 1) +
+                           R"(,"id":"boiler","name":"Boiler","kind":"bang_bang","sensor_id":"room",)"
                            R"("heat":{"relay_id":"relay_1"},"mode":"heat","setpoint":21})";
   write_file(this->file_of("boiler"), text);
   this->reboot();
