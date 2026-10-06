@@ -118,6 +118,8 @@ TEST_F(LongGaps, AReadingHeardBeforeTheMillisWrapIsStaleAtAStart) {
   EXPECT_FALSE(entities().relay1.state);
 }
 
+// --- The rest of the clock ---
+
 // The relays and the PWM count in the low 32 bits of the clock, which wrap 3 s in here: the
 // rhythm goes on through it, 5 s on in every 10.
 TEST_F(LongGaps, ThePwmKeepsItsRhythmAcrossTheMillisWrap) {
@@ -138,6 +140,26 @@ TEST_F(LongGaps, ThePwmKeepsItsRhythmAcrossTheMillisWrap) {
                                true, false}),
             states);
   EXPECT_EQ(HubFault::NONE, rt->fault());
+}
+
+// A change from Home Assistant still waits out the 3 s write debounce past the wrap.
+TEST_F(LongGaps, AChangeWaitsOutItsDebouncePastTheMillisWrap) {
+  hub().ms = MILLIS_WRAP + 1000;
+  this->start(base(ControlKind::BANG_BANG), 18.f);
+  this->mode(climate::CLIMATE_MODE_OFF);
+  ASSERT_TRUE(hub().dirty(this->id_));
+  tick(MILLIS_WRAP + 3999);
+  EXPECT_TRUE(hub().dirty(this->id_));
+  tick(MILLIS_WRAP + 4000);
+  EXPECT_FALSE(hub().dirty(this->id_));
+}
+
+// On a device the hub's clock is millis_64(), which no device runs long enough to see wrap.
+TEST_F(LongGaps, TheHubCountsOnMillis64) {
+  const uint64_t before = millis_64();
+  const uint64_t now = hub().ClimateHub::now_ms();
+  EXPECT_LE(before, now);
+  EXPECT_LE(now, millis_64());
 }
 
 // --- A PID after a pause ---
