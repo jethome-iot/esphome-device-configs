@@ -1151,8 +1151,9 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     }
     const taken = nameError(doc.name, doc.id, [...docs, ...yamlClimates])
     if (taken) return fail(409, taken)
-    // The thermostat's state, not the body's: a create starts from its mode.
-    doc.last_on_mode = onMode(doc, stored?.last_on_mode)
+    // The thermostat's state, not the body's: an update keeps the stored one's (as stored->on_mode()),
+    // a create starts from its own mode.
+    doc.last_on_mode = onMode(doc, stored ? onMode(stored, stored.last_on_mode) : undefined)
     if (stored) {
       keepPresetState(stored, doc)
     } else {
