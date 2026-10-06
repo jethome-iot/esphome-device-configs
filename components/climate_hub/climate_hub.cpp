@@ -538,8 +538,9 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
   return this->replace_(stored, doc, "Updated");
 }
 
-// A Save's refusals, in a Save's order, under the id the document brings. Its keys and its
-// active preset are a backup's record of the thermostat's state: rules name them, so they stay.
+// A Save's refusals under the id the document brings. Over HTTP they come in a Save's order:
+// the handler's deserialize checks the document before it calls update() or restore(). Its keys
+// and its active preset are a backup's record of the thermostat's state: rules name them, so they stay.
 Result ClimateHub::restore(ClimateConfig doc) {
   Result result;
   if (this->refuse_if_failed_(&result))
