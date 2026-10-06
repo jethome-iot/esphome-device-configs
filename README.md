@@ -319,7 +319,7 @@ whole map over RS485 for a quick check:
 ## Contributing
 
 Contributions are welcome, as an issue, a pull request, or both; a pull request for an issue
-says `Closes #N` or `Part of #N`. Every pull request targets `dev`, where development happens;
+says `Closes #N` or `Part of #N`. Most pull requests target `dev`, where development happens;
 `master` is the source of truth a release is built from, and only the release machinery and the
 rules go straight there. Issues, pull requests, commit messages and documentation are in
 English. The rules, with the templates in `.github/`, are in [Development](doc/DEVELOPMENT.md) —
