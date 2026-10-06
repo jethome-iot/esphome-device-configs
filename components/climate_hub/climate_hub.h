@@ -119,7 +119,8 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   Result update(const std::string &id, ClimateConfig doc, optional<uint32_t> revision = nullopt);
   /// Brings a thermostat back under the id its document names, as a backup holds it: one with
   /// that id is replaced, as update() replaces it, otherwise one is created with it. The
-  /// presets keep their keys and the active preset stays, since rules name them so. Refused
+  /// presets keep their keys and the active preset stays, since rules name them so, and the
+  /// mode to go back to is the document's (its own mode's without one). Refused
   /// as create() and update() refuse, and with 400 for an id that is no slug or is `new`, and
   /// 409 for an id a file the boot did not load holds. The doc's revision is ignored: a
   /// replacement moves the stored one on, a new one starts at 0. It ends a calibration.
@@ -141,6 +142,17 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// mode if it has one, and the label. 404 for an unknown thermostat or key; `persisted` false
   /// when it changed one a newer firmware wrote, whose file keeps what it had.
   Result apply_preset(const std::string &id, const std::string &key);
+  /// Mode off, running or not, as Home Assistant would set it. 404 for an unknown thermostat;
+  /// `persisted` as apply_preset().
+  Result turn_off(const std::string &id);
+  /// Back to the mode it had before it went off, its on_mode(), as turn_off().
+  Result turn_on(const std::string &id);
+
+  /// `callback(id)` runs at the end of a create, a removal, and a Save or a restore that added
+  /// the thermostat or changed its preset keys: what the automation rules name of it.
+  template<typename F> void add_on_change_callback(F &&callback) {
+    this->change_callback_.add(std::forward<F>(callback));
+  }
 
   /// Calibrates a running PID thermostat: the relay in `direction` goes full below the target
   /// and off above it, AUTOTUNE_NOISEBAND either side, the other one held open, until the
@@ -246,6 +258,7 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   SensorSubscription *subscribe_(sensor::Sensor *sensor);
   void on_sample_(SensorSubscription *sub, float value);
   void on_control_(uint8_t index, const climate::ClimateCall &call);
+  Result set_mode_(const std::string &id, HubMode mode);
 
   /// A free id made from `name`, "" when every one is taken.
   std::string next_id_(const std::string &name) const;
@@ -294,6 +307,8 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   std::map<std::string, std::unique_ptr<AutotuneRun>> autotunes_;
   // One per sensor, kept for the life of the device: upstream has no callback removal.
   std::vector<std::unique_ptr<SensorSubscription>> sensor_subs_;
+
+  CallbackManager<void(const std::string &)> change_callback_;
 
   std::set<std::string> dirty_;
   uint32_t dirty_since_ms_{0};

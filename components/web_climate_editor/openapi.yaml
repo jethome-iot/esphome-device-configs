@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: web_climate_editor HTTP API
-  version: 1.6.0
+  version: 1.7.0
   description: >-
     JSON/REST API of the `climate_hub` thermostats, served by the
     `web_climate_editor` component on the device's own web server (default
@@ -256,7 +256,8 @@ paths:
         presets keep the keys the document gives them and `active_preset`
         stays, so the automation rules that name them still find them; a
         preset without a key gets one from its name, and an `active_preset`
-        no preset has is none. `version` is not read: the file is written in
+        no preset has is none. `last_on_mode` is the document's too, read as
+        a file's is. `version` is not read: the file is written in
         this firmware's format. `revision` is not read either: a replaced
         thermostat's moves on by one, so a Save of a form read before the
         import is `409`, and a new one starts at 0. Keys left out take their
@@ -1043,6 +1044,14 @@ components:
       type: string
       enum: ["off", heat, cool, heat_cool]
 
+    OnMode:
+      type: string
+      enum: [heat, cool, heat_cool]
+      description: >-
+        The mode a turn-on goes back to: `mode` while it is not off, otherwise
+        the one it was in before, as far as the relays still serve it, else
+        `heat`, or `cool` for a cooling-only thermostat.
+
     PresetMode:
       type: string
       enum: [keep, "off", heat, cool, heat_cool]
@@ -1292,15 +1301,16 @@ components:
         - pid
         - bang_bang
         - mode
+        - last_on_mode
         - setpoint
         - presets
         - active_preset
       properties:
         version:
           type: integer
-          minimum: 3
+          minimum: 4
           description: >-
-            `3`, the format this firmware writes, or the higher number of a
+            `4`, the format this firmware writes, or the higher number of a
             file a newer firmware wrote: that thermostat runs, but its Save is
             `409`.
         revision:
@@ -1339,6 +1349,8 @@ components:
           $ref: "#/components/schemas/BangBangConfig"
         mode:
           $ref: "#/components/schemas/Mode"
+        last_on_mode:
+          $ref: "#/components/schemas/OnMode"
         setpoint:
           type: number
           description: One target for both laws, held inside the visual range.
@@ -1351,7 +1363,7 @@ components:
         active_preset:
           $ref: "#/components/schemas/ActivePreset"
       example:
-        version: 3
+        version: 4
         revision: 0
         id: living-room
         name: Living Room
@@ -1395,6 +1407,7 @@ components:
           below: 0.5
           above: 0.5
         mode: heat
+        last_on_mode: heat
         setpoint: 21
         presets:
           - key: eco
@@ -1456,6 +1469,12 @@ components:
           $ref: "#/components/schemas/PartialBangBangConfig"
         mode:
           $ref: "#/components/schemas/Mode"
+        last_on_mode:
+          $ref: "#/components/schemas/OnMode"
+          description: >-
+            Ignored by `/save`, the mode to turn back on in being the
+            thermostat's state; a word that is not one of these is still `400`.
+            `/import` takes it, as a file's is read.
         setpoint:
           type: number
         presets:
@@ -1492,7 +1511,8 @@ components:
     ControllerImportInput:
       description: >-
         What `/import` takes: a `/save` body under the `id` the thermostat is
-        to have. The presets' keys and `active_preset` are kept, not ignored.
+        to have. The presets' keys, `active_preset` and `last_on_mode` are
+        kept, not ignored.
       allOf:
         - $ref: "#/components/schemas/ControllerSaveInput"
         - type: object

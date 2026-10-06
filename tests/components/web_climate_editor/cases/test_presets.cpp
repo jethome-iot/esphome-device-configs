@@ -101,7 +101,7 @@ TEST_F(Editor, AThermostatStartsInThePresetPickedWhileItWasStopped) {
   EXPECT_EQ(picked.body, R"({"success":true,"message":"Preset applied","persisted":true})");
   flush();
   const std::string file = this->file("studio.json");
-  EXPECT_NE(file.find(R"("mode":"off","setpoint":12,)"), std::string::npos) << file;
+  EXPECT_NE(file.find(R"("mode":"off","last_on_mode":"heat","setpoint":12,)"), std::string::npos) << file;
   EXPECT_NE(file.find(R"("active_preset":"away"})"), std::string::npos) << file;
 
   ASSERT_EQ(this->post("enable?id=studio&value=true").code, 200);

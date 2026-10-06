@@ -25,7 +25,7 @@ logger:
 
 external_components:
   - source: ../../../components
-    components: [filesystem_storage_abstract, automations, web_automation_editor, web_origin_guard, loop_job, switch_hold]
+    components: [filesystem_storage_abstract, automations, climate_hub, web_automation_editor, web_origin_guard, loop_job, switch_hold]
   - source: ../../harness/components
     components: [dir_storage, web_server_base]
 
@@ -41,6 +41,11 @@ dir_storage:
 automations:
   storage: test_storage
   time_id: host_time
+
+# The thermostats a rule may name; the cases' one hub registers this pool.
+climate_hub:
+  storage: test_storage
+  max_controllers: 2
 
 web_server_base: {}
 

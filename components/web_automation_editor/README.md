@@ -48,19 +48,20 @@ answers `403` to a request whose `Origin` is not the `Host` it was sent to. Clie
 Routes match on the exact URL path under `<url_prefix>/api/`, and each answers the one method
 below: anything else is `405` with an `Allow` header.
 
-Every route that touches the rules runs its whole read or write on the loop task, which owns
-them, and answers `503 Service Unavailable` when the loop does not get to it within five
-seconds. Nothing was read or written then, and the call can simply be made again.
+Every route that touches the rules, and `entities` for the thermostats, runs its whole read or
+write on the loop task, which owns them, and answers `503 Service Unavailable` when the loop
+does not get to it within five seconds. Nothing was read or written then, and the call can
+simply be made again.
 
 | Method | Path | |
 |---|---|---|
-| GET | `list` | `{"automations": [{"id", "name", "enabled", "trigger_count", "action_count", "else_action_count", "mode"}, ...]}` |
+| GET | `list` | `{"automations": [{"id", "name", "enabled", "trigger_count", "action_count", "else_action_count", "mode", "built", "build_error"}, ...]}`; `built` is false for a rule on the device that cannot be built, and `build_error` says why (`Action 1: thermostat "attic" not found`), `""` when it runs |
 | GET | `get?id=` | One rule, in the file format of [automations](../automations/README.md#a-rule) |
 | POST | `save` | A rule as a JSON body; `id` absent or `0` creates, an existing `id` replaces that rule, renamed or not. Answers `{"success": true, "message", "id"}` on create, without `id` on update |
 | POST | `delete?id=` | Removes the rule and its file; `Failed to delete automation` when the engine refuses |
 | GET | `export` | `{"version": 1, "automations": [...]}`, every rule as `get` returns it — the backup file a client re-imports rule by rule through `save`, with each `id` dropped so the rules are created |
-| GET | `entities` | `{"binary_sensors", "sensors", "switches"}`, each `[{"object_id", "name"}, ...]`, sensors with `"unit"`; internal entities are left out |
-| GET | `schema` | The trigger, condition and action types and subtypes and the cron presets the engine parses, for an editor's menus |
+| GET | `entities` | `{"binary_sensors", "sensors", "switches"}`, each `[{"object_id", "name"}, ...]`, sensors with `"unit"`; internal entities are left out. `"climates"`: the thermostats, `[{"id", "name", "presets": [{"key", "name"}, ...]}, ...]`, by the id and keys a climate action names; empty on a firmware without them |
+| GET | `schema` | The trigger, condition and action types and subtypes and the cron presets the engine parses, for an editor's menus. The `climate` action only on a firmware with thermostats (`climate_hub`) |
 | POST | `reboot` | Answers, then `App.safe_reboot()` |
 | GET | `ping` | `{"status": "ok"}` |
 
@@ -68,9 +69,11 @@ seconds. Nothing was read or written then, and the call can simply be made again
 `application/json`. A form-encoded body is parsed into fields by the server and answered
 `Empty request body`; a body over 16 KiB, the engine's own ceiling on a rule file, is `413`. A
 name another rule already owns — names collide by file name, so `Porch light` and `porch-LIGHT`
-are one — is refused with the reason, and the engine's own refusals (a rule limit reached, a
-file the loader had refused under that name, a call from inside a running rule) come back as
-`Failed to create automation` / `Failed to update automation`.
+are one — is refused with the reason. So is a rule that names something the device does not
+have, an entity, a thermostat or a preset key: `Action 1: thermostat "attic" not found`. The
+engine's other refusals (a rule limit reached, a file the loader had refused under that name, a
+call from inside a running rule) come back as `Failed to create automation` /
+`Failed to update automation`.
 
 Every failure is `{"success": false, "error"}`: `400` for a bad request (an `id` that is missing
 or not a plain non-zero number included), `404` for an `id` no
@@ -108,4 +111,5 @@ type-checks them yet.
 `python tests/run.py web_automation_editor` builds the handler for the ESPHome `host` platform
 over the real engine, a directory standing in for the flash and the harness's `web_server_base`
 stand-in, and drives every route through it; the cases are in
-`tests/components/web_automation_editor/`. See [doc/TESTING.md](../../doc/TESTING.md).
+`tests/components/web_automation_editor/`. `python tests/run.py automations_no_climate` does
+the same on a firmware without `climate_hub`. See [doc/TESTING.md](../../doc/TESTING.md).

@@ -214,6 +214,12 @@ bool ControllerRuntime::pick_preset(const PresetConfig &preset, uint32_t now_ms)
   return this->apply_(&preset, nullopt, nullopt, now_ms);
 }
 
+bool ControllerRuntime::set_mode(HubMode mode, uint32_t now_ms) {
+  if (this->config_ == nullptr)
+    return false;
+  return this->apply_(nullptr, mode, nullopt, now_ms);
+}
+
 bool ControllerRuntime::apply_(const PresetConfig *preset, optional<HubMode> mode, optional<float> target,
                                uint32_t now_ms) {
   ClimateConfig &c = *this->config_;
@@ -224,8 +230,8 @@ bool ControllerRuntime::apply_(const PresetConfig *preset, optional<HubMode> mod
   // A target or a mode set by hand keeps the label, as upstream's thermostat does.
   if (preset != nullptr)
     c.pick_preset(*preset);
-  if (mode.has_value() && c.supports_mode(*mode))
-    c.mode = *mode;
+  if (mode.has_value() && *mode != c.mode && c.supports_mode(*mode))
+    c.set_mode(*mode);
   // A client may send anything; the document only ever holds a target inside its range.
   if (target.has_value() && !std::isnan(*target))
     c.setpoint = c.clamp_target(*target);

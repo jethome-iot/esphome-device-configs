@@ -176,6 +176,20 @@ TEST_F(Runtime, SingleIgnoresATriggerWhileRunning) {
   EXPECT_EQ(e.relay1.writes, 2);
 }
 
+// The edge single ignores still hands its state to a follow that has not played yet.
+TEST_F(Runtime, SingleKeepsTheLastStateForAFollowStillToPlay) {
+  auto rule =
+      build_rule(engine, R"({"name":"Late","triggers":[{"source":"input","type":"state_change","object_id":"in_1"}],
+      "actions":[{"source":"delay","delay_ms":500},{"source":"switch","type":"follow","object_id":"relay_2"}]})");
+  ASSERT_NE(rule, nullptr);
+  rule->on_binary_sensor(&e.in1, true);
+  rule->on_binary_sensor(&e.in1, false);
+  ASSERT_EQ(engine.delays.size(), 1u);
+  ASSERT_TRUE(engine.fire_next());
+  EXPECT_FALSE(e.relay2.state);
+  EXPECT_EQ(e.relay2.writes, 1);
+}
+
 TEST_F(Runtime, RestartDropsThePendingDelay) {
   auto rule = build_rule(engine, delayed("restart").c_str());
   ASSERT_NE(rule, nullptr);

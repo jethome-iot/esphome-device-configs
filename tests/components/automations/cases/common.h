@@ -1,6 +1,8 @@
 #pragma once
 #include <gtest/gtest.h>
 #include <ArduinoJson.h>
+#include <algorithm>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <string>
@@ -9,6 +11,7 @@
 #include "esphome/components/automations/automation_storage.h"
 #include "esphome/components/automations/runtime_automation.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
+#include "esphome/components/logger/logger.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
 #include "esphome/components/time/real_time_clock.h"
@@ -16,6 +19,56 @@
 #include "esphome/core/helpers.h"
 
 namespace esphome::automations::testing {
+
+// A mounted directory, the way littlefs_storage presents the partition.
+class FakeStorage : public filesystem_storage_abstract::FilesystemStorageAbstract {
+ public:
+  std::string path;
+  bool mounted{true};
+  bool is_mounted() const override { return this->mounted; }
+  const std::string &get_base_path() const override { return this->path; }
+  const char *get_filesystem_type() const override { return "Directory"; }
+  // Never called here: a factory reset is the dashboard's and the menu's business.
+  bool request_format() override { return false; }
+};
+
+// What the process logs: the errors and warnings, and every line. Registered once: the logger
+// keeps its listeners, and has room for one.
+class LogCapture {
+ public:
+  std::vector<std::string> errors;
+  std::vector<std::string> warnings;
+  std::vector<std::string> lines;
+
+  static LogCapture &instance() {
+    static LogCapture *capture = [] {
+      auto *c = new LogCapture();
+      logger::global_logger->add_log_callback(c, &LogCapture::on_log);
+      return c;
+    }();
+    return *capture;
+  }
+  void clear() {
+    this->errors.clear();
+    this->warnings.clear();
+    this->lines.clear();
+  }
+  bool has(const std::vector<std::string> &lines, const char *needle) const {
+    return std::any_of(lines.begin(), lines.end(),
+                       [needle](const std::string &line) { return line.find(needle) != std::string::npos; });
+  }
+
+ protected:
+  static void on_log(void *self, uint8_t level, const char *, const char *message, size_t len) {
+    auto *capture = static_cast<LogCapture *>(self);
+    capture->lines.emplace_back(message, len);
+    if (level == ESPHOME_LOG_LEVEL_ERROR) {
+      capture->errors.emplace_back(message, len);
+    } else if (level == ESPHOME_LOG_LEVEL_WARN) {
+      capture->warnings.emplace_back(message, len);
+    }
+  }
+};
 
 // Remembers every write; the state follows it like an optimistic template switch. on_change
 // runs when the state actually changes, where a YAML on_turn_on would.
@@ -109,14 +162,29 @@ class FakeEngine : public AutomationStorage {
 };
 
 // The entities the rules under test may name. Registered once: App keeps the pointers for the
-// life of the process and the engine finds them by the hash of their object id.
+// life of the process and the engine finds them by the hash of their object id. `room` and
+// `boiler` are what the thermostats run on.
 struct Entities {
   binary_sensor::BinarySensor in1;
   binary_sensor::BinarySensor in2;
   sensor::Sensor temp;
+  sensor::Sensor room;
   FakeSwitch relay1;
   FakeSwitch relay2;
+  FakeSwitch boiler;
 };
+
+// The entity field that gives `unit`, from the table codegen built out of test.yaml's units.
+inline uint32_t unit_field(const char *unit) {
+  for (uint32_t index = 1; index <= 0xFF; index++) {
+    const char *known = entity_uom_lookup(static_cast<uint8_t>(index));
+    if (*known == '\0')
+      break;
+    if (strcmp(known, unit) == 0)
+      return index << ENTITY_FIELD_UOM_SHIFT;
+  }
+  return 0;
+}
 
 inline Entities &entities() {
   static Entities *instance = [] {
@@ -124,8 +192,10 @@ inline Entities &entities() {
     App.register_binary_sensor(&e->in1, "In 1", fnv1_hash("in_1"), 0);
     App.register_binary_sensor(&e->in2, "In 2", fnv1_hash("in_2"), 0);
     App.register_sensor(&e->temp, "Temp", fnv1_hash("temp"), 0);
+    App.register_sensor(&e->room, "Room", fnv1_hash("room"), unit_field("°C"));
     App.register_switch(&e->relay1, "Relay 1", fnv1_hash("relay_1"), 0);
     App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
+    App.register_switch(&e->boiler, "Boiler", fnv1_hash("boiler"), 0);
     return e;
   }();
   return *instance;
@@ -137,7 +207,7 @@ inline void reset_entities() {
   e.in1.publish_state(false);
   e.in2.publish_state(false);
   e.temp.state = NAN;
-  for (FakeSwitch *sw : {&e.relay1, &e.relay2}) {
+  for (FakeSwitch *sw : {&e.relay1, &e.relay2, &e.boiler}) {
     sw->on_change = nullptr;
     sw->publish_state(false);
     sw->writes = 0;

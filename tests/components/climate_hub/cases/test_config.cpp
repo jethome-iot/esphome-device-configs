@@ -19,7 +19,7 @@ ClimateConfig sample() {
 }
 
 const char *const GOLDEN =
-    R"({"version":3,"revision":0,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
+    R"({"version":4,"revision":0,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
     R"("update_interval_s":30,"heat":{"relay_id":"relay_1","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("cool":{"relay_id":"","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("visual":{"min_temperature":5,"max_temperature":45,"step":0.5},)"
@@ -28,7 +28,7 @@ const char *const GOLDEN =
     R"("output_samples":1,"derivative_samples":8,"deadband_threshold_low":0,"deadband_threshold_high":0,)"
     R"("deadband_kp_multiplier":0,"deadband_ki_multiplier":0,"deadband_kd_multiplier":0,)"
     R"("deadband_output_samples":1},"bang_bang":{"below":0.5,"above":0.5},"mode":"heat",)"
-    R"("setpoint":21,"presets":[],"active_preset":""})";
+    R"("last_on_mode":"heat","setpoint":21,"presets":[],"active_preset":""})";
 
 // What the first firmware with thermostats wrote: no presets, version 1.
 const char *const GOLDEN_V1 =
@@ -61,7 +61,21 @@ ClimateConfig with_presets() {
 }
 
 const char *const GOLDEN_PRESETS =
-    R"({"version":3,"revision":0,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
+    R"({"version":4,"revision":0,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
+    R"("update_interval_s":30,"heat":{"relay_id":"relay_1","period_s":300,"min_on_s":10,"min_off_s":10},)"
+    R"("cool":{"relay_id":"relay_2","period_s":300,"min_on_s":10,"min_off_s":10},)"
+    R"("visual":{"min_temperature":5,"max_temperature":45,"step":0.5},)"
+    R"("safety":{"sensor_timeout_s":300,"max_temperature":60},)"
+    R"("pid":{"kp":0.6,"ki":0.0025,"kd":0,"min_integral":-1,"max_integral":1,"starting_integral_term":0,)"
+    R"("output_samples":1,"derivative_samples":8,"deadband_threshold_low":0,"deadband_threshold_high":0,)"
+    R"("deadband_kp_multiplier":0,"deadband_ki_multiplier":0,"deadband_kd_multiplier":0,)"
+    R"("deadband_output_samples":1},"bang_bang":{"below":0.5,"above":0.5},"mode":"heat",)"
+    R"("last_on_mode":"heat","setpoint":21,"presets":[{"key":"eco","name":"Eco","setpoint":18,"mode":"keep"},)"
+    R"({"key":"night","name":"Night","setpoint":19.5,"mode":"heat_cool"}],"active_preset":"night"})";
+
+// What the firmware with presets wrote: no revision, version 2.
+const char *const GOLDEN_V2 =
+    R"({"version":2,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
     R"("update_interval_s":30,"heat":{"relay_id":"relay_1","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("cool":{"relay_id":"relay_2","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("visual":{"min_temperature":5,"max_temperature":45,"step":0.5},)"
@@ -73,9 +87,9 @@ const char *const GOLDEN_PRESETS =
     R"("setpoint":21,"presets":[{"key":"eco","name":"Eco","setpoint":18,"mode":"keep"},)"
     R"({"key":"night","name":"Night","setpoint":19.5,"mode":"heat_cool"}],"active_preset":"night"})";
 
-// What the firmware with presets wrote: no revision, version 2.
-const char *const GOLDEN_V2 =
-    R"({"version":2,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
+// What the firmware with calibration wrote: no last_on_mode, version 3.
+const char *const GOLDEN_V3 =
+    R"({"version":3,"revision":0,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
     R"("update_interval_s":30,"heat":{"relay_id":"relay_1","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("cool":{"relay_id":"relay_2","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("visual":{"min_temperature":5,"max_temperature":45,"step":0.5},)"
@@ -121,7 +135,7 @@ TEST(ClimateConfigJson, TheRevisionRoundTrips) {
   ClimateConfig c = sample();
   c.revision = 7;
   const std::string json = to_json(c);
-  EXPECT_NE(std::string::npos, json.find(R"("version":3,"revision":7,"id":"boiler")")) << json;
+  EXPECT_NE(std::string::npos, json.find(R"("version":4,"revision":7,"id":"boiler")")) << json;
   ClimateConfig parsed;
   std::string error;
   ASSERT_TRUE(from_json(json, &parsed, &error)) << error;
@@ -158,6 +172,15 @@ TEST(ClimateConfigJson, AVersionTwoFileReadsAsThisVersion) {
   ASSERT_TRUE(from_json(GOLDEN_V2, &parsed, &error)) << error;
   EXPECT_FALSE(parsed.from_newer_firmware());
   EXPECT_EQ(0u, parsed.revision);
+  EXPECT_EQ(GOLDEN_PRESETS, to_json(parsed));
+}
+
+// And one the firmware with calibration wrote: the mode to go back on in is the one it is in.
+TEST(ClimateConfigJson, AVersionThreeFileReadsAsThisVersion) {
+  ClimateConfig parsed;
+  std::string error;
+  ASSERT_TRUE(from_json(GOLDEN_V3, &parsed, &error)) << error;
+  EXPECT_FALSE(parsed.from_newer_firmware());
   EXPECT_EQ(GOLDEN_PRESETS, to_json(parsed));
 }
 

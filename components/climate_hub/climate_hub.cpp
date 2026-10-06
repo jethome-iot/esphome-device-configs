@@ -128,6 +128,13 @@ static bool same_preset_listing(const ClimateConfig &a, const ClimateConfig &b) 
   return listing(a) == listing(b);
 }
 
+static std::vector<std::string> preset_keys(const ClimateConfig &config) {
+  std::vector<std::string> keys;
+  for (const PresetConfig &preset : config.presets)
+    keys.push_back(preset.key);
+  return keys;
+}
+
 // A Save's presets against the stored ones: a key the thermostat gave out stays with its
 // preset, any other is made again from the name; the active preset is the thermostat's state,
 // not the form's, and takes new values at once.
@@ -469,6 +476,8 @@ Result ClimateHub::create(ClimateConfig draft) {
     preset.key.clear();
   }
   draft.active_preset.clear();
+  // State, the hub's as active_preset is: it starts from the draft's mode.
+  draft.last_on_mode = HubMode::OFF;
   draft.clamp_numbers();
   if (!draft.validate(&error))
     return failure(400, error);
@@ -507,6 +516,7 @@ Result ClimateHub::add_(const ClimateConfig &doc, const char *verb) {
     }
   }
   ESP_LOGD(TAG, "%s '%s' (%s)", verb, stored->name.c_str(), stored->id.c_str());
+  this->change_callback_.call(result.id);
   return result;
 }
 
@@ -534,6 +544,8 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc, optional<uin
   // The path wins: a Save never re-keys a thermostat.
   doc.id = id;
   doc.version = CONFIG_VERSION;
+  // The thermostat's state, not the form's, as active_preset is.
+  doc.last_on_mode = stored->on_mode();
   // The device's to move: a Save builds on the revision it was checked against.
   doc.revision = stored->revision;
   keep_preset_state(*stored, &doc);
@@ -639,6 +651,8 @@ Result ClimateHub::replace_(ClimateConfig *stored, const ClimateConfig &doc, con
   // Its own start failed just now, for the reason the warning gives.
   this->start_waiters_(id, &result);
   this->announce_released_();
+  if (preset_keys(previous) != preset_keys(*stored))
+    this->change_callback_.call(id);
   return result;
 }
 
@@ -659,10 +673,12 @@ Result ClimateHub::remove(const std::string &id) {
   this->waiting_.erase(id);
   this->autotunes_.erase(id);
   ESP_LOGD(TAG, "Removed '%s'", id.c_str());
-  // Last: `id` may be the document's own string.
-  this->store_.remove(id);
+  // `id` may be the document's own string, which the removal frees.
+  const std::string removed = id;
+  this->store_.remove(removed);
   this->start_waiters_("", &result);
   this->announce_released_();
+  this->change_callback_.call(removed);
   return result;
 }
 
@@ -805,6 +821,37 @@ Result ClimateHub::apply_preset(const std::string &id, const std::string &key) {
   if (slot != nullptr ? slot->runtime.pick_preset(*preset, this->now_ms()) : stored->pick_preset(*preset)) {
     this->mark_dirty_(id);
     // A newer firmware's file is never written: the pick lasts until the next boot.
+    result.persisted = !stored->from_newer_firmware();
+  }
+  return result;
+}
+
+Result ClimateHub::turn_off(const std::string &id) { return this->set_mode_(id, HubMode::OFF); }
+
+Result ClimateHub::turn_on(const std::string &id) {
+  const ClimateConfig *stored = this->store_.get(id);
+  return this->set_mode_(id, stored != nullptr ? stored->on_mode() : HubMode::OFF);
+}
+
+Result ClimateHub::set_mode_(const std::string &id, HubMode mode) {
+  Result result;
+  if (this->refuse_if_failed_(&result))
+    return result;
+  ClimateConfig *stored = this->store_.get(id);
+  if (stored == nullptr)
+    return failure(404, NOT_FOUND);
+  Slot *slot = this->slot_for_(id);
+  result = success();
+  bool changed = false;
+  if (slot != nullptr) {
+    // Through the entity, which Home Assistant then hears about.
+    changed = slot->runtime.set_mode(mode, this->now_ms());
+  } else if (mode != stored->mode) {
+    stored->set_mode(mode);
+    changed = true;
+  }
+  if (changed) {
+    this->mark_dirty_(id);
     result.persisted = !stored->from_newer_firmware();
   }
   return result;

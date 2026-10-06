@@ -87,7 +87,9 @@ The device gives the presets their keys: a create makes every key from its prese
 Save keeps the key of every preset that comes back with it and makes one for a new preset. A
 form sends back the key it got and none for a new preset. `active_preset` is the thermostat's
 state, not the form's: a Save ignores it, keeps the active preset while its key is in the list,
-and applies that preset's new target and mode at once.
+and applies that preset's new target and mode at once. So is `last_on_mode`, the mode an
+automation rule's turn-on goes back to: a Save ignores it, though a word that is not `heat`,
+`cool` or `heat_cool` is `400`, and a create starts it from its own mode.
 
 A document carries a `revision`, `0` until a calibration writes new gains or an
 [import](#import) replaces the thermostat, the only things that move it on; a Save never does. A
@@ -162,7 +164,7 @@ A thermostat whose file a newer firmware wrote is listed, read and run like any 
 rest lasts until the next reboot. `enable` answers `"persisted": false` when it changed the flag
 or took a relay over; the thermostats it stopped, running or waiting, then stay enabled in their
 files. `preset` answers `"persisted": false` when the pick changed the target, the mode or the
-label. Its `version` in `get` is the file's own, higher than this firmware's `3`.
+label. Its `version` in `get` is the file's own, higher than this firmware's `4`.
 
 Every failure is `{"success": false, "error"}`, with the sentence an editor shows: `400` for a
 bad request, `404` for an unknown `id` or path, `405` for a `GET` or `POST` the route does not
@@ -208,6 +210,8 @@ id, one is created under it. Either way the thermostat comes back as the documen
   still find them; a preset without a key gets one from its name, and an `active_preset` no
   preset has is none;
 - its target and its mode are the document's, the active preset's values not applied again;
+- so is `last_on_mode`, read as a file's is: one the relays do not serve, or none, gives way to
+  the mode, or to `heat` (`cool` for a cooling-only thermostat) when that is `off`;
 - `version` is not read: the file is written in this firmware's format, so what a newer firmware
   added to it is dropped;
 - `revision` is not read either: a replaced thermostat's moves on by one, so a Save of a form read

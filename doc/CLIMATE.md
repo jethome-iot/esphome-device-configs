@@ -21,6 +21,10 @@ at the next boot. The file format and the C++ API are in
   set by hand afterwards keeps it shown as the active preset.
   Editing the active preset's values applies them at once, and the active preset comes back
   after a reboot.
+- **Automation rules** can turn a thermostat off and back on, in the mode it was in before it
+  went off, pick one of its presets or set its target, or follow an input or a switch with a
+  preset or on/off ([Automations](AUTOMATIONS.md)). The mode to go back to is kept across a
+  reboot, and a thermostat restored from a backup goes back to the backup's.
 - **Safety**: it keeps its relays open until its sensor's first reading, and waits for one
   as long as the sensor timeout before it reports a fault. A sensor silent for longer than its
   timeout, or a reading above the cut-out temperature, opens the relays until that clears. A
@@ -106,13 +110,14 @@ understands it, but this firmware never writes it: a change from Home Assistant,
 rule lasts until the next reboot, and a Save from the editor is refused with a sentence that
 says a newer firmware wrote it. Starting it in another thermostat's place lasts until the next
 reboot too: the ones it took the relay from, running or waiting, stay enabled in their files.
-Deleting the thermostat still works. To a firmware from before calibration, every thermostat
-file this one writes is a newer firmware's, calibrated or not: rolled back to it, every
-thermostat saved or changed here keeps running but cannot be changed for good until this
-firmware is back. A calibrated one runs its gains as far as that firmware's ranges go, and its
-file keeps them for the next update. A newer file that
-breaks this firmware's rules — a preset mode it does not know, more than eight presets, a control
-law it does not have — is not loaded and is left as it is, as any file that breaks them.
+Deleting the thermostat still works. To a firmware from before automation rules could turn a
+thermostat off and on, one with calibration too, every thermostat file this one writes is a
+newer firmware's, calibrated or not: rolled back to it, every thermostat saved or changed here
+keeps running but cannot be changed for good until this firmware is back. A calibrated one runs
+its gains as far as a firmware from before calibration allows, and its file keeps them for the
+next update. A newer file that breaks this firmware's rules — a preset mode it does not know,
+more than eight presets, a control law it does not have — is not loaded and is left as it is, as
+any file that breaks them.
 
 A thermostat whose sensor or relay is missing, at boot or when it is saved or switched on, stays
 enabled on disk but does not run; the Save or the switch-on succeeds with a warning that names

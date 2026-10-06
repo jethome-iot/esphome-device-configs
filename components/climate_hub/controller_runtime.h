@@ -66,6 +66,8 @@ class ControllerRuntime {
   bool control(const climate::ClimateCall &call, uint32_t now_ms);
   /// Takes `preset`, one of the running document's, as a pick from Home Assistant would.
   bool pick_preset(const PresetConfig &preset, uint32_t now_ms);
+  /// Takes `mode`, as Home Assistant's mode would; one the relays do not serve is ignored.
+  bool set_mode(HubMode mode, uint32_t now_ms);
 
   /// Hands the relay in `run`'s direction to the calibration, the other one held open: full
   /// or nothing around the target, set on every sample, until the run ends. A target or a mode

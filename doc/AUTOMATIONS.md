@@ -18,8 +18,15 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
   carried, optionally inverted), delay. A switch action on a relay a running thermostat drives
   does nothing; the log names the rule and the thermostat, and the rest of the rule runs
   ([Thermostats](CLIMATE.md#a-running-thermostats-relays)).
+- **Thermostat actions**: turn off, turn on (back in the mode it was in before it went off),
+  pick a preset, set the target, and follow: one preset or on/off while the trigger's state is
+  on, another while it is off. A preset that keeps the mode does not turn an off thermostat on:
+  for on and off plus a preset, use two actions. They act on the thermostat whether it runs or
+  not, on the next loop pass. A new target or mode ends a calibration the thermostat runs, as
+  one from Home Assistant does ([Thermostats](CLIMATE.md#calibrating-a-pid-thermostat)).
 - **Mode**: `single` ignores a trigger while the rule is running, `restart` starts over,
-  `parallel` runs up to 8 copies.
+  `parallel` runs up to 8 copies. A trigger `single` ignores still hands its state to a follow
+  that has not played yet, so the target ends where the trigger is.
 
 A sensor is any numeric one that is not internal, not only a temperature, and its thresholds
 are in its own unit.
@@ -36,6 +43,12 @@ Entities are named by object id, so renaming a relay, an input or a sensor leave
 the rules that used it unbuilt — the boot log says which, and their files are kept exactly as
 written until the entity is back.
 
+A thermostat is named by its id, which a rename leaves as it is, and a preset by its key. A
+rule naming a thermostat or a preset that is not there cannot be saved. One that loses it —
+the thermostat deleted, the preset removed — stops running and keeps its file, and runs again
+as soon as a thermostat or a preset with that id or key is back, created or restored from a
+backup. The editor's rule list says which rules do not run and why.
+
 ## Over HTTP
 
 `features/automation-editor.yaml` serves the rules on the web server port under
@@ -48,6 +61,7 @@ the usage in [its README](../components/web_automation_editor/README.md).
 ```bash
 python tests/run.py automations [-- --gtest_filter='Storage.*']
 python tests/run.py web_automation_editor
+python tests/run.py automations_no_climate
 ```
 
 Builds the engine for the host platform into a Google Test binary and runs
@@ -55,4 +69,5 @@ Builds the engine for the host platform into a Google Test binary and runs
 the JSON and cron parsers, rules driven by hand with every delay held back until the test fires
 it, the cron tick against a clock the test moves, and the whole component over a directory that
 stands in for the flash. The second suite drives every HTTP route through the handler, over the
-real engine and a stand-in for the web server. How to add a case: [TESTING.md](TESTING.md).
+real engine and a stand-in for the web server. The third builds both on a firmware without
+thermostats. How to add a case: [TESTING.md](TESTING.md).

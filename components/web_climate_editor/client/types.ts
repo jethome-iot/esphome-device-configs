@@ -12,6 +12,9 @@ export type ControlKind = 'pid' | 'bang_bang'
 /** Requested operating mode. */
 export type ClimateHubMode = 'off' | 'heat' | 'cool' | 'heat_cool'
 
+/** A mode a thermostat is on in: what a turn-on goes back to. */
+export type ClimateHubOnMode = Exclude<ClimateHubMode, 'off'>
+
 /** What a preset does to the mode: `keep` leaves the thermostat's as it is. */
 export type PresetMode = 'keep' | ClimateHubMode
 
@@ -139,6 +142,13 @@ export interface ControllerDocument {
   pid: PidConfig
   bang_bang: BangBangConfig
   mode: ClimateHubMode
+  /**
+   * The mode a turn-on goes back to: `mode` while it is not off, else the one it was in before,
+   * as far as the relays still serve it, else heat, or cool for a cooling-only thermostat. It
+   * is the thermostat's state, not the form's: /save ignores it, but refuses a word that is not
+   * one of these; /import takes it, as a file's is read.
+   */
+  last_on_mode: ClimateHubOnMode
   /** One target for both algorithms; bang-bang derives its band from it. */
   setpoint: number
   /** At most PRESET_MAX_COUNT, in the order Home Assistant lists the custom ones. */
@@ -151,8 +161,13 @@ export interface ControllerDocument {
 }
 
 /** A document before the device has given it an id, and its presets their keys. */
-export type ControllerDraft = Omit<ControllerDocument, 'id' | 'version' | 'revision' | 'presets' | 'active_preset'> &
-  Partial<Pick<ControllerDocument, 'version' | 'revision' | 'active_preset'>> & { presets: PresetInput[] }
+export type ControllerDraft = Omit<
+  ControllerDocument,
+  'id' | 'version' | 'revision' | 'presets' | 'active_preset' | 'last_on_mode'
+> &
+  Partial<Pick<ControllerDocument, 'version' | 'revision' | 'active_preset' | 'last_on_mode'>> & {
+    presets: PresetInput[]
+  }
 
 /** `T` with every key optional, in nested objects too. */
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
@@ -471,7 +486,7 @@ export interface ErrorResponse {
 export const CONFIG_MAX_BYTES = 8192
 
 /** The file format this contract describes; a document with a higher `version` came from a newer firmware. */
-export const CONFIG_VERSION = 3
+export const CONFIG_VERSION = 4
 
 /** The 409 error of a Save over a document whose `version` is above CONFIG_VERSION, in the device's words. */
 export const NEWER_FILE = 'A newer firmware wrote this thermostat; update the firmware to change it'

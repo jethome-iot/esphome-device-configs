@@ -72,6 +72,22 @@ export const seedAutomations: AutomationConfig[] = [
       { source: 'switch', type: 'follow', object_id: 'porch_light', invert: false },
       { source: 'switch', type: 'follow', object_id: 'relay_3', invert: true }
     ]
+  },
+  {
+    id: 4,
+    name: 'Comfort while someone is home',
+    enabled: true,
+    mode: 'single',
+    triggers: [{ source: 'input', type: 'state_change', object_id: 'motion' }],
+    actions: [
+      {
+        source: 'climate',
+        type: 'follow',
+        climate: 'living-room',
+        on: { type: 'set_preset', preset: 'comfort' },
+        off: { type: 'set_preset', preset: 'eco' }
+      }
+    ]
   }
 ]
 
@@ -88,6 +104,17 @@ export const seedEntities: AutomationEntitiesResponse = {
     { object_id: 'porch_light', name: 'Porch Light' },
     { object_id: 'fan', name: 'Fan' },
     { object_id: 'relay_3', name: 'Relay 3' }
+  ],
+  climates: [
+    {
+      id: 'living-room',
+      name: 'Living Room',
+      presets: [
+        { key: 'comfort', name: 'Comfort' },
+        { key: 'eco', name: 'Eco' }
+      ]
+    },
+    { id: 'garage', name: 'Garage', presets: [] }
   ]
 }
 
@@ -108,14 +135,16 @@ export const seedSchema: AutomationSchema = {
   ],
   actions: [
     { type: 'switch', subtypes: ['turn_on', 'turn_off', 'toggle', 'follow'] },
-    { type: 'delay' }
+    { type: 'delay' },
+    { type: 'climate', subtypes: ['turn_on', 'turn_off', 'set_preset', 'set_target', 'follow'] }
   ],
   cron_presets: ['daily', 'hourly', 'every_n_minutes', 'weekly', 'monthly', 'custom']
 }
 
 // --- What the device's deserialize refuses -----------------------------------
 // The words come from the same catalog /schema serves; thresholds, object ids and
-// the like are not checked, the device resolves those at boot anyway.
+// the like are not checked. A thermostat and its preset keys are, against /entities,
+// as the device refuses a rule that names one it does not have.
 function knownType(entries: Array<{ type: string; subtypes?: string[] }>, type: unknown, subtype: unknown): boolean {
   const entry = entries.find((e) => e.type === type)
   if (!entry) return false
@@ -129,7 +158,49 @@ function validTrigger(t: AutomationTrigger): boolean {
 }
 
 function validAction(a: AutomationAction): boolean {
-  return knownType(seedSchema.actions as Array<{ type: string; subtypes?: string[] }>, a.source, a.type)
+  if (!knownType(seedSchema.actions as Array<{ type: string; subtypes?: string[] }>, a.source, a.type)) return false
+  return a.source !== 'climate' || validClimateAction(a)
+}
+
+const nonEmpty = (value: unknown): value is string => typeof value === 'string' && value !== ''
+
+// What the device's parser asks of a climate action: the thermostat, and what its type needs.
+// A follow's steps hold while the trigger's state lasts: a mode or a preset, nothing else.
+function validClimateAction(a: AutomationAction): boolean {
+  if (!nonEmpty(a.climate)) return false
+  if (a.type === 'set_preset') return nonEmpty(a.preset)
+  if (a.type === 'set_target') return typeof a.target === 'number'
+  if (a.type !== 'follow') return true
+  return [a.on, a.off].every(
+    (step) =>
+      !!step &&
+      typeof step === 'object' &&
+      (step.type === 'turn_on' || step.type === 'turn_off' || (step.type === 'set_preset' && nonEmpty(step.preset)))
+  )
+}
+
+// RuntimeAutomation::build's refusal for what the mock knows: a thermostat or a preset key
+// that /entities does not list. "" when the rule builds.
+function buildError(cfg: AutomationSaveInput): string {
+  const lists: Array<[string, AutomationAction[]]> = [
+    ['Action', cfg.actions],
+    ['Else action', cfg.else_actions ?? []]
+  ]
+  for (const [label, actions] of lists) {
+    for (const [i, action] of actions.entries()) {
+      if (action.source !== 'climate') continue
+      const who = `thermostat "${action.climate}"`
+      const thermostat = seedEntities.climates.find((c) => c.id === action.climate)
+      if (!thermostat) return `${label} ${i + 1}: ${who} not found`
+      // What it plays: a follow's two branches, or its one step; the device reads no others.
+      for (const step of action.type === 'follow' ? [action.on, action.off] : [action]) {
+        if (step?.type === 'set_preset' && !thermostat.presets.some((p) => p.key === step.preset)) {
+          return `${label} ${i + 1}: ${who} has no preset "${step.preset}"`
+        }
+      }
+    }
+  }
+  return ''
 }
 
 function validCondition(c: AutomationCondition): boolean {
@@ -207,7 +278,9 @@ export function createAutomationMockStore(): AutomationMockStore {
               trigger_count: a.triggers.length,
               action_count: a.actions.length,
               else_action_count: a.else_actions?.length ?? 0,
-              mode: a.mode
+              mode: a.mode,
+              built: buildError(a) === '',
+              build_error: buildError(a)
             }))
           }
         }
@@ -261,11 +334,14 @@ export function createAutomationMockStore(): AutomationMockStore {
             body: { success: false, error: `An automation named "${cfg.name}" already exists` }
           }
         }
+        if (cfg.id > 0 && !automations.some((a) => a.id === cfg.id)) {
+          return { status: 404, body: { success: false, error: 'Automation not found' } }
+        }
+        // Fail closed: a rule naming what the device does not have is refused with the reason.
+        const missing = buildError(cfg)
+        if (missing) return { status: 400, body: { success: false, error: missing } }
         if (cfg.id > 0) {
           const i = automations.findIndex((a) => a.id === cfg.id)
-          if (i < 0) {
-            return { status: 404, body: { success: false, error: 'Automation not found' } }
-          }
           automations[i] = normalizeStoredCron({ ...cfg })
           return { status: 200, body: { success: true, message: 'Automation updated' } }
         }
