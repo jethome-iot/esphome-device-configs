@@ -54,13 +54,12 @@ TEST_F(StatusIndicatorTest, TheCurrentBlinkIsNotRestarted) {
   this->led->blink_slow();
   run_for(SLOW_ON / 2);
   SKIP_UNLESS_STILL(this->pin->writes.size() == 1);
-  const uint32_t asked = millis();
   this->led->set_state(State::BLINK_SLOW);
   this->led->blink_slow();
   run_until_writes(2);
   ASSERT_EQ(this->pin->levels(2), Levels({true, false}));
-  // Restarted, it would stay lit a whole SLOW_ON from here.
-  EXPECT_LT(this->pin->writes[1].at - asked, SLOW_ON + this->stalled());
+  // Restarted, it would stay lit a whole SLOW_ON from here: half of one longer in all.
+  EXPECT_LE(this->pin->gap(1), SLOW_ON + this->late());
 }
 
 TEST_F(StatusIndicatorTest, BlinkSlowKeepsItsTimes) {
@@ -79,11 +78,12 @@ TEST_F(StatusIndicatorTest, SwitchingBlinksTakesTheNewTimes) {
   this->led->blink_fast();
   run_for(FAST_ON + FAST_OFF / 2);
   SKIP_UNLESS_STILL(this->pin->writes.size() == 2);
+  const uint32_t switched = millis();
   this->led->blink_slow();
   run_until_writes(5);
-  // Fast on, fast off cut short by the slow blink's on phase, then the slow times.
+  // Fast on, fast off cut short by the slow blink's on phase, at once, then the slow times.
   ASSERT_EQ(this->pin->levels(5), Levels({true, false, true, false, true}));
-  EXPECT_LT(this->pin->gap(2), FAST_OFF + this->stalled());
+  EXPECT_LE(this->pin->writes[2].at - switched, 1 + this->stalled());
   EXPECT_GE(this->pin->gap(3), SLOW_ON);
   EXPECT_LE(this->pin->gap(3), SLOW_ON + this->late());
   EXPECT_GE(this->pin->gap(4), SLOW_OFF);
@@ -95,11 +95,13 @@ TEST_F(StatusIndicatorTest, TurningOffStopsTheBlink) {
   this->led->blink_fast();
   run_for(FAST_ON / 2);
   SKIP_UNLESS_STILL(this->pin->writes.size() == 1);
+  const uint32_t off = millis();
   this->led->turn_off();
   // Past where the blink would have written its next off and on.
   run_for(FAST_ON + FAST_OFF + FAST_ON / 2);
   EXPECT_EQ(this->pin->levels(), Levels({true, false}));
-  EXPECT_LT(this->pin->gap(1), FAST_ON + this->stalled());
+  // Off at once, not when the on phase would have ended.
+  EXPECT_LE(this->pin->writes[1].at - off, 1 + this->stalled());
   EXPECT_EQ(this->led->get_state(), State::OFF);
 }
 

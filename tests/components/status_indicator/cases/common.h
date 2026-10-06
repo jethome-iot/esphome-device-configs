@@ -98,7 +98,9 @@ class StatusIndicatorTest : public ::testing::Test {
     const uint32_t start = millis();
     while (millis() - start < ms)
       this->tick_();
-    // A stall after the last pass can end the wait without another one.
+    // One pass more: a stall that ends the wait leaves timeouts due that no pass has run.
+    this->mark_(0);
+    App.scheduler.call(this->mark_at_);
     this->mark_(0);
   }
 
