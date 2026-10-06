@@ -1,0 +1,26 @@
+# Settings → Modbus: the bus settings of features/modbus-server.yaml.
+graphical_display_menu:
+  items:
+    - id: !extend menu_settings_id
+      items:
+        # 10: commissioning. The board's row, so it comes first in its band.
+        - type: menu
+          text: "Modbus"
+          weight: 10
+          items:
+            - type: number
+              text: "Address"
+              number: modbus_address
+              format: "%.0f"
+
+            - type: select
+              text: "Baud rate"
+              select: modbus_baud_rate
+
+            - type: select
+              text: "Parity"
+              select: modbus_parity
+
+            - type: select
+              text: "Stop bits"
+              select: modbus_stop_bits

@@ -13,10 +13,10 @@ graphical_display_menu:
   items:
     - id: !extend menu_settings_id
       items:
-        # 10: commissioning, next to Modbus; the rows that erase or reboot stay below.
+        # Commissioning, after a board's own rows; the rows that erase or reboot stay below.
         - type: menu
           text: "Firmware"
-          weight: 10
+          weight: 15
           # Also on the way back up from a child, so the Rollback row follows what an install or
           # a rollback tried there did to the other slot.
           on_enter:

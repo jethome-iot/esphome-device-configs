@@ -51,8 +51,15 @@ packages:
   menu_firmware: !include ${display}/menu-firmware.yaml
   menu_items: !include ${display}/menu-items-network.yaml
   menu_serial: !include ${display}/menu-serial.yaml
-  status_page: !include ${display}/status-page.yaml
   time_page: !include ${display}/time-page.yaml
+
+  # Display, the relay board's share: its board page and its rows in the menu.
+  status_page: !include ${display}/status-page.yaml
+  menu_relays: !include ${display}/menu-relays.yaml
+  menu_temperatures: !include ${display}/menu-temperatures.yaml
+  menu_thermostats: !include ${display}/menu-thermostats.yaml
+  menu_automations: !include ${display}/menu-automations.yaml
+  menu_modbus: !include ${display}/menu-modbus.yaml
 
 esphome:
   name: ${name}
