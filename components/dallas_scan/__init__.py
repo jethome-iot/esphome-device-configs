@@ -24,7 +24,7 @@ from esphome.helpers import fnv1_hash
 
 CODEOWNERS = ["@jethome-iot"]
 DEPENDENCIES = ["one_wire"]
-AUTO_LOAD = ["sensor"]
+AUTO_LOAD = ["panel_text", "sensor"]
 
 CONF_MAX_SENSORS = "max_sensors"
 CONF_NAME_PREFIX = "name_prefix"

@@ -46,6 +46,7 @@ external_components:
       - loop_job
       - firmware_rollback
       - dallas_scan
+      - panel_text
   - source: ../../harness/components
     components: [dir_storage, web_server_base, web_server, one_wire_host]
   # web_device_dashboard depends on web_server for the entity REST API its page calls, and
