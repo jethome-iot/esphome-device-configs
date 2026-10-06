@@ -3,8 +3,8 @@
 The JSON/REST API of the `climate_hub` thermostats, served on the device's own web server under
 `/climate-editor/api/`. List, read, create, change, start, stop and delete thermostats, edit and
 pick their presets, move a target, watch the control loop, and discover the sensors and relays a
-thermostat may name — everything a browser editor does, and everything `curl` can do without one. ESP-IDF
-only.
+thermostat may name — everything a browser editor does, and everything `curl` can do without one.
+ESP-IDF only.
 
 ```yaml
 external_components:
@@ -144,10 +144,9 @@ on its relays, `take_over=true` changes nothing.
 An `id` is the thermostat's slug (`a-z`, `0-9`, single dashes, at most 48): a missing one is
 `Missing id parameter`, anything else `Invalid id parameter`. The `key` of `preset` is a slug as
 well, `Missing key parameter` or `Invalid key parameter` otherwise; both are read before the
-thermostat is looked up. `value` and `take_over` of
-`enable` are `true` or `false` exactly, and `value` of `setpoint` a plain decimal number; `nan`,
-`inf`, hex and padding are refused. A `+` in it goes as `%2B`: the server decodes a bare `+`
-to a space.
+thermostat is looked up. `value` and `take_over` of `enable` are `true` or `false` exactly, and
+`value` of `setpoint` a plain decimal number; `nan`, `inf`, hex and padding are refused. A `+` in
+it goes as `%2B`: the server decodes a bare `+` to a space.
 
 A thermostat whose file a newer firmware wrote is listed, read and run like any other, and
 `enable`, `setpoint`, `preset` and `delete` act on it, but only `delete` reaches the file: the
@@ -193,9 +192,9 @@ refused, which collide, which id a create gets, which preset names are refused o
 which key a preset gets), and `client/mock/climateMock.ts` a dependency-free in-memory
 implementation of the same routes, with a simulated room per sensor, for a dev server or unit
 tests; its `control()` sets a running thermostat's mode, target or preset by name the way Home
-Assistant does, and its `seed` option replaces the thermostats it starts with, one from a newer firmware
-among them if its `version` says so. They are the contract a browser client codes against and
-they live here so they change with the C++ that they mirror. Nothing in this repository builds
+Assistant does, and its `seed` option replaces the thermostats it starts with, one from a newer
+firmware among them if its `version` says so. They are the contract a browser client codes against
+and they live here so they change with the C++ that they mirror. Nothing in this repository builds
 or type-checks them yet.
 
 ## Testing
