@@ -385,12 +385,8 @@ esphome:
                 if (config->mode == HubMode::OFF)
                   return "Off";
                 switch (runtime->fault()) {
-                  case HubFault::SENSOR_MISSING:
-                    return "No sensor";
                   case HubFault::SENSOR_STALE:
                     return "No reading";
-                  case HubFault::RELAY_MISSING:
-                    return "No relay";
                   case HubFault::OVERTEMP:
                     return "Overheat";
                   case HubFault::NONE:
