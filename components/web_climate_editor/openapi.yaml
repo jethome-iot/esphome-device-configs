@@ -1271,7 +1271,9 @@ components:
             $ref: "#/components/schemas/PresetInput"
         active_preset:
           type: string
-          description: Ignored; the active preset is the thermostat's state.
+          description: >-
+            Ignored by `/save`: the active preset is the thermostat's state.
+            `/import` keeps it while a preset has that key, otherwise none.
       anyOf:
         - required: [heat]
           properties:
