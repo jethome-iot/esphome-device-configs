@@ -43,10 +43,10 @@ What everything else that switches a relay does with one a running thermostat dr
 | Home Assistant, the web server's REST | switch it, and the thermostat puts it back within a moment; the dashboard locks its own toggle |
 | **Inverted** in the relay's settings, on the panel or the dashboard | refused; the dashboard's answer and the panel's log name the thermostat. Start mode and the binding change as usual |
 
-**The boot pulse.** A relay whose Start mode is On or Last closes when the device starts, before
-any thermostat runs, and stays closed until the thermostat that drives it takes it over at its
-first pass, a moment later; an input binding does not move it in between. Start mode Off on
-that relay avoids the pulse.
+**The boot pulse.** A relay whose Start mode is On, or Last when it was on, closes when the
+device starts, before any thermostat runs, and stays closed until the thermostat that drives it
+takes it over at its first pass, a moment later; an input binding does not move it in between.
+Start mode Off on that relay avoids the pulse.
 
 ## Storage
 
