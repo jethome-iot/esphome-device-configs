@@ -254,14 +254,16 @@ void ControllerRuntime::on_sample(float value, uint32_t now_ms) {
 
 void ControllerRuntime::begin_autotune(AutotuneRun *run, uint32_t now_ms) {
   this->autotune_ = run;
+  bool changed;
   if (this->has_sample_) {
-    this->feed_autotune_(this->entity_->current_temperature, now_ms);
+    changed = this->feed_autotune_(this->entity_->current_temperature, now_ms);
   } else {
     // The relays stay open until a reading comes, as at a start.
     this->heat_duty_.set_duty(0.f);
     this->cool_duty_.set_duty(0.f);
+    changed = this->set_action_(this->standing_action_());
   }
-  if (this->set_action_(this->standing_action_()))
+  if (changed)
     this->entity_->publish_state();
 }
 

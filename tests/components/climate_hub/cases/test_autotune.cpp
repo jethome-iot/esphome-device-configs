@@ -57,6 +57,23 @@ class Calibration : public HubTest {
     hub().loop();
   }
 
+  // Every action `entity` publishes from here until the next call. A slot outlives the test and
+  // its callbacks cannot be removed, so each entity is hooked once.
+  static std::vector<climate::ClimateAction> &published(HubClimate *entity) {
+    static std::vector<climate::ClimateAction> seen;
+    static HubClimate *watched = nullptr;
+    static std::set<HubClimate *> hooked;
+    seen.clear();
+    watched = entity;
+    if (hooked.insert(entity).second) {
+      entity->add_on_state_callback([entity](climate::Climate &c) {
+        if (watched == entity)
+          seen.push_back(c.action);
+      });
+    }
+    return seen;
+  }
+
   static bool ended(const std::string &id) {
     const AutotuneRun *run = hub().autotune(id);
     return run != nullptr && !run->running();
@@ -502,6 +519,9 @@ TEST_F(Calibration, ANewerFirmwaresFileIsNotCalibrated) {
 // It waits for the first reading with its relays open, as the thermostat does.
 TEST_F(Calibration, StartedBeforeAReadingItWaitsForOne) {
   const std::string id = this->create(living_room()).id;
+  hub().ms += 1000;
+  hub().loop();
+  ASSERT_EQ(climate::CLIMATE_ACTION_IDLE, hub().entity_of(id)->action);
   ASSERT_TRUE(this->calibrate(id).ok);
   hub().ms += 1000;
   hub().loop();
@@ -510,6 +530,19 @@ TEST_F(Calibration, StartedBeforeAReadingItWaitsForOne) {
   entities().room.publish_state(18.f);
   hub().loop();
   EXPECT_TRUE(entities().relay1.state);
+}
+
+// Inside the band the relay function starts off, whatever the PID was doing: upstream's choice.
+TEST_F(Calibration, StartedInsideTheBandTheRelayStartsOpen) {
+  ClimateConfig config = living_room();
+  config.heat.period_s = 10.f;
+  const std::string id = this->start(config, 20.9f);
+  ASSERT_EQ(climate::CLIMATE_ACTION_HEATING, hub().entity_of(id)->action) << "the PID heats a little";
+  const auto &seen = published(hub().entity_of(id));
+  ASSERT_TRUE(this->calibrate(id).ok);
+  EXPECT_EQ(std::vector<climate::ClimateAction>{climate::CLIMATE_ACTION_IDLE}, seen) << "Home Assistant hears of it";
+  hold(20.9f, 10, 1);
+  EXPECT_FALSE(entities().relay1.state);
 }
 
 // A new run replaces the last one's numbers.
