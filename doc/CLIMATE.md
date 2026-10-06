@@ -16,8 +16,8 @@ at the next boot. The file format and the C++ API are in
   period of minutes.
 - **Modes**: off, heat, cool, or heat and cool, as far as its relays allow.
 - **Presets**: up to eight per thermostat, each a name, a target and a mode or "keep the
-  current one". Picking one, from Home Assistant, the web server or the device, sets its target
-  and its mode; a target or a mode set by hand afterwards keeps it shown as the active preset.
+  current one". Picking one, from Home Assistant or the web server, sets its target and its
+  mode; a target or a mode set by hand afterwards keeps it shown as the active preset.
   Editing the active preset's values applies them at once, and the active preset comes back
   after a reboot.
 - **Safety**: it keeps its relays open until its sensor's first reading, and waits for one
@@ -48,7 +48,9 @@ understands it, but this firmware never writes it: a change from Home Assistant,
 rule lasts until the next reboot, and a Save from the editor is refused with a sentence that
 says a newer firmware wrote it. Starting it in another thermostat's place lasts until the next
 reboot too: the one it took the relay from stays enabled in its file. Deleting the thermostat
-still works.
+still works. A newer file that breaks this firmware's rules — a preset mode it does not know,
+more than eight presets, a control law it does not have — is not loaded and is left as it is,
+as any file that breaks them.
 
 A thermostat whose sensor or relay is missing, at boot or when it is saved or switched on, stays
 enabled on disk but does not run; the Save or the switch-on succeeds with a warning that names
@@ -79,10 +81,12 @@ is missing cannot.
   there** and leaves the old one unavailable; its history and automations stay with the old one.
 - Home Assistant reconnects to see the change when a thermostat starts or stops (removing a
   running one stops it), and when a running one is renamed, gains or loses its heating or
-  cooling relay, gets a new temperature range or step, or gains, loses or renames a preset: the
-  whole device shows as unavailable for about five seconds, and a log stream over the API drops
-  and reconnects. Swapping one relay for another, a new target, mode, band or gains, new values
-  for a preset, and any change to a thermostat that is not running never do this.
+  cooling relay, gets a new temperature range or step, gains or loses one of Home Assistant's
+  own presets, or has one of its other presets added, removed, renamed or moved: the whole
+  device shows as unavailable for about five seconds, and a log stream over the API drops and
+  reconnects. Swapping one relay for another, a new target, mode, band or gains, new values for
+  a preset, one of Home Assistant's own presets written in another case (`Eco` as `ECO`) or
+  moved in the list, and any change to a thermostat that is not running never do this.
 - A preset named like one of Home Assistant's own (eco, away, boost, comfort, home, sleep,
   activity, in any case) is that preset there, translated in its interface; any other name is
   shown as it is. `none` is Home Assistant's word for no preset and cannot be a name.

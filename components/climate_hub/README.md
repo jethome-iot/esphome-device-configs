@@ -197,11 +197,12 @@ gets its entity back.
 
 The device asks Home Assistant to reconnect, so that it lists the entities again, when a
 thermostat starts or stops (removing a running one stops it), and when a running one is
-renamed, gains or loses its heating or cooling relay, gets a new temperature range or step, or
-gains, loses or renames a preset (the custom ones in a new order too): the whole device is
-unavailable there for about five seconds. A burst of such edits costs one reconnect. Swapping
-one relay for another, a new target, mode, band or gains, new values for a preset, and any
-change to a thermostat that is not running cost none.
+renamed, gains or loses its heating or cooling relay, gets a new temperature range or step,
+gains or loses a built-in preset, or has a custom one added, removed, renamed or moved: the
+whole device is unavailable there for about five seconds. A burst of such edits costs one
+reconnect. Swapping one relay for another, a new target, mode, band or gains, new values for a
+preset, a built-in preset's name in another case (`Eco` to `ECO`) or another place in the list,
+and any change to a thermostat that is not running cost none.
 
 ## Storage
 
@@ -225,7 +226,9 @@ The folder is writable by hand, so what it holds is checked at boot:
   boot too, and `update()` refuses it with 409, `A newer firmware wrote this thermostat; update
   the firmware to change it`. A take-over by it stops the holder in memory only:
   `set_enabled()` returns `persisted` false and the holder's file stays enabled. `remove()`
-  still deletes it.
+  still deletes it. A newer file that breaks one of this firmware's rules (a preset `mode` it
+  does not know, nine presets, a `kind` it does not have) is refused and left as it is, as any
+  other file that does.
 
 A thermostat that waits is not started when what it names turns up later, only by the next boot
 that finds it, or by a Save or an enable once it is there.
