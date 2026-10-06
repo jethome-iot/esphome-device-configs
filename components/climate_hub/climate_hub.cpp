@@ -505,6 +505,8 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
   if (!result.warning.empty())
     ESP_LOGW(TAG, "'%s' saved but %s", id.c_str(), result.warning.c_str());
   ESP_LOGD(TAG, "Updated '%s' (%s)", stored->name.c_str(), id.c_str());
+  // Its own start failed just now, for the reason the warning gives.
+  this->start_waiters_(id, &result);
   this->announce_released_();
   return result;
 }
@@ -527,6 +529,7 @@ Result ClimateHub::remove(const std::string &id) {
   ESP_LOGD(TAG, "Removed '%s'", id.c_str());
   // Last: `id` may be the document's own string.
   this->store_.remove(id);
+  this->start_waiters_("", &result);
   this->announce_released_();
   return result;
 }
@@ -552,25 +555,39 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
       this->stop_(slot);
       this->schedule_ha_resync_();
     }
+    this->start_waiters_(id, &result);
     this->announce_released_();
     return result;
   }
 
   if (slot != nullptr)
     return result;
-  // As a Save, but for a held relay the caller may take over: a missing sensor or relay is
-  // waited for.
+  // As a Save, but for a relay another thermostat holds or waits for the caller may take over:
+  // a missing sensor or relay is waited for.
   Result refused;
   if (!this->check_savable_(*stored, &refused) && (refused.holder.empty() || !take_over))
     return refused;
   std::string error;
-  std::string relay_id;
-  std::string holder = this->holder_of_(*stored, &relay_id);
-  // A take-over stops the holder, so only for a thermostat that runs in its place.
-  if (!holder.empty() && !this->check_entities_(*stored, &error))
+  // A take-over stops the others, so only for a thermostat that runs in their place.
+  if (!refused.holder.empty() && !this->check_entities_(*stored, &error))
     return failure(400, error);
+  // Waiters free no climate entity, a running holder does.
+  if (!refused.holder.empty() && this->free_.empty() && this->holder_of_(*stored).empty())
+    return failure(409, "No free climate entity to run it in");
+  // The waiting ones first: a relay handed over below is this one's, and would hide who else
+  // names it.
+  std::vector<std::string> waiters;
+  for (std::string waiter = this->reserver_of_(*stored); !waiter.empty(); waiter = this->reserver_of_(*stored)) {
+    ClimateConfig *reserved = this->store_.get(waiter);
+    reserved->enabled = false;
+    result.persisted = this->save_(*reserved) && result.persisted;
+    this->dirty_.erase(waiter);
+    this->waiting_.erase(waiter);
+    ESP_LOGI(TAG, "'%s' took the relay over from '%s', which waited", id.c_str(), waiter.c_str());
+    waiters.push_back(std::move(waiter));
+  }
   // Taken over in the same job, so the relay is never free for a third party in between.
-  for (; !holder.empty(); holder = this->holder_of_(*stored, &relay_id)) {
+  for (std::string holder = this->holder_of_(*stored); !holder.empty(); holder = this->holder_of_(*stored)) {
     ClimateConfig *held = this->store_.get(holder);
     if (held != nullptr) {
       held->enabled = false;
@@ -587,7 +604,9 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
     }
     this->schedule_ha_resync_();
     ESP_LOGI(TAG, "'%s' took the relay over from '%s'", id.c_str(), holder.c_str());
+    result.stopped.push_back(std::move(holder));
   }
+  result.stopped.insert(result.stopped.end(), waiters.begin(), waiters.end());
   if (!stored->enabled) {
     stored->enabled = true;
     result.persisted = this->save_(*stored) && result.persisted;
@@ -599,6 +618,8 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
     result.warning = this->note_waiting_(id, error);
     ESP_LOGW(TAG, "'%s' enabled but %s", id.c_str(), result.warning.c_str());
   }
+  // After it: the relays the holders drove alone are free for the next in line.
+  this->start_waiters_(id, &result);
   this->announce_released_();
   return result;
 }
@@ -642,6 +663,25 @@ std::string ClimateHub::holder_of_(const ClimateConfig &config, std::string *rel
   return "";
 }
 
+// A running thermostat holds every relay it names, so the others that name one are the waiting.
+std::string ClimateHub::reserver_of_(const ClimateConfig &config, std::string *relay_id) const {
+  for (const auto &other : this->store_.all()) {
+    if (other->id == config.id || !other->enabled || this->is_running(other->id))
+      continue;
+    for (const OutputConfig *out : {&config.heat, &config.cool}) {
+      // One it holds is its own across a Save: whoever waits for it waits on.
+      if (!out->configured() || this->claimed_by(out->relay_id) == config.id)
+        continue;
+      if (other->heat.relay_id == out->relay_id || other->cool.relay_id == out->relay_id) {
+        if (relay_id != nullptr)
+          *relay_id = out->relay_id;
+        return other->id;
+      }
+    }
+  }
+  return "";
+}
+
 bool ClimateHub::check_entities_(const ClimateConfig &config, std::string *error) const {
   sensor::Sensor *sensor = find_sensor(config.sensor_id);
   if (sensor == nullptr) {
@@ -661,7 +701,8 @@ bool ClimateHub::check_entities_(const ClimateConfig &config, std::string *error
 }
 
 // A missing sensor or relay is no refusal: the thermostat waits for it, as one loaded at boot
-// does. A unit never changes, and a held relay is the holder's to give up.
+// does. A unit never changes, and a held relay is the holder's to give up. A relay an enabled
+// thermostat waits for is reserved for it the same way, so no two enabled ones share a relay.
 bool ClimateHub::check_savable_(const ClimateConfig &config, Result *result) const {
   const std::string unit = unit_refusal(find_sensor(config.sensor_id));
   if (!unit.empty()) {
@@ -669,23 +710,30 @@ bool ClimateHub::check_savable_(const ClimateConfig &config, Result *result) con
     return false;
   }
   std::string relay_id;
-  const std::string holder = this->holder_of_(config, &relay_id);
+  std::string holder = this->holder_of_(config, &relay_id);
+  if (!holder.empty()) {
+    *result = this->relay_held_(relay_id, holder, false);
+    return false;
+  }
+  holder = this->reserver_of_(config, &relay_id);
   if (holder.empty())
     return true;
-  *result = this->relay_held_(relay_id, holder);
+  *result = this->relay_held_(relay_id, holder, true);
   return false;
 }
 
 // Both by the names a person knows them by; the holder's id rides along for a take-over.
-Result ClimateHub::relay_held_(const std::string &relay_id, const std::string &holder) const {
+Result ClimateHub::relay_held_(const std::string &relay_id, const std::string &holder, bool waits) const {
   std::string relay_name = relay_id;
 #ifdef USE_SWITCH
   if (switch_::Switch *sw = find_switch(relay_id))
     relay_name = sw->get_name().c_str();
 #endif
   const ClimateConfig *held_by = this->store_.get(holder);
+  const std::string who = "\"" + (held_by != nullptr ? held_by->name : holder) + "\"";
   Result result = failure(
-      409, "\"" + relay_name + "\" is already driven by \"" + (held_by != nullptr ? held_by->name : holder) + "\"");
+      409, "\"" + relay_name + "\" is " +
+               (waits ? "reserved by " + who + ", which is enabled and waits to start" : "already driven by " + who));
   result.holder = holder;
   return result;
 }
@@ -762,6 +810,7 @@ ClimateHub::ClaimMap::iterator ClimateHub::let_go_(ClaimMap::iterator it, uint32
   switch_::Switch *relay = it->second->relay();
   if (relay != nullptr && std::find(this->released_.begin(), this->released_.end(), relay) == this->released_.end())
     this->released_.push_back(relay);
+  this->freed_.insert(it->first);
   return this->claims_.erase(it);
 }
 
@@ -773,6 +822,28 @@ void ClimateHub::announce_released_() {
   for (switch_::Switch *relay : released) {
     if (this->holder_of(relay).empty())
       switch_hold::notify_released(relay);
+  }
+}
+
+// So waiting means what it says: one whose relay comes free tries again at once, and one that
+// still cannot start gets a fresh reason. A waiter holds no claim, so its start frees nothing.
+void ClimateHub::start_waiters_(const std::string &skip_id, Result *result) {
+  std::set<std::string> freed;
+  freed.swap(this->freed_);
+  if (freed.empty())
+    return;
+  for (const auto &config : this->store_.all()) {
+    if (!config->enabled || config->id == skip_id || this->is_running(config->id) ||
+        (freed.count(config->heat.relay_id) == 0 && freed.count(config->cool.relay_id) == 0))
+      continue;
+    std::string error;
+    if (this->start_(config.get(), &error)) {
+      ESP_LOGI(TAG, "'%s' started: a relay it waited for is free", config->id.c_str());
+      result->started.push_back(config->id);
+      this->schedule_ha_resync_();
+    } else {
+      ESP_LOGW(TAG, "'%s' %s", config->id.c_str(), this->note_waiting_(config->id, error).c_str());
+    }
   }
 }
 

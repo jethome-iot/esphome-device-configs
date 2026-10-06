@@ -27,8 +27,9 @@ at the next boot. The file format and the C++ API are in
 - **A relay belongs to the running thermostat**, in mode off too, which keeps it open; only
   stopping the thermostat frees it. What the rest of the device does with such a relay is
   below. Two thermostats may name one relay and take turns, a summer and a winter profile on
-  one boiler; only one of them runs at a time, and taking the relay over from the other leaves
-  it as it is. One that could not run, its sensor or a relay missing, cannot take it over.
+  one boiler; only one of them is switched on at a time, and taking the relay over from the
+  other switches the other off and leaves the relay as it is. One that could not run, its
+  sensor or a relay missing, cannot take it over.
 
 ## A running thermostat's relays
 
@@ -39,7 +40,7 @@ What everything else that switches a relay does with one a running thermostat dr
 | The panel: CENTER on the status page, **Relays → Relay N → State** | leave it alone; the log names the thermostat |
 | Modbus coils `0x0000`–`0x0005` | a write that would move it answers exception `0x04`; writing the state it already has is accepted |
 | Automation rules, `switch` actions | leave it alone and log the rule and the thermostat; the rest of the rule runs |
-| Input bindings, Toggle and Follow | leave it alone; once the thermostat frees it, a Follow relay takes its input's state at once |
+| Input bindings, Toggle and Follow | leave it alone; once the thermostat frees it, a Follow relay takes its input's state at once, unless a thermostat that waited for the relay starts on it |
 | Home Assistant, the web server's REST | switch it, and the thermostat puts it back within a moment; the dashboard locks its own toggle |
 | **Inverted** in the relay's settings, on the panel or the dashboard | refused; the dashboard's answer and the panel's log name the thermostat. Start mode and the binding change as usual |
 
@@ -64,6 +65,11 @@ why it waits: when the start fails, and again in the configuration it prints whe
 viewer connects. Over HTTP, the list and the status say it in their `waiting` field, in the
 words of the warning.
 
+Two thermostats switched on for one relay come only from files written by hand or a restore.
+The boot runs the first by id, and the other waits for the relay: it starts as soon as the
+first is switched off, removed or saved onto another relay, and the answer to that change names
+it.
+
 ## Over HTTP
 
 `features/climate-editor.yaml` serves the thermostats on the web server port under
@@ -72,11 +78,11 @@ its target, and watch what each one is doing. The routes and their contract are 
 [components/web_climate_editor/openapi.yaml](../components/web_climate_editor/openapi.yaml),
 the usage in [its README](../components/web_climate_editor/README.md).
 
-A Save or a start over `enable` of a thermostat that is to run is refused while another running
-thermostat drives its relay, or when its sensor does not report °C; one whose sensor or relay is
-missing is stored enabled and waits, as above. A start can take the relay over instead of being
-refused, which stops the other thermostat and stores it as disabled; one whose sensor or relay
-is missing cannot.
+A Save or a start over `enable` of a thermostat that is to run is refused while another
+thermostat that is switched on names its relay, running or waiting, or when its sensor does not
+report °C; one whose sensor or relay is missing is stored enabled and waits, as above. A start
+can take the relay over instead of being refused, which stores the other thermostats on it as
+disabled and stops the one that runs; one whose sensor or relay is missing cannot.
 
 ## On the display
 

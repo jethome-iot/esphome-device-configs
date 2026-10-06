@@ -44,7 +44,7 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
   latest build of its channel (`release` or `nightly`) and installs it on request; a config
   imported into the ESPHome Builder is yours to update ([details](doc/RELEASE.md#updates-on-the-device))
 - **Display Control**: Interactive OLED menu with status, time, relay control, input monitoring, and settings
-- **Dallas Temperature Sensors**: a sensor per DS18B20 found at boot, numbered once and kept across reboots ([details](doc/ONEWIRE_WORKFLOW.md))
+- **Dallas Temperature Sensors**: a sensor per DS18B20 found at boot, numbered once and kept across reboots, with an offset per slot ([details](doc/ONEWIRE_WORKFLOW.md))
 - **User Storage**: a 4 MB LittleFS partition mounted at `/littlefs`, kept across OTA updates, served over HTTP as a JSON file API under `/files` ([details](components/web_file_browser/README.md))
 - **Crash reports**: after a panic or a watchdog reset the device saves what ESPHome recorded
   about the crash on that partition, to fetch under `/files` and decode against the build's
@@ -269,7 +269,7 @@ untouched; any button then takes the page away, and it leaves on its own after h
 
 - **Relays** - a submenu per relay: toggle it, and set its inversion, start mode and bound input; a relay a running thermostat drives neither toggles nor changes its inversion, and the log names the thermostat
 - **Inputs** - a submenu per input: live state and inversion
-- **Temperatures** - temperature sensor readings; a DS18B20 row opens its slot: the ROM address and a forget command
+- **Temperatures** - temperature sensor readings; a DS18B20 row opens its slot: the ROM address, the offset and a forget command
 - **Thermostats** - a row per thermostat with what its sensor reads; it opens the thermostat's name, the reading, what it is doing (heating, idle, waiting, a fault), the target and Enabled. The list is the one the device booted with: a thermostat created later shows after a reboot
 - **Automations** - a row per rule that switches it on or off; the list is the one the device booted with
 - **Info** - network information (Ethernet and WiFi IP and MAC addresses, access point password), then the serial number from the CPU board's EEPROM (`--` when it holds none)

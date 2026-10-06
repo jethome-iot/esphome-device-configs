@@ -39,6 +39,7 @@ enum class RouteId : uint8_t {
   TEMPERATURE_SLOTS,
   TEMPERATURE_SLOTS_FORGET,
   TEMPERATURE_SLOTS_ASSIGN,
+  TEMPERATURE_SLOTS_OFFSET,
 #endif
 #ifdef USE_CONFIG_JSON
   ENTITIES,
@@ -60,8 +61,8 @@ using firmware_rollback::RollbackTarget;
 // The dashboard page at / and the device API under /api/device/: info (with the board's
 // EEPROM identity when jethome_board_info is wired in), status, network, what the firmware
 // can do, the three system actions, with web_auth the HTTP credentials, with dallas_scan the
-// temperature slots, forgetting and assigning them, and with config_json the entity index, the
-// entity settings and their form fields.
+// temperature slots, forgetting and assigning them and their offsets, and with config_json the
+// entity index, the entity settings and their form fields.
 class WebDeviceDashboard : public AsyncWebHandler, public Component {
  public:
   explicit WebDeviceDashboard(web_server_base::WebServerBase *base) : base_(base) {}
@@ -110,7 +111,9 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   void handle_reboot_(AsyncWebServerRequest *request);
   void handle_factory_reset_(AsyncWebServerRequest *request);
   void handle_rollback_(AsyncWebServerRequest *request);
-  /// Answers 400, 403 or 413 itself when the body is not a confirmation of this device. The
+  /// Answers 400, 413 or 415 itself when the body is not a JSON object; else it is left in @p doc.
+  bool read_json_body_(AsyncWebServerRequest *request, JsonDocument &doc);
+  /// Answers 400, 403, 413 or 415 itself when the body is not a confirmation of this device. The
   /// parsed body is left in @p doc for a route that takes more than the confirmation.
   bool check_confirm_(AsyncWebServerRequest *request, JsonDocument &doc);
   bool check_confirm_(AsyncWebServerRequest *request) {
@@ -137,8 +140,10 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   void handle_temperature_slots_(AsyncWebServerRequest *request);
   void handle_temperature_slots_forget_(AsyncWebServerRequest *request);
   void handle_temperature_slots_assign_(AsyncWebServerRequest *request);
+  void handle_temperature_slots_offset_(AsyncWebServerRequest *request);
   static std::string temperature_slots_json_(dallas_scan::DallasScan *scan);
-  void send_slot_change_(AsyncWebServerRequest *request, std::string message, bool reboot_required);
+  void send_slot_change_(AsyncWebServerRequest *request, std::string message, bool reboot_required,
+                         const char *waits = "; applies after a reboot");
   bool check_slots_writable_(AsyncWebServerRequest *request, dallas_scan::DallasScan *scan);
   /// The body's `slot`, 1 to max_sensors(), as an index; answers 400 itself when it is not one.
   bool read_slot_(AsyncWebServerRequest *request, JsonVariant value, size_t &slot);

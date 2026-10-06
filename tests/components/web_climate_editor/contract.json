@@ -94,6 +94,26 @@
       "mode": "heat",
       "setpoint": 20
     },
+    "attic-waits": {
+      "name": "Attic",
+      "kind": "pid",
+      "sensor_id": "attic",
+      "heat": {
+        "relay_id": "relay_1"
+      },
+      "mode": "heat",
+      "setpoint": 20
+    },
+    "cellar-waits": {
+      "name": "Cellar",
+      "kind": "pid",
+      "sensor_id": "attic",
+      "heat": {
+        "relay_id": "relay_2"
+      },
+      "mode": "heat",
+      "setpoint": 18
+    },
     "porch": {
       "name": "Porch",
       "enabled": false,
@@ -1014,6 +1034,38 @@
       "error": "\"Relay 1\" is already driven by \"Living Room\""
     },
     {
+      "name": "A relay an enabled thermostat waits for is 409 to a Save",
+      "setup": [
+        "attic-waits"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 409,
+      "error": "\"Relay 1\" is reserved by \"Attic\", which is enabled and waits to start",
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "count": 1,
+            "controllers.0.id": "attic"
+          }
+        }
+      ]
+    },
+    {
       "name": "An enabled Save whose sensor is missing is stored and waits",
       "method": "POST",
       "path": "save",
@@ -1252,6 +1304,18 @@
       "error": "\"Relay 1\" is already driven by \"Living Room\""
     },
     {
+      "name": "Enable onto a relay an enabled thermostat waits for is 409",
+      "setup": [
+        "attic-waits",
+        "guest-room"
+      ],
+      "method": "POST",
+      "path": "enable?id=guest-room&value=true",
+      "body": null,
+      "status": 409,
+      "error": "\"Relay 1\" is reserved by \"Attic\", which is enabled and waits to start"
+    },
+    {
       "name": "Enable with take_over stops the holder and stores it disabled",
       "setup": [
         "living-room",
@@ -1289,6 +1353,34 @@
       ]
     },
     {
+      "name": "A take-over stores the one that waits for the relay disabled",
+      "setup": [
+        "attic-waits",
+        "guest-room"
+      ],
+      "method": "POST",
+      "path": "enable?id=guest-room&value=true&take_over=true",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "message": "Thermostat enabled; \"Attic\" stopped",
+        "persisted": true
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.id=attic.enabled": false,
+            "controllers.id=attic.waiting": "",
+            "controllers.id=guest-room.running": true
+          }
+        }
+      ]
+    },
+    {
       "name": "Taking two relays over names every thermostat it stopped",
       "setup": [
         "living-room",
@@ -1302,6 +1394,34 @@
       "expect": {
         "message": "Thermostat enabled; \"Living Room\" and \"Floor\" stopped"
       }
+    },
+    {
+      "name": "A take-over names the one that waits after the one that runs",
+      "setup": [
+        "living-room",
+        "cellar-waits",
+        "studio"
+      ],
+      "method": "POST",
+      "path": "enable?id=studio&value=true&take_over=true",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "message": "Thermostat enabled; \"Living Room\" and \"Cellar\" stopped"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.id=cellar.enabled": false,
+            "controllers.id=living-room.enabled": false,
+            "controllers.id=studio.running": true
+          }
+        }
+      ]
     },
     {
       "name": "A take-over by one whose sensor is missing is 400 and the holder runs on",
@@ -1337,6 +1457,31 @@
       "body": null,
       "status": 400,
       "error": "No switch \"relay_9\" on this device"
+    },
+    {
+      "name": "A take-over refused for a missing relay leaves the one that waits enabled",
+      "setup": [
+        "attic-waits",
+        "porch"
+      ],
+      "method": "POST",
+      "path": "enable?id=porch&value=true&take_over=true",
+      "body": null,
+      "status": 400,
+      "error": "No switch \"relay_9\" on this device",
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.id=attic.enabled": true,
+            "controllers.id=attic.waiting": "not started: sensor 'attic' not found",
+            "controllers.id=porch.enabled": false
+          }
+        }
+      ]
     },
     {
       "name": "Enable on a sensor not in °C is 400",
