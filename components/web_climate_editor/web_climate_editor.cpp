@@ -35,6 +35,7 @@ static const Route ROUTES[] = {
     {"delete", RouteId::DELETE, true},
     {"enable", RouteId::ENABLE, true},
     {"setpoint", RouteId::SETPOINT, true},
+    {"preset", RouteId::PRESET, true},
 };
 // clang-format on
 
@@ -221,6 +222,9 @@ void WebClimateEditor::handleRequest(AsyncWebServerRequest *request) {
       case RouteId::SETPOINT:
         this->handle_setpoint_(request);
         break;
+      case RouteId::PRESET:
+        this->handle_preset_(request);
+        break;
     }
   }
   this->reset_body_();
@@ -243,15 +247,15 @@ bool WebClimateEditor::check_method_(AsyncWebServerRequest *request, const Route
   return false;
 }
 
-// Present and a slug: an id is a file name, and "Living Room" is a name.
-bool WebClimateEditor::read_id_(AsyncWebServerRequest *request, std::string &id) {
-  if (!request->hasParam("id")) {
-    this->send_error_(request, "Missing id parameter");
+// Present and a slug: an id is a file name and a key a preset's slug, and "Living Room" is a name.
+bool WebClimateEditor::read_slug_(AsyncWebServerRequest *request, const char *name, std::string &value) {
+  if (!request->hasParam(name)) {
+    this->send_error_(request, std::string("Missing ") + name + " parameter");
     return false;
   }
-  id = request->getParam("id")->value();
-  if (climate_hub::slugify_id(id) != id) {
-    this->send_error_(request, "Invalid id parameter");
+  value = request->getParam(name)->value();
+  if (climate_hub::slugify_id(value) != value) {
+    this->send_error_(request, std::string("Invalid ") + name + " parameter");
     return false;
   }
   return true;
@@ -631,6 +635,33 @@ void WebClimateEditor::handle_setpoint_(AsyncWebServerRequest *request) {
       return true;
     }
     json = success_json("Setpoint updated");
+    return true;
+  });
+  this->answer_(request, ran, code, error, json);
+}
+
+// Running or not, as for the target: a stopped thermostat runs in it when it starts.
+void WebClimateEditor::handle_preset_(AsyncWebServerRequest *request) {
+  std::string id;
+  std::string key;
+  if (!this->read_id_(request, id) || !this->read_slug_(request, "key", key))
+    return;
+  std::string json;
+  std::string error;
+  int code = 400;
+  const bool ran = this->hub_->run_on_loop([&]() {
+    const Result result = this->hub_->apply_preset(id, key);
+    if (!result.ok) {
+      code = result.code;
+      error = result.error;
+      return true;
+    }
+    JsonDocument answer;
+    answer["success"] = true;
+    answer["message"] = "Preset applied";
+    // As on /enable: a newer firmware's file keeps what it had.
+    answer["persisted"] = result.persisted;
+    serializeJson(answer, json);
     return true;
   });
   this->answer_(request, ran, code, error, json);

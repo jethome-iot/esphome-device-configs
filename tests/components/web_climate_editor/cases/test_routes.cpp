@@ -47,7 +47,8 @@ TEST_F(Editor, AnotherPrefixMovesTheRoutes) {
 // The method is checked before anything else the request carries: an id that names no
 // thermostat, or none at all, still gets the 405.
 TEST_F(Editor, MutatingRoutesArePostOnlyAndTheRestGetOnly) {
-  for (const char *route : {"save", "delete?id=nope", "enable?id=nope&value=true", "setpoint?id=nope&value=1"}) {
+  for (const char *route :
+       {"save", "delete?id=nope", "enable?id=nope&value=true", "setpoint?id=nope&value=1", "preset?id=nope&key=eco"}) {
     Reply reply = this->get(route);
     EXPECT_TRUE(reply.claimed) << route;
     EXPECT_EQ(reply.code, 405) << route;
@@ -75,7 +76,7 @@ TEST_F(Editor, EveryRouteAnswersItsOneMethodAndRefusesTheRest) {
   for (const Case &c :
        {Case{"list", HTTP_GET}, Case{"get", HTTP_GET}, Case{"status", HTTP_GET}, Case{"entities", HTTP_GET},
         Case{"schema", HTTP_GET}, Case{"ping", HTTP_GET}, Case{"save", HTTP_POST}, Case{"delete", HTTP_POST},
-        Case{"enable", HTTP_POST}, Case{"setpoint", HTTP_POST}}) {
+        Case{"enable", HTTP_POST}, Case{"setpoint", HTTP_POST}, Case{"preset", HTTP_POST}}) {
     const char *allow = c.method == HTTP_POST ? "POST" : "GET";
     for (http_method method : {HTTP_GET, HTTP_POST, HTTP_OPTIONS}) {
       Reply reply = this->call(method, c.route);
@@ -122,7 +123,7 @@ TEST_F(Editor, RefusesACrossSiteWriteAndChangesNothing) {
   const char *evil = "http://evil.example";
 
   for (const auto &route : {std::string("save"), "delete?id=" + id, "enable?id=" + id + "&value=false",
-                            "setpoint?id=" + id + "&value=30"}) {
+                            "setpoint?id=" + id + "&value=30", "preset?id=" + id + "&key=eco"}) {
     Reply reply = this->call(HTTP_POST, route, route == "save" ? FLOOR : "", "application/json", evil);
     EXPECT_TRUE(reply.claimed) << route;
     EXPECT_EQ(reply.code, 403) << route;

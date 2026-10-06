@@ -7,7 +7,7 @@
 namespace esphome::web_climate_editor::testing {
 
 TEST_F(Editor, EveryHubRouteGoesOverToTheLoopTaskOnce) {
-  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  ASSERT_EQ(this->create(with(LIVING_ROOM, R"("presets":[{"name":"Eco","setpoint":18}])").c_str()), "living-room");
   struct Call {
     const char *what;
     std::function<Reply()> run;
@@ -22,6 +22,7 @@ TEST_F(Editor, EveryHubRouteGoesOverToTheLoopTaskOnce) {
       {"entities", [&] { return this->get("entities"); }},
       {"save", [&] { return this->post("save", FLOOR); }},
       {"setpoint", [&] { return this->post("setpoint?id=living-room&value=20"); }},
+      {"preset", [&] { return this->post("preset?id=living-room&key=eco"); }},
       {"enable", [&] { return this->post("enable?id=living-room&value=false"); }},
       {"delete", [&] { return this->post("delete?id=living-room"); }},
   };
@@ -47,8 +48,9 @@ TEST_F(Editor, TheRoutesThatTouchNoHubStateStayOnTheServerTask) {
 // What the request itself gets wrong is answered where it arrives.
 TEST_F(Editor, ARequestRefusedOnItsOwnCostsNoJob) {
   hub().jobs = 0;
-  for (const char *route : {"get", "get?id=Bad", "status?id=", "delete", "enable?id=a", "enable?id=a&value=x",
-                            "setpoint?id=a&value=x", "nothing"}) {
+  for (const char *route :
+       {"get", "get?id=Bad", "status?id=", "delete", "enable?id=a", "enable?id=a&value=x", "setpoint?id=a&value=x",
+        "preset?key=eco", "preset?id=a", "preset?id=a&key=Eco", "nothing"}) {
     const bool post = std::string(route).rfind("get", 0) != 0 && std::string(route).rfind("status", 0) != 0;
     Reply reply = post ? this->post(route) : this->get(route);
     EXPECT_NE(reply.code, 200) << route;
@@ -81,6 +83,7 @@ TEST_F(Editor, ALoopThatNeverTakesTheJobAnswersBusyAndChangesNothing) {
       {"enable", [&] { return this->post("enable?id=living-room&value=false"); }},
       {"take over", [&] { return this->post("enable?id=living-room&value=true&take_over=true"); }},
       {"setpoint", [&] { return this->post("setpoint?id=living-room&value=30"); }},
+      {"preset", [&] { return this->post("preset?id=living-room&key=eco"); }},
   };
   // clang-format on
   for (const auto &call : calls) {
@@ -103,7 +106,8 @@ TEST_F(Editor, ALoopThatNeverTakesTheJobAnswersBusyAndChangesNothing) {
 // A refusal raised inside the job is the job's answer, not the loop failing to run it.
 TEST_F(Editor, ARefusalFoundOnTheLoopTaskKeepsItsOwnStatus) {
   for (const auto &reply : {this->get("get?id=ghost"), this->get("status?id=ghost"), this->post("delete?id=ghost"),
-                            this->post("enable?id=ghost&value=true"), this->post("setpoint?id=ghost&value=20")}) {
+                            this->post("enable?id=ghost&value=true"), this->post("setpoint?id=ghost&value=20"),
+                            this->post("preset?id=ghost&key=eco")}) {
     EXPECT_EQ(reply.code, 404) << reply.body;
   }
   EXPECT_EQ(this->post("save", "garbage").code, 400);
@@ -123,7 +127,7 @@ TEST_F(Editor, AHubWithoutStorageStillAnswersReadsAndRefusesEveryWrite) {
 
   for (Reply reply : {this->post("save", FLOOR), this->post("save", with(LIVING_ROOM, R"("id":"living-room")")),
                       this->post("delete?id=living-room"), this->post("enable?id=living-room&value=false"),
-                      this->post("setpoint?id=living-room&value=30")}) {
+                      this->post("setpoint?id=living-room&value=30"), this->post("preset?id=living-room&key=eco")}) {
     EXPECT_EQ(reply.code, 500) << reply.body;
     EXPECT_EQ(reply.error(), "Thermostat storage is not available");
   }
@@ -135,7 +139,8 @@ TEST_F(Editor, AHubWithoutStorageStillAnswersReadsAndRefusesEveryWrite) {
 TEST_F(Editor, AHubWithoutStorageRefusesAWriteToAnyIdWith500) {
   hub().mark_failed();
   for (Reply reply : {this->post("enable?id=ghost&value=true"), this->post("enable?id=ghost&value=false"),
-                      this->post("delete?id=ghost"), this->post("setpoint?id=ghost&value=20")}) {
+                      this->post("delete?id=ghost"), this->post("setpoint?id=ghost&value=20"),
+                      this->post("preset?id=ghost&key=eco")}) {
     EXPECT_EQ(reply.code, 500) << reply.body;
     EXPECT_EQ(reply.error(), "Thermostat storage is not available") << reply.body;
   }
