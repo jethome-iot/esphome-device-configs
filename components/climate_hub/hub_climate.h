@@ -39,7 +39,12 @@ class HubClimate final : public climate::Climate {
   /// Internal, keeping its name, key and traits: an API client may still be encoding the
   /// entity it listed a moment ago, and upstream reads the name then, not when it queued it.
   void hide(uint32_t entity_fields);
-  /// A hidden slot back under the placeholder, for when its name is about to be someone else's.
+  /// A hidden slot under `name` instead of its own, which a running thermostat is about to take:
+  /// `name` is the one that thermostat leaves, so an API client still encoding this slot sends a
+  /// thermostat's name, never the placeholder.
+  void hide_as(const std::string &name, uint32_t entity_fields);
+  /// Back under the placeholder with no traits, as setup() registered it: for a hub starting
+  /// over. A slot shown since boot never goes back to it, since a listing may still hold it.
   void park(uint32_t entity_fields);
   void set_traits(bool heat, bool cool, float min_temperature, float max_temperature, float step);
   /// The presets Home Assistant and the web server list: a built-in one by its enum, a custom
@@ -51,12 +56,14 @@ class HubClimate final : public climate::Climate {
  protected:
   climate::ClimateTraits traits() override;
   void control(const climate::ClimateCall &call) override;
+  /// Writes `name` into the buffer not in use and points the entity at it.
+  void rename_(const std::string &name, uint32_t entity_fields);
 
   ClimateHub *hub_;
   uint8_t index_;
   bool free_{true};
   bool named_{false};
-  // EntityBase keeps a StringRef to the name, not a copy. show() alternates the buffers, so a
+  // EntityBase keeps a StringRef to the name, not a copy. A rename alternates the buffers, so a
   // reader still holding the previous pointer reads intact bytes; byte 63 is never written.
   char names_[2][64]{};
   uint8_t current_name_{0};

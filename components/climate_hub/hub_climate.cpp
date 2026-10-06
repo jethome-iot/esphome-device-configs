@@ -22,21 +22,30 @@ void HubClimate::show(const std::string &name, uint32_t entity_fields) {
   // configure_entity_ would give an empty name the device's friendly name.
   if (name.empty())
     return;
-  const uint8_t next = this->current_name_ ^ 1;
-  char *buffer = this->names_[next];
-  std::memset(buffer, 0, sizeof(this->names_[next]) - 1);
-  std::memcpy(buffer, name.data(), std::min(name.size(), NAME_MAX_LENGTH));
-  // Hash 0: derived from the name, as codegen does, so object-id-keyed records find it.
-  this->configure_entity_(buffer, 0, entity_fields & ~INTERNAL_BIT);
-  this->current_name_ = next;
+  this->rename_(name, entity_fields & ~INTERNAL_BIT);
   this->free_ = false;
-  this->named_ = true;
 }
 
 void HubClimate::hide(uint32_t entity_fields) {
   this->configure_entity_(this->named_ ? this->names_[this->current_name_] : FREE_SLOT_NAME, 0,
                           entity_fields | INTERNAL_BIT);
   this->free_ = true;
+}
+
+void HubClimate::hide_as(const std::string &name, uint32_t entity_fields) {
+  this->rename_(name, entity_fields | INTERNAL_BIT);
+  this->free_ = true;
+}
+
+void HubClimate::rename_(const std::string &name, uint32_t entity_fields) {
+  const uint8_t next = this->current_name_ ^ 1;
+  char *buffer = this->names_[next];
+  std::memset(buffer, 0, sizeof(this->names_[next]) - 1);
+  std::memcpy(buffer, name.data(), std::min(name.size(), NAME_MAX_LENGTH));
+  // Hash 0: derived from the name, as codegen does, so object-id-keyed records find it.
+  this->configure_entity_(buffer, 0, entity_fields);
+  this->current_name_ = next;
+  this->named_ = true;
 }
 
 void HubClimate::park(uint32_t entity_fields) {
