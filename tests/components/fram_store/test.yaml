@@ -1,0 +1,60 @@
+# Google Test binary for components/fram_store, built through esphome compile by
+# tests/run.py. Nothing declared here is set up: the tests build their own stores, over
+# RamBackend or over i2c_eeprom on a fake bus. The two stores below only pull in both
+# backends; the i2c: block lets the part validate on the host and is never opened.
+esphome:
+  name: fram-store-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+      # The logger keeps listeners only when a component asks for them in
+      # codegen; the tests read the errors through one.
+      - -DUSE_LOG_LISTENERS
+      - -DESPHOME_LOG_MAX_LISTENERS=1
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../../components
+    components: [fram_store, i2c_eeprom]
+
+i2c:
+  - id: bus
+    device: /dev/i2c-0
+
+i2c_eeprom:
+  - id: fram
+    size: 64KB
+    type: fram
+    address: 0x52
+
+fram_store:
+  - id: ram_store
+    size: 512
+    regions:
+      - id: ram_slot
+        type: slot
+        size: 8
+      - id: ram_ring
+        type: ring
+        record_size: 8
+        capacity: 4
+  - id: fram_store_i2c
+    eeprom_id: fram
+    base_offset: 0x200
+    regions:
+      - id: fram_slot
+        type: slot
+        size: 64
