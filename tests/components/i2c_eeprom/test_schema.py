@@ -93,5 +93,46 @@ class Schema(unittest.TestCase):
             i2c_eeprom.CONFIG_SCHEMA({"address": 0x54})
 
 
+class Fram(unittest.TestCase):
+    def test_a_part_is_an_eeprom_unless_told_otherwise(self):
+        config = i2c_eeprom.CONFIG_SCHEMA({"size": "64KB"})
+        self.assertEqual(config["type"], "eeprom")
+
+    def test_fram_is_taken_at_every_density_and_has_no_page_size(self):
+        for name in ("1KB", "16KB", "64KB", "512KB"):
+            with self.subTest(name=name):
+                config = i2c_eeprom.CONFIG_SCHEMA(
+                    {"size": name, "type": "FRAM", "address": 0x52}
+                )
+                self.assertEqual(config["type"], "fram")
+                self.assertNotIn("page_size", config)
+
+    def test_a_page_size_on_fram_is_refused(self):
+        # Even one that would suit an EEPROM of that density: FRAM has no pages at all.
+        for value in (8, 32):
+            with (
+                self.subTest(value=value),
+                self.assertRaisesRegex(
+                    cv.Invalid,
+                    "page_size does not apply to FRAM: it has no pages to split a write at",
+                ),
+            ):
+                i2c_eeprom.CONFIG_SCHEMA(
+                    {"size": "64KB", "type": "fram", "page_size": value}
+                )
+
+    def test_an_unknown_type_is_refused(self):
+        with self.assertRaisesRegex(
+            cv.Invalid, "Unknown value 'flash', valid options are 'eeprom', 'fram'"
+        ):
+            i2c_eeprom.CONFIG_SCHEMA({"size": "64KB", "type": "flash"})
+
+    def test_an_eeprom_still_checks_its_page_size(self):
+        with self.assertRaisesRegex(cv.Invalid, "the largest page a 64KB"):
+            i2c_eeprom.CONFIG_SCHEMA(
+                {"size": "64KB", "type": "eeprom", "page_size": 64}
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,10 +1,11 @@
 // The component over a bus that records every transaction: how a memory address is framed for
-// each part size, where a write is split into page-sized transactions, and what a chip that
-// does not answer does to it.
+// each part size, where a write is split into page-sized transactions, how FRAM is cut into
+// bounded ones instead, and what a chip that does not answer does to it.
 
 #include <gtest/gtest.h>
 #include <cstring>
 #include <vector>
+#include "esphome/core/hal.h"
 #include "esphome/components/i2c_eeprom/i2c_eeprom.h"
 #include "esphome/core/automation.h"
 #include "esphome/core/base_automation.h"
@@ -79,6 +80,14 @@ struct Chip {
     this->eeprom.set_page_size(page_size);
     this->bus.address_bytes = size_bytes > 2048 ? 2 : 1;
     this->bus.page = page_size;
+  }
+};
+
+// A FRAM: one flat array that a write streams into for as long as it lasts.
+struct Fram : Chip {
+  explicit Fram(uint32_t size_bytes = 8192) : Chip(size_bytes) {
+    this->eeprom.set_fram(true);
+    this->bus.page = this->bus.image.size();
   }
 };
 
@@ -370,6 +379,137 @@ TEST(I2CEeprom, SetupMarksTheComponentFailedWithoutAChip) {
 TEST(I2CEeprom, ReportsItsSize) {
   Chip chip(8192);
   EXPECT_EQ(chip.eeprom.get_size(), 8192u);
+}
+
+TEST(I2CEeprom, IsAnEepromUnlessToldOtherwise) {
+  Chip chip(8192);
+  EXPECT_FALSE(chip.eeprom.is_fram());
+  Fram fram;
+  EXPECT_TRUE(fram.eeprom.is_fram());
+}
+
+// What would be three page writes on an EEPROM is one transaction on FRAM.
+TEST(I2CEeprom, FramWritesAcrossPageBoundariesInOneTransaction) {
+  Fram fram;
+  const std::vector<uint8_t> data = pattern(20);
+  ASSERT_TRUE(fram.eeprom.put(0x0106, data.data(), data.size()));
+
+  ASSERT_EQ(fram.bus.log.size(), 1u);
+  EXPECT_EQ(fram.bus.log[0].written.size(), 2u + data.size());
+  EXPECT_EQ(fram.bus.log[0].written[0], 0x01);
+  EXPECT_EQ(fram.bus.log[0].written[1], 0x06);
+  EXPECT_EQ(memcmp(fram.bus.image.data() + 0x106, data.data(), data.size()), 0);
+}
+
+// A page size a lambda sets has no say over FRAM.
+TEST(I2CEeprom, FramIgnoresAPageSize) {
+  Fram fram;
+  fram.eeprom.set_page_size(8);
+  const std::vector<uint8_t> data = pattern(64);
+  ASSERT_TRUE(fram.eeprom.put(0x0004, data.data(), data.size()));
+  EXPECT_EQ(fram.bus.log.size(), 1u);
+}
+
+// 300 bytes go out as 128, 128 and 44, each with the address it starts at.
+TEST(I2CEeprom, FramCutsALongWriteEveryMaxTransferBytes) {
+  Fram fram;
+  const std::vector<uint8_t> data = pattern(300);
+  ASSERT_TRUE(fram.eeprom.put(0x0010, data.data(), data.size()));
+
+  ASSERT_EQ(fram.bus.log.size(), 3u);
+  EXPECT_EQ(fram.bus.log[0].written.size(), 2u + I2CEeprom::MAX_TRANSFER);
+  EXPECT_EQ(fram.bus.log[1].written.size(), 2u + I2CEeprom::MAX_TRANSFER);
+  EXPECT_EQ(fram.bus.log[2].written.size(), 2u + 44u);
+  EXPECT_EQ(fram.bus.log[1].written[0], 0x00);
+  EXPECT_EQ(fram.bus.log[1].written[1], 0x90);
+  EXPECT_EQ(fram.bus.log[2].written[0], 0x01);
+  EXPECT_EQ(fram.bus.log[2].written[1], 0x10);
+  EXPECT_EQ(memcmp(fram.bus.image.data() + 0x10, data.data(), data.size()), 0);
+  EXPECT_EQ(fram.bus.image[0x0F], static_cast<uint8_t>(0x0F * 7));
+  EXPECT_EQ(fram.bus.image[0x13C], static_cast<uint8_t>(0x13C * 7));
+}
+
+TEST(I2CEeprom, FramCutsALongReadEveryMaxTransferBytes) {
+  Fram fram;
+  std::vector<uint8_t> buf(300);
+  ASSERT_TRUE(fram.eeprom.get(0x0200, buf.data(), buf.size()));
+
+  ASSERT_EQ(fram.bus.log.size(), 6u);
+  EXPECT_EQ(fram.bus.log[0].written, (std::vector<uint8_t>{0x02, 0x00}));
+  EXPECT_EQ(fram.bus.log[1].read, I2CEeprom::MAX_TRANSFER);
+  EXPECT_EQ(fram.bus.log[2].written, (std::vector<uint8_t>{0x02, 0x80}));
+  EXPECT_EQ(fram.bus.log[3].read, I2CEeprom::MAX_TRANSFER);
+  EXPECT_EQ(fram.bus.log[4].written, (std::vector<uint8_t>{0x03, 0x00}));
+  EXPECT_EQ(fram.bus.log[5].read, 44u);
+  EXPECT_EQ(memcmp(buf.data(), fram.bus.image.data() + 0x200, buf.size()), 0);
+}
+
+// An EEPROM is read once, at boot: its reads stay one transaction whatever the length.
+TEST(I2CEeprom, AnEepromReadsALongRangeInOneTransaction) {
+  Chip chip(8192);
+  std::vector<uint8_t> buf(300);
+  ASSERT_TRUE(chip.eeprom.get(0x0200, buf.data(), buf.size()));
+  ASSERT_EQ(chip.bus.log.size(), 2u);
+  EXPECT_EQ(chip.bus.log[1].read, 300u);
+  EXPECT_EQ(memcmp(buf.data(), chip.bus.image.data() + 0x200, buf.size()), 0);
+}
+
+// The EEPROM path would sleep 5 ms after each of its 38 pages; FRAM does not wait at all.
+TEST(I2CEeprom, FramDoesNotWaitOutAWriteCycle) {
+  Fram fram;
+  const std::vector<uint8_t> data = pattern(300);
+  const uint32_t started = millis();
+  ASSERT_TRUE(fram.eeprom.put(0x0000, data.data(), data.size()));
+  EXPECT_LT(millis() - started, 15u);
+}
+
+TEST(I2CEeprom, AnEepromWaitsOutEachPage) {
+  Chip chip(8192);
+  const std::vector<uint8_t> data = pattern(16);
+  const uint32_t started = millis();
+  ASSERT_TRUE(chip.eeprom.put(0x0000, data.data(), data.size()));
+  EXPECT_GE(millis() - started, 10u);
+}
+
+TEST(I2CEeprom, AFailedFramChunkLeavesTheEarlierOnesWritten) {
+  Fram fram;
+  fram.bus.refuse_write = 1;
+  const std::vector<uint8_t> data = pattern(300);
+  EXPECT_FALSE(fram.eeprom.put(0x0000, data.data(), data.size()));
+
+  ASSERT_EQ(fram.bus.log.size(), 2u);
+  EXPECT_EQ(memcmp(fram.bus.image.data(), data.data(), I2CEeprom::MAX_TRANSFER), 0);
+  EXPECT_EQ(fram.bus.image[I2CEeprom::MAX_TRANSFER], static_cast<uint8_t>(I2CEeprom::MAX_TRANSFER * 7));
+}
+
+TEST(I2CEeprom, AFailedFramChunkFailsTheRead) {
+  Fram fram;
+  fram.bus.refuse_reads = true;
+  std::vector<uint8_t> buf(300);
+  EXPECT_FALSE(fram.eeprom.get(0x0000, buf.data(), buf.size()));
+  EXPECT_EQ(fram.bus.log.size(), 2u);
+}
+
+TEST(I2CEeprom, FramIsWriteProtectedLikeAnEeprom) {
+  Fram fram;
+  fram.eeprom.set_write_protected(true);
+  EXPECT_FALSE(fram.eeprom.put(0x0000, 0x01));
+  EXPECT_TRUE(fram.bus.log.empty());
+}
+
+TEST(I2CEeprom, AFramThatDoesNotAnswerFailsSetup) {
+  Fram fram;
+  fram.bus.present_at = 0x50;
+  fram.eeprom.setup();
+  EXPECT_TRUE(fram.eeprom.is_failed());
+}
+
+// Both kinds describe themselves; nothing to assert beyond not tripping the sanitizers.
+TEST(I2CEeprom, DumpsItsConfig) {
+  Chip chip(8192);
+  chip.eeprom.dump_config();
+  Fram fram;
+  fram.eeprom.dump_config();
 }
 
 }  // namespace

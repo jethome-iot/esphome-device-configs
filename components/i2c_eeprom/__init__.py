@@ -1,10 +1,10 @@
-"""Byte access to a 24Cxx-style I2C EEPROM. Vendored from pilotak/esphome-eeprom."""
+"""Byte access to a 24Cxx-style I2C EEPROM or FRAM. Vendored from pilotak/esphome-eeprom."""
 
 from esphome import automation
 import esphome.codegen as cg
 from esphome.components import i2c
 import esphome.config_validation as cv
-from esphome.const import CONF_ID, CONF_SIZE
+from esphome.const import CONF_ID, CONF_SIZE, CONF_TYPE
 
 CODEOWNERS = ["@jethome-iot"]
 DEPENDENCIES = ["i2c"]
@@ -12,6 +12,10 @@ MULTI_CONF = True
 
 CONF_ON_SETUP = "on_setup"
 CONF_PAGE_SIZE = "page_size"
+
+TYPE_EEPROM = "eeprom"
+TYPE_FRAM = "fram"
+DEFAULT_PAGE_SIZE = 8
 
 # Kilobits, as printed on the part: a 64KB chip holds 8192 bytes.
 EEPROM_SIZES = {
@@ -57,8 +61,16 @@ def _page_size(value):
     return size
 
 
-# Checked here rather than in _page_size, which does not get to see the density.
-def _page_fits_the_part(config):
+# Checked here rather than in _page_size, which does not get to see the type or the density.
+def _type_and_page_agree(config):
+    if config[CONF_TYPE] == TYPE_FRAM:
+        if CONF_PAGE_SIZE in config:
+            raise cv.Invalid(
+                "page_size does not apply to FRAM: it has no pages to split a write at",
+                path=[CONF_PAGE_SIZE],
+            )
+        return config
+    config.setdefault(CONF_PAGE_SIZE, DEFAULT_PAGE_SIZE)
     limit = MAX_PAGE_SIZES[config[CONF_SIZE]]
     if config[CONF_PAGE_SIZE] > limit:
         raise cv.Invalid(
@@ -76,20 +88,26 @@ CONFIG_SCHEMA = cv.All(
         {
             cv.GenerateID(): cv.declare_id(I2CEeprom),
             cv.Required(CONF_SIZE): cv.enum(EEPROM_SIZES, upper=True),
-            cv.Optional(CONF_PAGE_SIZE, default=8): _page_size,
+            cv.Optional(CONF_TYPE, default=TYPE_EEPROM): cv.one_of(
+                TYPE_EEPROM, TYPE_FRAM, lower=True
+            ),
+            cv.Optional(CONF_PAGE_SIZE): _page_size,
             cv.Optional(CONF_ON_SETUP): automation.validate_automation(single=True),
         }
     )
     .extend(cv.COMPONENT_SCHEMA)
     .extend(i2c.i2c_device_schema(0x50)),
-    _page_fits_the_part,
+    _type_and_page_agree,
 )
 
 
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     cg.add(var.set_size(config[CONF_SIZE]))
-    cg.add(var.set_page_size(config[CONF_PAGE_SIZE]))
+    if config[CONF_TYPE] == TYPE_FRAM:
+        cg.add(var.set_fram(True))
+    else:
+        cg.add(var.set_page_size(config[CONF_PAGE_SIZE]))
     await cg.register_component(var, config)
     await i2c.register_i2c_device(var, config)
 

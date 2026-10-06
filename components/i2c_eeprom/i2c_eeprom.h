@@ -9,6 +9,10 @@ namespace esphome::i2c_eeprom {
 
 class I2CEeprom : public Component, public i2c::I2CDevice {
  public:
+  // Bytes one transaction carries at most: ~3 ms of a 400 kHz bus the display and the
+  // expanders share.
+  static constexpr size_t MAX_TRANSFER = 128;
+
   void setup() override;
   void dump_config() override;
   float get_setup_priority() const override { return setup_priority::DATA; }
@@ -18,6 +22,7 @@ class I2CEeprom : public Component, public i2c::I2CDevice {
 
   // Split at the page boundaries the part rolls over on, one transaction per page, so a write
   // is no longer all-or-nothing: a failed chunk stops it with the chunks before it written.
+  // FRAM has no pages: its writes and reads are cut every MAX_TRANSFER bytes instead.
   bool put(uint16_t memaddr, const uint8_t *value, size_t size);
   bool put(uint16_t memaddr, uint8_t value) { return this->put(memaddr, &value, 1); }
   bool get(uint16_t memaddr, uint8_t *value, size_t size = 1);
@@ -43,6 +48,10 @@ class I2CEeprom : public Component, public i2c::I2CDevice {
   void set_page_size(uint16_t size) { this->page_size_ = size > 0 ? size : 1; }
   uint16_t get_page_size() const { return this->page_size_; }
 
+  // FRAM writes at bus speed into one flat array: no page to split at, no write cycle to wait.
+  void set_fram(bool fram) { this->fram_ = fram; }
+  bool is_fram() const { return this->fram_; }
+
   Trigger<> *get_setup_trigger() { return &this->setup_trigger_; }
 
  protected:
@@ -52,6 +61,7 @@ class I2CEeprom : public Component, public i2c::I2CDevice {
   uint32_t size_{0};
   uint16_t page_size_{8};
   bool two_byte_address_{false};
+  bool fram_{false};
   bool write_protected_{false};
   Trigger<> setup_trigger_;
 };
