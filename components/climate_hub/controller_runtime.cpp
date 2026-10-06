@@ -257,6 +257,8 @@ void ControllerRuntime::tick(uint64_t now_ms) {
   // Waiting for a first reading is no fault, but nothing to act on either. Without a reading or
   // on a cut-out a close from elsewhere is undone on every pass; only mode off paces it.
   if (cuts_out(this->fault_) || c.mode == HubMode::OFF || !this->has_sample_) {
+    // Integrated over the pause, the first pass after it would wind the integral to a limit.
+    this->controlled_ = false;
     this->all_relays_off_(now_ms, this->has_sample_ && !cuts_out(this->fault_));
     if (this->set_action_(this->standing_action_()))
       this->entity_->publish_state();

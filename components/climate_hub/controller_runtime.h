@@ -59,7 +59,9 @@ class ControllerRuntime {
   /// Lets go of `claim` without touching its relay: another thermostat carries on with it.
   void release_claim(const RelayClaim *claim);
 
-  /// The control loop, with the clock passed in.
+  /// The control loop, with the clock passed in. A pass that follows a pause, in mode off, on a
+  /// fault but relay_contested, or waiting for a first reading, runs the PID as a first pass:
+  /// nothing integrated or differentiated over the pause.
   void tick(uint64_t now_ms);
   /// A reading from the sensor; the hub drops NaN and infinities before they get here. The
   /// entity is republished only when the temperature changed.
@@ -120,7 +122,7 @@ class ControllerRuntime {
   uint64_t waiting_since_ms_{0};
   uint64_t last_control_ms_{0};
   bool has_sample_{false};
-  // A pass has run since start(): the next one integrates over the time since.
+  // A pass has run since start() or the last pause: the next one integrates over the time since.
   bool controlled_{false};
   // Run a pass at the next tick instead of waiting out update_interval_s, up to an hour.
   bool control_due_{true};

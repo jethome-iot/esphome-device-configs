@@ -1,5 +1,5 @@
 // Gaps a device takes weeks to reach: a sensor silent past the point where a 32-bit millis()
-// wraps, about 49.7 days. The hub's clock is the test's.
+// wraps, about 49.7 days, and a PID that stood still for days. The hub's clock is the test's.
 #include "common.h"
 
 namespace esphome::climate_hub::testing {
@@ -7,6 +7,7 @@ namespace {
 
 // 2^32 ms: where a 32-bit millis() count starts again from zero.
 constexpr uint64_t MILLIS_WRAP = 1ull << 32;
+constexpr uint64_t TEN_DAYS_MS = 10ull * 86400 * 1000;
 
 class LongGaps : public HubTest {
  protected:
@@ -30,6 +31,15 @@ class LongGaps : public HubTest {
     return c;
   }
 
+  // An integral that grows by 0.05 a second at 20 degrees and nothing else.
+  static ClimateConfig integrating() {
+    ClimateConfig c = base(ControlKind::PID);
+    c.setpoint = 25.f;
+    c.pid.kp = 0.f;
+    c.pid.ki = 0.01f;
+    return c;
+  }
+
   // Creates and starts `config`, with a first reading when `temperature` is a number.
   ControllerRuntime *start(const ClimateConfig &config, float temperature = NAN) {
     this->id_ = this->create(config).id;
@@ -42,6 +52,12 @@ class LongGaps : public HubTest {
   static void tick(uint64_t ms) {
     hub().ms = ms;
     hub().loop();
+  }
+
+  void mode(climate::ClimateMode mode) {
+    auto call = hub().entity_of(this->id_)->make_call();
+    call.set_mode(mode);
+    call.perform();
   }
 
   std::string id_;
@@ -122,6 +138,64 @@ TEST_F(LongGaps, ThePwmKeepsItsRhythmAcrossTheMillisWrap) {
                                true, false}),
             states);
   EXPECT_EQ(HubFault::NONE, rt->fault());
+}
+
+// --- A PID after a pause ---
+
+// Ten days in mode off: the first pass after it integrates nothing and takes no derivative, so
+// the integral goes on from where it stood rather than from its limit.
+TEST_F(LongGaps, APidStartsAfreshAfterModeOff) {
+  ClimateConfig config = integrating();
+  config.safety.sensor_timeout_s = 60.f;
+  config.pid.kd = 1.f;
+  ControllerRuntime *rt = this->start(config, 20.f);
+  tick(100000);
+  tick(101000);
+  ASSERT_NEAR(0.05f, rt->pid().integral_term(), 1e-5f);
+
+  this->mode(climate::CLIMATE_MODE_OFF);
+  tick(102000);
+  hub().ms = 101000 + TEN_DAYS_MS;
+  // A degree colder: over ten days the derivative is next to nothing, over no time it is none.
+  entities().room.publish_state(19.f);
+  this->mode(climate::CLIMATE_MODE_HEAT);
+  tick(hub().ms);
+  EXPECT_NEAR(0.05f, rt->pid().integral_term(), 1e-5f) << "not wound up to max_integral";
+  EXPECT_EQ(0.f, rt->pid().derivative_term());
+  tick(hub().ms + 1000);
+  EXPECT_NEAR(0.11f, rt->pid().integral_term(), 1e-5f) << "6 degrees for 1 s at 0.01";
+}
+
+// The same after a fault: ten days without a reading, then one.
+TEST_F(LongGaps, APidStartsAfreshAfterAFault) {
+  ControllerRuntime *rt = this->start(integrating(), 20.f);
+  tick(100000);
+  tick(101000);
+  ASSERT_NEAR(0.05f, rt->pid().integral_term(), 1e-5f);
+  tick(111000);
+  ASSERT_EQ(HubFault::SENSOR_STALE, rt->fault());
+
+  hub().ms = 101000 + TEN_DAYS_MS;
+  entities().room.publish_state(20.f);
+  tick(hub().ms);
+  EXPECT_EQ(HubFault::NONE, rt->fault());
+  EXPECT_NEAR(0.05f, rt->pid().integral_term(), 1e-5f) << "not wound up to max_integral";
+  tick(hub().ms + 1000);
+  EXPECT_NEAR(0.10f, rt->pid().integral_term(), 1e-5f);
+}
+
+// An interval is no pause: the pass at its end integrates over all of it.
+TEST_F(LongGaps, APidIntegratesOverItsWholeInterval) {
+  ClimateConfig config = integrating();
+  config.pid.ki = 0.001f;
+  config.update_interval_s = 60.f;
+  config.safety.sensor_timeout_s = 300.f;
+  ControllerRuntime *rt = this->start(config, 20.f);
+  tick(100000);
+  tick(130000);
+  EXPECT_NEAR(0.f, rt->pid().integral_term(), 1e-5f) << "no pass before the interval is up";
+  tick(160000);
+  EXPECT_NEAR(0.3f, rt->pid().integral_term(), 1e-5f) << "5 degrees for 60 s at 0.001";
 }
 
 }  // namespace
