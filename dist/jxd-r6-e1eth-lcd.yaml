@@ -711,6 +711,14 @@ esphome:
               });
               menu->add_item(row);
             };
+            // A first row naming the entity. The menu has no row the cursor skips, so the
+            // submenu opens on the row below it; CENTER does nothing on a label.
+            auto add_title = [has](MenuItemMenu *menu, std::function<std::string()> name) {
+              auto *title = new MenuItem(MENU_ITEM_LABEL);
+              title->set_text([has, name](const MenuItem *) { return panel_fit(panel_safe(name(), 4 * ROW, has), ROW); });
+              menu->add_item(title);
+              menu->add_on_enter_callback([]() { id(display_menu).down(); });
+            };
             // Each submenu is built next to its entity, so nothing binds its rows by position.
             auto *sws = id(switch_settings);
             for (auto *sw : id(relays)) {
@@ -718,6 +726,7 @@ esphome:
               menu->set_text([sws, sw, with_state](const MenuItem *) {
                 return with_state(sws->display_name(sw), sw->state);
               });
+              add_title(menu, [sws, sw]() { return sws->display_name(sw); });
               // Not a MenuItemSwitch: a relay a thermostat drives is the thermostat's, and the row
               // only logs whose it is.
               auto *state_row = new MenuItemCustom();
@@ -762,6 +771,7 @@ esphome:
               menu->set_text([bss, input, with_state](const MenuItem *) {
                 return with_state(bss->display_name(input), input->state);
               });
+              add_title(menu, [bss, input]() { return bss->display_name(input); });
               auto *state_row = new MenuItem(MENU_ITEM_LABEL);
               state_row->set_text([input](const MenuItem *) {
                 return std::string(input->state ? "State (On)" : "State (Off)");

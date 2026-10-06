@@ -24,11 +24,12 @@ relay takes its input's state at once. What else such a relay does and does not 
 ## Display menu
 
 **Relays → Relay N** holds `State`, `Inverted`, `Start mode`, `Bind to` and `Binding`;
-**Inputs → Input N** holds the live state and `Inverted`. CENTER opens a setting, LEFT and
-RIGHT step through its choices, CENTER or BACK closes it; the choice is applied when the row
-closes and written to the partition a few seconds later. On a relay a running thermostat
-drives, `State` does not toggle and an `Inverted` change is refused; the log names the
-thermostat.
+**Inputs → Input N** holds the live state and `Inverted`. Both open with the cursor under a
+row that names the relay or input: its label, or its name when it has none, cut to 18
+characters. CENTER opens a setting, LEFT and RIGHT step through its choices, CENTER or BACK
+closes it; the choice is applied when the row closes and written to the partition a few
+seconds later. On a relay a running thermostat drives, `State` does not toggle and an
+`Inverted` change is refused; the log names the thermostat.
 
 A relay or an input with a label goes by it in the Relays and Inputs lists and in `Bind to`'s
 choices, as soon as it is set. A label too long for its row is cut, to 12 characters in the
