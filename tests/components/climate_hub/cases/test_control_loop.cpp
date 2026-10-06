@@ -1826,21 +1826,33 @@ TEST_F(ControlLoop, ARelayClosedFromElsewhereShowsUntilItIsPutBack) {
   EXPECT_EQ(HubAction::IDLE, rt->action());
 }
 
-// Mode off, a cut-out, no reading yet: nothing waits on a dwell, whatever the relay did before.
+// Mode off and a cut-out open the relay without waiting for min_on, so nothing waits on it.
 TEST_F(ControlLoop, NoWaitWhileTheRelaysAreHeldOpen) {
-  ClimateConfig config = this->base(ControlKind::BANG_BANG);
-  config.heat.min_on_s = 60.f;
-  ControllerRuntime *rt = this->start(config, 18.f);
-  tick(200000);
-  entities().room.publish_state(22.f);
-  tick(201000);
-  ASSERT_EQ(RelayWait::MIN_ON, rt->heat_relay_wait());
+  for (bool cut_out : {false, true}) {
+    SCOPED_TRACE(cut_out ? "overtemp" : "mode off");
+    ClimateConfig config = this->base(ControlKind::BANG_BANG);
+    config.heat.min_on_s = 60.f;
+    config.safety.max_temperature = 30.f;
+    ControllerRuntime *rt = this->start(config, 18.f);
+    tick(200000);
+    entities().room.publish_state(22.f);
+    tick(201000);
+    ASSERT_EQ(RelayWait::MIN_ON, rt->heat_relay_wait());
 
-  call(hub().entity_of(this->id_), climate::CLIMATE_MODE_OFF);
-  tick(202000);
-  EXPECT_FALSE(entities().relay1.state) << "mode off does not wait for min_on";
-  EXPECT_EQ(RelayWait::NONE, rt->heat_relay_wait());
-  EXPECT_EQ(RelayWait::NONE, rt->cool_relay_wait()) << "no cooling relay";
+    if (cut_out) {
+      entities().room.publish_state(35.f);
+    } else {
+      call(hub().entity_of(this->id_), climate::CLIMATE_MODE_OFF);
+    }
+    tick(202000);
+    EXPECT_FALSE(entities().relay1.state);
+    EXPECT_EQ(HubAction::OFF, rt->action());
+    EXPECT_EQ(RelayWait::NONE, rt->heat_relay_wait());
+    EXPECT_EQ(RelayWait::NONE, rt->cool_relay_wait()) << "no cooling relay";
+    ASSERT_TRUE(hub().remove(this->id_).ok);
+    reset_entities();
+    hub().ms = 100000;
+  }
 }
 
 // The runtime on its own: with no reading every close from elsewhere is undone at once; in mode

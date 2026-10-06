@@ -192,14 +192,13 @@ thermostat would switch it now stays and is not counted; moved there before the 
 own `min_on_s` or `min_off_s` is over, it is not counted either: as the first move it goes
 back, from the second on it stays. Once 5 moves come without 10 quiet minutes after a put-back
 between them, the thermostat reports `relay_contested`: it goes on controlling and putting the
-relay back, and the fault clears by itself 10 minutes after the last put-back. Its action
-shows what the relay does meanwhile; waiting for a put-back is not waiting on its own
-`min_on_s` or `min_off_s`. The count
-starts over when a thermostat starts or takes the relay over, not at a Save, and a relay the
-thermostat finds moved when it claims it, closed by Start mode On at boot say, counts as no
-move. Until the first reading and during `sensor_stale` and `overtemp`, a relay closed from
-elsewhere is opened again on every pass, without waiting. Mode `off` keeps holding the relays
-open and puts them back the same way.
+relay back, and the fault clears by itself 10 minutes after the last put-back. Meanwhile its
+action shows what the relay does, and a relay waiting for its put-back is not waiting on the
+thermostat's `min_on_s` or `min_off_s`. The count starts over when a thermostat starts or takes
+the relay over, not at a Save, and a relay the thermostat finds moved when it claims it, closed
+by Start mode On at boot say, counts as no move. Until the first reading and during
+`sensor_stale` and `overtemp`, a relay closed from elsewhere is opened again on every pass,
+without waiting. Mode `off` keeps holding the relays open and puts them back the same way.
 
 Two thermostats may name the same relay and take turns: only one of them is enabled at a time.
 Enabling the second, or saving it enabled, while the first is enabled is refused, naming the
