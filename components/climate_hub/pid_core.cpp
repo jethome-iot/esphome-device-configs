@@ -85,11 +85,15 @@ void PidCore::reserve_windows_() {
 void PidCore::reset() {
   this->accumulated_integral_ = 0.f;
   this->previous_error_ = 0.f;
-  this->has_previous_setpoint_ = false;
   this->error_ = 0.f;
   this->proportional_term_ = 0.f;
   this->integral_term_ = 0.f;
   this->derivative_term_ = 0.f;
+  this->forget_samples();
+}
+
+void PidCore::forget_samples() {
+  this->has_previous_setpoint_ = false;
   this->derivative_window_.clear();
   this->output_window_.clear();
 }

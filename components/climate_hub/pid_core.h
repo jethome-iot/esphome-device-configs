@@ -41,6 +41,9 @@ class PidCore {
 
   /// Drops the integral and both smoothing windows; leaves the tuning alone.
   void reset();
+  /// Drops both smoothing windows and the last setpoint, keeping the integral and the tuning:
+  /// the next update() averages nothing from before it in.
+  void forget_samples();
 
   bool in_deadband() const;
 

@@ -254,6 +254,51 @@ TEST_F(LongGaps, APidStartsAfreshAfterAFault) {
   EXPECT_NEAR(0.10f, rt->pid().integral_term(), 1e-5f);
 }
 
+// A temperature that fell before a pause gives the first pass after it no derivative: the window
+// that averages it holds nothing from before.
+TEST_F(LongGaps, APidAveragesNoDerivativeFromBeforeAPause) {
+  ClimateConfig config = integrating();
+  config.pid.ki = 0.f;
+  config.pid.kd = 1.f;
+  config.pid.derivative_samples = 4.f;
+  config.safety.sensor_timeout_s = 60.f;
+  ControllerRuntime *rt = this->start(config, 20.f);
+  tick(100000);
+  for (uint64_t t = 101000; t <= 102000; t += 1000) {
+    entities().room.publish_state(20.f - static_cast<float>(t - 100000) / 2000.f);
+    tick(t);
+  }
+  ASSERT_GT(rt->pid().derivative_term(), 0.f);
+
+  this->mode(climate::CLIMATE_MODE_OFF);
+  tick(103000);
+  this->mode(climate::CLIMATE_MODE_HEAT);
+  tick(104000);
+  EXPECT_EQ(0.f, rt->pid().derivative_term());
+  entities().room.publish_state(18.5f);
+  tick(105000);
+  EXPECT_NEAR(0.25f, rt->pid().derivative_term(), 1e-5f) << "0.5 a second averaged with the 0 after the pause";
+}
+
+// Nor does it average in an output from before the pause: here after a stale sensor.
+TEST_F(LongGaps, APidAveragesNoOutputFromBeforeAPause) {
+  ClimateConfig config = integrating();
+  config.pid.kp = 0.1f;
+  config.pid.ki = 0.f;
+  config.pid.output_samples = 4.f;
+  ControllerRuntime *rt = this->start(config, 20.f);
+  tick(100000);
+  tick(101000);
+  ASSERT_NEAR(0.5f, rt->heat_duty(), 1e-5f);
+  tick(111000);
+  ASSERT_EQ(HubFault::SENSOR_STALE, rt->fault());
+
+  entities().room.publish_state(24.f);
+  tick(112000);
+  ASSERT_EQ(HubFault::NONE, rt->fault());
+  EXPECT_NEAR(0.1f, rt->heat_duty(), 1e-5f) << "a degree short at 0.1, not averaged with 0.5";
+}
+
 // An interval is no pause: the pass at its end integrates over all of it.
 TEST_F(LongGaps, APidIntegratesOverItsWholeInterval) {
   ClimateConfig config = integrating();

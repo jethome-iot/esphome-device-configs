@@ -332,6 +332,9 @@ bool ControllerRuntime::set_action_(HubAction action) {
 void ControllerRuntime::run_control_(uint64_t now_ms) {
   const ClimateConfig &c = *this->config_;
   const float dt_s = this->controlled_ ? static_cast<float>(now_ms - this->last_control_ms_) / 1000.f : 0.f;
+  // After a pause the averages still hold samples from before it; a start emptied them already.
+  if (!this->controlled_)
+    this->pid_.forget_samples();
   this->last_control_ms_ = now_ms;
   this->controlled_ = true;
   this->control_due_ = false;
