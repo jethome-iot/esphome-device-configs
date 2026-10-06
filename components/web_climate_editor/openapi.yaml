@@ -1762,11 +1762,12 @@ components:
           type: string
           description: >-
             Why a failed run ended: `cancelled`; a target or a mode changed
-            from anywhere; a Save; the thermostat stopped (`stopped`) or
-            another took its relay over (`taken_over`); a fault; 24 hours in
-            all (`timeout`); 6 hours without a relay switch (`no_switch`);
-            readings that crossed the target more than 65 times, a noisy probe
-            at the target (`noisy`). `""` while it runs and after a success.
+            from anywhere; a Save or an import; the thermostat stopped
+            (`stopped`) or another took its relay over (`taken_over`); a
+            fault; 24 hours in all (`timeout`); 6 hours without a relay switch
+            (`no_switch`); readings that crossed the target more than 65
+            times, a noisy probe at the target (`noisy`). `""` while it runs
+            and after a success.
           enum:
             - ""
             - cancelled

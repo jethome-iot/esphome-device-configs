@@ -241,8 +241,8 @@ ki and kd, and the device writes them into the thermostat, moves its `revision` 
 them. A room with radiators takes about an hour and a half, a floor heating eight to ten hours;
 start near the target, since a floor that takes more than 6 hours to reach the band ends the run
 as `no_switch` before its first swing. `direction` picks the relay: required in `heat_cool`, where
-the other relay stays open, and the mode's otherwise. Home Assistant sees only heating and idle,
-as from any PID.
+the other relay stays open, and the mode's otherwise. Home Assistant sees heating (cooling for a
+cool run) while the relay is closed, idle otherwise.
 
 A run ends without gains on `value=false`, a target or a mode changed from anywhere, a Save or an
 import, the thermostat stopped or taken over, any fault, 24 hours in all, 6 hours without a relay
