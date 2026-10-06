@@ -360,7 +360,7 @@ export interface TemperatureSlot {
   offset?: number
   /** What the panel and the page show in place of `name`, `''` for none; like the offset it
    *  belongs to the slot number. `name` stays the key to the sensor. Absent on a listed slot,
-   *  which the YAML names, and when `max_label_length` is. */
+   *  which the YAML names, and in an answer without `max_label_length`. */
   label?: string
 }
 

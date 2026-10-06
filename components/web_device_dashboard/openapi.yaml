@@ -1811,7 +1811,8 @@ components:
             What the panel and the page show in place of `name`, `""` for none;
             `/temperature-slots/label` sets it. It belongs to the slot number, not
             to the device, and `name` stays the key to the sensor. Absent on a
-            `listed` slot, which the YAML names, and when `max_label_length` is.
+            `listed` slot, which the YAML names, and in an answer without
+            `max_label_length`.
 
     TemperatureSlotChangeResult:
       description: What a forget or an assign answers once the saved table is written.
