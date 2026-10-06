@@ -93,6 +93,21 @@ TEST_F(HoldTest, StoppingOrRemovingAThermostatAnnouncesItsRelaysOnceFree) {
   EXPECT_EQ(2u, releases().size());
 }
 
+TEST_F(HoldTest, ASaveThatDisablesAThermostatAnnouncesItsRelays) {
+  ClimateConfig both = draft("Both", "relay_1");
+  both.cool.relay_id = "relay_2";
+  both.mode = HubMode::HEAT_COOL;
+  this->create(both);
+  both.enabled = false;
+  ASSERT_TRUE(hub().update("both", both).ok);
+  EXPECT_FALSE(hub().is_running("both"));
+  ASSERT_EQ(2u, releases().size());
+  for (const Release &release : releases())
+    EXPECT_EQ("", release.holder_then);
+  std::set<switch_::Switch *> relays{releases()[0].relay, releases()[1].relay};
+  EXPECT_EQ((std::set<switch_::Switch *>{&e.relay1, &e.relay2}), relays);
+}
+
 TEST_F(HoldTest, ASaveThatDropsARelayAnnouncesThatOneOnly) {
   ClimateConfig both = draft("Both", "relay_1");
   both.cool.relay_id = "relay_2";

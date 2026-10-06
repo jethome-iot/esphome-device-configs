@@ -213,6 +213,15 @@ TEST_F(Bindings, AReleaseWhileTheInputHasNoStateDrivesNothing) {
   EXPECT_EQ(e.relay1.writes, 1);
 }
 
+// A binding whose input this build lacks leaves the freed output where the thermostat left it.
+TEST_F(Bindings, AReleaseWithTheInputMissingDrivesNothing) {
+  manager->setup();
+  manager->set_binding(RELAY_1, NO_SUCH, BindingMode::FOLLOW);
+  holder.held[&e.relay1] = "Living room";
+  holder.release(&e.relay1);
+  EXPECT_EQ(e.relay1.writes, 0);
+}
+
 // An output this build lacks is kept like a missing input, and only logged when driven.
 TEST_F(Bindings, AMissingOutputIsLoggedWhenDriven) {
   manager->setup();
