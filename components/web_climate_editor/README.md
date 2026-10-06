@@ -208,7 +208,7 @@ as from any PID.
 
 A run ends without gains on `value=false`, a target or a mode changed from anywhere, a Save, the
 thermostat stopped or taken over, any fault, 24 hours in all, 6 hours without a relay switch, or
-readings that cross the target more than 64 times, as a noisy probe at the target makes them; the
+readings that cross the target more than 65 times, as a noisy probe at the target makes them; the
 thermostat goes back to its PID with the gains it had. It lives in memory only, so a reboot
 ends it too.
 
@@ -222,8 +222,10 @@ order (`at_s`, `temperature`), `ku` and `pu` (seconds) once it succeeded, the `f
 about a result (`asymmetric`: the room rose and fell at very different rates; `uneven`: the swings
 differed, something else moved the room; `clamped`: a gain had to be held in its range), the
 gains it replaced as `old` and wrote as `new`, and `persisted`, false when they did not reach the
-file. The device tries the write again a few seconds later and at shutdown, and `persisted` turns
-true once the thermostat's file is written, by that or by any later change.
+file. The device writes them once more, within three seconds or at shutdown, whichever comes
+first; if that fails too, they wait for a later change of the thermostat or the start of its next
+calibration. `persisted` turns true once the thermostat's file is written, by that retry or by any
+later change.
 
 The parameters are read first: `400` for a missing or malformed `id` or `value`, or a `direction`
 or `rule` it does not know. A start is then `404`, `409` for a bang-bang or stopped thermostat,

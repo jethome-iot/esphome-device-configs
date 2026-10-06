@@ -3639,7 +3639,7 @@
       "body": null,
       "status": 200,
       "expect": {
-        "version": 4,
+        "version": 9,
         "name": "Living Room"
       }
     },

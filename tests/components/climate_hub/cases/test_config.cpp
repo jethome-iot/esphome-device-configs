@@ -165,10 +165,20 @@ TEST(ClimateConfigJson, AVersionTwoFileReadsAsThisVersion) {
 // what this firmware understands of it.
 TEST(ClimateConfigJson, ANewerVersionIsKept) {
   struct Case {
-    const char *version;
+    std::string version;
     uint16_t expected;
   };
-  const Case cases[] = {{"4", 4}, {"3.5", 4}, {"70000", 65535}, {"3", 3}, {"2", 3}, {"0", 3}, {"-4", 3}, {"\"9\"", 3}};
+  // From this version, so a bump keeps every case testing what it says.
+  const std::string ours = std::to_string(CONFIG_VERSION);
+  const uint16_t next = CONFIG_VERSION + 1;
+  const Case cases[] = {{std::to_string(next), next},
+                        {ours + ".5", next},
+                        {"70000", 65535},
+                        {ours, CONFIG_VERSION},
+                        {std::to_string(CONFIG_VERSION - 1), CONFIG_VERSION},
+                        {"0", CONFIG_VERSION},
+                        {"-4", CONFIG_VERSION},
+                        {"\"9\"", CONFIG_VERSION}};
   for (const Case &c : cases) {
     ClimateConfig parsed;
     std::string error;

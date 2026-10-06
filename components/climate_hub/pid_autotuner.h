@@ -49,7 +49,7 @@ class PidAutotuner {
   /// Crossings of the target it keeps the time between: a run stops at a handful, a probe that
   /// hovers at the target crosses it reading after reading.
   static constexpr size_t MAX_INTERVALS = 64;
-  /// More crossings came than that: the readings are noise around the target, not a swing, and
+  /// More intervals came than it keeps: the readings are noise around the target, not a swing, and
   /// the run neither keeps them nor finishes.
   bool noisy() const { return this->frequency_.overflowed; }
 

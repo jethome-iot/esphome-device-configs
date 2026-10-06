@@ -59,7 +59,7 @@ A calibration ends without new gains when it is cancelled, when the target or th
 from anywhere (Home Assistant, the web server, the editor, a rule, a preset), when the thermostat
 is saved, switched off, deleted or taken over, on any fault, after 24 hours, after 6 hours
 without a relay switch (a heater that cannot cross the band), or when a noisy probe crosses the
-target more than 64 times. A reboot ends it too. The status says which, and the thermostat goes
+target more than 65 times. A reboot ends it too. The status says which, and the thermostat goes
 back to its PID with the gains it had.
 
 ## A running thermostat's relays
@@ -102,11 +102,13 @@ understands it, but this firmware never writes it: a change from Home Assistant,
 rule lasts until the next reboot, and a Save from the editor is refused with a sentence that
 says a newer firmware wrote it. Starting it in another thermostat's place lasts until the next
 reboot too: the ones it took the relay from, running or waiting, stay enabled in their files.
-Deleting the thermostat still works. A newer file that breaks this firmware's rules — a preset
-mode it does not know, more than eight presets, a control law it does not have — is not loaded
-and is left as it is, as any file that breaks them. To a firmware from before calibration, every
-thermostat file this one writes is such a newer file: rolled back, a calibrated thermostat runs
-its gains as far as that firmware's ranges go, and its file keeps them for the next update.
+Deleting the thermostat still works. To a firmware from before calibration, every thermostat
+file this one writes is a newer firmware's, calibrated or not: rolled back to it, every
+thermostat saved or changed here keeps running but cannot be changed for good until this
+firmware is back. A calibrated one runs its gains as far as that firmware's ranges go, and its
+file keeps them for the next update. A newer file that
+breaks this firmware's rules — a preset mode it does not know, more than eight presets, a control
+law it does not have — is not loaded and is left as it is, as any file that breaks them.
 
 A thermostat whose sensor or relay is missing, at boot or when it is saved or switched on, stays
 enabled on disk but does not run; the Save or the switch-on succeeds with a warning that names

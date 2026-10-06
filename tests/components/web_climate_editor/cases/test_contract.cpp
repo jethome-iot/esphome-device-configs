@@ -24,6 +24,10 @@ const std::set<std::string> SENSOR_KEYS{"object_id", "name", "unit"};
 const std::set<std::string> SWITCH_KEYS{"object_id", "name"};
 const std::set<std::string> STEP_KEYS{"method", "path",         "body",    "pad_to", "status",
                                       "error",  "error_prefix", "headers", "expect", "absent"};
+// What `newer_file` writes: a literal the contract can expect, far enough ahead to outlast bumps.
+constexpr unsigned NEWER_VERSION = 9;
+static_assert(climate_hub::CONFIG_VERSION < NEWER_VERSION, "newer_file must stay newer than this firmware");
+
 const std::set<std::string> CASE_KEYS = [] {
   std::set<std::string> keys = STEP_KEYS;
   keys.insert({"name", "setup", "device_only", "then"});
@@ -172,7 +176,7 @@ class Contract : public Editor {
       for (const std::string &name : this->files())
         chmod((this->folder() + "/" + name).c_str(), 0444);
     } else if (state == "newer_file") {
-      this->reboot_with_version(climate_hub::CONFIG_VERSION + 1);
+      this->reboot_with_version(NEWER_VERSION);
     } else {
       ADD_FAILURE() << "unknown device_only: " << state;
     }

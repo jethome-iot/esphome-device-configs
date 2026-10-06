@@ -788,6 +788,11 @@ Result ClimateHub::start_autotune(const std::string &id, optional<AutotuneDirect
   auto run = std::make_unique<AutotuneRun>(*direction, rule, PidGains{stored->pid.kp, stored->pid.ki, stored->pid.kd},
                                            stored->setpoint, now);
   AutotuneRun *running = run.get();
+  // Gains the last one could not write would leave the status with it and come back as the old
+  // ones at the next boot: they get another write.
+  auto last = this->autotunes_.find(id);
+  if (last != this->autotunes_.end() && !last->second->persisted())
+    this->mark_dirty_(id);
   // The last one's numbers go: they stay until the next run.
   this->autotunes_[id] = std::move(run);
   runtime.begin_autotune(running, now);

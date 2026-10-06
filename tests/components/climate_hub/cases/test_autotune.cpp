@@ -457,7 +457,8 @@ TEST_F(Calibration, ADayEndsIt) {
 TEST_F(Calibration, ANoisyProbeAtTheTargetEndsIt) {
   const std::string id = this->start(living_room(), 21.f);
   ASSERT_TRUE(this->calibrate(id).ok);
-  // The first crossing starts the clock; each after it is one interval.
+  // The first crossing starts the clock and each after it is one interval: 65 crossings fill the
+  // 64, and the 66th ends the run.
   for (uint32_t i = 0; i <= PidAutotuner::MAX_INTERVALS; i++)
     hold(i % 2 == 0 ? 20.9f : 21.1f, 10, 1);
   EXPECT_TRUE(hub().autotune(id)->running());
@@ -553,6 +554,28 @@ TEST_F(Calibration, ALaterWriteOfTheThermostatClearsTheWarning) {
   EXPECT_EQ(22.f, this->on_flash(id).setpoint);
   EXPECT_EQ(run->new_gains().kp, this->on_flash(id).pid.kp);
   EXPECT_TRUE(run->persisted());
+}
+
+// The next calibration takes the warning away with the run that gave it: the gains still reach
+// the file, so a reboot does not bring the old ones back.
+TEST_F(Calibration, ANewCalibrationStillWritesGainsTheFileDidNotTake) {
+  const RoomModel model = radiator_room();
+  Room room(model);
+  const std::string id = this->start(living_room(), room.reading());
+  ASSERT_TRUE(this->calibrate(id).ok);
+  hub().max_file_bytes = 100;
+  swing(room, model, 24.f, [&id] { return ended(id); });
+  hub().ms += 3000;
+  hub().loop();
+  ASSERT_FALSE(hub().autotune(id)->persisted()) << "the retry failed too";
+  const float kp = hub().store().get(id)->pid.kp;
+  ASSERT_NE(0.6f, kp);
+  hub().max_file_bytes = CONFIG_MAX_BYTES;
+  ASSERT_TRUE(this->calibrate(id).ok);
+  hub().ms += 3000;
+  hub().loop();
+  EXPECT_EQ(kp, this->on_flash(id).pid.kp);
+  EXPECT_EQ(1u, this->on_flash(id).revision);
 }
 
 // --- What a start is refused for ---
