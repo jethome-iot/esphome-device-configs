@@ -23,6 +23,7 @@ tests/
       dir_storage           # test-only storage backend: a directory on the host
       display_menu_host     # test-only key that pulls display_menu_base into a host build
       loop_job_host         # the same for loop_job
+      switch_hold_host      # the same for switch_hold
       one_wire_host         # test-only 1-Wire bus: the cases set what the boot scan found
       web_server            # stand-in for upstream's, which builds for ESP platforms only
       web_server_base       # stand-in for upstream's, so HTTP handlers run on the host
@@ -47,6 +48,7 @@ tests/
     littlefs_storage/         # test_schema.py alone: the C++ is ESP-IDF only
     loop_job/
     status_indicator/
+    switch_hold/
     virtual_display/          # test_schema.py alone: the C++ includes <esp_http_server.h>,
                               # which the host platform has no header for
     web_auth/

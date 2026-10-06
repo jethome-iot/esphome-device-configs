@@ -13,7 +13,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [filesystem_storage_abstract, littlefs_storage, climate_hub, loop_job]
+    components: [filesystem_storage_abstract, littlefs_storage, climate_hub, loop_job, switch_hold]
 
 littlefs_storage:
   id: user_storage
@@ -173,8 +173,12 @@ before its name rules.
 
 ## Relays
 
-A running thermostat holds its relays, and puts one back within a loop pass if anything else
-moves it — from the panel, over Modbus, from an automation or from Home Assistant. Two
+A running thermostat holds its relays, in mode `off` too, and only stopping it frees them. The
+hub is the firmware's [`switch_hold`](../switch_hold/switch_hold.h) holder: whatever asks it
+before moving a relay — the panel, the Modbus coils, automation rules, input bindings, the
+relay's Inverted setting — leaves a held one alone, and `bindings` hears when a stop, a
+removal, a take-over or a Save that drops a relay leaves it free. What moves a held relay all
+the same, Home Assistant or the web server's REST, is put back within a loop pass. Two
 thermostats may name the same relay and take turns: only one of them is enabled at a time.
 Enabling the second, or saving it enabled, while the first is enabled is refused, naming the
 first, whether it runs or waits; unless it takes the relay over, which stores the first disabled
@@ -187,7 +191,8 @@ Two enabled thermostats on one relay come only from files written by hand or a r
 boot runs the first by id and the other waits for the relay. It starts as soon as the relay is
 free: when the holder is disabled or removed, saved onto other relays or onto a sensor that is
 not there, or stopped by a take-over that does not want this relay. Of several waiting for it,
-the first by id starts, and the next one's reason names that one.
+the first by id starts, and the next one's reason names that one. One that starts so has the
+relay before `bindings` hears of it, which then never does.
 
 ## Names and Home Assistant
 
@@ -260,7 +265,8 @@ got to it.
   start gave as a `warning`, at boot, a Save, an enable or when a relay it names came free
   (`not started: sensor 'temp_3' not found`, `not started: no free climate entity`); `""` once
   it runs or is disabled
-- `claimed_by(relay_object_id)`: the id of the running thermostat holding it, or `""`
+- `claimed_by(relay_object_id)`: the id of the running thermostat holding it, or `""`;
+  `holder_of(sw)`: its name, which `switch_hold::holder(sw)` answers with
 - `sensor_reading(sensor_object_id)`: what a sensor reads now, `NaN` without a finite reading
   in °C
 - `create(draft)`, `update(id, doc)`, `remove(id)`, `set_enabled(id, enabled, take_over)`,

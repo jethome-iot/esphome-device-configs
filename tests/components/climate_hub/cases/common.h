@@ -144,7 +144,7 @@ class TestHub : public ClimateHub {
     this->store_.clear();
     this->dirty_.clear();
     this->waiting_.clear();
-    // The stops above let go of relays no mutator will start anyone on.
+    // The stops above let go of relays no mutator will start anyone on or announce.
     this->freed_.clear();
     this->cancel_timeout("ha_resync");
     this->ms = 100000;
@@ -293,6 +293,19 @@ inline void write_file(const std::string &path, const std::string &data) {
   ASSERT_NE(nullptr, file) << path;
   fwrite(data.data(), 1, data.size(), file);
   fclose(file);
+}
+
+// A document as a file holds it: `cool` "" for heat only, `heat` "" for cool only. Two enabled
+// thermostats on one relay come only from files.
+inline std::string file_doc(const char *id, const char *name, const char *heat, const char *cool = "",
+                            bool enabled = true, const char *sensor = "room") {
+  const char *mode = *heat == '\0' ? "cool" : *cool == '\0' ? "heat" : "heat_cool";
+  char buf[512];
+  snprintf(buf, sizeof(buf),
+           R"({"version":1,"id":"%s","name":"%s","enabled":%s,"kind":"bang_bang","sensor_id":"%s",)"
+           R"("heat":{"relay_id":"%s"},"cool":{"relay_id":"%s"},"mode":"%s","setpoint":21})",
+           id, name, enabled ? "true" : "false", sensor, heat, cool, mode);
+  return buf;
 }
 
 inline bool file_exists(const std::string &path) {

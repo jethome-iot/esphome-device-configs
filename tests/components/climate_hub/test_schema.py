@@ -39,7 +39,9 @@ class Defaults(unittest.TestCase):
 
     def test_no_sensor_or_switch_is_pulled_in(self):
         # Without them the hub finds nothing to bind, as automations does.
-        self.assertEqual(climate_hub.AUTO_LOAD, ["climate", "json", "loop_job"])
+        self.assertEqual(
+            climate_hub.AUTO_LOAD, ["climate", "json", "loop_job", "switch_hold"]
+        )
         self.assertEqual(climate_hub.DEPENDENCIES, ["filesystem_storage_abstract"])
 
 

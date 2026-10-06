@@ -12,6 +12,7 @@
 #include "controller_runtime.h"
 #include "esphome/components/filesystem_storage_abstract/filesystem_storage_abstract.h"
 #include "esphome/components/loop_job/loop_job.h"
+#include "esphome/components/switch_hold/switch_hold.h"
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
 #include "hub_climate.h"
@@ -52,7 +53,10 @@ struct Result {
 ///
 /// Everything below runs on the loop task. A caller on another task (an ESP-IDF HTTP handler)
 /// wraps its whole read, decide and write in one run_on_loop() job.
-class ClimateHub : public Component {
+///
+/// It is the firmware's switch_hold::SwitchHolder: a running thermostat holds its relays, and
+/// the other writers ask switch_hold before they move one.
+class ClimateHub : public Component, public switch_hold::SwitchHolder {
  public:
   ClimateHub();
 
@@ -89,6 +93,8 @@ class ClimateHub : public Component {
   const ControllerRuntime *runtime(const std::string &id) const;
   /// The id of the running thermostat that holds this relay, or "".
   std::string claimed_by(const std::string &relay_object_id) const;
+  /// The name of the running thermostat that holds `sw`, or "".
+  std::string holder_of(const switch_::Switch *sw) const override;
   /// What a sensor reads now, NaN when there is no such sensor or its reading is not a finite
   /// number in °C: a stopped thermostat has no entity to ask.
   float sensor_reading(const std::string &sensor_object_id) const;
@@ -171,6 +177,9 @@ class ClimateHub : public Component {
   void release_claims_(const std::string &owner);
   /// Opens the claim's relay, remembers its last switching and drops the claim.
   ClaimMap::iterator let_go_(ClaimMap::iterator it, uint32_t now_ms);
+  /// The end of a mutator, after start_waiters_(): tells switch_hold about each relay let go of
+  /// that is still free, and forgets them all.
+  void announce_released_();
   /// Moves the claims `from` holds on relays `to` names over to `to`, relays as they are.
   void hand_over_(const std::string &from, Slot *holding, const ClimateConfig &to);
   /// The running thermostat, other than `config` itself, that holds one of its relays, and
@@ -189,7 +198,7 @@ class ClimateHub : public Component {
   /// The 409 naming `holder`, which holds the relay or, `waits`, is enabled and waits for it.
   Result relay_held_(const std::string &relay_id, const std::string &holder, bool waits) const;
   /// Starts the enabled thermostats, `skip_id` aside, that name a relay let go since the last
-  /// call, in id order, and adds the ones that started to `result`.
+  /// announce_released_(), in id order, and adds the ones that started to `result`.
   void start_waiters_(const std::string &skip_id, Result *result);
   Slot *slot_for_(const std::string &id) const;
   /// The hidden slot that last carried `name` (by object id), so a thermostat back under its
@@ -243,8 +252,8 @@ class ClimateHub : public Component {
   std::map<std::string, RelaySwitching> relay_history_;
   // Why each enabled thermostat that is not running did not start, by id, as a `warning`.
   std::map<std::string, std::string> waiting_;
-  // Relays let go since the last start_waiters_(), by object id.
-  std::set<std::string> freed_;
+  // Relays let go since the last announce_released_(), by object id.
+  std::map<std::string, switch_::Switch *> freed_;
   // One per sensor, kept for the life of the device: upstream has no callback removal.
   std::vector<std::unique_ptr<SensorSubscription>> sensor_subs_;
 

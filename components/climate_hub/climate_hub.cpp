@@ -139,7 +139,10 @@ static void keep_preset_state(const ClimateConfig &stored, ClimateConfig *doc) {
     doc->pick_preset(*now);
 }
 
-ClimateHub::ClimateHub() { global_climate_hub = this; }
+ClimateHub::ClimateHub() {
+  global_climate_hub = this;
+  switch_hold::set_holder(this);
+}
 
 uint32_t ClimateHub::now_ms() const { return millis(); }
 
@@ -379,6 +382,16 @@ std::string ClimateHub::claimed_by(const std::string &relay_object_id) const {
   return it == this->claims_.end() ? std::string() : it->second->owner();
 }
 
+std::string ClimateHub::holder_of(const switch_::Switch *sw) const {
+  for (const auto &entry : this->claims_) {
+    if (entry.second->relay() != sw)
+      continue;
+    const ClimateConfig *config = this->store_.get(entry.second->owner());
+    return config != nullptr ? config->name : entry.second->owner();
+  }
+  return "";
+}
+
 float ClimateHub::sensor_reading(const std::string &sensor_object_id) const {
 #ifdef USE_SENSOR
   sensor::Sensor *sensor = find_sensor(sensor_object_id);
@@ -552,6 +565,7 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
   ESP_LOGD(TAG, "Updated '%s' (%s)", stored->name.c_str(), id.c_str());
   // Its own start failed just now, for the reason the warning gives.
   this->start_waiters_(id, &result);
+  this->announce_released_();
   return result;
 }
 
@@ -574,6 +588,7 @@ Result ClimateHub::remove(const std::string &id) {
   // Last: `id` may be the document's own string.
   this->store_.remove(id);
   this->start_waiters_("", &result);
+  this->announce_released_();
   return result;
 }
 
@@ -599,6 +614,7 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
       this->schedule_ha_resync_();
     }
     this->start_waiters_(id, &result);
+    this->announce_released_();
     return result;
   }
 
@@ -672,6 +688,7 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
   }
   // After it: the relays the holders drove alone are free for the next in line.
   this->start_waiters_(id, &result);
+  this->announce_released_();
   return result;
 }
 
@@ -875,20 +892,18 @@ void ClimateHub::release_claims_(const std::string &owner) {
 ClimateHub::ClaimMap::iterator ClimateHub::let_go_(ClaimMap::iterator it, uint32_t now_ms) {
   it->second->force_off(now_ms);
   it->second->last_switching(&this->relay_history_[it->first]);
-  this->freed_.insert(it->first);
+  this->freed_[it->first] = it->second->relay();
   return this->claims_.erase(it);
 }
 
 // So waiting means what it says: one whose relay comes free tries again at once, and one that
 // still cannot start gets a fresh reason. A waiter holds no claim, so its start frees nothing.
 void ClimateHub::start_waiters_(const std::string &skip_id, Result *result) {
-  std::set<std::string> freed;
-  freed.swap(this->freed_);
-  if (freed.empty())
+  if (this->freed_.empty())
     return;
   for (const auto &config : this->store_.all()) {
     if (!config->enabled || config->id == skip_id || this->is_running(config->id) ||
-        (freed.count(config->heat.relay_id) == 0 && freed.count(config->cool.relay_id) == 0))
+        (this->freed_.count(config->heat.relay_id) == 0 && this->freed_.count(config->cool.relay_id) == 0))
       continue;
     std::string error;
     if (this->start_(config.get(), &error)) {
@@ -898,6 +913,18 @@ void ClimateHub::start_waiters_(const std::string &skip_id, Result *result) {
     } else {
       ESP_LOGW(TAG, "'%s' %s", config->id.c_str(), this->note_waiting_(config->id, error).c_str());
     }
+  }
+}
+
+// Only once the waiters had their turn, and only for a relay still free: a thermostat that
+// started on it in the same call keeps it, and nothing that hears of the release moves it
+// under that one.
+void ClimateHub::announce_released_() {
+  std::map<std::string, switch_::Switch *> freed;
+  freed.swap(this->freed_);
+  for (const auto &relay : freed) {
+    if (this->claimed_by(relay.first).empty())
+      switch_hold::notify_released(relay.second);
   }
 }
 

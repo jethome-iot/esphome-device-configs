@@ -48,6 +48,7 @@ external_components:
     components:
       - automations
       - loop_job
+      - switch_hold
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -65,6 +66,7 @@ external_components:
     components:
       - climate_hub
       - loop_job
+      - switch_hold
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -80,6 +82,7 @@ external_components:
     components:
       - entity_config
       - bindings
+      - switch_hold
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -824,6 +827,11 @@ modbus_server:
       - address: 0
         read_lambda: return id(relay_1).state;
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_1));
+          if (!holder.empty() && x != id(relay_1).state) {
+            ESP_LOGW("modbus", "Coil 0x0000 refused: thermostat '%s' drives relay_1", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_1).turn_on();
           } else {
@@ -833,6 +841,11 @@ modbus_server:
       - address: 1
         read_lambda: return id(relay_2).state;
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_2));
+          if (!holder.empty() && x != id(relay_2).state) {
+            ESP_LOGW("modbus", "Coil 0x0001 refused: thermostat '%s' drives relay_2", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_2).turn_on();
           } else {
@@ -842,6 +855,11 @@ modbus_server:
       - address: 2
         read_lambda: return id(relay_3).state;
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_3));
+          if (!holder.empty() && x != id(relay_3).state) {
+            ESP_LOGW("modbus", "Coil 0x0002 refused: thermostat '%s' drives relay_3", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_3).turn_on();
           } else {
@@ -851,6 +869,11 @@ modbus_server:
       - address: 3
         read_lambda: return id(relay_4).state;
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_4));
+          if (!holder.empty() && x != id(relay_4).state) {
+            ESP_LOGW("modbus", "Coil 0x0003 refused: thermostat '%s' drives relay_4", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_4).turn_on();
           } else {
@@ -860,6 +883,11 @@ modbus_server:
       - address: 4
         read_lambda: return id(relay_5).state;
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_5));
+          if (!holder.empty() && x != id(relay_5).state) {
+            ESP_LOGW("modbus", "Coil 0x0004 refused: thermostat '%s' drives relay_5", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_5).turn_on();
           } else {
@@ -869,6 +897,11 @@ modbus_server:
       - address: 5
         read_lambda: return id(relay_6).state;
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_6));
+          if (!holder.empty() && x != id(relay_6).state) {
+            ESP_LOGW("modbus", "Coil 0x0005 refused: thermostat '%s' drives relay_6", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_6).turn_on();
           } else {

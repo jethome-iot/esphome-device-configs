@@ -11,7 +11,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [filesystem_storage_abstract, littlefs_storage, automations]
+    components: [filesystem_storage_abstract, littlefs_storage, automations, loop_job, switch_hold]
 
 i2c:
   sda: 5
@@ -70,8 +70,11 @@ one, picks `actions` or `else_actions`.
 A `click` is a press between 200 and 1000 ms. A `temperature` trigger fires on the crossing and
 arms again when the value goes back. `above` and `below` are strict, a range includes both ends,
 for triggers and conditions alike. `follow` drives its target from the state the trigger
-carried. `cron` is six fields, seconds first — `"*/2 * * * * *"`, `"0 30 6,18 1 * *"` — with
-`*`, `*/N`, `X-Y`, `X-Y/N` and lists; a field that matches nothing is rejected.
+carried. A `switch` action on a relay a running thermostat drives (a
+[`switch_hold`](../switch_hold/switch_hold.h) holder) does nothing but log the rule and the
+thermostat, and the run goes on. `cron` is six fields, seconds first — `"*/2 * * * * *"`,
+`"0 30 6,18 1 * *"` — with `*`, `*/N`, `X-Y`, `X-Y/N` and lists; a field that matches nothing
+is rejected.
 
 A jump of the `time_id` clock back by more than 15 minutes is not handled: the moments it
 passes again fire a second time.

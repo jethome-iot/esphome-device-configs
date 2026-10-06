@@ -969,6 +969,22 @@ paths:
           $ref: "#/components/responses/TypeNotFound"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          description: >-
+            A sound request the device's state stands in the way of, and the
+            sentence that says why; nothing changed. A `switch` whose `inverted`
+            would change while a running thermostat drives that relay is the one
+            case; a request that leaves `inverted` as it is changes the other
+            fields as usual.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: >-
+                  "Relay 1" is driven by "Living room": stop that thermostat
+                  to change Inverted
         "413":
           description: The body is over 4 KiB; a record is a few hundred bytes.
           content:

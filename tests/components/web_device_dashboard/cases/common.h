@@ -154,11 +154,17 @@ class TestSettings : public config_json::SettingsBaseJsonTyped<TestSettings, Tes
 
   // What apply_record() handed over, in order.
   std::vector<std::string> applied;
+  // When set, update_record() refuses a sound request with this conflict, as a held relay does.
+  std::string conflict_with;
 
   TestRecord *update_record(JsonObject obj) {
     const char *name = obj["source_name"];
     if (name == nullptr || name[0] == '\0')
       return nullptr;
+    if (!this->conflict_with.empty()) {
+      this->conflict_ = this->conflict_with;
+      return nullptr;
+    }
     TestRecord *record = this->find(name);
     if (record == nullptr) {
       record = new TestRecord();  // NOLINT(cppcoreguidelines-owning-memory)
@@ -221,6 +227,7 @@ class TestSettings : public config_json::SettingsBaseJsonTyped<TestSettings, Tes
     this->clear_records_();
     this->applied.clear();
     this->clear_dirty();
+    this->conflict_with.clear();
   }
 
  protected:

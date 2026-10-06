@@ -36,8 +36,9 @@ struct SecondHub {
     this->hub->set_max_controllers(2);
   }
   ~SecondHub() {
-    // The one process-wide hub is what the other cases use; this one only borrowed the pointer.
+    // The one process-wide hub is what the other cases use; this one only borrowed the pointers.
     global_climate_hub = &testing::hub();
+    switch_hold::set_holder(&testing::hub());
     const std::string folder = this->base + "/climates";
     chmod(folder.c_str(), 0755);
     for (const std::string &name : list_dir(folder))
@@ -644,8 +645,9 @@ TEST(HubFailure, NoStorageMeansNoPoolAndNoChanges) {
     return true;
   }));
   EXPECT_TRUE(ran);
-  // The one process-wide hub is what the other cases use; this one only borrowed the pointer.
+  // The one process-wide hub is what the other cases use; this one only borrowed the pointers.
   global_climate_hub = &hub();
+  switch_hold::set_holder(&hub());
 }
 
 TEST_F(HubTest, TheGlobalPointsAtTheHub) { EXPECT_EQ(&hub(), global_climate_hub); }
