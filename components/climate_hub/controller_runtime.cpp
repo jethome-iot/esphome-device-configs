@@ -187,7 +187,7 @@ void ControllerRuntime::apply_config_() {
   this->entity_->target_temperature = c.setpoint;
 }
 
-bool ControllerRuntime::control(const climate::ClimateCall &call, uint32_t now_ms) {
+bool ControllerRuntime::control(const climate::ClimateCall &call, uint64_t now_ms) {
   if (this->config_ == nullptr)
     return false;
   const ClimateConfig &c = *this->config_;
@@ -208,20 +208,20 @@ bool ControllerRuntime::control(const climate::ClimateCall &call, uint32_t now_m
   return this->apply_(preset, mode, target, now_ms);
 }
 
-bool ControllerRuntime::pick_preset(const PresetConfig &preset, uint32_t now_ms) {
+bool ControllerRuntime::pick_preset(const PresetConfig &preset, uint64_t now_ms) {
   if (this->config_ == nullptr)
     return false;
   return this->apply_(&preset, nullopt, nullopt, now_ms);
 }
 
-bool ControllerRuntime::set_mode(HubMode mode, uint32_t now_ms) {
+bool ControllerRuntime::set_mode(HubMode mode, uint64_t now_ms) {
   if (this->config_ == nullptr)
     return false;
   return this->apply_(nullptr, mode, nullopt, now_ms);
 }
 
 bool ControllerRuntime::apply_(const PresetConfig *preset, optional<HubMode> mode, optional<float> target,
-                               uint32_t now_ms) {
+                               uint64_t now_ms) {
   ClimateConfig &c = *this->config_;
   const HubMode previous_mode = c.mode;
   const float previous_setpoint = c.setpoint;
@@ -271,7 +271,7 @@ void ControllerRuntime::on_sample(float value, uint64_t now_ms) {
   this->entity_->publish_state();
 }
 
-void ControllerRuntime::begin_autotune(AutotuneRun *run, uint32_t now_ms) {
+void ControllerRuntime::begin_autotune(AutotuneRun *run, uint64_t now_ms) {
   this->autotune_ = run;
   bool changed;
   if (this->has_sample_) {
@@ -286,7 +286,7 @@ void ControllerRuntime::begin_autotune(AutotuneRun *run, uint32_t now_ms) {
     this->entity_->publish_state();
 }
 
-bool ControllerRuntime::feed_autotune_(float value, uint32_t now_ms) {
+bool ControllerRuntime::feed_autotune_(float value, uint64_t now_ms) {
   AutotuneRun &run = *this->autotune_;
   const bool on = run.feed(value, now_ms);
   // The pass that found the gains leaves the relays to the PID the hub starts next.
@@ -298,7 +298,7 @@ bool ControllerRuntime::feed_autotune_(float value, uint32_t now_ms) {
   return this->set_action_(this->relay_action_());
 }
 
-void ControllerRuntime::end_autotune(AutotuneEnd why, uint32_t now_ms) {
+void ControllerRuntime::end_autotune(AutotuneEnd why, uint64_t now_ms) {
   if (this->autotune_ == nullptr)
     return;
   if (why != AutotuneEnd::NONE) {
