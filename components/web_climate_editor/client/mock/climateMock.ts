@@ -640,8 +640,6 @@ const RULE_FACTORS: Record<AutotuneRule, [number, number, number]> = {
 const AUTOTUNE_MAX_MS = 24 * 3600 * 1000
 const AUTOTUNE_STALL_MS = 6 * 3600 * 1000
 const AUTOTUNE_EVEN_RATIO = 0.66
-// Upstream keeps the newest seven extremes of each kind.
-const EXTREMES_KEPT = 7
 
 type Side = 'init' | 'positive' | 'negative'
 
@@ -707,8 +705,6 @@ class Tuner {
     this.lastRelay = this.relay
     if (error < this.phaseMin) [this.phaseMin, this.phaseMinAt] = [error, at]
     if (error > this.phaseMax) [this.phaseMax, this.phaseMaxAt] = [error, at]
-    if (this.maxs.length > EXTREMES_KEPT) this.maxs.shift()
-    if (this.mins.length > EXTREMES_KEPT) this.mins.shift()
     const output = this.relay === 'positive' ? this.outPositive : this.outNegative
 
     // The first pass with enough data ends it.

@@ -166,11 +166,7 @@ bool PidAutotuner::AmplitudeDetector::update(float error, RelayFunction::State r
     this->phase_max = error;
     this->phase_max_ms = now_ms;
   }
-
-  if (this->phase_maxs.size() > KEPT)
-    this->phase_maxs.erase(this->phase_maxs.begin());
-  if (this->phase_mins.size() > KEPT)
-    this->phase_mins.erase(this->phase_mins.begin());
+  // Upstream keeps the newest seven of each, which a run that stops at three never reaches.
   return phase_ended;
 }
 

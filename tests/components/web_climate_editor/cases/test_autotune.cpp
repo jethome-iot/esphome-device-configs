@@ -109,6 +109,24 @@ TEST_F(Editor, AFlaggedRunListsItsFlags) {
   EXPECT_EQ(flags[1], "uneven");
 }
 
+// Readings with no time between them make a period of nothing, and an integral gain past its range.
+TEST_F(Editor, AClampedGainIsFlagged) {
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  reading(22.f);
+  ASSERT_EQ(this->post("autotune?id=living-room&value=true").code, 200);
+  for (float value : {21.7f, 22.3f, 21.6f, 22.4f, 21.7f, 22.3f})
+    entities().room.publish_state(value);
+  Reply status = this->get("status?id=living-room");
+  JsonVariant run = autotune_of(status);
+  EXPECT_EQ(run["state"], "succeeded");
+  EXPECT_EQ(run["pu"], 0);
+  // Upstream's symmetry check takes half-periods of nothing for uneven ones.
+  ASSERT_EQ(run["flags"].size(), 2u) << status.body;
+  EXPECT_EQ(run["flags"][0], "asymmetric");
+  EXPECT_EQ(run["flags"][1], "clamped");
+  EXPECT_EQ(run["new"]["ki"], 1000) << "the top of its range";
+}
+
 // The Save that a form read before the run would send back is refused; the read after goes through.
 TEST_F(Editor, ASaveOfAFormReadBeforeTheRunIsRefused) {
   ASSERT_EQ(this->create(LIVING_ROOM), "living-room");

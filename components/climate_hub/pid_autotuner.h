@@ -88,9 +88,6 @@ class PidAutotuner {
   };
 
   struct AmplitudeDetector {
-    // Upstream keeps the newest seven of each.
-    static constexpr size_t KEPT = 7;
-
     /// The extreme of the phase `relay_state` ends, when it ends one; true then.
     bool update(float error, RelayFunction::State relay_state, uint32_t now_ms, Extreme *ended);
     bool has_enough_data() const;
