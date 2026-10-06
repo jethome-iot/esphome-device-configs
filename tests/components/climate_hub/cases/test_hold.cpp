@@ -21,11 +21,39 @@ inline std::vector<Release> &releases() {
   return *heard;
 }
 
+// A Follow binding whose input is on, on every relay: what bindings does on a release, closing
+// the relay unless a thermostat holds it. Off until a case turns it on.
+struct Follow {
+  bool on{false};
+  std::vector<switch_::Switch *> moved;
+};
+
+inline Follow &follow() {
+  static Follow *binding = [] {
+    auto *f = new Follow();
+    switch_hold::add_on_release_callback([f](switch_::Switch *sw) {
+      if (!f->on || !switch_hold::holder(sw).empty())
+        return;
+      sw->turn_on();
+      f->moved.push_back(sw);
+    });
+    return f;
+  }();
+  return *binding;
+}
+
 class HoldTest : public HubTest {
  protected:
   void SetUp() override {
     HubTest::SetUp();
     releases().clear();
+    follow().on = false;
+    follow().moved.clear();
+  }
+  // The listener outlives the case: left on, it would close relays under the other suites.
+  void TearDown() override {
+    follow().on = false;
+    HubTest::TearDown();
   }
   Entities &e = entities();
 };
@@ -145,6 +173,49 @@ TEST_F(HoldTest, ARefusedOrKeepingSaveAnnouncesNothing) {
   EXPECT_EQ(409, refused.code);
   EXPECT_TRUE(releases().empty());
   EXPECT_EQ("Other", switch_hold::holder(&e.relay2));
+}
+
+// A thermostat that waited for a relay starts on it before anything hears of the release, so a
+// Follow binding never closes it under that one; the stopped one's other relay is free.
+TEST_F(HoldTest, AWaiterThatStartsOnAFreedRelayIsNotAnnounced) {
+  write_file(this->file_of("summer"), file_doc("summer", "Summer", "relay_1", "relay_2"));
+  write_file(this->file_of("winter"), file_doc("winter", "Winter", "relay_1"));
+  this->reboot();
+  ASSERT_TRUE(hub().is_running("summer"));
+  ASSERT_FALSE(hub().is_running("winter"));
+  releases().clear();
+  follow().on = true;
+
+  Result result = hub().set_enabled("summer", false);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(std::vector<std::string>{"winter"}, result.started);
+  EXPECT_EQ("Winter", switch_hold::holder(&e.relay1));
+  ASSERT_EQ(1u, releases().size());
+  EXPECT_EQ(&e.relay2, releases()[0].relay);
+  EXPECT_EQ(std::vector<switch_::Switch *>{&e.relay2}, follow().moved);
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_TRUE(e.relay2.state);
+}
+
+// The same after a take-over: the relay the holder drove alone goes to the one waiting for it.
+TEST_F(HoldTest, ATakeOverAnnouncesNoRelayAWaiterStartsOn) {
+  write_file(this->file_of("a"), file_doc("a", "A", "relay_1", "relay_2"));
+  write_file(this->file_of("b"), file_doc("b", "B", "relay_2"));
+  write_file(this->file_of("c"), file_doc("c", "C", "relay_1", "", false));
+  this->reboot();
+  ASSERT_TRUE(hub().is_running("a"));
+  ASSERT_FALSE(hub().is_running("b"));
+  releases().clear();
+  follow().on = true;
+
+  Result result = hub().set_enabled("c", true, true);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(std::vector<std::string>{"a"}, result.stopped);
+  EXPECT_EQ(std::vector<std::string>{"b"}, result.started);
+  EXPECT_EQ("C", switch_hold::holder(&e.relay1));
+  EXPECT_EQ("B", switch_hold::holder(&e.relay2));
+  EXPECT_TRUE(releases().empty());
+  EXPECT_TRUE(follow().moved.empty());
 }
 
 }  // namespace esphome::climate_hub::testing
