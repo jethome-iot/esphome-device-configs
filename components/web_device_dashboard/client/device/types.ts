@@ -591,6 +591,8 @@ export interface EntitySettingsFieldDef {
   unit?: string
   display_unit?: string
   display_factor?: number
+  /** For `string`: the most characters (code points, not bytes) the field takes. */
+  max_length?: number
 }
 
 export interface EntitySettingsMetaResponse {
@@ -612,10 +614,12 @@ export interface EntitySettingsGetResponse {
 // --- Entity index (object_id <-> name) ---
 
 /** One settable entity. `source_name` is the object_id the entity-settings records
- *  are keyed by; `name` is the display name the web_server REST and SSE use. */
+ *  are keyed by; `name` is the display name the web_server REST and SSE use; `label`
+ *  is what to show in place of `name`, empty when the entity has none. */
 export interface EntityIndexEntry {
   source_name: string
   name: string
+  label: string
 }
 
 /** GET /entities — settable entities per settings type (`switch`, `binary_sensor`, ...). */

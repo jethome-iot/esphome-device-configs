@@ -156,10 +156,16 @@ settings too; without one these routes are `404`:
 
 | Method | Path | |
 |---|---|---|
-| GET | `/api/device/entities` | per settings type, `[{"source_name", "name"}]`: object id and name of every entity of that type |
+| GET | `/api/device/entities` | per settings type, `[{"source_name", "name", "label"}]`: object id, name and label of every entity of that type, the label empty when it has none. Read on the loop task, which owns the records — `503` when it does not get to it |
 | GET | `/api/device/entity-settings?type=switch[&source_name=relay_1]` | the stored records of a type, or one of them. Read on the loop task, which owns the records — `503` when it does not get to it |
 | POST | `/api/device/entity-settings` | `{"type", "source_name", "settings": {...}}` updates and applies a record; `{"type", "source_name", "action": "delete"}` removes it. A change of a relay's `inverted` while a running thermostat drives it is `409`, naming the thermostat. Needs `Content-Type: application/json`, as every route here that reads a body does |
 | GET | `/api/device/entity-settings-meta` | the form fields of every settings type |
+
+Both types take a `label`, which the panel and the page show in place of the entity's name: a
+string of at most 24 characters (code points), valid UTF-8 with no control character, trimmed
+of the spaces at both ends; empty clears it. The meta describes it as a `string` field with
+`max_length: 24`. A bad one is the `400` `Failed to update settings record`, and an update that
+leaves it out keeps it. The name, the object id and `web_server`'s routes do not change.
 
 ## client/
 

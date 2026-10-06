@@ -7,6 +7,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "entity_label.h"
 #include "entity_lookup.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/binary_sensor/filter.h"
@@ -59,6 +60,8 @@ class RuntimeInvertFilter : public binary_sensor::Filter {
 struct BinarySensorSettingsRecord {
   std::string source_name_;
   bool inverted = false;
+  // Shown in place of the name; empty for none.
+  std::string label;
 
   const char *source_name() const { return this->source_name_.c_str(); }
   uint32_t key() const { return fnv1_hash(this->source_name_); }
@@ -66,6 +69,7 @@ struct BinarySensorSettingsRecord {
   void to_json(JsonObject obj, uint32_t version) const {
     obj["source_name"] = this->source_name_;
     obj["inverted"] = this->inverted;
+    obj["label"] = this->label;
   }
 
   bool from_json(JsonObject obj, uint32_t version) {
@@ -76,6 +80,9 @@ struct BinarySensorSettingsRecord {
       return false;
     this->source_name_ = src_name;
     this->inverted = obj["inverted"] | false;
+    this->label.clear();
+    if (!obj["label"].isNull() && !parse_label(obj["label"], this->label))
+      ESP_LOGW("entity_config.binary_sensor", "Invalid label for '%s', showing the name", src_name);
     return true;
   }
 };
@@ -127,7 +134,19 @@ class BinarySensorSettingsJson
     return false;
   }
 
-  // REST: {"source_name": ..., "settings": {"inverted": bool}}.
+  std::string get_label(const char *source_name) override {
+    auto **slot = this->find_slot_(source_name);
+    return slot != nullptr ? (*slot)->label : std::string();
+  }
+
+  // What shows the input: its label, or its name when it has none. A copy, so a record
+  // replaced later cannot pull it from under the caller.
+  std::string display_name(binary_sensor::BinarySensor *sensor) {
+    const std::string label = this->get_label(object_id_of(*sensor).c_str());
+    return label.empty() ? sensor->get_name().str() : label;
+  }
+
+  // REST: {"source_name": ..., "settings": {"inverted": bool, "label": string}}.
   BinarySensorSettingsRecord *update_record(JsonObject obj) {
     const char *source_name = obj["source_name"];
     if (source_name == nullptr || strlen(source_name) == 0)
@@ -140,7 +159,15 @@ class BinarySensorSettingsJson
     auto inverted = settings["inverted"];
     if (!inverted.isNull() && !inverted.is<bool>())
       return nullptr;
-    return this->make_record(sensor, inverted | false);
+    // Unlike `inverted`, left out keeps the current label.
+    std::string label;
+    const bool has_label = !settings["label"].isNull();
+    if (has_label && !parse_label(settings["label"], label))
+      return nullptr;
+    auto *record = this->make_record(sensor, inverted | false);
+    if (record != nullptr && has_label)
+      record->label = std::move(label);
+    return record;
   }
 
   // Display menu; applied at once, saved after the debounce. Runs on the loop task.
@@ -157,6 +184,7 @@ class BinarySensorSettingsJson
   }
 
   void write_settings_meta(JsonObject obj) override {
+    write_label_meta(obj);
     JsonObject inverted_field = obj["inverted"].to<JsonObject>();
     inverted_field["type"] = "boolean";
     inverted_field["label"] = "Inverted";
