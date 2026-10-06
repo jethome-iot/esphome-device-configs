@@ -848,6 +848,26 @@ components:
     Action:
       type: string
       enum: ["off", idle, heating, cooling]
+      description: >-
+        What the relays do. `heating` or `cooling` while that relay is
+        closed, whatever the thermostat wants: a relay that its minimum off
+        time holds open is not heating yet, one that its minimum on time holds
+        closed still is (`heat_relay_wait`, `cool_relay_wait`). A PID also
+        stays `heating` or `cooling` between two pulses once the first has
+        closed the relay. `idle` otherwise, and before the first reading.
+        `off` in mode off, on a fault other than `relay_contested`, or when
+        the thermostat is not running.
+
+    RelayWait:
+      type: string
+      enum: [none, min_on, min_off]
+      description: >-
+        What holds a relay away from where the thermostat wants it:
+        `min_off` before it may close, `min_on` before it may open. `none`
+        when it is where the thermostat wants it, when the thermostat is not
+        running or holds its relays open (mode off, a fault, no reading yet),
+        and while a relay switched from elsewhere stays there until it is put
+        back, which waits on that switch, not on the thermostat.
 
     Fault:
       type: string
@@ -1308,6 +1328,8 @@ components:
         - cool_duty
         - heat_relay_on
         - cool_relay_on
+        - heat_relay_wait
+        - cool_relay_wait
       properties:
         id:
           $ref: "#/components/schemas/Id"
@@ -1355,6 +1377,10 @@ components:
           type: boolean
         cool_relay_on:
           type: boolean
+        heat_relay_wait:
+          $ref: "#/components/schemas/RelayWait"
+        cool_relay_wait:
+          $ref: "#/components/schemas/RelayWait"
         pid:
           $ref: "#/components/schemas/PidTerms"
 
