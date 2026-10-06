@@ -9,17 +9,6 @@ globals:
     type: int
     initial_value: '0'
 
-  # CENTER on a relay a thermostat drives names the thermostat instead of toggling:
-  # who, on which relay, and since when (shown for 3 s).
-  - id: status_held_by
-    type: std::string
-  - id: status_held_relay
-    type: int
-    initial_value: '0'
-  - id: status_held_ms
-    type: uint32_t
-    initial_value: '0'
-
 display:
   - platform: ssd1306_i2c
     id: !extend display1
@@ -85,13 +74,4 @@ display:
               it.printf(92, y, id(f5x7), "%.1f", value);
             }
             y += 11;
-          }
-
-          // Over the lower half; f5x7 fits 24 characters inside the frame.
-          const int held = id(status_held_relay);
-          if (!id(status_held_by).empty() && millis() - id(status_held_ms) < 3000 && held < (int) id(relays).size()) {
-            it.filled_rectangle(0, 32, 128, 32, black);
-            it.rectangle(0, 32, 128, 32);
-            it.printf(3, 36, id(f5x7), "%.11s is driven by", id(relays)[held]->get_name().c_str());
-            it.printf(3, 48, id(f5x7), "%.24s", id(status_held_by).c_str());
           }

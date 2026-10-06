@@ -36,13 +36,12 @@ What everything else that switches a relay does with one a running thermostat dr
 
 | Writer | On a relay a running thermostat drives |
 | --- | --- |
-| The panel: CENTER on the status page | does not toggle it, and names the thermostat for three seconds |
-| The panel: **Relays → Relay N → State** | shows the thermostat's name instead of On or Off, and does not toggle |
+| The panel: CENTER on the status page, **Relays → Relay N → State** | leave it alone; the log names the thermostat |
 | Modbus coils `0x0000`–`0x0005` | a write that would move it answers exception `0x04`; writing the state it already has is accepted |
 | Automation rules, `switch` actions | leave it alone and log the rule and the thermostat; the rest of the rule runs |
 | Input bindings, Toggle and Follow | leave it alone; once the thermostat frees it, a Follow relay takes its input's state at once |
 | Home Assistant, the web server's REST | switch it, and the thermostat puts it back within a moment; the dashboard locks its own toggle |
-| **Inverted** in the relay's settings, on the panel or the dashboard | refused, naming the thermostat; Start mode and the binding change as usual |
+| **Inverted** in the relay's settings, on the panel or the dashboard | refused; the dashboard's answer and the panel's log name the thermostat. Start mode and the binding change as usual |
 
 **The boot pulse.** A relay whose Start mode is On or Last closes when the device starts, before
 any thermostat runs, and stays closed until the thermostat that drives it takes it over at its

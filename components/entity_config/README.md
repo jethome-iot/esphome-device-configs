@@ -45,7 +45,7 @@ with it.
 
 `inverted` does not change on a relay a running thermostat drives (a
 [`switch_hold`](../switch_hold/switch_hold.h) holder): the dashboard's write is refused with the
-thermostat's name, and so is the menu's. The relay's other fields change as usual.
+thermostat's name, and `set_option` refuses the menu's. The relay's other fields change as usual.
 
 ## Naming the settings objects
 

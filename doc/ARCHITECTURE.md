@@ -50,13 +50,12 @@ boundaries; everything else is local to its file.
   `set_setpoint` and `set_enabled` from them.
 - `climates` is also the firmware's `switch_hold` holder: `switch_hold::holder(id(relay_N))`
   names the running thermostat that drives a relay, `""` when none does. Everything that moves
-  a relay on its own asks it first — the status page's CENTER (`display/buttons.yaml`, with
-  the note `display/status-page.yaml` draws), the menu's State and Inverted rows
-  (`display/menu.yaml`), the Modbus coils, `automations`, `bindings` and the `switch_settings`
-  Inverted field — and `bindings` hears from it when a relay is freed. Home Assistant and the
-  web server's REST do not ask; the thermostat puts the relay back. The list of writers and what
-  each gets is in [CLIMATE.md](CLIMATE.md#a-running-thermostats-relays); a new writer of a relay
-  asks too.
+  a relay on its own asks it first — the status page's CENTER (`display/buttons.yaml`), the
+  menu's State and Inverted rows (`display/menu.yaml`), the Modbus coils, `automations`,
+  `bindings` and the `switch_settings` Inverted field — and `bindings` hears from it when a
+  relay is freed. Home Assistant and the web server's REST do not ask; the thermostat puts the
+  relay back. The list of writers and what each gets is in
+  [CLIMATE.md](CLIMATE.md#a-running-thermostats-relays); a new writer of a relay asks too.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
   and expanded inside the main-page lambda in `display/display.yaml`. Package substitutions share
   one namespace with the device config's.

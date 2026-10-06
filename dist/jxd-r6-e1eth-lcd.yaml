@@ -430,14 +430,14 @@ binary_sensor:
           } else if (page == id(status_page)) {
             int sel = id(status_relay_sel);
             if (sel >= 0 && sel < (int) id(relays).size()) {
-              // A relay a thermostat drives is the thermostat's: the page says whose instead.
-              const std::string holder = switch_hold::holder(id(relays)[sel]);
+              // A relay a thermostat drives is the thermostat's: the press only logs whose it is.
+              auto *relay = id(relays)[sel];
+              const std::string holder = switch_hold::holder(relay);
               if (holder.empty()) {
-                id(relays)[sel]->toggle();
+                relay->toggle();
               } else {
-                id(status_held_by) = holder;
-                id(status_held_relay) = sel;
-                id(status_held_ms) = millis();
+                ESP_LOGI("status_page", "'%s' left alone: thermostat '%s' drives it", relay->get_name().c_str(),
+                         holder.c_str());
               }
               id(display1).update();
             }
@@ -648,14 +648,6 @@ globals:
   - id: status_temp_scroll
     type: int
     initial_value: '0'
-  - id: status_held_by
-    type: std::string
-  - id: status_held_relay
-    type: int
-    initial_value: '0'
-  - id: status_held_ms
-    type: uint32_t
-    initial_value: '0'
 esphome:
   on_boot:
     - priority: 800
@@ -685,32 +677,16 @@ esphome:
         - lambda: |-
             using namespace display_menu_base;
             using Field = entity_config::SwitchSettingsJson::Field;
-            // Thermostat names are ASCII, so a cut is a substr; a space it ends on goes too.
-            auto cut = [](const std::string &name, size_t chars) {
-              const std::string head = name.substr(0, chars);
-              return head.substr(0, head.find_last_not_of(' ') + 1);
-            };
-            // `held` names who keeps the value from changing, "" when nobody does: the row then
-            // opens on that name and does not step.
-            auto add_row = [cut](MenuItemMenu *menu, const char *text, std::function<size_t()> count,
+            auto add_row = [](MenuItemMenu *menu, const char *text, std::function<size_t()> count,
                               std::function<std::string(int)> label, std::function<int()> index,
-                              std::function<void(size_t)> set, std::function<std::string()> held) {
+                              std::function<void(size_t)> set) {
               auto *pending = new int(-1);  // the choice being edited; -1 outside editing
-              auto locked = [held]() { return held ? held() : std::string(); };
               auto *row = new MenuItemCustom();
               row->set_text(std::string(text));
-              row->set_value_lambda([=](const MenuItem *) {
-                const std::string who = *pending >= 0 ? locked() : std::string();
-                return who.empty() ? label(*pending >= 0 ? *pending : index()) : cut(who, 7);
-              });
+              row->set_value_lambda([=](const MenuItem *) { return label(*pending >= 0 ? *pending : index()); });
               row->add_on_enter_callback([=]() { *pending = index(); });
-              row->add_on_next_callback([=]() {
-                if (locked().empty())
-                  *pending = (*pending + 1) % static_cast<int>(count());
-              });
+              row->add_on_next_callback([=]() { *pending = (*pending + 1) % static_cast<int>(count()); });
               row->add_on_prev_callback([=]() {
-                if (!locked().empty())
-                  return;
                 const int n = count();
                 *pending = *pending < 0 ? n - 1 : (*pending + n - 1) % n;
               });
@@ -728,31 +704,36 @@ esphome:
               menu->set_text([sw](const MenuItem *) {
                 return sw->get_name().str() + (sw->state ? " (On)" : " (Off)");
               });
-              // A relay a thermostat drives is the thermostat's: the row names it instead of
-              // toggling; 10 characters fill the row.
+              // Not a MenuItemSwitch: a relay a thermostat drives is the thermostat's, and the row
+              // only logs whose it is.
               auto *state_row = new MenuItemCustom();
               state_row->set_text(std::string("State"));
               state_row->set_immediate_edit(true);
-              state_row->set_value_lambda([sw, cut](const MenuItem *) {
-                const std::string holder = switch_hold::holder(sw);
-                return holder.empty() ? std::string(sw->state ? "On" : "Off") : cut(holder, 10);
-              });
+              state_row->set_value_lambda([sw](const MenuItem *) { return std::string(sw->state ? "On" : "Off"); });
               auto toggle = [sw]() {
-                if (switch_hold::holder(sw).empty())
+                const std::string holder = switch_hold::holder(sw);
+                if (holder.empty()) {
                   sw->toggle();
+                } else {
+                  ESP_LOGI("menu", "'%s' left alone: thermostat '%s' drives it", sw->get_name().c_str(), holder.c_str());
+                }
               };
               state_row->add_on_next_callback(toggle);
               state_row->add_on_prev_callback(toggle);
               menu->add_item(state_row);
 
-              auto field_row = [&](const char *text, Field field, std::function<std::string()> held = nullptr) {
+              // set_option refuses only an Inverted change on a relay a thermostat drives.
+              auto field_row = [&](const char *text, Field field) {
                 add_row(menu, text, [sws, field]() { return sws->option_count(field); },
                         [sws, sw, field](int index) { return sws->option_label(sw, field, index); },
                         [sws, sw, field]() { return sws->option_index(sw, field); },
-                        [sws, sw, field](size_t index) { sws->set_option(sw, field, index); }, held);
+                        [sws, sw, field](size_t index) {
+                          if (!sws->set_option(sw, field, index))
+                            ESP_LOGI("menu", "'%s' Inverted left alone: thermostat '%s' drives it",
+                                     sw->get_name().c_str(), switch_hold::holder(sw).c_str());
+                        });
               };
-              // Flipping the contact under a running thermostat would invert what it does.
-              field_row("Inverted", Field::INVERTED, [sw]() { return switch_hold::holder(sw); });
+              field_row("Inverted", Field::INVERTED);
               field_row("Start mode", Field::RESTORE_MODE);
               field_row("Bind to", Field::BINDING_INPUT);
               field_row("Binding", Field::BINDING_MODE);
@@ -774,7 +755,7 @@ esphome:
               add_row(menu, "Inverted", []() { return 2; },
                       [](int index) { return index == 1 ? "Yes" : "No"; },
                       [bss, input]() { return bss->is_inverted(input) ? 1 : 0; },
-                      [bss, input](size_t index) { bss->set_inverted(input, index == 1); }, nullptr);
+                      [bss, input](size_t index) { bss->set_inverted(input, index == 1); });
               id(inputs_menu)->add_item(menu);
             }
     - priority: 500
@@ -1728,15 +1709,6 @@ display:
               it.printf(92, y, id(f5x7), "%.1f", value);
             }
             y += 11;
-          }
-
-          // Over the lower half; f5x7 fits 24 characters inside the frame.
-          const int held = id(status_held_relay);
-          if (!id(status_held_by).empty() && millis() - id(status_held_ms) < 3000 && held < (int) id(relays).size()) {
-            it.filled_rectangle(0, 32, 128, 32, black);
-            it.rectangle(0, 32, 128, 32);
-            it.printf(3, 36, id(f5x7), "%.11s is driven by", id(relays)[held]->get_name().c_str());
-            it.printf(3, 48, id(f5x7), "%.24s", id(status_held_by).c_str());
           }
   - platform: ssd1306_i2c
     id: !extend 'display1'

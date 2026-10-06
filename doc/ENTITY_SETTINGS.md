@@ -9,7 +9,7 @@ set themselves up.
 
 | Entity | Setting | Choices | Effect |
 | --- | --- | --- | --- |
-| Relay | `Inverted` | `No`, `Yes` | Swaps the physical output: the app's On drives the pin low. Refused, naming the thermostat, while a running thermostat drives the relay |
+| Relay | `Inverted` | `No`, `Yes` | Swaps the physical output: the app's On drives the pin low. Refused while a running thermostat drives the relay |
 | Relay | `Start mode` | `Off`, `On`, `Last` | What the relay does at power-up. On a relay a thermostat drives, `On` and `Last` close it until the thermostat takes it over |
 | Relay | `Bind to` | `None`, `Input 1` … `Input 6` | The input that drives this relay directly; needs a `Binding` other than `Disabled` |
 | Relay | `Binding` | `Disabled`, `Toggle`, `Follow` | `Toggle` flips the relay on each rising edge of the input as reported, after its `Inverted`; `Follow` makes the relay copy the input, at boot too, so it wins over `Start mode` |
@@ -26,8 +26,8 @@ relay takes its input's state at once. What else such a relay does and does not 
 **Inputs → Input N** holds the live state and `Inverted`. CENTER opens a setting, LEFT and
 RIGHT step through its choices, CENTER or BACK closes it; the choice is applied when the row
 closes and written to the partition a few seconds later. On a relay a running thermostat
-drives, `State` shows the thermostat's name and does not toggle, and `Inverted` opens on that
-name and does not step.
+drives, `State` does not toggle and an `Inverted` change is refused; the log names the
+thermostat.
 
 ## Files
 

@@ -237,8 +237,8 @@ address is the access point's.
 
 Relay states, digital input states and temperature readings at a glance, and it switches
 the relays: LEFT and RIGHT move the selection along the relay row — the selected number is
-drawn inverted on the device — and CENTER toggles that relay. A relay a running thermostat
-drives is not toggled: CENTER names the thermostat for three seconds instead. UP and DOWN
+drawn inverted on the device — and CENTER toggles that relay, unless a running thermostat
+drives it: then the press changes nothing, and the log names the thermostat. UP and DOWN
 scroll the temperature column.
 
 **Getting here**: LEFT from the main page.
@@ -267,7 +267,7 @@ untouched; any button then takes the page away, and it leaves on its own after h
 
 <img src="doc/images/jxd-r6-menu-ui.svg" width="400" alt="Menu">
 
-- **Relays** - a submenu per relay: toggle it, and set its inversion, start mode and bound input; on a relay a running thermostat drives, the State row shows the thermostat and does not toggle, and Inverted opens on the thermostat's name and does not change
+- **Relays** - a submenu per relay: toggle it, and set its inversion, start mode and bound input; a relay a running thermostat drives neither toggles nor changes its inversion, and the log names the thermostat
 - **Inputs** - a submenu per input: live state and inversion
 - **Temperatures** - temperature sensor readings; a DS18B20 row opens its slot: the ROM address and a forget command
 - **Thermostats** - a row per thermostat with what its sensor reads; it opens the thermostat's name, the reading, what it is doing (heating, idle, waiting, a fault), the target and Enabled. The list is the one the device booted with: a thermostat created later shows after a reboot
@@ -293,7 +293,7 @@ page, anything else on the main page.
 | `BACK`      | Main page; from the main page blanks the screen; in the menu goes up one level, then exits |
 | `LEFT`      | Main page → status page; on the status page selects the previous relay; adjusts menu values |
 | `RIGHT`     | Main page → time page; on the status page selects the next relay; adjusts menu values      |
-| `CENTER`    | Main page → menu; on the status page toggles the selected relay, or names the thermostat that drives it; in the menu enters |
+| `CENTER`    | Main page → menu; on the status page toggles the selected relay unless a running thermostat drives it; in the menu enters |
 | `UP` `DOWN` | Move through the menu; on the status page scroll the temperatures                          |
 
 ## Documentation
