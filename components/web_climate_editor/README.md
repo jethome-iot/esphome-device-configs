@@ -89,11 +89,11 @@ form sends back the key it got and none for a new preset. `active_preset` is the
 state, not the form's: a Save ignores it, keeps the active preset while its key is in the list,
 and applies that preset's new target and mode at once.
 
-A document carries a `revision`, `0` until a calibration writes new gains, the only thing that
-moves it on; a Save never does. A Save whose body has a `revision`
-other than the thermostat's is `409`, `The device changed this thermostat since it was read;
-reload it`: the form was read before, and would write the old gains back. One without it is not
-checked, and a create ignores it.
+A document carries a `revision`, `0` until a calibration writes new gains or an
+[import](#import) replaces the thermostat, the only things that move it on; a Save never does. A
+Save whose body has a `revision` other than the thermostat's is `409`, `The device changed this
+thermostat since it was read; reload it`: the form was read before, and would write the old
+document back. One without it is not checked, and a create ignores it.
 
 The refusals come in this order, and the first one a document meets is the answer:
 
@@ -209,7 +209,9 @@ id, one is created under it. Either way the thermostat comes back as the documen
   preset has is none;
 - its target and its mode are the document's, the active preset's values not applied again;
 - `version` is not read: the file is written in this firmware's format, so what a newer firmware
-  added to it is dropped.
+  added to it is dropped;
+- `revision` is not read either: a replaced thermostat's moves on by one, so a Save of a form read
+  before the import is `409`, and a new one starts at `0`.
 
 Keys left out take their defaults and every number is clamped, as on `save`. The answer is a
 Save's, `"Thermostat created"` or `"Thermostat replaced"` with the `id`, a `warning` when it was

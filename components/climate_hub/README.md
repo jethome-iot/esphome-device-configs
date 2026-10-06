@@ -91,7 +91,7 @@ component: it would list the entities no thermostat is using.
 | Key                  | Values                                                                     |
 | -------------------- | -------------------------------------------------------------------------- |
 | `version`            | `3`, the format this firmware writes; a file without one, or with `1` or `2`, is read as `3` and written back as `3`. A higher one is a file from a newer firmware, see [Storage](#storage) |
-| `revision`           | `0` when created; moves on only when a [calibration](#calibration) writes new gains, never on an `update()` or any other write. A file without one reads as `0` |
+| `revision`           | `0` when created; moves on when a [calibration](#calibration) writes new gains and when a `restore()` replaces the thermostat, never on an `update()` or any other write. A file without one reads as `0` |
 | `id`                 | Made from the name when the thermostat is created (`a-z`, `0-9`, single dashes, at most 48; `New` gets `new-2`, since the dashboard opens a blank editor at `new`), or the one a restore brings, then never changes; the file is `<id>.json` |
 | `name`               | 1 to 48 printable ASCII characters, neither `/` nor `\`, trimmed; also the climate entity's name |
 | `kind`               | `bang_bang` (the default) or `pid`                                         |
@@ -348,7 +348,8 @@ got to it.
   `restore()` brings a thermostat back under the id `doc` names, from a backup: it replaces the
   thermostat with that id as `update()` does, or creates it under that id, and refuses as those
   two do, besides a 400 for an id that is no slug or is `new` and a 409 for an id a file the
-  boot refused holds. `apply_preset()` picks a preset by its key, running or not: 404
+  boot refused holds; the `revision` `doc` brings is ignored, a replaced thermostat's moves on
+  by one and a new one's is 0. `apply_preset()` picks a preset by its key, running or not: 404
   `Thermostat not found` or `Preset not found`
 - a document's `from_newer_firmware()`: its file came from a newer firmware, so `update()`
   refuses it; `update()` refuses a `revision`, when one is given, that is not the stored one, with

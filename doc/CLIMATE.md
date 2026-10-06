@@ -53,7 +53,8 @@ other one stays open. Home Assistant sees the thermostat heating or idle, as at 
 
 The device then turns what it measured into the gains of the rule picked at the start
 (Ziegler-Nichols PI unless another), writes them into the thermostat and runs with them. An
-editor page opened before can no longer save over them: its Save is refused until it reloads.
+editor page opened before can no longer save over them: its Save is refused until it reloads, as
+it is after a thermostat was brought back from a backup over the one it shows.
 The result, the gains it replaced and any warning about it stay in the thermostat's status until
 the next calibration, a delete or a reboot.
 

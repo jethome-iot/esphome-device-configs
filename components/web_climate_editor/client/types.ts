@@ -115,9 +115,10 @@ export interface ControllerDocument {
    */
   version: number
   /**
-   * Moves on only when a calibration writes new gains; a Save or any other write never moves it,
-   * and a new thermostat has 0. A Save that sends one other than the
-   * device's is 409 (STALE_DOCUMENT): the form was read before, and would write the old values back.
+   * Moves on when a calibration writes new gains and when an /import replaces the thermostat; a
+   * Save or any other write never moves it, and a new thermostat has 0. A Save that sends one other
+   * than the device's is 409 (STALE_DOCUMENT): the form was read before, and would write the old
+   * values back.
    */
   revision: number
   /** Immutable slug and the document's file name; a rename never changes it. */
@@ -179,7 +180,8 @@ export type ControllerSaveInput = DeepPartial<
  * under the slug `id` it is to have. A thermostat with that id is replaced, otherwise one is
  * created with it. Left-out keys take their defaults as on /save; the presets' keys and
  * `active_preset` are kept, since rules name them, and a preset without a key gets one from
- * its name. `version` is not read: the device writes its own.
+ * its name. `version` is not read: the device writes its own. Nor is `revision`: a replaced
+ * thermostat's moves on by one, a new one's is 0.
  */
 export type ControllerImportInput = ControllerSaveInput & { id: string }
 
@@ -476,7 +478,7 @@ export const NEWER_FILE = 'A newer firmware wrote this thermostat; update the fi
 
 /**
  * The 409 error of a Save whose `revision` is not the device's, in the device's words: the form
- * was read before a calibration wrote new gains.
+ * was read before a calibration wrote new gains, or before an import replaced the thermostat.
  */
 export const STALE_DOCUMENT = 'The device changed this thermostat since it was read; reload it'
 

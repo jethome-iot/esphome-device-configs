@@ -18,7 +18,8 @@
 //    the Save of one whose `revision` the device has moved past since it was read;
 //  - /import takes what /get answered, or a backup's file, under its own id: it
 //    replaces the thermostat with that id or creates it, presets' keys and active
-//    preset kept, and answers as /save does;
+//    preset kept, and answers as /save does. The body's `revision` is not read: a
+//    replaced thermostat's moves on, so a form read before the import is 409;
 //  - /ping returns {status:"ok"} (NOT the success envelope);
 //  - every route but /schema and /ping does its read or write on the device's main
 //    loop, so an answer describes what actually happened; 503 means the loop did not

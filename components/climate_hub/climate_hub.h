@@ -121,7 +121,8 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// that id is replaced, as update() replaces it, otherwise one is created with it. The
   /// presets keep their keys and the active preset stays, since rules name them so. Refused
   /// as create() and update() refuse, and with 400 for an id that is no slug or is `new`, and
-  /// 409 for an id a file the boot did not load holds.
+  /// 409 for an id a file the boot did not load holds. The doc's revision is ignored: a
+  /// replacement moves the stored one on, a new one starts at 0.
   Result restore(ClimateConfig doc);
   /// Stops and deletes a thermostat, and starts the thermostats that wait for its relays.
   Result remove(const std::string &id);

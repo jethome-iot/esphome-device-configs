@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: web_climate_editor HTTP API
-  version: 1.5.0
+  version: 1.6.0
   description: >-
     JSON/REST API of the `climate_hub` thermostats, served by the
     `web_climate_editor` component on the device's own web server (default
@@ -135,10 +135,10 @@ paths:
         create starts with none.
 
         `revision`, when the body has it as a whole number, must be the one
-        `/get` gives now: it moves on only when a calibration writes new
-        gains, so a form read before that is refused rather than write the
-        old gains back. A Save never moves it, and one without it is not
-        checked. A Save ends a
+        `/get` gives now: it moves on when a calibration writes new gains and
+        when an `/import` replaces the thermostat, so a form read before
+        either is refused rather than write the old document back. A Save
+        never moves it, and one without it is not checked. A Save ends a
         calibration the thermostat runs.
 
         The refusals come in this order, and the first one a document meets is
@@ -257,8 +257,11 @@ paths:
         stays, so the automation rules that name them still find them; a
         preset without a key gets one from its name, and an `active_preset`
         no preset has is none. `version` is not read: the file is written in
-        this firmware's format. Keys left out take their defaults and every
-        number is clamped, as on `/save`; the body is read the same way.
+        this firmware's format. `revision` is not read either: a replaced
+        thermostat's moves on by one, so a Save of a form read before the
+        import is `409`, and a new one starts at 0. Keys left out take their
+        defaults and every number is clamped, as on `/save`; the body is read
+        the same way.
 
         The refusals are a Save's, in its order: `400` for an empty body, a
         body that is not JSON, or a document that breaks a rule, the `id`
@@ -1303,9 +1306,10 @@ components:
           type: integer
           minimum: 0
           description: >-
-            Moves on only when a calibration writes new gains; a Save or any
-            other write never moves it, and a new thermostat has `0`. A Save
-            that sends another one is `409`.
+            Moves on when a calibration writes new gains and when an
+            `/import` replaces the thermostat; a Save or any other write never
+            moves it, and a new thermostat has `0`. A Save that sends another
+            one is `409`.
         id:
           $ref: "#/components/schemas/Id"
         name:
@@ -1496,6 +1500,12 @@ components:
             version:
               type: number
               description: Not read; the file is written in this firmware's format.
+            revision:
+              type: integer
+              minimum: 0
+              description: >-
+                Not read: a replaced thermostat's revision moves on by one, a
+                new one's is `0`.
             id:
               $ref: "#/components/schemas/Id"
             presets:

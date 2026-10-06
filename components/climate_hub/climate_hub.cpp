@@ -580,6 +580,8 @@ Result ClimateHub::restore(ClimateConfig doc) {
   if (this->is_name_taken(doc.name, doc.id, &error))
     return failure(409, error);
   doc.version = CONFIG_VERSION;
+  // Never the backup's: a form read before the import would otherwise Save over it.
+  doc.revision = stored != nullptr ? stored->revision + 1 : 0;
   if (doc.enabled && !this->check_savable_(doc, &result))
     return result;
   bool too_large = false;

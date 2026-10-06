@@ -33,9 +33,9 @@
 // persisted.
 // A calibration (/autotune) runs climate_hub's port of upstream's autotuner on the
 // simulated room, which swings in minutes rather than hours; what ends it on the
-// device ends it here, a fault, a Save, a target or a mode included. On success
-// the gains go into the document and its revision moves on, and a Save carrying
-// an older revision is 409.
+// device ends it here, a fault, a Save, an import, a target or a mode included.
+// On success the gains go into the document and its revision moves on, as an
+// import over it moves it, and a Save carrying an older revision is 409.
 // tests/components/web_climate_editor/contract.json lists the requests it must
 // answer as the device does.
 // /status reads a first-order room model per sensor, heated and cooled by the
@@ -1642,6 +1642,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     if (RESERVED_IDS.includes(doc.id)) return fail(400, `id '${doc.id}' is reserved`)
     const stored = find(doc.id)
     if (stored && newer(stored)) return fail(409, NEWER_FILE)
+    // Never the backup's: a form read before the import would otherwise Save over it.
+    doc.revision = stored ? stored.revision + 1 : 0
     const refusal = refusalOf(doc, stored)
     if (refusal) return refusal
     return store(doc, stored, stored ? 'Thermostat replaced' : 'Thermostat created')
