@@ -64,8 +64,9 @@ void RelayClaim::settle_move_(bool want, uint32_t now_ms, bool paced) {
     return;
   }
   // The first move, or one a cut-out does not wait on: back on this pass, and its dwell restarts
-  // there, since it did move. A boot that restored the relay is no move from elsewhere.
-  if (!this->fresh_)
+  // there, since it did move. A boot that restored the relay is no move from elsewhere, nor is
+  // one where the demand goes, undone only for the claim's own dwell.
+  if (!this->fresh_ && want != moved_to)
     this->count_move_(0);
   this->apply_(this->state_, now_ms);
   this->put_back_ms_ = now_ms;

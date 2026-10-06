@@ -175,7 +175,7 @@ TEST(RelayClaim, TheDwellCountsFromThePutBack) {
 
 // Closed from elsewhere inside min_off, on the very tick the demand turns on: it is opened
 // again and min_off starts over, rather than left closed for the rest of the hold while the
-// claim believes it open.
+// claim believes it open. It went where the demand goes, so it is no move against the claim.
 TEST(RelayClaim, ARelayClosedElsewhereInsideMinOffIsOpenedEvenAsTheDemandTurnsOn) {
   FakeSwitch relay;
   RelayClaim claim(&relay, "boiler");
@@ -186,6 +186,7 @@ TEST(RelayClaim, ARelayClosedElsewhereInsideMinOffIsOpenedEvenAsTheDemandTurnsOn
 
   EXPECT_FALSE(claim.request(true, 2000));
   EXPECT_FALSE(relay.state) << "the claim and the switch agree";
+  EXPECT_EQ(0u, claim.moves());
   EXPECT_FALSE(claim.request(true, 61999)) << "opened again at 2 s, so min_off runs to 62 s";
   EXPECT_FALSE(relay.state);
   EXPECT_TRUE(claim.request(true, 62000));
