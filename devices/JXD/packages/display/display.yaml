@@ -1,3 +1,7 @@
+substitutions:
+  # The panel's controller; a device whose module carries another sets its own.
+  display_model: SH1106_128X64
+
 font:
   # The menu font draws the labels users type, Cyrillic included.
   - file: ${assets}/fonts/7x14-mod2.bdf
@@ -41,7 +45,7 @@ script:
 display:
   - platform: ssd1306_i2c
     id: display1
-    model: "SH1106_128X64"
+    model: ${display_model}
     address: 0x3C
     update_interval: 200ms
     pages:

@@ -1701,7 +1701,7 @@ display:
         lambda: return;
   - platform: ssd1306_i2c
     id: display1
-    model: SH1106_128X64
+    model: ${display_model}
     address: 60
     update_interval: 200ms
     pages:
@@ -2016,6 +2016,7 @@ substitutions:
   link_icon: 'id(ethernet_id).is_connected() ? id(icon_eth) : id(wifi_id).is_connected()
     || id(wifi_id).is_ap_active() ? id(icon_wifi) : (id(network_mode).active_index().value_or(0)
     == 2 ? id(icon_wifi_off) : id(icon_eth_off))'
+  display_model: SH1106_128X64
   name: jxd-r6-e1eth-lcd
   friendly_name: JXD-R6-E1ETH-LCD
   version: 1.0.0
