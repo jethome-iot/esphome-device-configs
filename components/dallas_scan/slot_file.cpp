@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <cinttypes>
 
+#include "dallas_scan.h"
+
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
@@ -64,7 +66,42 @@ bool SlotFile::parse_json(JsonObject root, uint32_t version) {
       ESP_LOGW(TAG, "Slot %d is listed twice, keeping the last record", slot);
     this->table_[slot - 1] = address;
   }
+  this->parse_offsets_(root);
   return true;
+}
+
+// Apart from the records, so older firmware still reads the table; a bad list or entry costs the
+// offsets, never the table.
+void SlotFile::parse_offsets_(JsonObject root) {
+  std::fill(this->offsets_.begin(), this->offsets_.end(), 0);
+  if (root["offsets"].isNull())
+    return;
+  if (!root["offsets"].is<JsonArray>()) {
+    ESP_LOGW(TAG, "'offsets' is not an array, ignoring it");
+    return;
+  }
+  JsonArray offsets = root["offsets"];
+  std::vector<bool> seen(this->offsets_.size(), false);
+  for (JsonObject entry : offsets) {
+    const int slot = entry["slot"] | 0;
+    if (!entry["slot"].is<int>() || slot < 1) {
+      ESP_LOGW(TAG, "An offset without a valid slot, skipping");
+      continue;
+    }
+    if ((size_t) slot > this->offsets_.size()) {
+      ESP_LOGW(TAG, "Slot %d's offset is past max_sensors, skipping", slot);
+      continue;
+    }
+    int16_t tenths = 0;
+    if (!entry["offset"].is<double>() || !offset_tenths(entry["offset"].as<double>(), tenths)) {
+      ESP_LOGW(TAG, "Slot %d: the offset is not a number within ±%.1f, skipping", slot, DallasScan::MAX_OFFSET);
+      continue;
+    }
+    if (seen[slot - 1])
+      ESP_LOGW(TAG, "Slot %d's offset is listed twice, keeping the last one", slot);
+    seen[slot - 1] = true;
+    this->offsets_[slot - 1] = tenths;
+  }
 }
 
 void SlotFile::write_json(JsonObject root, uint32_t version) {
@@ -75,6 +112,18 @@ void SlotFile::write_json(JsonObject root, uint32_t version) {
     JsonObject record = records.add<JsonObject>();
     record["slot"] = slot + 1;
     record["address"] = str_sprintf("0x%016" PRIx64, this->table_[slot]);
+  }
+  // Left out with none, so a file without offsets stays as older firmware wrote it.
+  if (std::all_of(this->offsets_.begin(), this->offsets_.end(), [](int16_t tenths) { return tenths == 0; }))
+    return;
+  JsonArray offsets = root["offsets"].to<JsonArray>();
+  for (size_t slot = 0; slot < this->offsets_.size(); slot++) {
+    if (this->offsets_[slot] == 0)
+      continue;
+    JsonObject entry = offsets.add<JsonObject>();
+    entry["slot"] = slot + 1;
+    // As text, so -0.3 is not written as the float nearest to it.
+    entry["offset"] = serialized(str_sprintf("%.1f", this->offsets_[slot] / 10.0));
   }
 }
 
