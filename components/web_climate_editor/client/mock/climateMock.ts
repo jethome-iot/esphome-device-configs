@@ -504,7 +504,7 @@ function presetsError(doc: ControllerDocument): string {
   return ''
 }
 
-// Older files read as this version; a newer one keeps its number, rounded up so 2.5 stays newer.
+// Older files read as this version; a newer one keeps its number, rounded up so 3.5 stays newer.
 function readVersion(value: unknown): number {
   return typeof value === 'number' && value > CONFIG_VERSION ? Math.min(Math.ceil(value), 65535) : CONFIG_VERSION
 }

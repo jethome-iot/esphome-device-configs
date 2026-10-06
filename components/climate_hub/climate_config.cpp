@@ -174,7 +174,7 @@ bool read_presets(JsonVariantConst value, std::vector<PresetConfig> *out, std::s
   return true;
 }
 
-// Older files read as this version; a newer one keeps its number, rounded up so 2.5 stays newer.
+// Older files read as this version; a newer one keeps its number, rounded up so 3.5 stays newer.
 uint16_t read_version(JsonVariantConst value) {
   const double version = value.is<double>() ? value.as<double>() : 0;
   if (!(version > CONFIG_VERSION))

@@ -546,7 +546,8 @@ TEST_F(Calibration, OneRunAtATimeAndNotOnAFault) {
 TEST_F(Calibration, ANewerFirmwaresFileIsNotCalibrated) {
   const std::string id = this->create(living_room()).id;
   std::string file = read_file(this->file_of(id));
-  file.replace(file.find("\"version\":2"), 11, "\"version\":3");
+  const std::string ours = "\"version\":" + std::to_string(CONFIG_VERSION);
+  file.replace(file.find(ours), ours.size(), "\"version\":" + std::to_string(CONFIG_VERSION + 1));
   write_file(this->file_of(id), file);
   this->reboot();
   Result refused = this->calibrate(id);

@@ -101,7 +101,9 @@ says a newer firmware wrote it. Starting it in another thermostat's place lasts 
 reboot too: the ones it took the relay from, running or waiting, stay enabled in their files.
 Deleting the thermostat still works. A newer file that breaks this firmware's rules — a preset
 mode it does not know, more than eight presets, a control law it does not have — is not loaded
-and is left as it is, as any file that breaks them.
+and is left as it is, as any file that breaks them. To a firmware from before calibration, every
+thermostat file this one writes is such a newer file: rolled back, a calibrated thermostat runs
+its gains as far as that firmware's ranges go, and its file keeps them for the next update.
 
 A thermostat whose sensor or relay is missing, at boot or when it is saved or switched on, stays
 enabled on disk but does not run; the Save or the switch-on succeeds with a warning that names

@@ -344,7 +344,7 @@
       "body": null,
       "status": 200,
       "expect": {
-        "version": 2,
+        "version": 3,
         "id": "living-room",
         "name": "Living Room",
         "enabled": true,
@@ -3639,7 +3639,7 @@
       "body": null,
       "status": 200,
       "expect": {
-        "version": 3,
+        "version": 4,
         "name": "Living Room"
       }
     },

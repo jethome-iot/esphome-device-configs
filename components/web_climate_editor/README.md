@@ -161,7 +161,7 @@ A thermostat whose file a newer firmware wrote is listed, read and run like any 
 rest lasts until the next reboot. `enable` answers `"persisted": false` when it changed the flag
 or took a relay over; the thermostats it stopped, running or waiting, then stay enabled in their
 files. `preset` answers `"persisted": false` when the pick changed the target, the mode or the
-label. Its `version` in `get` is the file's own, higher than this firmware's `2`.
+label. Its `version` in `get` is the file's own, higher than this firmware's `3`.
 
 Every failure is `{"success": false, "error"}`, with the sentence an editor shows: `400` for a
 bad request, `404` for an unknown `id` or path, `405` for a `GET` or `POST` the route does not
