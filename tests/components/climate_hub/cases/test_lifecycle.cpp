@@ -231,6 +231,9 @@ TEST_F(HubTest, TakeOverDisablesTheHolder) {
   summer.enabled = false;
   this->create(summer);
 
+  pass_resync_delay();
+  hub().resyncs = 0;
+
   Result result = hub().set_enabled("summer", true, true);
   ASSERT_TRUE(result.ok) << result.error;
   EXPECT_TRUE(result.persisted);
@@ -238,6 +241,9 @@ TEST_F(HubTest, TakeOverDisablesTheHolder) {
   EXPECT_FALSE(hub().is_running("winter"));
   EXPECT_FALSE(hub().store().get("winter")->enabled);
   EXPECT_EQ("summer", hub().claimed_by("relay_1"));
+  // One entity went and another came: Home Assistant re-lists them once, not once for each.
+  pass_resync_delay();
+  EXPECT_EQ(1, hub().resyncs);
 
   this->reboot();
   EXPECT_TRUE(hub().is_running("summer")) << "and both flags survive a reboot";
@@ -900,15 +906,19 @@ TEST_F(HubTest, HomeAssistantReconnectsForNewModesOrANewRange) {
   config.mode = HubMode::OFF;
   config.bang_bang.below = 2.f;
   config.update_interval_s = 60.f;
+  // Another heating relay is still a heating relay: the modes Home Assistant lists stand.
+  config.heat.relay_id = "relay_2";
   ASSERT_TRUE(hub().update("boiler", config).ok);
+  ASSERT_EQ("boiler", hub().claimed_by("relay_2"));
   pass_resync_delay();
-  EXPECT_EQ(0, hub().resyncs) << "a mode, a band and an interval are no news";
+  EXPECT_EQ(0, hub().resyncs) << "a mode, a band, an interval and a relay swap are no news";
 
   const std::pair<const char *, void (*)(ClimateConfig &)> changes[] = {
+      {"a new name", [](ClimateConfig &c) { c.name = "Water Heater"; }},
       {"a new minimum", [](ClimateConfig &c) { c.visual.min_temperature = 10.f; }},
       {"a new maximum", [](ClimateConfig &c) { c.visual.max_temperature = 30.f; }},
       {"a new step", [](ClimateConfig &c) { c.visual.step = 1.f; }},
-      {"a cooling relay", [](ClimateConfig &c) { c.cool.relay_id = "relay_2"; }},
+      {"a cooling relay", [](ClimateConfig &c) { c.cool.relay_id = "relay_3"; }},
       {"no heating relay", [](ClimateConfig &c) { c.heat.relay_id = ""; }},
   };
   for (const auto &change : changes) {

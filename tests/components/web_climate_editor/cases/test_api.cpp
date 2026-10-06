@@ -242,6 +242,22 @@ TEST_F(Editor, SaveStopsAtTheLimitBeforeItLooksAtTheName) {
   EXPECT_EQ(this->files().size(), 3u);
 }
 
+// Files the hub left alone keep their ids; when they hold every id a name gives, the create is
+// a 409 that says so, and none of them is written over.
+TEST_F(Editor, SaveRefusesANameWhoseIdsAreAllTakenByFiles) {
+  // Every id a create tries: climate_hub.cpp's MAX_ID_SUFFIX.
+  for (unsigned n = 1; n <= 999; n++) {
+    std::ofstream(this->folder() + "/" + climate_hub::id_with_suffix("living-room", n) + ".json") << "left alone";
+  }
+  Reply reply = this->post("save", LIVING_ROOM);
+  EXPECT_EQ(reply.code, 409);
+  EXPECT_EQ(reply.error(),
+            "Every id made from \"Living Room\" is taken by a file in the thermostat folder; choose another name");
+  EXPECT_EQ(hub().store().size(), 0u);
+  EXPECT_EQ(this->file("living-room.json"), "left alone");
+  EXPECT_EQ(this->file("living-room-999.json"), "left alone");
+}
+
 // A sensor or relay the device does not have is no refusal: the thermostat is stored enabled
 // and waits for it, and the answer says so in a key of its own as well as in the message.
 TEST_F(Editor, AnEnabledThermostatWhoseSensorOrRelayIsMissingIsSavedAndWaits) {
@@ -341,6 +357,30 @@ TEST_F(Editor, AnEnabledSaveRefusesASensorNotInCelsiusAndAHeldRelay) {
   EXPECT_EQ(reply.error(), "\"Relay 2\" is already driven by \"Floor\"");
   EXPECT_EQ(this->files().size(), 2u);
   EXPECT_EQ(hub().store().get("kitchen"), nullptr);
+}
+
+// A document that breaks three rules gets the first in the README's order: the name, then the
+// sensor's unit, then the held relay. Each fix brings the next one to light.
+TEST_F(Editor, TheRefusalsComeInTheDocumentedOrder) {
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  std::string doc = LIVING_ROOM;
+  doc.replace(doc.find("Living Room"), 11, "living room");
+  doc.replace(doc.find("\"room\""), 6, "\"uptime\"");
+
+  Reply reply = this->post("save", doc);
+  EXPECT_EQ(reply.code, 409);
+  EXPECT_EQ(reply.error(), "\"living room\" is already used by another thermostat");
+
+  doc.replace(doc.find("living room"), 11, "Kitchen");
+  reply = this->post("save", doc);
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "\"Uptime\" reports s, not °C");
+
+  doc.replace(doc.find("\"uptime\""), 8, "\"floor\"");
+  reply = this->post("save", doc);
+  EXPECT_EQ(reply.code, 409);
+  EXPECT_EQ(reply.error(), "\"Relay 1\" is already driven by \"Living Room\"");
+  EXPECT_EQ(this->files(), std::vector<std::string>{"living-room.json"});
 }
 
 TEST_F(Editor, AFileThatCannotBeWrittenIsAServerError) {
@@ -471,6 +511,23 @@ TEST_F(Editor, AnIdMustBeASlug) {
   Reply reply = this->get("get?id=" + std::string(48, 'a'));
   EXPECT_EQ(reply.code, 404);
   EXPECT_EQ(reply.error(), "Thermostat not found");
+}
+
+// The routes that change something check it as strictly, before the hub is asked: unchecked, an
+// id that is no slug would come back as an unknown thermostat's 404.
+TEST_F(Editor, AWriteRouteRefusesAnIdThatIsNoSlug) {
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  hub().jobs = 0;
+  for (const char *id : {"Living-Room", "living_room", "../living-room", ""}) {
+    for (const std::string &route : {"delete?id=" + std::string(id), "enable?id=" + std::string(id) + "&value=false"}) {
+      Reply reply = this->post(route);
+      EXPECT_EQ(reply.code, 400) << route;
+      EXPECT_EQ(reply.error(), "Invalid id parameter") << route;
+    }
+  }
+  EXPECT_EQ(hub().jobs, 0);
+  EXPECT_TRUE(hub().is_running("living-room"));
+  EXPECT_EQ(this->files(), std::vector<std::string>{"living-room.json"});
 }
 
 // --- enable ---
@@ -1077,7 +1134,9 @@ TEST_F(Editor, EntitiesListsThermostatInputsAndWhoHoldsEachRelay) {
   ASSERT_EQ(reply.code, 200);
   EXPECT_EQ(reply.body, R"({"success":true,)"
                         R"("sensors":[{"object_id":"room","name":"Room","unit":"°C"},)"
-                        R"({"object_id":"floor","name":"Floor","unit":"°C"}],)"
+                        R"({"object_id":"floor","name":"Floor","unit":"°C"},)"
+                        R"({"object_id":"temp_1","name":"Temp 1","unit":"°C"},)"
+                        R"({"object_id":"temp_2","name":"Temp 2","unit":"°C"}],)"
                         R"("switches":[{"object_id":"relay_1","name":"Relay 1","claimed_by":"living-room"},)"
                         R"({"object_id":"relay_2","name":"Relay 2","claimed_by":""}]})");
 }
@@ -1095,7 +1154,7 @@ TEST_F(Editor, SchemaIsTheParameterTable) {
   EXPECT_EQ(words, R"(["off","heat","cool","heat_cool"])");
   words.clear();
   serializeJson(reply["faults"], words);
-  EXPECT_EQ(words, R"(["none","sensor_missing","sensor_stale","relay_missing","overtemp"])");
+  EXPECT_EQ(words, R"(["none","sensor_stale","overtemp"])");
   EXPECT_EQ(reply["max_controllers"].as<int>(), 3);
   EXPECT_EQ(reply["name_max_length"].as<int>(), 48);
 

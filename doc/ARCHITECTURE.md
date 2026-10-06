@@ -37,13 +37,17 @@ boundaries; everything else is local to its file.
   menu follows whatever the board package put there. `temperatures_menu` gets a `Temp N` submenu per
   slot up to the last bound one at boot; a freed slot's submenu only says `Free slot`.
   `automations_menu` is filled at boot with a row per loaded rule, or one `No automations` row.
+  `thermostats_menu` is filled at boot with a submenu per loaded thermostat, or one
+  `No thermostats` row.
 - `automations_engine` (`features/automations.yaml`) is the rule engine; `display/menu.yaml`
   reads `configs()` for the Automations rows and calls `set_enable_automation` from them.
 - `climates` (`features/climates.yaml`) is the `climate_hub` component: the thermostats, kept
   on `user_storage` under `climates/`. A thermostat names its sensor and relays by object id,
   so renaming a relay in YAML, or a `Temp N` slot that stays empty, leaves it not running. The
   QEMU overlay `qemu/climate-plant.yaml` gives it a room to control. `web_climate_editor`
-  (`features/climate-editor.yaml`) edits the thermostats under `/climate-editor/api`.
+  (`features/climate-editor.yaml`) edits the thermostats under `/climate-editor/api`;
+  `display/menu.yaml` reads `store()` and `sensor_reading()` for the Thermostats rows and calls
+  `set_setpoint` and `set_enabled` from them.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
   and expanded inside the main-page lambda in `display/display.yaml`. Package substitutions share
   one namespace with the device config's.
@@ -89,7 +93,7 @@ boundaries; everything else is local to its file.
 | 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); restore the timezone and read the RTC (`setup_time`, called from the device config). `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
 | 599.5 | `climate_hub` sets up: it registers its pool of climate entities, loads the thermostats and starts the enabled ones, so it sits below the `Temp N` sensors (600) and above `automations`, which may one day name a thermostat |
 | 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created. `board_info` reads the EEPROM here too, once `eeprom_cpu` (600) has answered |
-| 500 | add a `Temp N` submenu per bound slot to the Temperatures menu; add a row per loaded rule to the Automations menu |
+| 500 | add a `Temp N` submenu per bound slot to the Temperatures menu; add a row per loaded rule to the Automations menu; add a submenu per loaded thermostat to the Thermostats menu |
 | 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
 
 `littlefs_storage` mounts at 810, so the rule files are readable by the time `automations` loads

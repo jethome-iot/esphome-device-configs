@@ -1,0 +1,1714 @@
+{
+  "$comment": "Requests to the web_climate_editor API and the answers they get. The format is in doc/TESTING.md.",
+  "environment": {
+    "max_controllers": 3,
+    "climates": [
+      "Hall"
+    ],
+    "sensors": [
+      {
+        "object_id": "temp_1",
+        "name": "Temp 1",
+        "unit": "°C"
+      },
+      {
+        "object_id": "temp_2",
+        "name": "Temp 2",
+        "unit": "°C"
+      },
+      {
+        "object_id": "uptime",
+        "name": "Uptime",
+        "unit": "s"
+      }
+    ],
+    "switches": [
+      {
+        "object_id": "relay_1",
+        "name": "Relay 1"
+      },
+      {
+        "object_id": "relay_2",
+        "name": "Relay 2"
+      }
+    ],
+    "missing": [
+      "attic",
+      "relay_9"
+    ]
+  },
+  "fixtures": {
+    "living-room": {
+      "name": "Living Room",
+      "kind": "pid",
+      "sensor_id": "temp_1",
+      "heat": {
+        "relay_id": "relay_1"
+      },
+      "mode": "heat",
+      "setpoint": 22
+    },
+    "floor": {
+      "name": "Floor",
+      "kind": "bang_bang",
+      "sensor_id": "temp_2",
+      "heat": {
+        "relay_id": "relay_2"
+      },
+      "mode": "heat",
+      "setpoint": 24
+    },
+    "guest-room": {
+      "name": "Guest Room",
+      "enabled": false,
+      "kind": "bang_bang",
+      "sensor_id": "temp_1",
+      "heat": {
+        "relay_id": "relay_1"
+      },
+      "mode": "heat",
+      "setpoint": 19
+    },
+    "studio": {
+      "name": "Studio",
+      "enabled": false,
+      "kind": "pid",
+      "sensor_id": "temp_1",
+      "heat": {
+        "relay_id": "relay_1"
+      },
+      "cool": {
+        "relay_id": "relay_2"
+      },
+      "mode": "heat_cool",
+      "setpoint": 22
+    },
+    "attic": {
+      "name": "Attic",
+      "enabled": false,
+      "kind": "pid",
+      "sensor_id": "attic",
+      "heat": {
+        "relay_id": "relay_1"
+      },
+      "mode": "heat",
+      "setpoint": 20
+    },
+    "porch": {
+      "name": "Porch",
+      "enabled": false,
+      "kind": "pid",
+      "sensor_id": "temp_1",
+      "heat": {
+        "relay_id": "relay_1"
+      },
+      "cool": {
+        "relay_id": "relay_9"
+      },
+      "mode": "heat_cool",
+      "setpoint": 20
+    },
+    "uptime-room": {
+      "name": "Uptime Room",
+      "enabled": false,
+      "kind": "pid",
+      "sensor_id": "uptime",
+      "heat": {
+        "relay_id": "relay_1"
+      },
+      "mode": "heat",
+      "setpoint": 20
+    }
+  },
+  "cases": [
+    {
+      "name": "A name that is no route is 404",
+      "method": "GET",
+      "path": "nothing",
+      "body": null,
+      "status": 404,
+      "error": "Unknown endpoint"
+    },
+    {
+      "name": "A GET to a route that writes is 405 naming POST",
+      "method": "GET",
+      "path": "save",
+      "body": null,
+      "status": 405,
+      "error": "Method not allowed",
+      "headers": {
+        "Allow": "POST"
+      }
+    },
+    {
+      "name": "A POST to a route that reads is 405 naming GET",
+      "method": "POST",
+      "path": "list",
+      "body": null,
+      "status": 405,
+      "error": "Method not allowed",
+      "headers": {
+        "Allow": "GET"
+      }
+    },
+    {
+      "name": "An OPTIONS is 405 too",
+      "method": "OPTIONS",
+      "path": "delete?id=living-room",
+      "body": null,
+      "status": 405,
+      "error": "Method not allowed",
+      "headers": {
+        "Allow": "POST"
+      }
+    },
+    {
+      "name": "Ping answers ok",
+      "method": "GET",
+      "path": "ping",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "status": "ok"
+      }
+    },
+    {
+      "name": "Schema lists the kinds, the modes, the faults and the limits",
+      "method": "GET",
+      "path": "schema",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "kinds": [
+          "pid",
+          "bang_bang"
+        ],
+        "modes": [
+          "off",
+          "heat",
+          "cool",
+          "heat_cool"
+        ],
+        "faults": [
+          "none",
+          "sensor_stale",
+          "overtemp"
+        ],
+        "max_controllers": 3,
+        "name_max_length": 48,
+        "params.output.1.key": "min_on_s",
+        "params.output.1.def": 10
+      }
+    },
+    {
+      "name": "An empty device lists nothing",
+      "method": "GET",
+      "path": "list",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "success": true,
+        "count": 0,
+        "max_controllers": 3,
+        "controllers": []
+      }
+    },
+    {
+      "name": "List shows a running thermostat",
+      "setup": [
+        "living-room"
+      ],
+      "method": "GET",
+      "path": "list",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "count": 1,
+        "controllers.0.id": "living-room",
+        "controllers.0.name": "Living Room",
+        "controllers.0.enabled": true,
+        "controllers.0.kind": "pid",
+        "controllers.0.mode": "heat",
+        "controllers.0.sensor_id": "temp_1",
+        "controllers.0.heat_relay_id": "relay_1",
+        "controllers.0.cool_relay_id": "",
+        "controllers.0.running": true,
+        "controllers.0.waiting": ""
+      }
+    },
+    {
+      "name": "Get answers the bare document with every default filled in",
+      "setup": [
+        "living-room"
+      ],
+      "method": "GET",
+      "path": "get?id=living-room",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "version": 1,
+        "id": "living-room",
+        "name": "Living Room",
+        "enabled": true,
+        "setpoint": 22,
+        "heat.relay_id": "relay_1",
+        "heat.min_on_s": 10,
+        "cool.relay_id": "",
+        "visual.min_temperature": 5,
+        "visual.max_temperature": 45
+      },
+      "absent": [
+        "success"
+      ]
+    },
+    {
+      "name": "Get of an unknown id is 404",
+      "method": "GET",
+      "path": "get?id=ghost",
+      "body": null,
+      "status": 404,
+      "error": "Thermostat not found"
+    },
+    {
+      "name": "Get without an id is 400",
+      "method": "GET",
+      "path": "get",
+      "body": null,
+      "status": 400,
+      "error": "Missing id parameter"
+    },
+    {
+      "name": "Get of an id that is no slug is 400",
+      "method": "GET",
+      "path": "get?id=Living-Room",
+      "body": null,
+      "status": 400,
+      "error": "Invalid id parameter"
+    },
+    {
+      "name": "Status of a running thermostat",
+      "setup": [
+        "living-room"
+      ],
+      "method": "GET",
+      "path": "status?id=living-room",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "controllers.0.id": "living-room",
+        "controllers.0.running": true,
+        "controllers.0.waiting": "",
+        "controllers.0.fault": "none",
+        "controllers.0.setpoint": 22,
+        "controllers.0.min_temperature": 5,
+        "controllers.0.max_temperature": 45
+      },
+      "absent": [
+        "controllers.0.switch_low"
+      ]
+    },
+    {
+      "name": "Status of a stopped thermostat",
+      "setup": [
+        "guest-room"
+      ],
+      "method": "GET",
+      "path": "status?id=guest-room",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "controllers.0.running": false,
+        "controllers.0.waiting": "",
+        "controllers.0.action": "off",
+        "controllers.0.fault": "none",
+        "controllers.0.sensor_age_s": null,
+        "controllers.0.heat_duty": 0,
+        "controllers.0.heat_relay_on": false,
+        "controllers.0.switch_low": 18.5,
+        "controllers.0.switch_high": 19.5
+      },
+      "absent": [
+        "controllers.0.pid"
+      ]
+    },
+    {
+      "name": "Status of every thermostat comes sorted by id",
+      "setup": [
+        "living-room",
+        "guest-room"
+      ],
+      "method": "GET",
+      "path": "status",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "controllers.0.id": "guest-room",
+        "controllers.1.id": "living-room"
+      }
+    },
+    {
+      "name": "Status of an unknown id is 404",
+      "method": "GET",
+      "path": "status?id=ghost",
+      "body": null,
+      "status": 404,
+      "error": "Thermostat not found"
+    },
+    {
+      "name": "Status of an empty id is 400",
+      "method": "GET",
+      "path": "status?id=",
+      "body": null,
+      "status": 400,
+      "error": "Invalid id parameter"
+    },
+    {
+      "name": "Entities offer the sensors in °C and name who holds each relay",
+      "setup": [
+        "living-room"
+      ],
+      "method": "GET",
+      "path": "entities",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "sensors.object_id=temp_1.name": "Temp 1",
+        "sensors.object_id=temp_1.unit": "°C",
+        "sensors.object_id=temp_2.unit": "°C",
+        "switches.object_id=relay_1.name": "Relay 1",
+        "switches.object_id=relay_1.claimed_by": "living-room",
+        "switches.object_id=relay_2.claimed_by": ""
+      },
+      "absent": [
+        "sensors.object_id=uptime"
+      ]
+    },
+    {
+      "name": "Save creates a thermostat and starts it",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 200,
+      "expect": {
+        "success": true,
+        "message": "Thermostat created",
+        "id": "living-room"
+      },
+      "absent": [
+        "warning"
+      ],
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "count": 1,
+            "controllers.0.running": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "Save with an id replaces that thermostat, renamed under the same id",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Lounge",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 19.5,
+        "id": "living-room"
+      },
+      "status": 200,
+      "expect": {
+        "message": "Thermostat updated",
+        "id": "living-room"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "name": "Lounge",
+            "setpoint": 19.5
+          }
+        }
+      ]
+    },
+    {
+      "name": "Save with an empty id creates",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Floor",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 24,
+        "id": ""
+      },
+      "status": 200,
+      "expect": {
+        "message": "Thermostat created",
+        "id": "floor"
+      }
+    },
+    {
+      "name": "Save takes the defaults for what a document leaves out",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Porch",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        }
+      },
+      "status": 200,
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=porch",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "kind": "bang_bang",
+            "mode": "heat",
+            "setpoint": 21,
+            "heat.min_off_s": 10
+          }
+        }
+      ]
+    },
+    {
+      "name": "Save with an unknown id is 404",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "id": "ghost"
+      },
+      "status": 404,
+      "error": "Thermostat not found"
+    },
+    {
+      "name": "An empty body is 400",
+      "method": "POST",
+      "path": "save",
+      "body": null,
+      "status": 400,
+      "error": "Empty request body"
+    },
+    {
+      "name": "A body that is not JSON is 400",
+      "method": "POST",
+      "path": "save",
+      "body": "garbage",
+      "status": 400,
+      "error": "JSON parse error: InvalidInput"
+    },
+    {
+      "name": "A body cut short is 400",
+      "method": "POST",
+      "path": "save",
+      "body": "{\"name\":\"Broken\",",
+      "status": 400,
+      "error": "JSON parse error: IncompleteInput"
+    },
+    {
+      "name": "A body nested past the parser's limit is 400, the reason named by the parser",
+      "method": "POST",
+      "path": "save",
+      "body": "{\"name\":\"Deep\",\"x\":[[[[[[[[[[[[]]]]]]]]]]]]}",
+      "status": 400,
+      "error_prefix": "JSON parse error: "
+    },
+    {
+      "name": "A body that is not an object is 400",
+      "method": "POST",
+      "path": "save",
+      "body": [],
+      "status": 400,
+      "error": "document is not an object"
+    },
+    {
+      "name": "A document without a name is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        }
+      },
+      "status": 400,
+      "error": "name is required"
+    },
+    {
+      "name": "A blank name is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "   ",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 400,
+      "error": "Name is required"
+    },
+    {
+      "name": "A name with a slash is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Up/down",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 400,
+      "error": "Name cannot contain '/'"
+    },
+    {
+      "name": "A name longer than 48 characters is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 400,
+      "error": "Name is longer than 48 characters"
+    },
+    {
+      "name": "The file format's rules come before the name's",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Up/down",
+        "heat": {
+          "relay_id": "relay_1"
+        }
+      },
+      "status": 400,
+      "error": "sensor_id is required"
+    },
+    {
+      "name": "A document without a relay is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "A",
+        "sensor_id": "temp_1"
+      },
+      "status": 400,
+      "error": "at least one of heat.relay_id / cool.relay_id is required"
+    },
+    {
+      "name": "One relay for both directions is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat_cool",
+        "setpoint": 22,
+        "cool": {
+          "relay_id": "relay_1"
+        }
+      },
+      "status": 400,
+      "error": "heat and cool cannot share one relay"
+    },
+    {
+      "name": "An unknown kind is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "fuzzy",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 400,
+      "error": "kind must be 'pid' or 'bang_bang'"
+    },
+    {
+      "name": "An unknown mode is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "dry",
+        "setpoint": 22
+      },
+      "status": 400,
+      "error": "mode must be one of off/heat/cool/heat_cool"
+    },
+    {
+      "name": "A mode its relays cannot serve is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "cool",
+        "setpoint": 22
+      },
+      "status": 400,
+      "error": "mode 'cool' needs cool.relay_id"
+    },
+    {
+      "name": "A range that ends below where it starts is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "visual": {
+          "min_temperature": 30,
+          "max_temperature": 20
+        }
+      },
+      "status": 400,
+      "error": "visual.max_temperature must be above visual.min_temperature"
+    },
+    {
+      "name": "A body over 8 KiB is 413",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "pad_to": 8193,
+      "status": 413,
+      "error": "Request body over 8 KiB",
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "count": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "A body of 8 KiB is read",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "pad_to": 8192,
+      "status": 200,
+      "expect": {
+        "id": "living-room"
+      }
+    },
+    {
+      "name": "A name another thermostat answers to is 409",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "living  ROOM",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 24
+      },
+      "status": 409,
+      "error": "\"living  ROOM\" is already used by another thermostat"
+    },
+    {
+      "name": "A name Home Assistant would take for another is 409",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living_Room",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 24
+      },
+      "status": 409,
+      "error": "\"Living_Room\" is too close to \"Living Room\": both are living_room to Home Assistant"
+    },
+    {
+      "name": "A climate's name from the YAML is 409",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Hall",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 24
+      },
+      "status": 409,
+      "error": "\"Hall\" is already used by another thermostat"
+    },
+    {
+      "name": "Its own name never blocks a thermostat",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "id": "living-room"
+      },
+      "status": 200,
+      "expect": {
+        "message": "Thermostat updated"
+      }
+    },
+    {
+      "name": "A create past max_controllers is 507",
+      "setup": [
+        "living-room",
+        "floor",
+        "guest-room"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Den",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 24,
+        "enabled": false
+      },
+      "status": 507,
+      "error": "This device allows 3 thermostats; delete one to add another"
+    },
+    {
+      "name": "The limit comes before the name",
+      "setup": [
+        "living-room",
+        "floor",
+        "guest-room"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "enabled": false
+      },
+      "status": 507,
+      "error": "This device allows 3 thermostats; delete one to add another"
+    },
+    {
+      "name": "A taken name comes first, then a sensor not in °C, then a held relay",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "living room",
+        "kind": "pid",
+        "sensor_id": "uptime",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 409,
+      "error": "\"living room\" is already used by another thermostat",
+      "then": [
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Kitchen",
+            "kind": "pid",
+            "sensor_id": "uptime",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 22
+          },
+          "status": 400,
+          "error": "\"Uptime\" reports s, not °C"
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Kitchen",
+            "kind": "pid",
+            "sensor_id": "temp_2",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 22
+          },
+          "status": 409,
+          "error": "\"Relay 1\" is already driven by \"Living Room\""
+        }
+      ]
+    },
+    {
+      "name": "A disabled thermostat may name a sensor not in °C",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "uptime",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "enabled": false
+      },
+      "status": 200,
+      "expect": {
+        "id": "living-room"
+      }
+    },
+    {
+      "name": "A held relay is 409 even when the sensor is missing",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Kitchen",
+        "kind": "pid",
+        "sensor_id": "attic",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 409,
+      "error": "\"Relay 1\" is already driven by \"Living Room\""
+    },
+    {
+      "name": "An enabled Save whose sensor is missing is stored and waits",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Attic",
+        "enabled": true,
+        "kind": "pid",
+        "sensor_id": "attic",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 20
+      },
+      "status": 200,
+      "expect": {
+        "message": "Thermostat created; not started: sensor 'attic' not found",
+        "id": "attic",
+        "warning": "not started: sensor 'attic' not found"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.enabled": true,
+            "controllers.0.running": false,
+            "controllers.0.waiting": "not started: sensor 'attic' not found"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "status?id=attic",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.running": false,
+            "controllers.0.waiting": "not started: sensor 'attic' not found",
+            "controllers.0.action": "off",
+            "controllers.0.fault": "none"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "entities",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "switches.object_id=relay_1.claimed_by": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "An enabled Save whose relay is missing is stored and waits",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Floor",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_9"
+        },
+        "mode": "heat",
+        "setpoint": 24
+      },
+      "status": 200,
+      "expect": {
+        "message": "Thermostat created; not started: relay 'relay_9' not found",
+        "warning": "not started: relay 'relay_9' not found"
+      }
+    },
+    {
+      "name": "A Save onto a missing sensor stops the thermostat and lets its relay go",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "attic",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "id": "living-room"
+      },
+      "status": 200,
+      "expect": {
+        "message": "Thermostat updated; not started: sensor 'attic' not found",
+        "warning": "not started: sensor 'attic' not found"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "entities",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "switches.object_id=relay_1.claimed_by": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "Delete removes a thermostat and lets its relay go",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "delete?id=living-room",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "success": true,
+        "message": "Thermostat deleted",
+        "persisted": true
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 404,
+          "error": "Thermostat not found"
+        },
+        {
+          "method": "GET",
+          "path": "entities",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "switches.object_id=relay_1.claimed_by": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "Delete of an unknown id is 404",
+      "method": "POST",
+      "path": "delete?id=ghost",
+      "body": null,
+      "status": 404,
+      "error": "Thermostat not found"
+    },
+    {
+      "name": "Delete without an id is 400",
+      "method": "POST",
+      "path": "delete",
+      "body": null,
+      "status": 400,
+      "error": "Missing id parameter"
+    },
+    {
+      "name": "Delete of an id that is no slug is 400",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "delete?id=Living-Room",
+      "body": null,
+      "status": 400,
+      "error": "Invalid id parameter"
+    },
+    {
+      "name": "Enable false stops a thermostat and stores the flag",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "enable?id=living-room&value=false",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "message": "Thermostat disabled",
+        "persisted": true
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.enabled": false,
+            "controllers.0.running": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "Enable true starts a thermostat",
+      "setup": [
+        "guest-room"
+      ],
+      "method": "POST",
+      "path": "enable?id=guest-room&value=true",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "message": "Thermostat enabled",
+        "persisted": true
+      },
+      "absent": [
+        "warning"
+      ],
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.enabled": true,
+            "controllers.0.running": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "Enable of a thermostat whose relay is held is 409",
+      "setup": [
+        "living-room",
+        "guest-room"
+      ],
+      "method": "POST",
+      "path": "enable?id=guest-room&value=true",
+      "body": null,
+      "status": 409,
+      "error": "\"Relay 1\" is already driven by \"Living Room\""
+    },
+    {
+      "name": "Enable with take_over stops the holder and stores it disabled",
+      "setup": [
+        "living-room",
+        "guest-room"
+      ],
+      "method": "POST",
+      "path": "enable?id=guest-room&value=true&take_over=true",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "message": "Thermostat enabled; \"Living Room\" stopped",
+        "persisted": true
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.id=living-room.enabled": false,
+            "controllers.id=living-room.running": false,
+            "controllers.id=guest-room.running": true
+          }
+        },
+        {
+          "method": "GET",
+          "path": "entities",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "switches.object_id=relay_1.claimed_by": "guest-room"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Taking two relays over names every thermostat it stopped",
+      "setup": [
+        "living-room",
+        "floor",
+        "studio"
+      ],
+      "method": "POST",
+      "path": "enable?id=studio&value=true&take_over=true",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "message": "Thermostat enabled; \"Living Room\" and \"Floor\" stopped"
+      }
+    },
+    {
+      "name": "A take-over by one whose sensor is missing is 400 and the holder runs on",
+      "setup": [
+        "living-room",
+        "attic"
+      ],
+      "method": "POST",
+      "path": "enable?id=attic&value=true&take_over=true",
+      "body": null,
+      "status": 400,
+      "error": "No sensor \"attic\" on this device",
+      "then": [
+        {
+          "method": "GET",
+          "path": "status?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.running": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "A take-over by one whose relay is missing is 400",
+      "setup": [
+        "living-room",
+        "porch"
+      ],
+      "method": "POST",
+      "path": "enable?id=porch&value=true&take_over=true",
+      "body": null,
+      "status": 400,
+      "error": "No switch \"relay_9\" on this device"
+    },
+    {
+      "name": "Enable on a sensor not in °C is 400",
+      "setup": [
+        "uptime-room"
+      ],
+      "method": "POST",
+      "path": "enable?id=uptime-room&value=true",
+      "body": null,
+      "status": 400,
+      "error": "\"Uptime\" reports s, not °C"
+    },
+    {
+      "name": "Enable whose sensor is missing stores the flag and waits",
+      "setup": [
+        "attic"
+      ],
+      "method": "POST",
+      "path": "enable?id=attic&value=true",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "message": "Thermostat enabled; not started: sensor 'attic' not found",
+        "persisted": true,
+        "warning": "not started: sensor 'attic' not found"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.enabled": true,
+            "controllers.0.running": false,
+            "controllers.0.waiting": "not started: sensor 'attic' not found"
+          }
+        }
+      ]
+    },
+    {
+      "name": "A take-over with nothing to take answers as a plain enable",
+      "setup": [
+        "attic"
+      ],
+      "method": "POST",
+      "path": "enable?id=attic&value=true&take_over=true",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "message": "Thermostat enabled; not started: sensor 'attic' not found",
+        "warning": "not started: sensor 'attic' not found"
+      }
+    },
+    {
+      "name": "Enable without a value is 400",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "enable?id=living-room",
+      "body": null,
+      "status": 400,
+      "error": "Missing value parameter"
+    },
+    {
+      "name": "Enable with a value other than true or false is 400",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "enable?id=living-room&value=1",
+      "body": null,
+      "status": 400,
+      "error": "Invalid value parameter"
+    },
+    {
+      "name": "Enable with a take_over other than true or false is 400",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "enable?id=living-room&value=true&take_over=yes",
+      "body": null,
+      "status": 400,
+      "error": "Invalid take_over parameter"
+    },
+    {
+      "name": "Enable reads its parameters before it looks the id up",
+      "method": "POST",
+      "path": "enable?id=ghost&value=maybe",
+      "body": null,
+      "status": 400,
+      "error": "Invalid value parameter"
+    },
+    {
+      "name": "Enable of an unknown id is 404",
+      "method": "POST",
+      "path": "enable?id=ghost&value=true",
+      "body": null,
+      "status": 404,
+      "error": "Thermostat not found"
+    },
+    {
+      "name": "Enable of an id that is no slug is 400",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "enable?id=Living-Room&value=false",
+      "body": null,
+      "status": 400,
+      "error": "Invalid id parameter"
+    },
+    {
+      "name": "Setpoint moves the target of a running thermostat",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "setpoint?id=living-room&value=23.5",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "success": true,
+        "message": "Setpoint updated"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "setpoint": 23.5
+          }
+        }
+      ]
+    },
+    {
+      "name": "Setpoint moves the target of a stopped thermostat",
+      "setup": [
+        "guest-room"
+      ],
+      "method": "POST",
+      "path": "setpoint?id=guest-room&value=18",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=guest-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "setpoint": 18
+          }
+        }
+      ]
+    },
+    {
+      "name": "Setpoint holds the target inside the range",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "setpoint?id=living-room&value=1e30",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "setpoint": 45
+          }
+        }
+      ]
+    },
+    {
+      "name": "Setpoint with a value that is no number is 400",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "setpoint?id=living-room&value=abc",
+      "body": null,
+      "status": 400,
+      "error": "Invalid value parameter"
+    },
+    {
+      "name": "Setpoint without a value is 400",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "setpoint?id=living-room",
+      "body": null,
+      "status": 400,
+      "error": "Missing value parameter"
+    },
+    {
+      "name": "Setpoint reads its id first",
+      "method": "POST",
+      "path": "setpoint?value=abc",
+      "body": null,
+      "status": 400,
+      "error": "Missing id parameter"
+    },
+    {
+      "name": "Setpoint of an unknown id is 404",
+      "method": "POST",
+      "path": "setpoint?id=ghost&value=20",
+      "body": null,
+      "status": 404,
+      "error": "Thermostat not found"
+    },
+    {
+      "name": "A loop that never takes the job is 503 and changes nothing",
+      "setup": [
+        "living-room"
+      ],
+      "device_only": "loop_busy",
+      "method": "POST",
+      "path": "delete?id=living-room",
+      "body": null,
+      "status": 503,
+      "error": "Device busy",
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "count": 1,
+            "controllers.0.running": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "A read the loop never takes is 503 too",
+      "device_only": "loop_busy",
+      "method": "GET",
+      "path": "list",
+      "body": null,
+      "status": 503,
+      "error": "Device busy"
+    },
+    {
+      "name": "Storage that was not usable at boot refuses every write with 500",
+      "device_only": "storage_failed",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 500,
+      "error": "Thermostat storage is not available"
+    },
+    {
+      "name": "Storage that was not usable at boot still answers a read",
+      "device_only": "storage_failed",
+      "method": "GET",
+      "path": "list",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "count": 0
+      }
+    },
+    {
+      "name": "A file that cannot be written is 500 and changes nothing",
+      "device_only": "storage_unwritable",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 500,
+      "error": "The thermostat's file could not be written",
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "count": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "A file over the cap is 413",
+      "device_only": "file_cap",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 413,
+      "error": "The thermostat's file would be over 8 KiB"
+    },
+    {
+      "name": "With no climate entity free a Save is stored and waits",
+      "device_only": "no_free_entity",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 200,
+      "expect": {
+        "message": "Thermostat created; not started: no free climate entity",
+        "warning": "not started: no free climate entity"
+      }
+    },
+    {
+      "name": "A delete whose file stays says it comes back at the next boot",
+      "setup": [
+        "living-room"
+      ],
+      "device_only": "file_stays",
+      "method": "POST",
+      "path": "delete?id=living-room",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "message": "Thermostat deleted; its file could not be removed, so it comes back at the next boot",
+        "persisted": false
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 404,
+          "error": "Thermostat not found"
+        }
+      ]
+    }
+  ]
+}

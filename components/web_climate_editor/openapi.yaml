@@ -698,7 +698,13 @@ components:
 
     Fault:
       type: string
-      enum: [none, sensor_missing, sensor_stale, relay_missing, overtemp]
+      enum: [none, sensor_stale, overtemp]
+      description: >-
+        Why a running thermostat holds its relays open: `sensor_stale` when
+        its sensor has given no reading for `sensor_timeout_s`, `overtemp`
+        while the reading is above `safety.max_temperature`. A sensor or a
+        relay that is not on the device is no fault: the thermostat does not
+        start, and says why in `waiting`.
 
     PartialOutputConfig:
       type: object

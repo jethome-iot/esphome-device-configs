@@ -23,6 +23,8 @@
 // for one is 400; with no other on its relays, take_over=true answers the same
 // 200. A relay a change frees starts the enabled thermostats that wait for it,
 // in id order, and the answer names them.
+// tests/components/web_climate_editor/contract.json lists the requests it must
+// answer as the device does.
 // /status reads a first-order room model per sensor, heated and cooled by the
 // duties of the thermostats bound to it. control() stands in for Home Assistant
 // setting a running thermostat's mode or target through its climate entity.
@@ -155,7 +157,7 @@ export function schemaFor(maxControllers: number): ClimateSchema {
   return {
     kinds: ['pid', 'bang_bang'],
     modes: ['off', 'heat', 'cool', 'heat_cool'],
-    faults: ['none', 'sensor_missing', 'sensor_stale', 'relay_missing', 'overtemp'],
+    faults: ['none', 'sensor_stale', 'overtemp'],
     max_controllers: maxControllers,
     name_max_length: NAME_MAX_LENGTH,
     params
