@@ -4,7 +4,7 @@ import { createHttp, type HttpOptions } from './http'
 import type { EntityIndexResponse, EntitySettingsMetaResponse, EntitySettingsGetResponse } from './types'
 
 export interface EntitySettingsApi {
-  /** GET /entities — object_id and name of every settable entity, per type. */
+  /** GET /entities — object_id, name and label of every settable entity, per type. */
   index(): Promise<EntityIndexResponse>
   /** GET /entity-settings-meta — field definitions per entity type. */
   meta(): Promise<EntitySettingsMetaResponse>

@@ -40,6 +40,7 @@ enum class RouteId : uint8_t {
   TEMPERATURE_SLOTS_FORGET,
   TEMPERATURE_SLOTS_ASSIGN,
   TEMPERATURE_SLOTS_OFFSET,
+  TEMPERATURE_SLOTS_LABEL,
 #endif
 #ifdef USE_CONFIG_JSON
   ENTITIES,
@@ -61,7 +62,7 @@ using firmware_rollback::RollbackTarget;
 // The dashboard page at / and the device API under /api/device/: info (with the board's
 // EEPROM identity when jethome_board_info is wired in), status, network, what the firmware
 // can do, the three system actions, with web_auth the HTTP credentials, with dallas_scan the
-// temperature slots, forgetting and assigning them and their offsets, and with config_json the
+// temperature slots, forgetting and assigning them, their offsets and labels, and with config_json the
 // entity index, the entity settings and their form fields.
 class WebDeviceDashboard : public AsyncWebHandler, public Component {
  public:
@@ -141,6 +142,7 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   void handle_temperature_slots_forget_(AsyncWebServerRequest *request);
   void handle_temperature_slots_assign_(AsyncWebServerRequest *request);
   void handle_temperature_slots_offset_(AsyncWebServerRequest *request);
+  void handle_temperature_slots_label_(AsyncWebServerRequest *request);
   static std::string temperature_slots_json_(dallas_scan::DallasScan *scan);
   void send_slot_change_(AsyncWebServerRequest *request, std::string message, bool reboot_required,
                          const char *waits = "; applies after a reboot");
