@@ -684,9 +684,9 @@ const ROUTES = new Map<string, boolean>([
   ['preset', true]
 ])
 
-// The room model: every 2 s a relay at full duty adds 0.06 °C and the room loses
-// 0.5 % of its lead over ambient — slow enough for the default PID to settle, and
-// fast enough that a status card's trace moves within a minute.
+// The room model: every 2 s a closed heating relay adds 0.06 °C, a closed cooling one
+// takes it away, and the room loses 0.5 % of its lead over ambient — slow enough for the
+// default PID to settle, and fast enough that a status card's trace moves within a minute.
 const STEP_MS = 2000
 const HEAT_PER_STEP = 0.06
 const LOSS_PER_STEP = 0.005
@@ -1072,11 +1072,10 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
         if (room.temp === null) continue
         let power = 0
         for (const doc of docs) {
-          const rt = running.get(doc.id)
-          if (!rt || doc.sensor_id !== sensorId) continue
-          // What the relays do, a PID's averaged over its period.
-          const sign = rt.action === 'heating' ? 1 : rt.action === 'cooling' ? -1 : 0
-          power += sign * (doc.kind === 'pid' ? Math.max(rt.heatDuty, rt.coolDuty) : 1)
+          if (!running.has(doc.id) || doc.sensor_id !== sensorId) continue
+          // The relays as they are, so a minimum that holds one shows in the room too.
+          if (doc.heat.relay_id && relayOf(doc.heat.relay_id).on) power += 1
+          if (doc.cool.relay_id && relayOf(doc.cool.relay_id).on) power -= 1
         }
         room.temp += HEAT_PER_STEP * power - (room.temp - room.ambient) * LOSS_PER_STEP
       }
