@@ -1,7 +1,7 @@
 """Per-switch and per-binary_sensor settings kept by config_json, applied at boot and editable at run time.
 
-Each type is opt-in via `settings:`. Here the display menu is the only editor; the REST endpoint
-the record hooks were written for is not part of this repository.
+Each type is opt-in via `settings:`. The display menu and web_device_dashboard edit them; a
+label is set from the dashboard only.
 """
 
 import esphome.codegen as cg
@@ -111,12 +111,16 @@ async def to_code(config):
     json_keeper = await cg.get_variable(config[CONF_CONFIG_JSON_ID])
     enabled = config[CONF_SETTINGS]
 
+    switch_settings = None
     if SETTING_SWITCH in enabled:
         cg.add_define("ENTITY_CONFIG_SWITCH")
-        await _add_settings(json_keeper, config, SETTING_SWITCH)
+        switch_settings = await _add_settings(json_keeper, config, SETTING_SWITCH)
 
     if SETTING_BINARY_SENSOR in enabled:
         cg.add_define("ENTITY_CONFIG_BINARY_SENSOR")
         # Inversion is a filter appended at run time; the chain only compiles with this.
         cg.add_define("USE_BINARY_SENSOR_FILTER")
-        await _add_settings(json_keeper, config, SETTING_BINARY_SENSOR)
+        inputs = await _add_settings(json_keeper, config, SETTING_BINARY_SENSOR)
+        # A relay's Bind to options name the inputs by their labels.
+        if switch_settings is not None:
+            cg.add(switch_settings.set_input_settings(inputs))

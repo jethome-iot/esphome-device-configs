@@ -4,14 +4,26 @@ namespace esphome::entity_config::testing {
 
 TEST(BinarySensorRecord, RoundTripsThroughJson) {
   BinarySensorSettingsRecord record;
-  EXPECT_TRUE(load(R"({"source_name":"input_1","inverted":true})", record));
+  EXPECT_TRUE(load(R"({"source_name":"input_1","inverted":true,"label":"Входная дверь"})", record));
   EXPECT_TRUE(record.inverted);
+  EXPECT_EQ(record.label, "Входная дверь");
   EXPECT_EQ(record.key(), fnv1_hash("input_1"));
-  EXPECT_EQ(dump(record), R"({"source_name":"input_1","inverted":true})");
+  EXPECT_EQ(dump(record), R"({"source_name":"input_1","inverted":true,"label":"Входная дверь"})");
   BinarySensorSettingsRecord sparse;
   EXPECT_TRUE(load(R"({"source_name":"input_2"})", sparse));
   EXPECT_FALSE(sparse.inverted);
+  EXPECT_EQ(sparse.label, "");
+  EXPECT_EQ(dump(sparse), R"({"source_name":"input_2","inverted":false,"label":""})");
   EXPECT_FALSE(load(R"({"inverted":true})", sparse));
+}
+
+TEST(BinarySensorRecord, AnInvalidLabelInTheFileIsDropped) {
+  LogCapture::instance().warnings.clear();
+  BinarySensorSettingsRecord record;
+  EXPECT_TRUE(load(R"({"source_name":"input_1","inverted":true,"label":"line\nbreak"})", record));
+  EXPECT_EQ(record.label, "");
+  EXPECT_TRUE(record.inverted);
+  EXPECT_TRUE(LogCapture::instance().has("Invalid label for 'input_1'"));
 }
 
 class BinarySensorSettings : public ::testing::Test {
@@ -97,6 +109,76 @@ TEST_F(BinarySensorSettings, ARestWriteRefusesAnInvertedThatIsNotABoolean) {
   JsonDocument accepted = body(R"({"source_name":"input_1","settings":{"inverted":true}})");
   ASSERT_NE(settings.update_record(accepted.as<JsonObject>()), nullptr);
   EXPECT_TRUE(settings.is_inverted(&e.in1));
+}
+
+// --- labels ---
+
+TEST_F(BinarySensorSettings, ALabelIsShownInPlaceOfTheName) {
+  EXPECT_EQ(settings.display_name(&e.in1), "Input 1");
+  JsonDocument labelled = body(R"({"source_name":"input_1","settings":{"label":" Входная дверь  "}})");
+  ASSERT_NE(settings.update_record(labelled.as<JsonObject>()), nullptr);
+  EXPECT_EQ(settings.display_name(&e.in1), "Входная дверь");
+  EXPECT_EQ(settings.get_label("input_1"), "Входная дверь");
+  EXPECT_EQ(settings.display_name(&e.in2), "Input 2");
+  EXPECT_EQ(settings.get_label("no_such_input"), "");
+
+  JsonDocument cleared = body(R"({"source_name":"input_1","settings":{"label":"   "}})");
+  ASSERT_NE(settings.update_record(cleared.as<JsonObject>()), nullptr);
+  EXPECT_EQ(settings.display_name(&e.in1), "Input 1");
+}
+
+// `inverted` keeps its own rule, left out is false; the label is kept.
+TEST_F(BinarySensorSettings, ALabelLeftOutKeepsItsValueWhileInvertedLeftOutIsFalse) {
+  JsonDocument first = body(R"({"source_name":"input_1","settings":{"inverted":true,"label":"Door"}})");
+  ASSERT_NE(settings.update_record(first.as<JsonObject>()), nullptr);
+  EXPECT_TRUE(settings.is_inverted(&e.in1));
+
+  JsonDocument without = body(R"({"source_name":"input_1","settings":{}})");
+  ASSERT_NE(settings.update_record(without.as<JsonObject>()), nullptr);
+  EXPECT_EQ(settings.get_label("input_1"), "Door");
+  EXPECT_FALSE(settings.is_inverted(&e.in1));
+
+  JsonDocument inverted_only = body(R"({"source_name":"input_1","settings":{"inverted":true}})");
+  ASSERT_NE(settings.update_record(inverted_only.as<JsonObject>()), nullptr);
+  EXPECT_EQ(settings.get_label("input_1"), "Door");
+  EXPECT_TRUE(settings.is_inverted(&e.in1));
+
+  JsonDocument null_label = body(R"({"source_name":"input_1","settings":{"inverted":true,"label":null}})");
+  ASSERT_NE(settings.update_record(null_label.as<JsonObject>()), nullptr);
+  EXPECT_EQ(settings.get_label("input_1"), "Door");
+
+  JsonDocument label_only = body(R"({"source_name":"input_1","settings":{"label":"Gate"}})");
+  ASSERT_NE(settings.update_record(label_only.as<JsonObject>()), nullptr);
+  EXPECT_EQ(settings.get_label("input_1"), "Gate");
+  EXPECT_FALSE(settings.is_inverted(&e.in1));
+}
+
+TEST_F(BinarySensorSettings, ABadLabelRefusesTheWholeWrite) {
+  JsonDocument first = body(R"({"source_name":"input_1","settings":{"label":"Door"}})");
+  ASSERT_NE(settings.update_record(first.as<JsonObject>()), nullptr);
+
+  const std::string head = R"({"source_name":"input_1","settings":{"inverted":true,"label":)";
+  for (const std::string label : {
+           std::string(R"("Twenty-five characters!!!")"),
+           std::string(R"("a\u0000b")"),
+           std::string("\"\xFF\""),
+           std::string("[\"Door\"]"),
+       }) {
+    JsonDocument refused = body((head + label + "}}").c_str());
+    EXPECT_EQ(settings.update_record(refused.as<JsonObject>()), nullptr) << label;
+  }
+  EXPECT_EQ(settings.get_label("input_1"), "Door");
+  EXPECT_FALSE(settings.is_inverted(&e.in1));
+}
+
+TEST_F(BinarySensorSettings, TheMetaOffersALabelFirst) {
+  JsonDocument doc;
+  JsonObject obj = doc.to<JsonObject>();
+  settings.write_settings_meta(obj);
+  EXPECT_EQ(obj["label"]["type"].as<std::string>(), "string");
+  EXPECT_EQ(obj["label"]["max_length"].as<int>(), 24);
+  EXPECT_EQ(std::string(obj.begin()->key().c_str()), "label");
+  EXPECT_EQ(obj["inverted"]["type"].as<std::string>(), "boolean");
 }
 
 }  // namespace esphome::entity_config::testing
