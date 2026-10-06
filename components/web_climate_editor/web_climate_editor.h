@@ -17,6 +17,7 @@ enum class RouteId : uint8_t {
   SCHEMA,
   PING,
   SAVE,
+  IMPORT,
   DELETE,
   ENABLE,
   SETPOINT,
@@ -72,7 +73,7 @@ class WebClimateEditor : public AsyncWebHandler, public Component {
   void handle_status_(AsyncWebServerRequest *request);
   void handle_entities_(AsyncWebServerRequest *request);
   void handle_schema_(AsyncWebServerRequest *request);
-  void handle_save_(AsyncWebServerRequest *request);
+  void handle_document_(AsyncWebServerRequest *request, bool importing);
   void handle_delete_(AsyncWebServerRequest *request);
   void handle_enable_(AsyncWebServerRequest *request);
   void handle_setpoint_(AsyncWebServerRequest *request);

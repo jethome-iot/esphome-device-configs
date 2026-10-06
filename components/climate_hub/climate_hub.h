@@ -30,7 +30,7 @@ struct Result {
   uint16_t code{200};
   /// On failure, the sentence the editor shows.
   std::string error;
-  /// create(): the id the new thermostat got.
+  /// create(): the id the new thermostat got; restore(): the id it brought.
   std::string id;
   /// A 409 over a relay: the id of the thermostat that holds it, or that is enabled, waits and
   /// names it.
@@ -117,6 +117,12 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// `revision`, when given, is the one the caller read: the device changed the document since
   /// if it is not the stored one, and the Save is refused with 409. It ends a calibration.
   Result update(const std::string &id, ClimateConfig doc, optional<uint32_t> revision = nullopt);
+  /// Brings a thermostat back under the id its document names, as a backup holds it: one with
+  /// that id is replaced, as update() replaces it, otherwise one is created with it. The
+  /// presets keep their keys and the active preset stays, since rules name them so. Refused
+  /// as create() and update() refuse, and with 400 for an id that is no slug or is `new`, and
+  /// 409 for an id a file the boot did not load holds.
+  Result restore(ClimateConfig doc);
   /// Stops and deletes a thermostat, and starts the thermostats that wait for its relays.
   Result remove(const std::string &id);
   /// Starts or stops a thermostat and stores the flag. Enabling is refused as a Save is: 400
@@ -181,6 +187,12 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   bool load_();
   bool load_file_(const std::string &folder, const std::string &filename);
   void resolve_name_(ClimateConfig *config);
+
+  /// The end of create() and restore(): `doc`, written already, joins the store and starts.
+  /// `verb` heads the log line.
+  Result add_(const ClimateConfig &doc, const char *verb);
+  /// The end of update() and restore(): `doc`, written already, takes `stored`'s place.
+  Result replace_(ClimateConfig *stored, const ClimateConfig &doc, const char *verb);
 
   bool start_(ClimateConfig *config, std::string *error);
   /// Keeps `error` as why `id` waits, and returns it worded as a `warning`.

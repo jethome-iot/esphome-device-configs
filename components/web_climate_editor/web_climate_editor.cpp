@@ -32,6 +32,7 @@ static const Route ROUTES[] = {
     {"schema", RouteId::SCHEMA, false},
     {"ping", RouteId::PING, false},
     {"save", RouteId::SAVE, true},
+    {"import", RouteId::IMPORT, true},
     {"delete", RouteId::DELETE, true},
     {"enable", RouteId::ENABLE, true},
     {"setpoint", RouteId::SETPOINT, true},
@@ -267,7 +268,10 @@ void WebClimateEditor::handleRequest(AsyncWebServerRequest *request) {
         request->send(200, "application/json", R"({"status":"ok"})");
         break;
       case RouteId::SAVE:
-        this->handle_save_(request);
+        this->handle_document_(request, false);
+        break;
+      case RouteId::IMPORT:
+        this->handle_document_(request, true);
         break;
       case RouteId::DELETE:
         this->handle_delete_(request);
@@ -558,7 +562,8 @@ void WebClimateEditor::handle_schema_(AsyncWebServerRequest *request) {
 
 // --- Writes: the checks and the change go over together, so the answer is what happened ---
 
-void WebClimateEditor::handle_save_(AsyncWebServerRequest *request) {
+// save and import: a document in the body, and the answer says what the hub made of it.
+void WebClimateEditor::handle_document_(AsyncWebServerRequest *request, bool importing) {
   if (this->body_too_large_) {
     this->send_error_(request, "Request body over 8 KiB", 413);
     return;
@@ -585,22 +590,27 @@ void WebClimateEditor::handle_save_(AsyncWebServerRequest *request) {
       return true;
     }
     ClimateConfig config;
-    if (!config.deserialize(doc.as<JsonObject>(), false, &error))
+    // An import names the thermostat it brings back, so its id is required.
+    if (!config.deserialize(doc.as<JsonObject>(), importing, &error))
       return true;
-    // An id picks the thermostat to replace; none, or "", creates one.
+    // A save's id picks the thermostat to replace, none or "" creates one; an import's
+    // replaces one or creates it under that id.
     const std::string id = config.id;
+    const bool replaces = !id.empty() && this->hub_->store().get(id) != nullptr;
     // The revision the form was read at, when it sends one: a form read before a calibration
     // wrote new gains would write the old ones back.
     optional<uint32_t> revision;
     if (doc["revision"].is<uint32_t>())
       revision = doc["revision"].as<uint32_t>();
-    const Result result = id.empty() ? this->hub_->create(config) : this->hub_->update(id, config, revision);
+    const Result result = importing    ? this->hub_->restore(config)
+                          : id.empty() ? this->hub_->create(config)
+                                       : this->hub_->update(id, config, revision);
     if (!result.ok) {
       code = result.code;
       error = result.error;
       return true;
     }
-    std::string message = id.empty() ? "Thermostat created" : "Thermostat updated";
+    std::string message = !replaces ? "Thermostat created" : importing ? "Thermostat replaced" : "Thermostat updated";
     message += started_note(*this->hub_, result);
     if (!result.warning.empty())
       message += "; " + result.warning;

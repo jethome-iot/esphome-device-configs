@@ -182,6 +182,9 @@ std::string slugify_id(const std::string &name, const char *fallback = "climate"
 /// `base` with "-<n>" appended, cut so the whole stays within ID_MAX_LENGTH; n < 2 is `base`.
 std::string id_with_suffix(const std::string &base, unsigned n);
 
+/// The rules an id read from outside meets: present, and a slug.
+bool validate_id(const std::string &id, std::string *error);
+
 /// The name with surrounding ASCII whitespace removed.
 std::string trim_name(const std::string &name);
 

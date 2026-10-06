@@ -47,8 +47,8 @@ TEST_F(Editor, AnotherPrefixMovesTheRoutes) {
 // The method is checked before anything else the request carries: an id that names no
 // thermostat, or none at all, still gets the 405.
 TEST_F(Editor, MutatingRoutesArePostOnlyAndTheRestGetOnly) {
-  for (const char *route :
-       {"save", "delete?id=nope", "enable?id=nope&value=true", "setpoint?id=nope&value=1", "preset?id=nope&key=eco"}) {
+  for (const char *route : {"save", "import", "delete?id=nope", "enable?id=nope&value=true", "setpoint?id=nope&value=1",
+                            "preset?id=nope&key=eco"}) {
     Reply reply = this->get(route);
     EXPECT_TRUE(reply.claimed) << route;
     EXPECT_EQ(reply.code, 405) << route;
@@ -61,6 +61,7 @@ TEST_F(Editor, MutatingRoutesArePostOnlyAndTheRestGetOnly) {
     EXPECT_EQ(reply.header("Allow"), "GET") << route;
   }
   EXPECT_EQ(this->call(HTTP_OPTIONS, "save", LIVING_ROOM).code, 405);
+  EXPECT_EQ(this->call(HTTP_OPTIONS, "import", with(LIVING_ROOM, R"("id":"living-room")")).code, 405);
   EXPECT_EQ(this->call(HTTP_OPTIONS, "list").code, 405);
   EXPECT_TRUE(this->files().empty());
 }
@@ -75,8 +76,8 @@ TEST_F(Editor, EveryRouteAnswersItsOneMethodAndRefusesTheRest) {
   };
   for (const Case &c :
        {Case{"list", HTTP_GET}, Case{"get", HTTP_GET}, Case{"status", HTTP_GET}, Case{"entities", HTTP_GET},
-        Case{"schema", HTTP_GET}, Case{"ping", HTTP_GET}, Case{"save", HTTP_POST}, Case{"delete", HTTP_POST},
-        Case{"enable", HTTP_POST}, Case{"setpoint", HTTP_POST}, Case{"preset", HTTP_POST}}) {
+        Case{"schema", HTTP_GET}, Case{"ping", HTTP_GET}, Case{"save", HTTP_POST}, Case{"import", HTTP_POST},
+        Case{"delete", HTTP_POST}, Case{"enable", HTTP_POST}, Case{"setpoint", HTTP_POST}, Case{"preset", HTTP_POST}}) {
     const char *allow = c.method == HTTP_POST ? "POST" : "GET";
     for (http_method method : {HTTP_GET, HTTP_POST, HTTP_OPTIONS}) {
       Reply reply = this->call(method, c.route);
@@ -122,9 +123,12 @@ TEST_F(Editor, RefusesACrossSiteWriteAndChangesNothing) {
   ASSERT_EQ(id, "living-room");
   const char *evil = "http://evil.example";
 
-  for (const auto &route : {std::string("save"), "delete?id=" + id, "enable?id=" + id + "&value=false",
-                            "setpoint?id=" + id + "&value=30", "preset?id=" + id + "&key=eco"}) {
-    Reply reply = this->call(HTTP_POST, route, route == "save" ? FLOOR : "", "application/json", evil);
+  const std::string replacement = with(FLOOR, R"("id":")" + id + "\"");
+  for (const auto &route :
+       {std::string("save"), std::string("import"), "delete?id=" + id, "enable?id=" + id + "&value=false",
+        "setpoint?id=" + id + "&value=30", "preset?id=" + id + "&key=eco"}) {
+    const std::string body = route == "save" ? FLOOR : route == "import" ? replacement : "";
+    Reply reply = this->call(HTTP_POST, route, body, "application/json", evil);
     EXPECT_TRUE(reply.claimed) << route;
     EXPECT_EQ(reply.code, 403) << route;
     EXPECT_EQ(reply.type, "text/plain") << route;
@@ -132,6 +136,7 @@ TEST_F(Editor, RefusesACrossSiteWriteAndChangesNothing) {
   }
   EXPECT_EQ(this->files(), std::vector<std::string>{"living-room.json"});
   EXPECT_TRUE(hub().is_running(id));
+  EXPECT_EQ(hub().store().get(id)->name, "Living Room");
   EXPECT_FLOAT_EQ(hub().store().get(id)->setpoint, 22.f);
 }
 
@@ -140,7 +145,8 @@ TEST_F(Editor, RefusesACrossSiteWriteAndChangesNothing) {
 TEST_F(Editor, RefusesACrossSiteReadBeforeItReachesTheLoopTask) {
   ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
   hub().jobs = 0;
-  for (const char *route : {"list", "get?id=living-room", "status", "entities", "schema", "ping", "nothing", "save"}) {
+  for (const char *route :
+       {"list", "get?id=living-room", "status", "entities", "schema", "ping", "nothing", "save", "import"}) {
     for (const char *origin : {"http://evil.example", "null", "http://device.local.evil.example"}) {
       Reply reply = this->call(HTTP_GET, route, "", "application/json", origin);
       EXPECT_EQ(reply.code, 403) << route << " from " << origin;
@@ -153,17 +159,21 @@ TEST_F(Editor, RefusesACrossSiteReadBeforeItReachesTheLoopTask) {
 // The guard drops a refused request's body before it reaches the editor, so nothing of it is
 // left for the next request to read as its own.
 TEST_F(Editor, ARefusedCrossSiteBodyIsNotKept) {
-  const std::string body = LIVING_ROOM;
-  Reply refused = this->call(HTTP_POST, "save", body, "application/json", "http://evil.example");
-  ASSERT_EQ(refused.code, 403);
-  Reply form = this->call(HTTP_POST, "save", std::string(body.size(), 'x'), "application/x-www-form-urlencoded");
-  EXPECT_EQ(form.code, 400);
-  EXPECT_EQ(form.error(), "Empty request body");
+  for (const char *route : {"save", "import"}) {
+    const std::string body = with(LIVING_ROOM, R"("id":"living-room")");
+    Reply refused = this->call(HTTP_POST, route, body, "application/json", "http://evil.example");
+    ASSERT_EQ(refused.code, 403) << route;
+    Reply form = this->call(HTTP_POST, route, std::string(body.size(), 'x'), "application/x-www-form-urlencoded");
+    EXPECT_EQ(form.code, 400) << route;
+    EXPECT_EQ(form.error(), "Empty request body") << route;
+  }
   EXPECT_TRUE(this->files().empty());
 }
 
 TEST_F(Editor, ServesTheDevicesOwnPage) {
   Reply reply = this->call(HTTP_POST, "save", LIVING_ROOM, "application/json", "http://device.local");
+  EXPECT_EQ(reply.code, 200) << reply.body;
+  reply = this->call(HTTP_POST, "import", with(FLOOR, R"("id":"floor")"), "application/json", "http://device.local");
   EXPECT_EQ(reply.code, 200) << reply.body;
 }
 

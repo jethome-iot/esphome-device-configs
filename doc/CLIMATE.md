@@ -128,9 +128,10 @@ it.
 ## Over HTTP
 
 `features/climate-editor.yaml` serves the thermostats on the web server port under
-`/climate-editor/api`: list them, read, create, change and delete one, edit and pick its
-presets, start or stop it, move its target, calibrate it, and watch what each one is doing and
-which preset is active. The routes and their contract are in
+`/climate-editor/api`: list them, read, create, change and delete one, bring one back from a
+backup under its own id with its presets as they were, edit and pick its presets, start or stop
+it, move its target, calibrate it, and watch what each one is doing and which preset is active.
+The routes and their contract are in
 [components/web_climate_editor/openapi.yaml](../components/web_climate_editor/openapi.yaml),
 the usage in [its README](../components/web_climate_editor/README.md).
 
