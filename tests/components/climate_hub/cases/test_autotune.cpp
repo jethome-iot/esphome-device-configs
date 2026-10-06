@@ -500,6 +500,26 @@ TEST_F(Calibration, TheCutOutStaysLiveAndEndsIt) {
   EXPECT_EQ(HubFault::OVERTEMP, hub().runtime_of(id)->fault());
 }
 
+// The reading that would give the gains ends the run before the next pass sees it over the cut-out.
+TEST_F(Calibration, AReadingOverTheCutOutThatWouldFinishItEndsIt) {
+  ClimateConfig config = living_room();
+  config.safety.max_temperature = 25.f;
+  const std::string id = this->start(config, 21.f);
+  ASSERT_TRUE(this->calibrate(id).ok);
+  for (float reading : {20.7f, 21.3f, 20.7f, 21.3f, 20.7f})
+    hold(reading, 10, 1);
+  ASSERT_EQ(5u, hub().autotune(id)->tuner().phase_count()) << "the next switch finishes it";
+  hub().ms += 10000;
+  entities().room.publish_state(26.f);
+  const AutotuneRun *run = hub().autotune(id);
+  EXPECT_EQ(AutotuneState::FAILED, run->state());
+  EXPECT_EQ(AutotuneEnd::OVERTEMP, run->reason());
+  EXPECT_EQ(0.6f, hub().store().get(id)->pid.kp) << "no gains from it";
+  EXPECT_EQ(0u, hub().store().get(id)->revision);
+  EXPECT_EQ(0.6f, this->on_flash(id).pid.kp);
+  EXPECT_EQ(0u, this->on_flash(id).revision);
+}
+
 TEST_F(Calibration, ARelaySwitchedFromElsewhereEndsIt) {
   const std::string id = this->start(living_room(), 21.f);
   ASSERT_TRUE(this->calibrate(id).ok);
@@ -521,6 +541,29 @@ TEST_F(Calibration, ADayEndsIt) {
   EXPECT_EQ(AutotuneEnd::TIMEOUT, run->reason());
   EXPECT_EQ(5u, run->tuner().phase_count());
   EXPECT_LE(run->elapsed_ms(hub().ms), AUTOTUNE_MAX_MS + 61000);
+}
+
+// The reading that would give the gains comes after the day is up, before a pass could end the run.
+TEST_F(Calibration, AReadingPastTheDayThatWouldFinishItEndsIt) {
+  const std::string id = this->start(living_room(), 21.f);
+  ASSERT_TRUE(this->calibrate(id).ok);
+  const uint32_t started = hub().ms;
+  // A switch every 4.8 hours, a reading a minute: the last pass comes a minute short of the day.
+  const float readings[] = {20.7f, 21.3f, 20.7f, 21.3f, 20.7f};
+  for (size_t i = 0; i < std::size(readings); i++)
+    hold(readings[i], 60, i + 1 < std::size(readings) ? 288 : 287);
+  ASSERT_TRUE(hub().autotune(id)->running());
+  ASSERT_EQ(5u, hub().autotune(id)->tuner().phase_count()) << "the next switch finishes it";
+  ASSERT_EQ(started + AUTOTUNE_MAX_MS - 60000, hub().ms);
+  hub().ms += 60000;
+  entities().room.publish_state(21.3f);
+  const AutotuneRun *run = hub().autotune(id);
+  EXPECT_EQ(AutotuneState::FAILED, run->state());
+  EXPECT_EQ(AutotuneEnd::TIMEOUT, run->reason());
+  EXPECT_EQ(0.6f, hub().store().get(id)->pid.kp) << "no gains from it";
+  EXPECT_EQ(0u, hub().store().get(id)->revision);
+  EXPECT_EQ(0.6f, this->on_flash(id).pid.kp);
+  EXPECT_EQ(0u, this->on_flash(id).revision);
 }
 
 // A probe that hovers at the target crosses it reading after reading and never swings the relay.

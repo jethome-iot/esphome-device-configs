@@ -237,8 +237,8 @@ export type AutotuneState = 'running' | 'succeeded' | 'failed'
 
 /**
  * Why a calibration ended without gains: `cancelled`; a target or a mode that changed, from
- * anywhere (`target_changed`, `mode_changed`); a Save (`saved`); the thermostat stopped
- * (`stopped`) or another one took its relay over (`taken_over`); a fault (`sensor_stale`,
+ * anywhere (`target_changed`, `mode_changed`); a Save or an import (`saved`); the thermostat
+ * stopped (`stopped`) or another one took its relay over (`taken_over`); a fault (`sensor_stale`,
  * `overtemp`, `relay_contested`); 24 hours in all (`timeout`); 6 hours without a relay switch
  * (`no_switch`); readings that crossed the target more than 65 times, a noisy probe at the target
  * (`noisy`). '' while it runs and after a success.
