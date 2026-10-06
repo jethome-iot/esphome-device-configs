@@ -34,7 +34,7 @@ class ControlLoop : public HubTest {
   }
 
   // One pass of the hub's loop at `ms`.
-  static void tick(uint32_t ms) {
+  static void tick(uint64_t ms) {
     hub().ms = ms;
     hub().loop();
   }

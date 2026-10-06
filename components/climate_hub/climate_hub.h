@@ -142,8 +142,9 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// matches climates by name). `exclude_id` never blocks itself.
   bool is_name_taken(const std::string &name, const std::string &exclude_id, std::string *error) const;
 
-  /// The loop task's clock. Virtual so tests can move it.
-  virtual uint32_t now_ms() const;
+  /// The loop task's clock, millis_64(): a thermostat measures a silence of any length on it.
+  /// Virtual so tests can move it.
+  virtual uint64_t now_ms() const;
 
  protected:
   friend class HubClimate;
@@ -177,7 +178,7 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   bool acquire_claims_(const ClimateConfig &config, RelayClaim **heat, RelayClaim **cool, std::string *error);
   void release_claims_(const std::string &owner);
   /// Opens the claim's relay, remembers its last switching and drops the claim.
-  ClaimMap::iterator let_go_(ClaimMap::iterator it, uint32_t now_ms);
+  ClaimMap::iterator let_go_(ClaimMap::iterator it, uint64_t now_ms);
   /// The end of a mutator, after start_waiters_(): tells switch_hold about each relay let go of
   /// that is still free, and forgets them all.
   void announce_released_();
@@ -259,7 +260,7 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   std::vector<std::unique_ptr<SensorSubscription>> sensor_subs_;
 
   std::set<std::string> dirty_;
-  uint32_t dirty_since_ms_{0};
+  uint64_t dirty_since_ms_{0};
   uint32_t ha_resync_delay_ms_{2000};
   loop_job::LoopDispatcher dispatcher_;
 #ifdef USE_WEBSERVER_SORTING

@@ -144,7 +144,7 @@ ClimateHub::ClimateHub() {
   switch_hold::set_holder(this);
 }
 
-uint32_t ClimateHub::now_ms() const { return millis(); }
+uint64_t ClimateHub::now_ms() const { return millis_64(); }
 
 #ifdef USE_WEBSERVER_SORTING
 void ClimateHub::set_web_server_sorting(web_server::WebServer *server, uint64_t group, float weight) {
@@ -316,7 +316,7 @@ void ClimateHub::resolve_name_(ClimateConfig *config) {
 }
 
 void ClimateHub::loop() {
-  const uint32_t now = this->now_ms();
+  const uint64_t now = this->now_ms();
   for (Slot *slot : this->slots_) {
     if (slot->runtime.running())
       slot->runtime.tick(now);
@@ -888,14 +888,14 @@ bool ClimateHub::acquire_claims_(const ClimateConfig &config, RelayClaim **heat,
 }
 
 void ClimateHub::release_claims_(const std::string &owner) {
-  const uint32_t now = this->now_ms();
+  const uint64_t now = this->now_ms();
   for (auto it = this->claims_.begin(); it != this->claims_.end();)
     it = it->second->owner() == owner ? this->let_go_(it, now) : std::next(it);
 }
 
-ClimateHub::ClaimMap::iterator ClimateHub::let_go_(ClaimMap::iterator it, uint32_t now_ms) {
+ClimateHub::ClaimMap::iterator ClimateHub::let_go_(ClaimMap::iterator it, uint64_t now_ms) {
   // Unpaced: once let go, nothing would put it back later.
-  it->second->force_off(now_ms, false);
+  it->second->force_off(clock_32(now_ms), false);
   it->second->last_switching(&this->relay_history_[it->first]);
   this->freed_[it->first] = it->second->relay();
   return this->claims_.erase(it);
@@ -993,7 +993,7 @@ bool ClimateHub::restart_(Slot *slot, const std::string &previous_name, std::str
     return false;
   }
   // A relay the document no longer names is opened and let go; the ones it keeps carry on.
-  const uint32_t now = this->now_ms();
+  const uint64_t now = this->now_ms();
   for (auto it = this->claims_.begin(); it != this->claims_.end();) {
     const RelayClaim *claim = it->second.get();
     it = claim->owner() == config->id && claim != heat && claim != cool ? this->let_go_(it, now) : std::next(it);
@@ -1044,7 +1044,7 @@ void ClimateHub::on_sample_(SensorSubscription *sub, float value) {
   // infinity latches the heater or winds the integral. Neither is a reading: the sensor goes stale.
   if (!std::isfinite(value))
     return;
-  const uint32_t now = this->now_ms();
+  const uint64_t now = this->now_ms();
   sub->last = Reading{value, now, true};
   for (Slot *slot : this->slots_) {
     if (slot->runtime.running() && slot->runtime.sensor() == sub->sensor)

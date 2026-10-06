@@ -354,7 +354,7 @@ void WebClimateEditor::handle_status_(AsyncWebServerRequest *request) {
       error = NOT_FOUND;
       return true;
     }
-    const uint32_t now = this->hub_->now_ms();
+    const uint64_t now = this->hub_->now_ms();
     JsonDocument doc;
     doc["success"] = true;
     JsonArray rows = doc["controllers"].to<JsonArray>();
