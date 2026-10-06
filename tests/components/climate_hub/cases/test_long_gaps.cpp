@@ -152,7 +152,8 @@ TEST_F(LongGaps, AChangeWaitsOutItsDebouncePastTheMillisWrap) {
   EXPECT_FALSE(hub().dirty(this->id_));
 }
 
-// On a device the hub's clock is millis_64(), which no device runs long enough to see wrap.
+// The hub's own clock is the system's. A host up for less than 49.7 days cannot tell
+// millis_64() from millis() here: that it is millis_64() rests on reading climate_hub.cpp.
 TEST_F(LongGaps, TheHubCountsOnMillis64) {
   const uint64_t before = millis_64();
   const uint64_t now = hub().ClimateHub::now_ms();
