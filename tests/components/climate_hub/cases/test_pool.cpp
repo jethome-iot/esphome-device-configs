@@ -540,6 +540,24 @@ TEST_F(HubTest, ARenameAtBootThatCannotBeWrittenStillHolds) {
 
 // The entity table codegen sized is full, as when YAML and the pool disagree: the hub says so,
 // keeps its documents, and answers every start with why it did not run.
+TEST(HubWithoutRoom, ATakeOverFromWaitersNeedsAFreeEntity) {
+  SecondHub second("crowded");
+  TestHub &crowded = *second.hub;
+  crowded.setup();
+  ASSERT_TRUE(crowded.create(draft("Boiler")).ok);  // enabled, waits for an entity
+  ClimateConfig attic = draft("Attic");
+  attic.enabled = false;
+  ASSERT_TRUE(crowded.create(attic).ok);
+
+  Result taken = crowded.set_enabled("attic", true, true);
+  EXPECT_FALSE(taken.ok);
+  EXPECT_EQ(409, taken.code);
+  EXPECT_EQ("No free climate entity to run it in", taken.error);
+  EXPECT_TRUE(crowded.store().get("boiler")->enabled) << "not disabled for a thermostat that cannot run";
+  EXPECT_FALSE(crowded.store().get("attic")->enabled);
+  EXPECT_TRUE(taken.stopped.empty());
+}
+
 TEST(HubWithoutRoom, ThermostatsAreKeptButNotRun) {
   LogCapture::instance().clear();
   SecondHub second("crowded");

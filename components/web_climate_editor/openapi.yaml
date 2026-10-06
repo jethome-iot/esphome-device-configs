@@ -286,7 +286,8 @@ paths:
         `take_over=true` each of those is stored as disabled first, the running
         one stopped, in the same step, and the answer names them, the running
         one first; a take-over by one whose sensor or a relay is not on the
-        device is `400` instead, and nothing changes.
+        device is `400` instead, and nothing changes, as is a `409` when only
+        waiting thermostats name its relays and no climate entity is free.
 
         Otherwise a sensor or a relay that is not on the device is no refusal,
         for a thermostat already stored enabled too: it is stored enabled and

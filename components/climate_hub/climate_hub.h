@@ -110,9 +110,10 @@ class ClimateHub : public Component {
   /// Starts or stops a thermostat and stores the flag. Enabling is refused as a Save is: 400
   /// for a sensor that does not report °C, 409 naming the thermostat that holds a relay or,
   /// enabled and waiting, names it, unless `take_over`: each of those is then disabled first,
-  /// and a 400 comes instead when the sensor or a relay is not on the device, nothing touched.
+  /// and a 400 comes instead when the sensor or a relay is not on the device, or a 409 when only
+  /// waiting ones name it and no climate entity is free, nothing touched.
   /// Otherwise one whose sensor or relay is not on the device is stored enabled and waits, with
-  /// a `warning`. A stop, or a take-over's, starts the thermostats that wait for a freed relay,
+  /// a `warning`. A stop or a take-over starts the thermostats that wait for a freed relay,
   /// after the one taking over.
   Result set_enabled(const std::string &id, bool enabled, bool take_over = false);
   /// Moves the target, clamped into the visual range, running or not.

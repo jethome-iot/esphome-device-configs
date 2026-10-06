@@ -555,6 +555,9 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
   // A take-over stops the others, so only for a thermostat that runs in their place.
   if (!refused.holder.empty() && !this->check_entities_(*stored, &error))
     return failure(400, error);
+  // Waiters free no climate entity, a running holder does.
+  if (!refused.holder.empty() && this->free_.empty() && this->holder_of_(*stored).empty())
+    return failure(409, "No free climate entity to run it in");
   // The waiting ones first: a relay handed over below is this one's, and would hide who else
   // names it.
   std::vector<std::string> waiters;

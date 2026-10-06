@@ -123,8 +123,9 @@ same step, and the answer names them, the running one first:
 `Thermostat enabled; "Living Room" and "Attic" stopped`. A relay the stopped one drove alone is
 then free for whoever waits for it, after this one has started. A take-over by one whose sensor
 or a relay is not on the device is `400` instead (`No sensor "attic" on this device`), and
-nothing changes. With no other enabled thermostat on its relays, `take_over=true` changes
-nothing.
+nothing changes; so is a `409` (`No free climate entity to run it in`) when only waiting
+thermostats name its relays and every climate entity is taken. With no other enabled thermostat
+on its relays, `take_over=true` changes nothing.
 
 An `id` is the thermostat's slug (`a-z`, `0-9`, single dashes, at most 48): a missing one is
 `Missing id parameter`, anything else `Invalid id parameter`. `value` and `take_over` of
