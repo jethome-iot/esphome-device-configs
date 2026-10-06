@@ -239,8 +239,8 @@ server.
     is renamed to takes that thermostat's old name.
   - `web_server` matching a climate by name on its own task, first match wins, hidden or not,
     and a `/` never reaching a URL segment, which keeps an unused slot unaddressable. The name
-    and the traits change only in `setup()` or in a loop job an HTTP handler waits on, so that
-    task is never mid-read.
+    and the traits change only on the loop task, the panel's menu included, so that task may be
+    mid-read: the slot keeps them in fixed buffers, and a rename writes the one not in use.
   - `StaticVector::capacity()` for the room check, and `ClimateTraits` built with no custom
     modes: `get_traits()` adds the custom presets as a pointer to the slot's own list, so a copy
     owns no vector. That list (`Climate::set_supported_custom_presets`) has room for 8 from the

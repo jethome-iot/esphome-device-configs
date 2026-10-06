@@ -20,11 +20,10 @@ inline constexpr char FREE_SLOT_NAME[64] = "climate_hub/free";
 /// and never frees one: a thermostat that starts takes a free slot, one that stops hands it
 /// back, hidden again under the name it had.
 ///
-/// Invariant: the name and the traits change only in setup() or inside an HTTP-originated
-/// loop job, while the single HTTP task is parked in run_on_loop(). The web server reads both
-/// from that task (the name to match a URL, traits() for a climate's JSON); the two name
-/// buffers, the fixed preset buffers and the scalar-built traits keep even a torn read in
-/// bounds. Nothing here points at a document.
+/// Invariant: the name and the traits change only on the loop task (setup(), an HTTP handler's
+/// loop job, the panel). The web server reads both from its own task meanwhile (the name to
+/// match a URL, traits() for a climate's JSON); the two name buffers, the fixed preset buffers
+/// and the scalar-built traits keep even a torn read in bounds. Nothing here points at a document.
 class HubClimate final : public climate::Climate {
  public:
   HubClimate(ClimateHub *hub, uint8_t index);
@@ -43,8 +42,8 @@ class HubClimate final : public climate::Climate {
   /// is about to take: `name` is the one that thermostat leaves, so an API client still encoding
   /// this slot sends a thermostat's name and key, never the placeholder or one key twice.
   void hide_as(const std::string &name, uint32_t entity_fields);
-  /// Back under the placeholder with no traits, as setup() registered it: for a hub starting
-  /// over. A slot shown since boot never goes back to it, since a listing may still hold it.
+  /// Back under the placeholder with no traits, as setup() registered it: for tests that start
+  /// the hub over. The firmware never calls it, since a listing may still hold a slot once shown.
   void park(uint32_t entity_fields);
   void set_traits(bool heat, bool cool, float min_temperature, float max_temperature, float step);
   /// The presets Home Assistant and the web server list: a built-in one by its enum, a custom
