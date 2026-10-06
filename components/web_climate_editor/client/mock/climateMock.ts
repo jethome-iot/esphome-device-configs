@@ -801,11 +801,13 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
 
   // ClimateHub::start_waiters_: every enabled thermostat but `skip` that names a relay held
   // before the change and free after it tries to start, in id order. The answer's note on who
-  // started, '' when nobody did. Nothing this API does leaves one waiting on a held relay, so
-  // nobody starts here: it is kept as the device's mirror.
+  // started, '' when nobody did. Only a boot leaves one waiting on a held relay; the API
+  // refuses that.
   function startWaiters(before: Set<string>, skip: string): string {
     const after = heldRelays()
     const freed = [...before].filter((r) => !after.has(r))
+    // ClimateHub::let_go_ first: a freed relay opens before a waiter takes it, so its min_off holds that start.
+    for (const relay of freed) forceOff(relay, simulatedTo)
     const started: string[] = []
     for (const doc of docs) {
       if (!doc.enabled || doc.id === skip || running.has(doc.id)) continue
