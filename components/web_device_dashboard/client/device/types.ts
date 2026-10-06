@@ -338,7 +338,7 @@ export interface ModbusRange {
   address: number
   /** Last address of the run, inclusive; for registers it counts every word of the last value. */
   last_address: number
-  /** How many values the run holds: entities on a bit run, values on a register run. */
+  /** How many values the run holds: bits on a bit run, values on a register run. */
   count: number
   /** False when a write answers exception 02. */
   writable: boolean

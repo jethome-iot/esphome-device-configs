@@ -96,7 +96,7 @@ so the byte counts stay in the file API's own `info`. `modbus` is the Modbus ser
 as a `modbus_map` names it: the bit and register ranges, each with its first and last address, how
 many values it holds, whether it is writable and its name, a register range also with its
 `value_type` and, where the map gives them, `scale`, `unit` and `no_value`; and, when the server
-has one, the `courtesy_response` an unmapped register gets.
+has one enabled, the `courtesy_response` an unmapped register gets.
 
 The embedded page will not draw its **Settings → System** tab without this: a firmware old
 enough to answer `404` here gets a message saying so rather than buttons that cannot work. It

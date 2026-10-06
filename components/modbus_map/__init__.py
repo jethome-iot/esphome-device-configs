@@ -1,6 +1,7 @@
 """A modbus_server's address map as named ranges, checked against the server's own config at build time."""
 
 import esphome.codegen as cg
+from esphome.components.const import CONF_ENABLED
 from esphome.components.modbus.helpers import TYPE_REGISTER_MAP
 from esphome.components.modbus_server import ModbusServer
 from esphome.components.modbus_server.const import (
@@ -12,7 +13,6 @@ from esphome.components.modbus_server.const import (
     CONF_VALUE_TYPE,
     CONF_WRITE_LAMBDA,
 )
-from esphome.components.const import CONF_ENABLED
 import esphome.config_validation as cv
 from esphome.const import CONF_ADDRESS, CONF_ID, CONF_NAME
 from esphome.core import CORE

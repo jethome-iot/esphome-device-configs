@@ -1850,9 +1850,11 @@ components:
       description: >-
         The Modbus server's address map, as ranges; present when a `modbus_map`
         is wired in. FC 01 and 02 read the one bit table, FC 03 and 04 the one
-        register table. Addresses, counts and access are the server's own, so
-        only the names come from the map. An address in no range answers
-        exception 02, except an unmapped register under `courtesy_response`.
+        register table. Addresses, counts, access and value types are the
+        server's own; the names, and a register range's scale, unit and
+        no_value, come from the map. An address in no range answers exception
+        02, except an unmapped register under `courtesy_response`; a table the
+        server does not have at all answers exception 01.
       properties:
         bits:
           type: array

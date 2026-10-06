@@ -239,11 +239,9 @@ class ModbusMapWiring(unittest.TestCase):
             Path(__file__).resolve().parents[3]
             / "components/web_device_dashboard/web_device_dashboard.h"
         ).read_text()
-        self.assertIn(
-            "#ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP\n"
-            "  void set_modbus_map(const modbus_map::ModbusMap *",
-            header,
-        )
+        setter = header.index("void set_modbus_map(const modbus_map::ModbusMap *")
+        guard = header.rindex("#ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP", 0, setter)
+        self.assertNotIn("#endif", header[guard:setter])
 
     def test_the_map_stays_optional(self):
         self.assertNotIn(dashboard.CONF_MODBUS_MAP, dashboard.AUTO_LOAD)
