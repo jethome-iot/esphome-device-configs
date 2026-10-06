@@ -2,14 +2,15 @@ openapi: 3.1.0
 
 info:
   title: web_climate_editor HTTP API
-  version: 1.4.0
+  version: 1.5.0
   description: >-
     JSON/REST API of the `climate_hub` thermostats, served by the
     `web_climate_editor` component on the device's own web server (default
     prefix `/climate-editor`, routes under `<prefix>/api/`). List, read,
-    create, change, start, stop and delete thermostats, edit and pick their
-    presets, move a target, watch the control loop, and discover the sensors
-    and relays a thermostat may name. ESP-IDF (ESP32) only.
+    create, change, start, stop and delete thermostats, bring one back from a
+    backup under its own id, edit and pick their presets, move a target, watch
+    the control loop, and discover the sensors and relays a thermostat may
+    name. ESP-IDF (ESP32) only.
 
     This document is the wire contract; the TypeScript client and mock in
     `client/` implement it, and `client/types.ts` is where a shape changes
@@ -226,6 +227,111 @@ paths:
           $ref: "#/components/responses/Busy"
         "507":
           description: A create would pass the firmware's `max_controllers`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: This device allows 8 thermostats; delete one to add another
+
+  /import:
+    post:
+      tags: [write]
+      operationId: importThermostat
+      summary: Bring a thermostat back under its own id.
+      description: >-
+        What a restore sends: a thermostat's document as `/get` answers it, or
+        as a backup's file holds it, `id` included. The thermostat with that
+        id is replaced, as a Save replaces it, and runs on in the same climate
+        entity; with no thermostat by that id one is created under it. The
+        presets keep the keys the document gives them and `active_preset`
+        stays, so the automation rules that name them still find them; a
+        preset without a key gets one from its name, and an `active_preset`
+        no preset has is none. `version` is not read: the file is written in
+        this firmware's format. Keys left out take their defaults and every
+        number is clamped, as on `/save`; the body is read the same way.
+
+        The refusals are a Save's, in its order: `400` for an empty body, a
+        body that is not JSON, or a document that breaks a rule, the `id`
+        first (`id is required`, then `id must be a slug: lowercase letters,
+        digits and single dashes`) and `id 'new' is reserved` once the rest is
+        sound; `409` for a thermostat whose file a newer firmware wrote, `507`
+        for a new one past `max_controllers`, `409` for an id a file in the
+        thermostat folder holds that the device did not load at boot; `409`
+        for a name another thermostat or a YAML climate answers to; and, for
+        an enabled thermostat, `400` when its sensor does not report °C, then
+        `409` when a running thermostat holds its relay, then `409` when
+        another enabled thermostat that waits names it. A relay the
+        thermostat holds already is never refused.
+
+        An enabled thermostat whose sensor or a relay is not on the device is
+        stored and waits, with a `warning`, and a relay the import frees starts
+        the thermostats that wait for it, as on `/save`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ControllerImportInput"
+      responses:
+        "200":
+          description: >-
+            Created or replaced; the message says which. A thermostat stored
+            enabled that does not run gets a `warning` saying why, which the
+            message repeats after a `;`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaveResponse"
+              examples:
+                created:
+                  value:
+                    success: true
+                    message: Thermostat created
+                    id: living-room
+                replaced:
+                  value:
+                    success: true
+                    message: Thermostat replaced
+                    id: living-room
+                waiting:
+                  summary: Stored enabled, waiting for its sensor
+                  value:
+                    success: true
+                    message: "Thermostat created; not started: sensor 'temp_3' not found"
+                    id: attic
+                    warning: "not started: sensor 'temp_3' not found"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          description: >-
+            The body is over 8 KiB, or the file the document makes would be.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                body:
+                  value:
+                    success: false
+                    error: Request body over 8 KiB
+                file:
+                  value:
+                    success: false
+                    error: The thermostat's file would be over 8 KiB
+        "500":
+          $ref: "#/components/responses/NotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+        "507":
+          description: A new thermostat would pass the firmware's `max_controllers`.
           content:
             application/json:
               schema:
@@ -641,6 +747,11 @@ components:
               value:
                 success: false
                 error: 'Preset 2: "ECO" is already used by Preset 1'
+            importId:
+              summary: "/import with no id"
+              value:
+                success: false
+                error: id is required
     NotFound:
       description: No thermostat has that id, it has no preset with that key, or the path names no route.
       content:
@@ -682,9 +793,9 @@ components:
     Conflict:
       description: >-
         The name is one another thermostat or a YAML climate answers to, every
-        id it gives is taken by a file in the folder, a running thermostat
-        holds the relay, another enabled thermostat waits and names it, or a
-        newer firmware wrote the thermostat's file.
+        id it gives is taken by a file in the folder (or, on `/import`, the id
+        is), a running thermostat holds the relay, another enabled thermostat
+        waits and names it, or a newer firmware wrote the thermostat's file.
       content:
         application/json:
           schema:
@@ -716,6 +827,11 @@ components:
               value:
                 success: false
                 error: A newer firmware wrote this thermostat; update the firmware to change it
+            importId:
+              summary: "/import onto a file the device did not load"
+              value:
+                success: false
+                error: The id "living-room" is taken by a file in the thermostat folder that was not loaded
     NotWritten:
       description: >-
         Nothing changed: the thermostat's file could not be written, or the
@@ -747,7 +863,7 @@ components:
   schemas:
     Id:
       type: string
-      description: A slug made from the name at creation, never `new` (`New` gets `new-2`), and the file's name; a rename never changes it.
+      description: A slug made from the name at creation, or the one an `/import` brings; never `new` (`New` gets `new-2`), and the file's name; a rename never changes it.
       pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
       maxLength: 48
       example: living-room
@@ -820,7 +936,8 @@ components:
       type: object
       description: >-
         A preset as `/save` takes it. A new one has no key: the device gives
-        it. A key the thermostat never gave out is made again from the name.
+        it. A key the thermostat never gave out is made again from the name;
+        on `/import` every key stays as it comes.
       required: [name, setpoint]
       properties:
         key:
@@ -1176,7 +1293,9 @@ components:
             $ref: "#/components/schemas/PresetInput"
         active_preset:
           type: string
-          description: Ignored; the active preset is the thermostat's state.
+          description: >-
+            Ignored by `/save`: the active preset is the thermostat's state.
+            `/import` keeps it while a preset has that key, otherwise none.
       anyOf:
         - required: [heat]
           properties:
@@ -1197,6 +1316,43 @@ components:
         sensor_id: temp_1
         heat:
           relay_id: relay_1
+
+    ControllerImportInput:
+      description: >-
+        What `/import` takes: a `/save` body under the `id` the thermostat is
+        to have. The presets' keys and `active_preset` are kept, not ignored.
+      allOf:
+        - $ref: "#/components/schemas/ControllerSaveInput"
+        - type: object
+          required: [id]
+          properties:
+            version:
+              type: number
+              description: Not read; the file is written in this firmware's format.
+            id:
+              $ref: "#/components/schemas/Id"
+            presets:
+              type: [array, "null"]
+              maxItems: 8
+              description: >-
+                Each keeps the key it brings; one without a key gets one from
+                its name.
+              items:
+                $ref: "#/components/schemas/PresetInput"
+            active_preset:
+              $ref: "#/components/schemas/ActivePreset"
+      example:
+        id: living-room
+        name: Living Room
+        sensor_id: temp_1
+        heat:
+          relay_id: relay_1
+        setpoint: 20.5
+        presets:
+          - key: eco
+            name: Eco
+            setpoint: 18
+        active_preset: eco
 
     ControllerSummary:
       type: object
@@ -1528,6 +1684,7 @@ components:
 
     SaveResponse:
       type: object
+      description: What `/save` and `/import` answer.
       required: [success, message, id]
       properties:
         success:

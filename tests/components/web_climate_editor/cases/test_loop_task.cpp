@@ -21,6 +21,7 @@ TEST_F(Editor, EveryHubRouteGoesOverToTheLoopTaskOnce) {
       {"status of one", [&] { return this->get("status?id=living-room"); }},
       {"entities", [&] { return this->get("entities"); }},
       {"save", [&] { return this->post("save", FLOOR); }},
+      {"import", [&] { return this->post("import", with(FLOOR, R"("id":"floor")")); }},
       {"setpoint", [&] { return this->post("setpoint?id=living-room&value=20"); }},
       {"preset", [&] { return this->post("preset?id=living-room&key=eco"); }},
       {"enable", [&] { return this->post("enable?id=living-room&value=false"); }},
@@ -55,9 +56,11 @@ TEST_F(Editor, ARequestRefusedOnItsOwnCostsNoJob) {
     Reply reply = post ? this->post(route) : this->get(route);
     EXPECT_NE(reply.code, 200) << route;
   }
-  EXPECT_EQ(this->post("save").code, 400);
-  EXPECT_EQ(this->get("save").code, 405);
-  EXPECT_EQ(this->post("save", std::string(9000, 'x')).code, 413);
+  for (const char *route : {"save", "import"}) {
+    EXPECT_EQ(this->post(route).code, 400) << route;
+    EXPECT_EQ(this->get(route).code, 405) << route;
+    EXPECT_EQ(this->post(route, std::string(9000, 'x')).code, 413) << route;
+  }
   EXPECT_EQ(hub().jobs, 0);
 }
 
@@ -79,6 +82,8 @@ TEST_F(Editor, ALoopThatNeverTakesTheJobAnswersBusyAndChangesNothing) {
       {"save", [&] { return this->post("save", FLOOR); }},
       {"save of garbage", [&] { return this->post("save", "garbage"); }},
       {"update", [&] { return this->post("save", R"({"id":"living-room","name":"Lounge"})"); }},
+      {"import", [&] { return this->post("import", with(FLOOR, R"("id":"floor")")); }},
+      {"import over it", [&] { return this->post("import", with(FLOOR, R"("id":"living-room")")); }},
       {"delete", [&] { return this->post("delete?id=living-room"); }},
       {"enable", [&] { return this->post("enable?id=living-room&value=false"); }},
       {"take over", [&] { return this->post("enable?id=living-room&value=true&take_over=true"); }},
@@ -126,6 +131,7 @@ TEST_F(Editor, AHubWithoutStorageStillAnswersReadsAndRefusesEveryWrite) {
     EXPECT_EQ(this->get(route).code, 200) << route;
 
   for (Reply reply : {this->post("save", FLOOR), this->post("save", with(LIVING_ROOM, R"("id":"living-room")")),
+                      this->post("import", with(LIVING_ROOM, R"("id":"living-room")")),
                       this->post("delete?id=living-room"), this->post("enable?id=living-room&value=false"),
                       this->post("setpoint?id=living-room&value=30"), this->post("preset?id=living-room&key=eco")}) {
     EXPECT_EQ(reply.code, 500) << reply.body;
@@ -153,15 +159,19 @@ TEST_F(Editor, AHubWithoutStorageRefusesAWriteToAnyIdWith500) {
 TEST_F(Editor, AHubWithoutStorageRefusesASaveBeforeParsingIt) {
   hub().mark_failed();
   hub().jobs = 0;
-  for (const std::string &body : {std::string(FLOOR), std::string("garbage"), with(LIVING_ROOM, R"("id":"ghost")")}) {
-    Reply reply = this->post("save", body);
-    EXPECT_EQ(reply.code, 500) << body;
-    EXPECT_EQ(reply.error(), "Thermostat storage is not available") << body;
+  for (const char *route : {"save", "import"}) {
+    for (const std::string &body : {std::string(FLOOR), std::string("garbage"), with(LIVING_ROOM, R"("id":"ghost")")}) {
+      Reply reply = this->post(route, body);
+      EXPECT_EQ(reply.code, 500) << route << " " << body;
+      EXPECT_EQ(reply.error(), "Thermostat storage is not available") << route << " " << body;
+    }
   }
   EXPECT_EQ(hub().jobs, 0);
   // What the request itself gets wrong is still its answer.
-  EXPECT_EQ(this->post("save").error(), "Empty request body");
-  EXPECT_EQ(this->post("save", std::string(9000, 'x')).code, 413);
+  for (const char *route : {"save", "import"}) {
+    EXPECT_EQ(this->post(route).error(), "Empty request body") << route;
+    EXPECT_EQ(this->post(route, std::string(9000, 'x')).code, 413) << route;
+  }
   EXPECT_TRUE(this->files().empty());
 }
 
