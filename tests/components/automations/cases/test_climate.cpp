@@ -454,6 +454,40 @@ TEST_F(ClimateRules, SetTargetInsideTheThermostatsRange) {
   EXPECT_FLOAT_EQ(stored("living-room").setpoint, 45.f) << "clamped to visual.max_temperature";
 }
 
+// A rule moves a calibrating thermostat as Home Assistant would: a new target, a preset that
+// moves it or a turn-off ends the run for that reason, and a turn-on of what is on leaves it.
+TEST_F(ClimateRules, ARuleThatMovesACalibratingThermostatEndsTheRun) {
+  ClimateConfig pid = stored("living-room");
+  pid.kind = climate_hub::ControlKind::PID;
+  ASSERT_TRUE(hub().update("living-room", pid).ok);
+  struct Case {
+    std::string action;
+    climate_hub::AutotuneEnd reason;
+  };
+  const Case cases[] = {
+      {TURN_ON, climate_hub::AutotuneEnd::NONE},
+      {R"({"source":"climate","type":"set_target","climate":"living-room","target":23})",
+       climate_hub::AutotuneEnd::TARGET_CHANGED},
+      {ECO, climate_hub::AutotuneEnd::TARGET_CHANGED},
+      {TURN_OFF, climate_hub::AutotuneEnd::MODE_CHANGED},
+  };
+  for (const Case &c : cases) {
+    climate_hub::Result started = hub().start_autotune("living-room", nullopt, climate_hub::AutotuneRule::ZN_PI);
+    ASSERT_TRUE(started.ok) << started.error;
+    auto rule = build_rule(*engine, at_startup(c.action).c_str());
+    ASSERT_NE(rule, nullptr) << c.action;
+    rule->on_startup();
+    ASSERT_TRUE(engine->fire_next()) << c.action;
+    const climate_hub::AutotuneRun *run = hub().autotune("living-room");
+    if (c.reason == climate_hub::AutotuneEnd::NONE) {
+      EXPECT_TRUE(run->running()) << c.action;
+      ASSERT_TRUE(hub().cancel_autotune("living-room").ok);
+    } else {
+      EXPECT_EQ(run->reason(), c.reason) << c.action;
+    }
+  }
+}
+
 TEST_F(ClimateRules, FollowGoesBothWays) {
   auto rule = build_rule(*engine, FOLLOW_IN_1);
   ASSERT_NE(rule, nullptr);

@@ -22,7 +22,8 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
   pick a preset, set the target, and follow: one preset or on/off while the trigger's state is
   on, another while it is off. A preset that keeps the mode does not turn an off thermostat on:
   for on and off plus a preset, use two actions. They act on the thermostat whether it runs or
-  not, on the next loop pass.
+  not, on the next loop pass. A new target or mode ends a calibration the thermostat runs, as
+  one from Home Assistant does ([Thermostats](CLIMATE.md#calibrating-a-pid-thermostat)).
 - **Mode**: `single` ignores a trigger while the rule is running, `restart` starts over,
   `parallel` runs up to 8 copies. A trigger `single` ignores still hands its state to a follow
   that has not played yet, so the target ends where the trigger is.

@@ -368,6 +368,46 @@ TEST_F(Calibration, ATargetOrAModeSetOnTheRuntimeItselfEndsIt) {
   ASSERT_TRUE(this->calibrate(id, AutotuneDirection::HEAT).ok);
   rt->pick_preset(*hub().store().get(id)->find_preset("eco"), hub().ms);
   EXPECT_EQ(AutotuneEnd::TARGET_CHANGED, hub().autotune(id)->reason());
+
+  ASSERT_TRUE(this->calibrate(id, AutotuneDirection::HEAT).ok);
+  rt->set_mode(HubMode::OFF, hub().ms + 300);
+  EXPECT_EQ(AutotuneEnd::MODE_CHANGED, hub().autotune(id)->reason());
+  EXPECT_EQ(300u, hub().autotune(id)->elapsed_ms(hub().ms + 60000)) << "ended at the clock it was given";
+}
+
+// What an automation rule calls. A turn-off ends it at the hub's clock, as a mode from Home
+// Assistant does; a turn-on finds it on already, in the mode it calibrates in, and moves nothing.
+TEST_F(Calibration, ATurnOffEndsItAndATurnOnDoesNot) {
+  const std::string id = this->start(living_room(), 18.f);
+  ASSERT_TRUE(this->calibrate(id).ok);
+  hold(18.f, 10, 2);
+  ASSERT_TRUE(hub().turn_on(id).ok);
+  EXPECT_TRUE(hub().autotune(id)->running());
+  EXPECT_FALSE(hub().dirty(id));
+
+  hub().ms += 500;
+  ASSERT_TRUE(hub().turn_off(id).ok);
+  const AutotuneRun *run = hub().autotune(id);
+  EXPECT_EQ(AutotuneEnd::MODE_CHANGED, run->reason());
+  EXPECT_EQ(20500u, run->elapsed_ms(hub().ms + 60000)) << "ended at the hub's clock";
+  EXPECT_EQ(nullptr, hub().runtime_of(id)->autotune());
+  EXPECT_EQ(HubMode::OFF, hub().store().get(id)->mode);
+}
+
+// A preset that keeps the target but turns the thermostat off ends it as a mode change.
+TEST_F(Calibration, APresetThatChangesOnlyTheModeEndsIt) {
+  ClimateConfig config = living_room();
+  PresetConfig away;
+  away.name = "Away";
+  away.setpoint = 21.f;
+  away.mode = HubMode::OFF;
+  config.presets = {away};
+  const std::string id = this->start(config, 18.f);
+  ASSERT_TRUE(this->calibrate(id).ok);
+  hub().ms += 700;
+  ASSERT_TRUE(hub().apply_preset(id, "away").ok);
+  EXPECT_EQ(AutotuneEnd::MODE_CHANGED, hub().autotune(id)->reason());
+  EXPECT_EQ(700u, hub().autotune(id)->elapsed_ms(hub().ms + 60000));
 }
 
 TEST_F(Calibration, ASaveEndsItAndARefusedOneDoesNot) {

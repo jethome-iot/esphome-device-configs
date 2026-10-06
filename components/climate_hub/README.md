@@ -211,8 +211,9 @@ to ten hours. Start one with the room near its target: until the first switch th
 full on (or off), and a floor that needs more than 6 hours to reach the band ends the run as
 `no_switch` before it has measured anything.
 
-A run ends without gains on `cancel_autotune()`, a target or a mode changed from anywhere, an
-`update()` or a `restore()` over it, a stop or a take-over, any fault, `relay_contested` too, 24
+A run ends without gains on `cancel_autotune()`, a target or a mode changed from anywhere
+(`set_setpoint()`, `apply_preset()` and `turn_off()` among them; `turn_on()` of a calibrating
+thermostat changes neither), an `update()` or a `restore()` over it, a stop or a take-over, any fault, `relay_contested` too, 24
 hours in all, 6 hours without a relay switch, or readings that cross the target more than 65 times
 (`noisy`, a probe that hovers at the target); the thermostat goes back to its PID with the gains it
 had, from a clean start. `autotune(id)` keeps the last run, running or ended, with the target it
