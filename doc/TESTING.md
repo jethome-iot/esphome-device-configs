@@ -25,6 +25,8 @@ tests/
       loop_job_host         # the same for loop_job
       switch_hold_host      # the same for switch_hold
       one_wire_host         # test-only 1-Wire bus: the cases set what the boot scan found
+      pid_host              # test-only key that pulls upstream's pid in: climate_hub's
+                            # autotuner is checked against upstream's own
       web_server            # stand-in for upstream's, which builds for ESP platforms only
       web_server_base       # stand-in for upstream's, so HTTP handlers run on the host
   components/

@@ -37,6 +37,28 @@ at the next boot. The file format and the C++ API are in
   other switches the other off and leaves the relay as it is. One that could not run, its
   sensor or a relay missing, cannot take it over.
 
+## Calibrating a PID thermostat
+
+A PID thermostat can find its own gains. A calibration, started from the editor or over HTTP,
+swings the room around its target: the relay closes fully once the room is a quarter of a degree under the
+target and opens a quarter of a degree over it, so the room goes about half a degree to a degree
+either side, more where the heat is slow to arrive. The relay's minimum on and off times and the
+cut-out temperature hold throughout. A room with radiators takes about an hour and a half, a
+floor heating eight to ten hours. In heat and cool mode the start asks which relay to swing; the
+other one stays open. Home Assistant sees the thermostat heating or idle, as at any other time.
+
+The device then turns what it measured into the gains of the rule picked at the start
+(Ziegler-Nichols PI unless another), writes them into the thermostat and runs with them. An
+editor page opened before can no longer save over them: its Save is refused until it reloads.
+The result, the gains it replaced and any warning about it stay in the thermostat's status until
+the next calibration, a delete or a reboot.
+
+A calibration ends without new gains when it is cancelled, when the target or the mode changes
+from anywhere (Home Assistant, the web server, the editor, a rule, a preset), when the thermostat
+is saved, switched off, deleted or taken over, on any fault, after 24 hours, or after 6 hours
+without a relay switch: a heater that cannot cross the band. A reboot ends it too. The status
+says which, and the thermostat goes back to its PID with the gains it had.
+
 ## A running thermostat's relays
 
 What everything else that switches a relay does with one a running thermostat drives:
@@ -98,8 +120,8 @@ it.
 
 `features/climate-editor.yaml` serves the thermostats on the web server port under
 `/climate-editor/api`: list them, read, create, change and delete one, edit and pick its
-presets, start or stop it, move its target, and watch what each one is doing and which preset is
-active. The routes and their contract are in
+presets, start or stop it, move its target, calibrate it, and watch what each one is doing and
+which preset is active. The routes and their contract are in
 [components/web_climate_editor/openapi.yaml](../components/web_climate_editor/openapi.yaml),
 the usage in [its README](../components/web_climate_editor/README.md).
 
