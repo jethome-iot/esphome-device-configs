@@ -634,7 +634,7 @@ TEST(RelayClaim, ACutOutOpensAPacedCloseAtOnce) {
   ASSERT_TRUE(relay.state) << "held closed for min_on";
 
   claim.force_off(3000, true);
-  EXPECT_TRUE(relay.state) << "held open as in mode off, it still waits";
+  EXPECT_TRUE(relay.state) << "a paced off, as mode off asks, leaves it closed until min_on is over";
   claim.force_off(3000, false);
   EXPECT_FALSE(relay.state);
   EXPECT_EQ(2u, claim.moves());
