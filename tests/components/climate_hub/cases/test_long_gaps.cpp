@@ -299,6 +299,31 @@ TEST_F(LongGaps, APidAveragesNoOutputFromBeforeAPause) {
   EXPECT_NEAR(0.1f, rt->heat_duty(), 1e-5f) << "a degree short at 0.1, not averaged with 0.5";
 }
 
+// relay_contested is no pause: the thermostat goes on, and its PID integrates every interval
+// in full.
+TEST_F(LongGaps, ARelayContestIsNoPause) {
+  ClimateConfig config = integrating();
+  config.setpoint = 20.f;
+  config.pid.ki = 0.001f;
+  config.safety.sensor_timeout_s = 3600.f;
+  // Five degrees too warm: the relay is wanted open, and something else keeps closing it.
+  ControllerRuntime *rt = this->start(config, 25.f);
+  tick(100000);
+  uint64_t t = 100000;
+  for (uint32_t n = 1; n <= CONTEST_MOVES; n++) {
+    entities().relay1.turn_on();
+    tick(t += 1000);
+    tick(t += PUT_BACK_FLOOR_MS);
+    ASSERT_FALSE(entities().relay1.state) << "put back after move " << n;
+  }
+  ASSERT_EQ(HubFault::RELAY_CONTESTED, rt->fault());
+
+  const float before = rt->pid().integral_term();
+  tick(t + 30000);
+  EXPECT_EQ(HubFault::RELAY_CONTESTED, rt->fault());
+  EXPECT_NEAR(before - 0.15f, rt->pid().integral_term(), 1e-5f) << "-5 degrees for 30 s at 0.001";
+}
+
 // An interval is no pause: the pass at its end integrates over all of it.
 TEST_F(LongGaps, APidIntegratesOverItsWholeInterval) {
   ClimateConfig config = integrating();
