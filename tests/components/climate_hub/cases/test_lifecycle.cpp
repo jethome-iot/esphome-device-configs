@@ -1073,7 +1073,7 @@ TEST_F(HubTest, ATargetThatCannotBeWrittenStaysLive) {
   EXPECT_FALSE(hub().dirty("boiler")) << "one attempt per change";
   EXPECT_FLOAT_EQ(26.f, hub().entity_of("boiler")->target_temperature);
   EXPECT_EQ(before, read_file(this->file_of("boiler")));
-  EXPECT_TRUE(LogCapture::instance().has("'boiler': the new target or mode was not written"));
+  EXPECT_TRUE(LogCapture::instance().has("'boiler': the thermostat's state was not written"));
 }
 
 // Written beside the file and renamed over it: when the rename is what fails, nothing is left

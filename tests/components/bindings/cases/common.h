@@ -1,6 +1,7 @@
 #pragma once
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -8,6 +9,7 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/logger/logger.h"
 #include "esphome/components/switch/switch.h"
+#include "esphome/components/switch_hold/switch_hold.h"
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
 
@@ -25,10 +27,26 @@ class FakeSwitch : public switch_::Switch {
   }
 };
 
-// Every warning the process logs. Registered once: the logger keeps its listeners.
+// Stands in for climate_hub: holds the switches the case puts in the table, by name.
+class FakeHolder : public switch_hold::SwitchHolder {
+ public:
+  std::map<const switch_::Switch *, std::string> held;
+  std::string holder_of(const switch_::Switch *sw) const override {
+    auto it = this->held.find(sw);
+    return it == this->held.end() ? std::string() : it->second;
+  }
+  // What the hub does once it has let go of `sw`.
+  void release(switch_::Switch *sw) {
+    this->held.erase(sw);
+    switch_hold::notify_released(sw);
+  }
+};
+
+// Every warning and info line the process logs. Registered once: the logger keeps its listeners.
 class LogCapture {
  public:
   std::vector<std::string> warnings;
+  std::vector<std::string> infos;
 
   static LogCapture &instance() {
     static LogCapture *capture = [] {
@@ -38,15 +56,19 @@ class LogCapture {
     }();
     return *capture;
   }
-  bool has(const char *needle) const {
-    return std::any_of(this->warnings.begin(), this->warnings.end(),
-                       [needle](const std::string &line) { return line.find(needle) != std::string::npos; });
-  }
+  bool has(const char *needle) const { return contains(this->warnings, needle); }
+  bool has_info(const char *needle) const { return contains(this->infos, needle); }
 
  protected:
+  static bool contains(const std::vector<std::string> &lines, const char *needle) {
+    return std::any_of(lines.begin(), lines.end(),
+                       [needle](const std::string &line) { return line.find(needle) != std::string::npos; });
+  }
   static void on_log(void *self, uint8_t level, const char *, const char *message, size_t len) {
     if (level == ESPHOME_LOG_LEVEL_WARN)
       static_cast<LogCapture *>(self)->warnings.emplace_back(message, len);
+    if (level == ESPHOME_LOG_LEVEL_INFO)
+      static_cast<LogCapture *>(self)->infos.emplace_back(message, len);
   }
 };
 
@@ -87,6 +109,8 @@ class Bindings : public ::testing::Test {
     all.push_back(std::make_unique<BindingsManager>());
     this->manager = all.back().get();
     LogCapture::instance().warnings.clear();
+    LogCapture::instance().infos.clear();
+    switch_hold::set_holder(&this->holder);
     Entities &e = entities();
     e.in1.publish_state(false);
     e.in2.publish_state(false);
@@ -98,6 +122,7 @@ class Bindings : public ::testing::Test {
   void TearDown() override {
     this->manager->remove_binding(RELAY_1);
     this->manager->remove_binding(RELAY_2);
+    switch_hold::set_holder(nullptr);
   }
 
   static void press(binary_sensor::BinarySensor &input) {
@@ -107,6 +132,7 @@ class Bindings : public ::testing::Test {
   static LogCapture &log() { return LogCapture::instance(); }
 
   BindingsManager *manager{nullptr};
+  FakeHolder holder;
   Entities &e = entities();
 };
 

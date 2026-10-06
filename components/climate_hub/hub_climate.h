@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
+#include "climate_config.h"
 #include "esphome/components/climate/climate.h"
 
 namespace esphome::climate_hub {
@@ -21,11 +23,11 @@ inline constexpr char FREE_SLOT_NAME[64] = "climate_hub/free";
 /// Invariant: the name and the traits change only in setup() or inside an HTTP-originated
 /// loop job, while the single HTTP task is parked in run_on_loop(). The web server reads both
 /// from that task (the name to match a URL, traits() for a climate's JSON); the two name
-/// buffers and the scalar-built traits keep even a torn read in bounds. Nothing here points at
-/// a document.
+/// buffers, the fixed preset buffers and the scalar-built traits keep even a torn read in
+/// bounds. Nothing here points at a document.
 class HubClimate final : public climate::Climate {
  public:
-  HubClimate(ClimateHub *hub, uint8_t index) : hub_(hub), index_(index) {}
+  HubClimate(ClimateHub *hub, uint8_t index);
 
   uint8_t index() const { return this->index_; }
   bool is_free() const { return this->free_; }
@@ -40,6 +42,11 @@ class HubClimate final : public climate::Climate {
   /// A hidden slot back under the placeholder, for when its name is about to be someone else's.
   void park(uint32_t entity_fields);
   void set_traits(bool heat, bool cool, float min_temperature, float max_temperature, float step);
+  /// The presets Home Assistant and the web server list: a built-in one by its enum, a custom
+  /// one by its name, copied into this slot's buffers.
+  void set_presets(const std::vector<PresetConfig> &presets);
+  /// Labels `preset` active, one of those set_presets() was given; nullptr for none.
+  void show_preset(const PresetConfig *preset);
 
  protected:
   climate::ClimateTraits traits() override;
@@ -58,6 +65,11 @@ class HubClimate final : public climate::Climate {
   float min_temperature_{5.f};
   float max_temperature_{45.f};
   float step_{0.5f};
+  climate::ClimatePresetMask standard_presets_;
+  // Upstream keeps const char * into these, as the custom preset list and as the active one, and
+  // the web server reads them on its task: they live as long as the slot, and the list never
+  // outgrows the room the constructor gave it. Byte NAME_MAX_LENGTH is never written.
+  char custom_presets_[PRESET_MAX_COUNT][NAME_MAX_LENGTH + 1]{};
 };
 
 }  // namespace esphome::climate_hub

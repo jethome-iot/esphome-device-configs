@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <cmath>
 #include <string>
 #include <utility>
 #include <vector>
@@ -33,15 +34,33 @@ enum class AssignCheck : uint8_t {
   UNCHANGED,       ///< the device is in that slot already
 };
 
+/// What set_offset_and_save() would do with a slot and a value, asked before it does it.
+enum class OffsetCheck : uint8_t {
+  OK,           ///< the offset can be set
+  BAD_SLOT,     ///< past the end of the table
+  BAD_VALUE,    ///< NaN, infinite, or past the range once rounded
+  LISTED_SLOT,  ///< the slot is taken by sensors:, which has filters of its own
+};
+
+/// @p celsius in tenths of a degree, rounded half away from zero; false for NaN, infinity and
+/// anything past ±DallasScan::MAX_OFFSET once rounded.
+bool offset_tenths(double celsius, int16_t &tenths);
+
 /// One temperature sensor per DS18B20-family device found on the bus at boot.
 /// Slot numbers stick: the slot table lives in preferences, or in a file when set_slot_file() is called.
 class DallasScan : public PollingComponent {
  public:
+  /// The offset range either way, and its step, in °C.
+  static constexpr float MAX_OFFSET = 5.0f;
+  static constexpr float OFFSET_STEP = 0.1f;
+
   void set_one_wire_bus(one_wire::OneWireBus *bus) { this->bus_ = bus; }
   void set_max_sensors(uint8_t count) {
     this->slots_.assign(count, 0);
     this->given_.assign(count, nullptr);
     this->pinned_.assign(count, false);
+    this->offsets_.assign(count, 0);
+    this->raw_.assign(count, NAN);
 #ifdef USE_SENSOR_FILTER
     this->filters_.resize(count);
 #endif
@@ -98,15 +117,15 @@ class DallasScan : public PollingComponent {
   bool slot_pending(size_t slot) const { return this->saved_address(slot) != this->address(slot); }
   /// Taken by a sensor from sensors:, so forget leaves it alone.
   bool pinned(size_t slot) const { return slot < this->pinned_.size() && this->pinned_[slot]; }
-  /// Whether forget(slot) would empty anything: the slot (any slot for -1) holds a device in
-  /// the saved table and is not listed.
+  /// Whether forget(slot) would empty anything: the slot holds a device in the saved table and is
+  /// not listed; for -1, any such slot, or any unlisted slot with an offset.
   bool can_forget(int slot) const;
   /// False when the table cannot be written (a file whose partition did not mount): forget()
   /// and assign() then change nothing.
   bool can_save() const;
-  /// Empty a slot (every slot for -1), then reboot to scan the bus again. Listed slots stay.
-  /// A slot changed since boot (for -1: nothing left to forget while a change waits) only
-  /// reboots, so the saved table applies as it is.
+  /// Empty a slot (every slot and its offset for -1), then reboot to scan the bus again. Listed
+  /// slots stay. A slot changed since boot (for -1: nothing left to forget while a change waits)
+  /// only reboots, so the saved table applies as it is.
   void forget(int slot);
   /// forget() without the reboot: the saved table changes, the sensors keep their boot devices
   /// until a reboot. False, with the table as it was, when nothing would change or the table
@@ -123,6 +142,18 @@ class DallasScan : public PollingComponent {
   bool assign_and_save(size_t slot, uint64_t address);
   /// The saved table differs from the one this boot bound: a reboot applies it. Any task.
   bool reboot_required() const { return this->reboot_required_.load(); }
+  /// The slot's offset in °C, added to every reading; 0 when it has none.
+  float offset(size_t slot) const { return slot < this->offsets_.size() ? this->offsets_[slot] / 10.0f : 0.0f; }
+  /// Whether set_offset_and_save() would take @p value, rounded to OFFSET_STEP. A free slot takes
+  /// one too: it waits for the sensor that takes the slot.
+  OffsetCheck check_offset(size_t slot, float value) const;
+  /// False when the table cannot be written, or its file did not load this boot: this boot's slots
+  /// are not the table then, and an offset must not write them over the file a person is to fix.
+  bool can_set_offset() const;
+  /// Save the slot's offset now and apply it at once: the slot's last reading is published again
+  /// with it. True without a write when the slot has that offset already; false, with nothing
+  /// changed, unless check_offset() is OK, can_set_offset() holds and the offset could be written.
+  bool set_offset_and_save(size_t slot, float value);
 
  protected:
   /// Virtual so the host tests can see the reboot: the real one ends the process.
@@ -132,13 +163,17 @@ class DallasScan : public PollingComponent {
   sensor::Sensor *make_sensor_(size_t slot);
   void write_resolution_(uint64_t address);
   void read_slot_(size_t slot);
+  void republish_(size_t slot);
+  OffsetCheck check_offset_(size_t slot, float value, int16_t &tenths) const;
   void update_status_();
   bool read_scratch_pad_(uint64_t address, uint8_t *scratch_pad);
   float to_celsius_(uint64_t address, const uint8_t *scratch_pad) const;
   bool uses_file_() const;
   bool save_table_();
   bool store_now_();
-  bool store_or_roll_back_(const std::vector<uint64_t> &before, const char *outcome);
+  bool store_offsets_now_();
+  bool store_or_roll_back_(const std::vector<uint64_t> &before, const std::vector<int16_t> &offsets,
+                           const char *outcome);
 
   one_wire::OneWireBus *bus_{nullptr};
   const char *name_prefix_{"Temp"};
@@ -147,8 +182,9 @@ class DallasScan : public PollingComponent {
   uint32_t entity_fields_{0};
   uint32_t preference_hash_{0};
   std::vector<std::pair<size_t, uint64_t>> pins_;
-  std::vector<uint64_t> slots_;  // slot -> ROM address, 0 = empty; the saved table, which edits change
-  std::vector<bool> pinned_;     // slot -> taken by sensors:
+  std::vector<uint64_t> slots_;   // slot -> ROM address, 0 = empty; the saved table, which edits change
+  std::vector<bool> pinned_;      // slot -> taken by sensors:
+  std::vector<int16_t> offsets_;  // slot -> offset in tenths of a degree, saved and applied at once
 #ifdef USE_SENSOR_FILTER
   std::vector<std::vector<sensor::Filter *>> filters_;  // slot -> filter chain
 #endif
@@ -157,7 +193,9 @@ class DallasScan : public PollingComponent {
   std::vector<sensor::Sensor *> bound_;    // sensors_ without the gaps
   size_t automatic_{0};                    // slots the component reads itself
   std::vector<bool> missing_;              // slot -> the sensor did not answer the last read
+  std::vector<float> raw_;                 // slot -> last reading before the offset, NAN = none
   ESPPreferenceObject pref_;
+  ESPPreferenceObject offsets_pref_;
   std::vector<uint64_t> booted_;              // slots_ as this boot bound it: the sensors read by it
   std::atomic<bool> reboot_required_{false};  // slots_ != booted_, for readers off the loop task
 #ifdef USE_DALLAS_SCAN_FILE

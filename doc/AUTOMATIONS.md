@@ -15,7 +15,9 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
   `below` are strict, a range includes both ends), and `and` / `or` / `xor` groups of those,
   nested. When false, the `else` actions run.
 - **Actions**: switch turn on / off / toggle / follow (copies the state the trigger
-  carried, optionally inverted), delay.
+  carried, optionally inverted), delay. A switch action on a relay a running thermostat drives
+  does nothing; the log names the rule and the thermostat, and the rest of the rule runs
+  ([Thermostats](CLIMATE.md#a-running-thermostats-relays)).
 - **Mode**: `single` ignores a trigger while the rule is running, `restart` starts over,
   `parallel` runs up to 8 copies.
 

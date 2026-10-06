@@ -29,10 +29,11 @@ each slot's ROM address, e.g. `0xeb01227905460228`. The boot log lists them too
 
 ## Backup and restore
 
-The slots are kept in `/littlefs/config/dallas_scan_temps.json` on the user storage partition,
-next to the relay and input settings and the automations, so a backup of the partition carries
-them and a restore puts every sensor back in its slot, on this controller or on a replacement:
-restore, then reboot. A rule that reads `Temp 3` reads the same sensor as before.
+The slots and their offsets are kept in `/littlefs/config/dallas_scan_temps.json` on the user
+storage partition, next to the relay and input settings and the automations, so a backup of the
+partition carries them and a restore puts every sensor back in its slot, with its offset, on this
+controller or on a replacement: restore, then reboot. A rule that reads `Temp 3` reads the same
+sensor as before.
 
 The file can also be edited by hand, then the device rebooted; the format is in
 [components/dallas_scan](../components/dallas_scan/README.md#storage).
@@ -58,23 +59,24 @@ dallas_scan:
 ```
 
 A 1-Wire sensor in the list needs an `address:`; its device keeps that slot. The menu entry of
-a listed sensor shows the address but has no forget.
+a listed sensor shows the address but has no forget and no offset.
 
 ## Forgetting
 
 **Temperatures → Temp N → Confirm** clears the slot and reboots; the sensor in it, or a new
 one, takes the lowest free slot again. The other slots keep their numbers, and a freed slot
 before them keeps its `Temp N` row reading `--`; its menu entry says `Free slot`.
-**Settings → Temp sensors → Confirm** clears every slot but the listed ones, so sensors are
-numbered again in bus order. Factory reset clears them too.
+**Settings → Temp sensors → Confirm** clears every slot but the listed ones, and every
+[offset](#offset), so sensors are numbered again in bus order and no offset lands on another
+sensor. Factory reset clears them too.
 
 The web dashboard does the same without the panel, which is the only way on a device without
 a display: **Settings → Temperature** lists the slots with their readings and ROM addresses,
 and **Forget** on a slot or **Forget All**, clicked twice, clears them. The dashboard does not
-reboot: the sensors keep reading as before, and a banner offers **Reboot now** until the
-restart, or until every change is undone. Several changes add up and one reboot applies them
-all. The panel's Confirm on a slot the dashboard changed reboots into what it saved. Scripts
-can use its routes, in
+reboot: the sensors keep reading as before, though Forget All clears the offsets at once, and a
+banner offers **Reboot now** until the restart, or until every change is undone. Several changes
+add up and one reboot applies them all. The panel's Confirm on a slot the dashboard changed
+reboots into what it saved. Scripts can use its routes, in
 [components/web_device_dashboard](../components/web_device_dashboard/README.md).
 
 ## Moving and assigning
@@ -93,6 +95,24 @@ slot at the next reboot, as for a forget on the dashboard.
 A `Temp N` name and its Modbus register belong to the slot: a sensor moved to slot 3 reads as
 `Temp 3`, on that slot's register. Listed slots cannot be assigned; the tab shows them as
 `Fixed in YAML`.
+
+## Offset
+
+Every DS18B20 reads off by an amount of its own: a genuine part is usually 0.1-0.3 °C low, a
+clone can be several degrees off, and heat from a board or an enclosure adds more. Each slot can
+hold an offset, from -5.0 to +5.0 °C in steps of 0.1, added to its sensor's reading.
+
+- On the panel: **Temperatures → Temp N → Offset**. CENTER opens the row, LEFT and RIGHT step by
+  0.1, CENTER or BACK saves it.
+- On the web dashboard: the slot's **Edit** dialog in **Settings → Temperature**, which also
+  sets one on a free slot, for the sensor that takes it later.
+
+It applies at once, with no reboot: Home Assistant, Modbus, automations and thermostats all get
+the corrected reading. It belongs to the slot number, like the `Temp N` name: it stays through
+an assign, a swap or a forget of that slot, and a sensor that takes the slot reads with it.
+Forget All and a factory reset clear every offset. Listed sensors take none: they have their own
+`filters:` (above). The details are in
+[components/dallas_scan](../components/dallas_scan/README.md#offsets).
 
 ## More slots
 

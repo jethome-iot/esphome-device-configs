@@ -1,5 +1,7 @@
 #include "bindings.h"
 #include <cstring>
+#include <string>
+#include "esphome/components/switch_hold/switch_hold.h"
 #include "esphome/core/application.h"
 #include "esphome/core/log.h"
 
@@ -69,6 +71,7 @@ void BindingsManager::setup() {
     this->drive_output_(this->bindings_[i].output_key, sensor->state);
   }
   this->ready_ = true;
+  switch_hold::add_on_release_callback([this](switch_::Switch *output) { this->on_released_(output); });
 }
 
 void BindingsManager::dump_config() {
@@ -199,12 +202,36 @@ void BindingsManager::on_input_state_(uint32_t input_key, bool state, bool risin
   }
 }
 
-void BindingsManager::drive_output_(uint32_t output_key, bool state) {
+void BindingsManager::on_released_(switch_::Switch *output) {
+  // NOLINTNEXTLINE(modernize-loop-convert)
+  for (size_t i = 0; i < this->bindings_.size(); i++) {
+    if (this->bindings_[i].output_key != output->get_object_id_hash() || this->bindings_[i].mode != BindingMode::FOLLOW)
+      continue;
+    auto *sensor = get_input(this->bindings_[i].input_key);
+    if (sensor != nullptr && sensor->has_state())
+      this->drive_output_(this->bindings_[i].output_key, sensor->state);
+    return;  // one binding per output
+  }
+}
+
+switch_::Switch *BindingsManager::writable_output_(uint32_t output_key) {
   auto *output = get_output(output_key);
   if (output == nullptr) {
     ESP_LOGW(TAG, "Output 0x%08X not found", static_cast<unsigned>(output_key));
-    return;
+    return nullptr;
   }
+  const std::string holder = switch_hold::holder(output);
+  if (!holder.empty()) {
+    ESP_LOGI(TAG, "'%s' left alone: thermostat '%s' drives it", output->get_name().c_str(), holder.c_str());
+    return nullptr;
+  }
+  return output;
+}
+
+void BindingsManager::drive_output_(uint32_t output_key, bool state) {
+  auto *output = this->writable_output_(output_key);
+  if (output == nullptr)
+    return;
   if (state) {
     output->turn_on();
   } else {
@@ -213,12 +240,9 @@ void BindingsManager::drive_output_(uint32_t output_key, bool state) {
 }
 
 void BindingsManager::toggle_output_(uint32_t output_key) {
-  auto *output = get_output(output_key);
-  if (output == nullptr) {
-    ESP_LOGW(TAG, "Output 0x%08X not found", static_cast<unsigned>(output_key));
-    return;
-  }
-  output->toggle();
+  auto *output = this->writable_output_(output_key);
+  if (output != nullptr)
+    output->toggle();
 }
 
 }  // namespace esphome::bindings

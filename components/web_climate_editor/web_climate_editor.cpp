@@ -38,6 +38,17 @@ static const Route ROUTES[] = {
 };
 // clang-format on
 
+// The modes /schema offers, for the thermostat and, after "keep", for a preset.
+static const climate_hub::HubMode MODES[] = {climate_hub::HubMode::OFF, climate_hub::HubMode::HEAT,
+                                             climate_hub::HubMode::COOL, climate_hub::HubMode::HEAT_COOL};
+
+// The preset picked last, by its key and by the name a client shows; both "" for none.
+static void set_active_preset(JsonObject obj, const ClimateConfig &config) {
+  const climate_hub::PresetConfig *active = config.find_preset(config.active_preset);
+  obj["active_preset"] = active != nullptr ? active->key : "";
+  obj["active_preset_name"] = active != nullptr ? active->name : "";
+}
+
 // JSON has no NaN: a reading the device does not have is null.
 static void set_or_null(JsonObject obj, const char *key, float value) {
   if (std::isnan(value)) {
@@ -73,6 +84,22 @@ static bool is_decimal(const std::string &text) {
       i++;
   }
   return i == text.size();
+}
+
+// `"Living Room" and "Floor"`: the thermostats by the names a person knows them by.
+static std::string names_of(const climate_hub::ClimateHub &hub, const std::vector<std::string> &ids) {
+  std::string names;
+  for (size_t i = 0; i < ids.size(); i++) {
+    const ClimateConfig *config = hub.store().get(ids[i]);
+    names += std::string(i == 0 ? "" : " and ") + "\"" + (config != nullptr ? config->name : ids[i]) + "\"";
+  }
+  return names;
+}
+
+// What a change did besides itself, for the end of its message: the waiting thermostats that
+// started on a relay it freed. The warning, when there is one, comes after it.
+static std::string started_note(const climate_hub::ClimateHub &hub, const Result &result) {
+  return result.started.empty() ? "" : "; " + names_of(hub, result.started) + " started";
 }
 
 static std::string success_json(const std::string &message) {
@@ -279,6 +306,7 @@ void WebClimateEditor::handle_list_(AsyncWebServerRequest *request) {
       row["running"] = this->hub_->is_running(config->id);
       // Why it waits, as the Save, the enable or the boot found it, for a client that was not there.
       row["waiting"] = this->hub_->waiting_reason(config->id);
+      set_active_preset(row, *config);
     }
     serializeJson(doc, json);
     return true;
@@ -344,6 +372,8 @@ void WebClimateEditor::handle_status_(AsyncWebServerRequest *request) {
           runtime != nullptr ? runtime->entity()->current_temperature : this->hub_->sensor_reading(config->sensor_id));
       set_or_null(row, "sensor_age_s", runtime != nullptr ? runtime->sensor_age_s(now) : NAN);
       row["setpoint"] = config->setpoint;
+      // Kept while stopped, as the target is: the label comes back with the entity.
+      set_active_preset(row, *config);
       row["min_temperature"] = config->visual.min_temperature;
       row["max_temperature"] = config->visual.max_temperature;
       row["step"] = config->visual.step;
@@ -415,8 +445,7 @@ void WebClimateEditor::handle_schema_(AsyncWebServerRequest *request) {
   for (auto kind : {climate_hub::ControlKind::PID, climate_hub::ControlKind::BANG_BANG})
     kinds.add(climate_hub::enums::control_kind_to_string(kind));
   JsonArray modes = doc["modes"].to<JsonArray>();
-  for (auto mode : {climate_hub::HubMode::OFF, climate_hub::HubMode::HEAT, climate_hub::HubMode::COOL,
-                    climate_hub::HubMode::HEAT_COOL})
+  for (auto mode : MODES)
     modes.add(climate_hub::enums::mode_to_string(mode));
   JsonArray faults = doc["faults"].to<JsonArray>();
   for (auto fault : {climate_hub::HubFault::NONE, climate_hub::HubFault::SENSOR_STALE, climate_hub::HubFault::OVERTEMP,
@@ -424,6 +453,16 @@ void WebClimateEditor::handle_schema_(AsyncWebServerRequest *request) {
     faults.add(climate_hub::enums::fault_to_string(fault));
   doc["max_controllers"] = this->hub_->max_controllers();
   doc["name_max_length"] = climate_hub::NAME_MAX_LENGTH;
+  // A preset's name follows name_max_length; its target, the thermostat's visual range.
+  JsonObject presets = doc["presets"].to<JsonObject>();
+  presets["max_count"] = climate_hub::PRESET_MAX_COUNT;
+  JsonArray preset_modes = presets["modes"].to<JsonArray>();
+  preset_modes.add(climate_hub::PRESET_MODE_KEEP);
+  for (auto mode : MODES)
+    preset_modes.add(climate_hub::enums::mode_to_string(mode));
+  JsonArray standard = presets["standard"].to<JsonArray>();
+  for (const climate_hub::StandardPreset &preset : climate_hub::STANDARD_PRESETS)
+    standard.add(preset.name);
   JsonObject params = doc["params"].to<JsonObject>();
   for (size_t i = 0; i < climate_hub::PARAM_COUNT; i++) {
     const climate_hub::ParamDesc &param = climate_hub::PARAMS[i];
@@ -487,6 +526,7 @@ void WebClimateEditor::handle_save_(AsyncWebServerRequest *request) {
       return true;
     }
     std::string message = id.empty() ? "Thermostat created" : "Thermostat updated";
+    message += started_note(*this->hub_, result);
     if (!result.warning.empty())
       message += "; " + result.warning;
     JsonDocument answer;
@@ -519,9 +559,10 @@ void WebClimateEditor::handle_delete_(AsyncWebServerRequest *request) {
     JsonDocument answer;
     answer["success"] = true;
     // The hub blanks a file it cannot unlink; this is the rarer case where that failed too.
-    answer["message"] = result.persisted ? "Thermostat deleted"
-                                         : "Thermostat deleted; its file could not be removed, so it comes back "
-                                           "at the next boot";
+    answer["message"] = std::string(result.persisted ? "Thermostat deleted"
+                                                     : "Thermostat deleted; its file could not be removed, so it "
+                                                       "comes back at the next boot") +
+                        started_note(*this->hub_, result);
     // As on /enable, so a client need not parse the message for it.
     answer["persisted"] = result.persisted;
     serializeJson(answer, json);
@@ -544,32 +585,10 @@ void WebClimateEditor::handle_enable_(AsyncWebServerRequest *request) {
     return;
   if (request->hasParam("take_over") && !this->read_bool_(request, "take_over", take_over))
     return;
-  // Before the lookup below: a failed hub's store is empty, and its answer is this 500, not a 404.
-  if (this->hub_->is_failed()) {
-    this->send_error_(request, STORAGE_UNAVAILABLE, 500);
-    return;
-  }
   std::string json;
   std::string error;
   int code = 400;
   const bool ran = this->hub_->run_on_loop([&]() {
-    const ClimateConfig *config = this->hub_->store().get(id);
-    if (config == nullptr) {
-      code = 404;
-      error = NOT_FOUND;
-      return true;
-    }
-    // Named now: a take-over stops them, and the answer says who.
-    std::vector<std::string> stopped;
-    if (enabled && take_over && !this->hub_->is_running(id)) {
-      for (const std::string &relay : {config->heat.relay_id, config->cool.relay_id}) {
-        const std::string holder = relay.empty() ? "" : this->hub_->claimed_by(relay);
-        const ClimateConfig *held = holder.empty() || holder == id ? nullptr : this->hub_->store().get(holder);
-        const std::string name = held != nullptr ? "\"" + held->name + "\"" : "";
-        if (!name.empty() && std::find(stopped.begin(), stopped.end(), name) == stopped.end())
-          stopped.push_back(name);
-      }
-    }
     const Result result = this->hub_->set_enabled(id, enabled, take_over);
     if (!result.ok) {
       code = result.code;
@@ -577,10 +596,10 @@ void WebClimateEditor::handle_enable_(AsyncWebServerRequest *request) {
       return true;
     }
     std::string message = enabled ? "Thermostat enabled" : "Thermostat disabled";
-    for (size_t i = 0; i < stopped.size(); i++)
-      message += (i == 0 ? "; " : " and ") + stopped[i];
-    if (!stopped.empty())
-      message += " stopped";
+    // Who a take-over stored disabled, then who started on a relay it freed.
+    if (!result.stopped.empty())
+      message += "; " + names_of(*this->hub_, result.stopped) + " stopped";
+    message += started_note(*this->hub_, result);
     if (!result.warning.empty())
       message += "; " + result.warning;
     JsonDocument answer;

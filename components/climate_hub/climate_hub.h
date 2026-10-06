@@ -12,6 +12,7 @@
 #include "controller_runtime.h"
 #include "esphome/components/filesystem_storage_abstract/filesystem_storage_abstract.h"
 #include "esphome/components/loop_job/loop_job.h"
+#include "esphome/components/switch_hold/switch_hold.h"
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
 #include "hub_climate.h"
@@ -31,13 +32,20 @@ struct Result {
   std::string error;
   /// create(): the id the new thermostat got.
   std::string id;
-  /// A 409 over a relay: the id of the running thermostat that holds it.
+  /// A 409 over a relay: the id of the thermostat that holds it, or that is enabled, waits and
+  /// names it.
   std::string holder;
   /// Saved and enabled but not running, and why: its sensor or a relay is not on the device, or
   /// no climate entity was free.
   std::string warning;
   /// False when the change is live but did not reach flash, so a reboot undoes it.
   bool persisted{true};
+  /// set_enabled() with take_over: the ids of the thermostats it stored disabled for the relay,
+  /// the running ones first.
+  std::vector<std::string> stopped;
+  /// The ids of the waiting thermostats that started because the change freed a relay they
+  /// name, in the order they started.
+  std::vector<std::string> started;
 };
 
 /// Thermostats stored as <storage>/<folder>/<id>.json and run on the loop task, each one a
@@ -45,7 +53,10 @@ struct Result {
 ///
 /// Everything below runs on the loop task. A caller on another task (an ESP-IDF HTTP handler)
 /// wraps its whole read, decide and write in one run_on_loop() job.
-class ClimateHub : public Component {
+///
+/// It is the firmware's switch_hold::SwitchHolder: a running thermostat holds its relays, and
+/// the other writers ask switch_hold before they move one.
+class ClimateHub : public Component, public switch_hold::SwitchHolder {
  public:
   ClimateHub();
 
@@ -74,39 +85,52 @@ class ClimateHub : public Component {
   /// Whether the thermostat is running: enabled, and its sensor and relays were there.
   bool is_running(const std::string &id) const { return this->slot_for_(id) != nullptr; }
   /// Why an enabled thermostat is not running, worded as the `warning` that said so ("not
-  /// started: sensor 'temp_3' not found"): what its last start, at boot, a Save or an enable,
-  /// failed on. "" when it runs, is disabled or is not there.
+  /// started: sensor 'temp_3' not found"): what its last start, at boot, a Save, an enable or
+  /// a relay it names coming free, failed on. "" when it runs, is disabled or is not there.
   std::string waiting_reason(const std::string &id) const;
   /// The running thermostat's control state (action, fault, duties, PID terms, sample age),
   /// nullptr when it is not running.
   const ControllerRuntime *runtime(const std::string &id) const;
   /// The id of the running thermostat that holds this relay, or "".
   std::string claimed_by(const std::string &relay_object_id) const;
+  /// The name of the running thermostat that holds `sw`, or "".
+  std::string holder_of(const switch_::Switch *sw) const override;
   /// What a sensor reads now, NaN when there is no such sensor or its reading is not a finite
   /// number in °C: a stopped thermostat has no entity to ask.
   float sensor_reading(const std::string &sensor_object_id) const;
 
-  /// Adds a thermostat. The draft's id is ignored: one is made from the name. Refused with 400
+  /// Adds a thermostat. The draft's id, its presets' keys and its active_preset are ignored: an
+  /// id and keys are made from the names, and no preset is active. Refused with 400
   /// (a rule broken; enabled, and its sensor does not report °C), 409 (name taken, relay held by
-  /// a running thermostat, every id the name gives taken), 413 (the file would be over
-  /// CONFIG_MAX_BYTES), 507 (at max_controllers) or 500 (not written). An enabled one whose
-  /// sensor or relay is not on the device is saved and waits, as at boot, with a `warning`.
+  /// a running thermostat or named by an enabled one that waits, every id the name gives taken),
+  /// 413 (the file would be over CONFIG_MAX_BYTES), 507 (at max_controllers) or 500 (not
+  /// written). An enabled one whose sensor or relay is not on the device is saved and waits, as
+  /// at boot, with a `warning`.
   Result create(ClimateConfig draft);
   /// Replaces a thermostat's document; the id stays. A running one keeps its entity and every
   /// relay it still names, or stops when the sensor or a relay it now names is not on the
-  /// device. 404 for an unknown id, otherwise as create().
+  /// device. A preset keeps its key when the doc brings it back, one the thermostat never gave
+  /// out is made again from the name, and the active preset stays while its key is there, the
+  /// doc's active_preset ignored; new values for it apply at once. A relay it holds is never
+  /// refused, whoever else names it. 404 for an unknown id, 409 for one a newer firmware wrote,
+  /// otherwise as create(). A relay the Save frees starts the thermostats that wait for it.
   Result update(const std::string &id, ClimateConfig doc);
-  /// Stops and deletes a thermostat.
+  /// Stops and deletes a thermostat, and starts the thermostats that wait for its relays.
   Result remove(const std::string &id);
   /// Starts or stops a thermostat and stores the flag. Enabling is refused as a Save is: 400
-  /// for a sensor that does not report °C, 409 naming the holder for a relay a running
-  /// thermostat holds, unless `take_over`: the holder is then disabled first, and a 400 comes
-  /// instead when the sensor or a relay is not on the device, the holder untouched. Otherwise
-  /// one whose sensor or relay is not on the device is stored enabled and waits, with a
-  /// `warning`.
+  /// for a sensor that does not report °C, 409 naming the thermostat that holds a relay or,
+  /// enabled and waiting, names it, unless `take_over`: each of those is then disabled first,
+  /// and a 400 comes instead when the sensor or a relay is not on the device, or a 409 when only
+  /// waiting ones name it and no climate entity is free, nothing touched.
+  /// Otherwise one whose sensor or relay is not on the device is stored enabled and waits, with
+  /// a `warning`. A stop or a take-over starts the thermostats that wait for a freed relay,
+  /// after the one taking over.
   Result set_enabled(const std::string &id, bool enabled, bool take_over = false);
   /// Moves the target, clamped into the visual range, running or not.
   Result set_setpoint(const std::string &id, float value);
+  /// Picks the preset with this key, running or not, as Home Assistant would: its target, its
+  /// mode if it has one, and the label. 404 for an unknown thermostat or key.
+  Result apply_preset(const std::string &id, const std::string &key);
 
   /// The name rules on a trimmed name, with the sentence that says which one broke.
   static bool validate_name(const std::string &name, std::string *error) {
@@ -153,18 +177,29 @@ class ClimateHub : public Component {
   void release_claims_(const std::string &owner);
   /// Opens the claim's relay, remembers its last switching and drops the claim.
   ClaimMap::iterator let_go_(ClaimMap::iterator it, uint32_t now_ms);
+  /// The end of a mutator, after start_waiters_(): tells switch_hold about each relay let go of
+  /// that is still free, and forgets them all.
+  void announce_released_();
   /// Moves the claims `from` holds on relays `to` names over to `to`, relays as they are.
   void hand_over_(const std::string &from, Slot *holding, const ClimateConfig &to);
   /// The running thermostat, other than `config` itself, that holds one of its relays, and
   /// which relay.
   std::string holder_of_(const ClimateConfig &config, std::string *relay_id = nullptr) const;
+  /// The first by id of the other thermostats that are enabled, wait, and name one of the
+  /// relays `config` does not hold already, and which relay.
+  std::string reserver_of_(const ClimateConfig &config, std::string *relay_id = nullptr) const;
   /// Whether the sensor and the relays `config` names are on this device, the sensor in °C:
   /// what a take-over asks before it stops the holder.
   bool check_entities_(const ClimateConfig &config, std::string *error) const;
   /// Whether `config`, enabled, may be saved: 400 for a sensor not in °C, 409 for a relay held
-  /// elsewhere. A missing sensor or relay is waited for, as at boot.
+  /// elsewhere or reserved by a thermostat that waits. A missing sensor or relay is waited for,
+  /// as at boot.
   bool check_savable_(const ClimateConfig &config, Result *result) const;
-  Result relay_held_(const std::string &relay_id, const std::string &holder) const;
+  /// The 409 naming `holder`, which holds the relay or, `waits`, is enabled and waits for it.
+  Result relay_held_(const std::string &relay_id, const std::string &holder, bool waits) const;
+  /// Starts the enabled thermostats, `skip_id` aside, that name a relay let go since the last
+  /// announce_released_(), in id order, and adds the ones that started to `result`.
+  void start_waiters_(const std::string &skip_id, Result *result);
   Slot *slot_for_(const std::string &id) const;
   /// The hidden slot that last carried `name` (by object id), so a thermostat back under its
   /// name gets back its key; otherwise the one freed longest ago. Only while one is free.
@@ -181,8 +216,8 @@ class ClimateHub : public Component {
   std::string folder_() const;
   std::string file_path_(const std::string &id) const;
   bool ensure_folder_();
-  /// False, nothing written, when the write failed or the next boot could not load the file;
-  /// `too_large` then says whether it was the size.
+  /// False, nothing written, when the write failed, the next boot could not load the file or a
+  /// newer firmware wrote it; `too_large` then says whether it was the size.
   bool save_(const ClimateConfig &config, bool *too_large = nullptr);
   // Seam: the rules keep every document under the cap, and no host fails one allocation.
   virtual EncodeError encode_(const ClimateConfig &config, std::string *json) const { return config.encode(json); }
@@ -217,6 +252,8 @@ class ClimateHub : public Component {
   std::map<std::string, RelaySwitching> relay_history_;
   // Why each enabled thermostat that is not running did not start, by id, as a `warning`.
   std::map<std::string, std::string> waiting_;
+  // Relays let go since the last announce_released_(), by object id.
+  std::map<std::string, switch_::Switch *> freed_;
   // One per sensor, kept for the life of the device: upstream has no callback removal.
   std::vector<std::unique_ptr<SensorSubscription>> sensor_subs_;
 

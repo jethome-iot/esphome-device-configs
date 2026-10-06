@@ -1,6 +1,7 @@
 #include "runtime_automation.h"
 #include <cmath>
 #include "automation_storage.h"
+#include "esphome/components/switch_hold/switch_hold.h"
 #include "esphome/core/log.h"
 
 namespace esphome::automations {
@@ -395,6 +396,13 @@ void RuntimeAutomation::play_switch_(const CompiledAction &action, const Run &ru
 #ifdef USE_SWITCH
   if (action.source != SourceAction::SWITCH)
     return;
+  // A running thermostat's relay is the thermostat's: the run goes on without this step.
+  const std::string holder = switch_hold::holder(action.target);
+  if (!holder.empty()) {
+    ESP_LOGI(TAG, "Automation '%s' left '%s' alone: thermostat '%s' drives it", this->name_.c_str(),
+             action.target->get_name().c_str(), holder.c_str());
+    return;
+  }
   switch (action.type) {
     case TypeSwitchAction::TURN_ON:
       action.target->turn_on();

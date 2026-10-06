@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <utility>
 #include "entity_lookup.h"
 #include "esphome/core/application.h"
 #include "esphome/core/hal.h"
@@ -44,6 +45,9 @@ static Result failure(uint16_t code, std::string error) {
 }
 
 static const char *const NOT_FOUND = "Thermostat not found";
+static const char *const PRESET_NOT_FOUND = "Preset not found";
+// Its fields this firmware does not know would be lost.
+static const char *const NEWER_FILE = "A newer firmware wrote this thermostat; update the firmware to change it";
 // The dashboard's editor opens a blank form at /climate/new.
 static const char *const RESERVED_ID = "new";
 
@@ -98,7 +102,47 @@ static sensor::Sensor *find_input(const std::string &sensor_id, std::string *err
   return sensor;
 }
 
-ClimateHub::ClimateHub() { global_climate_hub = this; }
+// What Home Assistant lists of a thermostat's presets: the built-in ones as a set, the custom
+// names in order. It reads them only when it lists the entities.
+static bool same_preset_listing(const ClimateConfig &a, const ClimateConfig &b) {
+  auto listing = [](const ClimateConfig &config) {
+    std::pair<uint32_t, std::vector<std::string>> out{0, {}};
+    for (const PresetConfig &preset : config.presets) {
+      climate::ClimatePreset standard;
+      if (standard_preset(preset.name, &standard)) {
+        out.first |= 1u << standard;
+      } else {
+        out.second.push_back(preset.name);
+      }
+    }
+    return out;
+  };
+  return listing(a) == listing(b);
+}
+
+// A Save's presets against the stored ones: a key the thermostat gave out stays with its
+// preset, any other is made again from the name; the active preset is the thermostat's state,
+// not the form's, and takes new values at once.
+static void keep_preset_state(const ClimateConfig &stored, ClimateConfig *doc) {
+  for (PresetConfig &preset : doc->presets) {
+    if (stored.find_preset(preset.key) == nullptr)
+      preset.key.clear();
+  }
+  doc->assign_preset_keys();
+  const PresetConfig *now = doc->find_preset(stored.active_preset);
+  doc->active_preset = now != nullptr ? stored.active_preset : "";
+  if (now == nullptr)
+    return;
+  // Found under the stored active key, which always names one of the stored presets.
+  const PresetConfig *was = stored.find_preset(stored.active_preset);
+  if (now->setpoint != was->setpoint || now->mode != was->mode)
+    doc->pick_preset(*now);
+}
+
+ClimateHub::ClimateHub() {
+  global_climate_hub = this;
+  switch_hold::set_holder(this);
+}
 
 uint32_t ClimateHub::now_ms() const { return millis(); }
 
@@ -241,6 +285,10 @@ bool ClimateHub::load_file_(const std::string &folder, const std::string &filena
     ESP_LOGE(TAG, "'%s' refused: the editor cannot open the id '%s'", path.c_str(), RESERVED_ID);
     return false;
   }
+  if (config.from_newer_firmware()) {
+    ESP_LOGW(TAG, "'%s' is version %u, from a newer firmware: it runs, but changes stay in memory", path.c_str(),
+             static_cast<unsigned>(config.version));
+  }
   this->resolve_name_(&config);
   this->store_.add(config);
   return true;
@@ -292,8 +340,9 @@ void ClimateHub::dump_config() {
     } else if (config->enabled) {
       state = this->waiting_reason(config->id);
     }
-    ESP_LOGCONFIG(TAG, "  '%s' (%s): %s, %s", config->name.c_str(), config->id.c_str(),
-                  enums::control_kind_to_string(config->kind), state.c_str());
+    ESP_LOGCONFIG(TAG, "  '%s' (%s): %s, %s%s", config->name.c_str(), config->id.c_str(),
+                  enums::control_kind_to_string(config->kind), state.c_str(),
+                  config->from_newer_firmware() ? ", file from a newer firmware" : "");
   }
 }
 
@@ -331,6 +380,16 @@ std::string ClimateHub::waiting_reason(const std::string &id) const {
 std::string ClimateHub::claimed_by(const std::string &relay_object_id) const {
   auto it = this->claims_.find(relay_object_id);
   return it == this->claims_.end() ? std::string() : it->second->owner();
+}
+
+std::string ClimateHub::holder_of(const switch_::Switch *sw) const {
+  for (const auto &entry : this->claims_) {
+    if (entry.second->relay() != sw)
+      continue;
+    const ClimateConfig *config = this->store_.get(entry.second->owner());
+    return config != nullptr ? config->name : entry.second->owner();
+  }
+  return "";
 }
 
 float ClimateHub::sensor_reading(const std::string &sensor_object_id) const {
@@ -395,10 +454,17 @@ Result ClimateHub::create(ClimateConfig draft) {
     return result;
   std::string error;
   draft.name = trim_name(draft.name);
+  // The keys are the hub's to give, as the id is.
+  for (PresetConfig &preset : draft.presets) {
+    preset.name = trim_name(preset.name);
+    preset.key.clear();
+  }
+  draft.active_preset.clear();
   draft.clamp_numbers();
   if (!draft.validate(&error))
     return failure(400, error);
   draft.clamp_setpoint();
+  draft.assign_preset_keys();
   if (this->store_.size() >= this->max_controllers_)
     return failure(507, "This device allows " + std::to_string(this->max_controllers_) +
                             " thermostats; delete one to add another");
@@ -410,7 +476,7 @@ Result ClimateHub::create(ClimateConfig draft) {
                             "\" is taken by a file in the thermostat folder; choose another name");
   if (draft.enabled && !this->check_savable_(draft, &result))
     return result;
-  draft.version = 1;
+  draft.version = CONFIG_VERSION;
   bool too_large = false;
   if (!this->save_(draft, &too_large))
     return not_saved(too_large);
@@ -438,8 +504,12 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
   ClimateConfig *stored = this->store_.get(id);
   if (stored == nullptr)
     return failure(404, NOT_FOUND);
+  if (stored->from_newer_firmware())
+    return failure(409, NEWER_FILE);
   std::string error;
   doc.name = trim_name(doc.name);
+  for (PresetConfig &preset : doc.presets)
+    preset.name = trim_name(preset.name);
   doc.clamp_numbers();
   if (!doc.validate(&error))
     return failure(400, error);
@@ -448,7 +518,8 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
     return failure(409, error);
   // The path wins: a Save never re-keys a thermostat.
   doc.id = id;
-  doc.version = 1;
+  doc.version = CONFIG_VERSION;
+  keep_preset_state(*stored, &doc);
   if (doc.enabled && !this->check_savable_(doc, &result))
     return result;
   // Written beside the old file and renamed over it: a failure leaves everything as it was.
@@ -470,12 +541,12 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
     structural = true;
   } else if (slot != nullptr) {
     if (this->restart_(slot, previous.name, &error)) {
-      // A new name or new traits are news to Home Assistant; new gains are not.
+      // A new name or new traits are news to Home Assistant; new gains or preset values are not.
       structural = previous.name != stored->name || previous.supports_heat() != stored->supports_heat() ||
                    previous.supports_cool() != stored->supports_cool() ||
                    previous.visual.min_temperature != stored->visual.min_temperature ||
                    previous.visual.max_temperature != stored->visual.max_temperature ||
-                   previous.visual.step != stored->visual.step;
+                   previous.visual.step != stored->visual.step || !same_preset_listing(previous, *stored);
     } else {
       result.warning = this->note_waiting_(id, error);
       structural = true;
@@ -492,6 +563,9 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
   if (!result.warning.empty())
     ESP_LOGW(TAG, "'%s' saved but %s", id.c_str(), result.warning.c_str());
   ESP_LOGD(TAG, "Updated '%s' (%s)", stored->name.c_str(), id.c_str());
+  // Its own start failed just now, for the reason the warning gives.
+  this->start_waiters_(id, &result);
+  this->announce_released_();
   return result;
 }
 
@@ -513,6 +587,8 @@ Result ClimateHub::remove(const std::string &id) {
   ESP_LOGD(TAG, "Removed '%s'", id.c_str());
   // Last: `id` may be the document's own string.
   this->store_.remove(id);
+  this->start_waiters_("", &result);
+  this->announce_released_();
   return result;
 }
 
@@ -537,30 +613,55 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
       this->stop_(slot);
       this->schedule_ha_resync_();
     }
+    this->start_waiters_(id, &result);
+    this->announce_released_();
     return result;
   }
 
   if (slot != nullptr)
     return result;
-  // As a Save, but for a held relay the caller may take over: a missing sensor or relay is
-  // waited for.
+  // As a Save, but for a relay another thermostat holds or waits for the caller may take over:
+  // a missing sensor or relay is waited for.
   Result refused;
   if (!this->check_savable_(*stored, &refused) && (refused.holder.empty() || !take_over))
     return refused;
   std::string error;
-  std::string relay_id;
-  std::string holder = this->holder_of_(*stored, &relay_id);
-  // A take-over stops the holder, so only for a thermostat that runs in its place.
-  if (!holder.empty() && !this->check_entities_(*stored, &error))
+  // A take-over stops the others, so only for a thermostat that runs in their place.
+  if (!refused.holder.empty() && !this->check_entities_(*stored, &error))
     return failure(400, error);
-  // Taken over in the same job, so the relay is never free for a third party in between.
-  for (; !holder.empty(); holder = this->holder_of_(*stored, &relay_id)) {
-    ClimateConfig *held = this->store_.get(holder);
-    if (held != nullptr) {
-      held->enabled = false;
-      result.persisted = this->save_(*held) && result.persisted;
-      this->dirty_.erase(holder);
+  // Waiters free no climate entity, a running holder does.
+  if (!refused.holder.empty() && this->free_.empty() && this->holder_of_(*stored).empty())
+    return failure(409, "No free climate entity to run it in");
+  // A newer firmware's file cannot record the take-over, so the others' files do not either:
+  // the next boot runs what the files say rather than neither thermostat.
+  const bool in_memory = stored->from_newer_firmware();
+  auto disable = [&](ClimateConfig *other) {
+    if (in_memory) {
+      // A change it had waiting is written now, under the flag its file has.
+      if (this->dirty_.erase(other->id) != 0)
+        this->save_(*other);
+      other->enabled = false;
+      result.persisted = false;
+    } else {
+      other->enabled = false;
+      result.persisted = this->save_(*other) && result.persisted;
+      this->dirty_.erase(other->id);
     }
+  };
+  // The waiting ones first: a relay handed over below is this one's, and would hide who else
+  // names it.
+  std::vector<std::string> waiters;
+  for (std::string waiter = this->reserver_of_(*stored); !waiter.empty(); waiter = this->reserver_of_(*stored)) {
+    disable(this->store_.get(waiter));
+    this->waiting_.erase(waiter);
+    ESP_LOGI(TAG, "'%s' took the relay over from '%s', which waited", id.c_str(), waiter.c_str());
+    waiters.push_back(std::move(waiter));
+  }
+  // Taken over in the same job, so the relay is never free for a third party in between.
+  for (std::string holder = this->holder_of_(*stored); !holder.empty(); holder = this->holder_of_(*stored)) {
+    ClimateConfig *held = this->store_.get(holder);
+    if (held != nullptr)
+      disable(held);
     this->waiting_.erase(holder);
     Slot *holding = this->slot_for_(holder);
     this->hand_over_(holder, holding, *stored);
@@ -571,7 +672,9 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
     }
     this->schedule_ha_resync_();
     ESP_LOGI(TAG, "'%s' took the relay over from '%s'", id.c_str(), holder.c_str());
+    result.stopped.push_back(std::move(holder));
   }
+  result.stopped.insert(result.stopped.end(), waiters.begin(), waiters.end());
   if (!stored->enabled) {
     stored->enabled = true;
     result.persisted = this->save_(*stored) && result.persisted;
@@ -583,6 +686,9 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
     result.warning = this->note_waiting_(id, error);
     ESP_LOGW(TAG, "'%s' enabled but %s", id.c_str(), result.warning.c_str());
   }
+  // After it: the relays the holders drove alone are free for the next in line.
+  this->start_waiters_(id, &result);
+  this->announce_released_();
   return result;
 }
 
@@ -595,7 +701,7 @@ Result ClimateHub::set_setpoint(const std::string &id, float value) {
     return failure(404, NOT_FOUND);
   if (std::isnan(value))
     return failure(400, "value must be a number");
-  const float target = std::max(stored->visual.min_temperature, std::min(stored->visual.max_temperature, value));
+  const float target = stored->clamp_target(value);
   Slot *slot = this->slot_for_(id);
   if (slot != nullptr) {
     // The path Home Assistant takes: it moves the band, republishes and marks the file dirty.
@@ -606,6 +712,23 @@ Result ClimateHub::set_setpoint(const std::string &id, float value) {
     stored->setpoint = target;
     this->mark_dirty_(id);
   }
+  return success();
+}
+
+Result ClimateHub::apply_preset(const std::string &id, const std::string &key) {
+  Result result;
+  if (this->refuse_if_failed_(&result))
+    return result;
+  ClimateConfig *stored = this->store_.get(id);
+  if (stored == nullptr)
+    return failure(404, NOT_FOUND);
+  const PresetConfig *preset = stored->find_preset(key);
+  if (preset == nullptr)
+    return failure(404, PRESET_NOT_FOUND);
+  Slot *slot = this->slot_for_(id);
+  // Running, through the entity, which Home Assistant then hears about.
+  if (slot != nullptr ? slot->runtime.pick_preset(*preset) : stored->pick_preset(*preset))
+    this->mark_dirty_(id);
   return success();
 }
 
@@ -620,6 +743,25 @@ std::string ClimateHub::holder_of_(const ClimateConfig &config, std::string *rel
       if (relay_id != nullptr)
         *relay_id = out->relay_id;
       return owner;
+    }
+  }
+  return "";
+}
+
+// A running thermostat holds every relay it names, so the others that name one are the waiting.
+std::string ClimateHub::reserver_of_(const ClimateConfig &config, std::string *relay_id) const {
+  for (const auto &other : this->store_.all()) {
+    if (other->id == config.id || !other->enabled || this->is_running(other->id))
+      continue;
+    for (const OutputConfig *out : {&config.heat, &config.cool}) {
+      // One it holds is its own across a Save: whoever waits for it waits on.
+      if (!out->configured() || this->claimed_by(out->relay_id) == config.id)
+        continue;
+      if (other->heat.relay_id == out->relay_id || other->cool.relay_id == out->relay_id) {
+        if (relay_id != nullptr)
+          *relay_id = out->relay_id;
+        return other->id;
+      }
     }
   }
   return "";
@@ -644,7 +786,8 @@ bool ClimateHub::check_entities_(const ClimateConfig &config, std::string *error
 }
 
 // A missing sensor or relay is no refusal: the thermostat waits for it, as one loaded at boot
-// does. A unit never changes, and a held relay is the holder's to give up.
+// does. A unit never changes, and a held relay is the holder's to give up. A relay an enabled
+// thermostat waits for is reserved for it the same way, so no two enabled ones share a relay.
 bool ClimateHub::check_savable_(const ClimateConfig &config, Result *result) const {
   const std::string unit = unit_refusal(find_sensor(config.sensor_id));
   if (!unit.empty()) {
@@ -652,23 +795,30 @@ bool ClimateHub::check_savable_(const ClimateConfig &config, Result *result) con
     return false;
   }
   std::string relay_id;
-  const std::string holder = this->holder_of_(config, &relay_id);
+  std::string holder = this->holder_of_(config, &relay_id);
+  if (!holder.empty()) {
+    *result = this->relay_held_(relay_id, holder, false);
+    return false;
+  }
+  holder = this->reserver_of_(config, &relay_id);
   if (holder.empty())
     return true;
-  *result = this->relay_held_(relay_id, holder);
+  *result = this->relay_held_(relay_id, holder, true);
   return false;
 }
 
 // Both by the names a person knows them by; the holder's id rides along for a take-over.
-Result ClimateHub::relay_held_(const std::string &relay_id, const std::string &holder) const {
+Result ClimateHub::relay_held_(const std::string &relay_id, const std::string &holder, bool waits) const {
   std::string relay_name = relay_id;
 #ifdef USE_SWITCH
   if (switch_::Switch *sw = find_switch(relay_id))
     relay_name = sw->get_name().c_str();
 #endif
   const ClimateConfig *held_by = this->store_.get(holder);
+  const std::string who = "\"" + (held_by != nullptr ? held_by->name : holder) + "\"";
   Result result = failure(
-      409, "\"" + relay_name + "\" is already driven by \"" + (held_by != nullptr ? held_by->name : holder) + "\"");
+      409, "\"" + relay_name + "\" is " +
+               (waits ? "reserved by " + who + ", which is enabled and waits to start" : "already driven by " + who));
   result.holder = holder;
   return result;
 }
@@ -742,7 +892,40 @@ void ClimateHub::release_claims_(const std::string &owner) {
 ClimateHub::ClaimMap::iterator ClimateHub::let_go_(ClaimMap::iterator it, uint32_t now_ms) {
   it->second->force_off(now_ms);
   it->second->last_switching(&this->relay_history_[it->first]);
+  this->freed_[it->first] = it->second->relay();
   return this->claims_.erase(it);
+}
+
+// So waiting means what it says: one whose relay comes free tries again at once, and one that
+// still cannot start gets a fresh reason. A waiter holds no claim, so its start frees nothing.
+void ClimateHub::start_waiters_(const std::string &skip_id, Result *result) {
+  if (this->freed_.empty())
+    return;
+  for (const auto &config : this->store_.all()) {
+    if (!config->enabled || config->id == skip_id || this->is_running(config->id) ||
+        (this->freed_.count(config->heat.relay_id) == 0 && this->freed_.count(config->cool.relay_id) == 0))
+      continue;
+    std::string error;
+    if (this->start_(config.get(), &error)) {
+      ESP_LOGI(TAG, "'%s' started: a relay it waited for is free", config->id.c_str());
+      result->started.push_back(config->id);
+      this->schedule_ha_resync_();
+    } else {
+      ESP_LOGW(TAG, "'%s' %s", config->id.c_str(), this->note_waiting_(config->id, error).c_str());
+    }
+  }
+}
+
+// Only once the waiters had their turn, and only for a relay still free: a thermostat that
+// started on it in the same call keeps it, and nothing that hears of the release moves it
+// under that one.
+void ClimateHub::announce_released_() {
+  std::map<std::string, switch_::Switch *> freed;
+  freed.swap(this->freed_);
+  for (const auto &relay : freed) {
+    if (this->claimed_by(relay.first).empty())
+      switch_hold::notify_released(relay.second);
+  }
 }
 
 // A relay both thermostats drive changes hands as it is, so one that both want closed never
@@ -900,6 +1083,12 @@ std::string ClimateHub::next_id_(const std::string &name) const {
 }
 
 bool ClimateHub::save_(const ClimateConfig &config, bool *too_large) {
+  if (too_large != nullptr)
+    *too_large = false;
+  if (config.from_newer_firmware()) {
+    ESP_LOGW(TAG, "'%s' not written: a newer firmware wrote its file", config.id.c_str());
+    return false;
+  }
   std::string json;
   const EncodeError encoded = this->encode_(config, &json);
   if (too_large != nullptr)
@@ -952,6 +1141,10 @@ bool ClimateHub::delete_file_(const std::string &id) {
 }
 
 void ClimateHub::mark_dirty_(const std::string &id) {
+  // What a newer firmware wrote is not this one's to rewrite: the change lives in memory.
+  const ClimateConfig *config = this->store_.get(id);
+  if (config != nullptr && config->from_newer_firmware())
+    return;
   if (this->dirty_.empty())
     this->dirty_since_ms_ = this->now_ms();
   this->dirty_.insert(id);
@@ -961,7 +1154,7 @@ void ClimateHub::flush_dirty_() {
   for (const std::string &id : this->dirty_) {
     const ClimateConfig *config = this->store_.get(id);
     if (config != nullptr && !this->save_(*config))
-      ESP_LOGW(TAG, "'%s': the new target or mode was not written", id.c_str());
+      ESP_LOGW(TAG, "'%s': the thermostat's state was not written", id.c_str());
   }
   this->dirty_.clear();
 }

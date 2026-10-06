@@ -2,6 +2,8 @@
 #include <ArduinoJson.h>
 #include <algorithm>
 #include <cinttypes>
+#include <cmath>
+#include <limits>
 #include "dashboard_index.h"
 #include "esphome/components/json/json_util.h"
 #include "esphome/core/alloc_helpers.h"
@@ -69,6 +71,7 @@ static const Route ROUTES[] = {
     {"temperature-slots", RouteId::TEMPERATURE_SLOTS, true, false},
     {"temperature-slots/forget", RouteId::TEMPERATURE_SLOTS_FORGET, false, true},
     {"temperature-slots/assign", RouteId::TEMPERATURE_SLOTS_ASSIGN, false, true},
+    {"temperature-slots/offset", RouteId::TEMPERATURE_SLOTS_OFFSET, false, true},
 #endif
 #ifdef USE_CONFIG_JSON
     {"entities", RouteId::ENTITIES, true, false},
@@ -189,6 +192,9 @@ void WebDeviceDashboard::handleRequest(AsyncWebServerRequest *request) {
         break;
       case RouteId::TEMPERATURE_SLOTS_ASSIGN:
         this->handle_temperature_slots_assign_(request);
+        break;
+      case RouteId::TEMPERATURE_SLOTS_OFFSET:
+        this->handle_temperature_slots_offset_(request);
         break;
 #endif
 #ifdef USE_CONFIG_JSON
@@ -665,11 +671,7 @@ void WebDeviceDashboard::handle_capabilities_(AsyncWebServerRequest *request) {
   request->send(200, "application/json", body.c_str());
 }
 
-// A stray POST is one page load away, and every route that takes this is one-way. The token is
-// the tail of base_mac_address, so confirming means having read /api/device/info of this
-// device rather than having followed a link. Not the active MAC: on a build with Ethernet
-// that is a different one, and the answer names which is meant.
-bool WebDeviceDashboard::check_confirm_(AsyncWebServerRequest *request, JsonDocument &doc) {
+bool WebDeviceDashboard::read_json_body_(AsyncWebServerRequest *request, JsonDocument &doc) {
   if (!this->require_json_(request))
     return false;
   if (this->body_too_large_) {
@@ -681,6 +683,16 @@ bool WebDeviceDashboard::check_confirm_(AsyncWebServerRequest *request, JsonDocu
     this->send_error_(request, 400, "Invalid JSON");
     return false;
   }
+  return true;
+}
+
+// A stray POST is one page load away, and every route that takes this is one-way. The token is
+// the tail of base_mac_address, so confirming means having read /api/device/info of this
+// device rather than having followed a link. Not the active MAC: on a build with Ethernet
+// that is a different one, and the answer names which is meant.
+bool WebDeviceDashboard::check_confirm_(AsyncWebServerRequest *request, JsonDocument &doc) {
+  if (!this->read_json_body_(request, doc))
+    return false;
   if (!(doc["confirm"] | false)) {
     this->send_error_(request, 400, "'confirm' must be true");
     return false;
@@ -778,10 +790,16 @@ void WebDeviceDashboard::factory_reset_() {
 // A string: a 64-bit ROM does not survive a JavaScript number.
 static std::string rom_text(uint64_t rom) { return str_sprintf("0x%016" PRIx64, rom); }
 
-// GET /api/device/temperature-slots: the dallas_scan slots up to the last one bound at boot or
-// in the saved table, numbered from 1 as the sensor names and the log number them. A freed slot
-// between bound ones keeps its row, as it does in the panel's Temperatures menu. Read on the
-// loop task, where a forget or an assign that cannot write the table puts it back.
+// "+0.3", "-0.3" or "0.0": the sign says which way a reading moves, and zero moves it nowhere.
+static std::string offset_text(float celsius) {
+  return celsius == 0.0f ? std::string("0.0") : str_sprintf("%+.1f", celsius);
+}
+
+// GET /api/device/temperature-slots: the dallas_scan slots up to the last one bound at boot, in
+// the saved table or holding an offset, numbered from 1 as the sensor names and the log number
+// them. A freed slot between bound ones keeps its row, as it does in the panel's Temperatures
+// menu. Read on the loop task, where a forget or an assign that cannot write the table puts it
+// back.
 void WebDeviceDashboard::handle_temperature_slots_(AsyncWebServerRequest *request) {
   auto *scan = this->temperature_slots_;
   if (scan == nullptr) {
@@ -804,11 +822,21 @@ void WebDeviceDashboard::handle_temperature_slots_(AsyncWebServerRequest *reques
 // and `running_address` are what this boot's sensor is until the reboot.
 std::string WebDeviceDashboard::temperature_slots_json_(dallas_scan::DallasScan *scan) {
   return json::build_json([scan](JsonObject root) {
+    const bool writable = scan->can_save();
     root["max_slots"] = scan->max_sensors();
     root["reboot_required"] = scan->reboot_required();
+    // Not the rows' can_forget: offsets alone are something to forget for every slot.
+    root["can_forget_all"] = writable && scan->can_forget(-1);
+    // Floats, which print to their own precision: 0.1f as a double would print 0.100000001.
+    root["max_offset"] = dallas_scan::DallasScan::MAX_OFFSET;
+    root["offset_step"] = dallas_scan::DallasScan::OFFSET_STEP;
     JsonArray slots = root["slots"].to<JsonArray>();
-    const bool writable = scan->can_save();
-    const size_t rows = std::max(scan->used_slots(), scan->saved_slots());
+    size_t rows = std::max(scan->used_slots(), scan->saved_slots());
+    // A free slot past them may hold an offset for the sensor that takes it.
+    for (size_t slot = rows; slot < scan->max_sensors(); slot++) {
+      if (scan->offset(slot) != 0.0f)
+        rows = slot + 1;
+    }
     for (size_t slot = 0; slot < rows; slot++) {
       JsonObject entry = slots.add<JsonObject>();
       entry["slot"] = slot + 1;
@@ -823,15 +851,19 @@ std::string WebDeviceDashboard::temperature_slots_json_(dallas_scan::DallasScan 
       entry["pending"] = pending;
       if (const uint64_t running = scan->address(slot); pending && running != 0)
         entry["running_address"] = rom_text(running);
+      if (!scan->pinned(slot))
+        entry["offset"] = scan->offset(slot);
     }
   });
 }
 
 // What a forget or an assign answers once the saved table is written: whether it now waits for a
-// reboot, read on the loop task right after the write, so a /status poll after it agrees.
-void WebDeviceDashboard::send_slot_change_(AsyncWebServerRequest *request, std::string message, bool reboot_required) {
+// reboot, read on the loop task right after the write, so a /status poll after it agrees. @p waits
+// is what the message says then.
+void WebDeviceDashboard::send_slot_change_(AsyncWebServerRequest *request, std::string message, bool reboot_required,
+                                           const char *waits) {
   if (reboot_required)
-    message += "; applies after a reboot";
+    message += waits;
   auto body = json::build_json([&message, reboot_required](JsonObject root) {
     root["success"] = true;
     root["message"] = message;
@@ -883,6 +915,7 @@ void WebDeviceDashboard::handle_temperature_slots_forget_(AsyncWebServerRequest 
   int code = 0;
   std::string why;
   bool waits = false;
+  bool cleared = false;  // an offset goes with every slot
   const bool stored = this->run_on_loop_([&]() {
     if (!scan->can_forget(slot)) {
       code = 409;
@@ -891,6 +924,11 @@ void WebDeviceDashboard::handle_temperature_slots_forget_(AsyncWebServerRequest 
             : scan->slot_pending(slot) ? str_sprintf("Slot %d is free after a reboot", slot + 1)
                                        : str_sprintf("Slot %d is free", slot + 1);
       return false;
+    }
+    // Listed slots hold none, so every offset is one this clears.
+    for (size_t i = 0; all && i < scan->max_sensors(); i++) {
+      if (scan->offset(i) != 0.0f)
+        cleared = true;
     }
     if (!scan->forget_and_save(slot)) {
       code = 500;
@@ -907,7 +945,12 @@ void WebDeviceDashboard::handle_temperature_slots_forget_(AsyncWebServerRequest 
   }
   if (all) {
     ESP_LOGW(TAG, "Forgot every temperature slot over the API");
-    this->send_slot_change_(request, "Every slot forgotten", waits);
+    // The offsets are gone already, so the reboot the answer may name is the slots' alone.
+    if (cleared) {
+      this->send_slot_change_(request, "Offsets cleared; every slot forgotten", waits, ", applies after a reboot");
+    } else {
+      this->send_slot_change_(request, "Every slot forgotten", waits);
+    }
   } else {
     ESP_LOGW(TAG, "Forgot temperature slot %d over the API", slot + 1);
     this->send_slot_change_(request, str_sprintf("Slot %d forgotten", slot + 1), waits);
@@ -1003,8 +1046,82 @@ void WebDeviceDashboard::handle_temperature_slots_assign_(AsyncWebServerRequest 
   this->send_slot_change_(request, str_sprintf("Slot %u assigned", (unsigned) slot + 1), waits);
 }
 
-// A file table whose partition did not mount: a forget or an assign would change nothing, so the
-// request is refused up front.
+// POST /api/device/temperature-slots/offset: {"slot": N, "offset": x}, x in °C. No confirmation:
+// it takes effect at once and is undone the same way. What dallas_scan would refuse is refused
+// with the reason; the check and the write go over to the loop task together, as for a forget.
+void WebDeviceDashboard::handle_temperature_slots_offset_(AsyncWebServerRequest *request) {
+  auto *scan = this->temperature_slots_;
+  if (scan == nullptr) {
+    this->send_error_(request, 404, "No temperature slots");
+    return;
+  }
+  JsonDocument doc;
+  if (!this->read_json_body_(request, doc))
+    return;
+  if (!this->check_slots_writable_(request, scan))
+    return;
+  // This boot's slots are not the table then, and the file waits for a person to fix it.
+  if (!scan->can_set_offset()) {
+    this->send_error_(request, 503, "The slot file did not load; fix it and reboot");
+    return;
+  }
+  size_t slot;
+  if (!this->read_slot_(request, doc["slot"], slot))
+    return;
+  const float max = dallas_scan::DallasScan::MAX_OFFSET;
+  const std::string range = str_sprintf("'offset' must be a number from %.1f to %.1f", -max, max);
+  JsonVariant number = doc["offset"];
+  if (!number.is<double>()) {  // any JSON number, an integer too
+    this->send_error_(request, 400, range.c_str());
+    return;
+  }
+  // Past float's range a double has no float to become; dallas_scan refuses NaN all the same.
+  const double requested = number.as<double>();
+  const float value = std::fabs(requested) <= std::numeric_limits<float>::max() ? static_cast<float>(requested) : NAN;
+  int code = 0;
+  std::string why;
+  float held = 0.0f;
+  const bool stored = this->run_on_loop_([&]() {
+    switch (scan->check_offset(slot, value)) {
+      case dallas_scan::OffsetCheck::OK:
+        break;
+      case dallas_scan::OffsetCheck::BAD_SLOT:  // read_slot_ checked the range already
+      case dallas_scan::OffsetCheck::BAD_VALUE:
+        code = 400;
+        why = range;
+        return false;
+      case dallas_scan::OffsetCheck::LISTED_SLOT:
+        code = 409;
+        why = str_sprintf("Slot %u belongs to a sensor listed in YAML", (unsigned) slot + 1);
+        return false;
+    }
+    if (!scan->set_offset_and_save(slot, value)) {
+      code = 500;
+      why = "The offset was not written";
+      return false;
+    }
+    held = scan->offset(slot);
+    return true;
+  });
+  if (!stored) {
+    // No code means the loop task never took the job: nothing was set.
+    this->send_error_(request, code == 0 ? 503 : code, code == 0 ? "Device busy" : why.c_str());
+    return;
+  }
+  const std::string text = offset_text(held);
+  ESP_LOGI(TAG, "Set the offset of temperature slot %u to %s °C over the API", (unsigned) slot + 1, text.c_str());
+  const std::string message = str_sprintf("Slot %u offset %s °C; applies now", (unsigned) slot + 1, text.c_str());
+  auto body = json::build_json([&message, held](JsonObject root) {
+    root["success"] = true;
+    root["message"] = message;
+    // The float itself, as /temperature-slots prints it: -0.3, not -0.30000001.
+    root["offset"] = held;
+  });
+  request->send(200, "application/json", body.c_str());
+}
+
+// A file table whose partition did not mount: a forget, an assign or an offset would change
+// nothing, so the request is refused up front.
 bool WebDeviceDashboard::check_slots_writable_(AsyncWebServerRequest *request, dallas_scan::DallasScan *scan) {
   if (scan->can_save())
     return true;
@@ -1158,6 +1275,7 @@ void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *requ
   // device that had already moved on. `doc` outlives the call because run_on_loop blocks.
   int code = 0;
   const char *message = nullptr;
+  std::string conflict;
   const bool wrote = this->run_on_loop_([&]() {
     auto *settings = keeper->get_settings(type);
     if (settings == nullptr) {
@@ -1185,8 +1303,9 @@ void WebDeviceDashboard::handle_entity_settings_set_(AsyncWebServerRequest *requ
       return true;
     }
     if (settings->update_record_from_json(doc.as<JsonObject>()) == nullptr) {
-      code = 400;
-      message = "Failed to update settings record";
+      conflict = settings->conflict();
+      code = conflict.empty() ? 400 : 409;
+      message = conflict.empty() ? "Failed to update settings record" : conflict.c_str();
       return false;
     }
     keeper->save(type);

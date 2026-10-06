@@ -132,6 +132,11 @@ esphome:
 #   0x0000-0x0005  relays 1-6, read/write
 #   0x0010-0x0015  inputs 1-6, read only
 #
+# A write that would move a relay a running thermostat drives is refused with
+# exception 0x04 (a write lambda that returns false); writing the state it
+# already has is accepted. FC 0x0F stops at the refused coil: the ones before
+# it are written, the ones after it are not.
+#
 # FC 0x03 and FC 0x04 likewise read one register table:
 #
 #   0x0000-0x000F  temperature slots 1-16, signed, 0.1 °C; 0x8000 = no reading
@@ -244,6 +249,11 @@ modbus_server:
       - address: 0x0000
         read_lambda: 'return id(relay_1).state;'
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_1));
+          if (!holder.empty() && x != id(relay_1).state) {
+            ESP_LOGW("modbus", "Coil 0x0000 refused: thermostat '%s' drives relay_1", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_1).turn_on();
           } else {
@@ -254,6 +264,11 @@ modbus_server:
       - address: 0x0001
         read_lambda: 'return id(relay_2).state;'
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_2));
+          if (!holder.empty() && x != id(relay_2).state) {
+            ESP_LOGW("modbus", "Coil 0x0001 refused: thermostat '%s' drives relay_2", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_2).turn_on();
           } else {
@@ -264,6 +279,11 @@ modbus_server:
       - address: 0x0002
         read_lambda: 'return id(relay_3).state;'
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_3));
+          if (!holder.empty() && x != id(relay_3).state) {
+            ESP_LOGW("modbus", "Coil 0x0002 refused: thermostat '%s' drives relay_3", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_3).turn_on();
           } else {
@@ -274,6 +294,11 @@ modbus_server:
       - address: 0x0003
         read_lambda: 'return id(relay_4).state;'
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_4));
+          if (!holder.empty() && x != id(relay_4).state) {
+            ESP_LOGW("modbus", "Coil 0x0003 refused: thermostat '%s' drives relay_4", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_4).turn_on();
           } else {
@@ -284,6 +309,11 @@ modbus_server:
       - address: 0x0004
         read_lambda: 'return id(relay_5).state;'
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_5));
+          if (!holder.empty() && x != id(relay_5).state) {
+            ESP_LOGW("modbus", "Coil 0x0004 refused: thermostat '%s' drives relay_5", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_5).turn_on();
           } else {
@@ -294,6 +324,11 @@ modbus_server:
       - address: 0x0005
         read_lambda: 'return id(relay_6).state;'
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_6));
+          if (!holder.empty() && x != id(relay_6).state) {
+            ESP_LOGW("modbus", "Coil 0x0005 refused: thermostat '%s' drives relay_6", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_6).turn_on();
           } else {

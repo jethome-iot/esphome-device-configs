@@ -109,7 +109,15 @@ binary_sensor:
           } else if (page == id(status_page)) {
             int sel = id(status_relay_sel);
             if (sel >= 0 && sel < (int) id(relays).size()) {
-              id(relays)[sel]->toggle();
+              // A relay a thermostat drives is the thermostat's: the press only logs whose it is.
+              auto *relay = id(relays)[sel];
+              const std::string holder = switch_hold::holder(relay);
+              if (holder.empty()) {
+                relay->toggle();
+              } else {
+                ESP_LOGI("status_page", "'%s' left alone: thermostat '%s' drives it", relay->get_name().c_str(),
+                         holder.c_str());
+              }
               id(display1).update();
             }
           }

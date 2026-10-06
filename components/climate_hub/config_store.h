@@ -29,7 +29,4 @@ class ConfigStore {
   std::vector<std::unique_ptr<ClimateConfig>> configs_;
 };
 
-/// `base` with "-<n>" appended, cut so the whole stays within ID_MAX_LENGTH; n < 2 is `base`.
-std::string id_with_suffix(const std::string &base, unsigned n);
-
 }  // namespace esphome::climate_hub

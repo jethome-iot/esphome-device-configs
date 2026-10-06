@@ -23,6 +23,7 @@ tests/
       dir_storage           # test-only storage backend: a directory on the host
       display_menu_host     # test-only key that pulls display_menu_base into a host build
       loop_job_host         # the same for loop_job
+      switch_hold_host      # the same for switch_hold
       one_wire_host         # test-only 1-Wire bus: the cases set what the boot scan found
       web_server            # stand-in for upstream's, which builds for ESP platforms only
       web_server_base       # stand-in for upstream's, so HTTP handlers run on the host
@@ -47,6 +48,7 @@ tests/
     littlefs_storage/         # test_schema.py alone: the C++ is ESP-IDF only
     loop_job/
     status_indicator/
+    switch_hold/
     virtual_display/          # test_schema.py alone: the C++ includes <esp_http_server.h>,
                               # which the host platform has no header for
     web_auth/
@@ -88,8 +90,9 @@ the files on disk, the log, a job reaching the loop task, the relays' states.
   - `name`: a sentence, unique.
   - `setup`: fixture names, optional.
   - `device_only`: a state only the device can be put in: `loop_busy`, `storage_failed`,
-    `storage_unwritable`, `file_cap`, `no_free_entity`, `file_stays`. The mock skips the case.
-    The state holds for the case's own request, not for `then`.
+    `storage_unwritable`, `file_cap`, `no_free_entity`, `file_stays`, or `newer_file`, where a
+    newer firmware wrote the files of the `setup` and the device booted on them. The mock skips
+    the case. The state holds for the case's own request, not for `then`.
   - `method`, `path`: `GET`, `POST` or `OPTIONS`, and the route below `<url_prefix>/api/` with
     its query, sent as written.
   - `body`: `null` for none, a string as written, anything else as its JSON.

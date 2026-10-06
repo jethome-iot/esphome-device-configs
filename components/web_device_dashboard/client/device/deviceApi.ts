@@ -9,7 +9,9 @@ import type {
   DeviceStatus,
   ForgetSlotsPayload,
   MutationResponse,
+  SlotOffsetPayload,
   TemperatureSlotChangeResult,
+  TemperatureSlotOffsetResult,
   TemperatureSlots
 } from './types'
 
@@ -38,7 +40,8 @@ export interface DeviceApi {
    *  `capabilities.temperature_slots`, `503` when the loop task does not take it. */
   temperatureSlots(): Promise<TemperatureSlots>
   /** POST /temperature-slots/forget — requires a confirmation. Empties one slot or every
-   *  unlisted one, applied after a reboot; `409` when that would change nothing, `503` when the
+   *  unlisted one, applied after a reboot (every one also loses its offset, at once); `409` when
+   *  that would change nothing, `503` when the
    *  table cannot be written or the loop task is busy (the error says which), `500` when the
    *  write fails. */
   forgetTemperatureSlots(payload: ForgetSlotsPayload): Promise<TemperatureSlotChangeResult>
@@ -47,6 +50,11 @@ export interface DeviceApi {
    *  YAML decides that slot or device, or nothing would change, `503` when the table cannot be
    *  written or the loop task is busy (the error says which), `500` when the write fails. */
   assignTemperatureSlot(payload: AssignSlotPayload): Promise<TemperatureSlotChangeResult>
+  /** POST /temperature-slots/offset — sets a slot's offset, in force at once, no confirmation;
+   *  `400` for a slot or offset out of range, `409` for a listed slot, `503` when the table
+   *  cannot be written, its file did not load at boot or the loop task is busy (the error says
+   *  which), `500` when the write fails. */
+  setTemperatureSlotOffset(payload: SlotOffsetPayload): Promise<TemperatureSlotOffsetResult>
 }
 
 export function createDeviceApi(options: HttpOptions): DeviceApi {
@@ -78,6 +86,9 @@ export function createDeviceApi(options: HttpOptions): DeviceApi {
     },
     assignTemperatureSlot(payload) {
       return http.jpost<TemperatureSlotChangeResult>('/temperature-slots/assign', payload)
+    },
+    setTemperatureSlotOffset(payload) {
+      return http.jpost<TemperatureSlotOffsetResult>('/temperature-slots/offset', payload)
     }
   }
 }
