@@ -420,6 +420,11 @@ TEST_F(ClimateRules, FollowGoesBothWays) {
   ASSERT_TRUE(engine->fire_next());
   EXPECT_EQ(stored("living-room").mode, HubMode::OFF);
 
+  // What the docs warn of: comfort keeps the mode, and the mode is off.
+  rule->on_binary_sensor(&e.in1, true);
+  ASSERT_TRUE(engine->fire_next());
+  EXPECT_EQ(stored("living-room").mode, HubMode::OFF);
+
   // A follow on/off pair: back on in the mode it left.
   auto power =
       build_rule(*engine, R"({"name":"Power","triggers":[{"source":"input","type":"state_change","object_id":"in_2"}],)"

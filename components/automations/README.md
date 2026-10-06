@@ -89,7 +89,7 @@ rule with such an action is never built there.
 ```json
 {"source": "climate", "type": "set_preset", "climate": "living-room", "preset": "eco"}
 {"source": "climate", "type": "follow", "climate": "living-room",
- "on": {"type": "set_preset", "preset": "comfort"}, "off": {"type": "turn_off"}}
+ "on": {"type": "set_preset", "preset": "comfort"}, "off": {"type": "set_preset", "preset": "eco"}}
 ```
 
 - `climate` is the thermostat's id, the name of its file, never its entity: renaming the
@@ -99,7 +99,8 @@ rule with such an action is never built there.
 - `set_target` sets the target to `target`, in °C, held inside the thermostat's range.
 - `follow` takes `on` while the state the trigger carried is on and `off` while it is off, each
   `{"type": "turn_on"}`, `{"type": "turn_off"}` or `{"type": "set_preset", "preset": "<key>"}`.
-  A trigger that carries no state leaves the thermostat alone.
+  A trigger that carries no state leaves the thermostat alone. A preset that keeps the mode does
+  not turn an off thermostat on: for on and off plus a preset, use two actions.
 - A thermostat moves on the next loop pass, not inside the callback that fired the rule; the
   actions after it in the run follow on that pass. A rule restarted or stopped before then does
   not move it.

@@ -542,8 +542,9 @@ components:
             the trigger carried. `climate`: turn_off sets mode off, turn_on the
             mode the thermostat was in before it went off; set_preset,
             set_target, and follow, which takes `on` while the trigger's state
-            is on and `off` while it is off. A thermostat moves on the next loop
-            pass, running or not.
+            is on and `off` while it is off. A preset that keeps the mode does
+            not turn an off thermostat on: for on and off plus a preset, use two
+            actions. A thermostat moves on the next loop pass, running or not.
         object_id:
           type: string
           description: For `switch`.
@@ -576,7 +577,8 @@ components:
           type: set_preset
           preset: comfort
         "off":
-          type: turn_off
+          type: set_preset
+          preset: eco
 
     ClimateFollowStep:
       type: object
