@@ -541,6 +541,11 @@ TEST_F(ClimateRules, AThermostatGoneByThePassIsLoggedAndSkipped) {
 
 // --- Fail closed: at save, at boot, and as the hub changes ---
 
+// The hub reports no thermostat at load, so the rules have to build after it has loaded them.
+TEST_F(ClimateRules, TheEngineSetsUpAfterTheHub) {
+  EXPECT_LT(engine->get_setup_priority(), hub().get_setup_priority());
+}
+
 TEST_F(ClimateRules, ASaveNamingWhatIsNotThereIsRefusedWithTheReason) {
   engine->setup();
   std::string error;
