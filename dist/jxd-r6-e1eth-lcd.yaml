@@ -1382,19 +1382,19 @@ script:
           id(display1).show_page(id(status_page));
   - id: board_page_key
     parameters:
-      key: string
+      button: string
     then:
       - lambda: |-
           if (id(display1).get_active_page() != id(status_page))
             return;
           const int n = id(relays).size();
-          if (key == "up" || key == "down") {
-            id(status_temp_scroll) += key == "up" ? -1 : 1;
+          if (button == "up" || button == "down") {
+            id(status_temp_scroll) += button == "up" ? -1 : 1;
             id(display1).update();
-          } else if ((key == "left" || key == "right") && n > 0) {
-            id(status_relay_sel) = (id(status_relay_sel) + (key == "left" ? n - 1 : 1)) % n;
+          } else if ((button == "left" || button == "right") && n > 0) {
+            id(status_relay_sel) = (id(status_relay_sel) + (button == "left" ? n - 1 : 1)) % n;
             id(display1).update();
-          } else if (key == "center") {
+          } else if (button == "center") {
             const int sel = id(status_relay_sel);
             if (sel >= 0 && sel < n) {
               // A relay a thermostat drives is the thermostat's: the press only logs whose it is.
