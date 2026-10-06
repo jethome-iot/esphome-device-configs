@@ -324,7 +324,8 @@ export interface Capabilities {
   /** The CPU board's EEPROM identity is in `/info`. */
   board_info?: true
   /** A `dallas_scan` is wired in: GET /temperature-slots and POST /temperature-slots/forget,
-   *  /assign, /offset and /label answer. Without it all five are `404`. */
+   *  /assign and /offset answer, and /label too when GET carries `max_label_length` (not with
+   *  `storage: nvs`). Without it all five are `404`. */
   temperature_slots?: true
 }
 
