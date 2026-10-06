@@ -10,6 +10,7 @@
 #include "esphome/core/defines.h"
 #include "esphome/core/preferences.h"
 #include "esphome/components/one_wire/one_wire_bus.h"
+#include "esphome/components/panel_text/panel_text.h"
 #include "esphome/components/sensor/sensor.h"
 #ifdef USE_SENSOR_FILTER
 #include "esphome/components/sensor/filter.h"
@@ -42,6 +43,14 @@ enum class OffsetCheck : uint8_t {
   LISTED_SLOT,  ///< the slot is taken by sensors:, which has filters of its own
 };
 
+/// What set_label_and_save() would do with a slot and a text, asked before it does it.
+enum class LabelCheck : uint8_t {
+  OK,           ///< the label can be set
+  BAD_SLOT,     ///< past the end of the table
+  BAD_TEXT,     ///< not a label by panel_text's rules
+  LISTED_SLOT,  ///< the slot is taken by sensors:, which YAML names
+};
+
 /// @p celsius in tenths of a degree, rounded half away from zero; false for NaN, infinity and
 /// anything past ±DallasScan::MAX_OFFSET once rounded.
 bool offset_tenths(double celsius, int16_t &tenths);
@@ -60,6 +69,7 @@ class DallasScan : public PollingComponent {
     this->given_.assign(count, nullptr);
     this->pinned_.assign(count, false);
     this->offsets_.assign(count, 0);
+    this->labels_.assign(count, std::string());
     this->raw_.assign(count, NAN);
 #ifdef USE_SENSOR_FILTER
     this->filters_.resize(count);
@@ -118,12 +128,12 @@ class DallasScan : public PollingComponent {
   /// Taken by a sensor from sensors:, so forget leaves it alone.
   bool pinned(size_t slot) const { return slot < this->pinned_.size() && this->pinned_[slot]; }
   /// Whether forget(slot) would empty anything: the slot holds a device in the saved table and is
-  /// not listed; for -1, any such slot, or any unlisted slot with an offset.
+  /// not listed; for -1, any such slot, or any unlisted slot with an offset or a label.
   bool can_forget(int slot) const;
   /// False when the table cannot be written (a file whose partition did not mount): forget()
   /// and assign() then change nothing.
   bool can_save() const;
-  /// Empty a slot (every slot and its offset for -1), then reboot to scan the bus again. Listed
+  /// Empty a slot (every slot, its offset and its label for -1), then reboot to scan the bus again. Listed
   /// slots stay. A slot changed since boot (for -1: nothing left to forget while a change waits)
   /// only reboots, so the saved table applies as it is.
   void forget(int slot);
@@ -154,6 +164,21 @@ class DallasScan : public PollingComponent {
   /// with it. True without a write when the slot has that offset already; false, with nothing
   /// changed, unless check_offset() is OK, can_set_offset() holds and the offset could be written.
   bool set_offset_and_save(size_t slot, float value);
+  /// Labels are kept in the slot file only: false with storage: nvs.
+  bool labels_supported() const { return this->uses_file_(); }
+  /// The slot's label, shown by the panel and the dashboard in place of its name; "" when it has
+  /// none or past the table. Loop task only: a label is a string the loop task changes.
+  std::string label(size_t slot) const { return slot < this->labels_.size() ? this->labels_[slot] : std::string(); }
+  /// The label, else slot_name(). Loop task only.
+  std::string display_name(size_t slot) const;
+  /// Whether set_label_and_save() would take @p text. A free slot takes one too, as an offset.
+  LabelCheck check_label(size_t slot, const std::string &text) const;
+  /// labels_supported() and can_set_offset(): a label is written into the same file.
+  bool can_set_label() const { return this->labels_supported() && this->can_set_offset(); }
+  /// Save the slot's label, trimmed; "" clears it. Shown at once, with no reboot and nothing
+  /// published. True without a write when the slot has that label already; false, with nothing
+  /// changed, unless check_label() is OK, can_set_label() holds and the label could be written.
+  bool set_label_and_save(size_t slot, const std::string &text);
 
  protected:
   /// Virtual so the host tests can see the reboot: the real one ends the process.
@@ -165,6 +190,7 @@ class DallasScan : public PollingComponent {
   void read_slot_(size_t slot);
   void republish_(size_t slot);
   OffsetCheck check_offset_(size_t slot, float value, int16_t &tenths) const;
+  LabelCheck check_label_(size_t slot, const std::string &text, std::string &label) const;
   void update_status_();
   bool read_scratch_pad_(uint64_t address, uint8_t *scratch_pad);
   float to_celsius_(uint64_t address, const uint8_t *scratch_pad) const;
@@ -173,7 +199,7 @@ class DallasScan : public PollingComponent {
   bool store_now_();
   bool store_offsets_now_();
   bool store_or_roll_back_(const std::vector<uint64_t> &before, const std::vector<int16_t> &offsets,
-                           const char *outcome);
+                           const std::vector<std::string> &labels, const char *outcome);
 
   one_wire::OneWireBus *bus_{nullptr};
   const char *name_prefix_{"Temp"};
@@ -182,9 +208,10 @@ class DallasScan : public PollingComponent {
   uint32_t entity_fields_{0};
   uint32_t preference_hash_{0};
   std::vector<std::pair<size_t, uint64_t>> pins_;
-  std::vector<uint64_t> slots_;   // slot -> ROM address, 0 = empty; the saved table, which edits change
-  std::vector<bool> pinned_;      // slot -> taken by sensors:
-  std::vector<int16_t> offsets_;  // slot -> offset in tenths of a degree, saved and applied at once
+  std::vector<uint64_t> slots_;      // slot -> ROM address, 0 = empty; the saved table, which edits change
+  std::vector<bool> pinned_;         // slot -> taken by sensors:
+  std::vector<int16_t> offsets_;     // slot -> offset in tenths of a degree, saved and applied at once
+  std::vector<std::string> labels_;  // slot -> label, "" = none; empty with storage: nvs
 #ifdef USE_SENSOR_FILTER
   std::vector<std::vector<sensor::Filter *>> filters_;  // slot -> filter chain
 #endif

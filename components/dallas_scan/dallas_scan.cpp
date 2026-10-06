@@ -67,10 +67,13 @@ void DallasScan::set_web_server_sorting(web_server::WebServer *server, uint64_t 
 
 void DallasScan::setup() {
   this->load_table_();
-  // Listed slots have filters of their own; a stored offset of theirs goes at the next write.
+  // Listed slots have filters and a name of their own; a stored offset or label of theirs goes at
+  // the next write.
   for (size_t slot = 0; slot < this->offsets_.size(); slot++) {
-    if (this->pinned_[slot])
+    if (this->pinned_[slot]) {
       this->offsets_[slot] = 0;
+      this->labels_[slot].clear();
+    }
   }
   this->bind_devices_();
   this->booted_ = this->slots_;
@@ -116,6 +119,7 @@ void DallasScan::load_table_() {
           !this->file_->load_from_file(this->keeper_->get_storage(), this->keeper_->get_config_dir());
     this->slots_ = this->file_->table();
     this->offsets_ = this->file_->offsets();
+    this->labels_ = this->file_->labels();
     for (auto &address : this->slots_) {
       if (address != 0 && !is_temperature_sensor(address)) {
         ESP_LOGW(TAG, "Not a temperature sensor, dropping 0x%016" PRIx64 " from the table", address);
@@ -340,6 +344,12 @@ std::string DallasScan::slot_name(size_t slot) const {
   return str_sprintf("%s %u", this->name_prefix_, (unsigned) slot + 1);
 }
 
+std::string DallasScan::display_name(size_t slot) const {
+  if (slot < this->labels_.size() && !this->labels_[slot].empty())
+    return this->labels_[slot];
+  return this->slot_name(slot);
+}
+
 float DallasScan::temperature(size_t slot) const {
   auto *sensor = this->sensor(slot);
   return sensor == nullptr ? NAN : sensor->state;
@@ -347,8 +357,8 @@ float DallasScan::temperature(size_t slot) const {
 
 bool DallasScan::can_forget(int slot) const {
   for (size_t i = 0; i < this->slots_.size(); i++) {
-    // Forget all clears the offsets too, so an offset alone is something to forget.
-    const bool held = this->slots_[i] != 0 || (slot < 0 && this->offsets_[i] != 0);
+    // Forget all clears the offsets and labels too, so either alone is something to forget.
+    const bool held = this->slots_[i] != 0 || (slot < 0 && (this->offsets_[i] != 0 || !this->labels_[i].empty()));
     if ((slot < 0 || (size_t) slot == i) && !this->pinned_[i] && held)
       return true;
   }
@@ -378,12 +388,15 @@ bool DallasScan::forget_and_save(int slot) {
   }
   const auto before = this->slots_;
   const auto offsets = this->offsets_;
+  const auto labels = this->labels_;
   for (size_t i = 0; i < this->slots_.size(); i++) {
     if ((slot < 0 || (size_t) slot == i) && !this->pinned_[i]) {
       this->slots_[i] = 0;
-      // Forget all numbers the devices again, so the offsets would land on other sensors.
-      if (slot < 0)
+      // Forget all numbers the devices again, so the offsets and labels would land on other sensors.
+      if (slot < 0) {
         this->offsets_[i] = 0;
+        this->labels_[i].clear();
+      }
     }
   }
   // In preferences these are two records, and a flush writes each on its own. The offsets go
@@ -399,7 +412,7 @@ bool DallasScan::forget_and_save(int slot) {
     keep = this->offsets_;  // on flash already, so a table that fails keeps them
   }
   const bool stored = this->store_or_roll_back_(
-      before, keep, keep == offsets ? "nothing is forgotten" : "only the offsets are cleared");
+      before, keep, labels, keep == offsets ? "nothing is forgotten" : "only the offsets are cleared");
   for (size_t i = 0; i < this->offsets_.size(); i++) {
     if (this->offsets_[i] != offsets[i])
       this->republish_(i);
@@ -449,7 +462,7 @@ bool DallasScan::assign_and_save(size_t slot, uint64_t address) {
   if (held != this->slots_.end())
     *held = this->slots_[slot];
   this->slots_[slot] = address;
-  if (!this->store_or_roll_back_(before, this->offsets_, "nothing is assigned"))
+  if (!this->store_or_roll_back_(before, this->offsets_, this->labels_, "nothing is assigned"))
     return false;
   ESP_LOGI(TAG, "0x%016" PRIx64 " takes slot %u%s", address, (unsigned) slot + 1,
            this->slot_pending(slot) ? " after a reboot" : "");
@@ -486,22 +499,65 @@ bool DallasScan::set_offset_and_save(size_t slot, float value) {
   }
   const auto offsets = this->offsets_;
   this->offsets_[slot] = tenths;
-  if (!this->store_or_roll_back_(this->slots_, offsets, "the offset is not changed"))
+  if (!this->store_or_roll_back_(this->slots_, offsets, this->labels_, "the offset is not changed"))
     return false;
   ESP_LOGI(TAG, "%s: offset %+.1f °C", this->slot_name(slot).c_str(), this->offset(slot));
   this->republish_(slot);
   return true;
 }
 
+LabelCheck DallasScan::check_label(size_t slot, const std::string &text) const {
+  std::string label;
+  return this->check_label_(slot, text, label);
+}
+
+LabelCheck DallasScan::check_label_(size_t slot, const std::string &text, std::string &label) const {
+  if (slot >= this->slots_.size())
+    return LabelCheck::BAD_SLOT;
+  if (!panel_text::parse_label(text.data(), text.size(), label))
+    return LabelCheck::BAD_TEXT;
+  if (this->pinned_[slot])
+    return LabelCheck::LISTED_SLOT;
+  return LabelCheck::OK;
+}
+
+bool DallasScan::set_label_and_save(size_t slot, const std::string &text) {
+  std::string label;
+  if (this->check_label_(slot, text, label) != LabelCheck::OK) {
+    ESP_LOGW(TAG, "Not setting the label of slot %u", (unsigned) slot + 1);
+    return false;
+  }
+  if (this->labels_[slot] == label)
+    return true;
+  if (!this->can_set_label()) {
+    ESP_LOGE(TAG, "%s: the label is not changed",
+             !this->labels_supported() ? "Labels need storage: file"
+             : this->can_save()        ? "The slot file did not load"
+                                       : "Storage unavailable");
+    return false;
+  }
+  const auto labels = this->labels_;
+  this->labels_[slot] = std::move(label);
+  if (!this->store_or_roll_back_(this->slots_, this->offsets_, labels, "the label is not changed"))
+    return false;
+  if (this->labels_[slot].empty()) {
+    ESP_LOGI(TAG, "%s: label cleared", this->slot_name(slot).c_str());
+  } else {
+    ESP_LOGI(TAG, "%s: label \"%s\"", this->slot_name(slot).c_str(), this->labels_[slot].c_str());
+  }
+  return true;
+}
+
 // The next boot would bring the old table back without a word, so memory follows storage.
 bool DallasScan::store_or_roll_back_(const std::vector<uint64_t> &before, const std::vector<int16_t> &offsets,
-                                     const char *outcome) {
+                                     const std::vector<std::string> &labels, const char *outcome) {
   if (this->store_now_()) {
     this->reboot_required_.store(this->slots_ != this->booted_);
     return true;
   }
   this->slots_ = before;
   this->offsets_ = offsets;
+  this->labels_ = labels;
   ESP_LOGE(TAG, "The slot table was not written: %s", outcome);
   return false;
 }
@@ -572,6 +628,7 @@ bool DallasScan::save_table_() {
     }
     this->file_->set_table(this->slots_);
     this->file_->set_offsets(this->offsets_);
+    this->file_->set_labels(this->labels_);
     this->keeper_->ensure_config_dir();
     return this->file_->save_to_file(this->keeper_->get_storage(), this->keeper_->get_config_dir());
   }
@@ -611,6 +668,10 @@ void DallasScan::dump_config() {
   for (size_t slot = 0; slot < this->offsets_.size(); slot++) {
     if (this->offsets_[slot] != 0)
       ESP_LOGCONFIG(TAG, "  %s offset: %+.1f °C", this->slot_name(slot).c_str(), this->offset(slot));
+  }
+  for (size_t slot = 0; slot < this->labels_.size(); slot++) {
+    if (!this->labels_[slot].empty())
+      ESP_LOGCONFIG(TAG, "  %s label: %s", this->slot_name(slot).c_str(), this->labels_[slot].c_str());
   }
 }
 
