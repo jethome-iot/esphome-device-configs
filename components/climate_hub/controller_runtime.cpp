@@ -288,6 +288,13 @@ void ControllerRuntime::begin_autotune(AutotuneRun *run, uint32_t now_ms) {
 
 bool ControllerRuntime::feed_autotune_(float value, uint32_t now_ms) {
   AutotuneRun &run = *this->autotune_;
+  // Ended as the next pass would end it, before a result found on this sample gets there first.
+  const AutotuneEnd why =
+      value > this->config_->safety.max_temperature ? AutotuneEnd::OVERTEMP : run.limit_reached(now_ms);
+  if (why != AutotuneEnd::NONE) {
+    this->end_autotune(why, now_ms);
+    return true;
+  }
   const bool on = run.feed(value, now_ms);
   // The pass that found the gains leaves the relays to the PID the hub starts next.
   if (run.found())

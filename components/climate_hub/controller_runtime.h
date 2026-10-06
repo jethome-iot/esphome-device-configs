@@ -118,7 +118,8 @@ class ControllerRuntime {
   /// Applies a preset, then a mode and a target, each when given; publishes the outcome. A mode
   /// or a target it moves ends a calibration.
   bool apply_(const PresetConfig *preset, optional<HubMode> mode, optional<float> target, uint32_t now_ms);
-  /// Feeds a sample to the calibration and sets its relay; true when the action changed.
+  /// Feeds a sample to the calibration and sets its relay; true when the action changed or the
+  /// run ended.
   bool feed_autotune_(float value, uint32_t now_ms);
 
   HubClimate *entity_;

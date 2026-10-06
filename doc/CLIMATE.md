@@ -53,7 +53,8 @@ cut-out temperature hold throughout. A room with radiators takes about an hour a
 floor heating eight to ten hours. Start it with the room near its target: a cold floor heats at
 full power until it reaches the band, and one that needs more than 6 hours for that ends the
 calibration before its first swing. In heat and cool mode the start asks which relay to swing; the
-other one stays open. Home Assistant sees the thermostat heating or idle, as at any other time.
+other one stays open. Home Assistant sees the thermostat heating (cooling when it calibrates a
+cooling relay) while the relay is closed, and idle otherwise.
 
 The device then turns what it measured into the gains of the rule picked at the start
 (Ziegler-Nichols PI unless another), writes them into the thermostat and runs with them. An
