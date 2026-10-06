@@ -193,6 +193,26 @@ TEST(RelayClaim, ARelayClosedElsewhereInsideMinOffIsOpenedEvenAsTheDemandTurnsOn
   EXPECT_TRUE(relay.state);
 }
 
+// Uncounted, a close toward the demand inside min_off still makes the next one paced: the relay
+// goes back once, then stays where the writer and the demand both want it, with no chatter.
+TEST(RelayClaim, ASecondCloseTowardTheDemandInsideMinOffStays) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.set_dwell(0, 3600000);
+  claim.request(true, 0);
+  claim.request(false, 1000);
+  relay.turn_on();
+  ASSERT_FALSE(claim.request(true, 2000));
+  const int writes = relay.writes;
+  for (uint32_t t = 3000; t <= 10000; t += 1000) {
+    if (!relay.state)
+      relay.turn_on();
+    EXPECT_TRUE(claim.request(true, t)) << "at " << t;
+  }
+  EXPECT_EQ(writes + 1, relay.writes) << "only the writer's own close";
+  EXPECT_EQ(0u, claim.moves());
+}
+
 // Closed from elsewhere once min_off is over, as the demand turns on: already where the demand
 // goes, it stays, with no open and close in between.
 TEST(RelayClaim, ARelayMovedWhereTheDemandMayGoStays) {

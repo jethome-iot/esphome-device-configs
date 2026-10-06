@@ -78,6 +78,7 @@ class RelayClaim {
   void settled_(uint32_t now_ms);
   /// CONTEST_QUIET_MS have passed since the last put-back with no move since.
   bool quiet_(uint32_t now_ms) const;
+  void forget_moves_();
 
   switch_::Switch *sw_;
   std::string owner_;
@@ -87,6 +88,8 @@ class RelayClaim {
   // When the last counted move was put back, or the demand came round to it.
   uint32_t put_back_ms_{0};
   uint32_t moves_{0};
+  // A move went back at once since the last quiet spell, counted or not: the next one is paced.
+  bool moved_{false};
   bool state_{false};
   bool initialized_{false};
   // state_ is where something else moved the relay, held until its dwell is over.

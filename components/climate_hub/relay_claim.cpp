@@ -23,8 +23,8 @@ bool RelayClaim::relay_state_() const {
 
 bool RelayClaim::request(bool want, uint32_t now_ms) {
   // Forgotten on a pass rather than only judged by the clock, which wraps back into the window.
-  if (this->moves_ != 0 && this->quiet_(now_ms))
-    this->moves_ = 0;
+  if (this->moved_ && this->quiet_(now_ms))
+    this->forget_moves_();
   if (!this->initialized_) {
     // The first request always lands: there is no dwell to honour before we owned it.
     this->apply_(want, now_ms);
@@ -48,7 +48,7 @@ void RelayClaim::settle_move_(bool want, uint32_t now_ms, bool paced) {
     this->apply_(want, now_ms);
     return;
   }
-  if (paced && this->moves_ != 0) {
+  if (paced && this->moved_) {
     // From the second move on, where it was moved counts as a switching: it goes back once that
     // position's dwell is over, so a writer that keeps at it gets one switch per dwell, not one
     // per pass. Where the demand goes, it stays.
@@ -66,8 +66,11 @@ void RelayClaim::settle_move_(bool want, uint32_t now_ms, bool paced) {
   // The first move, or one a cut-out does not wait on: back on this pass, and its dwell restarts
   // there, since it did move. A boot that restored the relay is no move from elsewhere, nor is
   // one where the demand goes, undone only for the claim's own dwell.
-  if (!this->fresh_ && want != moved_to)
-    this->count_move_(0);
+  if (!this->fresh_) {
+    this->moved_ = true;
+    if (want != moved_to)
+      this->count_move_(0);
+  }
   this->apply_(this->state_, now_ms);
   this->put_back_ms_ = now_ms;
 }
@@ -110,8 +113,8 @@ bool RelayClaim::dwell_over_(uint32_t now_ms) const {
 }
 
 void RelayClaim::force_off(uint32_t now_ms, bool paced) {
-  if (this->moves_ != 0 && this->quiet_(now_ms))
-    this->moves_ = 0;
+  if (this->moved_ && this->quiet_(now_ms))
+    this->forget_moves_();
   if (!this->relay_state_()) {
     // Already open, and known to be: nothing moves, so no dwell starts, not even on a fresh
     // claim. One the claim believes closed is kept open, whoever opened it.
@@ -135,15 +138,20 @@ void RelayClaim::resume(const RelaySwitching &last) {
   this->state_ = last.on;
   this->last_change_ms_ = last.ms;
   this->initialized_ = true;
-  this->moves_ = 0;
+  this->forget_moves_();
   this->pending_ = false;
   this->fresh_ = true;
 }
 
 void RelayClaim::set_owner(const std::string &owner) {
   this->owner_ = owner;
-  this->moves_ = 0;
+  this->forget_moves_();
   this->pending_ = false;
+}
+
+void RelayClaim::forget_moves_() {
+  this->moves_ = 0;
+  this->moved_ = false;
 }
 
 bool RelayClaim::last_switching(RelaySwitching *out) const {
