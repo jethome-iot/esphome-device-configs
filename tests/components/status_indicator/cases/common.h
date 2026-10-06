@@ -1,5 +1,6 @@
 #pragma once
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -52,8 +53,14 @@ constexpr uint32_t PULSE = 500;
 constexpr uint32_t N_ON = 200;
 constexpr uint32_t N_OFF = 300;
 constexpr uint32_t N_PAUSE = 700;
-// How late a phase may end: half the shortest one, far above the polling and the host's noise.
+// How late a phase may end on an idle host: half the shortest one, far above the polling.
 constexpr uint32_t SLACK = FAST_ON / 2;
+
+// For a test that acts inside a phase: a host that stalled through it leaves nothing to test,
+// so the test is skipped rather than failed.
+#define SKIP_UNLESS_STILL(cond) \
+  if (!(cond)) \
+  GTEST_SKIP() << "the host stalled through the phase this test acts in: " #cond
 
 class StatusIndicatorTest : public ::testing::Test {
  protected:
@@ -61,6 +68,8 @@ class StatusIndicatorTest : public ::testing::Test {
     this->new_indicator();
     this->led->setup();
     this->pin->writes.clear();
+    // A stall before the first pass delays the phase the test has started by now, too.
+    this->last_tick_ = millis();
   }
   // Cancels a running timer: the state is OFF only when none is pending.
   void TearDown() override { this->led->turn_off(); }
@@ -83,26 +92,28 @@ class StatusIndicatorTest : public ::testing::Test {
   }
 
   // The main loop for ms of wall clock: the only way a timeout fires in this harness.
-  static void run_for(uint32_t ms) {
+  void run_for(uint32_t ms) {
     const uint32_t start = millis();
-    while (millis() - start < ms) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      App.scheduler.call(millis());
-    }
+    while (millis() - start < ms)
+      this->tick_();
   }
 
   // The main loop until the pin has seen `count` writes, so a late phase delays the check
   // instead of falling out of a fixed window. The cap only ends a test that would hang.
   void run_until_writes(size_t count) {
     const uint32_t start = millis();
-    while (this->pin->writes.size() < count && millis() - start < 10000) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      App.scheduler.call(millis());
-    }
+    while (this->pin->writes.size() < count && millis() - start < 10000)
+      this->tick_();
   }
 
+  // How late a phase may end: SLACK, and as long again as the host held the loop up. A busy CI
+  // runner stalls it for hundreds of ms, which ends a phase that much late with nothing wrong.
+  uint32_t late() const { return SLACK + this->stalled(); }
+  // The longest the host held the loop up: a phase cut short may end that much later too.
+  uint32_t stalled() const { return this->stall_; }
+
   // Runs until the pin has seen `levels`, then checks them in order, each `gaps[i - 1]` ms
-  // after the last: never early, at most SLACK late.
+  // after the last: never early, at most late() late.
   void expect_writes(const std::vector<bool> &levels, const std::vector<uint32_t> &gaps) {
     ASSERT_EQ(gaps.size() + 1, levels.size());
     this->run_until_writes(levels.size());
@@ -112,12 +123,26 @@ class StatusIndicatorTest : public ::testing::Test {
       if (i == 0)
         continue;
       EXPECT_GE(this->pin->gap(i), gaps[i - 1]) << "write " << i;
-      EXPECT_LE(this->pin->gap(i), gaps[i - 1] + SLACK) << "write " << i;
+      EXPECT_LE(this->pin->gap(i), gaps[i - 1] + this->late()) << "write " << i;
     }
   }
 
   RecordingPin *pin{nullptr};
   StatusIndicator *led{nullptr};
+
+ private:
+  void tick_() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    const uint32_t now = millis();
+    // Beyond the sleep and the clock's own step.
+    if (this->last_tick_ != 0 && now - this->last_tick_ > 2)
+      this->stall_ = std::max(this->stall_, now - this->last_tick_ - 2);
+    this->last_tick_ = now;
+    App.scheduler.call(now);
+  }
+
+  uint32_t last_tick_{0};
+  uint32_t stall_{0};
 };
 
 }  // namespace esphome::status_indicator::testing
