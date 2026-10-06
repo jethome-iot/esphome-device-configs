@@ -36,6 +36,7 @@ static const Route ROUTES[] = {
     {"enable", RouteId::ENABLE, true},
     {"setpoint", RouteId::SETPOINT, true},
     {"preset", RouteId::PRESET, true},
+    {"autotune", RouteId::AUTOTUNE, true},
 };
 // clang-format on
 
@@ -85,6 +86,58 @@ static bool is_decimal(const std::string &text) {
       i++;
   }
   return i == text.size();
+}
+
+static void set_gains(JsonObject obj, const climate_hub::PidGains &gains) {
+  obj["kp"] = gains.kp;
+  obj["ki"] = gains.ki;
+  obj["kd"] = gains.kd;
+}
+
+// A thermostat's last calibration since boot: where it is, how far it got and what it found.
+static void set_autotune(JsonObject obj, const climate_hub::AutotuneRun &run, float setpoint, uint32_t now) {
+  using climate_hub::AutotuneState;
+  const climate_hub::PidAutotuner &tuner = run.tuner();
+  obj["state"] = climate_hub::enums::autotune_state_to_string(run.state());
+  obj["reason"] = climate_hub::enums::autotune_end_to_string(run.reason());
+  obj["direction"] = climate_hub::enums::autotune_direction_to_string(run.direction());
+  obj["rule"] = climate_hub::enums::autotune_rule_to_string(run.rule());
+  // Which way the relay goes now and the reading that turns it, while it runs and has a reading.
+  const bool live = run.running() && tuner.started();
+  if (live) {
+    // Heating, the positive side closes the relay; cooling, the negative one.
+    const bool on = tuner.positive() == (run.direction() == climate_hub::AutotuneDirection::HEAT);
+    obj["phase"] = on ? "on" : "off";
+    obj["aim"] = setpoint - tuner.target_error();
+  } else {
+    obj["phase"] = nullptr;
+    obj["aim"] = nullptr;
+  }
+  obj["swings"] = tuner.phase_count();
+  obj["elapsed_s"] = run.elapsed_ms(now) / 1000;
+  JsonArray extremes = obj["extremes"].to<JsonArray>();
+  for (const climate_hub::PidAutotuner::Extreme &extreme : tuner.extremes()) {
+    JsonObject row = extremes.add<JsonObject>();
+    row["at_s"] = (extreme.ms - run.started_ms()) / 1000;
+    row["temperature"] = setpoint - extreme.error;
+  }
+  const bool found = run.state() == AutotuneState::SUCCEEDED;
+  set_or_null(obj, "ku", found ? tuner.ku() : NAN);
+  set_or_null(obj, "pu", found ? tuner.pu() : NAN);
+  JsonArray flags = obj["flags"].to<JsonArray>();
+  if (run.asymmetric())
+    flags.add("asymmetric");
+  if (run.uneven())
+    flags.add("uneven");
+  if (run.clamped())
+    flags.add("clamped");
+  set_gains(obj["old"].to<JsonObject>(), run.old_gains());
+  if (found) {
+    set_gains(obj["new"].to<JsonObject>(), run.new_gains());
+  } else {
+    obj["new"] = nullptr;
+  }
+  obj["persisted"] = run.persisted();
 }
 
 // `"Living Room" and "Floor"`: the thermostats by the names a person knows them by.
@@ -224,6 +277,9 @@ void WebClimateEditor::handleRequest(AsyncWebServerRequest *request) {
         break;
       case RouteId::PRESET:
         this->handle_preset_(request);
+        break;
+      case RouteId::AUTOTUNE:
+        this->handle_autotune_(request);
         break;
     }
   }
@@ -398,6 +454,9 @@ void WebClimateEditor::handle_status_(AsyncWebServerRequest *request) {
         // Without it a tuning panel reads the scaled terms as a PID that lost its gains.
         pid["in_deadband"] = runtime->pid().in_deadband();
       }
+      // Kept after the run ends, stopped or not, until the next one, a delete or a reboot.
+      if (const climate_hub::AutotuneRun *run = this->hub_->autotune(config->id))
+        set_autotune(row["autotune"].to<JsonObject>(), *run, config->setpoint, now);
     }
     serializeJson(doc, json);
     return true;
@@ -523,7 +582,12 @@ void WebClimateEditor::handle_save_(AsyncWebServerRequest *request) {
       return true;
     // An id picks the thermostat to replace; none, or "", creates one.
     const std::string id = config.id;
-    const Result result = id.empty() ? this->hub_->create(config) : this->hub_->update(id, config);
+    // The revision the form was read at, when it sends one: a form read before the device
+    // rewrote the thermostat would write the old values back.
+    optional<uint32_t> revision;
+    if (doc["revision"].is<uint32_t>())
+      revision = doc["revision"].as<uint32_t>();
+    const Result result = id.empty() ? this->hub_->create(config) : this->hub_->update(id, config, revision);
     if (!result.ok) {
       code = result.code;
       error = result.error;
@@ -663,6 +727,50 @@ void WebClimateEditor::handle_preset_(AsyncWebServerRequest *request) {
     // As on /enable: a newer firmware's file keeps what it had.
     answer["persisted"] = result.persisted;
     serializeJson(answer, json);
+    return true;
+  });
+  this->answer_(request, ran, code, error, json);
+}
+
+// value=true starts a calibration, value=false cancels the one that runs.
+void WebClimateEditor::handle_autotune_(AsyncWebServerRequest *request) {
+  std::string id;
+  if (!this->read_id_(request, id))
+    return;
+  if (!request->hasParam("value")) {
+    this->send_error_(request, "Missing value parameter");
+    return;
+  }
+  bool start = false;
+  if (!this->read_bool_(request, "value", start))
+    return;
+  optional<climate_hub::AutotuneDirection> direction;
+  if (request->hasParam("direction")) {
+    climate_hub::AutotuneDirection parsed;
+    if (!climate_hub::enums::autotune_direction_from_string(request->getParam("direction")->value(), &parsed)) {
+      this->send_error_(request, "Invalid direction parameter");
+      return;
+    }
+    direction = parsed;
+  }
+  // The dashboard preselects ZN PI; a client that names none gets it too.
+  climate_hub::AutotuneRule rule = climate_hub::AutotuneRule::ZN_PI;
+  if (request->hasParam("rule") &&
+      !climate_hub::enums::autotune_rule_from_string(request->getParam("rule")->value(), &rule)) {
+    this->send_error_(request, "Invalid rule parameter");
+    return;
+  }
+  std::string json;
+  std::string error;
+  int code = 400;
+  const bool ran = this->hub_->run_on_loop([&]() {
+    const Result result = start ? this->hub_->start_autotune(id, direction, rule) : this->hub_->cancel_autotune(id);
+    if (!result.ok) {
+      code = result.code;
+      error = result.error;
+      return true;
+    }
+    json = success_json(start ? "Calibration started" : "Calibration cancelled");
     return true;
   });
   this->answer_(request, ran, code, error, json);

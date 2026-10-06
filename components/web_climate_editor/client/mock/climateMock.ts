@@ -29,12 +29,21 @@
 // running or not. A thermostat whose `version` is above CONFIG_VERSION stands for
 // a file a newer firmware wrote: its Save is 409, and what changes it is not
 // persisted.
+// A calibration (/autotune) runs climate_hub's port of upstream's autotuner on the
+// simulated room, which swings in minutes rather than hours; what ends it on the
+// device ends it here, a fault, a Save, a target or a mode included. On success
+// the gains go into the document and its revision moves on, and a Save carrying
+// an older revision is 409.
 // tests/components/web_climate_editor/contract.json lists the requests it must
 // answer as the device does.
 // /status reads a first-order room model per sensor, heated and cooled by the
 // duties of the thermostats bound to it. control() stands in for Home Assistant
 // setting a running thermostat's mode, target or preset through its climate entity.
 import type {
+  AutotuneDirection,
+  AutotuneReason,
+  AutotuneRule,
+  AutotuneStatus,
   BindableSensor,
   BindableSwitch,
   ClimateHubAction,
@@ -45,17 +54,21 @@ import type {
   ControllerStatus,
   ControllerSummary,
   ParamDesc,
+  PidGains,
   PidTerms,
   PresetConfig,
   PresetMode
 } from '../types'
 import {
+  AUTOTUNE_NOISEBAND,
+  AUTOTUNE_RULES,
   CONFIG_MAX_BYTES,
   CONFIG_VERSION,
   ENTITY_ID_MAX_LENGTH,
   NAME_MAX_LENGTH,
   NEWER_FILE,
   PRESET_MAX_COUNT,
+  STALE_DOCUMENT,
   STANDARD_PRESETS
 } from '../types'
 import type { FetchImpl } from '../climateApi'
@@ -136,9 +149,9 @@ export const seedParams: ParamDesc[] = [
     'Reading above this and the controller cuts out until it falls back.'),
   param('kp', 'Proportional gain', '', 'pid', 'pid', 0.6, 0, 1000, 0.001, false,
     'Output per degree of error. Raise it for a faster response, lower it if the temperature oscillates.'),
-  param('ki', 'Integral gain', '', 'pid', 'pid', 0.0025, 0, 1000, 0.0001, false,
+  param('ki', 'Integral gain', '', 'pid', 'pid', 0.0025, 0, 1000, 0.000001, false,
     'How fast the accumulated error closes the last gap. Too high overshoots.'),
-  param('kd', 'Derivative gain', '', 'pid', 'pid', 0, 0, 1000, 0.001, false,
+  param('kd', 'Derivative gain', '', 'pid', 'pid', 0, 0, 10000, 0.001, false,
     'Reacts to how fast the temperature is moving. Usually left at zero for a slow room.'),
   param('min_integral', 'Minimum integral', '', 'pid', 'pid', -1, -100, 100, 0.01, false,
     'Floor for the accumulated term; keeps it from winding up while the heater cannot keep up.'),
@@ -209,6 +222,7 @@ export function blankDocument(): ControllerDocument {
   })
   return {
     version: CONFIG_VERSION,
+    revision: 0,
     id: '',
     name: '',
     enabled: true,
@@ -495,6 +509,11 @@ function readVersion(value: unknown): number {
   return typeof value === 'number' && value > CONFIG_VERSION ? Math.min(Math.ceil(value), 65535) : CONFIG_VERSION
 }
 
+// A count the device can hold, or none: 0.
+function readRevision(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 0xffffffff ? value : null
+}
+
 // ClimateConfig::assign_preset_keys: a preset without a key gets one from its name.
 function assignPresetKeys(doc: ControllerDocument) {
   for (const preset of doc.presets) {
@@ -519,6 +538,7 @@ export function decodeDocument(raw: unknown): { doc: ControllerDocument } | { er
   if (!root) return { error: 'document is not an object' }
   const doc = blankDocument()
   doc.version = readVersion(root.version)
+  doc.revision = readRevision(root.revision) ?? 0
   if (root.id !== undefined && root.id !== null) doc.id = textOf(root.id)
 
   if (typeof root.name !== 'string' || root.name === '') return { error: 'name is required' }
@@ -604,6 +624,140 @@ export function decodeDocument(raw: unknown): { doc: ControllerDocument } | { er
   return { doc }
 }
 
+// --- Calibration -------------------------------------------------------------
+// climate_hub's PidAutotuner, which is upstream's relay-oscillation autotuner: the relay
+// swings the room AUTOTUNE_NOISEBAND around the target until three swings each way are
+// measured; Ku = 4d / (πa) from their amplitude a and the relay's half-span d, Pu from the
+// time between crossings.
+
+const RULE_FACTORS: Record<AutotuneRule, [number, number, number]> = {
+  zn_pi: [0.45, 0.54, 0],
+  zn_pid: [0.6, 1.2, 0.075],
+  pessen: [0.7, 1.75, 0.105],
+  some_overshoot: [0.333, 0.667, 0.111],
+  no_overshoot: [0.2, 0.4, 0.0625]
+}
+const AUTOTUNE_MAX_MS = 24 * 3600 * 1000
+const AUTOTUNE_STALL_MS = 6 * 3600 * 1000
+const AUTOTUNE_EVEN_RATIO = 0.66
+// Upstream keeps the newest seven extremes of each kind.
+const EXTREMES_KEPT = 7
+
+type Side = 'init' | 'positive' | 'negative'
+
+class Tuner {
+  relay: Side = 'init'
+  switches = 0
+  outPositive = 1
+  outNegative = 0
+  crossing: Side = 'init'
+  lastCrossing: number | null = null
+  intervals: number[] = []
+  lastRelay: Side = 'init'
+  phaseMin = NaN
+  phaseMax = NaN
+  phaseMinAt = 0
+  phaseMaxAt = 0
+  mins: number[] = []
+  maxs: number[] = []
+  extremes: Array<{ at: number; error: number }> = []
+  ku = 0
+  pu = 0
+  finished = false
+
+  // One direction: heating is (0, 1), cooling (-1, 0).
+  constructor(cooling: boolean) {
+    this.outPositive = cooling ? 0 : 1
+    this.outNegative = cooling ? -1 : 0
+  }
+
+  update(setpoint: number, value: number, at: number): number {
+    if (this.finished) return 0
+    const error = setpoint - value
+    const band = AUTOTUNE_NOISEBAND
+    if (this.relay === 'init') this.relay = error > band ? 'positive' : 'negative'
+    if (this.relay === 'positive' && error < -band) {
+      this.relay = 'negative'
+      this.switches++
+    } else if (this.relay === 'negative' && error > band) {
+      this.relay = 'positive'
+      this.switches++
+    }
+    // A quarter of the band keeps sensor noise from counting as a crossing.
+    const quarter = band / 4
+    if (this.crossing === 'init') this.crossing = error > quarter ? 'positive' : 'negative'
+    const crossed =
+      (this.crossing === 'positive' && error < -quarter) || (this.crossing === 'negative' && error > quarter)
+    if (crossed) {
+      this.crossing = this.crossing === 'positive' ? 'negative' : 'positive'
+      if (this.lastCrossing !== null) this.intervals.push(at - this.lastCrossing)
+      this.lastCrossing = at
+    }
+    if (this.relay !== this.lastRelay) {
+      if (this.lastRelay === 'positive') {
+        this.maxs.push(this.phaseMax)
+        this.extremes.push({ at: this.phaseMaxAt, error: this.phaseMax })
+      } else if (this.lastRelay === 'negative') {
+        this.mins.push(this.phaseMin)
+        this.extremes.push({ at: this.phaseMinAt, error: this.phaseMin })
+      }
+      this.phaseMin = this.phaseMax = error
+      this.phaseMinAt = this.phaseMaxAt = at
+    }
+    this.lastRelay = this.relay
+    if (error < this.phaseMin) [this.phaseMin, this.phaseMinAt] = [error, at]
+    if (error > this.phaseMax) [this.phaseMax, this.phaseMaxAt] = [error, at]
+    if (this.maxs.length > EXTREMES_KEPT) this.maxs.shift()
+    if (this.mins.length > EXTREMES_KEPT) this.mins.shift()
+    const output = this.relay === 'positive' ? this.outPositive : this.outNegative
+
+    // The first pass with enough data ends it.
+    const pairs = Math.min(this.mins.length, this.maxs.length)
+    if (this.intervals.length < 2 || pairs < 3) return output
+    let total = 0
+    for (let i = 1; i < pairs - 1; i++) total += Math.abs(this.maxs[i]! - this.mins[i + 1]!)
+    const amplitude = total / (pairs - 2) / 2
+    this.ku = (4 * ((this.outPositive - this.outNegative) / 2)) / (Math.PI * amplitude)
+    this.pu = ((this.intervals.reduce((a, b) => a + b, 0) / this.intervals.length) / 1000) * 2
+    this.finished = true
+    return output
+  }
+
+  symmetrical(): boolean {
+    return this.intervals.length > 0 && Math.min(...this.intervals) / Math.max(...this.intervals) >= 0.66
+  }
+
+  // The smallest swing over the largest, the first phase left out.
+  swingRatio(): number {
+    const swings = this.extremes.slice(1).map((e, i) => Math.abs(e.error - this.extremes[i]!.error)).slice(1)
+    return swings.length ? Math.min(...swings) / Math.max(...swings) : NaN
+  }
+}
+
+interface Run {
+  state: AutotuneStatus['state']
+  reason: AutotuneReason
+  direction: AutotuneDirection
+  rule: AutotuneRule
+  startedAt: number
+  endedAt: number
+  lastSwitch: number
+  tuner: Tuner
+  old: PidGains
+  new: PidGains | null
+  flags: AutotuneStatus['flags']
+}
+
+// What the device's file gives back for a gain: ArduinoJson writes a float to six decimals,
+// fewer as the whole part grows, and with an exponent past 1e7 or under 1e-5.
+function asStored(value: number): number {
+  const v = Math.abs(Math.fround(value))
+  if (v === 0 || !Number.isFinite(v)) return value
+  if (v >= 1e7 || v <= 1e-5) return Number(Math.fround(value).toPrecision(7))
+  const whole = v < 1 ? 1 : Math.floor(Math.log10(v)) + 1
+  return Number(Math.fround(value).toFixed(7 - whole))
+}
+
 // --- Stateful core -----------------------------------------------------------
 
 export interface MockResult {
@@ -676,7 +830,8 @@ const ROUTES = new Map<string, boolean>([
   ['delete', true],
   ['enable', true],
   ['setpoint', true],
-  ['preset', true]
+  ['preset', true],
+  ['autotune', true]
 ])
 
 // The room model: every 2 s a relay at full duty adds 0.06 °C and the room loses
@@ -745,6 +900,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
   const running = new Map<string, Runtime>()
   // ClimateHub::waiting_: why each enabled thermostat that does not run did not start, by id.
   const waitReasons = new Map<string, string>()
+  // ClimateHub::autotunes_: each thermostat's last calibration, by id, until a delete.
+  const runs = new Map<string, Run>()
   const rooms = new Map<string, { temp: number | null; ambient: number }>()
   for (const [id, room] of Object.entries(seedRooms)) rooms.set(id, { temp: room.start, ambient: room.ambient })
   const startedAt = now()
@@ -925,10 +1082,174 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     return doc.enabled && !running.has(doc.id) ? (waitReasons.get(doc.id) ?? '') : ''
   }
 
+  // The calibration running on `doc`, if one does.
+  function activeRun(doc: ControllerDocument): Run | undefined {
+    const run = runs.get(doc.id)
+    return run && run.state === 'running' && running.has(doc.id) ? run : undefined
+  }
+
+  // Feeds the reading to the tuner and drives the run's relay from it; the PID starts over clean
+  // once it has its gains. False when no calibration runs.
+  function calibrate(doc: ControllerDocument, rt: Runtime, temp: number, t: number): boolean {
+    const run = activeRun(doc)
+    if (!run) return false
+    const limit = t - run.startedAt >= AUTOTUNE_MAX_MS ? 'timeout' : t - run.lastSwitch >= AUTOTUNE_STALL_MS ? 'no_switch' : ''
+    if (limit) {
+      endRun(doc, rt, limit, t)
+      return false
+    }
+    feedRun(doc, rt, run, temp, t)
+    if (!run.tuner.finished) return true
+    const [kp, ki, kd] = RULE_FACTORS[run.rule]
+    const { ku, pu } = run.tuner
+    let clamped = false
+    const gain = (key: string, raw: number) => {
+      const held = clampParam(key, raw)
+      if (!(held === raw)) clamped = true
+      return asStored(held)
+    }
+    const gains = { kp: gain('kp', kp * ku), ki: gain('ki', (ki * ku) / pu), kd: gain('kd', kd * ku * pu) }
+    doc.pid.kp = gains.kp
+    doc.pid.ki = gains.ki
+    doc.pid.kd = gains.kd
+    // A form read before now would write the old gains back.
+    doc.revision++
+    run.new = gains
+    run.flags = [
+      ...(run.tuner.symmetrical() ? [] : (['asymmetric'] as const)),
+      ...(run.tuner.swingRatio() < AUTOTUNE_EVEN_RATIO ? (['uneven'] as const) : []),
+      ...(clamped ? (['clamped'] as const) : [])
+    ]
+    run.state = 'succeeded'
+    run.endedAt = t
+    restartPid(doc, rt)
+    return false
+  }
+
+  function feedRun(doc: ControllerDocument, rt: Runtime, run: Run, temp: number, t: number) {
+    const switches = run.tuner.switches
+    const output = run.tuner.update(doc.setpoint, temp, t)
+    if (run.tuner.switches !== switches) run.lastSwitch = t
+    if (run.tuner.finished) return
+    const on = run.direction === 'heat' ? output > 0 : output < 0
+    rt.heatDuty = run.direction === 'heat' && on ? 1 : 0
+    rt.coolDuty = run.direction === 'cool' && on ? 1 : 0
+    rt.action = standingAction(doc, rt)
+  }
+
+  // ControllerRuntime::end_autotune: nothing the PID held carries on.
+  function restartPid(doc: ControllerDocument, rt: Runtime) {
+    rt.integral = doc.pid.starting_integral_term
+    rt.prevError = null
+    rt.lastControl = null
+    rt.heatDuty = 0
+    rt.coolDuty = 0
+    rt.due = true
+  }
+
+  // Ends the calibration `doc` runs, if one does, for `reason`.
+  function endRun(doc: ControllerDocument, rt: Runtime | undefined, reason: AutotuneReason, t: number) {
+    const run = runs.get(doc.id)
+    if (!run || run.state !== 'running') return
+    run.state = 'failed'
+    run.reason = reason
+    run.endedAt = t
+    if (rt) restartPid(doc, rt)
+  }
+
+  function runStatus(doc: ControllerDocument, run: Run, t: number): AutotuneStatus {
+    const live = run.state === 'running' && run.tuner.relay !== 'init'
+    const positive = run.tuner.relay === 'positive'
+    const found = run.state === 'succeeded'
+    return {
+      state: run.state,
+      reason: run.reason,
+      direction: run.direction,
+      rule: run.rule,
+      phase: live ? (positive === (run.direction === 'heat') ? 'on' : 'off') : null,
+      aim: live ? doc.setpoint + (positive ? AUTOTUNE_NOISEBAND : -AUTOTUNE_NOISEBAND) : null,
+      swings: run.tuner.switches,
+      elapsed_s: Math.floor(((run.state === 'running' ? t : run.endedAt) - run.startedAt) / 1000),
+      extremes: run.tuner.extremes.map((e) => ({
+        at_s: Math.floor((e.at - run.startedAt) / 1000),
+        temperature: round(doc.setpoint - e.error, 3)
+      })),
+      ku: found ? run.tuner.ku : null,
+      pu: found ? run.tuner.pu : null,
+      flags: [...run.flags],
+      old: { ...run.old },
+      new: run.new ? { ...run.new } : null,
+      persisted: true
+    }
+  }
+
+  // ClimateHub::start_autotune and cancel_autotune, refused in the device's order.
+  function autotune(search: URLSearchParams, t: number): MockResult {
+    const id = idParam(search)
+    if (typeof id !== 'string') return id
+    const value = search.get('value')
+    if (value === null) return fail(400, 'Missing value parameter')
+    if (value !== 'true' && value !== 'false') return fail(400, 'Invalid value parameter')
+    const rawDirection = search.get('direction')
+    if (rawDirection !== null && rawDirection !== 'heat' && rawDirection !== 'cool') {
+      return fail(400, 'Invalid direction parameter')
+    }
+    const rawRule = search.get('rule')
+    const rule = rawRule === null ? 'zn_pi' : AUTOTUNE_RULES.find((r) => r === rawRule)
+    if (!rule) return fail(400, 'Invalid rule parameter')
+    const doc = find(id)
+    if (!doc) return fail(404, 'Thermostat not found')
+    const rt = running.get(id)
+    if (value === 'false') {
+      if (!activeRun(doc)) return fail(409, 'No calibration is running')
+      endRun(doc, rt, 'cancelled', t)
+      return ok('Calibration cancelled')
+    }
+    if (doc.kind !== 'pid') return fail(409, 'Only a PID thermostat can be calibrated')
+    if (!rt) return fail(409, 'The thermostat is not running')
+    if (newer(doc)) return fail(409, NEWER_FILE)
+    if (activeRun(doc)) return fail(409, 'A calibration is already running')
+    if (doc.mode === 'off') return fail(409, 'The thermostat is off: set it to heat or cool first')
+    let direction: AutotuneDirection
+    if (rawDirection === null) {
+      if (doc.mode === 'heat_cool') return fail(400, 'In heat_cool, direction must say heat or cool')
+      direction = doc.mode === 'cool' ? 'cool' : 'heat'
+    } else {
+      direction = rawDirection
+    }
+    if (doc.mode !== direction && doc.mode !== 'heat_cool') {
+      return fail(400, `direction '${direction}' needs mode ${direction} or heat_cool`)
+    }
+    if (rt.fault !== 'none') return fail(409, `The thermostat reports ${rt.fault}; calibrate it once that clears`)
+    const run: Run = {
+      state: 'running',
+      reason: '',
+      direction,
+      rule,
+      startedAt: t,
+      endedAt: t,
+      lastSwitch: t,
+      tuner: new Tuner(direction === 'cool'),
+      old: { kp: doc.pid.kp, ki: doc.pid.ki, kd: doc.pid.kd },
+      new: null,
+      flags: []
+    }
+    runs.set(id, run)
+    const temp = readingOf(doc.sensor_id)
+    if (temp === null) {
+      rt.heatDuty = 0
+      rt.coolDuty = 0
+    } else {
+      feedRun(doc, rt, run, temp, t)
+    }
+    return ok('Calibration started')
+  }
+
   function runControl(doc: ControllerDocument, rt: Runtime, t: number) {
     const temp = readingOf(doc.sensor_id)
     const faulted = rt.fault !== 'none'
     rt.fault = faultOf(doc, rt, t)
+    if (rt.fault !== 'none') endRun(doc, rt, rt.fault, t)
     // The fault zeroed the duties: the next pass is now, not an update_interval_s later.
     if (faulted && rt.fault === 'none') rt.due = true
     // Waiting for a first reading is no fault, but nothing to act on either.
@@ -938,6 +1259,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       rt.coolDuty = 0
       return
     }
+    if (calibrate(doc, rt, temp, t)) return
     if (!rt.due && rt.lastControl !== null && t - rt.lastControl < doc.update_interval_s * 1000) return
     const dt = rt.lastControl === null ? 0 : (t - rt.lastControl) / 1000
     rt.lastControl = t
@@ -1027,6 +1349,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     call: Omit<ClimateControlCall, 'preset'> & { preset?: PresetConfig }
   ) {
     const previousMode = doc.mode
+    const previousTarget = doc.setpoint
     if (call.preset) pickPreset(doc, call.preset)
     const mode = MODES.find((m) => m === call.mode)
     if (mode && modeSupported(doc, mode)) doc.mode = mode
@@ -1034,6 +1357,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       doc.setpoint = clamp(call.target, doc.visual.min_temperature, doc.visual.max_temperature)
     }
     if (doc.mode !== previousMode) rt.resetLatch = true
+    if (doc.mode !== previousMode) endRun(doc, rt, 'mode_changed', simulatedTo)
+    else if (doc.setpoint !== previousTarget) endRun(doc, rt, 'target_changed', simulatedTo)
     // Published with the mode it replaced, the action would say "off" in HEAT until the next pass.
     rt.action = standingAction(doc, rt)
     rt.due = true
@@ -1065,6 +1390,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       status.switch_high = round(doc.setpoint + doc.bang_bang.above, 3)
     }
     if (rt && doc.kind === 'pid') status.pid = { ...rt.terms }
+    const run = runs.get(doc.id)
+    if (run) status.autotune = runStatus(doc, run, t)
     return status
   }
 
@@ -1120,6 +1447,9 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     const stored = updating ? find(doc.id) : undefined
     if (updating && !stored) return fail(404, 'Thermostat not found')
     if (stored && newer(stored)) return fail(409, NEWER_FILE)
+    // A form read before the device rewrote it: the revision the body carries, if it is a count.
+    const sentRevision = readRevision(objectOf(parsed.value)?.revision)
+    if (stored && sentRevision !== null && sentRevision !== stored.revision) return fail(409, STALE_DOCUMENT)
     if (!updating && docs.length >= maxControllers) {
       return fail(507, `This device allows ${maxControllers} thermostats; delete one to add another`)
     }
@@ -1127,12 +1457,14 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     if (taken) return fail(409, taken)
     if (stored) {
       keepPresetState(stored, doc)
+      doc.revision = stored.revision
     } else {
       // The keys are the device's to give, as the id is.
       doc.id = uniqueId(slugify(doc.name), docs.map((d) => d.id))
       for (const preset of doc.presets) preset.key = ''
       assignPresetKeys(doc)
       doc.active_preset = ''
+      doc.revision = 0
     }
     doc.version = CONFIG_VERSION
     if (doc.enabled) {
@@ -1143,6 +1475,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     const held = heldRelays()
     const before = stored
     const rt = running.get(doc.id)
+    if (stored) endRun(stored, rt, 'saved', simulatedTo)
     running.delete(doc.id)
     const i = docs.findIndex((d) => d.id === doc.id)
     if (i >= 0) docs[i] = doc
@@ -1178,6 +1511,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       // Written only when the flag changes, and never into a newer firmware's file.
       const persisted = !(doc.enabled && newer(doc))
       doc.enabled = false
+      endRun(doc, running.get(id), 'stopped', simulatedTo)
       running.delete(id)
       waitReasons.delete(id)
       return ok('Thermostat disabled' + startWaiters(held, id), { persisted })
@@ -1204,6 +1538,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       // A newer firmware's file cannot record the take-over, so the others' files keep their flag too.
       persisted = persisted && !newer(other) && !newer(doc)
       other.enabled = false
+      endRun(other, running.get(other.id), 'taken_over', simulatedTo)
       running.delete(other.id)
       waitReasons.delete(other.id)
     }
@@ -1315,6 +1650,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
         const held = heldRelays()
         running.delete(id)
         waitReasons.delete(id)
+        runs.delete(id)
         docs.splice(i, 1)
         return ok('Thermostat deleted' + startWaiters(held, ''), { persisted: true })
       }
@@ -1327,6 +1663,9 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
 
       case 'preset':
         return applyPreset(search)
+
+      case 'autotune':
+        return autotune(search, t)
 
       default:
         return fail(404, 'Unknown endpoint')

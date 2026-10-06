@@ -9,7 +9,20 @@
 
 namespace esphome::web_climate_editor {
 
-enum class RouteId : uint8_t { LIST, GET, STATUS, ENTITIES, SCHEMA, PING, SAVE, DELETE, ENABLE, SETPOINT, PRESET };
+enum class RouteId : uint8_t {
+  LIST,
+  GET,
+  STATUS,
+  ENTITIES,
+  SCHEMA,
+  PING,
+  SAVE,
+  DELETE,
+  ENABLE,
+  SETPOINT,
+  PRESET,
+  AUTOTUNE
+};
 
 struct Route {
   const char *name;
@@ -64,6 +77,7 @@ class WebClimateEditor : public AsyncWebHandler, public Component {
   void handle_enable_(AsyncWebServerRequest *request);
   void handle_setpoint_(AsyncWebServerRequest *request);
   void handle_preset_(AsyncWebServerRequest *request);
+  void handle_autotune_(AsyncWebServerRequest *request);
 
   /// Answers what a job decided: `json` when it ran and succeeded, the error it set when it
   /// ran and refused, 503 when the loop task never took it.

@@ -101,6 +101,12 @@ export interface ControllerDocument {
    * but its Save is 409, since it would drop what this firmware does not know.
    */
   version: number
+  /**
+   * Moves on when the device rewrites the document itself, as a calibration that found new gains
+   * does; a Save never moves it, and a new thermostat has 0. A Save that sends one other than the
+   * device's is 409 (STALE_DOCUMENT): the form was read before, and would write the old values back.
+   */
+  revision: number
   /** Immutable slug and the document's file name; a rename never changes it. */
   id: string
   /**
@@ -131,8 +137,8 @@ export interface ControllerDocument {
 }
 
 /** A document before the device has given it an id, and its presets their keys. */
-export type ControllerDraft = Omit<ControllerDocument, 'id' | 'version' | 'presets' | 'active_preset'> &
-  Partial<Pick<ControllerDocument, 'version' | 'active_preset'>> & { presets: PresetInput[] }
+export type ControllerDraft = Omit<ControllerDocument, 'id' | 'version' | 'revision' | 'presets' | 'active_preset'> &
+  Partial<Pick<ControllerDocument, 'version' | 'revision' | 'active_preset'>> & { presets: PresetInput[] }
 
 /** `T` with every key optional, in nested objects too. */
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
@@ -187,6 +193,85 @@ export interface PidTerms {
   in_deadband: boolean
 }
 
+/** Where a calibration is: running, or ended with gains (`succeeded`) or without (`failed`). */
+export type AutotuneState = 'running' | 'succeeded' | 'failed'
+
+/**
+ * Why a calibration ended without gains: `cancelled`; a target or a mode that changed, from
+ * anywhere (`target_changed`, `mode_changed`); a Save (`saved`); the thermostat stopped
+ * (`stopped`) or another one took its relay over (`taken_over`); a fault (`sensor_stale`,
+ * `overtemp`, `relay_contested`); 24 hours in all (`timeout`); 6 hours without a relay switch
+ * (`no_switch`). '' while it runs and after a success.
+ */
+export type AutotuneReason =
+  | ''
+  | 'cancelled'
+  | 'target_changed'
+  | 'mode_changed'
+  | 'saved'
+  | 'stopped'
+  | 'taken_over'
+  | 'sensor_stale'
+  | 'overtemp'
+  | 'relay_contested'
+  | 'timeout'
+  | 'no_switch'
+
+/** The tuning rule that turns Ku and Pu into gains; `zn_pi` when a start names none. */
+export type AutotuneRule = 'zn_pi' | 'zn_pid' | 'pessen' | 'some_overshoot' | 'no_overshoot'
+
+/** The relay a calibration swings: one direction per run. */
+export type AutotuneDirection = 'heat' | 'cool'
+
+/**
+ * What warns about a result; none ever makes a run longer. `asymmetric`: the room rose and fell at
+ * very different rates (the shortest half-period under 0.66 of the longest). `uneven`: the swings
+ * differed (the smallest under 0.66 of the largest), something else moved the room. `clamped`: a
+ * gain had to be held inside its range.
+ */
+export type AutotuneFlag = 'asymmetric' | 'uneven' | 'clamped'
+
+export interface PidGains {
+  kp: number
+  ki: number
+  kd: number
+}
+
+/** The far end of one swing: the room's coldest or warmest in a relay phase, and when. */
+export interface AutotuneExtreme {
+  /** Seconds since the start. */
+  at_s: number
+  temperature: number
+}
+
+/** A thermostat's last calibration since boot, kept until the next one, a delete or a reboot. */
+export interface AutotuneStatus {
+  state: AutotuneState
+  reason: AutotuneReason
+  direction: AutotuneDirection
+  rule: AutotuneRule
+  /** Whether the run has its relay closed now; null when it does not run, or has no reading yet. */
+  phase: 'on' | 'off' | null
+  /** The reading that switches the relay next, AUTOTUNE_NOISEBAND from the target; null as `phase`. */
+  aim: number | null
+  /** Relay switches so far; a run finds its gains at the AUTOTUNE_SWINGS-th. */
+  swings: number
+  /** Since the start, up to the end once it ended. */
+  elapsed_s: number
+  /** One per relay phase that ended, in order, the first one's too: the swing to chart. */
+  extremes: AutotuneExtreme[]
+  /** The ultimate gain and period (seconds) it measured; null until it succeeded. */
+  ku: number | null
+  pu: number | null
+  flags: AutotuneFlag[]
+  /** The gains in force when it started. */
+  old: PidGains
+  /** What it wrote in their place, null unless it succeeded. */
+  new: PidGains | null
+  /** False when the gains run but did not reach the file, so a reboot loses them. */
+  persisted: boolean
+}
+
 export interface ControllerStatus {
   id: string
   running: boolean
@@ -214,6 +299,8 @@ export interface ControllerStatus {
   cool_relay_on: boolean
   /** Present only while a PID controller runs. */
   pid?: PidTerms
+  /** Present once it has been calibrated since boot, running or not; see AutotuneStatus. */
+  autotune?: AutotuneStatus
 }
 
 /** One tunable number, as the device describes it. Drives the form directly. */
@@ -350,6 +437,21 @@ export const CONFIG_VERSION = 2
 
 /** The 409 error of a Save over a document whose `version` is above CONFIG_VERSION, in the device's words. */
 export const NEWER_FILE = 'A newer firmware wrote this thermostat; update the firmware to change it'
+
+/**
+ * The 409 error of a Save whose `revision` is not the device's, in the device's words: the form
+ * was read before the device rewrote the thermostat.
+ */
+export const STALE_DOCUMENT = 'The device changed this thermostat since it was read; reload it'
+
+/** The tuning rules, in the order the dashboard offers them; the first is the default. */
+export const AUTOTUNE_RULES: ReadonlyArray<AutotuneRule> = ['zn_pi', 'zn_pid', 'pessen', 'some_overshoot', 'no_overshoot']
+
+/** A calibration closes the relay this far under the target and opens it this far over (heating). */
+export const AUTOTUNE_NOISEBAND = 0.25
+
+/** The relay switch at which a calibration has measured enough. */
+export const AUTOTUNE_SWINGS = 6
 
 /** Presets per thermostat; the same number /schema serves. */
 export const PRESET_MAX_COUNT = 8
