@@ -60,6 +60,12 @@ static Result not_saved(bool too_large) {
   return result;
 }
 
+// A new thermostat past max_controllers.
+static Result too_many(uint8_t max_controllers) {
+  return failure(507,
+                 "This device allows " + std::to_string(max_controllers) + " thermostats; delete one to add another");
+}
+
 static Result success() {
   Result result;
   result.ok = true;
@@ -466,8 +472,7 @@ Result ClimateHub::create(ClimateConfig draft) {
   draft.clamp_setpoint();
   draft.assign_preset_keys();
   if (this->store_.size() >= this->max_controllers_)
-    return failure(507, "This device allows " + std::to_string(this->max_controllers_) +
-                            " thermostats; delete one to add another");
+    return too_many(this->max_controllers_);
   if (this->is_name_taken(draft.name, "", &error))
     return failure(409, error);
   draft.id = this->next_id_(draft.name);
@@ -480,12 +485,16 @@ Result ClimateHub::create(ClimateConfig draft) {
   bool too_large = false;
   if (!this->save_(draft, &too_large))
     return not_saved(too_large);
+  return this->add_(draft);
+}
 
-  ClimateConfig *stored = this->store_.add(draft);
+Result ClimateHub::add_(const ClimateConfig &doc) {
+  ClimateConfig *stored = this->store_.add(doc);
   this->store_.sort_by_id();
-  result = success();
+  Result result = success();
   result.id = stored->id;
   if (stored->enabled) {
+    std::string error;
     if (this->start_(stored, &error)) {
       this->schedule_ha_resync_();
     } else {
@@ -526,13 +535,64 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
   bool too_large = false;
   if (!this->save_(doc, &too_large))
     return not_saved(too_large);
+  return this->replace_(stored, doc);
+}
 
+// A Save's refusals, in a Save's order, under the id the document brings. Its keys and its
+// active preset are a backup's record of the thermostat's state: rules name them, so they stay.
+Result ClimateHub::restore(ClimateConfig doc) {
+  Result result;
+  if (this->refuse_if_failed_(&result))
+    return result;
+  std::string error;
+  if (!validate_id(doc.id, &error))
+    return failure(400, error);
+  doc.name = trim_name(doc.name);
+  for (PresetConfig &preset : doc.presets)
+    preset.name = trim_name(preset.name);
+  doc.clamp_numbers();
+  if (!doc.validate(&error))
+    return failure(400, error);
+  // The loader refuses such a file, so the thermostat would be gone after the next boot.
+  if (doc.id == RESERVED_ID)
+    return failure(400, "id 'new' is reserved");
+  doc.clamp_setpoint();
+  doc.assign_preset_keys();
+  if (doc.find_preset(doc.active_preset) == nullptr)
+    doc.active_preset.clear();
+  ClimateConfig *stored = this->store_.get(doc.id);
+  if (stored != nullptr && stored->from_newer_firmware())
+    return failure(409, NEWER_FILE);
+  if (stored == nullptr && this->store_.size() >= this->max_controllers_)
+    return too_many(this->max_controllers_);
+  // As at create: a file the loader refused is the only record of what its author meant.
+  if (stored == nullptr && file_exists(this->file_path_(doc.id)))
+    return failure(409, "The id \"" + doc.id + "\" is taken by a file in the thermostat folder that was not loaded");
+  if (this->is_name_taken(doc.name, doc.id, &error))
+    return failure(409, error);
+  doc.version = CONFIG_VERSION;
+  if (doc.enabled && !this->check_savable_(doc, &result))
+    return result;
+  bool too_large = false;
+  if (!this->save_(doc, &too_large))
+    return not_saved(too_large);
+  if (stored == nullptr)
+    return this->add_(doc);
+  result = this->replace_(stored, doc);
+  result.id = doc.id;
+  return result;
+}
+
+Result ClimateHub::replace_(ClimateConfig *stored, const ClimateConfig &doc) {
+  // A copy: *stored is overwritten below.
+  const std::string id = stored->id;
   const ClimateConfig previous = *stored;
   Slot *slot = this->slot_for_(id);
   bool structural = false;
+  std::string error;
   *stored = doc;
   this->dirty_.erase(id);
-  result = success();
+  Result result = success();
 
   if (!stored->enabled)
     this->waiting_.erase(id);
