@@ -865,9 +865,11 @@ components:
         What holds a relay away from where the thermostat wants it:
         `min_off` before it may close, `min_on` before it may open. `none`
         when it is where the thermostat wants it, when the thermostat is not
-        running or holds its relays open (mode off, a fault, no reading yet),
-        and while a relay switched from elsewhere stays there until it is put
-        back, which waits on that switch, not on the thermostat.
+        running or holds its relays open (mode off, a fault other than
+        `relay_contested`, no reading yet), and while a relay switched from
+        elsewhere stays there until it is put back, which waits on that
+        switch, not on the thermostat. Under `relay_contested` the thermostat
+        goes on controlling, and its relays wait as at any other time.
 
     Fault:
       type: string

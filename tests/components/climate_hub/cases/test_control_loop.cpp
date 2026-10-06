@@ -1505,6 +1505,28 @@ TEST_F(ControlLoop, RelayContestedReportsAndClearsAfterTenQuietMinutes) {
   EXPECT_TRUE(LogCapture::instance().has("fault cleared"));
 }
 
+// relay_contested holds no relay open: the minimums go on holding them, and say so.
+TEST_F(ControlLoop, RelayContestedLeavesTheMinimumsWaiting) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.heat.min_on_s = 60.f;
+  ControllerRuntime *rt = this->start(config, 18.f);
+  tick(200000);
+  uint32_t t = 200000;
+  for (uint32_t n = 1; n <= CONTEST_MOVES; n++) {
+    entities().relay1.turn_off();
+    tick(t += 1000);
+    tick(t += PUT_BACK_FLOOR_MS);
+  }
+  ASSERT_EQ(HubFault::RELAY_CONTESTED, rt->fault());
+  ASSERT_TRUE(entities().relay1.state);
+
+  entities().room.publish_state(22.f);
+  tick(t + 1000);
+  EXPECT_TRUE(entities().relay1.state) << "put back at the last tick, min_on holds it";
+  EXPECT_EQ(RelayWait::MIN_ON, rt->heat_relay_wait());
+  EXPECT_EQ(HubAction::HEATING, rt->action());
+}
+
 // The relay a contest is about may be the cooling one.
 TEST_F(ControlLoop, AContestedCoolingRelayIsReported) {
   ControllerRuntime *rt = this->start(with_cooling(this->base(ControlKind::BANG_BANG), true), 23.f);
