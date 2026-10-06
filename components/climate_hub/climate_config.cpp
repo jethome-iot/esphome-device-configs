@@ -285,6 +285,7 @@ std::string object_id_of_name(const std::string &name) {
 
 void ClimateConfig::serialize(JsonObject root) const {
   root["version"] = this->version;
+  root["revision"] = this->revision;
   root["id"] = this->id;
   root["name"] = this->name;
   root["enabled"] = this->enabled;
@@ -357,6 +358,7 @@ bool ClimateConfig::deserialize(const JsonObject &root, bool require_id, std::st
     return fail(error, "document is not an object");
 
   this->version = read_version(root["version"]);
+  this->revision = root["revision"] | this->revision;
 
   if (require_id) {
     this->id = text_of(root["id"]);

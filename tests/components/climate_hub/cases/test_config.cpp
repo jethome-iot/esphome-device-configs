@@ -19,7 +19,7 @@ ClimateConfig sample() {
 }
 
 const char *const GOLDEN =
-    R"({"version":2,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
+    R"({"version":2,"revision":0,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
     R"("update_interval_s":30,"heat":{"relay_id":"relay_1","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("cool":{"relay_id":"","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("visual":{"min_temperature":5,"max_temperature":45,"step":0.5},)"
@@ -61,7 +61,7 @@ ClimateConfig with_presets() {
 }
 
 const char *const GOLDEN_PRESETS =
-    R"({"version":2,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
+    R"({"version":2,"revision":0,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
     R"("update_interval_s":30,"heat":{"relay_id":"relay_1","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("cool":{"relay_id":"relay_2","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("visual":{"min_temperature":5,"max_temperature":45,"step":0.5},)"
@@ -100,6 +100,27 @@ TEST(ClimateConfigJson, PresetsSerialiseToTheGoldenDocumentAndRoundTrip) {
   ASSERT_EQ(2u, parsed.presets.size());
   EXPECT_FALSE(parsed.presets[0].mode.has_value()) << "keep is no mode";
   EXPECT_EQ(HubMode::HEAT_COOL, parsed.presets[1].mode);
+}
+
+// A calibration moves the revision on, and the file keeps it across a reboot.
+TEST(ClimateConfigJson, TheRevisionRoundTrips) {
+  ClimateConfig c = sample();
+  c.revision = 7;
+  const std::string json = to_json(c);
+  EXPECT_NE(std::string::npos, json.find(R"("version":2,"revision":7,"id":"boiler")")) << json;
+  ClimateConfig parsed;
+  std::string error;
+  ASSERT_TRUE(from_json(json, &parsed, &error)) << error;
+  EXPECT_EQ(7u, parsed.revision);
+
+  // What a file before the revision holds, or a value that is no count, reads as none.
+  for (const char *revision : {"", R"("revision":-1,)", R"("revision":"7",)", R"("revision":1.5,)"}) {
+    ClimateConfig fresh;
+    ASSERT_TRUE(from_json(std::string(R"({)") + revision + R"("name":"B","sensor_id":"s","heat":{"relay_id":"r"}})",
+                          &fresh, &error, false))
+        << error;
+    EXPECT_EQ(0u, fresh.revision) << revision;
+  }
 }
 
 // The change is additive: a file the first firmware wrote loads, with no presets, and is
