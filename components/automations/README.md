@@ -170,4 +170,5 @@ read, so that its answer describes one state of the list.
 
 `python tests/run.py automations` builds the engine for the ESPHome `host` platform into a Google
 Test binary and runs it, with a directory standing in for the flash; the cases are in
-`tests/components/automations/`. See [doc/TESTING.md](../../doc/TESTING.md).
+`tests/components/automations/`. `python tests/run.py automations_no_climate` builds it on a
+firmware without `climate_hub`. See [doc/TESTING.md](../../doc/TESTING.md).
