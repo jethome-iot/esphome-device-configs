@@ -2420,6 +2420,607 @@
       ]
     },
     {
+      "name": "Import creates a thermostat under the id it brings, with its presets' keys and its active preset",
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "lounge",
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 20.5,
+        "presets": [
+          {
+            "key": "day-time",
+            "name": "Comfort",
+            "setpoint": 22
+          },
+          {
+            "key": "night-2",
+            "name": "Night",
+            "setpoint": 19,
+            "mode": "heat"
+          },
+          {
+            "name": "Eco",
+            "setpoint": 17
+          }
+        ],
+        "active_preset": "night-2"
+      },
+      "status": 200,
+      "expect": {
+        "success": true,
+        "message": "Thermostat created",
+        "id": "lounge"
+      },
+      "absent": [
+        "warning"
+      ],
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=lounge",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "version": 2,
+            "id": "lounge",
+            "name": "Living Room",
+            "setpoint": 20.5,
+            "presets": [
+              {
+                "key": "day-time",
+                "name": "Comfort",
+                "setpoint": 22,
+                "mode": "keep"
+              },
+              {
+                "key": "night-2",
+                "name": "Night",
+                "setpoint": 19,
+                "mode": "heat"
+              },
+              {
+                "key": "eco",
+                "name": "Eco",
+                "setpoint": 17,
+                "mode": "keep"
+              }
+            ],
+            "active_preset": "night-2"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "count": 1,
+            "controllers.0.running": true,
+            "controllers.0.active_preset": "night-2",
+            "controllers.0.active_preset_name": "Night"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Import over a thermostat replaces it under its id, with the presets' keys and the active preset it brings",
+      "setup": [
+        "office"
+      ],
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "office",
+        "name": "Study",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 20,
+        "presets": [
+          {
+            "key": "made-up",
+            "name": "Saver",
+            "setpoint": 17
+          },
+          {
+            "key": "night",
+            "name": "Night",
+            "setpoint": 19.5,
+            "mode": "off"
+          }
+        ],
+        "active_preset": "made-up"
+      },
+      "status": 200,
+      "expect": {
+        "success": true,
+        "message": "Thermostat replaced",
+        "id": "office"
+      },
+      "absent": [
+        "warning"
+      ],
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=office",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "name": "Study",
+            "setpoint": 20,
+            "presets": [
+              {
+                "key": "made-up",
+                "name": "Saver",
+                "setpoint": 17,
+                "mode": "keep"
+              },
+              {
+                "key": "night",
+                "name": "Night",
+                "setpoint": 19.5,
+                "mode": "off"
+              }
+            ],
+            "active_preset": "made-up"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "count": 1,
+            "controllers.0.running": true
+          }
+        },
+        {
+          "method": "GET",
+          "path": "entities",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "switches.object_id=relay_2.claimed_by": "office"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Import of an active preset no preset has picks none",
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "den",
+        "name": "Den",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 21,
+        "presets": [
+          {
+            "key": "eco",
+            "name": "Eco",
+            "setpoint": 18
+          }
+        ],
+        "active_preset": "gone"
+      },
+      "status": 200,
+      "expect": {
+        "id": "den"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=den",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "active_preset": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "Import of a backup from a newer firmware writes this firmware's version",
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "den",
+        "name": "Den",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 21,
+        "version": 3
+      },
+      "status": 200,
+      "expect": {
+        "message": "Thermostat created"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=den",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "version": 2
+          }
+        }
+      ]
+    },
+    {
+      "name": "Import without an id is 400, before anything else the document breaks",
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "name": "Up/down"
+      },
+      "status": 400,
+      "error": "id is required",
+      "then": [
+        {
+          "method": "POST",
+          "path": "import",
+          "body": {
+            "id": "",
+            "name": "Den",
+            "kind": "bang_bang",
+            "sensor_id": "temp_2",
+            "heat": {
+              "relay_id": "relay_2"
+            },
+            "mode": "heat",
+            "setpoint": 21
+          },
+          "status": 400,
+          "error": "id is required"
+        },
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "count": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "Import of an id that is no slug is 400",
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "Den",
+        "name": "Den",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 21
+      },
+      "status": 400,
+      "error": "id must be a slug: lowercase letters, digits and single dashes"
+    },
+    {
+      "name": "Import of the id new is 400, once the document is sound",
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "new",
+        "name": "Den",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 21
+      },
+      "status": 400,
+      "error": "id 'new' is reserved",
+      "then": [
+        {
+          "method": "POST",
+          "path": "import",
+          "body": {
+            "id": "new",
+            "name": "Den"
+          },
+          "status": 400,
+          "error": "sensor_id is required"
+        }
+      ]
+    },
+    {
+      "name": "Import of a preset key that is no slug is 400",
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "den",
+        "name": "Den",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 21,
+        "presets": [
+          {
+            "key": "Eco",
+            "name": "Eco",
+            "setpoint": 18
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1: key must be a slug: lowercase letters, digits and single dashes"
+    },
+    {
+      "name": "An import past max_controllers is 507, and one over a thermostat there is not",
+      "setup": [
+        "living-room",
+        "floor",
+        "guest-room"
+      ],
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "den",
+        "name": "Den",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 21,
+        "enabled": false
+      },
+      "status": 507,
+      "error": "This device allows 3 thermostats; delete one to add another",
+      "then": [
+        {
+          "method": "POST",
+          "path": "import",
+          "body": {
+            "id": "guest-room",
+            "name": "Den",
+            "kind": "bang_bang",
+            "sensor_id": "temp_2",
+            "heat": {
+              "relay_id": "relay_2"
+            },
+            "mode": "heat",
+            "setpoint": 21,
+            "enabled": false
+          },
+          "status": 200,
+          "expect": {
+            "message": "Thermostat replaced",
+            "id": "guest-room"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "count": 3,
+            "controllers.id=guest-room.name": "Den"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Import of a name another thermostat answers to is 409",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "den",
+        "name": "living room",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 21,
+        "enabled": false
+      },
+      "status": 409,
+      "error": "\"living room\" is already used by another thermostat"
+    },
+    {
+      "name": "An enabled import is 400 for a sensor not in °C, then 409 for a held relay or one a thermostat waits for",
+      "setup": [
+        "living-room",
+        "cellar-waits"
+      ],
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "den",
+        "name": "Den",
+        "kind": "bang_bang",
+        "sensor_id": "uptime",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 21
+      },
+      "status": 400,
+      "error": "\"Uptime\" reports s, not °C",
+      "then": [
+        {
+          "method": "POST",
+          "path": "import",
+          "body": {
+            "id": "den",
+            "name": "Den",
+            "kind": "bang_bang",
+            "sensor_id": "temp_2",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 21
+          },
+          "status": 409,
+          "error": "\"Relay 1\" is already driven by \"Living Room\""
+        },
+        {
+          "method": "POST",
+          "path": "import",
+          "body": {
+            "id": "den",
+            "name": "Den",
+            "kind": "bang_bang",
+            "sensor_id": "temp_2",
+            "heat": {
+              "relay_id": "relay_2"
+            },
+            "mode": "heat",
+            "setpoint": 21
+          },
+          "status": 409,
+          "error": "\"Relay 2\" is reserved by \"Cellar\", which is enabled and waits to start"
+        },
+        {
+          "method": "POST",
+          "path": "import",
+          "body": {
+            "id": "den",
+            "name": "Den",
+            "kind": "bang_bang",
+            "sensor_id": "temp_2",
+            "heat": {
+              "relay_id": "relay_2"
+            },
+            "mode": "heat",
+            "setpoint": 21,
+            "enabled": false
+          },
+          "status": 200,
+          "expect": {
+            "id": "den"
+          }
+        }
+      ]
+    },
+    {
+      "name": "An enabled import whose sensor is missing is stored and waits",
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "den",
+        "name": "Den",
+        "kind": "bang_bang",
+        "sensor_id": "attic",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 21
+      },
+      "status": 200,
+      "expect": {
+        "message": "Thermostat created; not started: sensor 'attic' not found",
+        "id": "den",
+        "warning": "not started: sensor 'attic' not found"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.enabled": true,
+            "controllers.0.running": false,
+            "controllers.0.waiting": "not started: sensor 'attic' not found"
+          }
+        }
+      ]
+    },
+    {
+      "name": "A GET to import is 405 naming POST",
+      "method": "GET",
+      "path": "import",
+      "body": null,
+      "status": 405,
+      "error": "Method not allowed",
+      "headers": {
+        "Allow": "POST"
+      }
+    },
+    {
+      "name": "An import body over 8 KiB is 413",
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "den",
+        "name": "Den",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 21
+      },
+      "pad_to": 8193,
+      "status": 413,
+      "error": "Request body over 8 KiB",
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "count": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "An empty import body is 400",
+      "method": "POST",
+      "path": "import",
+      "body": null,
+      "status": 400,
+      "error": "Empty request body"
+    },
+    {
       "name": "Delete removes a thermostat and lets its relay go",
       "setup": [
         "living-room"
@@ -3690,6 +4291,140 @@
             "active_preset": "",
             "setpoint": 21,
             "mode": "heat"
+          }
+        }
+      ]
+    },
+    {
+      "name": "A loop that never takes an import is 503 and changes nothing",
+      "setup": [
+        "living-room"
+      ],
+      "device_only": "loop_busy",
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "living-room",
+        "name": "Lounge",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 503,
+      "error": "Device busy",
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "name": "Living Room"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Storage that was not usable at boot refuses an import with 500",
+      "device_only": "storage_failed",
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "den",
+        "name": "Den",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 21
+      },
+      "status": 500,
+      "error": "Thermostat storage is not available"
+    },
+    {
+      "name": "An import whose file cannot be written is 500 and changes nothing",
+      "device_only": "storage_unwritable",
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "den",
+        "name": "Den",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 21
+      },
+      "status": 500,
+      "error": "The thermostat's file could not be written",
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "count": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "An import whose file would be over the cap is 413",
+      "device_only": "file_cap",
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "den",
+        "name": "Den",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 21
+      },
+      "status": 413,
+      "error": "The thermostat's file would be over 8 KiB"
+    },
+    {
+      "name": "An import over a file a newer firmware wrote is 409 and changes nothing",
+      "setup": [
+        "living-room"
+      ],
+      "device_only": "newer_file",
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "living-room",
+        "name": "Lounge",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 409,
+      "error": "A newer firmware wrote this thermostat; update the firmware to change it",
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "name": "Living Room"
           }
         }
       ]
