@@ -401,6 +401,20 @@ TEST_F(ClimateRules, WhatOnlyCppCanBuildIsRefusedWithAReason) {
   EXPECT_EQ(error, "no type");
   words->off.type = TypeClimateAction::TURN_OFF;
   EXPECT_TRUE(compile_action(climate, action, &error));
+  for (TypeClimateAction held : {TypeClimateAction::SET_TARGET, TypeClimateAction::FOLLOW}) {
+    words->on = ClimateStep{held, "", 21.0f};
+    EXPECT_FALSE(compile_action(climate, action, &error));
+    EXPECT_EQ(error, "a follow takes turn_on, turn_off or set_preset");
+  }
+  words->on = ClimateStep{TypeClimateAction::SET_PRESET, "", NAN};
+  EXPECT_FALSE(compile_action(climate, action, &error));
+  EXPECT_EQ(error, "no preset");
+
+  words->step = ClimateStep{TypeClimateAction::SET_TARGET, "", NAN};
+  EXPECT_FALSE(compile_action(climate, action, &error));
+  EXPECT_EQ(error, "no target");
+  words->step.target = 21.0f;
+  EXPECT_TRUE(compile_action(climate, action, &error));
 }
 
 TEST_F(ClimateRules, TurnOffAndTurnOn) {

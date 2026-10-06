@@ -190,14 +190,27 @@ bool compile_trigger(AutomationStorage *engine, const TriggerConfig &config, Com
 
 // --- Actions ---
 
+// Only a config built in C++ gets here with a step the parser would have refused.
+static bool check_step(const ClimateStep &step, bool in_follow, std::string *error) {
+  if (step.type == TypeClimateAction::NONE)
+    return fail(error, "no type");
+  if (in_follow && (step.type == TypeClimateAction::SET_TARGET || step.type == TypeClimateAction::FOLLOW))
+    return fail(error, "a follow takes turn_on, turn_off or set_preset");
+  if (step.type == TypeClimateAction::SET_TARGET && !std::isfinite(step.target))
+    return fail(error, "no target");
+  if (step.type == TypeClimateAction::SET_PRESET && step.preset.empty())
+    return fail(error, "no preset");
+  return true;
+}
+
 // Fail closed: a rule that would act on a thermostat or a preset the hub does not have is not
 // built at all, rather than built to do nothing.
 static bool check_climate(const ClimateActionConfig &config, std::string *error) {
-  // Only a config built in C++ gets here without one; the parser refuses it.
-  if (config.step.type == TypeClimateAction::NONE ||
-      (config.step.type == TypeClimateAction::FOLLOW &&
-       (config.on.type == TypeClimateAction::NONE || config.off.type == TypeClimateAction::NONE)))
-    return fail(error, "no type");
+  if (!check_step(config.step, false, error))
+    return false;
+  if (config.step.type == TypeClimateAction::FOLLOW &&
+      (!check_step(config.on, true, error) || !check_step(config.off, true, error)))
+    return false;
   const std::string who = "thermostat \"" + config.climate + "\"";
 #ifdef USE_CLIMATE_HUB
   const climate_hub::ClimateConfig *thermostat =
@@ -206,7 +219,9 @@ static bool check_climate(const ClimateActionConfig &config, std::string *error)
     ESP_LOGE(TAG, "Action: thermostat '%s' not found", config.climate.c_str());
     return fail(error, who + " not found");
   }
-  for (const ClimateStep *step : {&config.step, &config.on, &config.off}) {
+  // What it plays: a follow's two branches, or its one step.
+  const bool follow = config.step.type == TypeClimateAction::FOLLOW;
+  for (const ClimateStep *step : {follow ? &config.on : &config.step, follow ? &config.off : &config.step}) {
     if (step->type == TypeClimateAction::SET_PRESET && thermostat->find_preset(step->preset) == nullptr) {
       ESP_LOGE(TAG, "Action: thermostat '%s' has no preset '%s'", config.climate.c_str(), step->preset.c_str());
       return fail(error, who + " has no preset \"" + step->preset + "\"");
