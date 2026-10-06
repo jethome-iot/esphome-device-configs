@@ -83,6 +83,14 @@ external_components:
       - entity_config
       - bindings
       - switch_hold
+      - panel_text
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - modbus_map
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -100,6 +108,7 @@ external_components:
       path: components
     components:
       - dallas_scan
+      - panel_text
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -920,6 +929,19 @@ modbus_server:
         read_lambda: return id(input_5).state;
       - address: 21
         read_lambda: return id(input_6).state;
+modbus_map:
+  modbus_server_id: modbus_server1
+  bits:
+    - address: 0
+      name: Relays
+    - address: 16
+      name: Inputs
+  registers:
+    - address: 0
+      name: Temperature slots
+      scale: 0.1
+      unit: °C
+      no_value: 32768
 network:
   priority:
     - ethernet

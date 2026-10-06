@@ -6,6 +6,7 @@
 
 #include "dallas_scan.h"
 
+#include "esphome/components/panel_text/panel_text.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
@@ -67,6 +68,7 @@ bool SlotFile::parse_json(JsonObject root, uint32_t version) {
     this->table_[slot - 1] = address;
   }
   this->parse_offsets_(root);
+  this->parse_labels_(root);
   return true;
 }
 
@@ -104,6 +106,43 @@ void SlotFile::parse_offsets_(JsonObject root) {
   }
 }
 
+// As the offsets are: a bad list or entry costs the labels, never the table or the offsets.
+void SlotFile::parse_labels_(JsonObject root) {
+  std::fill(this->labels_.begin(), this->labels_.end(), std::string());
+  if (root["labels"].isNull())
+    return;
+  if (!root["labels"].is<JsonArray>()) {
+    ESP_LOGW(TAG, "'labels' is not an array, ignoring it");
+    return;
+  }
+  JsonArray labels = root["labels"];
+  std::vector<bool> seen(this->labels_.size(), false);
+  for (JsonObject entry : labels) {
+    const int slot = entry["slot"] | 0;
+    if (!entry["slot"].is<int>() || slot < 1) {
+      ESP_LOGW(TAG, "A label without a valid slot, skipping");
+      continue;
+    }
+    if ((size_t) slot > this->labels_.size()) {
+      ESP_LOGW(TAG, "Slot %d's label is past max_sensors, skipping", slot);
+      continue;
+    }
+    std::string label;
+    JsonVariant text = entry["label"];
+    // With its size: a NUL decoded from "\u0000" is a control character, not the end.
+    if (!text.is<const char *>() ||
+        !panel_text::parse_label(text.as<JsonString>().c_str(), text.as<JsonString>().size(), label)) {
+      ESP_LOGW(TAG, "Slot %d: the label is not text of at most %u characters, skipping", slot,
+               (unsigned) panel_text::LABEL_MAX_LENGTH);
+      continue;
+    }
+    if (seen[slot - 1])
+      ESP_LOGW(TAG, "Slot %d's label is listed twice, keeping the last one", slot);
+    seen[slot - 1] = true;
+    this->labels_[slot - 1] = std::move(label);
+  }
+}
+
 void SlotFile::write_json(JsonObject root, uint32_t version) {
   JsonArray records = root["records"].to<JsonArray>();
   for (size_t slot = 0; slot < this->table_.size(); slot++) {
@@ -113,17 +152,28 @@ void SlotFile::write_json(JsonObject root, uint32_t version) {
     record["slot"] = slot + 1;
     record["address"] = str_sprintf("0x%016" PRIx64, this->table_[slot]);
   }
-  // Left out with none, so a file without offsets stays as older firmware wrote it.
-  if (std::all_of(this->offsets_.begin(), this->offsets_.end(), [](int16_t tenths) { return tenths == 0; }))
-    return;
-  JsonArray offsets = root["offsets"].to<JsonArray>();
-  for (size_t slot = 0; slot < this->offsets_.size(); slot++) {
-    if (this->offsets_[slot] == 0)
-      continue;
-    JsonObject entry = offsets.add<JsonObject>();
-    entry["slot"] = slot + 1;
-    // As text, so -0.3 is not written as the float nearest to it.
-    entry["offset"] = serialized(str_sprintf("%.1f", this->offsets_[slot] / 10.0));
+  // Each list is left out with none, so a file without them stays as older firmware wrote it.
+  if (std::any_of(this->offsets_.begin(), this->offsets_.end(), [](int16_t tenths) { return tenths != 0; })) {
+    JsonArray offsets = root["offsets"].to<JsonArray>();
+    for (size_t slot = 0; slot < this->offsets_.size(); slot++) {
+      if (this->offsets_[slot] == 0)
+        continue;
+      JsonObject entry = offsets.add<JsonObject>();
+      entry["slot"] = slot + 1;
+      // As text, so -0.3 is not written as the float nearest to it.
+      entry["offset"] = serialized(str_sprintf("%.1f", this->offsets_[slot] / 10.0));
+    }
+  }
+  if (std::any_of(this->labels_.begin(), this->labels_.end(),
+                  [](const std::string &label) { return !label.empty(); })) {
+    JsonArray labels = root["labels"].to<JsonArray>();
+    for (size_t slot = 0; slot < this->labels_.size(); slot++) {
+      if (this->labels_[slot].empty())
+        continue;
+      JsonObject entry = labels.add<JsonObject>();
+      entry["slot"] = slot + 1;
+      entry["label"] = this->labels_[slot];
+    }
   }
 }
 

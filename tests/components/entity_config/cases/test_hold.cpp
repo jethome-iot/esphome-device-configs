@@ -56,6 +56,15 @@ TEST_F(HeldRelay, ARestWriteThatFlipsInvertedIsRefusedNamingTheThermostat) {
   EXPECT_TRUE(this->settings.records().empty()) << "nothing stored either";
 }
 
+// The dashboard shows a labelled relay by its label, so its refusal names it so too.
+TEST_F(HeldRelay, TheRefusalNamesALabelledRelayByItsLabel) {
+  ASSERT_TRUE(this->post(R"({"source_name":"relay_1","settings":{"label":"Котёл"}})"));
+  EXPECT_FALSE(this->post(R"({"source_name":"relay_1","settings":{"inverted":true}})"));
+  EXPECT_EQ("\"Котёл\" is driven by \"Living room\": stop that thermostat to change Inverted",
+            this->settings.conflict());
+  EXPECT_EQ(HELD_RELAY_1, inverted_refusal(&e.relay1)) << "with nothing to show, the name";
+}
+
 TEST_F(HeldRelay, ARestWriteThatKeepsInvertedChangesTheRest) {
   ASSERT_TRUE(this->post(R"({"source_name":"relay_1","settings":{"inverted":false,"restore_mode":"ALWAYS_ON",)"
                          R"("binding_input":"input_1","binding_mode":"follow"}})"));
