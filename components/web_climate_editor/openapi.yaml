@@ -285,7 +285,8 @@ paths:
 
         A thermostat whose file a newer firmware wrote starts or stops all the
         same, but its file is never written: `persisted` is false when the flag
-        changed, and the next boot finds it as before.
+        changed or it took a relay over, and the next boot finds it, and the
+        holder it stopped, as before.
       parameters:
         - $ref: "#/components/parameters/IdQuery"
         - name: value

@@ -136,8 +136,9 @@ to a space.
 
 A thermostat whose file a newer firmware wrote is listed, read and run like any other, and
 `enable`, `setpoint` and `delete` act on it, but only `delete` reaches the file: the rest lasts
-until the next reboot, and `enable` answers `"persisted": false` when it changed the flag. Its
-`version` in `get` is the file's own, higher than this firmware's `2`.
+until the next reboot, and `enable` answers `"persisted": false` when it changed the flag or took
+a relay over, whose holder then stays enabled in its file. Its `version` in `get` is the file's
+own, higher than this firmware's `2`.
 
 Every failure is `{"success": false, "error"}`, with the sentence an editor shows: `400` for a
 bad request, `404` for an unknown `id` or path, `405` for a `GET` or `POST` the route does not

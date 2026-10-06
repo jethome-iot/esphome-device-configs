@@ -512,6 +512,53 @@ TEST_F(Presets, AFileFromANewerFirmwareRunsButIsNeverWritten) {
   EXPECT_FALSE(file_exists(this->file_of("boiler")));
 }
 
+// A take-over by one whose file a newer firmware wrote cannot be recorded in that file, so the
+// holder is stopped in memory only: the next boot runs what the files say, not neither of them.
+TEST_F(Presets, ATakeOverByANewerFileLastsUntilTheReboot) {
+  this->create(draft("Winter"));
+  const std::string text = R"({"version":3,"id":"summer","name":"Summer","enabled":false,"sensor_id":"room",)"
+                           R"("heat":{"relay_id":"relay_1"},"mode":"heat"})";
+  write_file(this->file_of("summer"), text);
+  this->reboot();
+  ASSERT_TRUE(hub().is_running("winter"));
+  // Set just before, still waiting to be written: it is, under the flag the file has.
+  target(hub().entity_of("winter"), 23.f);
+
+  Result result = hub().set_enabled("summer", true, true);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_FALSE(result.persisted);
+  EXPECT_TRUE(hub().is_running("summer"));
+  EXPECT_FALSE(hub().is_running("winter"));
+  EXPECT_FALSE(hub().store().get("winter")->enabled);
+  EXPECT_EQ("summer", hub().claimed_by("relay_1"));
+  flush();
+  EXPECT_EQ(text, read_file(this->file_of("summer")));
+  const std::string winter = read_file(this->file_of("winter"));
+  EXPECT_NE(std::string::npos, winter.find(R"("enabled":true)")) << winter;
+  EXPECT_NE(std::string::npos, winter.find(R"("setpoint":23)")) << winter;
+
+  this->reboot();
+  EXPECT_TRUE(hub().is_running("winter"));
+  EXPECT_FALSE(hub().is_running("summer"));
+  EXPECT_FLOAT_EQ(23.f, hub().store().get("winter")->setpoint);
+}
+
+// Enabled already, it waited for the relay: there is no flag of its own to write, and the
+// take-over still is not recorded.
+TEST_F(Presets, ATakeOverByAWaitingNewerFileIsNotWrittenEither) {
+  this->create(draft("Boiler"));
+  write_file(this->file_of("summer"), R"({"version":3,"id":"summer","name":"Summer","sensor_id":"room",)"
+                                      R"("heat":{"relay_id":"relay_1"},"mode":"heat"})");
+  this->reboot();
+  ASSERT_NE("", hub().waiting_reason("summer"));
+
+  Result result = hub().set_enabled("summer", true, true);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_FALSE(result.persisted);
+  EXPECT_TRUE(hub().is_running("summer"));
+  EXPECT_NE(std::string::npos, read_file(this->file_of("boiler")).find(R"("enabled":true)"));
+}
+
 // A newer file whose name another thermostat has is renamed for this boot only.
 TEST_F(Presets, ANewerFileRenamedAtBootIsNotWritten) {
   this->create(draft("Boiler"));

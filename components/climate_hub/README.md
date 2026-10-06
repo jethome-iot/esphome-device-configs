@@ -223,7 +223,9 @@ The folder is writable by hand, so what it holds is checked at boot:
   runs as far as this firmware understands it, but is never written: a target, a mode, a preset
   or a stop from Home Assistant, the editor or a rule applies until the next reboot, a rename at
   boot too, and `update()` refuses it with 409, `A newer firmware wrote this thermostat; update
-  the firmware to change it`. `remove()` still deletes it.
+  the firmware to change it`. A take-over by it stops the holder in memory only:
+  `set_enabled()` returns `persisted` false and the holder's file stays enabled. `remove()`
+  still deletes it.
 
 A thermostat that waits is not started when what it names turns up later, only by the next boot
 that finds it, or by a Save or an enable once it is there.

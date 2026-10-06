@@ -1151,7 +1151,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     if (refusal) return refusal
     let persisted = true
     for (const holder of holders) {
-      persisted = persisted && !newer(holder)
+      // A newer firmware's file cannot record the take-over, so the holder's keeps its flag too.
+      persisted = persisted && !newer(holder) && !newer(doc)
       holder.enabled = false
       running.delete(holder.id)
       waitReasons.delete(holder.id)

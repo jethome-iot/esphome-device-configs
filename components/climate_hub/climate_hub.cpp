@@ -610,10 +610,19 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
   // A take-over stops the holder, so only for a thermostat that runs in its place.
   if (!holder.empty() && !this->check_entities_(*stored, &error))
     return failure(400, error);
+  // A newer firmware's file cannot record the take-over, so the holder's file does not either:
+  // the next boot runs what the files say rather than neither thermostat.
+  const bool in_memory = stored->from_newer_firmware();
   // Taken over in the same job, so the relay is never free for a third party in between.
   for (; !holder.empty(); holder = this->holder_of_(*stored, &relay_id)) {
     ClimateConfig *held = this->store_.get(holder);
-    if (held != nullptr) {
+    if (held != nullptr && in_memory) {
+      // A change it had waiting is written now, under the flag its file has.
+      if (this->dirty_.erase(holder) != 0)
+        this->save_(*held);
+      held->enabled = false;
+      result.persisted = false;
+    } else if (held != nullptr) {
       held->enabled = false;
       result.persisted = this->save_(*held) && result.persisted;
       this->dirty_.erase(holder);

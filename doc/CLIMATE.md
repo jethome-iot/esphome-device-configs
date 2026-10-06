@@ -46,7 +46,9 @@ under `/files` for instance, is loaded at the next boot.
 A file written by a newer firmware, after a rollback say, loads and runs as far as this one
 understands it, but this firmware never writes it: a change from Home Assistant, the panel or a
 rule lasts until the next reboot, and a Save from the editor is refused with a sentence that
-says a newer firmware wrote it. Deleting the thermostat still works.
+says a newer firmware wrote it. Starting it in another thermostat's place lasts until the next
+reboot too: the one it took the relay from stays enabled in its file. Deleting the thermostat
+still works.
 
 A thermostat whose sensor or relay is missing, at boot or when it is saved or switched on, stays
 enabled on disk but does not run; the Save or the switch-on succeeds with a warning that names
