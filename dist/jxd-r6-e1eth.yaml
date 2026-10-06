@@ -154,27 +154,27 @@ web_server:
   port: 80
   version: 3
   sorting_groups:
-    - id: group_relays
-      name: Relays
-      sorting_weight: 10
-    - id: group_inputs
-      name: Inputs
-      sorting_weight: 20
-    - id: group_temperature
-      name: Temperature
-      sorting_weight: 30
-    - id: group_climate
-      name: Climate
-      sorting_weight: 35
-    - id: group_modbus
-      name: Modbus
-      sorting_weight: 40
     - id: group_network
       name: Network
       sorting_weight: 50
     - id: group_system
       name: System
       sorting_weight: 60
+    - id: group_relays
+      name: Relays
+      sorting_weight: 10
+    - id: group_inputs
+      name: Inputs
+      sorting_weight: 20
+    - id: group_climate
+      name: Climate
+      sorting_weight: 35
+    - id: group_modbus
+      name: Modbus
+      sorting_weight: 40
+    - id: group_temperature
+      name: Temperature
+      sorting_weight: 30
   auth:
     type: digest
     username: admin
@@ -1020,6 +1020,10 @@ dallas_scan:
   web_server:
     sorting_group_id: group_temperature
     sorting_weight: 1
+web_device_dashboard:
+  dallas_scan_id: temps
+  board_info_id: board_info
+  storage_id: user_storage
 uart:
   - id: jxm_uart1
     tx_pin: GPIO33
@@ -1033,10 +1037,6 @@ uart:
     stop_bits: 1
 web_auth:
   id: web_auth_credentials
-web_device_dashboard:
-  board_info_id: board_info
-  storage_id: user_storage
-  dallas_scan_id: temps
 web_file_browser:
   storage_id: user_storage
 dashboard_import:

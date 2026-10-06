@@ -4,6 +4,12 @@ external_components:
   - source: ${components}
     components: [modbus_map]
 
+web_server:
+  sorting_groups:
+    - id: group_modbus
+      name: "Modbus"
+      sorting_weight: 40
+
 modbus:
   - id: modbus_bus
     uart_id: jxm_uart2

@@ -4,6 +4,12 @@ external_components:
   - source: ${components}
     components: [climate_hub, loop_job, switch_hold]
 
+web_server:
+  sorting_groups:
+    - id: group_climate
+      name: "Climate"
+      sorting_weight: 35
+
 climate_hub:
   id: climates
   storage: user_storage

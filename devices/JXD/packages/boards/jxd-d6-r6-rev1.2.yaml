@@ -3,6 +3,15 @@ pca9554:
     pin_count: 16
     address: 0x22
 
+web_server:
+  sorting_groups:
+    - id: group_relays
+      name: "Relays"
+      sorting_weight: 10
+    - id: group_inputs
+      name: "Inputs"
+      sorting_weight: 20
+
 one_wire:
   - platform: ds2484
     id: one_wire_bus

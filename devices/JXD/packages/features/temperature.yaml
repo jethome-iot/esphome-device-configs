@@ -6,6 +6,12 @@ external_components:
   - source: ${components}
     components: [dallas_scan, panel_text]
 
+web_server:
+  sorting_groups:
+    - id: group_temperature
+      name: "Temperature"
+      sorting_weight: 30
+
 dallas_scan:
   id: temps
   one_wire_id: one_wire_bus
@@ -24,3 +30,8 @@ script:
     then:
       - delay: 1s
       - lambda: 'id(temps)->forget(slot);'
+
+# The slots the dashboard lists, forgets, assigns and labels. Needs the
+# web-device-dashboard package.
+web_device_dashboard:
+  dallas_scan_id: temps

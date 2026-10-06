@@ -46,22 +46,8 @@ web_server:
   port: 80
   version: 3
   # No local: true. web_device_dashboard owns /, so the page it would embed is never served.
+  # The groups every device has; a package with entities of its own declares its group.
   sorting_groups:
-    - id: group_relays
-      name: "Relays"
-      sorting_weight: 10
-    - id: group_inputs
-      name: "Inputs"
-      sorting_weight: 20
-    - id: group_temperature
-      name: "Temperature"
-      sorting_weight: 30
-    - id: group_climate
-      name: "Climate"
-      sorting_weight: 35
-    - id: group_modbus
-      name: "Modbus"
-      sorting_weight: 40
     - id: group_network
       name: "Network"
       sorting_weight: 50
