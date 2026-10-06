@@ -73,6 +73,10 @@ void RelayClaim::settle_move_(bool want, uint32_t now_ms, bool paced) {
 
 void RelayClaim::count_move_(uint32_t wait_ms) {
   this->moves_++;
+  // Put back on every pass, as under a cut-out, a writer would flood the log: past the contest
+  // only each doubling is logged.
+  if (this->moves_ > CONTEST_MOVES && (this->moves_ & (this->moves_ - 1)) != 0)
+    return;
 #ifdef USE_SWITCH
   if (wait_ms == 0) {
     ESP_LOGI(TAG, "'%s': relay '%s' moved from elsewhere (%u), put back", this->owner_.c_str(),

@@ -72,6 +72,7 @@ class RelayClaim {
   /// The relay is not where the claim left it: kept where `want` may go now, else put back.
   void settle_move_(bool want, uint32_t now_ms, bool paced);
   /// Counts a move from elsewhere and logs when it goes back: on this pass, or in `wait_ms`.
+  /// Past CONTEST_MOVES, only a count that is a power of two is logged.
   void count_move_(uint32_t wait_ms);
   /// Nothing is left to put back: the quiet that forgets the moves starts now.
   void settled_(uint32_t now_ms);

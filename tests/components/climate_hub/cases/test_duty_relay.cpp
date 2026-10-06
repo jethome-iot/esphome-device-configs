@@ -656,6 +656,28 @@ TEST(RelayClaim, HeldOpenAPendingOpenIsSettled) {
   EXPECT_EQ(0u, claim.moves()) << "the quiet ran from 3 s";
 }
 
+// A cut-out puts a close back on every pass: past CONTEST_MOVES only every doubling of the count
+// is logged, 1 to 5, 8, 16, 32 and 64 of 75.
+TEST(RelayClaim, AMoveOnEveryPassIsLoggedAtEachDoubling) {
+  FakeSwitch &relay = entities().relay3;
+  relay.publish_state(false);
+  RelayClaim claim(&relay, "boiler");
+  claim.request(false, 0);
+  LogCapture::instance().clear();
+  for (uint32_t t = 1000; t <= 75000; t += 1000) {
+    relay.turn_on();
+    claim.force_off(t);
+  }
+  ASSERT_EQ(75u, claim.moves());
+  std::vector<unsigned long> logged;
+  for (const auto &line : LogCapture::instance().lines) {
+    const auto at = line.find("moved from elsewhere (");
+    if (at != std::string::npos)
+      logged.push_back(std::stoul(line.substr(at + 22)));
+  }
+  EXPECT_EQ((std::vector<unsigned long>{1, 2, 3, 4, 5, 8, 16, 32, 64}), logged);
+}
+
 // Each move against the thermostat is logged with the relay, the count, and when it goes back.
 TEST(RelayClaim, EachMoveAgainstItIsLogged) {
   FakeSwitch &relay = entities().relay3;
