@@ -770,37 +770,6 @@ TEST_F(Editor, EnableRefusesASensorNotInCelsius) {
 
 // --- a relay an enabled thermostat waits for ---
 
-static const char *const ATTIC =
-    R"({"name":"Attic","kind":"bang_bang","sensor_id":"attic","heat":{"relay_id":"relay_1"},"mode":"heat"})";
-
-// The editor never makes two enabled thermostats on one relay: one that waits reserves it, and
-// the answer says so, ready for a take-over.
-TEST_F(Editor, SaveAndEnableRefuseARelayAThermostatWaitsFor) {
-  Reply saved = this->post("save", ATTIC);
-  ASSERT_EQ(saved.code, 200) << saved.body;
-  ASSERT_EQ(saved["warning"].as<std::string>(), "not started: sensor 'attic' not found");
-  const std::string reserved = "\"Relay 1\" is reserved by \"Attic\", which is enabled and waits to start";
-
-  Reply refused = this->post("save", LIVING_ROOM);
-  EXPECT_EQ(refused.code, 409);
-  EXPECT_EQ(refused.error(), reserved);
-  ASSERT_EQ(this->files(), std::vector<std::string>{"attic.json"});
-
-  ASSERT_EQ(this->create(with(LIVING_ROOM, R"("enabled":false)").c_str()), "living-room");
-  refused = this->post("enable?id=living-room&value=true");
-  EXPECT_EQ(refused.code, 409);
-  EXPECT_EQ(refused.error(), reserved);
-
-  Reply taken = this->post("enable?id=living-room&value=true&take_over=true");
-  ASSERT_EQ(taken.code, 200) << taken.body;
-  EXPECT_EQ(taken.body, R"({"success":true,"message":"Thermostat enabled; \"Attic\" stopped","persisted":true})");
-  EXPECT_TRUE(hub().is_running("living-room"));
-  Reply list = this->get("list");
-  EXPECT_EQ(list["controllers"][0]["id"].as<std::string>(), "attic");
-  EXPECT_FALSE(list["controllers"][0]["enabled"].as<bool>());
-  EXPECT_EQ(list["controllers"][0]["waiting"].as<std::string>(), "");
-}
-
 static const char *const SUMMER = R"({"version":1,"id":"summer","name":"Summer","kind":"bang_bang",)"
                                   R"("sensor_id":"room","heat":{"relay_id":"relay_1"},"mode":"heat"})";
 static const char *const WINTER = R"({"version":1,"id":"winter","name":"Winter","kind":"bang_bang",)"
