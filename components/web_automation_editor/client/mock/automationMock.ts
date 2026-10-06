@@ -192,7 +192,8 @@ function buildError(cfg: AutomationSaveInput): string {
       const who = `thermostat "${action.climate}"`
       const thermostat = seedEntities.climates.find((c) => c.id === action.climate)
       if (!thermostat) return `${label} ${i + 1}: ${who} not found`
-      for (const step of [action, action.on, action.off]) {
+      // What it plays: a follow's two branches, or its one step; the device reads no others.
+      for (const step of action.type === 'follow' ? [action.on, action.off] : [action]) {
         if (step?.type === 'set_preset' && !thermostat.presets.some((p) => p.key === step.preset)) {
           return `${label} ${i + 1}: ${who} has no preset "${step.preset}"`
         }
