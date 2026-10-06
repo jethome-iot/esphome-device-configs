@@ -56,6 +56,10 @@ boundaries; everything else is local to its file.
   relay is freed. Home Assistant and the web server's REST do not ask; the thermostat puts the
   relay back. The list of writers and what each gets is in
   [CLIMATE.md](CLIMATE.md#a-running-thermostats-relays); a new writer of a relay asks too.
+  `features/climates.yaml`, `automations.yaml` and `entity-settings.yaml` load `switch_hold`;
+  `display/buttons.yaml` and `features/modbus-server.yaml` call `switch_hold::` without loading
+  it, so they count on one of those three being in the same firmware, as `display/menu.yaml`
+  counts on all of them.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
   and expanded inside the main-page lambda in `display/display.yaml`. Package substitutions share
   one namespace with the device config's.
