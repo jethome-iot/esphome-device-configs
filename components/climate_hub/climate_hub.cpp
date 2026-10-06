@@ -888,11 +888,21 @@ Result ClimateHub::relay_held_(const std::string &relay_id, const std::string &h
   return result;
 }
 
-ClimateHub::Slot *ClimateHub::take_free_slot_(const std::string &name) {
+std::deque<ClimateHub::Slot *>::iterator ClimateHub::free_slot_like_(const std::string &name) {
+  // The exact name first: the web server matches that, so no hidden slot is left answering it.
+  auto it = std::find_if(this->free_.begin(), this->free_.end(), [&name](const Slot *slot) {
+    return slot->entity.is_named() && name == slot->entity.get_name().c_str();
+  });
+  if (it != this->free_.end())
+    return it;
   const std::string object_id = object_id_of_name(name);
-  auto it = std::find_if(this->free_.begin(), this->free_.end(), [&object_id](const Slot *slot) {
+  return std::find_if(this->free_.begin(), this->free_.end(), [&object_id](const Slot *slot) {
     return slot->entity.is_named() && object_id_of(slot->entity) == object_id;
   });
+}
+
+ClimateHub::Slot *ClimateHub::take_free_slot_(const std::string &name) {
+  auto it = this->free_slot_like_(name);
   if (it == this->free_.end())
     it = this->free_.begin();
   Slot *slot = *it;
@@ -900,16 +910,10 @@ ClimateHub::Slot *ClimateHub::take_free_slot_(const std::string &name) {
   return slot;
 }
 
-void ClimateHub::park_names_like_(const std::string &name, const Slot *keep) {
-  const std::string key = name_key(name);
-  const std::string object_id = object_id_of_name(name);
-  for (Slot *slot : this->slots_) {
-    if (slot == keep || !slot->entity.is_free() || !slot->entity.is_named())
-      continue;
-    const std::string other = slot->entity.get_name().c_str();
-    if (name_key(other) == key || object_id_of_name(other) == object_id)
-      slot->entity.park(this->entity_fields_);
-  }
+void ClimateHub::give_way_(const std::string &name, const Slot *renamed) {
+  auto it = this->free_slot_like_(name);
+  if (it != this->free_.end())
+    (*it)->entity.hide_as(renamed->entity.get_name().c_str(), this->entity_fields_);
 }
 
 bool ClimateHub::acquire_claims_(const ClimateConfig &config, RelayClaim **heat, RelayClaim **cool,
@@ -1028,7 +1032,6 @@ bool ClimateHub::start_(ClimateConfig *config, std::string *error) {
   Slot *slot = this->take_free_slot_(config->name);
   const SensorSubscription *sub = this->subscribe_(sensor);
   slot->runtime.start(config, sensor, heat, cool, this->now_ms(), sub != nullptr ? sub->last : Reading{});
-  this->park_names_like_(config->name, slot);
   slot->entity.show(config->name, this->entity_fields_);
   slot->entity.publish_state();
   this->waiting_.erase(config->id);
@@ -1062,7 +1065,7 @@ bool ClimateHub::restart_(Slot *slot, const std::string &previous_name, std::str
   const SensorSubscription *sub = this->subscribe_(sensor);
   slot->runtime.start(config, sensor, heat, cool, now, sub != nullptr ? sub->last : Reading{});
   if (config->name != previous_name) {
-    this->park_names_like_(config->name, slot);
+    this->give_way_(config->name, slot);
     slot->entity.show(config->name, this->entity_fields_);
   }
   slot->entity.publish_state();

@@ -214,12 +214,16 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// announce_released_(), in id order, and adds the ones that started to `result`.
   void start_waiters_(const std::string &skip_id, Result *result);
   Slot *slot_for_(const std::string &id) const;
-  /// The hidden slot that last carried `name` (by object id), so a thermostat back under its
-  /// name gets back its key; otherwise the one freed longest ago. Only while one is free.
+  /// The hidden slot that carries `name`, else one with its object id; free_.end() for none.
+  std::deque<Slot *>::iterator free_slot_like_(const std::string &name);
+  /// free_slot_like_(), so a thermostat back under its name gets back its key; otherwise the
+  /// one freed longest ago. Only while one is free.
   Slot *take_free_slot_(const std::string &name);
-  /// Parks every hidden slot but `keep` whose name `name` is about to take: the web server
-  /// answers the first climate that matches, hidden or not.
-  void park_names_like_(const std::string &name, const Slot *keep);
+  /// Before `renamed`, running, shows `name`: free_slot_like_() takes the name `renamed` leaves.
+  /// The web server answers the first climate by a name, and a listing queued before the slot
+  /// was hidden sends its key, so neither may stay with it. Never the placeholder: an API client
+  /// may still be encoding that slot.
+  void give_way_(const std::string &name, const Slot *renamed);
   SensorSubscription *subscribe_(sensor::Sensor *sensor);
   void on_sample_(SensorSubscription *sub, float value);
   void on_control_(uint8_t index, const climate::ClimateCall &call);
