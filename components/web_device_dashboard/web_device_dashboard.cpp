@@ -1141,39 +1141,51 @@ bool WebDeviceDashboard::read_slot_(AsyncWebServerRequest *request, JsonVariant 
 #endif  // USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
 
 #ifdef USE_CONFIG_JSON
-template<typename T> static void write_entity_index(JsonObject root, const char *type, const T &entities) {
-  JsonArray list = root[type].to<JsonArray>();
+template<typename T>
+static void write_entity_index(JsonObject root, config_json::SettingsBaseJson *settings, const T &entities) {
+  JsonArray list = root[settings->get_key()].to<JsonArray>();
   for (auto *obj : entities) {
     if (obj->is_internal())
       continue;
     char buf[OBJECT_ID_MAX_LEN];
+    const StringRef object_id = obj->get_object_id_to(buf);
     JsonObject entry = list.add<JsonObject>();
-    entry["source_name"] = obj->get_object_id_to(buf).str();
+    entry["source_name"] = object_id.str();
     entry["name"] = obj->get_name().str();
+    entry["label"] = settings->get_label(object_id.c_str());
   }
 }
 
-// GET /api/device/entities: object_id (the settings key) and name of every entity
+// GET /api/device/entities: object_id (the settings key), name and label of every entity
 // that has a settings type. The web_server REST and SSE address entities by name.
 void WebDeviceDashboard::handle_entities_(AsyncWebServerRequest *request) {
   auto *keeper = config_json::global_config_json_keeper;
-  JsonDocument doc;
-  JsonObject root = doc.to<JsonObject>();
-  if (keeper != nullptr) {
-    for (auto *settings : keeper->settings()) {
-      const char *key = settings->get_key();
+  // The labels are in the records, which belong to the loop task: built there, as the
+  // entity-settings read is.
+  std::string json;
+  const bool read = this->run_on_loop_([&]() {
+    JsonDocument doc;
+    JsonObject root = doc.to<JsonObject>();
+    if (keeper != nullptr) {
+      for (auto *settings : keeper->settings()) {
+        const char *key = settings->get_key();
 #ifdef USE_SWITCH
-      if (strcmp(key, "switch") == 0)
-        write_entity_index(root, key, App.get_switches());
+        if (strcmp(key, "switch") == 0)
+          write_entity_index(root, settings, App.get_switches());
 #endif
 #ifdef USE_BINARY_SENSOR
-      if (strcmp(key, "binary_sensor") == 0)
-        write_entity_index(root, key, App.get_binary_sensors());
+        if (strcmp(key, "binary_sensor") == 0)
+          write_entity_index(root, settings, App.get_binary_sensors());
 #endif
+      }
     }
+    serializeJson(doc, json);
+    return true;
+  });
+  if (!read) {
+    this->send_error_(request, 503, "Device busy");
+    return;
   }
-  std::string json;
-  serializeJson(doc, json);
   request->send(200, "application/json", json.c_str());
 }
 
