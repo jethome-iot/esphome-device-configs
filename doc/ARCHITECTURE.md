@@ -225,8 +225,9 @@ at `0x0010`. A coil's `write_lambda` returns `false`, which `modbus_server` answ
   - `is_internal()` being read when the API and the web server list and push, not cached at
     setup (MQTT caches it, which is one reason the component has no MQTT support). The API
     reads it when it queues an entity for a client but reads the name and key only when it
-    encodes it, so hiding a slot changes the internal bit alone; the placeholder goes only onto
-    a hidden slot whose name a thermostat is about to take.
+    encodes it, so hiding a slot changes the internal bit alone, and a slot once shown never
+    goes back under the placeholder: a hidden one whose name a running thermostat is renamed to
+    takes that thermostat's old name.
   - `web_server` matching a climate by name on its own task, first match wins, hidden or not,
     and a `/` never reaching a URL segment, which keeps an unused slot unaddressable. The name
     and the traits change only in `setup()` or in a loop job an HTTP handler waits on, so that
