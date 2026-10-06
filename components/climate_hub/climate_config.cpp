@@ -1,6 +1,8 @@
 #include "climate_config.h"
+#include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <strings.h>
 #include "esphome/core/helpers.h"
 #include "param_table.h"
 
@@ -13,6 +15,8 @@ bool fail(std::string *error, const char *message) {
     *error = message;
   return false;
 }
+
+bool fail(std::string *error, const std::string &message) { return fail(error, message.c_str()); }
 
 // as<std::string>() would read a number or an object as its JSON text.
 std::string text_of(JsonVariantConst value) { return value.is<const char *>() ? value.as<std::string>() : ""; }
@@ -81,9 +85,106 @@ bool check_mode(const ClimateConfig &config, std::string *error) {
   return true;
 }
 
+// The editor numbers its preset rows from 1, and the sentence names the row.
+std::string preset_at(size_t index) { return "Preset " + std::to_string(index + 1); }
+
+const char *preset_mode_to_string(const optional<HubMode> &mode) {
+  return mode.has_value() ? enums::mode_to_string(*mode) : PRESET_MODE_KEEP;
+}
+
+// What a preset needs to be applied: a target, a mode its relays serve, a key fit for a rule.
+bool check_preset_values(const ClimateConfig &config, std::string *error) {
+  if (config.presets.size() > PRESET_MAX_COUNT)
+    return fail(error, "A thermostat has at most 8 presets");
+  static_assert(PRESET_MAX_COUNT == 8, "the sentence above names the limit");
+  for (size_t i = 0; i < config.presets.size(); i++) {
+    const PresetConfig &preset = config.presets[i];
+    if (std::isnan(preset.setpoint))
+      return fail(error, preset_at(i) + ": setpoint must be a number");
+    if (preset.mode.has_value() && !config.supports_mode(*preset.mode)) {
+      // Off needs nothing, so it never gets here.
+      const HubMode mode = *preset.mode;
+      const char *needs = mode == HubMode::HEAT   ? "heat.relay_id"
+                          : mode == HubMode::COOL ? "cool.relay_id"
+                                                  : "both relays";
+      return fail(error, preset_at(i) + ": mode '" + enums::mode_to_string(mode) + "' needs " + needs);
+    }
+    if (preset.key.empty())
+      continue;
+    if (slugify_id(preset.key) != preset.key)
+      return fail(error, preset_at(i) + ": key must be a slug: lowercase letters, digits and single dashes");
+    for (size_t j = 0; j < i; j++) {
+      if (config.presets[j].key == preset.key)
+        return fail(error, preset_at(i) + ": key '" + preset.key + "' is already used by " + preset_at(j));
+    }
+  }
+  return true;
+}
+
+// The thermostat name rules, then the two that make a name mean one preset to Home Assistant:
+// "none" is its word for no preset, and two names it would read as one clash.
+bool check_preset_names(const ClimateConfig &config, std::string *error) {
+  for (size_t i = 0; i < config.presets.size(); i++) {
+    const std::string &name = config.presets[i].name;
+    std::string broken;
+    if (!validate_name(name, &broken))
+      return fail(error, preset_at(i) + ": " + broken);
+    const std::string key = name_key(name);
+    if (key == "none")
+      return fail(error, preset_at(i) + ": \"" + name + "\" is reserved");
+    for (size_t j = 0; j < i; j++) {
+      if (name_key(config.presets[j].name) == key)
+        return fail(error, preset_at(i) + ": \"" + name + "\" is already used by " + preset_at(j));
+    }
+  }
+  return true;
+}
+
+bool check_presets(const ClimateConfig &config, std::string *error) {
+  return check_preset_values(config, error) && check_preset_names(config, error);
+}
+
+// The structure the checks above cannot see once it is parsed: a list of objects, mode words.
+bool read_presets(JsonVariantConst value, std::vector<PresetConfig> *out, std::string *error) {
+  out->clear();
+  if (value.isNull())
+    return true;
+  if (!value.is<JsonArrayConst>())
+    return fail(error, "presets must be a list");
+  JsonArrayConst list = value.as<JsonArrayConst>();
+  if (list.size() > PRESET_MAX_COUNT)
+    return fail(error, "A thermostat has at most 8 presets");
+  for (JsonVariantConst item : list) {
+    const std::string at = preset_at(out->size());
+    if (!item.is<JsonObjectConst>())
+      return fail(error, at + " must be an object");
+    PresetConfig preset;
+    preset.key = text_of(item["key"]);
+    preset.name = trim_name(text_of(item["name"]));
+    preset.setpoint = item["setpoint"] | NAN;
+    JsonVariantConst mode = item["mode"];
+    if (!mode.isNull() && mode.as<std::string>() != PRESET_MODE_KEEP) {
+      HubMode parsed;
+      if (!enums::mode_from_string(mode.as<std::string>(), &parsed))
+        return fail(error, at + ": mode must be one of keep/off/heat/cool/heat_cool");
+      preset.mode = parsed;
+    }
+    out->push_back(std::move(preset));
+  }
+  return true;
+}
+
+// Older files read as this version; a newer one keeps its number, rounded up so 2.5 stays newer.
+uint16_t read_version(JsonVariantConst value) {
+  const double version = value.is<double>() ? value.as<double>() : 0;
+  if (!(version > CONFIG_VERSION))
+    return CONFIG_VERSION;
+  return static_cast<uint16_t>(std::min(std::ceil(version), 65535.0));
+}
+
 }  // namespace
 
-std::string slugify_id(const std::string &name) {
+std::string slugify_id(const std::string &name, const char *fallback) {
   std::string out;
   out.reserve(name.size());
   bool prev_dash = false;
@@ -103,7 +204,18 @@ std::string slugify_id(const std::string &name) {
     out.resize(ID_MAX_LENGTH);
   while (!out.empty() && out.back() == '-')
     out.pop_back();
-  return out.empty() ? "climate" : out;
+  return out.empty() ? fallback : out;
+}
+
+std::string id_with_suffix(const std::string &base, unsigned n) {
+  if (n < 2)
+    return base;
+  const std::string tail = "-" + std::to_string(n);
+  std::string head = base.substr(0, ID_MAX_LENGTH - tail.size());
+  // A cut can end on a dash, which would make "--" and fail the slug check on the next boot.
+  while (!head.empty() && head.back() == '-')
+    head.pop_back();
+  return (head.empty() ? std::string("climate") : head) + tail;
 }
 
 std::string trim_name(const std::string &name) {
@@ -150,6 +262,17 @@ std::string name_key(const std::string &name) {
     out += u < 0x80 ? static_cast<char>(std::tolower(u)) : c;
   }
   return out;
+}
+
+bool standard_preset(const std::string &name, climate::ClimatePreset *out) {
+  for (const StandardPreset &standard : STANDARD_PRESETS) {
+    if (strcasecmp(name.c_str(), standard.name) == 0) {
+      if (out != nullptr)
+        *out = standard.preset;
+      return true;
+    }
+  }
+  return false;
 }
 
 std::string object_id_of_name(const std::string &name) {
@@ -203,6 +326,16 @@ void ClimateConfig::serialize(JsonObject root) const {
 
   root["mode"] = enums::mode_to_string(this->mode);
   root["setpoint"] = this->setpoint;
+
+  JsonArray presets = root["presets"].to<JsonArray>();
+  for (const PresetConfig &preset : this->presets) {
+    JsonObject obj = presets.add<JsonObject>();
+    obj["key"] = preset.key;
+    obj["name"] = preset.name;
+    obj["setpoint"] = preset.setpoint;
+    obj["mode"] = preset_mode_to_string(preset.mode);
+  }
+  root["active_preset"] = this->active_preset;
 }
 
 EncodeError ClimateConfig::encode(std::string *out, size_t max_bytes, ArduinoJson::Allocator *allocator) const {
@@ -223,7 +356,7 @@ bool ClimateConfig::deserialize(const JsonObject &root, bool require_id, std::st
   if (root.isNull())
     return fail(error, "document is not an object");
 
-  this->version = root["version"] | this->version;
+  this->version = read_version(root["version"]);
 
   if (require_id) {
     this->id = text_of(root["id"]);
@@ -295,14 +428,21 @@ bool ClimateConfig::deserialize(const JsonObject &root, bool require_id, std::st
   if (!root["mode"].isNull() && !enums::mode_from_string(root["mode"].as<std::string>(), &this->mode))
     return fail(error, "mode must be one of off/heat/cool/heat_cool");
   this->setpoint = root["setpoint"] | this->setpoint;
-  if (!check_mode(*this, error) || !validate_name(this->name, error))
+  if (!check_mode(*this, error) || !read_presets(root["presets"], &this->presets, error) ||
+      !check_presets(*this, error) || !validate_name(this->name, error))
     return false;
   this->clamp_setpoint();
+  this->assign_preset_keys();
+  this->active_preset = text_of(root["active_preset"]);
+  // State rather than a rule: the preset it named is gone, so none is active.
+  if (this->find_preset(this->active_preset) == nullptr)
+    this->active_preset.clear();
   return true;
 }
 
 bool ClimateConfig::validate(std::string *error) const {
-  return check_wiring(*this, error) && check_mode(*this, error) && validate_name(this->name, error);
+  return check_wiring(*this, error) && check_mode(*this, error) && check_presets(*this, error) &&
+         validate_name(this->name, error);
 }
 
 void ClimateConfig::clamp_numbers() {
@@ -334,10 +474,80 @@ void ClimateConfig::clamp_numbers() {
 }
 
 void ClimateConfig::clamp_setpoint() {
-  if (this->setpoint < this->visual.min_temperature)
-    this->setpoint = this->visual.min_temperature;
-  if (this->setpoint > this->visual.max_temperature)
-    this->setpoint = this->visual.max_temperature;
+  this->setpoint = this->clamp_target(this->setpoint);
+  for (PresetConfig &preset : this->presets)
+    preset.setpoint = this->clamp_target(preset.setpoint);
+}
+
+float ClimateConfig::clamp_target(float value) const {
+  return std::max(this->visual.min_temperature, std::min(this->visual.max_temperature, value));
+}
+
+bool ClimateConfig::supports_mode(HubMode mode) const {
+  switch (mode) {
+    case HubMode::OFF:
+      return true;
+    case HubMode::HEAT:
+      return this->supports_heat();
+    case HubMode::COOL:
+      return this->supports_cool();
+    case HubMode::HEAT_COOL:
+      return this->supports_heat() && this->supports_cool();
+  }
+  return false;
+}
+
+void ClimateConfig::assign_preset_keys() {
+  for (PresetConfig &preset : this->presets) {
+    if (!preset.key.empty())
+      continue;
+    const std::string base = slugify_id(preset.name, "preset");
+    // One of PRESET_MAX_COUNT + 1 candidates is free whatever the others hold.
+    for (unsigned n = 1; preset.key.empty(); n++) {
+      const std::string candidate = id_with_suffix(base, n);
+      if (this->find_preset(candidate) == nullptr)
+        preset.key = candidate;
+    }
+  }
+}
+
+const PresetConfig *ClimateConfig::find_preset(const std::string &key) const {
+  if (key.empty())
+    return nullptr;
+  for (const PresetConfig &preset : this->presets) {
+    if (preset.key == key)
+      return &preset;
+  }
+  return nullptr;
+}
+
+const PresetConfig *ClimateConfig::find_preset(climate::ClimatePreset preset) const {
+  for (const PresetConfig &candidate : this->presets) {
+    climate::ClimatePreset standard;
+    if (standard_preset(candidate.name, &standard) && standard == preset)
+      return &candidate;
+  }
+  return nullptr;
+}
+
+const PresetConfig *ClimateConfig::find_custom_preset(const char *name) const {
+  for (const PresetConfig &candidate : this->presets) {
+    if (!standard_preset(candidate.name) && candidate.name == name)
+      return &candidate;
+  }
+  return nullptr;
+}
+
+bool ClimateConfig::pick_preset(const PresetConfig &preset) {
+  const float target = this->clamp_target(preset.setpoint);
+  bool changed = target != this->setpoint || this->active_preset != preset.key;
+  this->setpoint = target;
+  this->active_preset = preset.key;
+  if (preset.mode.has_value() && *preset.mode != this->mode && this->supports_mode(*preset.mode)) {
+    this->mode = *preset.mode;
+    changed = true;
+  }
+  return changed;
 }
 
 }  // namespace esphome::climate_hub

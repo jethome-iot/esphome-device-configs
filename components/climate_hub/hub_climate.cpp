@@ -9,6 +9,15 @@ namespace esphome::climate_hub {
 
 static constexpr uint32_t INTERNAL_BIT = 1u << ENTITY_FIELD_INTERNAL_SHIFT;
 
+HubClimate::HubClimate(ClimateHub *hub, uint8_t index) : hub_(hub), index_(index) {
+  // Full once, then empty: the list keeps the capacity, so no later one reallocates it.
+  std::vector<const char *> all;
+  for (char *buffer : this->custom_presets_)
+    all.push_back(buffer);
+  this->set_supported_custom_presets(all);
+  this->set_supported_custom_presets(std::vector<const char *>{});
+}
+
 void HubClimate::show(const std::string &name, uint32_t entity_fields) {
   // configure_entity_ would give an empty name the device's friendly name.
   if (name.empty())
@@ -35,6 +44,8 @@ void HubClimate::park(uint32_t entity_fields) {
   this->free_ = true;
   this->named_ = false;
   this->set_traits(false, false, 5.f, 45.f, 0.5f);
+  this->set_presets({});
+  this->show_preset(nullptr);
 }
 
 void HubClimate::set_traits(bool heat, bool cool, float min_temperature, float max_temperature, float step) {
@@ -45,7 +56,44 @@ void HubClimate::set_traits(bool heat, bool cool, float min_temperature, float m
   this->step_ = step;
 }
 
-// Built from scalars on every call: no custom modes or presets, so a copy owns no vector.
+void HubClimate::set_presets(const std::vector<PresetConfig> &presets) {
+  climate::ClimatePresetMask standard_presets;
+  std::vector<const char *> custom;
+  for (const PresetConfig &preset : presets) {
+    climate::ClimatePreset standard;
+    if (standard_preset(preset.name, &standard)) {
+      standard_presets.insert(standard);
+      continue;
+    }
+    // The document rules keep it under; the buffers are what must never overflow.
+    if (custom.size() >= PRESET_MAX_COUNT)
+      continue;
+    // In place, the terminator untouched: a reader mid-copy sees a mix of names, never past the end.
+    char *buffer = this->custom_presets_[custom.size()];
+    const size_t length = std::min(preset.name.size(), NAME_MAX_LENGTH);
+    std::memcpy(buffer, preset.name.data(), length);
+    std::memset(buffer + length, 0, NAME_MAX_LENGTH - length);
+    custom.push_back(buffer);
+  }
+  this->standard_presets_ = standard_presets;
+  this->set_supported_custom_presets(custom);
+}
+
+void HubClimate::show_preset(const PresetConfig *preset) {
+  climate::ClimatePreset standard;
+  this->preset.reset();
+  this->clear_custom_preset_();
+  if (preset == nullptr)
+    return;
+  if (standard_preset(preset->name, &standard)) {
+    this->set_preset_(standard);
+  } else {
+    this->set_custom_preset_(preset->name.c_str());
+  }
+}
+
+// Built from scalars on every call; get_traits() adds the custom presets as a pointer to this
+// slot's own list, so a copy owns no vector.
 climate::ClimateTraits HubClimate::traits() {
   climate::ClimateTraits traits;
   traits.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE | climate::CLIMATE_SUPPORTS_ACTION);
@@ -60,6 +108,7 @@ climate::ClimateTraits HubClimate::traits() {
   traits.set_visual_target_temperature_step(this->step_);
   // The room to a tenth, whatever step the target moves in.
   traits.set_visual_current_temperature_step(0.1f);
+  traits.set_supported_presets(this->standard_presets_);
   return traits;
 }
 

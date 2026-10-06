@@ -23,11 +23,16 @@
 // for one is 400; with no other on its relays, take_over=true answers the same
 // 200. A relay a change frees starts the enabled thermostats that wait for it,
 // in id order, and the answer names them.
+// Presets follow the hub: the keys are the device's to give, a Save keeps the
+// active preset while its key is there and applies its new values at once, and a
+// target or a mode set by hand keeps the label. A thermostat whose `version` is
+// above CONFIG_VERSION stands for a file a newer firmware wrote: its Save is 409,
+// and what changes it is not persisted.
 // tests/components/web_climate_editor/contract.json lists the requests it must
 // answer as the device does.
 // /status reads a first-order room model per sensor, heated and cooled by the
 // duties of the thermostats bound to it. control() stands in for Home Assistant
-// setting a running thermostat's mode or target through its climate entity.
+// setting a running thermostat's mode, target or preset through its climate entity.
 import type {
   BindableSensor,
   BindableSwitch,
@@ -39,13 +44,24 @@ import type {
   ControllerStatus,
   ControllerSummary,
   ParamDesc,
-  PidTerms
+  PidTerms,
+  PresetConfig,
+  PresetMode
 } from '../types'
-import { CONFIG_MAX_BYTES, ENTITY_ID_MAX_LENGTH, NAME_MAX_LENGTH } from '../types'
+import {
+  CONFIG_MAX_BYTES,
+  CONFIG_VERSION,
+  ENTITY_ID_MAX_LENGTH,
+  NAME_MAX_LENGTH,
+  NEWER_FILE,
+  PRESET_MAX_COUNT,
+  STANDARD_PRESETS
+} from '../types'
 import type { FetchImpl } from '../climateApi'
-import { nameError, slugify, trimName, uniqueId } from '../naming'
+import { nameError, presetKey, presetNameError, slugify, standardPreset, trimName, uniqueId } from '../naming'
 
 const MAX_CONTROLLERS = 8
+const MODES = ['off', 'heat', 'cool', 'heat_cool'] as const
 
 // --- Seed data ---------------------------------------------------------------
 // Typed against the SDK contract, so these double as canonical example payloads
@@ -156,10 +172,11 @@ export function schemaFor(maxControllers: number): ClimateSchema {
   for (const p of seedParams) (params[p.group] ??= []).push({ ...p })
   return {
     kinds: ['pid', 'bang_bang'],
-    modes: ['off', 'heat', 'cool', 'heat_cool'],
+    modes: [...MODES],
     faults: ['none', 'sensor_stale', 'overtemp'],
     max_controllers: maxControllers,
     name_max_length: NAME_MAX_LENGTH,
+    presets: { max_count: PRESET_MAX_COUNT, modes: ['keep', ...MODES], standard: [...STANDARD_PRESETS] },
     params
   }
 }
@@ -190,7 +207,7 @@ export function blankDocument(): ControllerDocument {
     min_off_s: def('min_off_s')
   })
   return {
-    version: 1,
+    version: CONFIG_VERSION,
     id: '',
     name: '',
     enabled: true,
@@ -223,13 +240,16 @@ export function blankDocument(): ControllerDocument {
     },
     bang_bang: { below: def('hysteresis_below'), above: def('hysteresis_above') },
     mode: 'heat',
-    setpoint: 21
+    setpoint: 21,
+    presets: [],
+    active_preset: ''
   }
 }
 
-// Living Room runs; Floor Heating runs on a sensor with no reading, so it shows a
-// fault; Guest Room shares Living Room's relay and is off, so enabling it is 409
-// until it takes the relay over.
+// Living Room runs, in its Comfort preset of three built-in ones and a custom one;
+// Floor Heating runs on a sensor with no reading, so it shows a fault; Guest Room
+// shares Living Room's relay and is off, so enabling it is 409 until it takes the
+// relay over.
 export const seedControllers: ControllerDocument[] = [
   {
     ...blankDocument(),
@@ -258,7 +278,14 @@ export const seedControllers: ControllerDocument[] = [
     kind: 'pid',
     sensor_id: 'temp_1',
     heat: { relay_id: 'relay_1', period_s: 300, min_on_s: 10, min_off_s: 10 },
-    setpoint: 22
+    setpoint: 22,
+    presets: [
+      { key: 'comfort', name: 'Comfort', setpoint: 22, mode: 'keep' },
+      { key: 'eco', name: 'Eco', setpoint: 19, mode: 'keep' },
+      { key: 'away', name: 'Away', setpoint: 12, mode: 'heat' },
+      { key: 'night', name: 'Night', setpoint: 20, mode: 'keep' }
+    ],
+    active_preset: 'comfort'
   }
 ]
 
@@ -401,14 +428,96 @@ function decodeOutput(raw: unknown, out: ControllerDocument['heat']) {
 }
 
 const KINDS = ['pid', 'bang_bang'] as const
-const MODES = ['off', 'heat', 'cool', 'heat_cool'] as const
 const PID_KEYS = Object.keys(blankDocument().pid) as Array<keyof ControllerDocument['pid']>
+
+// The modes the entity advertises: off, and what its relays can do.
+function modeSupported(doc: ControllerDocument, mode: ClimateHubMode): boolean {
+  return (
+    mode === 'off' ||
+    (mode === 'heat' && !!doc.heat.relay_id) ||
+    (mode === 'cool' && !!doc.cool.relay_id) ||
+    (mode === 'heat_cool' && !!doc.heat.relay_id && !!doc.cool.relay_id)
+  )
+}
+
+// ClimateConfig's own mode rule, worded for the thermostat or for one of its presets.
+function modeNeeds(mode: ClimateHubMode): string {
+  return mode === 'heat' ? 'heat.relay_id' : mode === 'cool' ? 'cool.relay_id' : 'both relays'
+}
+
+// The presets' structure: a list of objects with mode words. What the values and the
+// names may be is checked once the whole list is read, as the device does.
+function decodePresets(raw: unknown): { presets: PresetConfig[] } | { error: string } {
+  if (raw === undefined || raw === null) return { presets: [] }
+  if (!Array.isArray(raw)) return { error: 'presets must be a list' }
+  if (raw.length > PRESET_MAX_COUNT) return { error: `A thermostat has at most ${PRESET_MAX_COUNT} presets` }
+  const presets: PresetConfig[] = []
+  for (const item of raw as unknown[]) {
+    const at = `Preset ${presets.length + 1}`
+    const obj = objectOf(item)
+    if (!obj) return { error: `${at} must be an object` }
+    let mode: PresetMode = 'keep'
+    if (obj.mode !== undefined && obj.mode !== null && obj.mode !== 'keep') {
+      const word = MODES.find((m) => m === obj.mode)
+      if (!word) return { error: `${at}: mode must be one of keep/off/heat/cool/heat_cool` }
+      mode = word
+    }
+    presets.push({ key: textOf(obj.key), name: trimName(textOf(obj.name)), setpoint: numberOr(obj.setpoint, NaN), mode })
+  }
+  return { presets }
+}
+
+// What a preset needs to be applied, then its name: the first rule a row breaks.
+function presetsError(doc: ControllerDocument): string {
+  for (const [i, preset] of doc.presets.entries()) {
+    const at = `Preset ${i + 1}`
+    if (Number.isNaN(preset.setpoint)) return `${at}: setpoint must be a number`
+    if (preset.mode !== 'keep' && !modeSupported(doc, preset.mode)) {
+      return `${at}: mode '${preset.mode}' needs ${modeNeeds(preset.mode)}`
+    }
+    if (preset.key === '') continue
+    if (slugify(preset.key) !== preset.key) {
+      return `${at}: key must be a slug: lowercase letters, digits and single dashes`
+    }
+    const first = doc.presets.findIndex((other) => other.key === preset.key)
+    if (first < i) return `${at}: key '${preset.key}' is already used by Preset ${first + 1}`
+  }
+  for (let i = 0; i < doc.presets.length; i++) {
+    const error = presetNameError(doc.presets, i)
+    if (error) return error
+  }
+  return ''
+}
+
+// Older files read as this version; a newer one keeps its number, rounded up so 2.5 stays newer.
+function readVersion(value: unknown): number {
+  return typeof value === 'number' && value > CONFIG_VERSION ? Math.min(Math.ceil(value), 65535) : CONFIG_VERSION
+}
+
+// ClimateConfig::assign_preset_keys: a preset without a key gets one from its name.
+function assignPresetKeys(doc: ControllerDocument) {
+  for (const preset of doc.presets) {
+    if (preset.key === '') preset.key = presetKey(preset.name, doc.presets.map((p) => p.key))
+  }
+}
+
+function findPreset(doc: ControllerDocument, key: string): PresetConfig | undefined {
+  return key === '' ? undefined : doc.presets.find((p) => p.key === key)
+}
+
+// ClimateConfig::pick_preset: its target, held in range, its mode if the relays serve it,
+// and the label.
+function pickPreset(doc: ControllerDocument, preset: PresetConfig) {
+  doc.setpoint = Math.min(Math.max(preset.setpoint, doc.visual.min_temperature), doc.visual.max_temperature)
+  doc.active_preset = preset.key
+  if (preset.mode !== 'keep' && modeSupported(doc, preset.mode)) doc.mode = preset.mode
+}
 
 export function decodeDocument(raw: unknown): { doc: ControllerDocument } | { error: string } {
   const root = objectOf(raw)
   if (!root) return { error: 'document is not an object' }
   const doc = blankDocument()
-  if (typeof root.version === 'number') doc.version = Math.trunc(root.version)
+  doc.version = readVersion(root.version)
   if (root.id !== undefined && root.id !== null) doc.id = textOf(root.id)
 
   if (typeof root.name !== 'string' || root.name === '') return { error: 'name is required' }
@@ -472,15 +581,25 @@ export function decodeDocument(raw: unknown): { doc: ControllerDocument } | { er
     if (!mode) return { error: 'mode must be one of off/heat/cool/heat_cool' }
     doc.mode = mode
   }
-  if (doc.mode === 'heat' && !doc.heat.relay_id) return { error: "mode 'heat' needs heat.relay_id" }
-  if (doc.mode === 'cool' && !doc.cool.relay_id) return { error: "mode 'cool' needs cool.relay_id" }
-  if (doc.mode === 'heat_cool' && !(doc.heat.relay_id && doc.cool.relay_id)) {
-    return { error: "mode 'heat_cool' needs both relays" }
-  }
+  if (!modeSupported(doc, doc.mode)) return { error: `mode '${doc.mode}' needs ${modeNeeds(doc.mode)}` }
 
   doc.setpoint = numberOr(root.setpoint, doc.setpoint)
   if (Number.isNaN(doc.setpoint)) return { error: 'setpoint must be a number' }
-  doc.setpoint = Math.min(Math.max(doc.setpoint, doc.visual.min_temperature), doc.visual.max_temperature)
+
+  // After the thermostat's own rules, before its name's.
+  const presets = decodePresets(root.presets)
+  if ('error' in presets) return presets
+  doc.presets = presets.presets
+  const broken = presetsError(doc)
+  if (broken) return { error: broken }
+
+  const clamp = (value: number) => Math.min(Math.max(value, doc.visual.min_temperature), doc.visual.max_temperature)
+  doc.setpoint = clamp(doc.setpoint)
+  for (const preset of doc.presets) preset.setpoint = clamp(preset.setpoint)
+  assignPresetKeys(doc)
+  // State rather than a rule: the preset it named is gone, so none is active.
+  const active = textOf(root.active_preset)
+  doc.active_preset = findPreset(doc, active) ? active : ''
   return { doc }
 }
 
@@ -493,12 +612,21 @@ export interface MockResult {
   headers?: Record<string, string>
 }
 
-/** What a client asks of a thermostat's climate entity; either key may be left out. */
+/**
+ * What a client asks of a thermostat's climate entity; any key may be left out. The preset
+ * comes first, the mode and the target over it.
+ */
 export interface ClimateControlCall {
   /** Taken only when the thermostat's relays allow it (`off` always), else ignored. */
   mode?: ClimateHubMode
   /** Clamped into the thermostat's visual range; NaN is ignored. */
   target?: number
+  /**
+   * A preset by the name Home Assistant and the web server show: a built-in one in any case,
+   * a custom one exactly. Its target, its mode unless `keep`, and the label; one the
+   * thermostat does not have is ignored.
+   */
+  preset?: string
 }
 
 export interface ClimateMockStore {
@@ -509,8 +637,8 @@ export interface ClimateMockStore {
    */
   handle(method: string, endpoint: string, search: URLSearchParams, body: string): MockResult
   /**
-   * A mode or target set through a running thermostat's climate entity, as Home
-   * Assistant or the web server sets it. The thermostat keeps running: its PID
+   * A mode, target or preset set through a running thermostat's climate entity, as
+   * Home Assistant or the web server sets it. The thermostat keeps running: its PID
    * integral and control clock carry on and the next control pass comes at once.
    * A new mode resets the bang-bang latch, as on the device. False when `id` names
    * no running thermostat, which has no entity to call.
@@ -521,6 +649,11 @@ export interface ClimateMockStore {
 export interface ClimateMockStoreOptions {
   /** The firmware's `max_controllers`. Default 8. */
   maxControllers?: number
+  /**
+   * The thermostats on the device at boot, in place of seedControllers. One whose
+   * `version` is above CONFIG_VERSION stands for a file a newer firmware wrote.
+   */
+  seed?: ControllerDocument[]
   /** Clock the room model runs on, in ms. Default Date.now. */
   now?: () => number
   /**
@@ -605,7 +738,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
   const now = options.now ?? (() => Date.now())
   // Under ids no slug can be, so no thermostat is ever taken for one of them.
   const yamlClimates = (options.otherClimates ?? []).map((name, n) => ({ id: `yaml/${n}`, name }))
-  const docs: ControllerDocument[] = structuredClone(seedControllers)
+  const docs: ControllerDocument[] = structuredClone(options.seed ?? seedControllers)
+  docs.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const running = new Map<string, Runtime>()
   // ClimateHub::waiting_: why each enabled thermostat that does not run did not start, by id.
   const waitReasons = new Map<string, string>()
@@ -622,12 +756,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     !!doc.heat.relay_id && (doc.mode === 'heat' || doc.mode === 'heat_cool')
   const coolAllowed = (doc: ControllerDocument) =>
     !!doc.cool.relay_id && (doc.mode === 'cool' || doc.mode === 'heat_cool')
-  // The modes the entity advertises: off, and what its relays can do.
-  const modeSupported = (doc: ControllerDocument, mode: ClimateHubMode) =>
-    mode === 'off' ||
-    (mode === 'heat' && !!doc.heat.relay_id) ||
-    (mode === 'cool' && !!doc.cool.relay_id) ||
-    (mode === 'heat_cool' && !!doc.heat.relay_id && !!doc.cool.relay_id)
+  // Its file came from a newer firmware: this one never writes it.
+  const newer = (doc: ControllerDocument) => doc.version > CONFIG_VERSION
 
   function holderOf(relayId: string, except: string): ControllerDocument | undefined {
     return docs.find((d) => d.id !== except && running.has(d.id) && relaysOf(d).includes(relayId))
@@ -877,17 +1007,28 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     return (t - rt.boundAt) % period < duty * period
   }
 
-  // ControllerRuntime::control(): a supported mode, a target held in range, and a
-  // control pass at once. Nothing else about the running thermostat changes.
+  // The preset a climate call names: upstream maps a built-in name in any case to its
+  // preset before it looks at the custom ones, which match exactly.
+  function presetNamed(doc: ControllerDocument, name: string): PresetConfig | undefined {
+    const standard = standardPreset(name)
+    return doc.presets.find((p) =>
+      standard ? standardPreset(p.name) === standard : standardPreset(p.name) === null && p.name === name
+    )
+  }
+
+  // ControllerRuntime::control(): the preset, then a supported mode and a target held in
+  // range over it, and a control pass at once. A target or a mode set by hand keeps the
+  // label. Nothing else about the running thermostat changes.
   function applyControl(doc: ControllerDocument, rt: Runtime, call: ClimateControlCall) {
+    const previousMode = doc.mode
+    const preset = call.preset === undefined ? undefined : presetNamed(doc, call.preset)
+    if (preset) pickPreset(doc, preset)
     const mode = MODES.find((m) => m === call.mode)
-    if (mode && modeSupported(doc, mode) && mode !== doc.mode) {
-      doc.mode = mode
-      rt.resetLatch = true
-    }
+    if (mode && modeSupported(doc, mode)) doc.mode = mode
     if (typeof call.target === 'number' && !Number.isNaN(call.target)) {
       doc.setpoint = clamp(call.target, doc.visual.min_temperature, doc.visual.max_temperature)
     }
+    if (doc.mode !== previousMode) rt.resetLatch = true
     // Published with the mode it replaced, the action would say "off" in HEAT until the next pass.
     rt.action = standingAction(doc, rt)
     rt.due = true
@@ -905,6 +1046,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       current_temperature: reading === null ? null : round(reading, 2),
       sensor_age_s: rt && reading !== null ? Math.floor((t - startedAt) / 1000) % SAMPLE_EVERY_S : null,
       setpoint: doc.setpoint,
+      ...activePresetOf(doc),
       min_temperature: doc.visual.min_temperature,
       max_temperature: doc.visual.max_temperature,
       step: doc.visual.step,
@@ -932,8 +1074,28 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       heat_relay_id: doc.heat.relay_id,
       cool_relay_id: doc.cool.relay_id,
       running: running.has(doc.id),
-      waiting: waitingOf(doc)
+      waiting: waitingOf(doc),
+      ...activePresetOf(doc)
     }
+  }
+
+  // Kept while the thermostat is stopped, as its target is.
+  function activePresetOf(doc: ControllerDocument): { active_preset: string; active_preset_name: string } {
+    const active = findPreset(doc, doc.active_preset)
+    return { active_preset: active?.key ?? '', active_preset_name: active?.name ?? '' }
+  }
+
+  // ClimateHub::update's presets: a key the thermostat gave out stays with its preset,
+  // any other is made again from the name; the active preset is the thermostat's state,
+  // not the body's, and takes its new values at once.
+  function keepPresetState(stored: ControllerDocument, doc: ControllerDocument) {
+    for (const preset of doc.presets) if (!findPreset(stored, preset.key)) preset.key = ''
+    assignPresetKeys(doc)
+    const now = findPreset(doc, stored.active_preset)
+    doc.active_preset = now ? stored.active_preset : ''
+    if (!now) return
+    const was = findPreset(stored, stored.active_preset)
+    if (!was || now.setpoint !== was.setpoint || now.mode !== was.mode) pickPreset(doc, now)
   }
 
   function save(body: string): MockResult {
@@ -950,21 +1112,31 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
 
     // From here on the device is on its loop task, where the documents live.
     const updating = doc.id !== ''
-    if (updating && !find(doc.id)) return fail(404, 'Thermostat not found')
+    const stored = updating ? find(doc.id) : undefined
+    if (updating && !stored) return fail(404, 'Thermostat not found')
+    if (stored && newer(stored)) return fail(409, NEWER_FILE)
     if (!updating && docs.length >= maxControllers) {
       return fail(507, `This device allows ${maxControllers} thermostats; delete one to add another`)
     }
     const taken = nameError(doc.name, doc.id, [...docs, ...yamlClimates])
     if (taken) return fail(409, taken)
-    if (!updating) doc.id = uniqueId(slugify(doc.name), docs.map((d) => d.id))
-    doc.version = 1
+    if (stored) {
+      keepPresetState(stored, doc)
+    } else {
+      // The keys are the device's to give, as the id is.
+      doc.id = uniqueId(slugify(doc.name), docs.map((d) => d.id))
+      for (const preset of doc.presets) preset.key = ''
+      assignPresetKeys(doc)
+      doc.active_preset = ''
+    }
+    doc.version = CONFIG_VERSION
     if (doc.enabled) {
       const refusal = saveRefusal(doc)
       if (refusal) return refusal
     }
 
     const held = heldRelays()
-    const before = find(doc.id)
+    const before = stored
     const rt = running.get(doc.id)
     running.delete(doc.id)
     const i = docs.findIndex((d) => d.id === doc.id)
@@ -998,10 +1170,12 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
 
     const held = heldRelays()
     if (value === 'false') {
+      // Written only when the flag changes, and never into a newer firmware's file.
+      const persisted = !(doc.enabled && newer(doc))
       doc.enabled = false
       running.delete(id)
       waitReasons.delete(id)
-      return ok('Thermostat disabled' + startWaiters(held, id), { persisted: true })
+      return ok('Thermostat disabled' + startWaiters(held, id), { persisted })
     }
     if (running.has(id)) return ok('Thermostat enabled', { persisted: true })
     // Refused as a Save would be, but for a relay another thermostat holds or waits for the
@@ -1020,11 +1194,15 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     // A take-over stops the others, so only for a thermostat that runs in their place.
     const refusal = refused ? entityRefusal(doc) : undefined
     if (refusal) return refusal
+    let persisted = true
     for (const other of [...holders, ...waiters]) {
+      // A newer firmware's file cannot record the take-over, so the others' files keep their flag too.
+      persisted = persisted && !newer(other) && !newer(doc)
       other.enabled = false
       running.delete(other.id)
       waitReasons.delete(other.id)
     }
+    if (!doc.enabled) persisted = persisted && !newer(doc)
     doc.enabled = true
     // A sensor or relay that is not there is waited for, as on a Save.
     const warning = start(doc)
@@ -1032,7 +1210,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     if (holders.length || waiters.length) message += `; ${quoted([...holders, ...waiters].map((h) => h.name))} stopped`
     // After it: the relays the holders drove alone go to whoever waits for them.
     message += startWaiters(held, id)
-    return warning ? ok(`${message}; ${warning}`, { persisted: true, warning }) : ok(message, { persisted: true })
+    return warning ? ok(`${message}; ${warning}`, { persisted, warning }) : ok(message, { persisted })
   }
 
   function setpoint(search: URLSearchParams): MockResult {

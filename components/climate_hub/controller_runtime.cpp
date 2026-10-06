@@ -132,6 +132,7 @@ void ControllerRuntime::stop(uint32_t now_ms) {
   this->entity_->mode = climate::CLIMATE_MODE_OFF;
   this->entity_->action = climate::CLIMATE_ACTION_OFF;
   this->entity_->current_temperature = NAN;
+  this->entity_->show_preset(nullptr);
 }
 
 void ControllerRuntime::release_claim(const RelayClaim *claim) {
@@ -167,60 +168,70 @@ void ControllerRuntime::apply_config_() {
 
   this->entity_->set_traits(c.supports_heat(), c.supports_cool(), c.visual.min_temperature, c.visual.max_temperature,
                             c.visual.step);
+  this->entity_->set_presets(c.presets);
+  this->entity_->show_preset(c.find_preset(c.active_preset));
   this->entity_->mode = to_climate_mode(c.mode);
   // Single-point whatever the algorithm: bang-bang keeps its band in the document, so the
   // low/high pair (the same four bytes in climate::Climate) stays unwritten.
   this->entity_->target_temperature = c.setpoint;
 }
 
-bool ControllerRuntime::mode_supported_(HubMode mode) const {
-  switch (mode) {
-    case HubMode::OFF:
-      return true;
-    case HubMode::HEAT:
-      return this->config_->supports_heat();
-    case HubMode::COOL:
-      return this->config_->supports_cool();
-    case HubMode::HEAT_COOL:
-      return this->config_->supports_heat() && this->config_->supports_cool();
-  }
-  return false;
-}
-
 bool ControllerRuntime::control(const climate::ClimateCall &call) {
   if (this->config_ == nullptr)
     return false;
-  ClimateConfig &c = *this->config_;
-  bool changed = false;
-
+  const ClimateConfig &c = *this->config_;
+  // Upstream's validation has already dropped a preset the traits do not list.
+  const PresetConfig *preset = nullptr;
+  if (call.get_preset().has_value()) {
+    preset = c.find_preset(*call.get_preset());
+  } else if (call.has_custom_preset()) {
+    preset = c.find_custom_preset(call.get_custom_preset().c_str());
+  }
+  optional<HubMode> mode;
   HubMode requested;
-  if (call.get_mode().has_value() && from_climate_mode(*call.get_mode(), &requested) &&
-      this->mode_supported_(requested) && requested != c.mode) {
-    // The bang-bang latch holds the last action between the switching points: carried across
-    // a mode change it would keep the heater running in COOL.
+  if (call.get_mode().has_value() && from_climate_mode(*call.get_mode(), &requested))
+    mode = requested;
+  optional<float> target;
+  if (call.get_target_temperature().has_value())
+    target = *call.get_target_temperature();
+  return this->apply_(preset, mode, target);
+}
+
+bool ControllerRuntime::pick_preset(const PresetConfig &preset) {
+  if (this->config_ == nullptr)
+    return false;
+  return this->apply_(&preset, nullopt, nullopt);
+}
+
+bool ControllerRuntime::apply_(const PresetConfig *preset, optional<HubMode> mode, optional<float> target) {
+  ClimateConfig &c = *this->config_;
+  const HubMode previous_mode = c.mode;
+  const float previous_setpoint = c.setpoint;
+  const std::string previous_preset = c.active_preset;
+
+  // A target or a mode set by hand keeps the label, as upstream's thermostat does.
+  if (preset != nullptr)
+    c.pick_preset(*preset);
+  if (mode.has_value() && c.supports_mode(*mode))
+    c.mode = *mode;
+  // A client may send anything; the document only ever holds a target inside its range.
+  if (target.has_value() && !std::isnan(*target))
+    c.setpoint = c.clamp_target(*target);
+  // The bang-bang latch holds the last action between the switching points: carried across a
+  // mode change it would keep the heater running in COOL.
+  if (c.mode != previous_mode)
     this->hysteresis_.reset();
-    c.mode = requested;
-    changed = true;
-  }
-  if (call.get_target_temperature().has_value() && !std::isnan(*call.get_target_temperature())) {
-    // A client may send anything; the document only ever holds a target inside its range.
-    float target = *call.get_target_temperature();
-    target = std::max(c.visual.min_temperature, std::min(c.visual.max_temperature, target));
-    if (target != c.setpoint) {
-      c.setpoint = target;
-      changed = true;
-    }
-  }
 
   this->hysteresis_.set_setpoints(c.switch_low(), c.switch_high());
   this->entity_->mode = to_climate_mode(c.mode);
   this->entity_->target_temperature = c.setpoint;
+  this->entity_->show_preset(c.find_preset(c.active_preset));
   // Published with the mode it replaced, the action would say "off" in HEAT until the next pass.
   this->set_action_(this->standing_action_());
   this->control_due_ = true;
   // Published even when nothing moved: the caller waits for the state its command produced.
   this->entity_->publish_state();
-  return changed;
+  return c.mode != previous_mode || c.setpoint != previous_setpoint || c.active_preset != previous_preset;
 }
 
 void ControllerRuntime::on_sample(float value, uint32_t now_ms) {

@@ -10,7 +10,10 @@
 //    an unknown route is 404. The server answers PUT, DELETE, HEAD and PATCH with
 //    its own text 405 and closes the connection; this client sends none of them;
 //  - failures are {success:false,error} with 400/404/405/409/413/500/503/507;
-//  - GET /get?id= returns the bare document, not the success envelope;
+//  - GET /get?id= returns the bare document, not the success envelope, and /save
+//    takes it back as it is: the device gives the presets' keys and keeps the
+//    active preset, so a form sends back what it got. A document whose `version`
+//    is above CONFIG_VERSION came from a newer firmware, and its Save is 409;
 //  - /ping returns {status:"ok"} (NOT the success envelope);
 //  - every route but /schema and /ping does its read or write on the device's main
 //    loop, so an answer describes what actually happened; 503 means the loop did not
@@ -48,15 +51,18 @@ export interface EnableOptions {
 }
 
 export interface ClimateApi {
-  /** GET /list — summaries, the count and the firmware's limit. */
+  /** GET /list — summaries with the active preset, the count and the firmware's limit. */
   list(): Promise<ControllersResponse>
   /** GET /get?id= — the bare document, for editing. */
   get(id: string): Promise<ControllerDocument>
   /** POST /save — create (id absent or "") or replace (an existing id). JSON body. */
   save(doc: ControllerSaveInput): Promise<SaveResponse>
-  /** POST /save with no id — the device assigns and returns the slug. */
+  /** POST /save with no id — the device assigns and returns the slug, and the presets' keys. */
   create(draft: ControllerDraft): Promise<SaveResponse>
-  /** POST /save with `id` — replace that controller's document; a rename keeps the id. */
+  /**
+   * POST /save with `id` — replace that controller's document; a rename keeps the id, and a
+   * preset sent back with its key keeps it.
+   */
   update(id: string, doc: ControllerDocument | ControllerDraft): Promise<SaveResponse>
   /** POST /delete?id= — remove it (no body). */
   remove(id: string): Promise<DeleteResponse>
@@ -64,7 +70,7 @@ export interface ClimateApi {
   setEnabled(id: string, value: boolean, options?: EnableOptions): Promise<EnableResponse>
   /** POST /setpoint?id=&value= — move the target alone, running or not (no body). */
   setSetpoint(id: string, value: number): Promise<SuccessResponse>
-  /** GET /status[?id=] — live readings; recomputed per request, nothing persisted. */
+  /** GET /status[?id=] — live readings and the active preset; recomputed per request, nothing persisted. */
   status(id?: string): Promise<StatusResponse>
   /** GET /entities — bindable sensors and relays, with current relay owners. */
   entities(): Promise<ClimateEntitiesResponse>

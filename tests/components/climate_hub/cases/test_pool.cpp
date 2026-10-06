@@ -633,8 +633,9 @@ TEST(HubFailure, NoStorageMeansNoPoolAndNoChanges) {
   Result result = failed.create(draft("Boiler"));
   EXPECT_EQ(500, result.code);
   EXPECT_EQ("Thermostat storage is not available", result.error);
-  for (const Result &refused : {failed.update("boiler", draft("Boiler")), failed.remove("boiler"),
-                                failed.set_enabled("boiler", true), failed.set_setpoint("boiler", 20.f)}) {
+  for (const Result &refused :
+       {failed.update("boiler", draft("Boiler")), failed.remove("boiler"), failed.set_enabled("boiler", true),
+        failed.set_setpoint("boiler", 20.f), failed.apply_preset("boiler", "eco")}) {
     EXPECT_EQ(500, refused.code);
     EXPECT_EQ("Thermostat storage is not available", refused.error);
   }

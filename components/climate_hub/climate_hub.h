@@ -99,7 +99,8 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// number in °C: a stopped thermostat has no entity to ask.
   float sensor_reading(const std::string &sensor_object_id) const;
 
-  /// Adds a thermostat. The draft's id is ignored: one is made from the name. Refused with 400
+  /// Adds a thermostat. The draft's id, its presets' keys and its active_preset are ignored: an
+  /// id and keys are made from the names, and no preset is active. Refused with 400
   /// (a rule broken; enabled, and its sensor does not report °C), 409 (name taken, relay held by
   /// a running thermostat or named by an enabled one that waits, every id the name gives taken),
   /// 413 (the file would be over CONFIG_MAX_BYTES), 507 (at max_controllers) or 500 (not
@@ -108,7 +109,10 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   Result create(ClimateConfig draft);
   /// Replaces a thermostat's document; the id stays. A running one keeps its entity and every
   /// relay it still names, or stops when the sensor or a relay it now names is not on the
-  /// device. A relay it holds is never refused, whoever else names it. 404 for an unknown id,
+  /// device. A preset keeps its key when the doc brings it back, one the thermostat never gave
+  /// out is made again from the name, and the active preset stays while its key is there, the
+  /// doc's active_preset ignored; new values for it apply at once. A relay it holds is never
+  /// refused, whoever else names it. 404 for an unknown id, 409 for one a newer firmware wrote,
   /// otherwise as create(). A relay the Save frees starts the thermostats that wait for it.
   Result update(const std::string &id, ClimateConfig doc);
   /// Stops and deletes a thermostat, and starts the thermostats that wait for its relays.
@@ -124,6 +128,9 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   Result set_enabled(const std::string &id, bool enabled, bool take_over = false);
   /// Moves the target, clamped into the visual range, running or not.
   Result set_setpoint(const std::string &id, float value);
+  /// Picks the preset with this key, running or not, as Home Assistant would: its target, its
+  /// mode if it has one, and the label. 404 for an unknown thermostat or key.
+  Result apply_preset(const std::string &id, const std::string &key);
 
   /// The name rules on a trimmed name, with the sentence that says which one broke.
   static bool validate_name(const std::string &name, std::string *error) {
@@ -209,8 +216,8 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   std::string folder_() const;
   std::string file_path_(const std::string &id) const;
   bool ensure_folder_();
-  /// False, nothing written, when the write failed or the next boot could not load the file;
-  /// `too_large` then says whether it was the size.
+  /// False, nothing written, when the write failed, the next boot could not load the file or a
+  /// newer firmware wrote it; `too_large` then says whether it was the size.
   bool save_(const ClimateConfig &config, bool *too_large = nullptr);
   // Seam: the rules keep every document under the cap, and no host fails one allocation.
   virtual EncodeError encode_(const ClimateConfig &config, std::string *json) const { return config.encode(json); }

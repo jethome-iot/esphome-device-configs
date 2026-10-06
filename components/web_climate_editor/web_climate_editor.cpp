@@ -38,6 +38,17 @@ static const Route ROUTES[] = {
 };
 // clang-format on
 
+// The modes /schema offers, for the thermostat and, after "keep", for a preset.
+static const climate_hub::HubMode MODES[] = {climate_hub::HubMode::OFF, climate_hub::HubMode::HEAT,
+                                             climate_hub::HubMode::COOL, climate_hub::HubMode::HEAT_COOL};
+
+// The preset picked last, by its key and by the name a client shows; both "" for none.
+static void set_active_preset(JsonObject obj, const ClimateConfig &config) {
+  const climate_hub::PresetConfig *active = config.find_preset(config.active_preset);
+  obj["active_preset"] = active != nullptr ? active->key : "";
+  obj["active_preset_name"] = active != nullptr ? active->name : "";
+}
+
 // JSON has no NaN: a reading the device does not have is null.
 static void set_or_null(JsonObject obj, const char *key, float value) {
   if (std::isnan(value)) {
@@ -295,6 +306,7 @@ void WebClimateEditor::handle_list_(AsyncWebServerRequest *request) {
       row["running"] = this->hub_->is_running(config->id);
       // Why it waits, as the Save, the enable or the boot found it, for a client that was not there.
       row["waiting"] = this->hub_->waiting_reason(config->id);
+      set_active_preset(row, *config);
     }
     serializeJson(doc, json);
     return true;
@@ -360,6 +372,8 @@ void WebClimateEditor::handle_status_(AsyncWebServerRequest *request) {
           runtime != nullptr ? runtime->entity()->current_temperature : this->hub_->sensor_reading(config->sensor_id));
       set_or_null(row, "sensor_age_s", runtime != nullptr ? runtime->sensor_age_s(now) : NAN);
       row["setpoint"] = config->setpoint;
+      // Kept while stopped, as the target is: the label comes back with the entity.
+      set_active_preset(row, *config);
       row["min_temperature"] = config->visual.min_temperature;
       row["max_temperature"] = config->visual.max_temperature;
       row["step"] = config->visual.step;
@@ -431,14 +445,23 @@ void WebClimateEditor::handle_schema_(AsyncWebServerRequest *request) {
   for (auto kind : {climate_hub::ControlKind::PID, climate_hub::ControlKind::BANG_BANG})
     kinds.add(climate_hub::enums::control_kind_to_string(kind));
   JsonArray modes = doc["modes"].to<JsonArray>();
-  for (auto mode : {climate_hub::HubMode::OFF, climate_hub::HubMode::HEAT, climate_hub::HubMode::COOL,
-                    climate_hub::HubMode::HEAT_COOL})
+  for (auto mode : MODES)
     modes.add(climate_hub::enums::mode_to_string(mode));
   JsonArray faults = doc["faults"].to<JsonArray>();
   for (auto fault : {climate_hub::HubFault::NONE, climate_hub::HubFault::SENSOR_STALE, climate_hub::HubFault::OVERTEMP})
     faults.add(climate_hub::enums::fault_to_string(fault));
   doc["max_controllers"] = this->hub_->max_controllers();
   doc["name_max_length"] = climate_hub::NAME_MAX_LENGTH;
+  // A preset's name follows name_max_length; its target, the thermostat's visual range.
+  JsonObject presets = doc["presets"].to<JsonObject>();
+  presets["max_count"] = climate_hub::PRESET_MAX_COUNT;
+  JsonArray preset_modes = presets["modes"].to<JsonArray>();
+  preset_modes.add(climate_hub::PRESET_MODE_KEEP);
+  for (auto mode : MODES)
+    preset_modes.add(climate_hub::enums::mode_to_string(mode));
+  JsonArray standard = presets["standard"].to<JsonArray>();
+  for (const climate_hub::StandardPreset &preset : climate_hub::STANDARD_PRESETS)
+    standard.add(preset.name);
   JsonObject params = doc["params"].to<JsonObject>();
   for (size_t i = 0; i < climate_hub::PARAM_COUNT; i++) {
     const climate_hub::ParamDesc &param = climate_hub::PARAMS[i];

@@ -3,17 +3,6 @@
 
 namespace esphome::climate_hub {
 
-std::string id_with_suffix(const std::string &base, unsigned n) {
-  if (n < 2)
-    return base;
-  const std::string tail = "-" + std::to_string(n);
-  std::string head = base.substr(0, ID_MAX_LENGTH - tail.size());
-  // A cut can end on a dash, which would make "--" and fail the slug check on the next boot.
-  while (!head.empty() && head.back() == '-')
-    head.pop_back();
-  return (head.empty() ? std::string("climate") : head) + tail;
-}
-
 ClimateConfig *ConfigStore::add(const ClimateConfig &config) {
   this->configs_.push_back(std::make_unique<ClimateConfig>(config));
   return this->configs_.back().get();

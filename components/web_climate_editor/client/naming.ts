@@ -1,8 +1,9 @@
-// What the device accepts as a thermostat's name, and what it derives from one.
-// climate_hub follows these rules byte for byte — the device is the authority,
-// this is what lets a client say so before the round trip.
+// What the device accepts as a thermostat's or a preset's name, and what it derives
+// from one. climate_hub follows these rules byte for byte — the device is the
+// authority, this is what lets a client say so before the round trip.
 
-import { NAME_MAX_LENGTH } from './types'
+import type { StandardPresetName } from './types'
+import { NAME_MAX_LENGTH, STANDARD_PRESETS } from './types'
 
 // C's isspace() in the "C" locale: the device leaves every other character alone.
 const ASCII_SPACE = /[ \t\n\v\f\r]+/g
@@ -33,8 +34,8 @@ export function objectIdOf(name: string): string {
 
 /// The id the device derives from a name at creation: lowercased ASCII
 /// alphanumerics, every other run folded to a single dash, at most 48 characters,
-/// "climate" when nothing is left. A rename never changes a stored id.
-export function slugify(name: string): string {
+/// `fallback` when nothing is left. A rename never changes a stored id.
+export function slugify(name: string, fallback = 'climate'): string {
   let out = ''
   let prevDash = false
   for (const c of name) {
@@ -47,7 +48,7 @@ export function slugify(name: string): string {
     }
   }
   out = out.replace(/-+$/, '').slice(0, 48).replace(/-+$/, '')
-  return out || 'climate'
+  return out || fallback
 }
 
 /// Ids a create never gets: the dashboard's editor opens a blank form at
@@ -58,7 +59,16 @@ export const RESERVED_IDS: ReadonlyArray<string> = ['new']
 /// with `base` shortened so the whole id stays within 48 characters. A reserved
 /// id counts as taken.
 export function uniqueId(base: string, taken: ReadonlyArray<string>): string {
-  const free = (id: string) => !taken.includes(id) && !RESERVED_IDS.includes(id)
+  return firstFree(base, (id) => !taken.includes(id) && !RESERVED_IDS.includes(id))
+}
+
+/// The key a preset gets: the slug of its name, "preset" when nothing is left, and
+/// `-2`, `-3`… when another preset of the thermostat has it. It keeps it through a rename.
+export function presetKey(name: string, taken: ReadonlyArray<string>): string {
+  return firstFree(slugify(name, 'preset'), (key) => !taken.includes(key))
+}
+
+function firstFree(base: string, free: (candidate: string) => boolean): string {
   if (free(base)) return base
   for (let n = 2; ; n++) {
     const suffix = `-${n}`
@@ -101,13 +111,8 @@ export function isNameTaken(name: string, id: string, existing: ReadonlyArray<Na
 /// controller has.
 export function nameError(name: string, id: string, existing: ReadonlyArray<Named>): string {
   const trimmed = trimName(name)
-  if (trimmed === '') return 'Name is required'
-  if (new TextEncoder().encode(trimmed).length > NAME_MAX_LENGTH) {
-    return `Name is longer than ${NAME_MAX_LENGTH} characters`
-  }
-  if (!/^[\x20-\x7e]*$/.test(trimmed)) return 'Use printable ASCII characters only'
-  if (trimmed.includes('/')) return "Name cannot contain '/'"
-  if (trimmed.includes('\\')) return "Name cannot contain '\\'"
+  const broken = nameRuleError(trimmed)
+  if (broken) return broken
   const clash = clashOf(trimmed, id, existing)
   if (clash?.by === 'name') return `"${trimmed}" is already used by another thermostat`
   if (clash) {
@@ -115,4 +120,41 @@ export function nameError(name: string, id: string, existing: ReadonlyArray<Name
     return `"${trimmed}" is too close to "${other}": both are ${objectIdOf(trimmed)} to Home Assistant`
   }
   return ''
+}
+
+// The rules a name must keep whatever it names, on the trimmed name.
+function nameRuleError(trimmed: string): string {
+  if (trimmed === '') return 'Name is required'
+  if (new TextEncoder().encode(trimmed).length > NAME_MAX_LENGTH) {
+    return `Name is longer than ${NAME_MAX_LENGTH} characters`
+  }
+  if (!/^[\x20-\x7e]*$/.test(trimmed)) return 'Use printable ASCII characters only'
+  if (trimmed.includes('/')) return "Name cannot contain '/'"
+  if (trimmed.includes('\\')) return "Name cannot contain '\\'"
+  return ''
+}
+
+/// Which of Home Assistant's built-in presets `name` is, in any case, or null for a
+/// custom one. The device asks it of the trimmed name.
+export function standardPreset(name: string): StandardPresetName | null {
+  const lower = name.replace(/[A-Z]/g, (c) => c.toLowerCase())
+  return STANDARD_PRESETS.find((standard) => standard === lower) ?? null
+}
+
+/// Why the device would refuse the name of `presets[index]`, in its own words and
+/// naming the row from 1 (`Preset 2: "none" is reserved`), or '' when it would take
+/// it: the thermostat name rules, then `none`, then a clash with a preset before it,
+/// ignoring case and runs of spaces. The device checks the rows in order and reports
+/// the first refusal, so of two clashing names the later one is refused.
+export function presetNameError(presets: ReadonlyArray<{ name: string }>, index: number): string {
+  const row = presets[index]
+  if (!row) return ''
+  const at = `Preset ${index + 1}`
+  const trimmed = trimName(row.name)
+  const broken = nameRuleError(trimmed)
+  if (broken) return `${at}: ${broken}`
+  const key = nameKey(trimmed)
+  if (key === 'none') return `${at}: "${trimmed}" is reserved`
+  const earlier = presets.slice(0, index).findIndex((other) => nameKey(other.name) === key)
+  return earlier < 0 ? '' : `${at}: "${trimmed}" is already used by Preset ${earlier + 1}`
 }

@@ -138,6 +138,27 @@
       },
       "mode": "heat",
       "setpoint": 20
+    },
+    "office": {
+      "name": "Office",
+      "kind": "bang_bang",
+      "sensor_id": "temp_2",
+      "heat": {
+        "relay_id": "relay_2"
+      },
+      "mode": "heat",
+      "setpoint": 21,
+      "presets": [
+        {
+          "name": "Eco",
+          "setpoint": 18
+        },
+        {
+          "name": "Night",
+          "setpoint": 19.5,
+          "mode": "off"
+        }
+      ]
     }
   },
   "cases": [
@@ -193,7 +214,7 @@
       }
     },
     {
-      "name": "Schema lists the kinds, the modes, the faults and the limits",
+      "name": "Schema lists the kinds, the modes, the faults, the limits and what a preset may be",
       "method": "GET",
       "path": "schema",
       "body": null,
@@ -216,6 +237,25 @@
         ],
         "max_controllers": 3,
         "name_max_length": 48,
+        "presets": {
+          "max_count": 8,
+          "modes": [
+            "keep",
+            "off",
+            "heat",
+            "cool",
+            "heat_cool"
+          ],
+          "standard": [
+            "eco",
+            "away",
+            "boost",
+            "comfort",
+            "home",
+            "sleep",
+            "activity"
+          ]
+        },
         "params.output.1.key": "min_on_s",
         "params.output.1.def": 10
       }
@@ -253,7 +293,9 @@
         "controllers.0.heat_relay_id": "relay_1",
         "controllers.0.cool_relay_id": "",
         "controllers.0.running": true,
-        "controllers.0.waiting": ""
+        "controllers.0.waiting": "",
+        "controllers.0.active_preset": "",
+        "controllers.0.active_preset_name": ""
       }
     },
     {
@@ -266,7 +308,7 @@
       "body": null,
       "status": 200,
       "expect": {
-        "version": 1,
+        "version": 2,
         "id": "living-room",
         "name": "Living Room",
         "enabled": true,
@@ -275,7 +317,9 @@
         "heat.min_on_s": 10,
         "cool.relay_id": "",
         "visual.min_temperature": 5,
-        "visual.max_temperature": 45
+        "visual.max_temperature": 45,
+        "presets": [],
+        "active_preset": ""
       },
       "absent": [
         "success"
@@ -321,7 +365,9 @@
         "controllers.0.fault": "none",
         "controllers.0.setpoint": 22,
         "controllers.0.min_temperature": 5,
-        "controllers.0.max_temperature": 45
+        "controllers.0.max_temperature": 45,
+        "controllers.0.active_preset": "",
+        "controllers.0.active_preset_name": ""
       },
       "absent": [
         "controllers.0.switch_low"
@@ -1177,6 +1223,1177 @@
       ]
     },
     {
+      "name": "Get answers the presets with the keys the device gave them, none of them active",
+      "setup": [
+        "office"
+      ],
+      "method": "GET",
+      "path": "get?id=office",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "presets": [
+          {
+            "key": "eco",
+            "name": "Eco",
+            "setpoint": 18,
+            "mode": "keep"
+          },
+          {
+            "key": "night",
+            "name": "Night",
+            "setpoint": 19.5,
+            "mode": "off"
+          }
+        ],
+        "active_preset": ""
+      }
+    },
+    {
+      "name": "List and status carry the active preset, empty while none is picked",
+      "setup": [
+        "office"
+      ],
+      "method": "GET",
+      "path": "list",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "controllers.0.active_preset": "",
+        "controllers.0.active_preset_name": ""
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "status?id=office",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.active_preset": "",
+            "controllers.0.active_preset_name": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "A create makes every preset's key from its name, -2 for a taken one, and picks none",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "key": "mine",
+            "name": "Day!",
+            "setpoint": 20
+          },
+          {
+            "name": " Day? ",
+            "setpoint": 21,
+            "mode": "off"
+          },
+          {
+            "name": "!!!",
+            "setpoint": 100,
+            "mode": "keep"
+          }
+        ],
+        "active_preset": "mine"
+      },
+      "status": 200,
+      "expect": {
+        "message": "Thermostat created",
+        "id": "living-room"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "presets": [
+              {
+                "key": "day",
+                "name": "Day!",
+                "setpoint": 20,
+                "mode": "keep"
+              },
+              {
+                "key": "day-2",
+                "name": "Day?",
+                "setpoint": 21,
+                "mode": "off"
+              },
+              {
+                "key": "preset",
+                "name": "!!!",
+                "setpoint": 45,
+                "mode": "keep"
+              }
+            ],
+            "active_preset": "",
+            "setpoint": 22
+          }
+        }
+      ]
+    },
+    {
+      "name": "A Save keeps the key of a preset it brings back, renamed or not, and makes one from the name for the rest",
+      "setup": [
+        "office"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Office",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 21,
+        "presets": [
+          {
+            "key": "eco",
+            "name": "Saver",
+            "setpoint": 17
+          },
+          {
+            "name": "Eco",
+            "setpoint": 16
+          },
+          {
+            "key": "made-up",
+            "name": "Comfort",
+            "setpoint": 22,
+            "mode": "heat"
+          }
+        ],
+        "id": "office"
+      },
+      "status": 200,
+      "expect": {
+        "message": "Thermostat updated",
+        "id": "office"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=office",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "presets": [
+              {
+                "key": "eco",
+                "name": "Saver",
+                "setpoint": 17,
+                "mode": "keep"
+              },
+              {
+                "key": "eco-2",
+                "name": "Eco",
+                "setpoint": 16,
+                "mode": "keep"
+              },
+              {
+                "key": "comfort",
+                "name": "Comfort",
+                "setpoint": 22,
+                "mode": "heat"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "A Save's active_preset picks no preset",
+      "setup": [
+        "office"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Office",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 21,
+        "presets": [
+          {
+            "key": "eco",
+            "name": "Eco",
+            "setpoint": 18,
+            "mode": "keep"
+          },
+          {
+            "key": "night",
+            "name": "Night",
+            "setpoint": 19.5,
+            "mode": "off"
+          }
+        ],
+        "active_preset": "eco",
+        "id": "office"
+      },
+      "status": 200,
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=office",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "active_preset": "",
+            "setpoint": 21,
+            "mode": "heat"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.active_preset": "",
+            "controllers.0.active_preset_name": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "A Save without presets removes them",
+      "setup": [
+        "office"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Office",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "heat": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "setpoint": 21,
+        "id": "office"
+      },
+      "status": 200,
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=office",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "presets": [],
+            "active_preset": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "Presets that are null are none",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": null
+      },
+      "status": 200,
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "presets": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "Eight presets are taken",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "P1",
+            "setpoint": 20
+          },
+          {
+            "name": "P2",
+            "setpoint": 20
+          },
+          {
+            "name": "P3",
+            "setpoint": 20
+          },
+          {
+            "name": "P4",
+            "setpoint": 20
+          },
+          {
+            "name": "P5",
+            "setpoint": 20
+          },
+          {
+            "name": "P6",
+            "setpoint": 20
+          },
+          {
+            "name": "P7",
+            "setpoint": 20
+          },
+          {
+            "name": "P8",
+            "setpoint": 20
+          }
+        ]
+      },
+      "status": 200,
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "presets.7.key": "p8",
+            "presets.7.name": "P8"
+          },
+          "absent": [
+            "presets.8"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "A ninth preset is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "P1",
+            "setpoint": 20
+          },
+          {
+            "name": "P2",
+            "setpoint": 20
+          },
+          {
+            "name": "P3",
+            "setpoint": 20
+          },
+          {
+            "name": "P4",
+            "setpoint": 20
+          },
+          {
+            "name": "P5",
+            "setpoint": 20
+          },
+          {
+            "name": "P6",
+            "setpoint": 20
+          },
+          {
+            "name": "P7",
+            "setpoint": 20
+          },
+          {
+            "name": "P8",
+            "setpoint": 20
+          },
+          {
+            "name": "P9",
+            "setpoint": 20
+          }
+        ]
+      },
+      "status": 400,
+      "error": "A thermostat has at most 8 presets"
+    },
+    {
+      "name": "Presets that are no list are 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": {}
+      },
+      "status": 400,
+      "error": "presets must be a list"
+    },
+    {
+      "name": "Presets given as a string are 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": "eco"
+      },
+      "status": 400,
+      "error": "presets must be a list"
+    },
+    {
+      "name": "A preset that is no object is 400, its row named from 1",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "Eco",
+            "setpoint": 18
+          },
+          5
+        ]
+      },
+      "status": 400,
+      "error": "Preset 2 must be an object"
+    },
+    {
+      "name": "A preset given as a list is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          [
+            {
+              "name": "Eco",
+              "setpoint": 18
+            }
+          ]
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1 must be an object"
+    },
+    {
+      "name": "A preset mode that is no mode word is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "Eco",
+            "setpoint": 18,
+            "mode": "dry"
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1: mode must be one of keep/off/heat/cool/heat_cool"
+    },
+    {
+      "name": "A preset mode word in capitals is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "Eco",
+            "setpoint": 18,
+            "mode": "KEEP"
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1: mode must be one of keep/off/heat/cool/heat_cool"
+    },
+    {
+      "name": "A preset mode that is a number is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "Eco",
+            "setpoint": 18,
+            "mode": 1
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1: mode must be one of keep/off/heat/cool/heat_cool"
+    },
+    {
+      "name": "A preset without a target is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "Eco"
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1: setpoint must be a number"
+    },
+    {
+      "name": "A preset target given as a string is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "Eco",
+            "setpoint": "18"
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1: setpoint must be a number"
+    },
+    {
+      "name": "A preset that cools on a thermostat with no cooling relay is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "Eco",
+            "setpoint": 18,
+            "mode": "cool"
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1: mode 'cool' needs cool.relay_id"
+    },
+    {
+      "name": "A preset that heats and cools on a thermostat with one relay is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "Eco",
+            "setpoint": 18,
+            "mode": "heat_cool"
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1: mode 'heat_cool' needs both relays"
+    },
+    {
+      "name": "A preset that heats on a thermostat with no heating relay is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Cellar",
+        "kind": "bang_bang",
+        "sensor_id": "temp_2",
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "cool",
+        "setpoint": 12,
+        "presets": [
+          {
+            "name": "Eco",
+            "setpoint": 10,
+            "mode": "heat"
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1: mode 'heat' needs heat.relay_id"
+    },
+    {
+      "name": "A preset key that is no slug is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "key": "Eco",
+            "name": "Eco",
+            "setpoint": 18
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1: key must be a slug: lowercase letters, digits and single dashes"
+    },
+    {
+      "name": "Two presets with one key are 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "key": "eco",
+            "name": "Eco",
+            "setpoint": 18
+          },
+          {
+            "key": "eco",
+            "name": "Away",
+            "setpoint": 12
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 2: key 'eco' is already used by Preset 1"
+    },
+    {
+      "name": "A preset without a name is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "setpoint": 18
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1: Name is required"
+    },
+    {
+      "name": "A preset name that is no string is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": 5,
+            "setpoint": 18
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1: Name is required"
+    },
+    {
+      "name": "A blank preset name is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "   ",
+            "setpoint": 18
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1: Name is required"
+    },
+    {
+      "name": "A preset name longer than 48 characters is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "setpoint": 18
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1: Name is longer than 48 characters"
+    },
+    {
+      "name": "A preset name outside printable ASCII is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "Ночь",
+            "setpoint": 18
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1: Use printable ASCII characters only"
+    },
+    {
+      "name": "A preset name with a slash is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "Up/down",
+            "setpoint": 18
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1: Name cannot contain '/'"
+    },
+    {
+      "name": "A preset name with a backslash is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "a\\b",
+            "setpoint": 18
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1: Name cannot contain '\\'"
+    },
+    {
+      "name": "None is no preset name, in any case",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "Eco",
+            "setpoint": 18
+          },
+          {
+            "name": " NONE ",
+            "setpoint": 5
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 2: \"NONE\" is reserved"
+    },
+    {
+      "name": "Preset names that differ only in case clash",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "Eco",
+            "setpoint": 18
+          },
+          {
+            "name": "ECO",
+            "setpoint": 5
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 2: \"ECO\" is already used by Preset 1"
+    },
+    {
+      "name": "Preset names that differ only in runs of spaces clash",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "Night Time",
+            "setpoint": 18
+          },
+          {
+            "name": "night   time",
+            "setpoint": 5
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 2: \"night   time\" is already used by Preset 1"
+    },
+    {
+      "name": "The thermostat's rules come first, then the presets' structure, their values, their names, and the name",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "A",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "presets": {}
+      },
+      "status": 400,
+      "error": "sensor_id is required",
+      "then": [
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "A",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "cool",
+            "presets": {}
+          },
+          "status": 400,
+          "error": "mode 'cool' needs cool.relay_id"
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Living Room",
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 22,
+            "presets": [
+              {
+                "name": "Eco"
+              },
+              {
+                "name": "Day",
+                "setpoint": 20,
+                "mode": "dry"
+              }
+            ]
+          },
+          "status": 400,
+          "error": "Preset 2: mode must be one of keep/off/heat/cool/heat_cool"
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Living Room",
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 22,
+            "presets": [
+              {
+                "name": "Eco"
+              },
+              7
+            ]
+          },
+          "status": 400,
+          "error": "Preset 2 must be an object"
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Living Room",
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 22,
+            "presets": [
+              {
+                "name": "",
+                "setpoint": 18
+              },
+              {
+                "name": "Day"
+              }
+            ]
+          },
+          "status": 400,
+          "error": "Preset 2: setpoint must be a number"
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Living Room",
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 22,
+            "presets": [
+              {
+                "name": "none",
+                "setpoint": 18,
+                "key": "X"
+              }
+            ]
+          },
+          "status": 400,
+          "error": "Preset 1: key must be a slug: lowercase letters, digits and single dashes"
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Up/down",
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 22,
+            "presets": [
+              {
+                "name": "none",
+                "setpoint": 5
+              }
+            ]
+          },
+          "status": 400,
+          "error": "Preset 1: \"none\" is reserved"
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Up/down",
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 22,
+            "presets": [
+              {
+                "name": "Eco",
+                "setpoint": 5
+              }
+            ]
+          },
+          "status": 400,
+          "error": "Name cannot contain '/'"
+        }
+      ]
+    },
+    {
       "name": "Delete removes a thermostat and lets its relay go",
       "setup": [
         "living-room"
@@ -1852,6 +3069,54 @@
           "body": null,
           "status": 404,
           "error": "Thermostat not found"
+        }
+      ]
+    },
+    {
+      "name": "Get of a thermostat a newer firmware wrote answers its file's version",
+      "setup": [
+        "living-room"
+      ],
+      "device_only": "newer_file",
+      "method": "GET",
+      "path": "get?id=living-room",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "version": 3,
+        "name": "Living Room"
+      }
+    },
+    {
+      "name": "A Save over a file a newer firmware wrote is 409 and changes nothing",
+      "setup": [
+        "living-room"
+      ],
+      "device_only": "newer_file",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Lounge",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "id": "living-room"
+      },
+      "status": 409,
+      "error": "A newer firmware wrote this thermostat; update the firmware to change it",
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "name": "Living Room"
+          }
         }
       ]
     }

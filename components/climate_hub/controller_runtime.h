@@ -59,9 +59,12 @@ class ControllerRuntime {
   /// A reading from the sensor; the hub drops NaN and infinities before they get here. The
   /// entity is republished only when the temperature changed.
   void on_sample(float value, uint32_t now_ms);
-  /// A mode or target from Home Assistant, the web server or the API. True when the document
-  /// changed and needs writing.
+  /// A preset, mode or target from Home Assistant, the web server or the API: the preset first,
+  /// then a mode or target the call carries besides. True when the document changed and needs
+  /// writing.
   bool control(const climate::ClimateCall &call);
+  /// Takes `preset`, one of the running document's, as a pick from Home Assistant would.
+  bool pick_preset(const PresetConfig &preset);
 
   /// OFF only in mode off, on a fault or stopped; otherwise IDLE when neither heating nor cooling.
   HubAction action() const { return this->action_; }
@@ -87,7 +90,8 @@ class ControllerRuntime {
   void run_control_(uint32_t now_ms);
   void drive_outputs_(uint32_t now_ms);
   void all_relays_off_(uint32_t now_ms);
-  bool mode_supported_(HubMode mode) const;
+  /// Applies a preset, then a mode and a target, each when given; publishes the outcome.
+  bool apply_(const PresetConfig *preset, optional<HubMode> mode, optional<float> target);
 
   HubClimate *entity_;
   ClimateConfig *config_{nullptr};
