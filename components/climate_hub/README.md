@@ -216,11 +216,12 @@ A run ends without gains on `cancel_autotune()`, a target or a mode changed from
 thermostat changes neither), an `update()` or a `restore()` over it, a stop or a take-over, any
 fault, `relay_contested` too, 24 hours in all, 6 hours without a relay switch, or readings that
 cross the target more than 65 times (`noisy`, a probe that hovers at the target); the thermostat
-goes back to its PID with the gains it had, from a clean start. `autotune(id)` keeps the last run, running or ended, with the target it
-swung around, the reason it ended, the extremes of its swings, Ku, Pu, the gains it replaced and
-wrote, and its flags, until the next start, a `remove()` or a reboot. The flags warn and never
-extend a run: `asymmetric` (the shortest half-period under 0.66 of the longest), `uneven` (the
-smallest swing under 0.66 of the largest) and `clamped` (a gain held in its range).
+goes back to its PID with the gains it had, from a clean start. `autotune(id)` keeps the last run,
+running or ended, with the target it swung around, the reason it ended, the extremes of its swings,
+Ku, Pu, the gains it replaced and wrote, and its flags, until the next start, a `remove()` or a
+reboot. The flags warn and never extend a run: `asymmetric` (the shortest half-period under 0.66 of
+the longest), `uneven` (the smallest swing under 0.66 of the largest) and `clamped` (a gain held in
+its range).
 
 ## Relays
 

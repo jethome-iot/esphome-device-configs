@@ -119,7 +119,8 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   Result update(const std::string &id, ClimateConfig doc, optional<uint32_t> revision = nullopt);
   /// Brings a thermostat back under the id its document names, as a backup holds it: one with
   /// that id is replaced, as update() replaces it, otherwise one is created with it. The
-  /// presets keep their keys and the active preset stays, since rules name them so. Refused
+  /// presets keep their keys and the active preset stays, since rules name them so, and the
+  /// mode to go back to is the document's (its own mode's without one). Refused
   /// as create() and update() refuse, and with 400 for an id that is no slug or is `new`, and
   /// 409 for an id a file the boot did not load holds. The doc's revision is ignored: a
   /// replacement moves the stored one on, a new one starts at 0. It ends a calibration.
@@ -147,8 +148,8 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// Back to the mode it had before it went off, its on_mode(), as turn_off().
   Result turn_on(const std::string &id);
 
-  /// `callback(id)` runs at the end of a create, a removal, and a Save that changed the
-  /// thermostat's preset keys: what the automation rules name of it.
+  /// `callback(id)` runs at the end of a create, a removal, and a Save or a restore that added
+  /// the thermostat or changed its preset keys: what the automation rules name of it.
   template<typename F> void add_on_change_callback(F &&callback) {
     this->change_callback_.add(std::forward<F>(callback));
   }
