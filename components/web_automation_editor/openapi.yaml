@@ -406,7 +406,8 @@ components:
       enum: [single, restart, parallel]
       description: >-
         `single` ignores a trigger while the rule runs, `restart` starts over,
-        `parallel` runs up to 8 copies.
+        `parallel` runs up to 8 copies. A trigger `single` ignores still hands
+        its state to a follow that has not played yet.
 
     AutomationConfig:
       type: object

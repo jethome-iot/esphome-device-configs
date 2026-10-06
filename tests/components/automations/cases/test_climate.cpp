@@ -86,6 +86,14 @@ const char *const FOLLOW_IN_1 =
     R"("actions":[{"source":"climate","type":"follow","climate":"living-room",)"
     R"("on":{"type":"set_preset","preset":"comfort"},"off":{"type":"turn_off"}}]})";
 
+// Comfort while In 1 is on, eco while it is off, in `mode`.
+std::string follow_presets(const char *mode) {
+  return std::string(R"({"name":"Presets","mode":")") + mode +
+         R"(","triggers":[{"source":"input","type":"state_change","object_id":"in_1"}],)"
+         R"("actions":[{"source":"climate","type":"follow","climate":"living-room",)"
+         R"("on":{"type":"set_preset","preset":"comfort"},"off":{"type":"set_preset","preset":"eco"}}]})";
+}
+
 }  // namespace
 
 // --- The format ---
@@ -431,6 +439,40 @@ TEST_F(ClimateRules, FollowWithoutAStateDoesNothing) {
   ASSERT_TRUE(engine->fire_next());
   EXPECT_EQ(stored("living-room").mode, HubMode::HEAT);
   EXPECT_FALSE(rule->is_running());
+}
+
+// Single, the default, ignores a second edge while the first run waits for the loop pass, but
+// not the state it carried: the thermostat lands where the input is, either way round.
+TEST_F(ClimateRules, FollowInSingleLandsOnTheLastEdgeOfThePass) {
+  auto rule = build_rule(*engine, follow_presets("single").c_str());
+  ASSERT_NE(rule, nullptr);
+  for (bool last : {false, true}) {
+    rule->on_binary_sensor(&e.in1, !last);
+    rule->on_binary_sensor(&e.in1, last);
+    ASSERT_EQ(engine->delays.size(), 1u) << "one run";
+    ASSERT_TRUE(engine->fire_next());
+    EXPECT_EQ(stored("living-room").active_preset, last ? "comfort" : "eco");
+    EXPECT_FALSE(rule->is_running());
+  }
+}
+
+// Restart starts over on the second edge, parallel runs both: each still lands on the last.
+TEST_F(ClimateRules, FollowInRestartAndParallelLandsOnTheLastEdge) {
+  auto restart = build_rule(*engine, follow_presets("restart").c_str());
+  restart->on_binary_sensor(&e.in1, true);
+  restart->on_binary_sensor(&e.in1, false);
+  ASSERT_EQ(engine->delays.size(), 1u) << "the first run is gone";
+  ASSERT_TRUE(engine->fire_next());
+  EXPECT_EQ(stored("living-room").active_preset, "eco");
+
+  auto parallel = build_rule(*engine, follow_presets("parallel").c_str());
+  parallel->on_binary_sensor(&e.in1, true);
+  parallel->on_binary_sensor(&e.in1, false);
+  ASSERT_EQ(engine->delays.size(), 2u);
+  ASSERT_TRUE(engine->fire_next());
+  EXPECT_EQ(stored("living-room").active_preset, "comfort") << "each run plays its own edge";
+  ASSERT_TRUE(engine->fire_next());
+  EXPECT_EQ(stored("living-room").active_preset, "eco");
 }
 
 // Off the sensor's callback: the switch before moves at once, the thermostat and everything

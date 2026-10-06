@@ -70,7 +70,8 @@ one, picks `actions` or `else_actions`.
 A `click` is a press between 200 and 1000 ms. A `temperature` trigger fires on the crossing and
 arms again when the value goes back. `above` and `below` are strict, a range includes both ends,
 for triggers and conditions alike. `follow` drives its target from the state the trigger
-carried. A `switch` action on a relay a running thermostat drives (a
+carried; in `single` mode a trigger ignored while the rule runs still hands its state to a
+`follow` that has not played yet. A `switch` action on a relay a running thermostat drives (a
 [`switch_hold`](../switch_hold/switch_hold.h) holder) does nothing but log the rule and the
 thermostat, and the run goes on. `cron` is six fields, seconds first — `"*/2 * * * * *"`,
 `"0 30 6,18 1 * *"` — with `*`, `*/N`, `X-Y`, `X-Y/N` and lists; a field that matches nothing

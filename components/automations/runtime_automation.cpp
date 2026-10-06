@@ -421,6 +421,14 @@ void RuntimeAutomation::fire_(bool has_state, bool state) {
   if (!this->runs_.empty()) {
     switch (this->mode_) {
       case AutomationMode::SINGLE:
+        // The edge is ignored, its state is not: a follow still to play lands where the trigger
+        // is now. A climate step waits for the loop pass, so a second edge in one pass is common.
+        if (has_state) {
+          for (const auto &run : this->runs_) {
+            run->has_state = true;
+            run->state = state;
+          }
+        }
         return;
       case AutomationMode::RESTART:
         this->stop();

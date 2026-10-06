@@ -23,7 +23,8 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
   on, another while it is off. They act on the thermostat whether it runs or not, on the next
   loop pass.
 - **Mode**: `single` ignores a trigger while the rule is running, `restart` starts over,
-  `parallel` runs up to 8 copies.
+  `parallel` runs up to 8 copies. A trigger `single` ignores still hands its state to a follow
+  that has not played yet, so the target ends where the trigger is.
 
 A sensor is any numeric one that is not internal, not only a temperature, and its thresholds
 are in its own unit.
