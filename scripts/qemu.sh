@@ -36,6 +36,8 @@
 #   --eeprom <file>    attach the CPU-board EEPROM (0x54) backed by this file, so the
 #                      device reports the identity the file carries; needs the JetHome
 #                      QEMU build (install-qemu)
+#   --fram <file>      attach the CPU-board FRAM (0x52) backed by this file, so what
+#                      fram_store keeps survives stop/run; needs the JetHome QEMU build
 #   --fresh            recreate the flash image, wiping emulated flash state
 #                      (NVS, LittleFS, saved config) — like erasing a real device
 #   --no-build         skip `esphome compile`, use whatever was built last
@@ -46,7 +48,7 @@
 #
 # Prerequisite: the JetHome build of Espressif's QEMU fork (upstream qemu-system-xtensa
 # has no `esp32` machine; Espressif's stock build boots the device but has no chips to
-# attach for --eeprom). `scripts/qemu.sh install-qemu` downloads it into
+# attach for --eeprom or --fram). `scripts/qemu.sh install-qemu` downloads it into
 # ~/.espressif/tools/qemu-xtensa/, next to any Espressif install. Its user-mode
 # networking needs libslirp: `sudo apt install libslirp0`, `brew install libslirp` on macOS.
 # Point QEMU_XTENSA at a binary to override discovery.
@@ -84,8 +86,10 @@ NO_WDT=0
 DAEMON=0
 WAIT_HTTP=0
 EEPROM=""
-# Bytes: the 64 Kbit part the config declares.
+FRAM=""
+# Bytes: the 64 Kbit parts the configs declare.
 EEPROM_SIZE=8192
+FRAM_SIZE=8192
 
 CMD=${1:-help}
 [ $# -gt 0 ] && shift || true
@@ -116,6 +120,7 @@ while [ $# -gt 0 ]; do
     --wait-http) opt_uint "$1" "${2:-}"; WAIT_HTTP=$OPT_VALUE; shift 2 ;;
     --psram)     opt_arg  "$1" "${2:-}"; PSRAM=$OPT_VALUE;     shift 2 ;;
     --eeprom)    opt_arg  "$1" "${2:-}"; EEPROM=$OPT_VALUE;    shift 2 ;;
+    --fram)      opt_arg  "$1" "${2:-}"; FRAM=$OPT_VALUE;      shift 2 ;;
     --fresh)     FRESH=1;      shift ;;
     --no-build)  DO_BUILD=0;   shift ;;
     --no-wdt)    NO_WDT=1;     shift ;;
@@ -209,27 +214,27 @@ find_qemu() {
 require_i2c_devices() {
   LD_LIBRARY_PATH="${QEMU_LIBDIR}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     "$QEMU_BIN" -device help 2>/dev/null | grep -q 'name "at24c-eeprom"' && return 0
-  die "--eeprom needs the JetHome QEMU build, $QEMU_BIN has no chips to attach — run: scripts/qemu.sh install-qemu"
+  die "--eeprom and --fram need the JetHome QEMU build, $QEMU_BIN has no chips to attach — run: scripts/qemu.sh install-qemu"
 }
 
 # Before the build, so a missing capability or a wrong-sized image costs a message, not a
-# compile.
-prepare_eeprom() {
-  local size
+# compile. <fill> is what a blank part reads as: \377 for an erased EEPROM, \0 for FRAM.
+prepare_part() {
+  local option=$1 file=$2 expected=$3 fill=$4 size
   require_i2c_devices
-  if [ ! -e "$EEPROM" ]; then
-    info "==> $EEPROM does not exist — creating an erased part"
-    head -c "$EEPROM_SIZE" /dev/zero | tr '\0' '\377' >"$EEPROM"
+  if [ ! -e "$file" ]; then
+    info "==> $file does not exist — creating a blank part"
+    head -c "$expected" /dev/zero | tr '\0' "$fill" >"$file"
   fi
-  size=$(stat -c%s "$EEPROM" 2>/dev/null || stat -f%z "$EEPROM" 2>/dev/null) || die "cannot read --eeprom file: $EEPROM"
+  size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null) || die "cannot read $option file: $file"
   # at24c refuses a file that is not exactly rom-size, and says so only in the QEMU log.
-  [ "$size" -eq "$EEPROM_SIZE" ] ||
-    die "--eeprom file is $size bytes, the emulated part is $EEPROM_SIZE"
+  [ "$size" -eq "$expected" ] ||
+    die "$option file is $size bytes, the emulated part is $expected"
 }
 
 # The JetHome build of Espressif's QEMU: the same machines, plus I2C chips that can be
-# attached from the command line, which --eeprom needs. Unpacked where idf_tools.py puts
-# Espressif's own builds, so find_qemu sees it like any other.
+# attached from the command line, which --eeprom and --fram need. Unpacked where
+# idf_tools.py puts Espressif's own builds, so find_qemu sees it like any other.
 do_install_qemu() {
   local arch os url tag version dest asset sums sha
   case "$(uname -m)" in
@@ -441,6 +446,9 @@ do_run() {
   # The CPU-board part at 0x54, on the controller ESPHome's bus takes (i2c0).
   [ -n "$EEPROM" ] && args+=(-drive "if=none,id=eeprom0,format=raw,file=$EEPROM"
                              -device "at24c-eeprom,bus=i2c0,address=0x54,rom-size=$EEPROM_SIZE,address-size=2,drive=eeprom0")
+  # The FRAM at 0x52: at24c streams a write without page wrap, as FRAM does.
+  [ -n "$FRAM" ] && args+=(-drive "if=none,id=fram0,format=raw,file=$FRAM"
+                           -device "at24c-eeprom,bus=i2c0,address=0x52,rom-size=$FRAM_SIZE,address-size=2,drive=fram0")
 
   info "==> $device on QEMU"
   info "    web    http://127.0.0.1:$HTTP_PORT"
@@ -568,7 +576,8 @@ case "$CMD" in
     # Everything that can refuse to proceed runs before anything is touched, and
     # the old instance goes before the image it holds is rewritten.
     find_qemu
-    [ -n "$EEPROM" ] && prepare_eeprom
+    [ -n "$EEPROM" ] && prepare_part --eeprom "$EEPROM" "$EEPROM_SIZE" '\377'
+    [ -n "$FRAM" ] && prepare_part --fram "$FRAM" "$FRAM_SIZE" '\0'
     stop_previous "$DEVICE"
     # After stop_previous, so re-running the same device is not a clash with
     # itself, and before the build, so a taken port costs a message and not a

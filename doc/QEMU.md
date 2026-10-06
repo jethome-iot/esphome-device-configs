@@ -46,7 +46,8 @@ which the script activates itself.
 `<device>` is the bare name of a config under `devices/<family>/`, e.g. `jxd-r6-e1eth-lcd`.
 
 Options: `--http-port` (default 8080), `--api-port` (6053), `--ota-port` (3232),
-`--psram 2M|4M|none`, `--eeprom <file>` (below), `--no-wdt`, `--daemon`, `--wait-http <sec>`. Exit an interactive session
+`--psram 2M|4M|none`, `--eeprom <file>` and `--fram <file>` (below), `--no-wdt`, `--daemon`,
+`--wait-http <sec>`. Exit an interactive session
 with `Ctrl-A x`. Each instance holds all three forwarded ports, so a second one needs its own
 trio — a clash is caught before QEMU starts and names the port:
 
@@ -166,6 +167,18 @@ what the page shows follows what the header holds, down to one written for anoth
 Images come from a dump of a real part or from JetHome's board tooling; v3 and v4 are both
 read.
 
+## The CPU board's FRAM
+
+`--fram <file>` attaches the FM24CL64B at `0x52` that `features/fram.yaml` declares, backed by a
+host file of 8192 bytes; `run` creates a zeroed one where the file does not exist. What
+`fram_store` keeps there survives `stop` and `run`, `--fresh` included, since the emulated flash
+does not hold it. Without the option no chip answers at `0x52` and the store reports itself
+unavailable.
+
+```bash
+./scripts/qemu.sh run <device> --daemon --wait-http 600 --fram /tmp/fram.bin
+```
+
 ## What works and what is dead
 
 | Works | Dead in QEMU |
@@ -175,6 +188,7 @@ read.
 | Relays and inputs — state flips over REST and holds | 1-Wire: the bus reads as held low, the DS2484 scan finds nothing and no `Temp N` entity is created |
 | `PCB Temp` — QEMU's own TMP105 at `0x48`, a constant 25 °C | Wi-Fi and BT; Modbus sees an emulated UART with nothing on it |
 | `jethome_board_info`, reading the file `--eeprom` attaches | Without `--eeprom`: no chip answers at `0x54`, `i2c_eeprom` fails at setup and Info → Serial reads `--` |
+| `fram_store`, on the file `--fram` attaches | Without `--fram`: no chip answers at `0x52` and the store is unavailable |
 | Ethernet on 10.0.2.15, native API on 6053, OTA, outbound HTTPS | |
 | NVS and `preferences`; flash state survives restarts | |
 
