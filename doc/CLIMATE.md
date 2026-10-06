@@ -27,9 +27,11 @@ at the next boot. The file format and the C++ API are in
   thermostat that starts on a sensor that has fallen silent shows its last value but does not
   act on it. A reading that is not a number, or an infinite one, counts as no reading at all.
 - **Relay wear**: a minimum on and off time, 10 s each unless set otherwise, counted from the
-  relay's last move, whichever thermostat made it. Saving a thermostat does not restart its
-  cycle, and a PID keeps what it has learnt unless the Save changes its control law or its
-  sensor.
+  relay's last move, whichever thermostat made it. A thermostat shows what its relays do, not
+  what it wants: idle until a relay held open by its minimum off time closes, heating until one
+  held closed by its minimum on time opens, and over HTTP its status says which minimum it waits
+  on. Saving a thermostat does not restart its cycle, and a PID keeps what it has learnt unless
+  the Save changes its control law or its sensor.
 - **A relay belongs to the running thermostat**, in mode off too, which keeps it open; only
   stopping the thermostat frees it. What the rest of the device does with such a relay is
   below. Two thermostats may name one relay and take turns, a summer and a winter profile on
@@ -166,8 +168,10 @@ HTTP, never taking a relay over: an On that is refused stays Off, and the log sa
   same entity id (`Room 1` and `Room_1`), nor a thermostat and a climate from the YAML.
 - The room temperature is shown to a tenth of a degree; the target moves in the thermostat's
   own step.
-- A running thermostat that neither heats nor cools shows as idle. Off means mode off, a fault
-  other than `relay_contested`, or a thermostat that is not running.
+- A running thermostat shows as heating or cooling while that relay is closed, a PID also
+  between two of its pulses, and as idle otherwise: it turns heating only once the relay's
+  minimum off time lets it close. Off means mode off, a fault other than `relay_contested`, or
+  a thermostat that is not running.
 
 ## Testing without hardware
 

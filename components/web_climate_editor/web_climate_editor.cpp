@@ -448,6 +448,10 @@ void WebClimateEditor::handle_status_(AsyncWebServerRequest *request) {
       row["cool_duty"] = runtime != nullptr ? runtime->cool_duty() : 0.f;
       row["heat_relay_on"] = runtime != nullptr && runtime->heat_relay_on();
       row["cool_relay_on"] = runtime != nullptr && runtime->cool_relay_on();
+      row["heat_relay_wait"] = climate_hub::enums::relay_wait_to_string(
+          runtime != nullptr ? runtime->heat_relay_wait() : climate_hub::RelayWait::NONE);
+      row["cool_relay_wait"] = climate_hub::enums::relay_wait_to_string(
+          runtime != nullptr ? runtime->cool_relay_wait() : climate_hub::RelayWait::NONE);
       if (runtime != nullptr && config->kind == climate_hub::ControlKind::PID) {
         JsonObject pid = row["pid"].to<JsonObject>();
         set_or_null(pid, "error", runtime->pid().error());

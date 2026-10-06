@@ -37,7 +37,10 @@
 // tests/components/web_climate_editor/contract.json lists the requests it must
 // answer as the device does.
 // /status reads a first-order room model per sensor, heated and cooled by the
-// duties of the thermostats bound to it. control() stands in for Home Assistant
+// thermostats bound to it. Their relays keep min_on_s and min_off_s, counted from
+// the boot for one no thermostat has held, and the action follows the relays, not
+// the demand, as on the device; /status says which minimum holds a relay. Nothing
+// switches a relay from elsewhere here. control() stands in for Home Assistant
 // setting a running thermostat's mode, target or preset through its climate entity.
 import type {
   AutotuneDirection,
@@ -53,11 +56,13 @@ import type {
   ControllerDocument,
   ControllerStatus,
   ControllerSummary,
+  OutputConfig,
   ParamDesc,
   PidGains,
   PidTerms,
   PresetConfig,
-  PresetMode
+  PresetMode,
+  RelayWait
 } from '../types'
 import {
   AUTOTUNE_NOISEBAND,
@@ -836,9 +841,9 @@ const ROUTES = new Map<string, boolean>([
   ['autotune', true]
 ])
 
-// The room model: every 2 s a relay at full duty adds 0.06 °C and the room loses
-// 0.5 % of its lead over ambient — slow enough for the default PID to settle, and
-// fast enough that a status card's trace moves within a minute.
+// The room model: every 2 s a closed heating relay adds 0.06 °C, a closed cooling one
+// takes it away, and the room loses 0.5 % of its lead over ambient — slow enough for the
+// default PID to settle, and fast enough that a status card's trace moves within a minute.
 const STEP_MS = 2000
 const HEAT_PER_STEP = 0.06
 const LOSS_PER_STEP = 0.005
@@ -853,14 +858,17 @@ interface Runtime {
   lastControl: number | null
   /** A control call came in: the next pass runs whatever the interval says. */
   due: boolean
-  /** A new mode: the bang-bang latch starts over on the next pass. */
-  resetLatch: boolean
   prevError: number | null
   integral: number
+  /** What a bang-bang holds between its switching points. */
+  latch: ClimateHubAction
+  /** What the relays do, as the entity shows it. */
   action: ClimateHubAction
   fault: ClimateHubFault
   heatDuty: number
   coolDuty: number
+  heatWait: RelayWait
+  coolWait: RelayWait
   terms: PidTerms
 }
 
@@ -908,6 +916,14 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
   for (const [id, room] of Object.entries(seedRooms)) rooms.set(id, { temp: room.start, ambient: room.ambient })
   const startedAt = now()
   let simulatedTo = startedAt
+  // Each relay, by object id: whether it is closed and since when. One no thermostat has held
+  // counts as opened at the boot, so its min_off runs from there.
+  const relays = new Map<string, { on: boolean; since: number }>()
+  const relayOf = (relayId: string) => {
+    let relay = relays.get(relayId)
+    if (!relay) relays.set(relayId, (relay = { on: false, since: startedAt }))
+    return relay
+  }
 
   const find = (id: string) => docs.find((d) => d.id === id)
   const switchName = (objectId: string) => seedSwitches.find((s) => s.object_id === objectId)?.name ?? objectId
@@ -944,11 +960,13 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
 
   // ClimateHub::start_waiters_: every enabled thermostat but `skip` that names a relay held
   // before the change and free after it tries to start, in id order. The answer's note on who
-  // started, '' when nobody did. Nothing this API does leaves one waiting on a held relay, so
-  // nobody starts here: it is kept as the device's mirror.
+  // started, '' when nobody did. Only a boot leaves one waiting on a held relay; the API
+  // refuses that.
   function startWaiters(before: Set<string>, skip: string): string {
     const after = heldRelays()
     const freed = [...before].filter((r) => !after.has(r))
+    // ClimateHub::let_go_ first: a freed relay opens before a waiter takes it, so its min_off holds that start.
+    for (const relay of freed) forceOff(relay, simulatedTo)
     const started: string[] = []
     for (const doc of docs) {
       if (!doc.enabled || doc.id === skip || running.has(doc.id)) continue
@@ -958,16 +976,33 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
   }
 
   // ControllerRuntime::start(). `prev` is what a Save replaces: the wait for a first
-  // reading and the duties carry over, the PID too while its law and sensor stand, and
-  // a relay a bang-bang keeps closed keeps its latch.
+  // reading, the duties and the action of a direction that keeps its relay carry over, the
+  // PID too while its law and sensor stand, and a bang-bang's latch while both are
+  // bang-bang; a start latches on a closed relay instead.
   function bind(doc: ControllerDocument, prev?: { doc: ControllerDocument; rt: Runtime }) {
     const t = simulatedTo
     const waiting = prev && prev.doc.sensor_id === doc.sensor_id ? prev.rt : null
     const pid = waiting && prev?.doc.kind === 'pid' && doc.kind === 'pid' ? waiting : null
-    const closed = (dir: 'heat' | 'cool') =>
-      !!prev &&
-      prev.doc[dir].relay_id === doc[dir].relay_id &&
-      relayOn(prev.doc, prev.rt, dir === 'heat' ? prev.rt.heatDuty : prev.rt.coolDuty, prev.doc[dir].period_s, t)
+    const keepLatch = prev?.doc.kind === 'bang_bang' && doc.kind === 'bang_bang'
+    const latched = (dir: 'heat' | 'cool') =>
+      keepLatch
+        ? prev!.rt.latch === (dir === 'heat' ? 'heating' : 'cooling')
+        : !!doc[dir].relay_id && relayOf(doc[dir].relay_id).on
+    // A relay the Save keeps carries what holds it until the next pass, in either direction now:
+    // the device's claim is the relay's.
+    const keeps = (dir: 'heat' | 'cool') => !!prev && prev.doc[dir].relay_id === doc[dir].relay_id
+    const keptWait = (dir: 'heat' | 'cool'): RelayWait => {
+      const relay = doc[dir].relay_id
+      if (!prev || !relay) return 'none'
+      if (prev.doc.heat.relay_id === relay) return prev.rt.heatWait
+      return prev.doc.cool.relay_id === relay ? prev.rt.coolWait : 'none'
+    }
+    // A PID's gap between pulses was the old relay's: the one a Save moves it to has not closed.
+    const keptAction = (): ClimateHubAction => {
+      if (!prev) return 'off'
+      const was = prev.rt.action
+      return (was === 'heating' && !keeps('heat')) || (was === 'cooling' && !keeps('cool')) ? 'idle' : was
+    }
     const integral = pid
       ? clamp(pid.integral, doc.pid.min_integral, doc.pid.max_integral)
       : doc.pid.starting_integral_term
@@ -976,19 +1011,21 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       waitingSince: waiting ? waiting.waitingSince : t,
       lastControl: pid ? pid.lastControl : null,
       due: true,
-      resetLatch: false,
       prevError: pid ? pid.prevError : null,
       integral,
-      action: closed('heat') && heatAllowed(doc) ? 'heating' : closed('cool') && coolAllowed(doc) ? 'cooling' : 'idle',
+      latch: heatAllowed(doc) && latched('heat') ? 'heating' : coolAllowed(doc) && latched('cool') ? 'cooling' : 'idle',
+      action: keptAction(),
       fault: 'none',
       heatDuty: prev ? prev.rt.heatDuty : 0,
       coolDuty: prev ? prev.rt.coolDuty : 0,
+      heatWait: keptWait('heat'),
+      coolWait: keptWait('cool'),
       terms: pid
         ? { ...pid.terms, integral: round(integral, 3) }
         : { error: null, proportional: null, integral: null, derivative: null, in_deadband: false }
     }
     rt.fault = faultOf(doc, rt, t)
-    rt.action = standingAction(doc, rt)
+    rt.action = relayAction(doc, rt)
     running.set(doc.id, rt)
     waitReasons.delete(doc.id)
   }
@@ -1000,14 +1037,67 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     return temp > doc.safety.max_temperature ? 'overtemp' : 'none'
   }
 
-  // What the entity shows until the next pass: off only on a fault or in mode off.
-  function standingAction(doc: ControllerDocument, rt: Runtime): ClimateHubAction {
+  // ControllerRuntime::relay_action_(): what the relays do, not what the thermostat wants;
+  // off only on a fault or in mode off.
+  function relayAction(doc: ControllerDocument, rt: Runtime): ClimateHubAction {
     if (rt.fault !== 'none' || doc.mode === 'off') return 'off'
     if (readingOf(doc.sensor_id) === null) return 'idle'
-    if (doc.kind === 'bang_bang') return rt.resetLatch || rt.action === 'off' ? 'idle' : rt.action
-    if (heatAllowed(doc) && rt.heatDuty > 0) return 'heating'
-    if (coolAllowed(doc) && rt.coolDuty > 0) return 'cooling'
-    return 'idle'
+    const heating = shows(doc, rt, 'heat')
+    const cooling = shows(doc, rt, 'cool')
+    // Both closed only while min_on holds one after a switch-over: the one it drives now wins.
+    if (heating && (!cooling || rt.heatDuty > 0)) return 'heating'
+    return cooling ? 'cooling' : 'idle'
+  }
+
+  // A relay shows its direction while it is closed; a PID's also between two pulses once the
+  // first has closed it, while the mode drives that way.
+  function shows(doc: ControllerDocument, rt: Runtime, dir: 'heat' | 'cool'): boolean {
+    const relayId = doc[dir].relay_id
+    if (!relayId) return false
+    if (relayOf(relayId).on) return true
+    const drives = dir === 'heat' ? heatAllowed(doc) : coolAllowed(doc)
+    const duty = dir === 'heat' ? rt.heatDuty : rt.coolDuty
+    return doc.kind === 'pid' && drives && duty > 0 && rt.action === (dir === 'heat' ? 'heating' : 'cooling')
+  }
+
+  // RelayClaim::request(): the relay goes where `want` says once its min_on or min_off since
+  // its last move is over; until then it stays, and the answer says which holds it.
+  function request(out: OutputConfig, want: boolean, t: number): RelayWait {
+    const relay = relayOf(out.relay_id)
+    if (relay.on === want) return 'none'
+    if (t - relay.since < (relay.on ? out.min_on_s : out.min_off_s) * 1000) return relay.on ? 'min_on' : 'min_off'
+    relay.on = want
+    relay.since = t
+    return 'none'
+  }
+
+  // RelayClaim::force_off(): open at once, whatever min_on says; an open relay does not move.
+  function forceOff(relayId: string, t: number) {
+    const relay = relayOf(relayId)
+    if (!relay.on) return
+    relay.on = false
+    relay.since = t
+  }
+
+  // ControllerRuntime::tick() after its pass: the relays move as their minimums let them, and
+  // the action follows them.
+  function drive(doc: ControllerDocument, rt: Runtime, t: number) {
+    const holdsOpen = readingOf(doc.sensor_id) === null || rt.fault !== 'none' || doc.mode === 'off'
+    if (doc.heat.relay_id) {
+      if (holdsOpen) forceOff(doc.heat.relay_id, t)
+      rt.heatWait = holdsOpen ? 'none' : request(doc.heat, pwm(doc, rt, rt.heatDuty, doc.heat.period_s, t), t)
+    }
+    if (doc.cool.relay_id) {
+      if (holdsOpen) forceOff(doc.cool.relay_id, t)
+      rt.coolWait = holdsOpen ? 'none' : request(doc.cool, pwm(doc, rt, rt.coolDuty, doc.cool.period_s, t), t)
+    }
+    rt.action = relayAction(doc, rt)
+  }
+
+  // ClimateHub::let_go_(): a relay no running thermostat holds any more opens at once.
+  function releaseUnheld() {
+    const held = heldRelays()
+    for (const relayId of relays.keys()) if (!held.has(relayId)) forceOff(relayId, simulatedTo)
   }
 
   // A sensor that is there but cannot feed a thermostat (400), else undefined.
@@ -1140,7 +1230,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     const on = run.direction === 'heat' ? output > 0 : output < 0
     rt.heatDuty = run.direction === 'heat' && on ? 1 : 0
     rt.coolDuty = run.direction === 'cool' && on ? 1 : 0
-    rt.action = standingAction(doc, rt)
+    rt.action = relayAction(doc, rt)
   }
 
   // ControllerRuntime::end_autotune: nothing the PID held carries on.
@@ -1262,7 +1352,6 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     if (faulted && rt.fault === 'none') rt.due = true
     // Waiting for a first reading is no fault, but nothing to act on either.
     if (temp === null || rt.fault !== 'none' || doc.mode === 'off') {
-      rt.action = standingAction(doc, rt)
       rt.heatDuty = 0
       rt.coolDuty = 0
       return
@@ -1286,7 +1375,6 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       const out = p + rt.integral + d
       rt.heatDuty = heatAllowed(doc) ? clamp(out, 0, 1) : 0
       rt.coolDuty = coolAllowed(doc) ? clamp(-out, 0, 1) : 0
-      rt.action = rt.heatDuty > 0 ? 'heating' : rt.coolDuty > 0 ? 'cooling' : 'idle'
       rt.terms = {
         error: round(e, 3),
         proportional: round(p, 3),
@@ -1297,18 +1385,14 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       return
     }
 
-    // Bang-bang: switch at the band's ends, hold the last action in between.
+    // Bang-bang: switch at the band's ends, hold the latch in between.
     const low = doc.setpoint - doc.bang_bang.below
     const high = doc.setpoint + doc.bang_bang.above
-    let action: ClimateHubAction = rt.resetLatch ? 'idle' : rt.action
-    rt.resetLatch = false
-    if (temp < low) action = heatAllowed(doc) ? 'heating' : 'idle'
-    else if (temp > high) action = coolAllowed(doc) ? 'cooling' : 'idle'
-    else if (doc.mode === 'heat_cool' && doc.heat.relay_id && doc.cool.relay_id) action = 'idle'
-    else if (action === 'off') action = 'idle'
-    rt.action = action
-    rt.heatDuty = rt.action === 'heating' ? 1 : 0
-    rt.coolDuty = rt.action === 'cooling' ? 1 : 0
+    if (temp < low) rt.latch = heatAllowed(doc) ? 'heating' : 'idle'
+    else if (temp > high) rt.latch = coolAllowed(doc) ? 'cooling' : 'idle'
+    else if (doc.mode === 'heat_cool' && doc.heat.relay_id && doc.cool.relay_id) rt.latch = 'idle'
+    rt.heatDuty = rt.latch === 'heating' ? 1 : 0
+    rt.coolDuty = rt.latch === 'cooling' ? 1 : 0
   }
 
   function advance(to: number) {
@@ -1317,22 +1401,27 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       simulatedTo += STEP_MS
       for (const doc of docs) {
         const rt = running.get(doc.id)
-        if (rt) runControl(doc, rt, simulatedTo)
+        if (!rt) continue
+        runControl(doc, rt, simulatedTo)
+        drive(doc, rt, simulatedTo)
       }
       for (const [sensorId, room] of rooms) {
         if (room.temp === null) continue
-        let drive = 0
+        let power = 0
         for (const doc of docs) {
-          const rt = running.get(doc.id)
-          if (rt && doc.sensor_id === sensorId) drive += rt.heatDuty - rt.coolDuty
+          if (!running.has(doc.id) || doc.sensor_id !== sensorId) continue
+          // The relays as they are, so a minimum that holds one shows in the room too.
+          if (doc.heat.relay_id && relayOf(doc.heat.relay_id).on) power += 1
+          if (doc.cool.relay_id && relayOf(doc.cool.relay_id).on) power -= 1
         }
-        room.temp += HEAT_PER_STEP * drive - (room.temp - room.ambient) * LOSS_PER_STEP
+        room.temp += HEAT_PER_STEP * power - (room.temp - room.ambient) * LOSS_PER_STEP
       }
     }
   }
 
-  // A PID output is a slow PWM: the relay is closed for `duty` of every period.
-  function relayOn(doc: ControllerDocument, rt: Runtime, duty: number, periodS: number, t: number): boolean {
+  // Where the thermostat wants the relay. A PID output is a slow PWM: closed for `duty` of
+  // every period.
+  function pwm(doc: ControllerDocument, rt: Runtime, duty: number, periodS: number, t: number): boolean {
     if (duty <= 0) return false
     if (doc.kind === 'bang_bang' || duty >= 1) return true
     const period = periodS * 1000
@@ -1364,11 +1453,12 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     if (typeof call.target === 'number' && !Number.isNaN(call.target)) {
       doc.setpoint = clamp(call.target, doc.visual.min_temperature, doc.visual.max_temperature)
     }
-    if (doc.mode !== previousMode) rt.resetLatch = true
+    // Carried across a mode change, the latch would keep the heater running in COOL.
+    if (doc.mode !== previousMode) rt.latch = 'idle'
     if (doc.mode !== previousMode) endRun(doc, rt, 'mode_changed', simulatedTo)
     else if (doc.setpoint !== previousTarget) endRun(doc, rt, 'target_changed', simulatedTo)
     // Published with the mode it replaced, the action would say "off" in HEAT until the next pass.
-    rt.action = standingAction(doc, rt)
+    rt.action = relayAction(doc, rt)
     rt.due = true
   }
 
@@ -1390,8 +1480,10 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       step: doc.visual.step,
       heat_duty: rt ? round(rt.heatDuty, 3) : 0,
       cool_duty: rt ? round(rt.coolDuty, 3) : 0,
-      heat_relay_on: !!rt && relayOn(doc, rt, rt.heatDuty, doc.heat.period_s, t),
-      cool_relay_on: !!rt && relayOn(doc, rt, rt.coolDuty, doc.cool.period_s, t)
+      heat_relay_on: !!rt && !!doc.heat.relay_id && relayOf(doc.heat.relay_id).on,
+      cool_relay_on: !!rt && !!doc.cool.relay_id && relayOf(doc.cool.relay_id).on,
+      heat_relay_wait: rt ? rt.heatWait : 'none',
+      cool_relay_wait: rt ? rt.coolWait : 'none'
     }
     if (doc.kind === 'bang_bang') {
       status.switch_low = round(doc.setpoint - doc.bang_bang.below, 3)
@@ -1604,7 +1696,13 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     if (mutating === undefined) return fail(404, 'Unknown endpoint')
     const allow = mutating ? 'POST' : 'GET'
     if (method.toUpperCase() !== allow) return { ...fail(405, 'Method not allowed'), headers: { Allow: allow } }
+    const result = route(name, search, body, t)
+    // A stop, a removal or a Save onto other relays lets go of what it held.
+    if (mutating) releaseUnheld()
+    return result
+  }
 
+  function route(name: string, search: URLSearchParams, body: string, t: number): MockResult {
     switch (name) {
       case 'ping':
         return { status: 200, body: { status: 'ok' } }

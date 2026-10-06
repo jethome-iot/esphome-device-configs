@@ -165,7 +165,8 @@ TEST_F(Calibration, AFloorHeatingTakesEightToTenHours) {
   EXPECT_NEAR(0.111f * run->tuner().ku() * run->tuner().pu(), hub().store().get(id)->pid.kd, 1e-3f);
 }
 
-// Full or nothing at the band's edges, and Home Assistant sees heating or idle as from any PID.
+// Full or nothing at the band's edges, and Home Assistant sees heating while the relay is closed,
+// as from any PID.
 TEST_F(Calibration, TheRelayGoesFullOrOffAtTheBand) {
   const RoomModel model = radiator_room();
   Room room(model);
@@ -180,7 +181,7 @@ TEST_F(Calibration, TheRelayGoesFullOrOffAtTheBand) {
     if (ended(id))
       return true;
     EXPECT_TRUE(rt->heat_duty() == 0.f || rt->heat_duty() == 1.f) << rt->heat_duty();
-    EXPECT_EQ(rt->heat_duty() > 0.f ? climate::CLIMATE_ACTION_HEATING : climate::CLIMATE_ACTION_IDLE, entity->action);
+    EXPECT_EQ(entities().relay1.state ? climate::CLIMATE_ACTION_HEATING : climate::CLIMATE_ACTION_IDLE, entity->action);
     const bool now = entities().relay1.state;
     if (now != was) {
       const float t = entity->current_temperature;
@@ -356,7 +357,7 @@ TEST_F(Calibration, ATargetOrAModeSetOnTheRuntimeItselfEndsIt) {
   EXPECT_EQ(AutotuneEnd::TARGET_CHANGED, hub().autotune(id)->reason());
   EXPECT_EQ(10500u, hub().autotune(id)->elapsed_ms(hub().ms + 60000)) << "ended at the clock it was given";
   EXPECT_EQ(nullptr, rt->autotune());
-  EXPECT_EQ(climate::CLIMATE_ACTION_IDLE, entity->action) << "the run's relay is not the PID's";
+  EXPECT_EQ(0.f, rt->heat_duty()) << "the run's relay is not the PID's";
 
   ASSERT_TRUE(this->calibrate(id).ok);
   auto mode = entity->make_call();
@@ -668,9 +669,9 @@ TEST_F(Calibration, StartedInsideTheBandTheRelayStartsOpen) {
   ASSERT_EQ(climate::CLIMATE_ACTION_HEATING, hub().entity_of(id)->action) << "the PID heats a little";
   const auto &seen = published(hub().entity_of(id));
   ASSERT_TRUE(this->calibrate(id).ok);
-  EXPECT_EQ(std::vector<climate::ClimateAction>{climate::CLIMATE_ACTION_IDLE}, seen) << "Home Assistant hears of it";
   hold(20.9f, 10, 1);
   EXPECT_FALSE(entities().relay1.state);
+  EXPECT_EQ(std::vector<climate::ClimateAction>{climate::CLIMATE_ACTION_IDLE}, seen) << "Home Assistant hears of it";
 }
 
 // A new run replaces the last one's numbers.

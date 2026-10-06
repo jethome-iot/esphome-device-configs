@@ -188,4 +188,16 @@ bool autotune_direction_from_string(const std::string &s, AutotuneDirection *out
   return false;
 }
 
+const char *relay_wait_to_string(RelayWait v) {
+  switch (v) {
+    case RelayWait::NONE:
+      return "none";
+    case RelayWait::MIN_ON:
+      return "min_on";
+    case RelayWait::MIN_OFF:
+      return "min_off";
+  }
+  return "none";
+}
+
 }  // namespace esphome::climate_hub::enums

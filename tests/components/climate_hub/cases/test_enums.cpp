@@ -96,4 +96,10 @@ TEST(Enums, CalibrationRulesAndDirectionsRoundTrip) {
   EXPECT_EQ(AutotuneDirection::COOL, direction);
 }
 
+TEST(Enums, RelayWaitNamesAreStable) {
+  EXPECT_STREQ("none", enums::relay_wait_to_string(RelayWait::NONE));
+  EXPECT_STREQ("min_on", enums::relay_wait_to_string(RelayWait::MIN_ON));
+  EXPECT_STREQ("min_off", enums::relay_wait_to_string(RelayWait::MIN_OFF));
+}
+
 }  // namespace esphome::climate_hub::testing
