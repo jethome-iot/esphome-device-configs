@@ -159,19 +159,34 @@ esphome:
               menu->set_text([sw](const MenuItem *) {
                 return sw->get_name().str() + (sw->state ? " (On)" : " (Off)");
               });
-              auto *state_row = new MenuItemSwitch();
+              // Not a MenuItemSwitch: a relay a thermostat drives is the thermostat's, and the row
+              // only logs whose it is.
+              auto *state_row = new MenuItemCustom();
               state_row->set_text(std::string("State"));
-              state_row->set_switch_variable(sw);
-              state_row->set_on_text("On");
-              state_row->set_off_text("Off");
               state_row->set_immediate_edit(true);
+              state_row->set_value_lambda([sw](const MenuItem *) { return std::string(sw->state ? "On" : "Off"); });
+              auto toggle = [sw]() {
+                const std::string holder = switch_hold::holder(sw);
+                if (holder.empty()) {
+                  sw->toggle();
+                } else {
+                  ESP_LOGI("menu", "'%s' left alone: thermostat '%s' drives it", sw->get_name().c_str(), holder.c_str());
+                }
+              };
+              state_row->add_on_next_callback(toggle);
+              state_row->add_on_prev_callback(toggle);
               menu->add_item(state_row);
 
+              // set_option refuses only an Inverted change on a relay a thermostat drives.
               auto field_row = [&](const char *text, Field field) {
                 add_row(menu, text, [sws, field]() { return sws->option_count(field); },
                         [sws, sw, field](int index) { return sws->option_label(sw, field, index); },
                         [sws, sw, field]() { return sws->option_index(sw, field); },
-                        [sws, sw, field](size_t index) { sws->set_option(sw, field, index); });
+                        [sws, sw, field](size_t index) {
+                          if (!sws->set_option(sw, field, index))
+                            ESP_LOGI("menu", "'%s' Inverted left alone: thermostat '%s' drives it",
+                                     sw->get_name().c_str(), switch_hold::holder(sw).c_str());
+                        });
               };
               field_row("Inverted", Field::INVERTED);
               field_row("Start mode", Field::RESTORE_MODE);

@@ -11,7 +11,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [config_base, config_json, entity_config, bindings]
+    components: [config_base, config_json, entity_config, bindings, switch_hold]
 
 bindings:
 ```
@@ -30,6 +30,10 @@ Nothing to configure; needs at least one `switch` and one `binary_sensor` in the
 | `none` | No binding. |
 | `toggle` | The output flips on the input's rising edge. |
 | `follow` | The output mirrors the input. At boot it is driven once after every entity is up, so it wins over the switch's `restore_mode`. |
+
+An output a running thermostat drives (a [`switch_hold`](../switch_hold/switch_hold.h) holder) is
+left alone, at boot too, and the log says which thermostat has it. Once the thermostat lets go
+of it, a `follow` output takes the input's state at once; a `toggle` one waits for the next edge.
 
 Bindings do not chain: a switch is never a source. Conditions, delays and anything time-based
 belong to automations.

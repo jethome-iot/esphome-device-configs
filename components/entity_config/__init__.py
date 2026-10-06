@@ -12,7 +12,7 @@ from esphome.const import PLATFORM_ESP32, PLATFORM_HOST
 
 CODEOWNERS = ["@jethome-iot"]
 DEPENDENCIES = ["config_json"]
-AUTO_LOAD = ["json"]
+AUTO_LOAD = ["json", "switch_hold"]
 
 CONF_CONFIG_JSON_ID = "config_json_id"
 CONF_SETTINGS = "settings"

@@ -18,7 +18,7 @@ from esphome.core.entity_helpers import register_icon
 CODEOWNERS = ["@jethome-iot"]
 DEPENDENCIES = ["filesystem_storage_abstract"]
 # No sensor or switch: the C++ finds nothing without them, as automations does.
-AUTO_LOAD = ["climate", "json", "loop_job"]
+AUTO_LOAD = ["climate", "json", "loop_job", "switch_hold"]
 
 CONF_STORAGE = "storage"
 CONF_FOLDER_PATH = "folder_path"

@@ -11,6 +11,7 @@
 #include "esphome/components/config_json/config_json.h"
 #include "esphome/components/config_json/settings_base_json.h"
 #include "esphome/components/switch/switch.h"
+#include "esphome/components/switch_hold/switch_hold.h"
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
@@ -54,6 +55,16 @@ inline bool parse_restore_mode(const char *name, switch_::SwitchRestoreMode &mod
     }
   }
   return false;
+}
+
+// Why `inverted` may not change on `sw` now: a flipped contact would invert what the running
+// thermostat that holds it does. "" when nothing holds it.
+inline std::string inverted_refusal(const switch_::Switch *sw) {
+  const std::string holder = switch_hold::holder(sw);
+  if (holder.empty())
+    return "";
+  return "\"" + std::string(sw->get_name().c_str()) + "\" is driven by \"" + holder +
+         "\": stop that thermostat to change Inverted";
 }
 
 // What the display menu offers, in this order; write_settings_meta reuses it.
@@ -229,6 +240,13 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     }
 #endif
 
+    // Last: a request that is wrong anyway is a 400 whoever holds the relay.
+    if (inverted != sw->is_inverted()) {
+      this->conflict_ = inverted_refusal(sw);
+      if (!this->conflict_.empty())
+        return nullptr;
+    }
+
     auto *record = this->make_record(sw, restore_mode, inverted);
 #ifdef ENTITY_CONFIG_BINDINGS
     if (record != nullptr && has_binding_keys)
@@ -319,10 +337,13 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     return "";
   }
 
-  // Applied at once, saved after the debounce.
-  void set_option(switch_::Switch *sw, Field field, size_t index) {
+  // Applied at once, saved after the debounce. False, nothing changed, for an index out of range
+  // or an Inverted that inverted_refusal() forbids.
+  bool set_option(switch_::Switch *sw, Field field, size_t index) {
     if (index >= this->option_count(field))
-      return;
+      return false;
+    if (field == Field::INVERTED && (index == 1) != sw->is_inverted() && !inverted_refusal(sw).empty())
+      return false;
     auto *record = this->edit_(sw);
     switch (field) {
       case Field::INVERTED:
@@ -341,6 +362,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
 #endif
     }
     this->commit_(record);
+    return true;
   }
 
   void write_settings_meta(JsonObject obj) override {

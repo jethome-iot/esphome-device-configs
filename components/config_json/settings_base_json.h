@@ -28,6 +28,9 @@ class SettingsBaseJson : public config_base::SettingsBaseCommon {
   // the overrides stay so it does not have to reinstate them. The display menu edits records
   // through the typed lambda API instead.
   virtual void *update_record_from_json(JsonObject obj) { return nullptr; }
+  /// After update_record_from_json() refused a sound request because of the device's state (a
+  /// relay a thermostat drives), the sentence that says so; "" after any other answer.
+  const std::string &conflict() const { return this->conflict_; }
   virtual void apply_record(void *record) {}
   virtual void *can_delete(JsonObject obj) { return nullptr; }
   virtual bool delete_record(void *record) { return false; }
@@ -36,6 +39,9 @@ class SettingsBaseJson : public config_base::SettingsBaseCommon {
 
   bool load_from_file(filesystem_storage_abstract::FilesystemStorageAbstract *storage, const std::string &dir_path);
   bool save_to_file(filesystem_storage_abstract::FilesystemStorageAbstract *storage, const std::string &dir_path);
+
+ protected:
+  std::string conflict_;
 };
 
 // A list of records under "records". TRecord: from_json(JsonObject, uint32_t), to_json(JsonObject,
@@ -44,7 +50,10 @@ template<typename Derived, typename TRecord> class SettingsBaseJsonTyped : publi
  public:
   ~SettingsBaseJsonTyped() override { this->clear_records_(); }
 
-  void *update_record_from_json(JsonObject obj) final { return static_cast<Derived *>(this)->update_record(obj); }
+  void *update_record_from_json(JsonObject obj) final {
+    this->conflict_.clear();
+    return static_cast<Derived *>(this)->update_record(obj);
+  }
 
   void apply_record(void *record) final { static_cast<Derived *>(this)->apply_record_(static_cast<TRecord *>(record)); }
 

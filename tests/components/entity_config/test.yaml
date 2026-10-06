@@ -27,7 +27,7 @@ logger:
 
 external_components:
   - source: ../../../components
-    components: [filesystem_storage_abstract, config_base, config_json, entity_config, bindings]
+    components: [filesystem_storage_abstract, config_base, config_json, entity_config, bindings, switch_hold]
   - source: ../../harness/components
     components: [dir_storage]
 

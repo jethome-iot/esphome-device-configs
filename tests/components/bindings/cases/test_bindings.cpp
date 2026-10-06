@@ -145,3 +145,97 @@ TEST_F(Bindings, AnAnnouncedLevelIsNotAnEdge) {
 }
 
 }  // namespace esphome::bindings::testing
+
+namespace esphome::bindings::testing {
+
+// A running thermostat's relay is the thermostat's: no binding moves it, and the log says who has it.
+TEST_F(Bindings, AHeldOutputIsLeftAlone) {
+  manager->setup();
+  holder.held[&e.relay1] = "Living room";
+  manager->set_binding(RELAY_1, IN_1, BindingMode::FOLLOW);
+  manager->set_binding(RELAY_2, IN_2, BindingMode::TOGGLE);
+  e.in1.publish_state(true);
+  e.in1.publish_state(false);
+  EXPECT_EQ(e.relay1.writes, 0);
+  EXPECT_TRUE(log().has_info("'Relay 1' left alone: thermostat 'Living room' drives it"));
+
+  holder.held[&e.relay2] = "Floor";
+  press(e.in2);
+  EXPECT_EQ(e.relay2.writes, 0);
+  holder.held.erase(&e.relay2);
+  press(e.in2);
+  EXPECT_EQ(e.relay2.writes, 1) << "free again: the next edge toggles";
+}
+
+TEST_F(Bindings, TheBootDriveAndANewBindingSkipAHeldOutput) {
+  e.in1.publish_state(true);
+  e.in2.publish_state(true);
+  manager->set_binding(RELAY_1, IN_1, BindingMode::FOLLOW);
+  holder.held[&e.relay1] = "Living room";
+  manager->setup();
+  EXPECT_EQ(e.relay1.writes, 0);
+
+  holder.held[&e.relay2] = "Floor";
+  manager->set_binding(RELAY_2, IN_2, BindingMode::FOLLOW);
+  EXPECT_EQ(e.relay2.writes, 0);
+}
+
+// Once the thermostat lets go, a follow output takes the input's level at once; a toggle one
+// waits for the next edge, and an output nothing binds stays where the thermostat left it.
+TEST_F(Bindings, AFollowBindingTakesItsOutputBackOnRelease) {
+  manager->setup();
+  holder.held[&e.relay1] = "Living room";
+  holder.held[&e.relay2] = "Floor";
+  manager->set_binding(RELAY_1, IN_1, BindingMode::FOLLOW);
+  manager->set_binding(RELAY_2, IN_2, BindingMode::TOGGLE);
+  e.in1.publish_state(true);
+  e.in2.publish_state(true);
+
+  holder.release(&e.relay1);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 1);
+  holder.release(&e.relay2);
+  EXPECT_EQ(e.relay2.writes, 0);
+
+  manager->remove_binding(RELAY_1);
+  holder.held[&e.relay1] = "Living room";
+  holder.release(&e.relay1);
+  EXPECT_EQ(e.relay1.writes, 1);
+}
+
+TEST_F(Bindings, AReleaseWhileTheInputHasNoStateDrivesNothing) {
+  manager->setup();
+  manager->set_binding(RELAY_1, IN_1, BindingMode::FOLLOW);
+  EXPECT_EQ(e.relay1.writes, 1);
+  e.in1.invalidate_state();
+  holder.held[&e.relay1] = "Living room";
+  holder.release(&e.relay1);
+  EXPECT_EQ(e.relay1.writes, 1);
+}
+
+// A binding whose input this build lacks leaves the freed output where the thermostat left it.
+TEST_F(Bindings, AReleaseWithTheInputMissingDrivesNothing) {
+  manager->setup();
+  manager->set_binding(RELAY_1, NO_SUCH, BindingMode::FOLLOW);
+  holder.held[&e.relay1] = "Living room";
+  holder.release(&e.relay1);
+  EXPECT_EQ(e.relay1.writes, 0);
+}
+
+// An output this build lacks is kept like a missing input, and only logged when driven.
+TEST_F(Bindings, AMissingOutputIsLoggedWhenDriven) {
+  manager->setup();
+  manager->set_binding(NO_SUCH, IN_1, BindingMode::FOLLOW);
+  e.in1.publish_state(true);
+  EXPECT_TRUE(log().has("Output 0x"));
+  EXPECT_TRUE(manager->remove_binding(NO_SUCH));
+}
+
+// After the thermostats have claimed their relays (climate_hub, DATA - 0.5), before the rules
+// (automations, DATA - 1).
+TEST_F(Bindings, SetsUpBetweenTheThermostatsAndTheRules) {
+  EXPECT_LT(manager->get_setup_priority(), setup_priority::DATA - 0.5f);
+  EXPECT_GT(manager->get_setup_priority(), setup_priority::DATA - 1.f);
+}
+
+}  // namespace esphome::bindings::testing
