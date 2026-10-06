@@ -671,9 +671,50 @@ void WebDeviceDashboard::handle_capabilities_(AsyncWebServerRequest *request) {
     if (this->temperature_slots_ != nullptr)
       root["temperature_slots"] = true;
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
+    if (this->modbus_map_ != nullptr)
+      write_modbus_map_(root["modbus"].to<JsonObject>(), *this->modbus_map_);
+#endif
   });
   request->send(200, "application/json", body.c_str());
 }
+
+#ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
+// The shape client/device/types.ts reads: both tables even when empty, the optional fields only
+// when the map gives them.
+void WebDeviceDashboard::write_modbus_map_(JsonObject modbus, const modbus_map::ModbusMap &map) {
+  JsonArray bits = modbus["bits"].to<JsonArray>();
+  for (const auto &range : map.bits()) {
+    JsonObject entry = bits.add<JsonObject>();
+    entry["address"] = range.address;
+    entry["last_address"] = range.last_address;
+    entry["count"] = range.count;
+    entry["writable"] = range.writable;
+    entry["name"] = range.name;
+  }
+  JsonArray registers = modbus["registers"].to<JsonArray>();
+  for (const auto &range : map.registers()) {
+    JsonObject entry = registers.add<JsonObject>();
+    entry["address"] = range.address;
+    entry["last_address"] = range.last_address;
+    entry["count"] = range.count;
+    entry["writable"] = range.writable;
+    entry["name"] = range.name;
+    entry["value_type"] = range.value_type;
+    if (range.scale > 0.0f)
+      entry["scale"] = range.scale;
+    if (range.unit != nullptr)
+      entry["unit"] = range.unit;
+    if (range.no_value >= 0)
+      entry["no_value"] = range.no_value;
+  }
+  if (map.has_courtesy_response()) {
+    JsonObject courtesy = modbus["courtesy_response"].to<JsonObject>();
+    courtesy["last_address"] = map.courtesy_last_address();
+    courtesy["value"] = map.courtesy_value();
+  }
+}
+#endif
 
 bool WebDeviceDashboard::read_json_body_(AsyncWebServerRequest *request, JsonDocument &doc) {
   if (!this->require_json_(request))
