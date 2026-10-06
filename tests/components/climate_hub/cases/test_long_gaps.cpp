@@ -59,6 +59,26 @@ class LongGaps : public HubTest {
     call.perform();
   }
 
+  // A PID at 21, read every minute, and a calibration started on it at a reading of 21.
+  const AutotuneRun *calibrate() {
+    ClimateConfig config = base(ControlKind::PID);
+    config.setpoint = 21.f;
+    config.safety.sensor_timeout_s = 120.f;
+    this->start(config, 21.f);
+    hub().loop();
+    EXPECT_TRUE(hub().start_autotune(this->id_, nullopt, AutotuneRule::ZN_PI).ok);
+    return hub().autotune(this->id_);
+  }
+
+  // `count` readings of `value` a minute apart, a pass after each.
+  static void readings(float value, int count) {
+    for (int i = 0; i < count; i++) {
+      hub().ms += 60000;
+      entities().room.publish_state(value);
+      hub().loop();
+    }
+  }
+
   std::string id_;
 };
 
@@ -209,6 +229,66 @@ TEST_F(LongGaps, ARelayLetGoBeforeTheMillisWrapClosesAtOnceAfterIt) {
   this->start(config, 18.f);
   tick(hub().ms);
   EXPECT_TRUE(entities().relay1.state);
+}
+
+// --- Calibrations and rule actions ---
+
+// Started half an hour before a 32-bit millis() would wrap, a run that switches every five hours
+// goes on through the wrap and ends on its day to the minute.
+TEST_F(LongGaps, ACalibrationEndsOnItsDayAcrossTheMillisWrap) {
+  hub().ms = MILLIS_WRAP - 30 * 60000;
+  const AutotuneRun *run = this->calibrate();
+  ASSERT_NE(nullptr, run);
+  for (int phase = 0; phase < 4; phase++)
+    readings(phase % 2 == 0 ? 20.5f : 21.5f, 300);
+  readings(20.5f, 239);
+  ASSERT_GT(hub().ms, MILLIS_WRAP);
+  EXPECT_TRUE(run->running()) << "a minute short of a day";
+  EXPECT_EQ(5u, run->tuner().phase_count());
+  EXPECT_EQ(1439u * 60000, run->elapsed_ms(hub().ms));
+
+  readings(20.5f, 1);
+  EXPECT_EQ(AutotuneEnd::TIMEOUT, run->reason());
+  EXPECT_EQ(AUTOTUNE_MAX_MS, run->elapsed_ms(hub().ms + 60000));
+}
+
+// A rule's turn-off after the wrap ends a run started before it at the hub's clock.
+TEST_F(LongGaps, ARuleEndsACalibrationAcrossTheMillisWrapAtTheHubsClock) {
+  hub().ms = MILLIS_WRAP - 60000;
+  const AutotuneRun *run = this->calibrate();
+  ASSERT_NE(nullptr, run);
+  readings(21.f, 2);
+  hub().ms += 500;
+  ASSERT_TRUE(hub().turn_off(this->id_).ok);
+  EXPECT_EQ(AutotuneEnd::MODE_CHANGED, run->reason());
+  EXPECT_EQ(120500u, run->elapsed_ms(hub().ms + 60000));
+}
+
+// A rule turns a thermostat off and, 49.7 days and a second later, on again: ten minutes of
+// min_off are long over, and the PID goes on from the integral it held. In 32 bits the second
+// would read as the time since the relay opened.
+TEST_F(LongGaps, ARuleTurnsAThermostatBackOnPastTheMillisWrap) {
+  ClimateConfig config = integrating();
+  config.pid.kp = 0.1f;
+  config.heat.min_off_s = 600.f;
+  config.safety.sensor_timeout_s = 60.f;
+  // Past the min_off the boot started.
+  hub().ms = 1000000;
+  ControllerRuntime *rt = this->start(config, 20.f);
+  tick(1000000);
+  tick(1001000);
+  ASSERT_TRUE(entities().relay1.state);
+  ASSERT_NEAR(0.05f, rt->pid().integral_term(), 1e-5f);
+  ASSERT_TRUE(hub().turn_off(this->id_).ok);
+  tick(1002000);
+  ASSERT_FALSE(entities().relay1.state);
+
+  hub().ms = 1002000 + MILLIS_WRAP + 1000;
+  entities().room.publish_state(20.f);
+  ASSERT_TRUE(hub().turn_on(this->id_).ok);
+  tick(hub().ms);
+  EXPECT_TRUE(entities().relay1.state);
+  EXPECT_NEAR(0.05f, rt->pid().integral_term(), 1e-5f) << "not wound up over the pause";
 }
 
 // --- A PID after a pause ---
