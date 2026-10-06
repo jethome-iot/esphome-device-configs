@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include "autotune.h"
 #include "climate_config.h"
 #include "duty_cycler.h"
 #include "enums.h"
@@ -62,9 +63,19 @@ class ControllerRuntime {
   /// A preset, mode or target from Home Assistant, the web server or the API: the preset first,
   /// then a mode or target the call carries besides. True when the document changed and needs
   /// writing.
-  bool control(const climate::ClimateCall &call);
+  bool control(const climate::ClimateCall &call, uint32_t now_ms);
   /// Takes `preset`, one of the running document's, as a pick from Home Assistant would.
-  bool pick_preset(const PresetConfig &preset);
+  bool pick_preset(const PresetConfig &preset, uint32_t now_ms);
+
+  /// Hands the relay in `run`'s direction to the calibration, the other one held open: full
+  /// or nothing around the target, set on every sample, until the run ends. A target or a mode
+  /// that changes, a fault, or a limit of the run ends it.
+  void begin_autotune(AutotuneRun *run, uint32_t now_ms);
+  /// Lets go of the calibration, failed for `why` unless NONE (the hub has marked it a
+  /// success), and starts the PID over with the document's gains. No-op without one.
+  void end_autotune(AutotuneEnd why, uint32_t now_ms);
+  /// The calibration running here, nullptr for none.
+  AutotuneRun *autotune() const { return this->autotune_; }
 
   /// What the relays do: HEATING or COOLING while that relay is closed, and for a PID also
   /// between two pulses once the first has closed; IDLE otherwise, and without a reading. OFF
@@ -102,8 +113,12 @@ class ControllerRuntime {
   void drive_outputs_(uint32_t now_ms);
   /// `paced`: a relay closed from elsewhere goes back as RelayClaim::request() puts it back.
   void all_relays_off_(uint32_t now_ms, bool paced);
-  /// Applies a preset, then a mode and a target, each when given; publishes the outcome.
-  bool apply_(const PresetConfig *preset, optional<HubMode> mode, optional<float> target);
+  /// Applies a preset, then a mode and a target, each when given; publishes the outcome. A mode
+  /// or a target it moves ends a calibration.
+  bool apply_(const PresetConfig *preset, optional<HubMode> mode, optional<float> target, uint32_t now_ms);
+  /// Feeds a sample to the calibration and sets its relay; true when the action changed or the
+  /// run ended.
+  bool feed_autotune_(float value, uint32_t now_ms);
 
   HubClimate *entity_;
   ClimateConfig *config_{nullptr};
@@ -129,6 +144,8 @@ class ControllerRuntime {
   bool controlled_{false};
   // Run a pass at the next tick instead of waiting out update_interval_s, up to an hour.
   bool control_due_{true};
+  // Owned by the hub, which keeps it after the run ends.
+  AutotuneRun *autotune_{nullptr};
 };
 
 }  // namespace esphome::climate_hub

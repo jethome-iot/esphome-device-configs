@@ -39,6 +39,33 @@ at the next boot. The file format and the C++ API are in
   other switches the other off and leaves the relay as it is. One that could not run, its
   sensor or a relay missing, cannot take it over.
 
+## Calibrating a PID thermostat
+
+A PID thermostat can find its own gains. A calibration, started from the editor or over HTTP,
+swings the room around its target: the relay closes fully once the room is a quarter of a degree under the
+target and opens a quarter of a degree over it, so the room goes about half a degree to a degree
+either side, more where the heat is slow to arrive. The relay's minimum on and off times and the
+cut-out temperature hold throughout. A room with radiators takes about an hour and a half, a
+floor heating eight to ten hours. Start it with the room near its target: a cold floor heats at
+full power until it reaches the band, and one that needs more than 6 hours for that ends the
+calibration before its first swing. In heat and cool mode the start asks which relay to swing; the
+other one stays open. Home Assistant sees the thermostat heating (cooling when it calibrates a
+cooling relay) while the relay is closed, and idle otherwise.
+
+The device then turns what it measured into the gains of the rule picked at the start
+(Ziegler-Nichols PI unless another), writes them into the thermostat and runs with them. An
+editor page opened before can no longer save over them: its Save is refused until it reloads, as
+it is after a thermostat was brought back from a backup over the one it shows.
+The result, the gains it replaced and any warning about it stay in the thermostat's status until
+the next calibration, a delete or a reboot.
+
+A calibration ends without new gains when it is cancelled, when the target or the mode changes
+from anywhere (Home Assistant, the web server, the editor, a rule, a preset), when the thermostat
+is saved, brought back from a backup, switched off, deleted or taken over, on any fault, after 24
+hours, after 6 hours without a relay switch (a heater that cannot cross the band), or when a noisy
+probe crosses the target more than 65 times. A reboot ends it too. The status says which, and the
+thermostat goes back to its PID with the gains it had.
+
 ## A running thermostat's relays
 
 What everything else that switches a relay does with one a running thermostat drives:
@@ -79,9 +106,13 @@ understands it, but this firmware never writes it: a change from Home Assistant,
 rule lasts until the next reboot, and a Save from the editor is refused with a sentence that
 says a newer firmware wrote it. Starting it in another thermostat's place lasts until the next
 reboot too: the ones it took the relay from, running or waiting, stay enabled in their files.
-Deleting the thermostat still works. A newer file that breaks this firmware's rules — a preset
-mode it does not know, more than eight presets, a control law it does not have — is not loaded
-and is left as it is, as any file that breaks them.
+Deleting the thermostat still works. To a firmware from before calibration, every thermostat
+file this one writes is a newer firmware's, calibrated or not: rolled back to it, every
+thermostat saved or changed here keeps running but cannot be changed for good until this
+firmware is back. A calibrated one runs its gains as far as that firmware's ranges go, and its
+file keeps them for the next update. A newer file that
+breaks this firmware's rules — a preset mode it does not know, more than eight presets, a control
+law it does not have — is not loaded and is left as it is, as any file that breaks them.
 
 A thermostat whose sensor or relay is missing, at boot or when it is saved or switched on, stays
 enabled on disk but does not run; the Save or the switch-on succeeds with a warning that names
@@ -101,8 +132,8 @@ it.
 `features/climate-editor.yaml` serves the thermostats on the web server port under
 `/climate-editor/api`: list them, read, create, change and delete one, bring one back from a
 backup under its own id with its presets as they were, edit and pick its presets, start or stop
-it, move its target, and watch what each one is doing and which preset is active. The routes and
-their contract are in
+it, move its target, calibrate it, and watch what each one is doing and which preset is active.
+The routes and their contract are in
 [components/web_climate_editor/openapi.yaml](../components/web_climate_editor/openapi.yaml),
 the usage in [its README](../components/web_climate_editor/README.md).
 

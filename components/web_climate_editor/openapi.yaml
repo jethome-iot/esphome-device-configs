@@ -2,15 +2,15 @@ openapi: 3.1.0
 
 info:
   title: web_climate_editor HTTP API
-  version: 1.5.0
+  version: 1.6.0
   description: >-
     JSON/REST API of the `climate_hub` thermostats, served by the
     `web_climate_editor` component on the device's own web server (default
     prefix `/climate-editor`, routes under `<prefix>/api/`). List, read,
     create, change, start, stop and delete thermostats, bring one back from a
-    backup under its own id, edit and pick their presets, move a target, watch
-    the control loop, and discover the sensors and relays a thermostat may
-    name. ESP-IDF (ESP32) only.
+    backup under its own id, edit and pick their presets, move a target,
+    calibrate a PID thermostat, watch the control loop, and discover the
+    sensors and relays a thermostat may name. ESP-IDF (ESP32) only.
 
     This document is the wire contract; the TypeScript client and mock in
     `client/` implement it, and `client/types.ts` is where a shape changes
@@ -134,13 +134,21 @@ paths:
         list and applies that preset's new target and mode at once, and a
         create starts with none.
 
+        `revision`, when the body has it as a whole number, must be the one
+        `/get` gives now: it moves on when a calibration writes new gains and
+        when an `/import` replaces the thermostat, so a form read before
+        either is refused rather than write the old document back. A Save
+        never moves it, and one without it is not checked. A Save ends a
+        calibration the thermostat runs.
+
         The refusals come in this order, and the first one a document meets is
         the answer: `400` for an empty body, a body that is not JSON, or a
         document that breaks a rule (the thermostat's structure first, then its
         presets, its name rules last; a preset's sentence names its row from
         1); `404` for an unknown `id`, `409` for a thermostat whose file a
         newer firmware wrote, which a Save would strip of what this firmware
-        does not know, or `507` for a create past
+        does not know, `409` when the body's `revision` is not the
+        thermostat's, or `507` for a create past
         `max_controllers`; `409` for a name another thermostat or a YAML
         climate answers to, or on a create for a name whose every id is taken
         by a file in the folder; and, for an enabled thermostat, `400` when its
@@ -249,8 +257,12 @@ paths:
         stays, so the automation rules that name them still find them; a
         preset without a key gets one from its name, and an `active_preset`
         no preset has is none. `version` is not read: the file is written in
-        this firmware's format. Keys left out take their defaults and every
-        number is clamped, as on `/save`; the body is read the same way.
+        this firmware's format. `revision` is not read either: a replaced
+        thermostat's moves on by one, so a Save of a form read before the
+        import is `409`, and a new one starts at 0. Keys left out take their
+        defaults and every number is clamped, as on `/save`; the body is read
+        the same way. An import over a thermostat that calibrates ends the
+        run, as a Save does.
 
         The refusals are a Save's, in its order: `400` for an empty body, a
         body that is not JSON, or a document that breaks a rule, the `id`
@@ -585,6 +597,145 @@ paths:
         "503":
           $ref: "#/components/responses/Busy"
 
+  /autotune:
+    post:
+      tags: [write]
+      operationId: autotune
+      summary: Start or cancel the calibration of a PID thermostat.
+      description: >-
+        `value=true` starts one: the relay in `direction` closes fully when the
+        room is 0.25 °C under the target and opens 0.25 °C over it (cooling the
+        other way round), the other relay held open, with its minimum on and
+        off times and the cut-out temperature kept. Every reading feeds it.
+        After its sixth relay switch it has measured the ultimate gain and
+        period of the room, `rule` turns them into kp, ki and kd, and the
+        device writes them into the thermostat and runs with them, its
+        `revision` moved on. A room with radiators takes about an hour and a
+        half, a floor heating eight to ten hours; start near the target, since
+        a floor that needs more than 6 hours to reach the band ends the run as
+        `no_switch` before its first swing. `/status` follows it, and
+        keeps what it found, or why it ended without, until the next run, a
+        delete or a reboot: the run itself lives in memory only.
+
+        A run ends without gains when it is cancelled (`value=false`), when the
+        target or the mode changes from anywhere, at a Save or an import, when
+        the thermostat stops or another takes its relay over, on any fault, after
+        24 hours in all, after 6 hours without a relay switch, and when the
+        readings cross the target more than 65 times, as a noisy probe at the
+        target makes them. The thermostat then goes back to its PID with the
+        gains it had, from a clean start.
+
+        The parameters are read first: `400` for a missing or malformed `id`
+        or `value`, a `direction` other than `heat` or `cool`, a `rule` not
+        among the five. Then a start is `404` for an unknown `id`, `409` for a
+        bang-bang or stopped thermostat, one a newer firmware wrote, one that
+        calibrates already, or one in mode off, `400` for a `direction` its
+        mode does not drive, or none in `heat_cool`, and `409` while it
+        reports a fault. A cancel is `404`, or `409` when nothing runs.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+        - name: value
+          in: query
+          required: true
+          description: "`true` starts a calibration, `false` cancels the one that runs."
+          schema:
+            type: string
+            enum: ["true", "false"]
+        - name: direction
+          in: query
+          required: false
+          description: >-
+            The relay to swing. Required in `heat_cool`; in `heat` or `cool`
+            the mode's, and the other one is `400`.
+          schema:
+            $ref: "#/components/schemas/AutotuneDirection"
+        - name: rule
+          in: query
+          required: false
+          description: How Ku and Pu become gains; `zn_pi` when left out.
+          schema:
+            $ref: "#/components/schemas/AutotuneRule"
+      responses:
+        "200":
+          description: Started, or cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+              examples:
+                started:
+                  value:
+                    success: true
+                    message: Calibration started
+                cancelled:
+                  value:
+                    success: true
+                    message: Calibration cancelled
+        "400":
+          description: A malformed parameter, or a direction the thermostat's mode does not drive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                rule:
+                  value:
+                    success: false
+                    error: Invalid rule parameter
+                heatCool:
+                  value:
+                    success: false
+                    error: "In heat_cool, direction must say heat or cool"
+                direction:
+                  value:
+                    success: false
+                    error: "direction 'cool' needs mode cool or heat_cool"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          description: The thermostat cannot be calibrated now, or nothing runs to cancel.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                bangBang:
+                  value:
+                    success: false
+                    error: Only a PID thermostat can be calibrated
+                stopped:
+                  value:
+                    success: false
+                    error: The thermostat is not running
+                newerFirmware:
+                  value:
+                    success: false
+                    error: A newer firmware wrote this thermostat; update the firmware to change it
+                running:
+                  value:
+                    success: false
+                    error: A calibration is already running
+                "off":
+                  value:
+                    success: false
+                    error: "The thermostat is off: set it to heat or cool first"
+                fault:
+                  value:
+                    success: false
+                    error: The thermostat reports overtemp; calibrate it once that clears
+                none:
+                  value:
+                    success: false
+                    error: No calibration is running
+        "500":
+          $ref: "#/components/responses/NotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+
   /status:
     get:
       tags: [read]
@@ -795,7 +946,8 @@ components:
         The name is one another thermostat or a YAML climate answers to, every
         id it gives is taken by a file in the folder (or, on `/import`, the id
         is), a running thermostat holds the relay, another enabled thermostat
-        waits and names it, or a newer firmware wrote the thermostat's file.
+        waits and names it, a newer firmware wrote the thermostat's file, or
+        the Save's `revision` is older than the device's.
       content:
         application/json:
           schema:
@@ -827,6 +979,10 @@ components:
               value:
                 success: false
                 error: A newer firmware wrote this thermostat; update the firmware to change it
+            revision:
+              value:
+                success: false
+                error: The device changed this thermostat since it was read; reload it
             importId:
               summary: "/import onto a file the device did not load"
               value:
@@ -1122,6 +1278,7 @@ components:
         range, both in `/schema`.
       required:
         - version
+        - revision
         - id
         - name
         - enabled
@@ -1141,11 +1298,19 @@ components:
       properties:
         version:
           type: integer
-          minimum: 2
+          minimum: 3
           description: >-
-            `2`, the format this firmware writes, or the higher number of a
+            `3`, the format this firmware writes, or the higher number of a
             file a newer firmware wrote: that thermostat runs, but its Save is
             `409`.
+        revision:
+          type: integer
+          minimum: 0
+          description: >-
+            Moves on when a calibration writes new gains and when an
+            `/import` replaces the thermostat; a Save or any other write never
+            moves it, and a new thermostat has `0`. A Save that sends another
+            one is `409`.
         id:
           $ref: "#/components/schemas/Id"
         name:
@@ -1186,7 +1351,8 @@ components:
         active_preset:
           $ref: "#/components/schemas/ActivePreset"
       example:
-        version: 2
+        version: 3
+        revision: 0
         id: living-room
         name: Living Room
         enabled: true
@@ -1254,6 +1420,12 @@ components:
         version:
           type: number
           description: Ignored; a Save writes this firmware's format.
+        revision:
+          type: integer
+          minimum: 0
+          description: >-
+            The one `/get` gave. Checked when it is a whole number: another one
+            than the thermostat's is `409`. Ignored on a create.
         id:
           type: string
         name:
@@ -1329,6 +1501,12 @@ components:
             version:
               type: number
               description: Not read; the file is written in this firmware's format.
+            revision:
+              type: integer
+              minimum: 0
+              description: >-
+                Not read: a replaced thermostat's revision moves on by one, a
+                new one's is `0`.
             id:
               $ref: "#/components/schemas/Id"
             presets:
@@ -1541,6 +1719,159 @@ components:
           $ref: "#/components/schemas/RelayWait"
         pid:
           $ref: "#/components/schemas/PidTerms"
+        autotune:
+          $ref: "#/components/schemas/AutotuneStatus"
+
+    AutotuneDirection:
+      type: string
+      enum: [heat, cool]
+
+    AutotuneRule:
+      type: string
+      description: >-
+        Ziegler-Nichols PI, Ziegler-Nichols PID, Pessen Integral, Some
+        Overshoot, No Overshoot: kp = a·Ku, ki = b·Ku/Pu, kd = c·Ku·Pu with
+        (a, b, c) = (0.45, 0.54, 0), (0.6, 1.2, 0.075), (0.7, 1.75, 0.105),
+        (0.333, 0.667, 0.111), (0.2, 0.4, 0.0625).
+      enum: [zn_pi, zn_pid, pessen, some_overshoot, no_overshoot]
+
+    Gains:
+      type: object
+      required: [kp, ki, kd]
+      properties:
+        kp:
+          type: number
+        ki:
+          type: number
+        kd:
+          type: number
+
+    AutotuneStatus:
+      type: object
+      description: >-
+        A thermostat's last calibration since boot, running or ended, present
+        until the next one, a delete or a reboot.
+      required:
+        [state, reason, direction, rule, setpoint, phase, aim, swings, elapsed_s, extremes, ku, pu, flags, old, new,
+         persisted]
+      properties:
+        state:
+          type: string
+          enum: [running, succeeded, failed]
+        reason:
+          type: string
+          description: >-
+            Why a failed run ended: `cancelled`; a target or a mode changed
+            from anywhere; a Save or an import; the thermostat stopped
+            (`stopped`) or another took its relay over (`taken_over`); a
+            fault; 24 hours in all (`timeout`); 6 hours without a relay switch
+            (`no_switch`); readings that crossed the target more than 65
+            times, a noisy probe at the target (`noisy`). `""` while it runs
+            and after a success.
+          enum:
+            - ""
+            - cancelled
+            - target_changed
+            - mode_changed
+            - saved
+            - stopped
+            - taken_over
+            - sensor_stale
+            - overtemp
+            - relay_contested
+            - timeout
+            - no_switch
+            - noisy
+        direction:
+          $ref: "#/components/schemas/AutotuneDirection"
+        rule:
+          $ref: "#/components/schemas/AutotuneRule"
+        setpoint:
+          type: number
+          description: >-
+            The target the run swings the room around: the thermostat's when
+            it started, kept after a later target ended it or moved on.
+        phase:
+          type: [string, "null"]
+          enum: ["on", "off", null]
+          description: Whether the run holds its relay closed now; `null` once it ended, or before its first reading.
+        aim:
+          type: [number, "null"]
+          description: The reading that switches the relay next, 0.25 °C from `setpoint`; `null` as `phase`.
+        swings:
+          type: integer
+          description: Relay switches so far; the run has its numbers at the sixth.
+        elapsed_s:
+          type: integer
+          description: Seconds since the start, up to the end once it ended.
+        extremes:
+          type: array
+          description: >-
+            The far end of each relay phase that ended, in order, the first
+            phase's too: the room's coldest in a heating phase, its warmest in
+            the next. A chart of the swing.
+          items:
+            type: object
+            required: [at_s, temperature]
+            properties:
+              at_s:
+                type: integer
+                description: Seconds since the start.
+              temperature:
+                type: number
+        ku:
+          type: [number, "null"]
+          description: The ultimate gain it measured; `null` unless it succeeded.
+        pu:
+          type: [number, "null"]
+          description: The ultimate period, in seconds; `null` unless it succeeded.
+        flags:
+          type: array
+          description: >-
+            Warnings on a result; none ever makes a run longer. `asymmetric`:
+            the shortest half-period is under 0.66 of the longest, the room
+            rose and fell at very different rates. `uneven`: the smallest
+            swing is under 0.66 of the largest, something else moved the room.
+            `clamped`: a gain had to be held inside its range.
+          items:
+            type: string
+            enum: [asymmetric, uneven, clamped]
+        old:
+          $ref: "#/components/schemas/Gains"
+        new:
+          oneOf:
+            - $ref: "#/components/schemas/Gains"
+            - type: "null"
+          description: The gains it wrote; `null` unless it succeeded.
+        persisted:
+          type: boolean
+          description: >-
+            False when the gains it found run but did not reach the file, so a
+            reboot loses them; true again once the thermostat is written, by the
+            device's retry a few seconds later or any later change.
+      example:
+        state: succeeded
+        reason: ""
+        direction: heat
+        rule: zn_pi
+        setpoint: 21
+        phase: null
+        aim: null
+        swings: 6
+        elapsed_s: 6900
+        extremes:
+          - {at_s: 0, temperature: 18.2}
+          - {at_s: 3060, temperature: 21.6}
+          - {at_s: 3920, temperature: 20.3}
+          - {at_s: 4970, temperature: 21.6}
+          - {at_s: 5830, temperature: 20.3}
+          - {at_s: 6880, temperature: 21.6}
+        ku: 0.9689
+        pu: 1880
+        flags: []
+        old: {kp: 0.6, ki: 0.0025, kd: 0}
+        new: {kp: 0.436022, ki: 0.000278, kd: 0}
+        persisted: true
 
     StatusResponse:
       type: object

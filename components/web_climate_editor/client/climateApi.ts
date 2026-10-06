@@ -5,24 +5,29 @@
 // base URL and its fetch wrapper through createClimateApi().
 //
 // Backend behaviour (web_climate_editor.cpp follows ./types.ts):
-//  - save, import, delete, enable, setpoint and preset answer POST only, the rest GET only; a GET
-//    or POST to the wrong route, or an OPTIONS, is 405 with an Allow header, and
-//    an unknown route is 404. The server answers PUT, DELETE, HEAD and PATCH with
-//    its own text 405 and closes the connection; this client sends none of them;
+//  - save, import, delete, enable, setpoint, preset and autotune answer POST only,
+//    the rest GET only; a GET or POST to the wrong route, or an OPTIONS, is 405
+//    with an Allow header, and an unknown route is 404. The server answers PUT,
+//    DELETE, HEAD and PATCH with its own text 405 and closes the connection; this
+//    client sends none of them;
 //  - failures are {success:false,error} with 400/404/405/409/413/500/503/507;
 //  - GET /get?id= returns the bare document, not the success envelope, and /save
 //    takes it back as it is: the device gives the presets' keys and keeps the
 //    active preset, so a form sends back what it got. A document whose `version`
-//    is above CONFIG_VERSION came from a newer firmware, and its Save is 409;
+//    is above CONFIG_VERSION came from a newer firmware, and its Save is 409; so is
+//    the Save of one whose `revision` the device has moved past since it was read;
 //  - /import takes what /get answered, or a backup's file, under its own id: it
 //    replaces the thermostat with that id or creates it, presets' keys and active
-//    preset kept, and answers as /save does;
+//    preset kept, and answers as /save does. The body's `revision` is not read: a
+//    replaced thermostat's moves on, so a form read before the import is 409;
 //  - /ping returns {status:"ok"} (NOT the success envelope);
 //  - every route but /schema and /ping does its read or write on the device's main
 //    loop, so an answer describes what actually happened; 503 means the loop did not
 //    get to it and nothing changed. /schema and /ping answer from build-time data
 //    without waiting for the loop, so they are never 503.
 import type {
+  AutotuneDirection,
+  AutotuneRule,
   ClimateEntitiesResponse,
   ClimateSchema,
   ControllerDocument,
@@ -53,6 +58,13 @@ export interface ClimateApiOptions {
 export interface EnableOptions {
   /** Store as disabled every other enabled controller on its relays, stopping the running one. */
   takeOver?: boolean
+}
+
+export interface AutotuneOptions {
+  /** Which relay to swing; required in heat_cool, the mode's otherwise. */
+  direction?: AutotuneDirection
+  /** How Ku and Pu become gains; zn_pi when left out. */
+  rule?: AutotuneRule
 }
 
 export interface ClimateApi {
@@ -86,6 +98,14 @@ export interface ClimateApi {
    * mode unless `keep`, and the label. A stopped one keeps it for when it starts.
    */
   applyPreset(id: string, key: string): Promise<PresetResponse>
+  /**
+   * POST /autotune?id=&value=true[&direction=][&rule=] — calibrate a running PID thermostat (no
+   * body): the device swings the room around its target for hours, then writes the gains it found
+   * into the thermostat and runs with them. /status follows it.
+   */
+  startAutotune(id: string, options?: AutotuneOptions): Promise<SuccessResponse>
+  /** POST /autotune?id=&value=false — end the calibration that runs; 409 when none does. */
+  cancelAutotune(id: string): Promise<SuccessResponse>
   /** GET /status[?id=] — live readings and the active preset; recomputed per request, nothing persisted. */
   status(id?: string): Promise<StatusResponse>
   /** GET /entities — bindable sensors and relays, with current relay owners. */
@@ -169,6 +189,14 @@ export function createClimateApi(options: ClimateApiOptions): ClimateApi {
     },
     applyPreset(id, key) {
       return jpost<PresetResponse>(`/preset?id=${q(id)}&key=${q(key)}`)
+    },
+    startAutotune(id, options = {}) {
+      const direction = options.direction ? `&direction=${options.direction}` : ''
+      const rule = options.rule ? `&rule=${options.rule}` : ''
+      return jpost<SuccessResponse>(`/autotune?id=${q(id)}&value=true${direction}${rule}`)
+    },
+    cancelAutotune(id) {
+      return jpost<SuccessResponse>(`/autotune?id=${q(id)}&value=false`)
     },
     status(id) {
       return jget<StatusResponse>(id ? `/status?id=${q(id)}` : '/status')

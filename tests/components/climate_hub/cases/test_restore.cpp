@@ -371,4 +371,53 @@ TEST_F(Restore, AHubWithoutStorageRefusesIt) {
   EXPECT_TRUE(list_dir(this->folder()).empty());
 }
 
+// --- The revision ---
+
+// The backup's revision is the device it came from's: over a thermostat the stored one moves on,
+// whatever the document brings.
+TEST_F(Restore, MovesTheRevisionOfTheThermostatItReplacesOn) {
+  this->create(draft("Boiler"));
+  ASSERT_EQ(0u, hub().store().get("boiler")->revision);
+  ClimateConfig doc = backup("boiler");
+  doc.name = "Boiler";
+  doc.revision = 7;
+  ASSERT_TRUE(hub().restore(doc).ok);
+  EXPECT_EQ(1u, hub().store().get("boiler")->revision);
+  EXPECT_EQ(1u, this->on_flash("boiler").revision);
+  doc.revision = 0;
+  ASSERT_TRUE(hub().restore(doc).ok);
+  EXPECT_EQ(2u, hub().store().get("boiler")->revision) << "the one it brings, read or not, plays no part";
+}
+
+TEST_F(Restore, ANewOneStartsAtRevisionZero) {
+  ClimateConfig doc = backup();
+  doc.revision = 7;
+  ASSERT_TRUE(hub().restore(doc).ok);
+  EXPECT_EQ(0u, hub().store().get("lounge")->revision);
+  EXPECT_EQ(0u, this->on_flash("lounge").revision);
+}
+
+// A form read before the import would write the old document back over it.
+TEST_F(Restore, ASaveOfADocumentReadBeforeItIsRefused) {
+  this->create(draft("Boiler"));
+  ClimateConfig form = *hub().store().get("boiler");
+  ClimateConfig doc = backup("boiler");
+  doc.name = "Boiler";
+  ASSERT_TRUE(hub().restore(doc).ok);
+  Result refused = hub().update("boiler", form, form.revision);
+  EXPECT_EQ(409, refused.code);
+  EXPECT_EQ("The device changed this thermostat since it was read; reload it", refused.error);
+  EXPECT_FLOAT_EQ(20.5f, hub().store().get("boiler")->setpoint);
+}
+
+// A refused one moves nothing.
+TEST_F(Restore, ARefusedOneLeavesTheRevision) {
+  this->create(draft("Boiler"));
+  ClimateConfig doc = backup("boiler");
+  doc.name = "Hall";
+  EXPECT_EQ(409, hub().restore(doc).code) << "a YAML climate's name";
+  EXPECT_EQ(0u, hub().store().get("boiler")->revision);
+  EXPECT_EQ(0u, this->on_flash("boiler").revision);
+}
+
 }  // namespace esphome::climate_hub::testing

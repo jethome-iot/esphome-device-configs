@@ -184,6 +184,16 @@
           "mode": "cool"
         }
       ]
+    },
+    "den": {
+      "name": "Den",
+      "kind": "pid",
+      "sensor_id": "temp_2",
+      "heat": {
+        "relay_id": "relay_2"
+      },
+      "mode": "off",
+      "setpoint": 20
     }
   },
   "cases": [
@@ -334,7 +344,7 @@
       "body": null,
       "status": 200,
       "expect": {
-        "version": 2,
+        "version": 3,
         "id": "living-room",
         "name": "Living Room",
         "enabled": true,
@@ -2472,7 +2482,7 @@
           "body": null,
           "status": 200,
           "expect": {
-            "version": 2,
+            "version": 3,
             "id": "lounge",
             "name": "Living Room",
             "setpoint": 20.5,
@@ -2667,7 +2677,7 @@
           "body": null,
           "status": 200,
           "expect": {
-            "version": 2
+            "version": 3
           }
         }
       ]
@@ -4234,7 +4244,7 @@
       "body": null,
       "status": 200,
       "expect": {
-        "version": 3,
+        "version": 9,
         "name": "Living Room"
       }
     },
@@ -4429,6 +4439,756 @@
           "status": 200,
           "expect": {
             "name": "Living Room"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Autotune starts a calibration of a running PID thermostat",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "autotune?id=living-room&value=true",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "success": true,
+        "message": "Calibration started"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "status?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.running": true,
+            "controllers.0.autotune.state": "running",
+            "controllers.0.autotune.reason": "",
+            "controllers.0.autotune.direction": "heat",
+            "controllers.0.autotune.rule": "zn_pi",
+            "controllers.0.autotune.setpoint": 22,
+            "controllers.0.autotune.swings": 0,
+            "controllers.0.autotune.elapsed_s": 0,
+            "controllers.0.autotune.extremes": [],
+            "controllers.0.autotune.ku": null,
+            "controllers.0.autotune.pu": null,
+            "controllers.0.autotune.flags": [],
+            "controllers.0.autotune.old": {
+              "kp": 0.6,
+              "ki": 0.0025,
+              "kd": 0
+            },
+            "controllers.0.autotune.new": null,
+            "controllers.0.autotune.persisted": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "Status has no calibration before the first one",
+      "setup": [
+        "living-room"
+      ],
+      "method": "GET",
+      "path": "status?id=living-room",
+      "body": null,
+      "status": 200,
+      "absent": [
+        "controllers.0.autotune"
+      ]
+    },
+    {
+      "name": "Autotune takes the rule and the direction it is given",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "autotune?id=living-room&value=true&direction=heat&rule=no_overshoot",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "GET",
+          "path": "status?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.autotune.rule": "no_overshoot",
+            "controllers.0.autotune.direction": "heat"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Autotune cancel ends the calibration, and status says so",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "autotune?id=living-room&value=true",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "autotune?id=living-room&value=false",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "success": true,
+            "message": "Calibration cancelled"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "status?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.running": true,
+            "controllers.0.autotune.state": "failed",
+            "controllers.0.autotune.reason": "cancelled",
+            "controllers.0.autotune.new": null
+          }
+        },
+        {
+          "method": "POST",
+          "path": "autotune?id=living-room&value=false",
+          "body": null,
+          "status": 409,
+          "error": "No calibration is running"
+        }
+      ]
+    },
+    {
+      "name": "Autotune cancel with no calibration is 409",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "autotune?id=living-room&value=false",
+      "body": null,
+      "status": 409,
+      "error": "No calibration is running"
+    },
+    {
+      "name": "Autotune twice is 409",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "autotune?id=living-room&value=true",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "autotune?id=living-room&value=true",
+          "body": null,
+          "status": 409,
+          "error": "A calibration is already running"
+        }
+      ]
+    },
+    {
+      "name": "Autotune of a bang-bang thermostat is 409",
+      "setup": [
+        "floor"
+      ],
+      "method": "POST",
+      "path": "autotune?id=floor&value=true",
+      "body": null,
+      "status": 409,
+      "error": "Only a PID thermostat can be calibrated"
+    },
+    {
+      "name": "Autotune of a stopped thermostat is 409",
+      "setup": [
+        "studio"
+      ],
+      "method": "POST",
+      "path": "autotune?id=studio&value=true&direction=heat",
+      "body": null,
+      "status": 409,
+      "error": "The thermostat is not running"
+    },
+    {
+      "name": "Autotune in mode off is 409",
+      "setup": [
+        "den"
+      ],
+      "method": "POST",
+      "path": "autotune?id=den&value=true",
+      "body": null,
+      "status": 409,
+      "error": "The thermostat is off: set it to heat or cool first"
+    },
+    {
+      "name": "Autotune with a direction the mode does not drive is 400",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "autotune?id=living-room&value=true&direction=cool",
+      "body": null,
+      "status": 400,
+      "error": "direction 'cool' needs mode cool or heat_cool",
+      "then": [
+        {
+          "method": "GET",
+          "path": "status?id=living-room",
+          "body": null,
+          "status": 200,
+          "absent": [
+            "controllers.0.autotune"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Autotune in heat_cool needs a direction",
+      "setup": [
+        "studio"
+      ],
+      "method": "POST",
+      "path": "enable?id=studio&value=true",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "autotune?id=studio&value=true",
+          "body": null,
+          "status": 400,
+          "error": "In heat_cool, direction must say heat or cool"
+        },
+        {
+          "method": "POST",
+          "path": "autotune?id=studio&value=true&direction=cool",
+          "body": null,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "status?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.autotune.direction": "cool",
+            "controllers.0.heat_duty": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "Autotune of an unknown thermostat is 404",
+      "method": "POST",
+      "path": "autotune?id=attic&value=true",
+      "body": null,
+      "status": 404,
+      "error": "Thermostat not found"
+    },
+    {
+      "name": "Autotune without an id is 400",
+      "method": "POST",
+      "path": "autotune?value=true",
+      "body": null,
+      "status": 400,
+      "error": "Missing id parameter"
+    },
+    {
+      "name": "Autotune without a value is 400",
+      "method": "POST",
+      "path": "autotune?id=attic",
+      "body": null,
+      "status": 400,
+      "error": "Missing value parameter"
+    },
+    {
+      "name": "Autotune with a value that is not true or false is 400",
+      "method": "POST",
+      "path": "autotune?id=attic&value=yes",
+      "body": null,
+      "status": 400,
+      "error": "Invalid value parameter"
+    },
+    {
+      "name": "Autotune with an unknown direction is 400",
+      "method": "POST",
+      "path": "autotune?id=attic&value=true&direction=both",
+      "body": null,
+      "status": 400,
+      "error": "Invalid direction parameter"
+    },
+    {
+      "name": "Autotune with an unknown rule is 400",
+      "method": "POST",
+      "path": "autotune?id=attic&value=true&rule=ziegler",
+      "body": null,
+      "status": 400,
+      "error": "Invalid rule parameter"
+    },
+    {
+      "name": "Autotune answers POST only",
+      "method": "GET",
+      "path": "autotune?id=living-room&value=true",
+      "body": null,
+      "status": 405,
+      "error": "Method not allowed",
+      "headers": {
+        "Allow": "POST"
+      }
+    },
+    {
+      "name": "A Save ends a calibration",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "autotune?id=living-room&value=true",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Living Room",
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 22,
+            "id": "living-room"
+          },
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "status?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.autotune.state": "failed",
+            "controllers.0.autotune.reason": "saved"
+          }
+        }
+      ]
+    },
+    {
+      "name": "An import ends a calibration as a Save does",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "autotune?id=living-room&value=true",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "import",
+          "body": {
+            "name": "Living Room",
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 22,
+            "id": "living-room"
+          },
+          "status": 200,
+          "expect": {
+            "message": "Thermostat replaced"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "status?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.autotune.state": "failed",
+            "controllers.0.autotune.reason": "saved"
+          }
+        }
+      ]
+    },
+    {
+      "name": "A new target ends a calibration",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "autotune?id=living-room&value=true",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "setpoint?id=living-room&value=22",
+          "body": null,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "status?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.autotune.state": "running"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "setpoint?id=living-room&value=21",
+          "body": null,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "status?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.autotune.reason": "target_changed",
+            "controllers.0.autotune.setpoint": 22,
+            "controllers.0.setpoint": 21
+          }
+        }
+      ]
+    },
+    {
+      "name": "Disabling ends a calibration, and the thermostat keeps its word",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "autotune?id=living-room&value=true",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "enable?id=living-room&value=false",
+          "body": null,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "status?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.running": false,
+            "controllers.0.autotune.reason": "stopped"
+          }
+        }
+      ]
+    },
+    {
+      "name": "A take-over ends the calibration of the thermostat it stops",
+      "setup": [
+        "living-room",
+        "guest-room"
+      ],
+      "method": "POST",
+      "path": "autotune?id=living-room&value=true",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "enable?id=guest-room&value=true&take_over=true",
+          "body": null,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "status?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.running": false,
+            "controllers.0.autotune.reason": "taken_over"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Autotune of a thermostat a newer firmware wrote is 409",
+      "setup": [
+        "living-room"
+      ],
+      "device_only": "newer_file",
+      "method": "POST",
+      "path": "autotune?id=living-room&value=true",
+      "body": null,
+      "status": 409,
+      "error": "A newer firmware wrote this thermostat; update the firmware to change it"
+    },
+    {
+      "name": "Get carries the revision, 0 until a calibration writes new gains",
+      "setup": [
+        "living-room"
+      ],
+      "method": "GET",
+      "path": "get?id=living-room",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "revision": 0
+      }
+    },
+    {
+      "name": "A Save of another revision is 409",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 19,
+        "id": "living-room",
+        "revision": 1
+      },
+      "status": 409,
+      "error": "The device changed this thermostat since it was read; reload it",
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "setpoint": 22,
+            "revision": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "A Save of the thermostat's revision goes through and keeps it",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 19,
+        "id": "living-room",
+        "revision": 0
+      },
+      "status": 200,
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "setpoint": 19,
+            "revision": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "A create ignores the revision it is sent",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "revision": 5
+      },
+      "status": 200,
+      "expect": {
+        "id": "living-room"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "A Save with a revision read before an import is 409",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "name": "Lounge",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "id": "living-room"
+      },
+      "status": 200,
+      "expect": {
+        "message": "Thermostat replaced",
+        "id": "living-room"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "name": "Lounge",
+            "revision": 1
+          }
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Living Room",
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 19,
+            "id": "living-room",
+            "revision": 0
+          },
+          "status": 409,
+          "error": "The device changed this thermostat since it was read; reload it"
+        },
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "name": "Lounge",
+            "setpoint": 22,
+            "revision": 1
+          }
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Living Room",
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 19,
+            "id": "living-room",
+            "revision": 1
+          },
+          "status": 200,
+          "expect": {
+            "message": "Thermostat updated"
+          }
+        }
+      ]
+    },
+    {
+      "name": "An import ignores the revision it brings: one over a thermostat moves it on, a new one starts at 0",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "id": "living-room",
+        "revision": 7
+      },
+      "status": 200,
+      "expect": {
+        "message": "Thermostat replaced"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 1
+          }
+        },
+        {
+          "method": "POST",
+          "path": "import",
+          "body": {
+            "id": "den",
+            "name": "Den",
+            "kind": "bang_bang",
+            "sensor_id": "temp_2",
+            "heat": {
+              "relay_id": "relay_2"
+            },
+            "mode": "heat",
+            "setpoint": 21,
+            "revision": 7
+          },
+          "status": 200,
+          "expect": {
+            "message": "Thermostat created"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "get?id=den",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 0
           }
         }
       ]
