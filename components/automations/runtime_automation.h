@@ -30,6 +30,8 @@ struct CompiledAction {
   TypeSwitchAction type{TypeSwitchAction::NONE};
   bool invert{false};
   uint32_t delay_ms{0};
+  // By id, looked up when it runs: the hub may drop the thermostat while the rule lives.
+  ClimateActionConfig climate;
 };
 
 struct CompiledTrigger {
@@ -57,17 +59,24 @@ struct CompiledTrigger {
   bool cron_matches(const ESPTime &time) const;
 };
 
-// Resolve one config item against the registered entities. Free functions so the unit tests
-// can build and inspect them without a rule around them.
-bool compile_trigger(AutomationStorage *engine, const TriggerConfig &config, CompiledTrigger &out);
-bool compile_condition(const ConditionConfig &config, CompiledCondition &out);
-bool compile_action(const ActionConfig &config, CompiledAction &out);
+// Resolve one config item against the registered entities and the thermostats. Free functions
+// so the unit tests can build and inspect them without a rule around them. On failure `error`,
+// when given, says what is missing.
+bool compile_trigger(AutomationStorage *engine, const TriggerConfig &config, CompiledTrigger &out,
+                     std::string *error = nullptr);
+bool compile_condition(const ConditionConfig &config, CompiledCondition &out, std::string *error = nullptr);
+bool compile_action(const ActionConfig &config, CompiledAction &out, std::string *error = nullptr);
+
+/// Whether one of the rule's actions names the thermostat with this hub id.
+bool names_climate(const AutomationConfig &config, const std::string &climate_id);
 
 // One rule, built from its config: matches events, gates by mode, runs the action list.
 class RuntimeAutomation {
  public:
-  // nullptr when an entity is missing or the config cannot run as written.
-  static std::unique_ptr<RuntimeAutomation> build(AutomationStorage *engine, const AutomationConfig &config);
+  // nullptr when an entity or a thermostat is missing or the config cannot run as written;
+  // `error`, when given, then says which, in a sentence for the editor.
+  static std::unique_ptr<RuntimeAutomation> build(AutomationStorage *engine, const AutomationConfig &config,
+                                                  std::string *error = nullptr);
   ~RuntimeAutomation();
 
   uint32_t get_id() const { return this->id_; }
@@ -98,12 +107,15 @@ class RuntimeAutomation {
   RuntimeAutomation(AutomationStorage *engine, const AutomationConfig &config);
 
   void fire_(bool has_state, bool state);
-  void step_(uint32_t token);
+  // `scheduled`: entered from the scheduler, a delay or a wait for the loop, rather than from the
+  // callback that fired the rule.
+  void step_(uint32_t token, bool scheduled = false);
   Run *find_run_(uint32_t token);
   void finish_run_(uint32_t token);
   uint8_t free_seq_() const;
   uint32_t timer_id_(uint8_t seq) const { return (this->id_ << 4) | seq; }
   void play_switch_(const CompiledAction &action, const Run &run);
+  void play_climate_(const CompiledAction &action, const Run &run);
 
   AutomationStorage *engine_;
   uint32_t id_;

@@ -10,6 +10,9 @@
 #include "esphome/core/application.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
+#ifdef USE_CLIMATE_HUB
+#include "esphome/components/climate_hub/climate_hub.h"
+#endif
 
 namespace esphome {
 
@@ -117,14 +120,20 @@ void AutomationStorage::setup() {
   this->normalize_filenames_(this->resolve_duplicates_());
   this->config_storage_.sort_by_id();
 
-  for (const auto &config : this->config_storage_.get_all_configs()) {
-    auto automation = RuntimeAutomation::build(this, config);
+  for (size_t i = 0; i < this->config_storage_.size(); i++) {
+    AutomationConfig *config = this->config_storage_.get_config(static_cast<uint8_t>(i));
+    auto automation = RuntimeAutomation::build(this, *config, &config->build_error);
     if (automation != nullptr)
       this->subscribe_(*automation);
     this->automations_.push_back(std::move(automation));
   }
   ESP_LOGD(TAG, "Loaded %u automations from '%s' (next_id: %u)", static_cast<unsigned>(this->config_storage_.size()),
            folder_path.c_str(), static_cast<unsigned>(this->next_id_));
+#ifdef USE_CLIMATE_HUB
+  // The hub sets up first, so its thermostats were there for the builds above.
+  if (global_climate_hub != nullptr)
+    global_climate_hub->add_on_change_callback([this](const std::string &id) { this->on_climate_change_(id); });
+#endif
 
   if (this->rtc_ != nullptr) {
     this->set_interval(1000, [this]() { this->check_time_(); });
@@ -182,6 +191,40 @@ void AutomationStorage::subscribe_(const RuntimeAutomation &automation) {
 #endif
       default:
         break;
+    }
+  }
+}
+
+void AutomationStorage::on_climate_change_(const std::string &climate_id) {
+  // A lambda behind a rule's own switch action may have changed the hub: rebuilding now would
+  // pull that rule from under its run.
+  if (this->dispatching_ > 0) {
+    this->defer([this, climate_id]() { this->rebuild_for_climate_(climate_id); });
+    return;
+  }
+  this->rebuild_for_climate_(climate_id);
+}
+
+// A built rule that still builds is left running; only the ones whose state changes move.
+void AutomationStorage::rebuild_for_climate_(const std::string &climate_id) {
+  for (size_t i = 0; i < this->config_storage_.size(); i++) {
+    AutomationConfig *config = this->config_storage_.get_config(static_cast<uint8_t>(i));
+    if (!names_climate(*config, climate_id))
+      continue;
+    std::string error;
+    auto rebuilt = RuntimeAutomation::build(this, *config, &error);
+    const bool built = this->automations_[i] != nullptr;
+    if (rebuilt == nullptr) {
+      config->build_error = error;
+      if (built) {
+        ESP_LOGW(TAG, "Automation '%s' is not built any more: %s", config->name.c_str(), error.c_str());
+        this->automations_[i].reset();
+      }
+    } else if (!built) {
+      ESP_LOGI(TAG, "Automation '%s' is built: thermostat '%s' is there", config->name.c_str(), climate_id.c_str());
+      config->build_error.clear();
+      this->subscribe_(*rebuilt);
+      this->automations_[i] = std::move(rebuilt);
     }
   }
 }
@@ -266,20 +309,28 @@ bool AutomationStorage::run_on_loop_(std::function<bool()> &&job) {
   return this->dispatcher_.run_on_loop(this, std::move(job));
 }
 
-uint32_t AutomationStorage::add_automation(const AutomationConfig &config) {
+uint32_t AutomationStorage::add_automation(const AutomationConfig &config, std::string *error) {
   auto copy = std::make_shared<AutomationConfig>(config);
   auto assigned = std::make_shared<uint32_t>(0);
-  if (!this->run_on_loop_([this, copy, assigned]() {
-        *assigned = this->add_automation_(*copy);
-        return *assigned != 0;
-      }))
-    return 0;
-  return *assigned;
+  // Shared, like the copy: a job the caller gave up on may still run and write here.
+  auto why = std::make_shared<std::string>();
+  const bool ran = this->run_on_loop_([this, copy, assigned, why]() {
+    *assigned = this->add_automation_(*copy, why.get());
+    return *assigned != 0;
+  });
+  if (error != nullptr)
+    *error = *why;
+  return ran ? *assigned : 0;
 }
 
-bool AutomationStorage::update_automation(uint32_t id, const AutomationConfig &new_config) {
+bool AutomationStorage::update_automation(uint32_t id, const AutomationConfig &new_config, std::string *error) {
   auto copy = std::make_shared<AutomationConfig>(new_config);
-  return this->run_on_loop_([this, id, copy]() { return this->update_automation_(id, *copy); });
+  auto why = std::make_shared<std::string>();
+  const bool ok =
+      this->run_on_loop_([this, id, copy, why]() { return this->update_automation_(id, *copy, why.get()); });
+  if (error != nullptr)
+    *error = *why;
+  return ok;
 }
 
 bool AutomationStorage::remove_automation(uint32_t id) {
@@ -302,7 +353,7 @@ void AutomationStorage::reset_all() {
   });
 }
 
-uint32_t AutomationStorage::add_automation_(const AutomationConfig &config) {
+uint32_t AutomationStorage::add_automation_(const AutomationConfig &config, std::string *error) {
   if (this->config_storage_.size() >= MAX_AUTOMATIONS) {
     ESP_LOGE(TAG, "Refusing to add '%s': already at the %u automation limit", config.name.c_str(),
              static_cast<unsigned>(MAX_AUTOMATIONS));
@@ -327,8 +378,9 @@ uint32_t AutomationStorage::add_automation_(const AutomationConfig &config) {
   AutomationConfig cfg = config;
   cfg.id = this->allocate_id_();
   cfg.file = this->sanitize_filename_(cfg.name) + ".json";
+  cfg.build_error.clear();
 
-  auto automation = RuntimeAutomation::build(this, cfg);
+  auto automation = RuntimeAutomation::build(this, cfg, error);
   if (automation == nullptr) {
     ESP_LOGE(TAG, "Failed to create automation '%s'", cfg.name.c_str());
     return 0;
@@ -344,7 +396,7 @@ uint32_t AutomationStorage::add_automation_(const AutomationConfig &config) {
   return cfg.id;
 }
 
-bool AutomationStorage::update_automation_(uint32_t id, const AutomationConfig &new_config) {
+bool AutomationStorage::update_automation_(uint32_t id, const AutomationConfig &new_config, std::string *error) {
   int found = this->find_automation_index_by_id_(id);
   if (found < 0) {
     ESP_LOGW(TAG, "Automation id=%u not found", static_cast<unsigned>(id));
@@ -377,7 +429,8 @@ bool AutomationStorage::update_automation_(uint32_t id, const AutomationConfig &
     return false;
   }
 
-  auto automation = RuntimeAutomation::build(this, cfg);
+  cfg.build_error.clear();
+  auto automation = RuntimeAutomation::build(this, cfg, error);
   if (automation == nullptr) {
     ESP_LOGE(TAG, "Failed to create updated automation '%s' id=%u", cfg.name.c_str(), static_cast<unsigned>(id));
     return false;
@@ -846,9 +899,10 @@ void AutomationStorage::dump_config() {
   const auto &configs = this->config_storage_.get_all_configs();
   for (size_t i = 0; i < configs.size(); i++) {
     const auto &config = configs[i];
-    ESP_LOGCONFIG(TAG, "  [%u] id=%u '%s' %s %s", static_cast<unsigned>(i), static_cast<unsigned>(config.id),
+    const bool built = i < this->automations_.size() && this->automations_[i] != nullptr;
+    ESP_LOGCONFIG(TAG, "  [%u] id=%u '%s' %s%s%s%s", static_cast<unsigned>(i), static_cast<unsigned>(config.id),
                   config.name.c_str(), config.enabled ? "enabled" : "disabled",
-                  (i < this->automations_.size() && this->automations_[i] != nullptr) ? "" : "(not built)");
+                  built ? "" : " (not built: ", built ? "" : config.build_error.c_str(), built ? "" : ")");
     for (const auto &trigger : config.triggers)
       this->print_trigger_info_(trigger, 4);
     if (config.condition.is_valid())
@@ -928,6 +982,10 @@ void AutomationStorage::print_action_info_(const ActionConfig &action, int inden
       break;
     case SourceAction::DELAY:
       ESP_LOGCONFIG(TAG, "%sAction: delay %u ms", pad.c_str(), static_cast<unsigned>(action.params.delay.delay_ms));
+      break;
+    case SourceAction::CLIMATE:
+      ESP_LOGCONFIG(TAG, "%sAction: climate %s '%s'", pad.c_str(),
+                    EnumUtils::climate_action_type_to_string(action.climate.step.type), action.climate.climate.c_str());
       break;
     default:
       ESP_LOGCONFIG(TAG, "%sAction: none", pad.c_str());

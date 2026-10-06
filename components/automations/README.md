@@ -62,7 +62,7 @@ one, picks `actions` or `else_actions`.
 | ------------------- | --------------------------------------------------------------------------- |
 | `triggers[].source` | `input` (`press`, `release`, `click`, `state_change`), `switch` (`turn_on`, `turn_off`, `state_change`), `temperature` — any numeric sensor, despite the key (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`, in the sensor's unit), `cron`, `startup` |
 | `condition.type`    | `input` with `state`, `temperature` with `temperature_type` — any numeric sensor, as for the trigger (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`), and `and` / `or` / `xor` over a `conditions` list, nested freely |
-| `actions[].source`  | `switch` (`turn_on`, `turn_off`, `toggle`, `follow` with `invert`), `delay` with `delay_ms` |
+| `actions[].source`  | `switch` (`turn_on`, `turn_off`, `toggle`, `follow` with `invert`), `delay` with `delay_ms`, `climate` with `climate` (`turn_on`, `turn_off`, `set_preset` with `preset`, `set_target` with `target`, `follow` with `on` and `off`) |
 | `mode`              | `single` ignores a trigger while the rule runs, `restart` starts over, `parallel` runs up to 8 copies |
 | `enabled`           | `true` when absent; a disabled rule is loaded and listed but never fires |
 | `cron_preset`       | The editor's own note about the form it offered: `daily`, `hourly`, `every_n_minutes`, `weekly`, `monthly`, `custom`. The engine never reads it, and writes it back only when the file had one |
@@ -78,6 +78,30 @@ is rejected.
 
 A jump of the `time_id` clock back by more than 15 minutes is not handled: the moments it
 passes again fire a second time.
+
+## Thermostat actions
+
+A `climate` action acts on a [`climate_hub`](../climate_hub/README.md) thermostat, running or
+not, as Home Assistant would. A firmware without `climate_hub` has no thermostat to name, so a
+rule with such an action is never built there.
+
+```json
+{"source": "climate", "type": "set_preset", "climate": "living-room", "preset": "eco"}
+{"source": "climate", "type": "follow", "climate": "living-room",
+ "on": {"type": "set_preset", "preset": "comfort"}, "off": {"type": "turn_off"}}
+```
+
+- `climate` is the thermostat's id, the name of its file, never its entity: renaming the
+  thermostat leaves the rule working. `preset` is a preset's key.
+- `turn_off` sets mode off. `turn_on` sets the mode it was in before it went off, which its file
+  keeps across a reboot.
+- `set_target` sets the target to `target`, in °C, held inside the thermostat's range.
+- `follow` takes `on` while the state the trigger carried is on and `off` while it is off, each
+  `{"type": "turn_on"}`, `{"type": "turn_off"}` or `{"type": "set_preset", "preset": "<key>"}`.
+  A trigger that carries no state leaves the thermostat alone.
+- A thermostat moves on the next loop pass, not inside the callback that fired the rule; the
+  actions after it in the run follow on that pass. A rule restarted or stopped before then does
+  not move it.
 
 ## Storage
 
@@ -98,15 +122,26 @@ A removal or a rename that the partition refuses to carry out leaves the file em
 whole, so the rule does not come back at the next boot. The name it held stays taken until that
 file is deleted by hand.
 
-## Missing entities
+## Missing entities and thermostats
 
 Every entity reference is the `fnv1_hash` of an object id, resolved once at boot. A rule naming
 an entity that is not there stays on disk but is not built — the log says why and `dump_config`
-marks it `(not built)`. Renaming an entity orphans the rules that used it.
+marks it `(not built: <why>)`. Renaming an entity orphans the rules that used it.
 
 Such a file is never rewritten, not even to restamp its `id` or move it to its own name: a file
 holds the object ids, memory holds only their hashes, so a rewrite would blank the names. Put
 the entity back and the next boot repairs the file as usual.
+
+A rule naming a thermostat, or a preset key, that the hub does not have is refused when it is
+added or changed, and at boot it is not built either, its file kept. Thermostats come and go
+while the device runs, so the rule follows: it is built once the hub creates that thermostat or
+a Save gives it that preset again, and drops out, file kept, when the thermostat is removed or
+the preset goes. A rule that builds before and after keeps running. The thermostat's id is kept
+as written, so such a file is repaired at boot like any other.
+
+Why a rule is not built, in a sentence the editor shows, is its config's `build_error`:
+`Trigger 1: input not found`, `Action 2: thermostat "attic" not found`,
+`Else action 1: thermostat "living-room" has no preset "eco"`; `""` when it is built.
 
 ## From lambdas
 
@@ -114,12 +149,14 @@ the entity back and the next boot repairs the file as usual.
 they run on the loop task and block the caller. From inside a rule's own action (a switch
 callback, say) they refuse and return false.
 
-- `add_automation(config)`: the assigned id, `0` on failure
-- `update_automation(id, config)`, `remove_automation(id)`
+- `add_automation(config, &error)`: the assigned id, `0` on failure; `error`, when given, says
+  what the rule names that is missing, when that is why
+- `update_automation(id, config, &error)`, `remove_automation(id)`
 - `set_enable_automation(id, enable, persisted = nullptr)`: `persisted` says whether it reached flash
 - `reset_all()`: remove every rule and its file
 - `is_name_taken(name, exclude_id = 0)`: names collide by file name
-- `configs()`: the loaded `AutomationConfig`s, including the ones that did not build
+- `configs()`: the loaded `AutomationConfig`s, including the ones that did not build, each with
+  its `build_error`
 - `run_on_loop(job)`: runs `job` on the loop task and blocks; `false` when the loop never got to it
 
 `configs()` and `is_name_taken()` read the list where it lives, so they are for the loop task —
