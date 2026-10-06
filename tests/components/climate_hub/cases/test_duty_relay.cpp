@@ -114,8 +114,11 @@ TEST(RelayClaim, MinimumOnTimeHoldsTheRelayClosed) {
   claim.set_dwell(5000, 0);
 
   claim.request(true, 0);
+  EXPECT_EQ(RelayWait::NONE, claim.wait());
   EXPECT_TRUE(claim.request(false, 4999)) << "still inside min_on";
+  EXPECT_EQ(RelayWait::MIN_ON, claim.wait());
   EXPECT_FALSE(claim.request(false, 5000)) << "min_on elapsed";
+  EXPECT_EQ(RelayWait::NONE, claim.wait());
   EXPECT_EQ(2, relay.writes);
 }
 
@@ -127,7 +130,9 @@ TEST(RelayClaim, MinimumOffTimeHoldsTheRelayOpen) {
   claim.request(true, 0);
   claim.request(false, 0);
   EXPECT_FALSE(claim.request(true, 4999));
+  EXPECT_EQ(RelayWait::MIN_OFF, claim.wait());
   EXPECT_TRUE(claim.request(true, 5000));
+  EXPECT_EQ(RelayWait::NONE, claim.wait());
 }
 
 TEST(RelayClaim, ForceOffIgnoresMinimumOnTime) {
@@ -136,9 +141,12 @@ TEST(RelayClaim, ForceOffIgnoresMinimumOnTime) {
   claim.set_dwell(60000, 0);
 
   claim.request(true, 0);
+  claim.request(false, 5);
+  ASSERT_EQ(RelayWait::MIN_ON, claim.wait());
   claim.force_off(10, false);
   EXPECT_FALSE(claim.state()) << "a safety cut-out cannot wait out a dwell floor";
   EXPECT_FALSE(relay.state);
+  EXPECT_EQ(RelayWait::NONE, claim.wait());
 }
 
 // A bang-bang output holds one demand for hours, so a relay switched by hand would otherwise
@@ -299,6 +307,9 @@ TEST(RelayClaim, ResumesTheDwellOfAnEarlierClaim) {
   after.set_dwell(0, 5000);
   after.resume(last);
   EXPECT_FALSE(after.request(true, 5999)) << "opened at 1 s, min_off 5 s";
+  EXPECT_EQ(RelayWait::MIN_OFF, after.wait());
+  after.resume(last);
+  EXPECT_EQ(RelayWait::NONE, after.wait()) << "nothing asked of it since";
   EXPECT_TRUE(after.request(true, 6000));
 }
 
@@ -315,9 +326,13 @@ TEST(RelayClaim, AResumedClaimStillCutsOutAtOnce) {
 TEST(RelayClaim, ChangesHandsWithoutMoving) {
   FakeSwitch relay;
   RelayClaim claim(&relay, "winter");
+  claim.set_dwell(60000, 0);
   claim.request(true, 0);
+  claim.request(false, 5);
+  ASSERT_EQ(RelayWait::MIN_ON, claim.wait());
   claim.set_owner("summer");
   EXPECT_EQ("summer", claim.owner());
+  EXPECT_EQ(RelayWait::NONE, claim.wait()) << "what winter asked for is not summer's wait";
   EXPECT_TRUE(claim.request(true, 10));
   EXPECT_EQ(1, relay.writes);
 }
@@ -356,6 +371,7 @@ TEST(RelayClaim, ASecondCloseIsPutBackOnceMinOnIsOver) {
   EXPECT_TRUE(relay.state);
   EXPECT_EQ(2u, claim.moves());
   EXPECT_TRUE(claim.request(false, 31999));
+  EXPECT_EQ(RelayWait::NONE, claim.wait()) << "held for the put-back, not for its own min_on";
   EXPECT_FALSE(claim.request(false, 32000)) << "30 s after the close at 2 s";
   EXPECT_FALSE(relay.state);
   EXPECT_EQ(2u, claim.moves()) << "the put-back is no move";
@@ -373,6 +389,7 @@ TEST(RelayClaim, ASecondOpenIsPutBackOnceMinOffIsOver) {
   relay.turn_off();
   EXPECT_FALSE(claim.request(true, 2000));
   EXPECT_FALSE(claim.request(true, 46999));
+  EXPECT_EQ(RelayWait::NONE, claim.wait()) << "held for the put-back, not for its own min_off";
   EXPECT_TRUE(claim.request(true, 47000)) << "45 s after the open at 2 s";
   EXPECT_TRUE(relay.state);
 }

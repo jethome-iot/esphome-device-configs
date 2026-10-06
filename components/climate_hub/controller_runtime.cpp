@@ -75,6 +75,11 @@ void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, Rel
   const bool keep_pid = same_sensor && this->kind_ == ControlKind::PID && config->kind == ControlKind::PID;
   // The latch too: a relay min_on holds closed after the latch let it go is not heating.
   const bool keep_latch = restart && this->kind_ == ControlKind::BANG_BANG && config->kind == ControlKind::BANG_BANG;
+  // A PID's gap between pulses was the old relay's: the one a Save moves it to has not closed.
+  if (this->heat_claim_ != heat && this->action_ == HubAction::HEATING)
+    this->action_ = HubAction::IDLE;
+  if (this->cool_claim_ != cool && this->action_ == HubAction::COOLING)
+    this->action_ = HubAction::IDLE;
   this->config_ = config;
   this->sensor_ = sensor;
   this->heat_claim_ = heat;
@@ -115,9 +120,10 @@ void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, Rel
     this->entity_->current_temperature = sensor->state;
 #endif
 
-  // The hub publishes next: with what the thermostat is doing, not "off" until the first pass.
+  // The hub publishes next: with what the relays do, not "off" until the first pass. A Save
+  // keeps a PID between two pulses heating on the relay it had.
   this->refresh_fault_(now_ms);
-  this->action_ = this->standing_action_();
+  this->action_ = this->relay_action_();
   this->entity_->action = to_climate_action(this->action_);
 }
 
@@ -230,7 +236,7 @@ bool ControllerRuntime::apply_(const PresetConfig *preset, optional<HubMode> mod
   this->entity_->target_temperature = c.setpoint;
   this->entity_->show_preset(c.find_preset(c.active_preset));
   // Published with the mode it replaced, the action would say "off" in HEAT until the next pass.
-  this->set_action_(this->standing_action_());
+  this->set_action_(this->relay_action_());
   this->control_due_ = true;
   // Published even when nothing moved: the caller waits for the state its command produced.
   this->entity_->publish_state();
@@ -258,16 +264,15 @@ void ControllerRuntime::tick(uint32_t now_ms) {
   // on a cut-out a close from elsewhere is undone on every pass; only mode off paces it.
   if (cuts_out(this->fault_) || c.mode == HubMode::OFF || !this->has_sample_) {
     this->all_relays_off_(now_ms, this->has_sample_ && !cuts_out(this->fault_));
-    if (this->set_action_(this->standing_action_()))
-      this->entity_->publish_state();
-    return;
+  } else {
+    const auto interval_ms = static_cast<uint32_t>(c.update_interval_s * 1000.f);
+    if (this->control_due_ || now_ms - this->last_control_ms_ >= interval_ms)
+      this->run_control_(now_ms);
+    this->drive_outputs_(now_ms);
   }
-
-  const auto interval_ms = static_cast<uint32_t>(c.update_interval_s * 1000.f);
-  if (this->control_due_ || now_ms - this->last_control_ms_ >= interval_ms)
-    this->run_control_(now_ms);
-
-  this->drive_outputs_(now_ms);
+  // After the relays moved: a dwell that ran out on this pass shows now, not at the next interval.
+  if (this->set_action_(this->relay_action_()))
+    this->entity_->publish_state();
 }
 
 void ControllerRuntime::refresh_fault_(uint32_t now_ms) {
@@ -303,20 +308,34 @@ void ControllerRuntime::refresh_fault_(uint32_t now_ms) {
   this->fault_ = fault;
 }
 
-HubAction ControllerRuntime::standing_action_() const {
+// The relays, not the demand: one that min_off holds open is not heating yet, and one that min_on
+// holds closed still is, as upstream's thermostat keeps its action until its timer lets go.
+HubAction ControllerRuntime::relay_action_() const {
   const ClimateConfig &c = *this->config_;
   if (cuts_out(this->fault_) || c.mode == HubMode::OFF)
     return HubAction::OFF;
+  // The next pass opens whatever is closed, without waiting.
   if (!this->has_sample_)
     return HubAction::IDLE;
-  if (c.kind == ControlKind::BANG_BANG)
-    return this->hysteresis_.action();
-  // A PID between two pulses of its PWM is still heating.
-  if ((c.mode == HubMode::HEAT || c.mode == HubMode::HEAT_COOL) && this->heat_duty_.duty() > 0.f)
+  const bool heating = this->shows_(this->heat_claim_, this->heat_duty_, HubAction::HEATING,
+                                    c.mode == HubMode::HEAT || c.mode == HubMode::HEAT_COOL);
+  const bool cooling = this->shows_(this->cool_claim_, this->cool_duty_, HubAction::COOLING,
+                                    c.mode == HubMode::COOL || c.mode == HubMode::HEAT_COOL);
+  // Both closed while min_on holds one after a switch-over, or while one closed from elsewhere waits
+  // for its put-back: the one it drives now is what it does.
+  if (heating && (!cooling || this->heat_duty_.duty() > 0.f))
     return HubAction::HEATING;
-  if ((c.mode == HubMode::COOL || c.mode == HubMode::HEAT_COOL) && this->cool_duty_.duty() > 0.f)
-    return HubAction::COOLING;
-  return HubAction::IDLE;
+  return cooling ? HubAction::COOLING : HubAction::IDLE;
+}
+
+bool ControllerRuntime::shows_(const RelayClaim *claim, const DutyCycler &duty, HubAction direction,
+                               bool drives) const {
+  if (claim == nullptr)
+    return false;
+  if (claim->state())
+    return true;
+  // A PID between two pulses of its PWM is still at it, once the first one has closed the relay.
+  return this->config_->kind == ControlKind::PID && drives && duty.duty() > 0.f && this->action_ == direction;
 }
 
 bool ControllerRuntime::set_action_(HubAction action) {
@@ -334,24 +353,18 @@ void ControllerRuntime::run_control_(uint32_t now_ms) {
   this->controlled_ = true;
   this->control_due_ = false;
 
-  HubAction action;
+  // Only the demand: what the entity shows follows the relays once they have moved.
   if (c.kind == ControlKind::PID) {
     const float output = this->pid_.update(c.setpoint, this->entity_->current_temperature, dt_s);
     const bool may_heat = c.supports_heat() && (c.mode == HubMode::HEAT || c.mode == HubMode::HEAT_COOL);
     const bool may_cool = c.supports_cool() && (c.mode == HubMode::COOL || c.mode == HubMode::HEAT_COOL);
-    const float heat = may_heat ? clamp01(output) : 0.f;
-    const float cool = may_cool ? clamp01(-output) : 0.f;
-    this->heat_duty_.set_duty(heat);
-    this->cool_duty_.set_duty(cool);
-    action = heat > 0.f ? HubAction::HEATING : (cool > 0.f ? HubAction::COOLING : HubAction::IDLE);
+    this->heat_duty_.set_duty(may_heat ? clamp01(output) : 0.f);
+    this->cool_duty_.set_duty(may_cool ? clamp01(-output) : 0.f);
   } else {
-    action = this->hysteresis_.update(c.mode, this->entity_->current_temperature);
-    this->heat_duty_.set_duty(action == HubAction::HEATING ? 1.f : 0.f);
-    this->cool_duty_.set_duty(action == HubAction::COOLING ? 1.f : 0.f);
+    const HubAction latched = this->hysteresis_.update(c.mode, this->entity_->current_temperature);
+    this->heat_duty_.set_duty(latched == HubAction::HEATING ? 1.f : 0.f);
+    this->cool_duty_.set_duty(latched == HubAction::COOLING ? 1.f : 0.f);
   }
-
-  if (this->set_action_(action))
-    this->entity_->publish_state();
 }
 
 void ControllerRuntime::drive_outputs_(uint32_t now_ms) {
