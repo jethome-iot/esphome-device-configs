@@ -573,6 +573,39 @@ TEST_F(Presets, ATakeOverByAWaitingNewerFileIsNotWrittenEither) {
   EXPECT_NE(std::string::npos, read_file(this->file_of("boiler")).find(R"("enabled":true)"));
 }
 
+// One that waits for the relay is stored disabled by a take-over as the holder is: by a newer
+// file's, in memory only.
+TEST_F(Presets, ATakeOverByANewerFileLeavesAWaitersFileEnabled) {
+  ClimateConfig attic = draft("Attic");
+  attic.sensor_id = "gone";
+  this->create(attic);
+  const std::string text = R"({"version":3,"id":"summer","name":"Summer","enabled":false,"sensor_id":"room",)"
+                           R"("heat":{"relay_id":"relay_1"},"mode":"heat"})";
+  write_file(this->file_of("summer"), text);
+  this->reboot();
+  ASSERT_NE("", hub().waiting_reason("attic"));
+  // Set just before, still waiting to be written: it is, under the flag the file has.
+  ASSERT_TRUE(hub().set_setpoint("attic", 23.f).ok);
+
+  Result result = hub().set_enabled("summer", true, true);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_FALSE(result.persisted);
+  EXPECT_EQ(std::vector<std::string>{"attic"}, result.stopped);
+  EXPECT_TRUE(hub().is_running("summer"));
+  EXPECT_FALSE(hub().store().get("attic")->enabled);
+  EXPECT_EQ("", hub().waiting_reason("attic"));
+  flush();
+  EXPECT_EQ(text, read_file(this->file_of("summer")));
+  const std::string waiter = read_file(this->file_of("attic"));
+  EXPECT_NE(std::string::npos, waiter.find(R"("enabled":true)")) << waiter;
+  EXPECT_NE(std::string::npos, waiter.find(R"("setpoint":23)")) << waiter;
+
+  this->reboot();
+  EXPECT_TRUE(hub().store().get("attic")->enabled);
+  EXPECT_FALSE(hub().store().get("summer")->enabled);
+  EXPECT_FLOAT_EQ(23.f, hub().store().get("attic")->setpoint);
+}
+
 // A newer file whose name another thermostat has is renamed for this boot only.
 TEST_F(Presets, ANewerFileRenamedAtBootIsNotWritten) {
   this->create(draft("Boiler"));
