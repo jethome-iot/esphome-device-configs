@@ -25,22 +25,23 @@ struct PidGains {
 
 /// One calibration of one thermostat. The hub keeps it from its start until the next start, a
 /// delete or a reboot; the thermostat's ControllerRuntime feeds it while it runs. Loop task only.
+/// Its clock is the hub's 64-bit one; the tuner's counts from the start.
 class AutotuneRun {
  public:
-  AutotuneRun(AutotuneDirection direction, AutotuneRule rule, const PidGains &gains, float setpoint, uint32_t now_ms);
+  AutotuneRun(AutotuneDirection direction, AutotuneRule rule, const PidGains &gains, float setpoint, uint64_t now_ms);
 
   /// One sample: whether the run's relay should be closed now.
-  bool feed(float value, uint32_t now_ms);
+  bool feed(float value, uint64_t now_ms);
   /// The limit the run has reached at `now_ms`, NONE within every one.
-  AutotuneEnd limit_reached(uint32_t now_ms) const;
+  AutotuneEnd limit_reached(uint64_t now_ms) const;
   /// The tuner has measured Ku and Pu; the hub then stores result() and calls succeed().
   bool found() const { return this->tuner_.finished(); }
   /// The rule's gains, each clamped into the parameter table; `clamped` says whether one had to be.
   PidGains result(bool *clamped) const;
-  void succeed(const PidGains &gains, bool clamped, bool persisted, uint32_t now_ms);
+  void succeed(const PidGains &gains, bool clamped, bool persisted, uint64_t now_ms);
   /// The thermostat's file was written since: the gains are in it, or whatever replaced them.
   void mark_persisted() { this->persisted_ = true; }
-  void fail(AutotuneEnd why, uint32_t now_ms);
+  void fail(AutotuneEnd why, uint64_t now_ms);
 
   AutotuneState state() const { return this->state_; }
   bool running() const { return this->state_ == AutotuneState::RUNNING; }
@@ -50,8 +51,8 @@ class AutotuneRun {
   /// The target it swings the room around, the thermostat's when it started: a later one ends it.
   float setpoint() const { return this->setpoint_; }
   /// Since the start, up to the end once it ended.
-  uint32_t elapsed_ms(uint32_t now_ms) const;
-  uint32_t started_ms() const { return this->started_ms_; }
+  uint64_t elapsed_ms(uint64_t now_ms) const;
+  /// Its extremes' times are in ms since the start.
   const PidAutotuner &tuner() const { return this->tuner_; }
   /// The gains in force when it started, and what it wrote in their place on success.
   const PidGains &old_gains() const { return this->old_gains_; }
@@ -72,9 +73,9 @@ class AutotuneRun {
   PidGains old_gains_;
   PidGains new_gains_;
   float setpoint_;
-  uint32_t started_ms_;
-  uint32_t ended_ms_{0};
-  uint32_t last_switch_ms_;
+  uint64_t started_ms_;
+  uint64_t ended_ms_{0};
+  uint64_t last_switch_ms_;
   uint32_t switches_{0};
   bool asymmetric_{false};
   bool uneven_{false};

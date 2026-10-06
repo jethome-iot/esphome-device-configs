@@ -99,7 +99,7 @@ TEST_F(Calibration, ARoomWithRadiatorsGetsItsGainsInAboutTwoHours) {
   const AutotuneRun *run = hub().autotune(id);
   ASSERT_NE(nullptr, run);
   EXPECT_EQ(AutotuneDirection::HEAT, run->direction()) << "mode heat calibrates heating";
-  const uint32_t started = hub().ms;
+  const uint64_t started = hub().ms;
 
   swing(room, model, 24.f, [&id] { return ended(id); });
   ASSERT_EQ(AutotuneState::SUCCEEDED, run->state());
@@ -152,7 +152,7 @@ TEST_F(Calibration, AFloorHeatingTakesEightToTenHours) {
   config.heat.min_off_s = 60.f;
   const std::string id = this->start(config, room.reading());
   ASSERT_TRUE(this->calibrate(id, AutotuneDirection::HEAT, AutotuneRule::SOME_OVERSHOOT).ok);
-  const uint32_t started = hub().ms;
+  const uint64_t started = hub().ms;
   swing(room, model, 24.f, [&id] { return ended(id); });
 
   const AutotuneRun *run = hub().autotune(id);

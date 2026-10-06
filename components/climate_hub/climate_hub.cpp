@@ -894,7 +894,7 @@ Result ClimateHub::start_autotune(const std::string &id, optional<AutotuneDirect
     return failure(409, std::string("The thermostat reports ") + enums::fault_to_string(runtime.fault()) +
                             "; calibrate it once that clears");
 
-  const uint32_t now = this->now_ms();
+  const uint64_t now = this->now_ms();
   auto run = std::make_unique<AutotuneRun>(*direction, rule, PidGains{stored->pid.kp, stored->pid.ki, stored->pid.kd},
                                            stored->setpoint, now);
   AutotuneRun *running = run.get();
@@ -951,10 +951,10 @@ void ClimateHub::complete_autotune_(Slot *slot) {
   } else {
     this->mark_dirty_(config->id);
   }
-  const uint32_t now = this->now_ms();
+  const uint64_t now = this->now_ms();
   run->succeed(gains, clamped, persisted, now);
   runtime.end_autotune(AutotuneEnd::NONE, now);
-  ESP_LOGI(TAG, "'%s': calibrated in %" PRIu32 " s: Ku %.5g, Pu %.0f s, rule %s: kp %.5g, ki %.5g, kd %.5g%s%s%s%s",
+  ESP_LOGI(TAG, "'%s': calibrated in %" PRIu64 " s: Ku %.5g, Pu %.0f s, rule %s: kp %.5g, ki %.5g, kd %.5g%s%s%s%s",
            config->id.c_str(), run->elapsed_ms(now) / 1000, run->tuner().ku(), run->tuner().pu(),
            enums::autotune_rule_to_string(run->rule()), gains.kp, gains.ki, gains.kd,
            run->asymmetric() ? ", asymmetric" : "", run->uneven() ? ", uneven" : "", clamped ? ", clamped" : "",

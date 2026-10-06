@@ -96,7 +96,7 @@ static void set_gains(JsonObject obj, const climate_hub::PidGains &gains) {
 }
 
 // A thermostat's last calibration since boot: where it is, how far it got and what it found.
-static void set_autotune(JsonObject obj, const climate_hub::AutotuneRun &run, uint32_t now) {
+static void set_autotune(JsonObject obj, const climate_hub::AutotuneRun &run, uint64_t now) {
   using climate_hub::AutotuneState;
   const climate_hub::PidAutotuner &tuner = run.tuner();
   // The run's own, not the thermostat's: a target moved since ended it and must not move its chart.
@@ -122,7 +122,7 @@ static void set_autotune(JsonObject obj, const climate_hub::AutotuneRun &run, ui
   JsonArray extremes = obj["extremes"].to<JsonArray>();
   for (const climate_hub::PidAutotuner::Extreme &extreme : tuner.extremes()) {
     JsonObject row = extremes.add<JsonObject>();
-    row["at_s"] = (extreme.ms - run.started_ms()) / 1000;
+    row["at_s"] = extreme.ms / 1000;
     row["temperature"] = setpoint - extreme.error;
   }
   const bool found = run.state() == AutotuneState::SUCCEEDED;
