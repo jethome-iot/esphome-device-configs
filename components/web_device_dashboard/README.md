@@ -36,11 +36,13 @@ block, and a factory reset clears only the stored settings. `dallas_scan_id` nam
 The Files, Automations and Climate screens need no option of their own: the component reads
 the `url_prefix` of a `web_file_browser`, a `web_automation_editor` and a `web_climate_editor`
 off the config and reports whichever of them this firmware has in `/api/device/capabilities`.
+A [`modbus_map`](../modbus_map/README.md) is picked up the same way.
 
 The **Settings → Network** and **Settings → Modbus** tabs show the entities of the `web_server`
 sorting groups named `Network` and `Modbus`, and the Entities screen leaves those groups out. The
 Entities screen also leaves out `Firmware channel` and `Check for updates` while
-**Settings → Firmware** shows them. The Modbus tab is there only when its group has an entity.
+**Settings → Firmware** shows them. The Modbus tab is there when its group has an entity or the
+firmware has a `modbus_map`, which the tab lists beside the settings.
 
 The handler registers on the shared `web_server_base` ahead of `web_server`'s, so `/` is the
 dashboard and `web_server`'s own page is not reachable; its REST routes, `/events` and its
@@ -88,9 +90,13 @@ other slot is the *newer* firmware. It is there when
 [`firmware_rollback`](../firmware_rollback/README.md) finds a firmware to go back to, and absent
 after a serial flash, a failed or interrupted update, a rollback the bootloader did itself, or while
 a switch waits for its reboot. `storage`, `files`, `automations`, `climates`, `entity_settings`,
-`board_info` and `temperature_slots` follow the components the firmware was built with. `storage`
-says what the mount is, not how full it is: usage is live and this route is not polled, so the byte
-counts stay in the file API's own `info`.
+`board_info`, `temperature_slots` and `modbus` follow the components the firmware was built with.
+`storage` says what the mount is, not how full it is: usage is live and this route is not polled,
+so the byte counts stay in the file API's own `info`. `modbus` is the Modbus server's address map
+as a `modbus_map` names it: the bit and register ranges, each with its first and last address, how
+many values it holds, whether it is writable and its name, a register range also with its
+`value_type` and, where the map gives them, `scale`, `unit` and `no_value`; and, when the server
+has one enabled, the `courtesy_response` an unmapped register gets.
 
 The embedded page will not draw its **Settings → System** tab without this: a firmware old
 enough to answer `404` here gets a message saying so rather than buttons that cannot work. It

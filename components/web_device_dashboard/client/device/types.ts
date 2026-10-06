@@ -327,6 +327,41 @@ export interface Capabilities {
    *  /assign and /offset answer, and /label too when GET carries `max_label_length` (not with
    *  `storage: nvs`). Without it all five are `404`. */
   temperature_slots?: true
+  /** The Modbus server's address map, as ranges; present when a `modbus_map` is wired in. */
+  modbus?: ModbusMap
+}
+
+// --- Modbus map ---
+
+/** One run of consecutive addresses that mean one thing, e.g. relays 1–6. */
+export interface ModbusRange {
+  /** First address of the run. */
+  address: number
+  /** Last address of the run, inclusive; for registers it counts every word of the last value. */
+  last_address: number
+  /** How many values the run holds: bits on a bit run, values on a register run. */
+  count: number
+  /** False when a write answers exception 02. */
+  writable: boolean
+  name: string
+}
+
+export interface ModbusRegisterRange extends ModbusRange {
+  /** ESPHome's `value_type`, e.g. `"S_WORD"`. */
+  value_type: string
+  /** What one raw unit is worth, e.g. `0.1`. */
+  scale?: number
+  unit?: string
+  /** The raw word that means "no reading", e.g. `0x8000`. */
+  no_value?: number
+}
+
+/** FC 01 and 02 read the one bit table, FC 03 and 04 the one register table. */
+export interface ModbusMap {
+  bits: ModbusRange[]
+  registers: ModbusRegisterRange[]
+  /** Unmapped registers up to `last_address` read `value` instead of answering exception 02. */
+  courtesy_response?: { last_address: number; value: number }
 }
 
 // --- Temperature slots ---
