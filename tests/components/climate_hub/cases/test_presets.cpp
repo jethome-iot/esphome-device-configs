@@ -132,7 +132,7 @@ TEST_F(Presets, TheEntityListsBuiltInAndCustomPresets) {
 }
 
 // The web server walks the custom list on its own task: a Save rewrites the names in the
-// slot's own buffers and never moves the list.
+// slot's own buffers and never moves the list, nor does a park or the eight names after it.
 TEST_F(Presets, TheCustomNamesStayInTheSlotsBuffers) {
   ClimateConfig config = with_presets();
   config.presets[3].name = std::string(NAME_MAX_LENGTH, 'd');
@@ -143,17 +143,29 @@ TEST_F(Presets, TheCustomNamesStayInTheSlotsBuffers) {
   const char *first = list[0];
   EXPECT_EQ(NAME_MAX_LENGTH, strlen(list[1]));
 
+  // The built-in two make way for six more: eight custom names, the most there can be.
   config = stored("boiler");
   config.presets[2].name = "Late night";
-  for (int i = 0; i < 4; i++)
+  config.presets.erase(config.presets.begin(), config.presets.begin() + 2);
+  for (int i = 0; i < 6; i++)
     config.presets.push_back(preset(("Extra " + std::to_string(i)).c_str(), 20.f));
   ASSERT_TRUE(hub().update("boiler", config).ok);
   const std::vector<const char *> &after = entity->get_traits().get_supported_custom_presets();
   EXPECT_EQ(&list, &after);
+  ASSERT_EQ(PRESET_MAX_COUNT, after.size());
   EXPECT_EQ(storage, after.data()) << "eight names fit the room the slot set aside";
   EXPECT_EQ(first, after[0]);
   EXPECT_STREQ("Late night", after[0]);
-  EXPECT_EQ(6u, after.size());
+  EXPECT_STREQ("Extra 5", after[7]);
+
+  ASSERT_TRUE(hub().set_enabled("boiler", false).ok);
+  entity->park(0);
+  EXPECT_TRUE(list.empty());
+  EXPECT_EQ(storage, list.data()) << "parked";
+  entity->set_presets(stored("boiler").presets);
+  ASSERT_EQ(PRESET_MAX_COUNT, list.size());
+  EXPECT_EQ(storage, list.data()) << "eight names again";
+  EXPECT_EQ(first, list[0]);
 }
 
 // The slot has room for eight custom names, however many it is handed.
@@ -370,9 +382,9 @@ TEST_F(Presets, RemovingTheActivePresetDropsTheLabel) {
   EXPECT_EQ((std::vector<std::string>{"Day"}), custom_presets(entity));
 }
 
-// Home Assistant reads the preset list only when it lists the entities: a running thermostat
-// that gains, loses or renames one makes it reconnect; new values do not, nor does any change to
-// a thermostat that is not running.
+// Home Assistant reads the preset list only when it lists the entities: the built-in presets as a
+// set, the custom names in order. A running thermostat whose list changes makes it reconnect;
+// new values do not, nor does any change to a thermostat that is not running.
 TEST_F(Presets, HomeAssistantReconnectsWhenThePresetListChanges) {
   this->create(with_presets());
   this->quiet();
@@ -397,6 +409,8 @@ TEST_F(Presets, HomeAssistantReconnectsWhenThePresetListChanges) {
       {"custom presets in another order", [](ClimateConfig &c) { std::swap(c.presets[2], c.presets[3]); }},
       {"a removed one", [](ClimateConfig &c) { c.presets.pop_back(); }},
       {"a custom one turned built-in", [](ClimateConfig &c) { c.presets[2].name = "Sleep"; }},
+      {"a built-in one removed", [](ClimateConfig &c) { c.presets.erase(c.presets.begin()); }},
+      {"a built-in one added", [](ClimateConfig &c) { c.presets.push_back(preset("Boost", 25.f)); }},
   };
   for (const auto &change : listed_changes) {
     ClimateConfig config = stored("boiler");

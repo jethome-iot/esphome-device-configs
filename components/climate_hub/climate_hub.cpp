@@ -133,8 +133,9 @@ static void keep_preset_state(const ClimateConfig &stored, ClimateConfig *doc) {
   doc->active_preset = now != nullptr ? stored.active_preset : "";
   if (now == nullptr)
     return;
+  // Found under the stored active key, which always names one of the stored presets.
   const PresetConfig *was = stored.find_preset(stored.active_preset);
-  if (was == nullptr || now->setpoint != was->setpoint || now->mode != was->mode)
+  if (now->setpoint != was->setpoint || now->mode != was->mode)
     doc->pick_preset(*now);
 }
 
@@ -1054,7 +1055,7 @@ void ClimateHub::flush_dirty_() {
   for (const std::string &id : this->dirty_) {
     const ClimateConfig *config = this->store_.get(id);
     if (config != nullptr && !this->save_(*config))
-      ESP_LOGW(TAG, "'%s': the new target or mode was not written", id.c_str());
+      ESP_LOGW(TAG, "'%s': the thermostat's state was not written", id.c_str());
   }
   this->dirty_.clear();
 }
