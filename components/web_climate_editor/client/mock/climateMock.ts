@@ -25,9 +25,10 @@
 // in id order, and the answer names them.
 // Presets follow the hub: the keys are the device's to give, a Save keeps the
 // active preset while its key is there and applies its new values at once, and a
-// target or a mode set by hand keeps the label. A thermostat whose `version` is
-// above CONFIG_VERSION stands for a file a newer firmware wrote: its Save is 409,
-// and what changes it is not persisted.
+// target or a mode set by hand keeps the label; /preset picks one by its key,
+// running or not. A thermostat whose `version` is above CONFIG_VERSION stands for
+// a file a newer firmware wrote: its Save is 409, and what changes it is not
+// persisted.
 // tests/components/web_climate_editor/contract.json lists the requests it must
 // answer as the device does.
 // /status reads a first-order room model per sensor, heated and cooled by the
@@ -674,7 +675,8 @@ const ROUTES = new Map<string, boolean>([
   ['save', true],
   ['delete', true],
   ['enable', true],
-  ['setpoint', true]
+  ['setpoint', true],
+  ['preset', true]
 ])
 
 // The room model: every 2 s a relay at full duty adds 0.06 °C and the room loses
@@ -1019,10 +1021,13 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
   // ControllerRuntime::control(): the preset, then a supported mode and a target held in
   // range over it, and a control pass at once. A target or a mode set by hand keeps the
   // label. Nothing else about the running thermostat changes.
-  function applyControl(doc: ControllerDocument, rt: Runtime, call: ClimateControlCall) {
+  function applyControl(
+    doc: ControllerDocument,
+    rt: Runtime,
+    call: Omit<ClimateControlCall, 'preset'> & { preset?: PresetConfig }
+  ) {
     const previousMode = doc.mode
-    const preset = call.preset === undefined ? undefined : presetNamed(doc, call.preset)
-    if (preset) pickPreset(doc, preset)
+    if (call.preset) pickPreset(doc, call.preset)
     const mode = MODES.find((m) => m === call.mode)
     if (mode && modeSupported(doc, mode)) doc.mode = mode
     if (typeof call.target === 'number' && !Number.isNaN(call.target)) {
@@ -1228,6 +1233,26 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     return ok('Setpoint updated')
   }
 
+  // ClimateHub::apply_preset: through the entity when it runs, into the document when not.
+  function preset(search: URLSearchParams): MockResult {
+    const id = idParam(search)
+    if (typeof id !== 'string') return id
+    const key = search.get('key')
+    if (key === null) return fail(400, 'Missing key parameter')
+    if (slugify(key) !== key) return fail(400, 'Invalid key parameter')
+    const doc = find(id)
+    if (!doc) return fail(404, 'Thermostat not found')
+    const picked = findPreset(doc, key)
+    if (!picked) return fail(404, 'Preset not found')
+    const before = [doc.setpoint, doc.mode, doc.active_preset].join()
+    const rt = running.get(id)
+    if (rt) applyControl(doc, rt, { preset: picked })
+    else pickPreset(doc, picked)
+    // A newer firmware's file is never written, so a pick that moved something lasts until a reboot.
+    const changed = [doc.setpoint, doc.mode, doc.active_preset].join() !== before
+    return ok('Preset applied', { persisted: !(changed && newer(doc)) })
+  }
+
   function handle(method: string, endpoint: string, search: URLSearchParams, body: string): MockResult {
     const t = now()
     advance(t)
@@ -1300,6 +1325,9 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       case 'setpoint':
         return setpoint(search)
 
+      case 'preset':
+        return preset(search)
+
       default:
         return fail(404, 'Unknown endpoint')
     }
@@ -1310,7 +1338,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     const doc = find(id)
     const rt = running.get(id)
     if (!doc || !rt) return false
-    applyControl(doc, rt, call)
+    applyControl(doc, rt, { ...call, preset: call.preset === undefined ? undefined : presetNamed(doc, call.preset) })
     return true
   }
 
