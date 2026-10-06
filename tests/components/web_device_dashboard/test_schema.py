@@ -242,6 +242,7 @@ class ModbusMapWiring(unittest.TestCase):
         setter = header.index("void set_modbus_map(const modbus_map::ModbusMap *")
         guard = header.rindex("#ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP", 0, setter)
         self.assertNotIn("#endif", header[guard:setter])
+        self.assertNotIn("#else", header[guard:setter])
 
     def test_the_map_stays_optional(self):
         self.assertNotIn(dashboard.CONF_MODBUS_MAP, dashboard.AUTO_LOAD)

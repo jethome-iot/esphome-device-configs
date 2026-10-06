@@ -53,8 +53,10 @@ thermostat's name, and `set_option` refuses the menu's. The relay's other fields
 means none, and the name shows. The name, the object id and everything keyed by them —
 Home Assistant, `web_server`'s routes, Modbus, rules, thermostats, these records — stay as they
 are. A label is valid UTF-8 with no control character and at most 24 characters (code points,
-not bytes); the spaces at both ends are trimmed. A write with anything else is refused, and a
-label in the file that breaks the rules is dropped with a warning. It is set through
+not bytes); the spaces at both ends are trimmed. The rules are
+[`panel_text`](../panel_text/README.md#labels)'s, which a temperature slot's label in
+[`dallas_scan`](../dallas_scan/README.md#labels) follows too. A write with anything else is
+refused, and a label in the file that breaks the rules is dropped with a warning. It is set through
 `web_device_dashboard`; a write that leaves it out, or sends `null`, keeps it, on both types. It
 applies at once.
 

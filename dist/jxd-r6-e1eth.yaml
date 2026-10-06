@@ -83,6 +83,7 @@ external_components:
       - entity_config
       - bindings
       - switch_hold
+      - panel_text
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -107,6 +108,7 @@ external_components:
       path: components
     components:
       - dallas_scan
+      - panel_text
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git

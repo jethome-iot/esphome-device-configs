@@ -324,7 +324,8 @@ export interface Capabilities {
   /** The CPU board's EEPROM identity is in `/info`. */
   board_info?: true
   /** A `dallas_scan` is wired in: GET /temperature-slots and POST /temperature-slots/forget,
-   *  /assign and /offset answer. Without it all four are `404`. */
+   *  /assign and /offset answer, and /label too when GET carries `max_label_length` (not with
+   *  `storage: nvs`). Without it all five are `404`. */
   temperature_slots?: true
   /** The Modbus server's address map, as ranges; present when a `modbus_map` is wired in. */
   modbus?: ModbusMap
@@ -393,22 +394,30 @@ export interface TemperatureSlot {
   /** °C added to the reading of whatever sensor is in this slot, in force already: it belongs
    *  to the slot number, not to the device. Absent on a listed slot, which the YAML corrects. */
   offset?: number
+  /** What the panel and the page show in place of `name`, `''` for none; like the offset it
+   *  belongs to the slot number. `name` stays the key to the sensor. Absent on a listed slot,
+   *  which the YAML names, and in an answer without `max_label_length`. */
+  label?: string
 }
 
 /** GET /temperature-slots — slots 1 up to the last one bound at boot, held in the saved table
- *  or holding an offset, a free slot between them included. */
+ *  or holding an offset or a label, a free slot between them included. */
 export interface TemperatureSlots {
   /** The size of the table, `dallas_scan`'s `max_sensors`. */
   max_slots: number
   /** Some slot is `pending`: `/status` names `temperature_slots` too. */
   reboot_required: boolean
   /** POST /temperature-slots/forget with `all` would change something: an unlisted slot holds a
-   *  device or an offset, and the table can be written. The rows' `can_forget` does not say it:
-   *  offsets alone are something to forget for every slot, not for one. */
+   *  device, an offset or a label, and the table can be written. The rows' `can_forget` does not
+   *  say it: offsets and labels alone are something to forget for every slot, not for one. */
   can_forget_all: boolean
   /** An offset runs from `-max_offset` to `max_offset` °C, in steps of `offset_step`. */
   max_offset: number
   offset_step: number
+  /** A label's most characters (code points). Present only when the slots take labels: absent
+   *  with `storage: nvs` and on firmware older than labels, where POST /temperature-slots/label
+   *  is `404`. */
+  max_label_length?: number
   slots: TemperatureSlot[]
 }
 
@@ -421,8 +430,8 @@ export interface TemperatureSlotChangeResult extends MutationResponse {
 /** POST /temperature-slots/forget — one slot, or every slot but the listed ones, under the
  *  system actions' confirmation. The device empties them in the saved table and writes it; the
  *  change applies after a reboot, and a write that fails is `500`. `all` clears every unlisted
- *  slot's offset too, at once; one slot keeps its offset. One that would change nothing (a free
- *  or listed slot, or no device and no offset left to forget) is `409`, which a slot's
+ *  slot's offset and label too, at once; one slot keeps its own. One that would change nothing (a
+ *  free or listed slot, or no device, offset or label left to forget) is `409`, which a slot's
  *  `can_forget` and `can_forget_all` say beforehand; a slot out of range, `all` that is not
  *  `true`, or both keys or neither, is `400`; a table that cannot be written is `503`. */
 export type ForgetSlotsPayload = ConfirmPayload & ({ slot: number; all?: never } | { all: true; slot?: never })
@@ -452,6 +461,24 @@ export interface SlotOffsetPayload {
 export interface TemperatureSlotOffsetResult extends Omit<MutationResponse, 'reboot_required'> {
   /** The offset the slot holds now, after the rounding. */
   offset: number
+}
+
+/** POST /temperature-slots/label — set `slot`'s label (from 1); `''` clears it. The device trims
+ *  the spaces at both ends. No confirmation: it is written and shown at once, with no reboot.
+ *  `400` for a slot out of range, or a label that is not a string, is over `max_label_length`
+ *  characters once trimmed, or holds a control character or malformed UTF-8; `404` without
+ *  `max_label_length`; `409` for a listed slot; `503` for a table that cannot be written or a
+ *  slot file that did not load at boot; `500` when the write fails. */
+export interface SlotLabelPayload {
+  slot: number
+  label: string
+}
+
+/** What POST /temperature-slots/label answers. */
+// Never reboot_required: a label shows at once.
+export interface TemperatureSlotLabelResult extends Omit<MutationResponse, 'reboot_required'> {
+  /** The label the slot holds now, trimmed; `''` for none. */
+  label: string
 }
 
 // --- Network (live status + saved config) ---

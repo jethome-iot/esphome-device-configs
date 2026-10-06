@@ -7,8 +7,12 @@ font:
   - file: ${assets}/fonts/6x12.bdf
     id: f6x12
 
+  # The status page draws the temperature slots' labels, Cyrillic included. The file lacks four
+  # of the set's letters (Ң ң Ҷ ҷ), which draw as its default glyph.
   - file: ${assets}/fonts/5x7.bdf
     id: f5x7
+    glyphsets: [GF_Latin_Kernel, GF_Cyrillic_Core]
+    ignore_missing_glyphs: true
 
   - file: ${assets}/fonts/spleen-12x24.bdf
     id: big_label_font

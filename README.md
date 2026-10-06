@@ -44,7 +44,7 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
   latest build of its channel (`release` or `nightly`) and installs it on request; a config
   imported into the ESPHome Builder is yours to update ([details](doc/RELEASE.md#updates-on-the-device))
 - **Display Control**: Interactive OLED menu with status, time, relay control, input monitoring, and settings
-- **Dallas Temperature Sensors**: a sensor per DS18B20 found at boot, numbered once and kept across reboots, with an offset per slot ([details](doc/ONEWIRE_WORKFLOW.md))
+- **Dallas Temperature Sensors**: a sensor per DS18B20 found at boot, numbered once and kept across reboots, with an offset and a label of your own per slot, the label shown on the panel and the dashboard ([details](doc/ONEWIRE_WORKFLOW.md))
 - **User Storage**: a 4 MB LittleFS partition mounted at `/littlefs`, kept across OTA updates, served over HTTP as a JSON file API under `/files` ([details](components/web_file_browser/README.md))
 - **Crash reports**: after a panic or a watchdog reset the device saves what ESPHome recorded
   about the crash on that partition, to fetch under `/files` and decode against the build's
@@ -95,7 +95,7 @@ Shared code and tooling stay at the repository root:
 
 | Directory  | Contents |
 | ---------- | -------- |
-| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `climate_hub` (the thermostats, each a climate entity), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `web_climate_editor` (the thermostat API of `climate_hub`), `crash_report` (the last panic's record, written to that partition at the next boot), `web_device_dashboard` (the web UI at `/` and its device API), `modbus_map` (the Modbus ranges' names that the dashboard lists, checked against the server at build time), `web_auth` (the web server's credentials, changeable at runtime), `web_origin_guard` (the cross-origin refusal every handler on that server answers with), `loop_job` (what a web handler hands the loop task so it does not edit its state from the server's), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), `entity_config` (the per-entity settings) with the `config_base` / `config_json` it is built on, `bindings` (an input driving a relay), `switch_hold` (who holds a relay, a running thermostat; the panel, Modbus, the rules, the bindings and the relay settings ask it before they move one), `jethome_update` (the firmware update entity) over the `jethome_manifest` parser of the firmware server's answer, `firmware_rollback` (booting the firmware in the other app slot, for the dashboard and the display menu), `status_indicator` (the CPU board's LED: on, off, blinking, pulses), `panel_text` (text fitted to a row of the display menu), and `display_menu_base` with `graphical_display_menu` (upstream's, with the menu options `packages/display/menu.yaml` needs) |
+| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `climate_hub` (the thermostats, each a climate entity), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `web_climate_editor` (the thermostat API of `climate_hub`), `crash_report` (the last panic's record, written to that partition at the next boot), `web_device_dashboard` (the web UI at `/` and its device API), `modbus_map` (the Modbus ranges' names that the dashboard lists, checked against the server at build time), `web_auth` (the web server's credentials, changeable at runtime), `web_origin_guard` (the cross-origin refusal every handler on that server answers with), `loop_job` (what a web handler hands the loop task so it does not edit its state from the server's), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), `entity_config` (the per-entity settings) with the `config_base` / `config_json` it is built on, `bindings` (an input driving a relay), `switch_hold` (who holds a relay, a running thermostat; the panel, Modbus, the rules, the bindings and the relay settings ask it before they move one), `jethome_update` (the firmware update entity) over the `jethome_manifest` parser of the firmware server's answer, `firmware_rollback` (booting the firmware in the other app slot, for the dashboard and the display menu), `status_indicator` (the CPU board's LED: on, off, blinking, pulses), `panel_text` (text fitted to a row of the display menu, and the rules a label follows), and `display_menu_base` with `graphical_display_menu` (upstream's, with the menu options `packages/display/menu.yaml` needs) |
 | `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `device-files.py` (the `web_file_browser` API from a terminal), `qemu.sh` (the emulator), `setup.sh` / `setup.bat` |
 | `dist/`    | Generated self-contained configs the ESPHome Builder imports |
 | `doc/`     | Guides, plus the README's UI mockups in `doc/images/` |
@@ -235,11 +235,11 @@ address is the access point's.
 
 <img src="doc/images/jxd-r6-status-page-ui.svg" width="400" alt="Status Page">
 
-Relay states, digital input states and temperature readings at a glance, and it switches
-the relays: LEFT and RIGHT move the selection along the relay row — the selected number is
-drawn inverted on the device — and CENTER toggles that relay, unless a running thermostat
-drives it: then the press changes nothing, and the log names the thermostat. UP and DOWN
-scroll the temperature column.
+Relay states, digital input states and temperature readings, each slot by its label when it has
+one, at a glance, and it switches the relays: LEFT and RIGHT move the selection along the relay
+row — the selected number is drawn inverted on the device — and CENTER toggles that relay,
+unless a running thermostat drives it: then the press changes nothing, and the log names the
+thermostat. UP and DOWN scroll the temperature column.
 
 **Getting here**: LEFT from the main page.
 
@@ -269,7 +269,7 @@ untouched; any button then takes the page away, and it leaves on its own after h
 
 - **Relays** - a submenu per relay: toggle it, and set its inversion, start mode and bound input; a relay a running thermostat drives neither toggles nor changes its inversion, and the log names the thermostat
 - **Inputs** - a submenu per input: live state and inversion
-- **Temperatures** - temperature sensor readings; a DS18B20 row opens its slot: the ROM address, the offset and a forget command
+- **Temperatures** - temperature sensor readings, each slot by its label when it has one; a DS18B20 row opens its slot: its label or name, `Slot N`, the reading, the ROM address, the offset and a forget command
 - **Thermostats** - a row per thermostat with what its sensor reads; it opens the thermostat's name, the reading, what it is doing (heating, idle, waiting, a fault), the target and Enabled. The list is the one the device booted with: a thermostat created later shows after a reboot
 - **Automations** - a row per rule that switches it on or off; the list is the one the device booted with
 - **Info** - network information (Ethernet and WiFi IP and MAC addresses, access point password), then the serial number from the CPU board's EEPROM (`--` when it holds none)

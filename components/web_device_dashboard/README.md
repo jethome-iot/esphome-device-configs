@@ -23,7 +23,7 @@ web_server:
 web_device_dashboard:
   board_info_id: board_info   # optional: the jethome_board_info to report
   storage_id: user_storage    # optional: the mount a factory reset wipes
-  dallas_scan_id: temps       # optional: the temperature slots and their offsets
+  dallas_scan_id: temps       # optional: the temperature slots, their offsets and labels
 ```
 
 `board_info_id` names a `jethome_board_info`; with it `/api/device/info` carries the identity the
@@ -42,7 +42,7 @@ The **Settings → Network** and **Settings → Modbus** tabs show the entities 
 sorting groups named `Network` and `Modbus`, and the Entities screen leaves those groups out. The
 Entities screen also leaves out `Firmware channel` and `Check for updates` while
 **Settings → Firmware** shows them. The Modbus tab is there when its group has an entity or the
-firmware has a `modbus_map`, which the tab lists below the settings.
+firmware has a `modbus_map`, which the tab lists beside the settings.
 
 The handler registers on the shared `web_server_base` ahead of `web_server`'s, so `/` is the
 dashboard and `web_server`'s own page is not reachable; its REST routes, `/events` and its
@@ -140,15 +140,17 @@ With a `dallas_scan_id`, the temperature slots; without one these routes are `40
 
 | Method | Path | |
 |---|---|---|
-| GET | `/api/device/temperature-slots` | `{"max_slots", "reboot_required", "can_forget_all", "max_offset", "offset_step", "slots": [{"slot", "name", "free", "listed", "address", "can_forget", "pending", "running_address", "offset"}]}`: slots 1 up to the last one bound at boot, held in the saved table or holding an offset, a free slot between them included. `free`, `address` and `can_forget` describe the saved table; `pending` marks a slot that differs from boot, and `running_address` is the ROM its sensor reads until the reboot. `address` is the ROM as a hex string, absent for a free slot and a listed sensor that is not a 1-Wire one. `offset` is the slot's offset in °C, in force already; absent on a listed slot. `can_forget_all` says whether a forget of every slot would change anything — a device or an offset on an unlisted slot, and a table that can be written. `503` when the loop task does not take the read |
-| POST | `/api/device/temperature-slots/forget` | `{"slot": N}` empties that slot, `{"all": true}` every slot but the listed ones — what the panel's forget rows do, without the restart: the change is saved and applies after a reboot. `all` also clears every offset, at once; one slot keeps its offset. Takes the system actions' confirmation; a request that would change nothing — a free or listed slot, or nothing to forget at all — is `409`; a table that cannot be written is `503`, a write that fails `500`; `503` too when the loop task does not take it |
+| GET | `/api/device/temperature-slots` | `{"max_slots", "reboot_required", "can_forget_all", "max_offset", "offset_step", "max_label_length", "slots": [{"slot", "name", "free", "listed", "address", "can_forget", "pending", "running_address", "offset", "label"}]}`: slots 1 up to the last one bound at boot, held in the saved table or holding an offset or a label, a free slot between them included. `free`, `address` and `can_forget` describe the saved table; `pending` marks a slot that differs from boot, and `running_address` is the ROM its sensor reads until the reboot. `address` is the ROM as a hex string, absent for a free slot and a listed sensor that is not a 1-Wire one. `offset` is the slot's offset in °C, in force already; absent on a listed slot. `label` is what the panel and the page show in place of `name`, `""` for none; absent on a listed slot. `max_label_length` (24) and the rows' `label` are there only with `dallas_scan`'s `storage: file`, which keeps labels. `can_forget_all` says whether a forget of every slot would change anything — a device, an offset or a label on an unlisted slot, and a table that can be written. `503` when the loop task does not take the read |
+| POST | `/api/device/temperature-slots/forget` | `{"slot": N}` empties that slot, `{"all": true}` every slot but the listed ones — what the panel's forget rows do, without the restart: the change is saved and applies after a reboot. `all` also clears every offset and label, at once; one slot keeps its own. Takes the system actions' confirmation; a request that would change nothing — a free or listed slot, or nothing to forget at all — is `409`; a table that cannot be written is `503`, a write that fails `500`; `503` too when the loop task does not take it |
 | POST | `/api/device/temperature-slots/assign` | `{"slot": N, "address": "0x…"}` puts that device into slot N, applied after a reboot. A device already in another slot swaps with what slot N held; a new address takes slot N from its device, which takes the lowest free slot at the next boot if it is still on the bus. Same confirmation; an address that is not a thermometer ROM with a valid CRC is `400`, a listed slot or device, or a device already there, `409`, a table that cannot be written `503`, a write that fails `500`, a loop task that does not take it `503` |
 | POST | `/api/device/temperature-slots/offset` | `{"slot": N, "offset": x}` sets slot N's offset, -5.0 to +5.0 °C, rounded to 0.1; `0` removes it. Saved and in force at once, with no confirmation and no reboot: the slot's reading is published again with it. A free slot takes one for the sensor that takes it later. A slot out of range or an offset that is not a number within the range is `400`, a listed slot `409`, a table that cannot be written or a slot file that did not load at boot `503`, a write that fails `500`, a loop task that does not take it `503` |
+| POST | `/api/device/temperature-slots/label` | `{"slot": N, "label": "text"}` sets slot N's label, trimmed of the spaces at both ends; `""` clears it. At most 24 characters, well-formed UTF-8 with no control character, as a relay's label. Saved and shown at once, with no confirmation and no reboot; Home Assistant, Modbus, the rules and the thermostats keep `Temp N`. A free slot takes one for the sensor that takes it later. Without `storage: file` it is `404`; a slot out of range or a label the rules refuse is `400`, a listed slot `409`, a table that cannot be written or a slot file that did not load at boot `503`, a write that fails `500`, a loop task that does not take it `503` |
 
 Slots are numbered from 1, as the `Temp N` sensors are. A forget or an assign answers
 `{"success", "message", "reboot_required"}`; changes add up until a reboot applies them all, and
 one that puts the table back as the device booted leaves nothing waiting. An offset answers
-`{"success", "message", "offset"}`, the offset the slot now holds. A slot's reading is
+`{"success", "message", "offset"}`, the offset the slot now holds, and a label
+`{"success", "message", "label"}`, the label as stored. A slot's reading is
 not here: it is the state of the sensor of that `name` on `web_server`'s `/events`.
 
 With a `config_json` store (`entity_config`'s `switch` and `binary_sensor` types), the entity
@@ -180,7 +182,7 @@ mirror. Nothing in this repository builds or type-checks them.
 `web_server_base` stand-in: the URLs it claims, the route table and its method matrix, the body
 accumulation and its 4 KiB cap, the JSON every route answers with, the confirmation the system
 actions take, a factory reset wiping a stand-in storage and the preferences before it restarts,
-and the temperature slots listed, forgotten and assigned and their offsets set on a real
+and the temperature slots listed, forgotten and assigned and their offsets and labels set on a real
 `dallas_scan` over the harness's 1-Wire bus, with `/status` reporting what waits, booted again to
 see what the table kept. Out of reach there is the ESP-IDF half — the `Allow` header, URL
 decoding, the reset reason and the IP lookups, the eFuse block, a live WiFi or Ethernet link, the

@@ -14,7 +14,7 @@ loaded at boot and applied before the entities set themselves up.
 | Relay | `Bind to` | `None`, `Input 1` … `Input 6` | The input that drives this relay directly; needs a `Binding` other than `Disabled` |
 | Relay | `Binding` | `Disabled`, `Toggle`, `Follow` | `Toggle` flips the relay on each rising edge of the input as reported, after its `Inverted`; `Follow` makes the relay copy the input, at boot too, so it wins over `Start mode` |
 | Input | `Inverted` | `No`, `Yes` | A closed contact is reported as Off. Flipping it re-reports the input at once; bindings and automations take that as a level, not as a press or release |
-| Relay, Input | `Label` | Text, up to 24 characters; empty for none | Shown on the panel and the dashboard in place of the name. Set from the dashboard only; it changes nothing else, so Home Assistant, the REST routes, Modbus, automations and thermostats still see the name |
+| Relay, Input | `Label` | Text, up to 24 characters; empty for none | Shown on the panel and the dashboard in place of the name. Set from the dashboard only; it changes nothing else, so Home Assistant, the REST routes, Modbus, automations and thermostats still see the name. A temperature slot's [label](ONEWIRE_WORKFLOW.md#label) takes the same text |
 
 The binding rules are in [components/bindings](../components/bindings/README.md). A binding
 does not move a relay a running thermostat drives; once the thermostat frees it, a `Follow`

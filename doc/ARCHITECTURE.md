@@ -19,10 +19,10 @@ boundaries; everything else is local to its file.
 - `relays`, `inputs` (`boards/jxd-d6-r6-rev1.2.yaml`) are `globals` that the status page, buttons
   and menu iterate over. `temps` (`features/temperature.yaml`) is the `dallas_scan` component; the
   status page, the menu and the Modbus map read the temperatures through it (`used_slots()`,
-  `slot_name(slot)`, `sensor(slot)`, `temperature(slot)`), and `forget_temperatures` (a script)
+  `display_name(slot)`, `sensor(slot)`, `temperature(slot)`), and `forget_temperatures` (a script)
   clears slots. `features/web-device-dashboard.yaml` hands it to the dashboard as
   `dallas_scan_id`, for `/api/device/temperature-slots`, which forgets, assigns and sets offsets
-  through the component itself.
+  and labels through the component itself.
 - `board_info` (`boards/jxd-cpu-e1eth.yaml`) is the `jethome_board_info` component over the
   CPU board's EEPROM `eeprom_cpu`; `display/menu-serial.yaml` reads it for the Serial row and
   `features/web-device-dashboard.yaml` for `/api/device/info`.
@@ -35,7 +35,8 @@ boundaries; everything else is local to its file.
   them. A submenu may be empty, and `info_submenu`, `relays_menu` and `inputs_menu` declare no
   rows of their own: the last two are filled at boot from the `relays` / `inputs` vectors, so the
   menu follows whatever the board package put there. `temperatures_menu` gets a `Temp N` submenu per
-  slot up to the last bound one at boot; a freed slot's submenu only says `Free slot`.
+  slot up to the last bound one at boot, named after the slot's label or name; a freed slot's
+  submenu only names the slot and says `Free slot`.
   `automations_menu` is filled at boot with a row per loaded rule, or one `No automations` row.
   `thermostats_menu` is filled at boot with a submenu per loaded thermostat, or one
   `No thermostats` row.
