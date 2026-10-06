@@ -419,5 +419,120 @@ TEST_F(LongGaps, APidIntegratesOverItsWholeInterval) {
   EXPECT_NEAR(0.3f, rt->pid().integral_term(), 1e-5f) << "5 degrees for 60 s at 0.001";
 }
 
+// Stamps taken past the wrap and read later: a field kept in 32 bits holds a stamp from before
+// the wrap exactly, so only these show one that went back to 32.
+class AfterTheWrap : public HubTest {
+ protected:
+  static ClimateConfig cfg(ControlKind kind) {
+    ClimateConfig c;
+    c.name = "Wrapped";
+    c.kind = kind;
+    c.sensor_id = "room";
+    c.heat.relay_id = "relay_1";
+    c.heat.period_s = 10.f;
+    c.heat.min_on_s = 0.f;
+    c.heat.min_off_s = 0.f;
+    c.mode = HubMode::HEAT;
+    c.update_interval_s = 1.f;
+    c.safety.sensor_timeout_s = 120.f;
+    c.setpoint = 21.f;
+    c.bang_bang.below = 0.5f;
+    c.bang_bang.above = 0.5f;
+    return c;
+  }
+};
+
+// A run started past the wrap keeps going: a 32-bit start would put it a day back at once.
+TEST_F(AfterTheWrap, ACalibrationStartedAfterTheWrapRuns) {
+  hub().ms = MILLIS_WRAP + 1000;
+  const std::string id = this->create(cfg(ControlKind::PID)).id;
+  entities().room.publish_state(21.f);
+  hub().loop();
+  ASSERT_TRUE(hub().start_autotune(id, nullopt, AutotuneRule::ZN_PI).ok);
+  const AutotuneRun *run = hub().autotune(id);
+  hub().ms += 60000;
+  entities().room.publish_state(20.5f);
+  hub().loop();
+  EXPECT_TRUE(run->running()) << enums::autotune_end_to_string(run->reason());
+  EXPECT_EQ(60000u, run->elapsed_ms(hub().ms));
+}
+
+// A relay let go past the wrap and claimed again still waits out its min_off from the let-go.
+TEST_F(AfterTheWrap, AReclaimedRelayKeepsItsMinOffAfterTheWrap) {
+  ClimateConfig c = cfg(ControlKind::BANG_BANG);
+  c.heat.min_off_s = 600.f;
+  hub().ms = MILLIS_WRAP + 1000000;
+  std::string id = this->create(c).id;
+  entities().room.publish_state(18.f);
+  hub().loop();
+  ASSERT_TRUE(entities().relay1.state);
+  ASSERT_TRUE(hub().remove(id).ok);
+  ASSERT_FALSE(entities().relay1.state);
+  hub().ms += 1000;
+  id = this->create(c).id;
+  entities().room.publish_state(18.f);
+  hub().loop();
+  EXPECT_FALSE(entities().relay1.state) << "min_off from the let-go still runs";
+}
+
+// A reading heard past the wrap is a second old at a start a second later, not stale.
+TEST_F(AfterTheWrap, AReadingHeardAfterTheWrapIsFreshAtAStart) {
+  ClimateConfig listener = cfg(ControlKind::BANG_BANG);
+  listener.name = "Listener";
+  listener.heat.relay_id = "relay_2";
+  hub().ms = MILLIS_WRAP + 1000;
+  this->create(listener);
+  entities().room.publish_state(18.f);
+  ASSERT_TRUE(hub().remove("listener").ok);
+  hub().ms += 1000;
+  const std::string id = this->create(cfg(ControlKind::BANG_BANG)).id;
+  hub().loop();
+  EXPECT_EQ(HubFault::NONE, hub().runtime_of(id)->fault());
+  EXPECT_TRUE(entities().relay1.state);
+}
+
+// A relay switched past the wrap keeps its min_off.
+TEST_F(AfterTheWrap, ARelaySwitchedAfterTheWrapKeepsItsMinOff) {
+  ClimateConfig c = cfg(ControlKind::BANG_BANG);
+  c.heat.min_off_s = 600.f;
+  hub().ms = MILLIS_WRAP + 1000000;
+  this->create(c);
+  entities().room.publish_state(18.f);
+  hub().loop();
+  ASSERT_TRUE(entities().relay1.state);
+  hub().ms += 1000;
+  entities().room.publish_state(22.f);
+  hub().loop();
+  ASSERT_FALSE(entities().relay1.state);
+  hub().ms += 1000;
+  entities().room.publish_state(18.f);
+  hub().loop();
+  EXPECT_FALSE(entities().relay1.state) << "min_off holds it open";
+}
+
+// A start past the wrap waits for its first reading for the timeout, not stale at once.
+TEST_F(AfterTheWrap, AStartAfterTheWrapWaitsForItsFirstReading) {
+  hub().ms = MILLIS_WRAP + 1000;
+  const std::string id = this->create(cfg(ControlKind::BANG_BANG)).id;
+  hub().ms += 1000;
+  hub().loop();
+  EXPECT_EQ(HubFault::NONE, hub().runtime_of(id)->fault());
+}
+
+// A PID past the wrap integrates over its interval, not over 49.7 days.
+TEST_F(AfterTheWrap, APidAfterTheWrapIntegratesOverItsInterval) {
+  ClimateConfig c = cfg(ControlKind::PID);
+  c.setpoint = 25.f;
+  c.pid.kp = 0.f;
+  c.pid.ki = 0.01f;
+  hub().ms = MILLIS_WRAP + 1000;
+  const std::string id = this->create(c).id;
+  entities().room.publish_state(20.f);
+  hub().loop();
+  hub().ms += 1000;
+  hub().loop();
+  EXPECT_NEAR(0.05f, hub().runtime_of(id)->pid().integral_term(), 1e-5f);
+}
+
 }  // namespace
 }  // namespace esphome::climate_hub::testing

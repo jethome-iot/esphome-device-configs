@@ -30,7 +30,8 @@ class AutotuneRun {
  public:
   AutotuneRun(AutotuneDirection direction, AutotuneRule rule, const PidGains &gains, float setpoint, uint64_t now_ms);
 
-  /// One sample: whether the run's relay should be closed now.
+  /// One sample: whether the run's relay should be closed now. Only within 49.7 days of the start,
+  /// which the caller keeps by ending the run on limit_reached() first: the tuner counts in 32 bits.
   bool feed(float value, uint64_t now_ms);
   /// The limit the run has reached at `now_ms`, NONE within every one.
   AutotuneEnd limit_reached(uint64_t now_ms) const;
