@@ -13,6 +13,7 @@ AUTO_LOAD = ["web_origin_guard", "loop_job", "firmware_rollback"]
 
 CONF_BOARD_INFO_ID = "board_info_id"
 CONF_DALLAS_SCAN_ID = "dallas_scan_id"
+CONF_MODBUS_MAP = "modbus_map"
 CONF_STORAGE_ID = "storage_id"
 CONF_URL_PREFIX = "url_prefix"
 
@@ -74,4 +75,8 @@ async def to_code(config):
         served = CORE.config.get(component)
         if served is not None:
             cg.add(getattr(var, setter)(served[CONF_URL_PREFIX]))
+    # Read off the config like SERVED_BY: the map sits in the Modbus package, next to its server.
+    if (modbus_map := CORE.config.get(CONF_MODBUS_MAP)) is not None:
+        cg.add_define("USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP")
+        cg.add(var.set_modbus_map(await cg.get_variable(modbus_map[CONF_ID])))
     await cg.register_component(var, config)

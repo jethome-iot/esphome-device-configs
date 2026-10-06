@@ -1014,6 +1014,8 @@ TEST_F(Editor, StatusReportsTheControlLoop) {
   EXPECT_FLOAT_EQ(room["cool_duty"].as<float>(), 0.f);
   EXPECT_TRUE(room["heat_relay_on"].as<bool>());
   EXPECT_FALSE(room["cool_relay_on"].as<bool>());
+  EXPECT_EQ(room["heat_relay_wait"].as<std::string>(), "none");
+  EXPECT_EQ(room["cool_relay_wait"].as<std::string>(), "none");
   EXPECT_FLOAT_EQ(room["pid"]["error"].as<float>(), 4.f);
   EXPECT_FALSE(room["pid"]["proportional"].isNull());
   EXPECT_FALSE(room["pid"]["in_deadband"].as<bool>());
@@ -1084,6 +1086,44 @@ TEST_F(Editor, StatusReportsACoolingThermostat) {
   EXPECT_TRUE(entities().relay2.state);
 }
 
+// A relay its own dwell holds says which: min_off before it may close, min_on before it may
+// open. The action is what the relay does meanwhile.
+TEST_F(Editor, StatusSaysWhichDwellHoldsARelay) {
+  ASSERT_EQ(this->create(R"({"name":"Floor","kind":"bang_bang","sensor_id":"floor",)"
+                         R"("heat":{"relay_id":"relay_2","min_on_s":60,"min_off_s":300},"mode":"heat","setpoint":24})"),
+            "floor");
+  entities().floor.publish_state(20.f);
+  hub().loop();
+
+  Reply held = this->get("status?id=floor");
+  ASSERT_EQ(held.code, 200) << held.body;
+  JsonObject row = held["controllers"][0];
+  EXPECT_EQ(row["action"].as<std::string>(), "idle") << "open since the boot, until 300 s";
+  EXPECT_FLOAT_EQ(row["heat_duty"].as<float>(), 1.f);
+  EXPECT_FALSE(row["heat_relay_on"].as<bool>());
+  EXPECT_EQ(row["heat_relay_wait"].as<std::string>(), "min_off");
+  EXPECT_EQ(row["cool_relay_wait"].as<std::string>(), "none");
+
+  hub().ms = 300000;
+  hub().loop();
+  Reply closed = this->get("status?id=floor");
+  row = closed["controllers"][0];
+  EXPECT_EQ(row["action"].as<std::string>(), "heating");
+  EXPECT_TRUE(row["heat_relay_on"].as<bool>());
+  EXPECT_EQ(row["heat_relay_wait"].as<std::string>(), "none");
+
+  entities().floor.publish_state(26.f);
+  // At the next pass, update_interval_s on.
+  hub().ms = 330000;
+  hub().loop();
+  Reply let_go = this->get("status?id=floor");
+  row = let_go["controllers"][0];
+  EXPECT_EQ(row["action"].as<std::string>(), "heating") << "closed at 300 s, until 360 s";
+  EXPECT_FLOAT_EQ(row["heat_duty"].as<float>(), 0.f);
+  EXPECT_TRUE(row["heat_relay_on"].as<bool>());
+  EXPECT_EQ(row["heat_relay_wait"].as<std::string>(), "min_on");
+}
+
 // A stopped thermostat still shows its room, read off the sensor itself.
 TEST_F(Editor, StatusOfAStoppedThermostat) {
   ASSERT_EQ(this->create(with(LIVING_ROOM, R"("enabled":false)").c_str()), "living-room");
@@ -1099,6 +1139,8 @@ TEST_F(Editor, StatusOfAStoppedThermostat) {
   EXPECT_TRUE(row["sensor_age_s"].isNull());
   EXPECT_FLOAT_EQ(row["heat_duty"].as<float>(), 0.f);
   EXPECT_FALSE(row["heat_relay_on"].as<bool>());
+  EXPECT_EQ(row["heat_relay_wait"].as<std::string>(), "none");
+  EXPECT_EQ(row["cool_relay_wait"].as<std::string>(), "none");
   EXPECT_TRUE(row["pid"].isUnbound());
 }
 

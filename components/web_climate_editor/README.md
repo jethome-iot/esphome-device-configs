@@ -1,9 +1,10 @@
 # web_climate_editor
 
 The JSON/REST API of the `climate_hub` thermostats, served on the device's own web server under
-`/climate-editor/api/`. List, read, create, change, start, stop and delete thermostats, edit and
-pick their presets, move a target, watch the control loop, and discover the sensors and relays a
-thermostat may name — everything a browser editor does, and everything `curl` can do without one.
+`/climate-editor/api/`. List, read, create, change, start, stop and delete thermostats, bring one
+back from a backup under its own id, edit and pick their presets, move a target, watch the control
+loop, and discover the sensors and relays a thermostat may name — everything a browser editor does,
+and everything `curl` can do without one.
 ESP-IDF only.
 
 ```yaml
@@ -62,16 +63,17 @@ seconds. Nothing was read or written then, and the call can simply be made again
 | GET | `list` | `{"success": true, "count", "max_controllers", "controllers": [{"id", "name", "enabled", "kind", "mode", "sensor_id", "heat_relay_id", "cool_relay_id", "running", "waiting", "active_preset", "active_preset_name"}, ...]}`; `waiting` says why an enabled thermostat does not run, `""` when it runs or is disabled; `active_preset` is the key of the preset picked last and `active_preset_name` its name, both `""` for none |
 | GET | `get?id=` | One thermostat, in the file format of [climate_hub](../climate_hub/README.md#a-thermostat), its presets included |
 | POST | `save` | A thermostat as a JSON body. `id` absent or `""` creates one, an existing `id` replaces that one, renamed or not. Answers `{"success": true, "message", "id"}`, and a `warning` when it was saved enabled but does not run |
+| POST | `import` | A thermostat as `get` answers it, `id` included, as a JSON body: the thermostat with that `id` is replaced, otherwise one is created under it, with its presets' keys and its active preset. Answers as `save` does; see [Import](#import) |
 | POST | `delete?id=` | Stops the thermostat and removes its file. `{"success": true, "message", "persisted"}`; `persisted` is `false` when the thermostat is gone but its file is not, so the next boot brings it back |
 | POST | `enable?id=&value=true\|false[&take_over=true]` | Starts or stops it and stores the flag. `{"success": true, "message", "persisted"}`; `persisted` is `false` when the change is live but the flag did not reach flash. A `warning` comes as from `save` when it was enabled but does not run |
 | POST | `setpoint?id=&value=` | Moves the target, clamped into the thermostat's range, whether it runs or not |
 | POST | `preset?id=&key=` | Picks the preset with that `key`, whether the thermostat runs or not: its target, its mode unless `keep`, and the label, as a pick from Home Assistant. A stopped thermostat keeps it and starts in it. `{"success": true, "message", "persisted"}`; `404` `Preset not found` for a key it has no preset under |
-| GET | `status[?id=]` | `{"success": true, "controllers": [...]}`: per thermostat whether it runs and the `waiting` of `list`, what it does (`off`, `idle`, `heating`, `cooling`), its fault, the room temperature and its age, the target, the active preset as `list` gives it, the range, the bang-bang switching points, the heat and cool duty and relay state, and a running PID's terms. A stopped thermostat still reports its sensor's reading and its active preset |
+| GET | `status[?id=]` | `{"success": true, "controllers": [...]}`: per thermostat whether it runs and the `waiting` of `list`, what its relays do (`off`, `idle`, `heating`, `cooling`), its fault, the room temperature and its age, the target, the active preset as `list` gives it, the range, the bang-bang switching points, the heat and cool duty and relay state, which minimum holds each relay away from where the thermostat wants it (`heat_relay_wait`, `cool_relay_wait`: `min_off` before it may close, `min_on` before it may open, `none` otherwise and while a relay switched from elsewhere waits to be put back), and a running PID's terms. A stopped thermostat still reports its sensor's reading and its active preset |
 | GET | `entities` | `{"success": true, "sensors": [{"object_id", "name", "unit"}], "switches": [{"object_id", "name", "claimed_by"}]}`; `claimed_by` is the id of the running thermostat that holds the relay, or `""`; an enabled one that waits reserves its relays all the same (`list` shows which). Internal entities are left out, and so is a sensor that does not report °C |
 | GET | `schema` | The kinds, modes and faults, `max_controllers`, `name_max_length`, `presets` (`{"max_count": 8, "modes": ["keep", "off", "heat", "cool", "heat_cool"], "standard": ["eco", "away", "boost", "comfort", "home", "sleep", "activity"]}`), and every tunable number with its label, unit, default, range, step and hint, grouped as a form shows them: the table the device clamps against |
 | GET | `ping` | `{"status": "ok"}` |
 
-`save` reads a raw JSON body, so it needs a `Content-Type` that is not a form:
+`save` and `import` read a raw JSON body, so they need a `Content-Type` that is not a form:
 `application/json`. A form body (`application/x-www-form-urlencoded`, or no `Content-Type` at
 all) is parsed into fields by the server instead: up to 1024 bytes it is answered
 `Empty request body`, and a longer one gets the server's own bare `400` before it reaches this
@@ -157,11 +159,12 @@ label. Its `version` in `get` is the file's own, higher than this firmware's `2`
 
 Every failure is `{"success": false, "error"}`, with the sentence an editor shows: `400` for a
 bad request, `404` for an unknown `id` or path, `405` for a `GET` or `POST` the route does not
-take, `409` for a name or a relay in use or reserved or a thermostat a newer firmware wrote, `413`
-for an oversized body or file, `500` when nothing could be written, `503` when the loop was busy
-and `507` at `max_controllers`. A `500` changed nothing: `The thermostat's file could not be
-written`, or `Thermostat storage is not available` when the storage was not usable at boot —
-then every write gets it, a save before its body is even read. The same contract,
+take, `409` for a name or a relay in use or reserved, a thermostat a newer firmware wrote or an id
+a file holds that the boot did not load, `413` for an oversized body or file, `500` when nothing
+could be written, `503` when the loop was busy and `507` at `max_controllers`. A `500` changed
+nothing: `The thermostat's file could not be written`, or `Thermostat storage is not available`
+when the storage was not usable at boot — then every write gets it, a save or an import before
+its body is even read. The same contract,
 machine-readable: [openapi.yaml](openapi.yaml) (OpenAPI 3.1).
 
 A rename reaches Home Assistant as a new entity, and a thermostat that starts, stops, is removed
@@ -175,6 +178,8 @@ A='--digest -u admin:admin'
 curl $A 'http://<device>/climate-editor/api/list'
 curl -X POST $A 'http://<device>/climate-editor/api/save' -H 'Content-Type: application/json' \
   --data-binary @living-room.json
+curl -X POST $A 'http://<device>/climate-editor/api/import' -H 'Content-Type: application/json' \
+  --data-binary @backup/climates/living-room.json
 curl -X POST $A 'http://<device>/climate-editor/api/setpoint?id=living-room&value=21.5' -d ''
 curl -X POST $A 'http://<device>/climate-editor/api/preset?id=living-room&key=eco' -d ''
 curl -X POST $A 'http://<device>/climate-editor/api/enable?id=guest-room&value=true&take_over=true' -d ''
@@ -183,6 +188,37 @@ curl $A 'http://<device>/climate-editor/api/status?id=living-room'
 
 A POST without a body needs `-d ''`: `curl` then sends the `Content-Length: 0` that
 ESP-IDF's server insists on (`411` without it), as a browser's `fetch` does on its own.
+
+### Import
+
+`import` is what a restore sends: a thermostat's document as `get` answers it, or as a backup's
+file holds it, with its `id`. The thermostat with that id is replaced, as a Save replaces it, and
+runs on in the same climate entity, the relays it keeps never let go; with no thermostat by that
+id, one is created under it. Either way the thermostat comes back as the document has it:
+
+- its presets keep their keys and `active_preset` stays, so the automation rules that name them
+  still find them; a preset without a key gets one from its name, and an `active_preset` no
+  preset has is none;
+- its target and its mode are the document's, the active preset's values not applied again;
+- `version` is not read: the file is written in this firmware's format, so what a newer firmware
+  added to it is dropped.
+
+Keys left out take their defaults and every number is clamped, as on `save`. The answer is a
+Save's, `"Thermostat created"` or `"Thermostat replaced"` with the `id`, a `warning` when it was
+stored enabled but does not run, and the thermostats that started on a relay it freed:
+
+```json
+{"success": true, "message": "Thermostat replaced", "id": "living-room"}
+```
+
+The refusals are a Save's, in the same order, with the id's own rules in front: `id is required`
+and `id must be a slug: lowercase letters, digits and single dashes` are checked first, and
+`id 'new' is reserved` once the rest of the document is sound. Then `409` for a thermostat whose
+file a newer firmware wrote, `507` for a new one past `max_controllers`, and `409` for an id that
+a file in the thermostat folder holds which the boot did not load
+(`The id "living-room" is taken by a file in the thermostat folder that was not loaded`): that
+file is left as it is. The name, the sensor's unit and the relays follow, as in a Save: a relay a
+running thermostat holds, or one another enabled thermostat waits for, is `409`.
 
 ## client/
 

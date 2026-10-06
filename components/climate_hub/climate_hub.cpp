@@ -60,6 +60,12 @@ static Result not_saved(bool too_large) {
   return result;
 }
 
+// A new thermostat past max_controllers.
+static Result too_many(uint8_t max_controllers) {
+  return failure(507,
+                 "This device allows " + std::to_string(max_controllers) + " thermostats; delete one to add another");
+}
+
 static Result success() {
   Result result;
   result.ok = true;
@@ -466,8 +472,7 @@ Result ClimateHub::create(ClimateConfig draft) {
   draft.clamp_setpoint();
   draft.assign_preset_keys();
   if (this->store_.size() >= this->max_controllers_)
-    return failure(507, "This device allows " + std::to_string(this->max_controllers_) +
-                            " thermostats; delete one to add another");
+    return too_many(this->max_controllers_);
   if (this->is_name_taken(draft.name, "", &error))
     return failure(409, error);
   draft.id = this->next_id_(draft.name);
@@ -480,12 +485,16 @@ Result ClimateHub::create(ClimateConfig draft) {
   bool too_large = false;
   if (!this->save_(draft, &too_large))
     return not_saved(too_large);
+  return this->add_(draft, "Created");
+}
 
-  ClimateConfig *stored = this->store_.add(draft);
+Result ClimateHub::add_(const ClimateConfig &doc, const char *verb) {
+  ClimateConfig *stored = this->store_.add(doc);
   this->store_.sort_by_id();
-  result = success();
+  Result result = success();
   result.id = stored->id;
   if (stored->enabled) {
+    std::string error;
     if (this->start_(stored, &error)) {
       this->schedule_ha_resync_();
     } else {
@@ -493,7 +502,7 @@ Result ClimateHub::create(ClimateConfig draft) {
       ESP_LOGW(TAG, "'%s' created but %s", stored->id.c_str(), result.warning.c_str());
     }
   }
-  ESP_LOGD(TAG, "Created '%s' (%s)", stored->name.c_str(), stored->id.c_str());
+  ESP_LOGD(TAG, "%s '%s' (%s)", verb, stored->name.c_str(), stored->id.c_str());
   return result;
 }
 
@@ -526,13 +535,65 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
   bool too_large = false;
   if (!this->save_(doc, &too_large))
     return not_saved(too_large);
+  return this->replace_(stored, doc, "Updated");
+}
 
+// A Save's refusals under the id the document brings. Over HTTP they come in a Save's order:
+// the handler's deserialize checks the document before it calls update() or restore(). Its keys
+// and its active preset are a backup's record of the thermostat's state: rules name them, so they stay.
+Result ClimateHub::restore(ClimateConfig doc) {
+  Result result;
+  if (this->refuse_if_failed_(&result))
+    return result;
+  std::string error;
+  if (!validate_id(doc.id, &error))
+    return failure(400, error);
+  doc.name = trim_name(doc.name);
+  for (PresetConfig &preset : doc.presets)
+    preset.name = trim_name(preset.name);
+  doc.clamp_numbers();
+  if (!doc.validate(&error))
+    return failure(400, error);
+  // The loader refuses such a file, so the thermostat would be gone after the next boot.
+  if (doc.id == RESERVED_ID)
+    return failure(400, "id 'new' is reserved");
+  doc.clamp_setpoint();
+  doc.assign_preset_keys();
+  if (doc.find_preset(doc.active_preset) == nullptr)
+    doc.active_preset.clear();
+  ClimateConfig *stored = this->store_.get(doc.id);
+  if (stored != nullptr && stored->from_newer_firmware())
+    return failure(409, NEWER_FILE);
+  if (stored == nullptr && this->store_.size() >= this->max_controllers_)
+    return too_many(this->max_controllers_);
+  // As at create: a file the loader refused is the only record of what its author meant.
+  if (stored == nullptr && file_exists(this->file_path_(doc.id)))
+    return failure(409, "The id \"" + doc.id + "\" is taken by a file in the thermostat folder that was not loaded");
+  if (this->is_name_taken(doc.name, doc.id, &error))
+    return failure(409, error);
+  doc.version = CONFIG_VERSION;
+  if (doc.enabled && !this->check_savable_(doc, &result))
+    return result;
+  bool too_large = false;
+  if (!this->save_(doc, &too_large))
+    return not_saved(too_large);
+  if (stored == nullptr)
+    return this->add_(doc, "Restored");
+  result = this->replace_(stored, doc, "Restored");
+  result.id = doc.id;
+  return result;
+}
+
+Result ClimateHub::replace_(ClimateConfig *stored, const ClimateConfig &doc, const char *verb) {
+  // A copy: *stored is overwritten below.
+  const std::string id = stored->id;
   const ClimateConfig previous = *stored;
   Slot *slot = this->slot_for_(id);
   bool structural = false;
+  std::string error;
   *stored = doc;
   this->dirty_.erase(id);
-  result = success();
+  Result result = success();
 
   if (!stored->enabled)
     this->waiting_.erase(id);
@@ -562,7 +623,7 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
     this->schedule_ha_resync_();
   if (!result.warning.empty())
     ESP_LOGW(TAG, "'%s' saved but %s", id.c_str(), result.warning.c_str());
-  ESP_LOGD(TAG, "Updated '%s' (%s)", stored->name.c_str(), id.c_str());
+  ESP_LOGD(TAG, "%s '%s' (%s)", verb, stored->name.c_str(), id.c_str());
   // Its own start failed just now, for the reason the warning gives.
   this->start_waiters_(id, &result);
   this->announce_released_();
@@ -827,11 +888,21 @@ Result ClimateHub::relay_held_(const std::string &relay_id, const std::string &h
   return result;
 }
 
-ClimateHub::Slot *ClimateHub::take_free_slot_(const std::string &name) {
+std::deque<ClimateHub::Slot *>::iterator ClimateHub::free_slot_like_(const std::string &name) {
+  // The exact name first: the web server matches that, so no hidden slot is left answering it.
+  auto it = std::find_if(this->free_.begin(), this->free_.end(), [&name](const Slot *slot) {
+    return slot->entity.is_named() && name == slot->entity.get_name().c_str();
+  });
+  if (it != this->free_.end())
+    return it;
   const std::string object_id = object_id_of_name(name);
-  auto it = std::find_if(this->free_.begin(), this->free_.end(), [&object_id](const Slot *slot) {
+  return std::find_if(this->free_.begin(), this->free_.end(), [&object_id](const Slot *slot) {
     return slot->entity.is_named() && object_id_of(slot->entity) == object_id;
   });
+}
+
+ClimateHub::Slot *ClimateHub::take_free_slot_(const std::string &name) {
+  auto it = this->free_slot_like_(name);
   if (it == this->free_.end())
     it = this->free_.begin();
   Slot *slot = *it;
@@ -839,16 +910,10 @@ ClimateHub::Slot *ClimateHub::take_free_slot_(const std::string &name) {
   return slot;
 }
 
-void ClimateHub::park_names_like_(const std::string &name, const Slot *keep) {
-  const std::string key = name_key(name);
-  const std::string object_id = object_id_of_name(name);
-  for (Slot *slot : this->slots_) {
-    if (slot == keep || !slot->entity.is_free() || !slot->entity.is_named())
-      continue;
-    const std::string other = slot->entity.get_name().c_str();
-    if (name_key(other) == key || object_id_of_name(other) == object_id)
-      slot->entity.park(this->entity_fields_);
-  }
+void ClimateHub::give_way_(const std::string &name, const Slot *renamed) {
+  auto it = this->free_slot_like_(name);
+  if (it != this->free_.end())
+    (*it)->entity.hide_as(renamed->entity.get_name().c_str(), this->entity_fields_);
 }
 
 bool ClimateHub::acquire_claims_(const ClimateConfig &config, RelayClaim **heat, RelayClaim **cool,
@@ -967,7 +1032,6 @@ bool ClimateHub::start_(ClimateConfig *config, std::string *error) {
   Slot *slot = this->take_free_slot_(config->name);
   const SensorSubscription *sub = this->subscribe_(sensor);
   slot->runtime.start(config, sensor, heat, cool, this->now_ms(), sub != nullptr ? sub->last : Reading{});
-  this->park_names_like_(config->name, slot);
   slot->entity.show(config->name, this->entity_fields_);
   slot->entity.publish_state();
   this->waiting_.erase(config->id);
@@ -1001,7 +1065,7 @@ bool ClimateHub::restart_(Slot *slot, const std::string &previous_name, std::str
   const SensorSubscription *sub = this->subscribe_(sensor);
   slot->runtime.start(config, sensor, heat, cool, now, sub != nullptr ? sub->last : Reading{});
   if (config->name != previous_name) {
-    this->park_names_like_(config->name, slot);
+    this->give_way_(config->name, slot);
     slot->entity.show(config->name, this->entity_fields_);
   }
   slot->entity.publish_state();

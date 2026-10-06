@@ -69,8 +69,9 @@ class ControllerRuntime {
   /// Takes `preset`, one of the running document's, as a pick from Home Assistant would.
   bool pick_preset(const PresetConfig &preset);
 
-  /// OFF only in mode off, on a fault but relay_contested, or stopped; otherwise IDLE when
-  /// neither heating nor cooling.
+  /// What the relays do: HEATING or COOLING while that relay is closed, and for a PID also
+  /// between two pulses once the first has closed; IDLE otherwise, and without a reading. OFF
+  /// only in mode off, on a fault but relay_contested, or stopped.
   HubAction action() const { return this->action_; }
   HubFault fault() const { return this->fault_; }
   bool has_sample() const { return this->has_sample_; }
@@ -80,15 +81,24 @@ class ControllerRuntime {
   float cool_duty() const { return this->cool_duty_.duty(); }
   bool heat_relay_on() const { return this->heat_claim_ != nullptr && this->heat_claim_->state(); }
   bool cool_relay_on() const { return this->cool_claim_ != nullptr && this->cool_claim_->state(); }
+  /// The relay's own min_on or min_off holding it from where the thermostat wants it.
+  RelayWait heat_relay_wait() const {
+    return this->heat_claim_ != nullptr ? this->heat_claim_->wait() : RelayWait::NONE;
+  }
+  RelayWait cool_relay_wait() const {
+    return this->cool_claim_ != nullptr ? this->cool_claim_->wait() : RelayWait::NONE;
+  }
   const PidCore &pid() const { return this->pid_; }
 
  protected:
   void apply_config_();
   /// Sets fault_ from the reading and how old it is; logs a change.
   void refresh_fault_(uint64_t now_ms);
-  /// What the thermostat is doing until its next pass: the latch, or the PID's duties as the
-  /// mode lets them run.
-  HubAction standing_action_() const;
+  /// What the relays do now; see action().
+  HubAction relay_action_() const;
+  /// Whether the relay `claim` holds shows its `direction`: closed, or a PID's between two pulses
+  /// while the mode `drives` it that way.
+  bool shows_(const RelayClaim *claim, const DutyCycler &duty, HubAction direction, bool drives) const;
   /// Puts `action` on the entity; true when it changed.
   bool set_action_(HubAction action);
   void run_control_(uint64_t now_ms);

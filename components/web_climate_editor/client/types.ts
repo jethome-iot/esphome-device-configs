@@ -18,8 +18,21 @@ export type PresetMode = 'keep' | ClimateHubMode
 /** Home Assistant's built-in presets. A preset by one of these names, in any case, is that preset there. */
 export type StandardPresetName = 'eco' | 'away' | 'boost' | 'comfort' | 'home' | 'sleep' | 'activity'
 
-/** What the controller is doing right now. */
+/**
+ * What the relays do right now: `heating` or `cooling` while that relay is closed, so a
+ * relay held open by its minimum off time is not heating yet, and one held closed by its
+ * minimum on time still is. A PID also stays `heating` or `cooling` between two pulses once
+ * the first has closed the relay. `off` in mode off, on a fault but `relay_contested`, or
+ * when the thermostat is not running.
+ */
 export type ClimateHubAction = 'off' | 'idle' | 'heating' | 'cooling'
+
+/**
+ * What holds a relay away from where the thermostat wants it: `min_off` before it may
+ * close, `min_on` before it may open. `none` otherwise, including while a relay switched
+ * from elsewhere waits to be put back: that wait is the switch's, not the thermostat's.
+ */
+export type RelayWait = 'none' | 'min_on' | 'min_off'
 
 /**
  * What is wrong with a running controller. Never persisted. `sensor_stale` and
@@ -155,6 +168,15 @@ export type ControllerSaveInput = DeepPartial<
     | { heat?: DeepPartial<OutputConfig>; cool: DrivenOutputInput }
   )
 
+/**
+ * What POST /import takes: a document as GET /get answers it, or as a backup's file holds it,
+ * under the slug `id` it is to have. A thermostat with that id is replaced, otherwise one is
+ * created with it. Left-out keys take their defaults as on /save; the presets' keys and
+ * `active_preset` are kept, since rules name them, and a preset without a key gets one from
+ * its name. `version` is not read: the device writes its own.
+ */
+export type ControllerImportInput = ControllerSaveInput & { id: string }
+
 /** One row of GET /list. The climate entity it drives carries the same `name`. */
 export interface ControllerSummary {
   id: string
@@ -212,6 +234,9 @@ export interface ControllerStatus {
   cool_duty: number
   heat_relay_on: boolean
   cool_relay_on: boolean
+  /** Which minimum holds each relay, to show "waiting (min off)" beside the action. */
+  heat_relay_wait: RelayWait
+  cool_relay_wait: RelayWait
   /** Present only while a PID controller runs. */
   pid?: PidTerms
 }
@@ -297,8 +322,9 @@ export interface SuccessResponse {
 }
 
 /**
- * POST /save: the id of the controller created or updated. The controllers that waited for a
- * relay it let go start, and `message` names them before the warning.
+ * POST /save and POST /import: the id of the controller created, updated or replaced. The
+ * controllers that waited for a relay it let go start, and `message` names them before the
+ * warning.
  */
 export interface SaveResponse extends SuccessResponse {
   id: string

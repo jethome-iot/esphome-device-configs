@@ -154,8 +154,11 @@ see "More slots" in [ONEWIRE_WORKFLOW.md](ONEWIRE_WORKFLOW.md).
 `modbus_server` on `jxm_uart2`. Coils and discrete inputs share one bit table (a bit is a coil iff
 it has a `write_lambda`), holding and input registers share one register table, hence inputs sit
 at `0x0010`. A coil's `write_lambda` returns `false`, which `modbus_server` answers with exception
-`0x04`, when the write would move a relay a thermostat holds. The map is documented at the top of
-`features/modbus-server.yaml`; keep `scripts/modbus_probe.py` and the README in step with it.
+`0x04`, when the write would move a relay a thermostat holds. The ranges' names live in
+`modbus_map:` next to the server in `features/modbus-server.yaml`, and the build checks them against
+it: a range left unnamed, or a name on an address the server does not serve, fails the build. The
+dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` and the README in step with the
+server.
 
 ## Coupled to upstream internals
 
@@ -186,7 +189,11 @@ at `0x0010`. A coil's `write_lambda` returns `false`, which `modbus_server` answ
   asks its handlers in registration order. `web_server` therefore runs without `local: true`:
   the page it would embed is never served. Its `to_code` also reads the validated config of
   `web_file_browser`, `web_automation_editor` and `web_climate_editor` out of `CORE.config` to
-  report their prefixes.
+  report their prefixes, and the id of a `modbus_map` to report the map.
+- `components/modbus_map` derives its ranges from the validated `modbus_server` config: each
+  `bits:` and `registers:` entry's `address`, `value_type` and whether it has a `write_lambda`,
+  `courtesy_response`, and a value's width from `TYPE_REGISTER_MAP` in `modbus/helpers.py`. Final
+  validation keeps nothing, so `to_code` derives them again out of `CORE.config`.
 - `components/firmware_rollback`, behind the dashboard's `/api/device/system/rollback` and the
   display's Rollback row, reads otadata the way the bootloader does: the other slot is a target
   only when its entry is one `bootloader_common_ota_select_valid` would boot, so an entry marked
@@ -227,12 +234,13 @@ at `0x0010`. A coil's `write_lambda` returns `false`, which `modbus_server` answ
   - `is_internal()` being read when the API and the web server list and push, not cached at
     setup (MQTT caches it, which is one reason the component has no MQTT support). The API
     reads it when it queues an entity for a client but reads the name and key only when it
-    encodes it, so hiding a slot changes the internal bit alone; the placeholder goes only onto
-    a hidden slot whose name a thermostat is about to take.
+    encodes it, so hiding a slot changes the internal bit alone, and a slot once shown never
+    goes back under the placeholder: a hidden one whose name or object id a running thermostat
+    is renamed to takes that thermostat's old name.
   - `web_server` matching a climate by name on its own task, first match wins, hidden or not,
     and a `/` never reaching a URL segment, which keeps an unused slot unaddressable. The name
-    and the traits change only in `setup()` or in a loop job an HTTP handler waits on, so that
-    task is never mid-read.
+    and the traits change only on the loop task, the panel's menu included, so that task may be
+    mid-read: the slot keeps them in fixed buffers, and a rename writes the one not in use.
   - `StaticVector::capacity()` for the room check, and `ClimateTraits` built with no custom
     modes: `get_traits()` adds the custom presets as a pointer to the slot's own list, so a copy
     owns no vector. That list (`Climate::set_supported_custom_presets`) has room for 8 from the
