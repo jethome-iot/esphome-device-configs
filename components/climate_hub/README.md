@@ -181,8 +181,10 @@ before its name rules.
 the relay in the direction asked for closes fully `0.25` °C under the target and opens `0.25` °C
 over it (a cooling relay the other way round), the other relay held open, `min_on_s`, `min_off_s`
 and `safety.max_temperature` kept. Every reading feeds it, not every `update_interval_s`. At its
-sixth relay switch it has the room's ultimate gain Ku and period Pu, the same numbers ESPHome's
-`climate.pid.autotune` gives, and the rule asked for turns them into gains:
+sixth relay switch it has the room's ultimate gain Ku and period Pu, the numbers ESPHome's
+`climate.pid.autotune` gives a `pid` climate with a heat or a cool output alone (with both, it
+swings the room between full heating and full cooling, and measures another swing), and the rule
+asked for turns them into gains:
 
 | Rule             | kp         | ki            | kd               |
 | ---------------- | ---------- | ------------- | ---------------- |
@@ -196,15 +198,17 @@ Each gain is held in its range and written to the file as the file keeps it, and
 moves on; the thermostat goes on with them from a clean PID. Gains the file did not take run all
 the same and are written again with the next flush, three seconds later, or at shutdown; the run
 says `persisted()` false until a write of the thermostat succeeds. A room with radiators takes
-about an hour and a half, a floor heating eight to ten hours.
+about an hour and a half, a floor heating eight to ten hours. Start one with the room near its
+target: until the first switch the relay stays full on (or off), and a floor that needs more than
+6 hours to reach the band ends the run as `no_switch` before it has measured anything.
 
 A run ends without gains on `cancel_autotune()`, a target or a mode changed from anywhere, an
 `update()`, a stop or a take-over, any fault, `relay_contested` too, 24 hours in all, 6 hours
 without a relay switch, or readings that cross the target more than 64 times (`noisy`, a probe
 that hovers at the target); the thermostat goes back to its PID with the gains it had, from a
-clean start. `autotune(id)` keeps the last run, running or ended, with the reason it ended, the
-extremes of its swings, Ku, Pu, the gains it replaced and wrote, and its flags, until the next
-start, a `remove()` or a reboot. The flags warn and never extend a run: `asymmetric` (the shortest
+clean start. `autotune(id)` keeps the last run, running or ended, with the target it swung
+around, the reason it ended, the extremes of its swings, Ku, Pu, the gains it replaced and wrote,
+and its flags, until the next start, a `remove()` or a reboot. The flags warn and never extend a run: `asymmetric` (the shortest
 half-period under 0.66 of the longest), `uneven` (the smallest swing under 0.66 of the largest)
 and `clamped` (a gain held in its range).
 

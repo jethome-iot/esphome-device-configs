@@ -44,7 +44,9 @@ swings the room around its target: the relay closes fully once the room is a qua
 target and opens a quarter of a degree over it, so the room goes about half a degree to a degree
 either side, more where the heat is slow to arrive. The relay's minimum on and off times and the
 cut-out temperature hold throughout. A room with radiators takes about an hour and a half, a
-floor heating eight to ten hours. In heat and cool mode the start asks which relay to swing; the
+floor heating eight to ten hours. Start it with the room near its target: a cold floor heats at
+full power until it reaches the band, and one that needs more than 6 hours for that ends the
+calibration before its first swing. In heat and cool mode the start asks which relay to swing; the
 other one stays open. Home Assistant sees the thermostat heating or idle, as at any other time.
 
 The device then turns what it measured into the gains of the rule picked at the start

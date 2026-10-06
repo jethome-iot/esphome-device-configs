@@ -200,9 +200,11 @@ is 0.25 °C under the target and opens 0.25 °C over it (a cooling relay the oth
 its minimum on and off times and the cut-out temperature kept, and every reading feeds the run.
 After the sixth switch it has the room's ultimate gain and period, the `rule` turns them into kp,
 ki and kd, and the device writes them into the thermostat, moves its `revision` on and runs with
-them. A room with radiators takes about an hour and a half, a floor heating eight to ten hours.
-`direction` picks the relay: required in `heat_cool`, where the other relay stays open, and the
-mode's otherwise. Home Assistant sees only heating and idle, as from any PID.
+them. A room with radiators takes about an hour and a half, a floor heating eight to ten hours;
+start near the target, since a floor that takes more than 6 hours to reach the band ends the run
+as `no_switch` before its first swing. `direction` picks the relay: required in `heat_cool`, where
+the other relay stays open, and the mode's otherwise. Home Assistant sees only heating and idle,
+as from any PID.
 
 A run ends without gains on `value=false`, a target or a mode changed from anywhere, a Save, the
 thermostat stopped or taken over, any fault, 24 hours in all, 6 hours without a relay switch, or
@@ -213,8 +215,9 @@ ends it too.
 `status` shows the last run as `autotune` until the next one, a delete or a reboot: `state`
 (`running`, `succeeded`, `failed`), the `reason` a failed one ended (`cancelled`, `target_changed`,
 `mode_changed`, `saved`, `stopped`, `taken_over`, `sensor_stale`, `overtemp`, `relay_contested`,
-`timeout`, `no_switch`, `noisy`), `direction`, `rule`, `phase` (`on` or `off`) and `aim`, the reading that
-switches the relay next, while it runs; `swings`, `elapsed_s`, the `extremes` of each swing in
+`timeout`, `no_switch`, `noisy`), `direction`, `rule`, `setpoint`, the target it swings around
+(kept when a later target ended it or moved on), `phase` (`on` or `off`) and `aim`, the reading
+that switches the relay next, while it runs; `swings`, `elapsed_s`, the `extremes` of each swing in
 order (`at_s`, `temperature`), `ku` and `pu` (seconds) once it succeeded, the `flags` that warn
 about a result (`asymmetric`: the room rose and fell at very different rates; `uneven`: the swings
 differed, something else moved the room; `clamped`: a gain had to be held in its range), the

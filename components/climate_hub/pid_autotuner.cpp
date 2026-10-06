@@ -51,8 +51,8 @@ PidAutotuner::Gains PidAutotuner::gains(float kp_factor, float ki_factor, float 
   };
 }
 
-// Upstream's convergence check holds whatever the data, since no swing outgrows the extremes it
-// is measured between; the swings measured against each other say whether something disturbed
+// Upstream's convergence check passes for any run that swung, since no swing outgrows the extremes
+// it is measured between; the swings measured against each other say whether something disturbed
 // the room.
 float PidAutotuner::swing_ratio() const {
   if (this->extremes_.size() < 3)

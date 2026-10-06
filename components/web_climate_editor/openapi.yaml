@@ -502,7 +502,9 @@ paths:
         period of the room, `rule` turns them into kp, ki and kd, and the
         device writes them into the thermostat and runs with them, its
         `revision` moved on. A room with radiators takes about an hour and a
-        half, a floor heating eight to ten hours. `/status` follows it, and
+        half, a floor heating eight to ten hours; start near the target, since
+        a floor that needs more than 6 hours to reach the band ends the run as
+        `no_switch` before its first swing. `/status` follows it, and
         keeps what it found, or why it ended without, until the next run, a
         delete or a reboot: the run itself lives in memory only.
 
