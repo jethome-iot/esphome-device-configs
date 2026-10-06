@@ -1,6 +1,5 @@
 #pragma once
 #include <gtest/gtest.h>
-#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -56,11 +55,14 @@ constexpr uint32_t N_PAUSE = 700;
 // How late a phase may end on an idle host: half the shortest one, far above the polling.
 constexpr uint32_t SLACK = FAST_ON / 2;
 
-// For a test that acts inside a phase: a host that stalled through it leaves nothing to test,
-// so the test is skipped rather than failed.
+// For a test that acts inside a phase that is over already: skipped when the host stalled, which
+// leaves nothing to test; failed when it did not, as the phase ended early.
 #define SKIP_UNLESS_STILL(cond) \
-  if (!(cond)) \
-  GTEST_SKIP() << "the host stalled through the phase this test acts in: " #cond
+  if (!(cond)) { \
+    if (this->stalled() > SLACK) \
+      GTEST_SKIP() << "the host stalled through the phase this test acts in: " #cond; \
+    FAIL() << "the phase this test acts in ended early: " #cond; \
+  }
 
 class StatusIndicatorTest : public ::testing::Test {
  protected:
@@ -69,7 +71,7 @@ class StatusIndicatorTest : public ::testing::Test {
     this->led->setup();
     this->pin->writes.clear();
     // A stall before the first pass delays the phase the test has started by now, too.
-    this->last_tick_ = millis();
+    this->mark_at_ = millis();
   }
   // Cancels a running timer: the state is OFF only when none is pending.
   void TearDown() override { this->led->turn_off(); }
@@ -109,8 +111,8 @@ class StatusIndicatorTest : public ::testing::Test {
   // How late a phase may end: SLACK, and as long again as the host held the loop up. A busy CI
   // runner stalls it for hundreds of ms, which ends a phase that much late with nothing wrong.
   uint32_t late() const { return SLACK + this->stalled(); }
-  // The longest the host held the loop up: a phase cut short may end that much later too.
-  uint32_t stalled() const { return this->stall_; }
+  // How long the host held the loop up in all: a gap may span several timeouts, each delayed.
+  uint32_t stalled() const { return this->stalled_; }
 
   // Runs until the pin has seen `levels`, then checks them in order, each `gaps[i - 1]` ms
   // after the last: never early, at most late() late.
@@ -131,18 +133,24 @@ class StatusIndicatorTest : public ::testing::Test {
   StatusIndicator *led{nullptr};
 
  private:
-  void tick_() {
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  // Adds what the host took beyond `expected` ms since the last mark, the clock's own step aside.
+  void mark_(uint32_t expected) {
     const uint32_t now = millis();
-    // Beyond the sleep and the clock's own step.
-    if (this->last_tick_ != 0 && now - this->last_tick_ > 2)
-      this->stall_ = std::max(this->stall_, now - this->last_tick_ - 2);
-    this->last_tick_ = now;
-    App.scheduler.call(now);
+    if (now - this->mark_at_ > expected + 1)
+      this->stalled_ += now - this->mark_at_ - expected - 1;
+    this->mark_at_ = now;
   }
 
-  uint32_t last_tick_{0};
-  uint32_t stall_{0};
+  // Marked after the scheduler too: a stall inside it delays the write it makes.
+  void tick_() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    this->mark_(1);
+    App.scheduler.call(this->mark_at_);
+    this->mark_(0);
+  }
+
+  uint32_t mark_at_{0};
+  uint32_t stalled_{0};
 };
 
 }  // namespace esphome::status_indicator::testing
