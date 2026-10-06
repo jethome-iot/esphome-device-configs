@@ -3439,7 +3439,7 @@
     {
       "name": "Preset reads its id first",
       "method": "POST",
-      "path": "preset?key=eco",
+      "path": "preset?key=Eco",
       "body": null,
       "status": 400,
       "error": "Missing id parameter"

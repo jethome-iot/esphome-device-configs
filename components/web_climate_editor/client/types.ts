@@ -328,8 +328,8 @@ export interface EnableResponse extends SuccessResponse {
 }
 
 /**
- * POST /preset: `persisted` is false when the pick is live but never reaches flash, since a newer
- * firmware wrote the thermostat's file and this one does not write it.
+ * POST /preset: `persisted` is false when the pick changed the target, the mode or the label of a
+ * thermostat whose file a newer firmware wrote: a reboot undoes it.
  */
 export interface PresetResponse extends SuccessResponse {
   persisted: boolean
