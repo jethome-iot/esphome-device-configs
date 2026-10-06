@@ -61,6 +61,9 @@ climate::ClimateAction to_climate_action(HubAction a) {
 
 float clamp01(float v) { return std::isnan(v) ? 0.f : (v < 0.f ? 0.f : (v > 1.f ? 1.f : v)); }
 
+// Every fault but relay_contested stops control; that one only reports.
+bool cuts_out(HubFault f) { return f != HubFault::NONE && f != HubFault::RELAY_CONTESTED; }
+
 }  // namespace
 
 void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, RelayClaim *heat, RelayClaim *cool,
@@ -121,7 +124,7 @@ void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, Rel
 void ControllerRuntime::stop(uint32_t now_ms) {
   if (this->config_ == nullptr)
     return;
-  this->all_relays_off_(now_ms);
+  this->all_relays_off_(now_ms, false);
   this->config_ = nullptr;
   this->sensor_ = nullptr;
   this->heat_claim_ = nullptr;
@@ -251,9 +254,10 @@ void ControllerRuntime::tick(uint32_t now_ms) {
   const ClimateConfig &c = *this->config_;
 
   this->refresh_fault_(now_ms);
-  // Waiting for a first reading is no fault, but nothing to act on either.
-  if (this->fault_ != HubFault::NONE || c.mode == HubMode::OFF || !this->has_sample_) {
-    this->all_relays_off_(now_ms);
+  // Waiting for a first reading is no fault, but nothing to act on either. Without a reading or
+  // on a cut-out a close from elsewhere is undone on every pass; only mode off paces it.
+  if (cuts_out(this->fault_) || c.mode == HubMode::OFF || !this->has_sample_) {
+    this->all_relays_off_(now_ms, this->has_sample_ && !cuts_out(this->fault_));
     if (this->set_action_(this->standing_action_()))
       this->entity_->publish_state();
     return;
@@ -277,23 +281,31 @@ void ControllerRuntime::refresh_fault_(uint32_t now_ms) {
     fault = HubFault::SENSOR_STALE;
   } else if (this->has_sample_ && this->entity_->current_temperature > c.safety.max_temperature) {
     fault = HubFault::OVERTEMP;
+  } else if ((this->heat_claim_ != nullptr && this->heat_claim_->contested(now_ms)) ||
+             (this->cool_claim_ != nullptr && this->cool_claim_->contested(now_ms))) {
+    fault = HubFault::RELAY_CONTESTED;
   }
 
   if (fault == this->fault_)
     return;
-  if (fault != HubFault::NONE) {
-    ESP_LOGW(TAG, "'%s': %s", c.id.c_str(), enums::fault_to_string(fault));
-  } else {
+  const bool cut_out_ends = cuts_out(this->fault_) && !cuts_out(fault);
+  if (fault == HubFault::NONE) {
     ESP_LOGI(TAG, "'%s': fault cleared", c.id.c_str());
-    // The fault zeroed the duties: waiting out update_interval_s would leave it off for up to an hour.
-    this->control_due_ = true;
+  } else {
+    // Straight into relay_contested, the end of the cut-out would go unsaid.
+    if (cut_out_ends)
+      ESP_LOGI(TAG, "'%s': %s cleared", c.id.c_str(), enums::fault_to_string(this->fault_));
+    ESP_LOGW(TAG, "'%s': %s", c.id.c_str(), enums::fault_to_string(fault));
   }
+  // The cut-out zeroed the duties: waiting out update_interval_s would leave it off for up to an hour.
+  if (cut_out_ends)
+    this->control_due_ = true;
   this->fault_ = fault;
 }
 
 HubAction ControllerRuntime::standing_action_() const {
   const ClimateConfig &c = *this->config_;
-  if (this->fault_ != HubFault::NONE || c.mode == HubMode::OFF)
+  if (cuts_out(this->fault_) || c.mode == HubMode::OFF)
     return HubAction::OFF;
   if (!this->has_sample_)
     return HubAction::IDLE;
@@ -349,13 +361,13 @@ void ControllerRuntime::drive_outputs_(uint32_t now_ms) {
     this->cool_claim_->request(this->cool_duty_.update(now_ms), now_ms);
 }
 
-void ControllerRuntime::all_relays_off_(uint32_t now_ms) {
+void ControllerRuntime::all_relays_off_(uint32_t now_ms, bool paced) {
   this->heat_duty_.set_duty(0.f);
   this->cool_duty_.set_duty(0.f);
   if (this->heat_claim_ != nullptr)
-    this->heat_claim_->force_off(now_ms);
+    this->heat_claim_->force_off(now_ms, paced);
   if (this->cool_claim_ != nullptr)
-    this->cool_claim_->force_off(now_ms);
+    this->cool_claim_->force_off(now_ms, paced);
 }
 
 float ControllerRuntime::sensor_age_s(uint32_t now_ms) const {

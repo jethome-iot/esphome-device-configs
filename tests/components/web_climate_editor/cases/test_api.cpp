@@ -1025,6 +1025,29 @@ TEST_F(Editor, StatusReportsTheControlLoop) {
   EXPECT_TRUE(floor["pid"].isUnbound()) << "only a running PID has terms";
 }
 
+// Something else keeps moving the relay: the status says so, and that the thermostat goes on.
+TEST_F(Editor, StatusReportsAContestedRelay) {
+  ASSERT_EQ(this->create(FLOOR), "floor");
+  entities().floor.publish_state(20.f);
+  hub().loop();
+  ASSERT_TRUE(entities().relay2.state);
+
+  for (uint32_t n = 1; n <= climate_hub::CONTEST_MOVES; n++) {
+    entities().relay2.turn_off();
+    hub().ms += 1000;
+    hub().loop();
+    // min_off is 10 s, as is the floor.
+    hub().ms += 10000;
+    hub().loop();
+  }
+  Reply reply = this->get("status?id=floor");
+  ASSERT_EQ(reply.code, 200) << reply.body;
+  JsonObject row = reply["controllers"][0];
+  EXPECT_EQ(row["fault"].as<std::string>(), "relay_contested");
+  EXPECT_EQ(row["action"].as<std::string>(), "heating");
+  EXPECT_TRUE(row["heat_relay_on"].as<bool>());
+}
+
 TEST_F(Editor, StatusReportsACoolingThermostat) {
   ASSERT_EQ(this->create(R"({"name":"Cellar","kind":"pid","sensor_id":"floor","cool":{"relay_id":"relay_2"},)"
                          R"("mode":"cool","setpoint":12})"),
@@ -1123,7 +1146,7 @@ TEST_F(Editor, SchemaIsTheParameterTable) {
   EXPECT_EQ(words, R"(["off","heat","cool","heat_cool"])");
   words.clear();
   serializeJson(reply["faults"], words);
-  EXPECT_EQ(words, R"(["none","sensor_stale","overtemp"])");
+  EXPECT_EQ(words, R"(["none","sensor_stale","overtemp","relay_contested"])");
   EXPECT_EQ(reply["max_controllers"].as<int>(), 3);
   EXPECT_EQ(reply["name_max_length"].as<int>(), 48);
 

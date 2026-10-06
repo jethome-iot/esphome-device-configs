@@ -146,15 +146,15 @@ before its name rules.
   over `period_s`: positive output heats, negative cools.
 - A change of mode or target takes effect at the next loop pass, not at the next interval.
 - **Safety.** A thermostat keeps its relays open until its first reading, idle and without a
-  fault; with none within `sensor_timeout_s` of its start it reports `sensor_stale`. It opens
-  them as well when its sensor has been silent for `sensor_timeout_s`, while the reading is
-  above `safety.max_temperature`, and in mode `off`. A thermostat that starts shows its
-  sensor's last value at once, but acts on it only if it arrived within `sensor_timeout_s`
-  while a thermostat was running on that sensor, and the timeout runs from that reading;
-  otherwise it waits for the next one. A reading that is not a finite number, `NaN` or an
-  infinity, is no reading: it is neither shown nor acted on, so a thermostat whose sensor sends
-  nothing else reports `sensor_stale` once `sensor_timeout_s` has passed since its last good
-  one.
+  fault, and opens one closed from elsewhere meanwhile again on every pass. With no reading
+  within `sensor_timeout_s` of its start it reports `sensor_stale`. It opens them as well when
+  its sensor has been silent for `sensor_timeout_s`, while the reading is above
+  `safety.max_temperature`, and in mode `off`. A thermostat that starts shows its sensor's last
+  value at once, but acts on it only if it arrived within `sensor_timeout_s` while a thermostat
+  was running on that sensor, and the timeout runs from that reading; otherwise it waits for the
+  next one. A reading that is not a finite number, `NaN` or an infinity, is no reading: it is
+  neither shown nor acted on, so a thermostat whose sensor sends nothing else reports
+  `sensor_stale` once `sensor_timeout_s` has passed since its last good one.
 - `min_on_s` and `min_off_s` hold a relay closed or open that long after it moved, whichever
   thermostat moved it or put it back; a safety cut-out does not wait for them. A relay no
   thermostat has held since boot counts as opened at boot, so `min_off_s` holds across a
@@ -168,8 +168,9 @@ before its name rules.
   either. A Save that keeps `sensor_id` does not restart the wait for a first reading.
 - The entity reports the room temperature to a tenth of a degree, the target in steps of
   `visual.step`, the mode and what it is doing: heating, cooling, idle, or off, which only
-  mode `off`, a fault or a stopped thermostat shows. Home Assistant and the web server can set
-  the mode and the target; a target outside the range is clamped to it.
+  mode `off`, a fault other than `relay_contested` or a stopped thermostat shows. Home
+  Assistant and the web server can set the mode and the target; a target outside the range is
+  clamped to it.
 
 ## Relays
 
@@ -177,9 +178,24 @@ A running thermostat holds its relays, in mode `off` too, and only stopping it f
 hub is the firmware's [`switch_hold`](../switch_hold/switch_hold.h) holder: whatever asks it
 before moving a relay — the panel, the Modbus coils, automation rules, input bindings, the
 relay's Inverted setting — leaves a held one alone, and `bindings` hears when a stop, a
-removal, a take-over or a Save that drops a relay leaves it free. What moves a held relay all
-the same, Home Assistant or the web server's REST, is put back within a loop pass. Two
-thermostats may name the same relay and take turns: only one of them is enabled at a time.
+removal, a take-over or a Save that drops a relay leaves it free.
+
+What moves a held relay all the same, Home Assistant or the web server's REST API say, the
+thermostat puts back. The first move goes back within a loop pass. From the second on, the
+relay stays where it was moved until its `min_on_s` or `min_off_s` there is over, 10 s at
+least, so a writer that keeps at it gets one switch per dwell. A relay moved where the
+thermostat would switch it now stays and is not counted; moved there before the thermostat's
+own `min_on_s` or `min_off_s` is over, it is not counted either: as the first move it goes
+back, from the second on it stays. Once 5 moves come without 10 quiet minutes after a put-back
+between them, the thermostat reports `relay_contested`: it goes on controlling and putting the
+relay back, and the fault clears by itself 10 minutes after the last put-back. The count
+starts over when a thermostat starts or takes the relay over, not at a Save, and a relay the
+thermostat finds moved when it claims it, closed by Start mode On at boot say, counts as no
+move. Until the first reading and during `sensor_stale` and `overtemp`, a relay closed from
+elsewhere is opened again on every pass, without waiting. Mode `off` keeps holding the relays
+open and puts them back the same way.
+
+Two thermostats may name the same relay and take turns: only one of them is enabled at a time.
 Enabling the second, or saving it enabled, while the first is enabled is refused, naming the
 first, whether it runs or waits; unless it takes the relay over, which stores the first disabled
 and stops it if it runs. A take-over by one whose sensor or a relay is not on the device is

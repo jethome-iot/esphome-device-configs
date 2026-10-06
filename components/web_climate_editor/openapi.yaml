@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: web_climate_editor HTTP API
-  version: 1.2.0
+  version: 1.3.0
   description: >-
     JSON/REST API of the `climate_hub` thermostats, served by the
     `web_climate_editor` component on the device's own web server (default
@@ -851,13 +851,17 @@ components:
 
     Fault:
       type: string
-      enum: [none, sensor_stale, overtemp]
+      enum: [none, sensor_stale, overtemp, relay_contested]
       description: >-
-        Why a running thermostat holds its relays open: `sensor_stale` when
-        its sensor has given no reading for `sensor_timeout_s`, `overtemp`
-        while the reading is above `safety.max_temperature`. A sensor or a
-        relay that is not on the device is no fault: the thermostat does not
-        start, and says why in `waiting`.
+        What is wrong with a running thermostat. `sensor_stale`, when its
+        sensor has given no reading for `sensor_timeout_s`, and `overtemp`,
+        while the reading is above `safety.max_temperature`, hold its relays
+        open. `relay_contested` only reports: something else has moved one of
+        its relays five times without ten minutes of quiet after a put-back,
+        and the thermostat goes on controlling and putting it back; it clears
+        by itself after those ten minutes. A sensor or a relay that is not on
+        the device is no fault: the thermostat does not start, and says why in
+        `waiting`.
 
     PartialOutputConfig:
       type: object

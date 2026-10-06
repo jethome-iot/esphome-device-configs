@@ -47,8 +47,17 @@ What everything else that switches a relay does with one a running thermostat dr
 | Modbus coils `0x0000`–`0x0005` | a write that would move it answers exception `0x04`; writing the state it already has is accepted |
 | Automation rules, `switch` actions | leave it alone and log the rule and the thermostat; the rest of the rule runs |
 | Input bindings, Toggle and Follow | leave it alone; once the thermostat frees it, a Follow relay takes its input's state at once, unless a thermostat that waited for the relay starts on it |
-| Home Assistant, the web server's REST | switch it, and the thermostat puts it back within a moment; the dashboard locks its own toggle |
+| Home Assistant, the web server's REST | switch it, and the thermostat puts it back, as below; the dashboard locks its own toggle |
 | **Inverted** in the relay's settings, on the panel or the dashboard | refused; the dashboard's answer and the panel's log name the thermostat. Start mode and the binding change as usual |
+
+**Switched from elsewhere.** A relay switched by Home Assistant or the REST API is put back
+within a moment. Switched again, it stays there for its minimum on or off time, 10 s at least,
+before it is put back, so whatever keeps switching it cannot make it chatter. Once five
+switches come without ten quiet minutes after a put-back between them, the thermostat reports
+`relay_contested`: it goes on working, and the fault clears ten minutes after the last
+put-back. Until the sensor's first reading, while it is silent or while the room is above the
+cut-out temperature, a relay switched on from elsewhere is switched off again at once, every
+time.
 
 **The boot pulse.** A relay whose Start mode is On, or Last when it was on, closes when the
 device starts, before any thermostat runs, and stays closed until the thermostat that drives it
@@ -128,8 +137,8 @@ HTTP, never taking a relay over: an On that is refused stays Off, and the log sa
   same entity id (`Room 1` and `Room_1`), nor a thermostat and a climate from the YAML.
 - The room temperature is shown to a tenth of a degree; the target moves in the thermostat's
   own step.
-- A running thermostat that neither heats nor cools shows as idle. Off means mode off, a fault,
-  or a thermostat that is not running.
+- A running thermostat that neither heats nor cools shows as idle. Off means mode off, a fault
+  other than `relay_contested`, or a thermostat that is not running.
 
 ## Testing without hardware
 

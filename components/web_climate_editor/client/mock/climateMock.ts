@@ -174,7 +174,7 @@ export function schemaFor(maxControllers: number): ClimateSchema {
   return {
     kinds: ['pid', 'bang_bang'],
     modes: [...MODES],
-    faults: ['none', 'sensor_stale', 'overtemp'],
+    faults: ['none', 'sensor_stale', 'overtemp', 'relay_contested'],
     max_controllers: maxControllers,
     name_max_length: NAME_MAX_LENGTH,
     presets: { max_count: PRESET_MAX_COUNT, modes: ['keep', ...MODES], standard: [...STANDARD_PRESETS] },

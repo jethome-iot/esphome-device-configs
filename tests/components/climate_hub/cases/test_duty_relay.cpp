@@ -136,7 +136,7 @@ TEST(RelayClaim, ForceOffIgnoresMinimumOnTime) {
   claim.set_dwell(60000, 0);
 
   claim.request(true, 0);
-  claim.force_off(10);
+  claim.force_off(10, false);
   EXPECT_FALSE(claim.state()) << "a safety cut-out cannot wait out a dwell floor";
   EXPECT_FALSE(relay.state);
 }
@@ -175,7 +175,7 @@ TEST(RelayClaim, TheDwellCountsFromThePutBack) {
 
 // Closed from elsewhere inside min_off, on the very tick the demand turns on: it is opened
 // again and min_off starts over, rather than left closed for the rest of the hold while the
-// claim believes it open.
+// claim believes it open. It went where the demand goes, so it is no move against the claim.
 TEST(RelayClaim, ARelayClosedElsewhereInsideMinOffIsOpenedEvenAsTheDemandTurnsOn) {
   FakeSwitch relay;
   RelayClaim claim(&relay, "boiler");
@@ -186,10 +186,31 @@ TEST(RelayClaim, ARelayClosedElsewhereInsideMinOffIsOpenedEvenAsTheDemandTurnsOn
 
   EXPECT_FALSE(claim.request(true, 2000));
   EXPECT_FALSE(relay.state) << "the claim and the switch agree";
+  EXPECT_EQ(0u, claim.moves());
   EXPECT_FALSE(claim.request(true, 61999)) << "opened again at 2 s, so min_off runs to 62 s";
   EXPECT_FALSE(relay.state);
   EXPECT_TRUE(claim.request(true, 62000));
   EXPECT_TRUE(relay.state);
+}
+
+// Uncounted, a close toward the demand inside min_off still makes the next one paced: the relay
+// goes back once, then stays where the writer and the demand both want it, with no chatter.
+TEST(RelayClaim, ASecondCloseTowardTheDemandInsideMinOffStays) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.set_dwell(0, 3600000);
+  claim.request(true, 0);
+  claim.request(false, 1000);
+  relay.turn_on();
+  ASSERT_FALSE(claim.request(true, 2000));
+  const int writes = relay.writes;
+  for (uint32_t t = 3000; t <= 10000; t += 1000) {
+    if (!relay.state)
+      relay.turn_on();
+    EXPECT_TRUE(claim.request(true, t)) << "at " << t;
+  }
+  EXPECT_EQ(writes + 1, relay.writes) << "only the writer's own close";
+  EXPECT_EQ(0u, claim.moves());
 }
 
 // Closed from elsewhere once min_off is over, as the demand turns on: already where the demand
@@ -215,18 +236,18 @@ TEST(RelayClaim, ARelayMovedWhereTheDemandMayGoStays) {
 TEST(RelayClaim, ForceOffReopensARelayClosedByHand) {
   FakeSwitch relay;
   RelayClaim claim(&relay, "boiler");
-  claim.force_off(0);
+  claim.force_off(0, false);
   ASSERT_FALSE(relay.state);
 
   relay.turn_on();  // by hand, while the claim believes it open
   ASSERT_TRUE(relay.state);
   const int writes = relay.writes;
 
-  claim.force_off(10);
+  claim.force_off(10, false);
   EXPECT_FALSE(relay.state) << "compared against the switch, not against the belief";
   EXPECT_EQ(writes + 1, relay.writes);
 
-  claim.force_off(20);
+  claim.force_off(20, false);
   EXPECT_EQ(writes + 1, relay.writes) << "an open relay is left alone";
 }
 
@@ -236,7 +257,7 @@ TEST(RelayClaim, ForceOffOnAnOpenRelayLeavesTheFirstRequestFree) {
   FakeSwitch relay;
   RelayClaim claim(&relay, "boiler");
   claim.set_dwell(0, 60000);
-  claim.force_off(1000);
+  claim.force_off(1000, false);
   EXPECT_EQ(0, relay.writes) << "nothing to open";
   RelaySwitching last;
   EXPECT_FALSE(claim.last_switching(&last)) << "nothing switched yet";
@@ -253,7 +274,7 @@ TEST(RelayClaim, AClaimOpenSinceBootCountsMinOffFromTheBoot) {
   claim.set_dwell(0, 60000);
   claim.resume({false, 0});
   EXPECT_FALSE(claim.request(false, 1000));
-  claim.force_off(2000);
+  claim.force_off(2000, false);
   EXPECT_EQ(0, relay.writes) << "keeping an open relay open is no move";
   EXPECT_FALSE(claim.request(true, 59999));
   EXPECT_TRUE(claim.request(true, 60000));
@@ -268,7 +289,7 @@ TEST(RelayClaim, ResumesTheDwellOfAnEarlierClaim) {
     RelayClaim before(&relay, "winter");
     EXPECT_FALSE(before.last_switching(&last)) << "nothing switched yet";
     before.request(true, 0);
-    before.force_off(1000);
+    before.force_off(1000, false);
     ASSERT_TRUE(before.last_switching(&last));
   }
   EXPECT_FALSE(last.on);
@@ -287,7 +308,7 @@ TEST(RelayClaim, AResumedClaimStillCutsOutAtOnce) {
   RelayClaim claim(&relay, "boiler");
   claim.set_dwell(60000, 0);
   claim.resume({true, 0});
-  claim.force_off(10);
+  claim.force_off(10, false);
   EXPECT_FALSE(relay.state) << "a safety cut-out cannot wait out a dwell floor";
 }
 
@@ -308,6 +329,430 @@ TEST(RelayClaim, RepeatedIdenticalRequestsDoNotToggleTheRelay) {
   for (uint32_t t = 1; t < 100; t++)
     claim.request(true, t);
   EXPECT_EQ(1, relay.writes);
+}
+
+// The figures the docs give.
+TEST(RelayClaim, ContestLimits) {
+  EXPECT_EQ(5u, CONTEST_MOVES);
+  EXPECT_EQ(600000u, CONTEST_QUIET_MS);
+  EXPECT_EQ(10000u, PUT_BACK_FLOOR_MS);
+}
+
+// A writer that keeps at it: the first move goes back at once, the second only once the relay
+// has stayed closed for min_on, since it did close.
+TEST(RelayClaim, ASecondCloseIsPutBackOnceMinOnIsOver) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.set_dwell(30000, 45000);
+  claim.request(false, 0);
+
+  relay.turn_on();
+  EXPECT_FALSE(claim.request(false, 1000)) << "the first move goes back at once";
+  EXPECT_FALSE(relay.state);
+  EXPECT_EQ(1u, claim.moves());
+
+  relay.turn_on();
+  EXPECT_TRUE(claim.request(false, 2000)) << "the second stays where it was moved";
+  EXPECT_TRUE(relay.state);
+  EXPECT_EQ(2u, claim.moves());
+  EXPECT_TRUE(claim.request(false, 31999));
+  EXPECT_FALSE(claim.request(false, 32000)) << "30 s after the close at 2 s";
+  EXPECT_FALSE(relay.state);
+  EXPECT_EQ(2u, claim.moves()) << "the put-back is no move";
+}
+
+// The same for a relay opened from elsewhere: it stays open for min_off.
+TEST(RelayClaim, ASecondOpenIsPutBackOnceMinOffIsOver) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.set_dwell(30000, 45000);
+  claim.request(true, 0);
+
+  relay.turn_off();
+  EXPECT_TRUE(claim.request(true, 1000));
+  relay.turn_off();
+  EXPECT_FALSE(claim.request(true, 2000));
+  EXPECT_FALSE(claim.request(true, 46999));
+  EXPECT_TRUE(claim.request(true, 47000)) << "45 s after the open at 2 s";
+  EXPECT_TRUE(relay.state);
+}
+
+// With no dwell at all a writer would still get a switch per pass; the floor makes it one per
+// 10 s. The first move goes back at once all the same.
+TEST(RelayClaim, AZeroDwellStillWaitsTheFloor) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.request(true, 0);
+
+  relay.turn_off();
+  EXPECT_TRUE(claim.request(true, 1000));
+  relay.turn_off();
+  EXPECT_FALSE(claim.request(true, 2000));
+  EXPECT_FALSE(claim.request(true, 2000 + PUT_BACK_FLOOR_MS - 1));
+  EXPECT_TRUE(claim.request(true, 2000 + PUT_BACK_FLOOR_MS));
+
+  claim.request(false, 20000);
+  relay.turn_on();
+  EXPECT_TRUE(claim.request(false, 21000)) << "a close waits the floor too";
+  EXPECT_TRUE(claim.request(false, 21000 + PUT_BACK_FLOOR_MS - 1));
+  EXPECT_FALSE(claim.request(false, 21000 + PUT_BACK_FLOOR_MS));
+}
+
+// Ten minutes of quiet after a put-back forget the moves before it, counted from the put-back
+// rather than the move; the next move then goes back at once again.
+TEST(RelayClaim, QuietAfterAPutBackForgetsTheMoves) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.request(true, 0);
+  relay.turn_off();
+  claim.request(true, 1000);
+  ASSERT_EQ(1u, claim.moves());
+
+  relay.turn_off();
+  EXPECT_FALSE(claim.request(true, 1000 + CONTEST_QUIET_MS - 1)) << "a moment short of the quiet";
+  EXPECT_EQ(2u, claim.moves());
+  const uint32_t put_back = 1000 + CONTEST_QUIET_MS - 1 + PUT_BACK_FLOOR_MS;
+  ASSERT_TRUE(claim.request(true, put_back));
+
+  claim.request(true, put_back + CONTEST_QUIET_MS - 1);
+  EXPECT_EQ(2u, claim.moves());
+  claim.request(true, put_back + CONTEST_QUIET_MS);
+  EXPECT_EQ(0u, claim.moves());
+
+  relay.turn_off();
+  EXPECT_TRUE(claim.request(true, put_back + CONTEST_QUIET_MS + 1000)) << "back at once";
+  EXPECT_EQ(1u, claim.moves());
+}
+
+// Five moves without the quiet in between make the relay contested, and a pending put-back
+// keeps it so however long it waits; it clears ten minutes after the last put-back.
+TEST(RelayClaim, TheFifthMoveContestsTheRelay) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.request(true, 0);
+  uint32_t t = 0;
+  for (uint32_t n = 1; n <= CONTEST_MOVES; n++) {
+    t += 1000;
+    relay.turn_off();
+    claim.request(true, t);
+    EXPECT_EQ(n, claim.moves());
+    EXPECT_EQ(n == CONTEST_MOVES, claim.contested(t)) << "move " << n;
+    t += PUT_BACK_FLOOR_MS;
+    claim.request(true, t);
+    ASSERT_TRUE(relay.state) << "put back after move " << n;
+  }
+  EXPECT_TRUE(claim.contested(t + CONTEST_QUIET_MS - 1));
+  EXPECT_FALSE(claim.contested(t + CONTEST_QUIET_MS)) << "clears by itself";
+}
+
+TEST(RelayClaim, APendingPutBackKeepsTheRelayContested) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.set_dwell(0, 3600000);
+  claim.request(true, 0);
+  uint32_t t = 0;
+  for (uint32_t n = 1; n < CONTEST_MOVES; n++) {
+    relay.turn_off();
+    claim.request(true, t += 1000);
+    relay.turn_on();
+    claim.request(true, t += 1000);
+  }
+  relay.turn_off();
+  claim.request(true, t += 1000);
+  ASSERT_EQ(CONTEST_MOVES, claim.moves());
+  EXPECT_FALSE(relay.state) << "held open for its hour of min_off";
+  EXPECT_TRUE(claim.contested(t + CONTEST_QUIET_MS)) << "nothing was put back yet";
+  claim.request(true, t + CONTEST_QUIET_MS);
+  EXPECT_EQ(CONTEST_MOVES, claim.moves()) << "nor forgotten";
+}
+
+// Moved where the demand may go now, a relay stays and nothing is counted. From the second move
+// on, a move where the demand goes stays even inside the dwell: nothing is undone for its own
+// sake, so the writer and the thermostat agree and nothing chatters.
+TEST(RelayClaim, AMoveWhereTheDemandGoesIsNotCounted) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.set_dwell(5000, 5000);
+  claim.request(true, 0);
+  claim.request(false, 5000);
+  relay.turn_on();
+  EXPECT_TRUE(claim.request(true, 10000));
+  EXPECT_EQ(0u, claim.moves()) << "min_off was over";
+
+  relay.turn_off();
+  ASSERT_TRUE(claim.request(true, 11000));
+  ASSERT_EQ(1u, claim.moves());
+  EXPECT_TRUE(claim.request(false, 12000)) << "min_on holds it closed until 16 s";
+  relay.turn_off();
+  const int writes = relay.writes;
+  EXPECT_FALSE(claim.request(false, 13000));
+  EXPECT_FALSE(relay.state);
+  EXPECT_EQ(writes, relay.writes) << "nothing written";
+  EXPECT_EQ(1u, claim.moves());
+}
+
+// While a move waits for its put-back, the writer putting it back itself saves the thermostat
+// a switch and is no move against it; the quiet starts there.
+TEST(RelayClaim, AMoveUndoneElsewhereBeforeItsPutBackIsNotCounted) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.request(true, 0);
+  relay.turn_off();
+  claim.request(true, 1000);
+  relay.turn_off();
+  ASSERT_FALSE(claim.request(true, 2000));
+
+  relay.turn_on();
+  const int writes = relay.writes;
+  EXPECT_TRUE(claim.request(true, 3000));
+  EXPECT_EQ(writes, relay.writes) << "nothing written";
+  EXPECT_EQ(2u, claim.moves());
+  claim.request(true, 3000 + CONTEST_QUIET_MS);
+  EXPECT_EQ(0u, claim.moves());
+}
+
+// The demand coming round to where the relay was moved leaves nothing to put back, and the
+// thermostat's own next switching waits for its own dwell alone.
+TEST(RelayClaim, APutBackTheDemandNoLongerWantsIsDropped) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.request(true, 0);
+  relay.turn_off();
+  claim.request(true, 1000);
+  relay.turn_off();
+  ASSERT_FALSE(claim.request(true, 2000));
+
+  EXPECT_FALSE(claim.request(false, 3000));
+  EXPECT_TRUE(claim.request(true, 4000)) << "min_off is 0, and no floor is pending";
+  claim.request(true, 3000 + CONTEST_QUIET_MS);
+  EXPECT_EQ(0u, claim.moves()) << "the quiet ran from 3 s";
+}
+
+// A boot that restored the relay closed is no move from elsewhere: it is opened, and counted
+// nothing, whether the first look is a request or a cut-out.
+TEST(RelayClaim, TheFirstLookAfterAResumeCountsNothing) {
+  for (bool cut_out : {false, true}) {
+    SCOPED_TRACE(cut_out ? "force_off" : "request");
+    FakeSwitch relay;
+    relay.turn_on();
+    RelayClaim claim(&relay, "boiler");
+    claim.resume({false, 0});
+    if (cut_out) {
+      claim.force_off(1000, false);
+    } else {
+      claim.request(false, 1000);
+    }
+    EXPECT_FALSE(relay.state);
+    EXPECT_EQ(0u, claim.moves());
+
+    relay.turn_on();
+    EXPECT_FALSE(claim.request(false, 2000)) << "the next move is the first, back at once";
+    EXPECT_EQ(1u, claim.moves());
+  }
+}
+
+// A new holder, or a claim carried on from an earlier one, has no moves held against it, and a
+// put-back that was pending waits for the dwell alone.
+TEST(RelayClaim, AHandOverOrAResumeForgetsTheMoves) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "winter");
+  claim.request(true, 0);
+  relay.turn_off();
+  claim.request(true, 1000);
+  relay.turn_off();
+  claim.request(true, 2000);
+  ASSERT_EQ(2u, claim.moves());
+
+  claim.set_owner("summer");
+  EXPECT_EQ(0u, claim.moves());
+  EXPECT_TRUE(claim.request(true, 3000)) << "no floor";
+  relay.turn_off();
+  EXPECT_TRUE(claim.request(true, 4000)) << "the next move is the first again";
+  relay.turn_off();
+  claim.request(true, 5000);
+  ASSERT_EQ(2u, claim.moves());
+
+  RelaySwitching last;
+  ASSERT_TRUE(claim.last_switching(&last));
+  claim.resume(last);
+  EXPECT_EQ(0u, claim.moves());
+  EXPECT_FALSE(claim.contested(5000));
+}
+
+// A relay opened from elsewhere while the claim holds it closed is where a cut-out wants it: it
+// stays open and is no move against the thermostat.
+TEST(RelayClaim, ACutOutKeepsARelayOpenedElsewhereOpen) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.set_dwell(60000, 0);
+  claim.request(true, 0);
+  relay.turn_off();
+  claim.force_off(1000, false);
+  EXPECT_FALSE(relay.state);
+  EXPECT_FALSE(claim.state());
+  EXPECT_EQ(0u, claim.moves());
+}
+
+// Without a switch to read, the claim's own belief is all there is: nothing ever moves it.
+TEST(RelayClaim, AClaimWithoutASwitchSeesNoMoves) {
+  RelayClaim claim(nullptr, "boiler");
+  claim.set_dwell(5000, 0);
+  EXPECT_TRUE(claim.request(true, 0));
+  EXPECT_TRUE(claim.request(false, 4999));
+  claim.force_off(5000, false);
+  EXPECT_FALSE(claim.state());
+  EXPECT_EQ(0u, claim.moves());
+}
+
+// Over-temperature or no reading: a relay closed from elsewhere is opened on every pass, with no
+// pacing, and each close still counts.
+TEST(RelayClaim, ACutOutOpensEveryCloseAtOnce) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.set_dwell(60000, 60000);
+  claim.resume({false, 0});
+  claim.force_off(1000, false);
+  for (uint32_t t = 2000; t <= 7000; t += 1000) {
+    relay.turn_on();
+    claim.force_off(t, false);
+    EXPECT_FALSE(relay.state) << "at " << t;
+  }
+  EXPECT_EQ(6u, claim.moves());
+  EXPECT_TRUE(claim.contested(7000));
+}
+
+// A cut-out does not wait for a put-back that is due later either.
+TEST(RelayClaim, ACutOutOpensAPacedCloseAtOnce) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.set_dwell(30000, 0);
+  claim.request(false, 0);
+  relay.turn_on();
+  claim.request(false, 1000);
+  relay.turn_on();
+  claim.request(false, 2000);
+  ASSERT_TRUE(relay.state) << "held closed for min_on";
+
+  claim.force_off(3000, true);
+  EXPECT_TRUE(relay.state) << "a paced off, as mode off asks, leaves it closed until min_on is over";
+  claim.force_off(3000, false);
+  EXPECT_FALSE(relay.state);
+  EXPECT_EQ(2u, claim.moves());
+}
+
+// Held open in mode off with a reading, the relay is put back as a request puts it back: the
+// second close waits out min_on.
+TEST(RelayClaim, HeldOpenTheSecondCloseWaitsOutMinOn) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.set_dwell(30000, 0);
+  claim.resume({false, 0});
+  claim.force_off(1000, true);
+  relay.turn_on();
+  claim.force_off(2000, true);
+  EXPECT_FALSE(relay.state) << "the first goes back at once";
+  relay.turn_on();
+  claim.force_off(3000, true);
+  EXPECT_TRUE(relay.state) << "the second stays for min_on";
+  claim.force_off(32999, true);
+  EXPECT_TRUE(relay.state);
+  claim.force_off(33000, true);
+  EXPECT_FALSE(relay.state);
+  EXPECT_EQ(2u, claim.moves());
+}
+
+// An open waiting to be put back that a cut-out finds open has nothing left to put back.
+TEST(RelayClaim, HeldOpenAPendingOpenIsSettled) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.request(true, 0);
+  relay.turn_off();
+  claim.request(true, 1000);
+  relay.turn_off();
+  ASSERT_FALSE(claim.request(true, 2000));
+
+  claim.force_off(3000, true);
+  EXPECT_FALSE(relay.state);
+  claim.force_off(3000 + CONTEST_QUIET_MS, true);
+  EXPECT_EQ(0u, claim.moves()) << "the quiet ran from 3 s";
+}
+
+// A cut-out puts a close back on every pass: past CONTEST_MOVES only every doubling of the count
+// is logged, 1 to 5, 8, 16, 32 and 64 of 75.
+TEST(RelayClaim, AMoveOnEveryPassIsLoggedAtEachDoubling) {
+  FakeSwitch &relay = entities().relay3;
+  relay.publish_state(false);
+  RelayClaim claim(&relay, "boiler");
+  claim.request(false, 0);
+  LogCapture::instance().clear();
+  for (uint32_t t = 1000; t <= 75000; t += 1000) {
+    relay.turn_on();
+    claim.force_off(t, false);
+  }
+  ASSERT_EQ(75u, claim.moves());
+  std::vector<unsigned long> logged;
+  for (const auto &line : LogCapture::instance().lines) {
+    const auto at = line.find("moved from elsewhere (");
+    if (at != std::string::npos)
+      logged.push_back(std::stoul(line.substr(at + 22)));
+  }
+  EXPECT_EQ((std::vector<unsigned long>{1, 2, 3, 4, 5, 8, 16, 32, 64}), logged);
+}
+
+// Each move against the thermostat is logged with the relay, the count, and when it goes back.
+TEST(RelayClaim, EachMoveAgainstItIsLogged) {
+  FakeSwitch &relay = entities().relay3;
+  relay.publish_state(false);
+  RelayClaim claim(&relay, "boiler");
+  claim.set_dwell(45000, 0);
+  claim.request(false, 0);
+  LogCapture::instance().clear();
+
+  relay.turn_on();
+  claim.request(false, 1000);
+  EXPECT_TRUE(LogCapture::instance().has("'boiler': relay 'Relay 3' moved from elsewhere (1), put back"));
+  relay.turn_on();
+  claim.request(false, 2000);
+  EXPECT_TRUE(LogCapture::instance().has("'boiler': relay 'Relay 3' moved from elsewhere (2), put back in 45 s"));
+  relay.publish_state(false);
+}
+
+// millis() wraps every 49.7 days, and neither the floor nor the quiet may notice.
+TEST(RelayClaim, PacingSurvivesMillisRollover) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  const uint32_t t0 = 0xFFFFFFFFu - 5000;
+  claim.request(true, t0);
+  relay.turn_off();
+  claim.request(true, t0 + 1000);
+  relay.turn_off();
+  ASSERT_FALSE(claim.request(true, t0 + 2000));
+  EXPECT_FALSE(claim.request(true, t0 + 2000 + PUT_BACK_FLOOR_MS - 1)) << "across the wrap";
+  const uint32_t put_back = t0 + 2000 + PUT_BACK_FLOOR_MS;
+  ASSERT_LT(put_back, t0) << "past the wrap";
+  EXPECT_TRUE(claim.request(true, put_back));
+
+  claim.request(true, put_back + CONTEST_QUIET_MS - 1);
+  EXPECT_EQ(2u, claim.moves());
+  claim.request(true, put_back + CONTEST_QUIET_MS);
+  EXPECT_EQ(0u, claim.moves());
+}
+
+// Forgotten, not just outgrown: once the quiet ran out on a pass, a clock that wraps all the way
+// round to the put-back does not bring the contest back.
+TEST(RelayClaim, AContestIsForgottenForGood) {
+  FakeSwitch relay;
+  RelayClaim claim(&relay, "boiler");
+  claim.request(true, 0);
+  uint32_t t = 0;
+  for (uint32_t n = 1; n <= CONTEST_MOVES; n++) {
+    relay.turn_off();
+    claim.request(true, t += 1000);
+    claim.request(true, t += PUT_BACK_FLOOR_MS);
+  }
+  ASSERT_TRUE(claim.contested(t));
+  claim.request(true, t + CONTEST_QUIET_MS);
+  EXPECT_FALSE(claim.contested(t)) << "the same millis() 49.7 days on";
 }
 
 }  // namespace esphome::climate_hub::testing

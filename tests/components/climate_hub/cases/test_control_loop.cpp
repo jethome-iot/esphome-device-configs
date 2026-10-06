@@ -130,6 +130,11 @@ TEST_F(ControlLoop, PidRunsTheRelayOnADutyCycle) {
   // Past the on-fraction of a ten second period, the relay opens again.
   tick(206000);
   EXPECT_FALSE(rt->heat_relay_on());
+  tick(210000);
+  EXPECT_TRUE(rt->heat_relay_on());
+  tick(216000);
+  EXPECT_FALSE(rt->heat_relay_on());
+  EXPECT_EQ(0u, hub().claim("relay_1")->moves()) << "its own switching is no move from elsewhere";
 }
 
 TEST_F(ControlLoop, ReachingTheSetpointDropsTheDutyToZero) {
@@ -1401,6 +1406,286 @@ TEST_F(ControlLoop, AReadingFromBeforeTheStartKeepsItsAge) {
   tick(110001);
   EXPECT_EQ(HubFault::SENSOR_STALE, rt->fault()) << "10 s after the reading, 5 s after the start";
   EXPECT_FALSE(entities().relay1.state);
+}
+
+// --- Relays moved from elsewhere ---
+
+// Home Assistant or the web server turning a held relay off before every pass: back at once the
+// first time, then once per PUT_BACK_FLOOR_MS at most, since min_off is 0.
+TEST_F(ControlLoop, AWriterThatKeepsAtItGetsOneSwitchPerFloor) {
+  ControllerRuntime *rt = this->start(this->base(ControlKind::BANG_BANG), 18.f);
+  tick(200000);
+  ASSERT_TRUE(entities().relay1.state);
+
+  std::vector<uint32_t> put_backs;
+  for (uint32_t t = 201000; t <= 260000; t += 1000) {
+    if (entities().relay1.state)
+      entities().relay1.turn_off();
+    tick(t);
+    if (entities().relay1.state)
+      put_backs.push_back(t);
+  }
+  EXPECT_EQ((std::vector<uint32_t>{201000, 212000, 223000, 234000, 245000, 256000}), put_backs);
+  EXPECT_EQ(HubAction::HEATING, rt->action());
+}
+
+// Five moves raise relay_contested, which only reports: the thermostat goes on heating, putting
+// the relay back and following the room. Ten minutes after the last put-back it clears.
+TEST_F(ControlLoop, RelayContestedReportsAndClearsAfterTenQuietMinutes) {
+  ControllerRuntime *rt = this->start(this->base(ControlKind::BANG_BANG), 18.f);
+  HubClimate *entity = hub().entity_of(this->id_);
+  tick(200000);
+  LogCapture::instance().clear();
+  uint32_t t = 200000;
+  for (uint32_t n = 1; n <= CONTEST_MOVES; n++) {
+    entities().relay1.turn_off();
+    tick(t += 1000);
+    EXPECT_EQ(HubFault::NONE, rt->fault()) << "move " << n;
+    tick(t += PUT_BACK_FLOOR_MS);
+    ASSERT_TRUE(entities().relay1.state) << "put back after move " << n;
+  }
+  EXPECT_EQ(HubFault::RELAY_CONTESTED, rt->fault());
+  EXPECT_TRUE(LogCapture::instance().has("relay_contested"));
+  EXPECT_TRUE(LogCapture::instance().has("moved from elsewhere (5)"));
+  EXPECT_EQ(HubAction::HEATING, rt->action()) << "it goes on heating";
+  EXPECT_EQ(climate::CLIMATE_ACTION_HEATING, entity->action);
+
+  entities().room.publish_state(22.f);
+  tick(t + 1000);
+  EXPECT_EQ(HubAction::IDLE, rt->action()) << "and following the room";
+  EXPECT_FALSE(entities().relay1.state);
+  EXPECT_EQ(HubFault::RELAY_CONTESTED, rt->fault());
+
+  tick(t + CONTEST_QUIET_MS - 1);
+  EXPECT_EQ(HubFault::RELAY_CONTESTED, rt->fault());
+  LogCapture::instance().clear();
+  tick(t + CONTEST_QUIET_MS);
+  EXPECT_EQ(HubFault::NONE, rt->fault());
+  EXPECT_TRUE(LogCapture::instance().has("fault cleared"));
+}
+
+// The relay a contest is about may be the cooling one.
+TEST_F(ControlLoop, AContestedCoolingRelayIsReported) {
+  ControllerRuntime *rt = this->start(with_cooling(this->base(ControlKind::BANG_BANG), true), 23.f);
+  tick(200000);
+  ASSERT_TRUE(entities().relay2.state);
+  uint32_t t = 200000;
+  for (uint32_t n = 1; n <= CONTEST_MOVES; n++) {
+    entities().relay2.turn_off();
+    tick(t += 1000);
+    tick(t += PUT_BACK_FLOOR_MS);
+  }
+  EXPECT_EQ(HubFault::RELAY_CONTESTED, rt->fault());
+  EXPECT_EQ(HubAction::COOLING, rt->action());
+}
+
+// A cut-out beats relay_contested: the relay opens, a close from elsewhere is undone on every
+// pass, and when the cut-out clears, which the log says, control resumes at once, with an
+// hour's interval too.
+TEST_F(ControlLoop, ACutOutWinsOverRelayContested) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.update_interval_s = 3600.f;
+  config.safety.max_temperature = 30.f;
+  ControllerRuntime *rt = this->start(config, 18.f);
+  tick(200000);
+  uint32_t t = 200000;
+  for (uint32_t n = 1; n <= CONTEST_MOVES; n++) {
+    entities().relay1.turn_off();
+    tick(t += 1000);
+    tick(t += PUT_BACK_FLOOR_MS);
+  }
+  ASSERT_EQ(HubFault::RELAY_CONTESTED, rt->fault());
+
+  entities().room.publish_state(35.f);
+  tick(t += 1000);
+  EXPECT_EQ(HubFault::OVERTEMP, rt->fault());
+  EXPECT_EQ(HubAction::OFF, rt->action());
+  EXPECT_FALSE(entities().relay1.state);
+  for (int pass = 0; pass < 3; pass++) {
+    entities().relay1.turn_on();
+    tick(t += 1000);
+    EXPECT_FALSE(entities().relay1.state) << "pass " << pass;
+  }
+
+  LogCapture::instance().clear();
+  entities().room.publish_state(18.f);
+  tick(t += 1000);
+  EXPECT_EQ(HubFault::RELAY_CONTESTED, rt->fault()) << "the contest is still on";
+  EXPECT_TRUE(LogCapture::instance().has("'loop': overtemp cleared"));
+  EXPECT_TRUE(LogCapture::instance().has("'loop': relay_contested"));
+  EXPECT_EQ(HubAction::HEATING, rt->action());
+  EXPECT_TRUE(entities().relay1.state);
+}
+
+// A silent sensor is a cut-out too: a close from elsewhere is opened on every pass.
+TEST_F(ControlLoop, AStaleSensorOpensEveryCloseAtOnce) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  config.safety.sensor_timeout_s = 10.f;
+  ControllerRuntime *rt = this->start(config, 18.f);
+  tick(hub().ms + 11000);
+  ASSERT_EQ(HubFault::SENSOR_STALE, rt->fault());
+  for (int pass = 0; pass < 3; pass++) {
+    entities().relay1.turn_on();
+    tick(hub().ms + 1000);
+    EXPECT_FALSE(entities().relay1.state) << "pass " << pass;
+  }
+}
+
+// Before its first reading the thermostat has nothing to heat for: a close from elsewhere is
+// opened on every pass, and each one is counted.
+TEST_F(ControlLoop, NoReadingYetOpensEveryCloseAtOnce) {
+  this->id_ = this->create(this->base(ControlKind::BANG_BANG)).id;
+  ControllerRuntime *rt = hub().runtime_of(this->id_);
+  tick(100000);
+  ASSERT_FALSE(rt->has_sample());
+  for (uint32_t n = 1; n <= CONTEST_MOVES + 2; n++) {
+    entities().relay1.turn_on();
+    tick(100000 + n * 1000);
+    EXPECT_FALSE(entities().relay1.state) << "pass " << n;
+    EXPECT_EQ(n, hub().claim("relay_1")->moves());
+  }
+}
+
+// Mode off holds the relay open: a close from elsewhere is put back, paced as in any mode.
+TEST_F(ControlLoop, ModeOffKeepsTheRelayOpenAndPutsItBack) {
+  ControllerRuntime *rt = this->start(this->base(ControlKind::BANG_BANG), 18.f);
+  tick(200000);
+  call(hub().entity_of(this->id_), climate::CLIMATE_MODE_OFF);
+  tick(201000);
+  ASSERT_FALSE(entities().relay1.state);
+
+  entities().relay1.turn_on();
+  tick(202000);
+  EXPECT_FALSE(entities().relay1.state) << "the first close goes back at once";
+  entities().relay1.turn_on();
+  tick(203000);
+  EXPECT_TRUE(entities().relay1.state) << "the second waits the floor";
+  tick(203000 + PUT_BACK_FLOOR_MS - 1);
+  EXPECT_TRUE(entities().relay1.state);
+  tick(203000 + PUT_BACK_FLOOR_MS);
+  EXPECT_FALSE(entities().relay1.state);
+  EXPECT_EQ("loop", hub().claimed_by("relay_1"));
+  EXPECT_EQ(HubFault::NONE, rt->fault());
+  EXPECT_EQ(HubAction::OFF, rt->action());
+}
+
+// Only a stop frees the relay: from then on nothing puts it back.
+TEST_F(ControlLoop, AStopFreesTheRelay) {
+  this->start(this->base(ControlKind::BANG_BANG), 18.f);
+  tick(200000);
+  ASSERT_TRUE(hub().set_enabled(this->id_, false).ok);
+  EXPECT_EQ("", hub().claimed_by("relay_1"));
+
+  entities().relay1.turn_on();
+  tick(201000);
+  tick(220000);
+  EXPECT_TRUE(entities().relay1.state);
+}
+
+// A thermostat that takes the relay over starts with no moves held against it, and a move it
+// finds at its first look, made after the holder's last pass, is none either.
+TEST_F(ControlLoop, ATakeOverStartsWithNoMovesAgainstTheTaker) {
+  ClimateConfig winter = this->base(ControlKind::BANG_BANG);
+  winter.name = "Winter";
+  this->start(winter, 18.f);
+  tick(200000);
+  uint32_t t = 200000;
+  for (uint32_t n = 1; n < CONTEST_MOVES; n++) {
+    entities().relay1.turn_off();
+    tick(t += 1000);
+    tick(t += PUT_BACK_FLOOR_MS);
+  }
+  ASSERT_EQ(CONTEST_MOVES - 1, hub().claim("relay_1")->moves());
+  ClimateConfig summer = winter;
+  summer.name = "Summer";
+  summer.enabled = false;
+  this->create(summer);
+
+  entities().relay1.turn_off();
+  ASSERT_TRUE(hub().set_enabled("summer", true, true).ok);
+  EXPECT_EQ(0u, hub().claim("relay_1")->moves());
+  tick(t += 1000);
+  EXPECT_TRUE(entities().relay1.state) << "found moved, it goes back";
+  EXPECT_EQ(0u, hub().claim("relay_1")->moves()) << "and is no move";
+  entities().relay1.turn_off();
+  tick(t += 1000);
+  EXPECT_TRUE(entities().relay1.state) << "the taker's first move goes back at once";
+  EXPECT_EQ(1u, hub().claim("relay_1")->moves());
+  EXPECT_EQ(HubFault::NONE, hub().runtime_of("summer")->fault());
+}
+
+// A Save keeps the claim, and the moves held against it with the claim.
+TEST_F(ControlLoop, ASaveKeepsTheMoves) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  ControllerRuntime *rt = this->start(config, 18.f);
+  tick(200000);
+  uint32_t t = 200000;
+  for (uint32_t n = 1; n <= CONTEST_MOVES; n++) {
+    entities().relay1.turn_off();
+    tick(t += 1000);
+    tick(t += PUT_BACK_FLOOR_MS);
+  }
+  ASSERT_EQ(HubFault::RELAY_CONTESTED, rt->fault());
+  config.update_interval_s = 2.f;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  tick(t += 1000);
+  EXPECT_EQ(HubFault::RELAY_CONTESTED, rt->fault());
+}
+
+// A Save that drops a relay whose put-back waits opens it at once: let go, nothing would open it
+// later, and it would stay closed with no thermostat on it.
+TEST_F(ControlLoop, ASaveThatDropsARelayWhosePutBackWaitsOpensItAtOnce) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  this->start(config, 22.f);
+  tick(200000);
+  ASSERT_FALSE(entities().relay1.state);
+  entities().relay1.turn_on();
+  tick(201000);
+  ASSERT_FALSE(entities().relay1.state) << "the first close goes back at once";
+  entities().relay1.turn_on();
+  tick(202000);
+  ASSERT_TRUE(entities().relay1.state) << "the second waits the floor";
+
+  config.heat.relay_id = "relay_2";
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  EXPECT_EQ("", hub().claimed_by("relay_1"));
+  EXPECT_FALSE(entities().relay1.state);
+}
+
+// The runtime on its own: with no reading every close from elsewhere is undone at once; in mode
+// off with a reading it is put back paced.
+TEST(ControllerRuntimeAlone, OnlyModeOffWithAReadingPacesThePutBack) {
+  HubClimate entity(&hub(), 200);
+  FakeSwitch heat;
+  RelayClaim claim(&heat, "alone");
+  claim.resume({false, 0});
+  ControllerRuntime rt(&entity);
+  ClimateConfig config = draft("Alone");
+  sensor::Sensor probe;
+  rt.start(&config, &probe, &claim, nullptr, 1000);
+  rt.tick(1000);
+  for (uint32_t t = 2000; t <= 5000; t += 1000) {
+    heat.turn_on();
+    rt.tick(t);
+    EXPECT_EQ(HubFault::NONE, rt.fault());
+    EXPECT_FALSE(heat.state) << "at " << t;
+  }
+  EXPECT_EQ(4u, claim.moves());
+
+  RelayClaim fresh(&heat, "alone");
+  fresh.resume({false, 0});
+  config.mode = HubMode::OFF;
+  // A reading handed over rather than sampled: a sample would publish an entity App never set up.
+  rt.start(&config, &probe, &fresh, nullptr, 5000, Reading{18.f, 5000, true});
+  rt.tick(5500);
+  heat.turn_on();
+  rt.tick(6000);
+  EXPECT_FALSE(heat.state) << "the first close goes back at once";
+  heat.turn_on();
+  rt.tick(7000);
+  EXPECT_TRUE(heat.state) << "the second waits the floor";
+  rt.stop(8000);
+  EXPECT_FALSE(heat.state) << "a stop does not wait";
 }
 
 }  // namespace esphome::climate_hub::testing

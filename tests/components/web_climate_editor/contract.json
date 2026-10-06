@@ -258,7 +258,8 @@
         "faults": [
           "none",
           "sensor_stale",
-          "overtemp"
+          "overtemp",
+          "relay_contested"
         ],
         "max_controllers": 3,
         "name_max_length": 48,

@@ -66,7 +66,8 @@ class ControllerRuntime {
   /// Takes `preset`, one of the running document's, as a pick from Home Assistant would.
   bool pick_preset(const PresetConfig &preset);
 
-  /// OFF only in mode off, on a fault or stopped; otherwise IDLE when neither heating nor cooling.
+  /// OFF only in mode off, on a fault but relay_contested, or stopped; otherwise IDLE when
+  /// neither heating nor cooling.
   HubAction action() const { return this->action_; }
   HubFault fault() const { return this->fault_; }
   bool has_sample() const { return this->has_sample_; }
@@ -89,7 +90,8 @@ class ControllerRuntime {
   bool set_action_(HubAction action);
   void run_control_(uint32_t now_ms);
   void drive_outputs_(uint32_t now_ms);
-  void all_relays_off_(uint32_t now_ms);
+  /// `paced`: a relay closed from elsewhere goes back as RelayClaim::request() puts it back.
+  void all_relays_off_(uint32_t now_ms, bool paced);
   /// Applies a preset, then a mode and a target, each when given; publishes the outcome.
   bool apply_(const PresetConfig *preset, optional<HubMode> mode, optional<float> target);
 

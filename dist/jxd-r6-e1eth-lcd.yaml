@@ -962,6 +962,7 @@ esphome:
                     return "No reading";
                   case HubFault::OVERTEMP:
                     return "Overheat";
+                  case HubFault::RELAY_CONTESTED:  // control goes on: show what it does
                   case HubFault::NONE:
                     break;
                 }

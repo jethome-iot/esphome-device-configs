@@ -80,6 +80,8 @@ const char *fault_to_string(HubFault v) {
       return "sensor_stale";
     case HubFault::OVERTEMP:
       return "overtemp";
+    case HubFault::RELAY_CONTESTED:
+      return "relay_contested";
   }
   return "none";
 }

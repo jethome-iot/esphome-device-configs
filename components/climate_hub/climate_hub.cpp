@@ -894,7 +894,8 @@ void ClimateHub::release_claims_(const std::string &owner) {
 }
 
 ClimateHub::ClaimMap::iterator ClimateHub::let_go_(ClaimMap::iterator it, uint32_t now_ms) {
-  it->second->force_off(now_ms);
+  // Unpaced: once let go, nothing would put it back later.
+  it->second->force_off(now_ms, false);
   it->second->last_switching(&this->relay_history_[it->first]);
   this->freed_[it->first] = it->second->relay();
   return this->claims_.erase(it);
