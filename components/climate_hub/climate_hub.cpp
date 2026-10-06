@@ -738,16 +738,12 @@ Result ClimateHub::apply_preset(const std::string &id, const std::string &key) {
     return failure(404, PRESET_NOT_FOUND);
   Slot *slot = this->slot_for_(id);
   result = success();
-  const HubMode mode = stored->mode;
-  const float target = stored->setpoint;
   // Running, through the entity, which Home Assistant then hears about.
-  if (slot != nullptr ? slot->runtime.pick_preset(*preset) : stored->pick_preset(*preset)) {
+  if (slot != nullptr ? slot->runtime.pick_preset(*preset, this->now_ms()) : stored->pick_preset(*preset)) {
     this->mark_dirty_(id);
     // A newer firmware's file is never written: the pick lasts until the next boot.
     result.persisted = !stored->from_newer_firmware();
   }
-  if (slot != nullptr)
-    this->end_moved_autotune_(slot->runtime, mode, target);
   return result;
 }
 
@@ -816,15 +812,6 @@ Result ClimateHub::cancel_autotune(const std::string &id) {
 const AutotuneRun *ClimateHub::autotune(const std::string &id) const {
   auto it = this->autotunes_.find(id);
   return it == this->autotunes_.end() ? nullptr : it->second.get();
-}
-
-void ClimateHub::end_moved_autotune_(ControllerRuntime &runtime, HubMode mode, float target) {
-  const ClimateConfig &config = *runtime.config();
-  if (config.mode != mode) {
-    runtime.end_autotune(AutotuneEnd::MODE_CHANGED, this->now_ms());
-  } else if (config.setpoint != target) {
-    runtime.end_autotune(AutotuneEnd::TARGET_CHANGED, this->now_ms());
-  }
 }
 
 void ClimateHub::complete_autotune_(Slot *slot) {
@@ -1182,11 +1169,8 @@ void ClimateHub::on_control_(uint8_t index, const climate::ClimateCall &call) {
   ControllerRuntime &runtime = this->slots_[index]->runtime;
   if (!runtime.running())
     return;
-  const HubMode mode = runtime.config()->mode;
-  const float target = runtime.config()->setpoint;
-  if (runtime.control(call))
+  if (runtime.control(call, this->now_ms()))
     this->mark_dirty_(runtime.config()->id);
-  this->end_moved_autotune_(runtime, mode, target);
 }
 
 // --- Files ---

@@ -63,9 +63,9 @@ class ControllerRuntime {
   /// A preset, mode or target from Home Assistant, the web server or the API: the preset first,
   /// then a mode or target the call carries besides. True when the document changed and needs
   /// writing.
-  bool control(const climate::ClimateCall &call);
+  bool control(const climate::ClimateCall &call, uint32_t now_ms);
   /// Takes `preset`, one of the running document's, as a pick from Home Assistant would.
-  bool pick_preset(const PresetConfig &preset);
+  bool pick_preset(const PresetConfig &preset, uint32_t now_ms);
 
   /// Hands the relay in `run`'s direction to the calibration, the other one held open: full
   /// or nothing around the target, set on every sample, until the run ends. A target or a mode
@@ -103,8 +103,9 @@ class ControllerRuntime {
   void drive_outputs_(uint32_t now_ms);
   /// `paced`: a relay closed from elsewhere goes back as RelayClaim::request() puts it back.
   void all_relays_off_(uint32_t now_ms, bool paced);
-  /// Applies a preset, then a mode and a target, each when given; publishes the outcome.
-  bool apply_(const PresetConfig *preset, optional<HubMode> mode, optional<float> target);
+  /// Applies a preset, then a mode and a target, each when given; publishes the outcome. A mode
+  /// or a target it moves ends a calibration.
+  bool apply_(const PresetConfig *preset, optional<HubMode> mode, optional<float> target, uint32_t now_ms);
   /// Feeds a sample to the calibration and sets its relay; true when the action changed.
   bool feed_autotune_(float value, uint32_t now_ms);
 

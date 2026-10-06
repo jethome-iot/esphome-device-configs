@@ -187,9 +187,6 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   const std::string &note_waiting_(const std::string &id, const std::string &error);
   /// `why` ends a calibration it runs.
   void stop_(Slot *slot, AutotuneEnd why = AutotuneEnd::STOPPED);
-  /// Ends the calibration `runtime` runs when the call it took moved its mode or its target
-  /// away from these.
-  void end_moved_autotune_(ControllerRuntime &runtime, HubMode mode, float target);
   /// Stores and runs the gains the calibration `slot` runs has found.
   void complete_autotune_(Slot *slot);
   bool restart_(Slot *slot, const std::string &previous_name, std::string *error);

@@ -181,7 +181,7 @@ void ControllerRuntime::apply_config_() {
   this->entity_->target_temperature = c.setpoint;
 }
 
-bool ControllerRuntime::control(const climate::ClimateCall &call) {
+bool ControllerRuntime::control(const climate::ClimateCall &call, uint32_t now_ms) {
   if (this->config_ == nullptr)
     return false;
   const ClimateConfig &c = *this->config_;
@@ -199,16 +199,17 @@ bool ControllerRuntime::control(const climate::ClimateCall &call) {
   optional<float> target;
   if (call.get_target_temperature().has_value())
     target = *call.get_target_temperature();
-  return this->apply_(preset, mode, target);
+  return this->apply_(preset, mode, target, now_ms);
 }
 
-bool ControllerRuntime::pick_preset(const PresetConfig &preset) {
+bool ControllerRuntime::pick_preset(const PresetConfig &preset, uint32_t now_ms) {
   if (this->config_ == nullptr)
     return false;
-  return this->apply_(&preset, nullopt, nullopt);
+  return this->apply_(&preset, nullopt, nullopt, now_ms);
 }
 
-bool ControllerRuntime::apply_(const PresetConfig *preset, optional<HubMode> mode, optional<float> target) {
+bool ControllerRuntime::apply_(const PresetConfig *preset, optional<HubMode> mode, optional<float> target,
+                               uint32_t now_ms) {
   ClimateConfig &c = *this->config_;
   const HubMode previous_mode = c.mode;
   const float previous_setpoint = c.setpoint;
@@ -226,6 +227,12 @@ bool ControllerRuntime::apply_(const PresetConfig *preset, optional<HubMode> mod
   // mode change it would keep the heater running in COOL.
   if (c.mode != previous_mode)
     this->hysteresis_.reset();
+  // Here, so no path that moves them leaves a run measuring around a target it no longer has.
+  if (c.mode != previous_mode) {
+    this->end_autotune(AutotuneEnd::MODE_CHANGED, now_ms);
+  } else if (c.setpoint != previous_setpoint) {
+    this->end_autotune(AutotuneEnd::TARGET_CHANGED, now_ms);
+  }
 
   this->hysteresis_.set_setpoints(c.switch_low(), c.switch_high());
   this->entity_->mode = to_climate_mode(c.mode);

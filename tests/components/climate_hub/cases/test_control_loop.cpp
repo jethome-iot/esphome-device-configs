@@ -899,7 +899,7 @@ TEST(ControllerRuntimeAlone, AStoppedRuntimeIgnoresEverything) {
   rt.on_sample(20.f, 1000);
   auto call = entity.make_call();
   call.set_target_temperature(25.f);
-  EXPECT_FALSE(rt.control(call));
+  EXPECT_FALSE(rt.control(call, 1000));
   rt.stop(1000);
   EXPECT_FALSE(rt.running());
   EXPECT_FALSE(rt.has_sample());

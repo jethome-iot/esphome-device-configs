@@ -330,6 +330,44 @@ TEST_F(Calibration, APresetThatMovesTheTargetEndsIt) {
   EXPECT_EQ(AutotuneEnd::TARGET_CHANGED, hub().autotune(id)->reason());
 }
 
+// The runtime ends it itself, so a caller that reaches it past the hub's entity calls ends it too.
+TEST_F(Calibration, ATargetOrAModeSetOnTheRuntimeItselfEndsIt) {
+  ClimateConfig config = living_room();
+  config.cool.relay_id = "relay_2";
+  PresetConfig eco;
+  eco.name = "Eco";
+  eco.setpoint = 18.f;
+  config.presets = {eco};
+  const std::string id = this->start(config, 18.f);
+  ControllerRuntime *rt = hub().runtime_of(id);
+  HubClimate *entity = hub().entity_of(id);
+
+  ASSERT_TRUE(this->calibrate(id).ok);
+  hold(18.f, 10, 1);
+  ASSERT_TRUE(entities().relay1.state);
+  auto same = entity->make_call();
+  same.set_target_temperature(21.f);
+  rt->control(same, hub().ms);
+  EXPECT_TRUE(hub().autotune(id)->running()) << "the target it has";
+  auto target = entity->make_call();
+  target.set_target_temperature(22.f);
+  rt->control(target, hub().ms + 500);
+  EXPECT_EQ(AutotuneEnd::TARGET_CHANGED, hub().autotune(id)->reason());
+  EXPECT_EQ(10500u, hub().autotune(id)->elapsed_ms(hub().ms + 60000)) << "ended at the clock it was given";
+  EXPECT_EQ(nullptr, rt->autotune());
+  EXPECT_EQ(climate::CLIMATE_ACTION_IDLE, entity->action) << "the run's relay is not the PID's";
+
+  ASSERT_TRUE(this->calibrate(id).ok);
+  auto mode = entity->make_call();
+  mode.set_mode(climate::CLIMATE_MODE_HEAT_COOL);
+  rt->control(mode, hub().ms);
+  EXPECT_EQ(AutotuneEnd::MODE_CHANGED, hub().autotune(id)->reason());
+
+  ASSERT_TRUE(this->calibrate(id, AutotuneDirection::HEAT).ok);
+  rt->pick_preset(*hub().store().get(id)->find_preset("eco"), hub().ms);
+  EXPECT_EQ(AutotuneEnd::TARGET_CHANGED, hub().autotune(id)->reason());
+}
+
 TEST_F(Calibration, ASaveEndsItAndARefusedOneDoesNot) {
   const std::string id = this->start(living_room(), 18.f);
   this->create(draft("Hall heating", "relay_2"));
