@@ -26,9 +26,34 @@ TEST(OffsetTenths, RoundsToTheNearestTenthHalvesAwayFromZero) {
     int16_t tenths;
   };
   const std::vector<Case> cases = {
-      {0.0, 0},   {0.04, 0},    {-0.04, 0}, {0.05, 1},    {-0.05, -1}, {0.15, 2},  {-0.15, -2},
-      {0.25, 3},  {-0.25, -3},  {0.35, 4},  {-0.3, -3},   {1.0, 10},   {5.0, 50},  {-5.0, -50},
-      {5.04, 50}, {-5.04, -50}, {4.95, 50}, {-4.95, -50}, {4.94, 49},  {0.149, 1}, {-0.351, -4},
+      {0.0, 0},
+      {0.04, 0},
+      {-0.04, 0},
+      {0.05, 1},
+      {-0.05, -1},
+      {0.15, 2},
+      {-0.15, -2},
+      {0.25, 3},
+      {-0.25, -3},
+      {0.35, 4},
+      {-0.3, -3},
+      {1.0, 10},
+      {5.0, 50},
+      {-5.0, -50},
+      {5.04, 50},
+      {-5.04, -50},
+      {4.95, 50},
+      {-4.95, -50},
+      {4.94, 49},
+      {0.149, 1},
+      {-0.351, -4},
+      // Just under a half step stays under it: the margin is for representation error only.
+      {0.04999, 0},
+      {-0.04999, 0},
+      {0.14999, 1},
+      {5.04999, 50},
+      {-5.04999, -50},
+      {4.94999, 49},
   };
   for (const Case &c : cases) {
     SCOPED_TRACE(c.celsius);
@@ -676,9 +701,11 @@ TEST_F(OffsetFile, AnOffsetIsRoundedToTheStep) {
                            R"({"slot":3,"offset":-0.25},)"
                            R"({"slot":4,"offset":5.04},)"
                            R"({"slot":5,"offset":0.35},)"
-                           R"({"slot":6,"offset":-0.05}]})",
-                           6),
-            (std::vector<int16_t>{0, 2, -3, 50, 4, -1}));
+                           R"({"slot":6,"offset":-0.05},)"
+                           R"({"slot":7,"offset":4.95},)"
+                           R"({"slot":8,"offset":0.04999}]})",
+                           8),
+            (std::vector<int16_t>{0, 2, -3, 50, 4, -1, 50, 0}));
 }
 
 TEST(OffsetFileWrite, WritesOnlyTheSlotsWithAnOffsetAsTheyReadInTenths) {

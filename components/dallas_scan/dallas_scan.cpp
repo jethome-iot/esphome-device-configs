@@ -35,8 +35,9 @@ bool offset_tenths(double celsius, int16_t &tenths) {
   // Bounded first, so lround() stays in range.
   if (!std::isfinite(celsius) || std::fabs(celsius) > 2 * DallasScan::MAX_OFFSET)
     return false;
-  // The margin covers float and JSON parser error, so 0.15 rounds to 0.2 however it was stored.
-  const long rounded = std::lround(celsius * 10.0 + std::copysign(1e-4, celsius));
+  // The margin covers float and JSON parser error (under 3e-6 tenths within the range), so 0.15
+  // rounds to 0.2 however it was stored, while 0.04999 still rounds to 0.0.
+  const long rounded = std::lround(celsius * 10.0 + std::copysign(1e-5, celsius));
   if (std::labs(rounded) > MAX_OFFSET_TENTHS)
     return false;
   tenths = (int16_t) rounded;
