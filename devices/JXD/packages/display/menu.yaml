@@ -170,7 +170,8 @@ esphome:
               menu->add_item(row);
             };
             // A first row naming the entity. The menu has no row the cursor skips, so the
-            // submenu opens on the row below it; CENTER does nothing on a label.
+            // submenu opens on the row below it; CENTER does nothing on a label. on_enter also
+            // fires on BACK from a child menu, so these submenus must not get one.
             auto add_title = [has](MenuItemMenu *menu, std::function<std::string()> name) {
               auto *title = new MenuItem(MENU_ITEM_LABEL);
               title->set_text([has, name](const MenuItem *) { return panel_fit(panel_safe(name(), 4 * ROW, has), ROW); });
