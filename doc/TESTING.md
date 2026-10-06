@@ -25,6 +25,8 @@ tests/
       loop_job_host         # the same for loop_job
       switch_hold_host      # the same for switch_hold
       one_wire_host         # test-only 1-Wire bus: the cases set what the boot scan found
+      pid_host              # test-only key that pulls upstream's pid in: climate_hub's
+                            # autotuner is checked against upstream's own
       web_server            # stand-in for upstream's, which builds for ESP platforms only
       web_server_base       # stand-in for upstream's, so HTTP handlers run on the host
   components/
@@ -32,6 +34,8 @@ tests/
       test.yaml             # host config: the component under test, its entities, the harness
       cases/                # the tests; common.h holds what they share
       test_schema.py        # the component's YAML schema, run with unittest by run.py
+    automations_no_climate/   # automations and web_automation_editor on a firmware without
+                              # climate_hub; their own suites build with it
     bindings/               # the same layout, one suite per component
     climate_hub/
     config_json/
@@ -94,8 +98,8 @@ the files on disk, the log, a job reaching the loop task, the relays' states.
   - `setup`: fixture names, optional.
   - `device_only`: a state only the device can be put in: `loop_busy`, `storage_failed`,
     `storage_unwritable`, `file_cap`, `no_free_entity`, `file_stays`, or `newer_file`, where a
-    newer firmware wrote the files of the `setup` and the device booted on them. The mock skips
-    the case. The state holds for the case's own request, not for `then`.
+    newer firmware wrote the files of the `setup`, as version 9, and the device booted on them.
+    The mock skips the case. The state holds for the case's own request, not for `then`.
   - `method`, `path`: `GET`, `POST` or `OPTIONS`, and the route below `<url_prefix>/api/` with
     its query, sent as written.
   - `body`: `null` for none, a string as written, anything else as its JSON.

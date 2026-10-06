@@ -30,13 +30,22 @@ enum class TypesSwitchTrigger : uint8_t {
   STATE_CHANGE,
 };
 
-enum class SourceAction : uint8_t { NONE = 0, DELAY, SWITCH };
+enum class SourceAction : uint8_t { NONE = 0, DELAY, SWITCH, CLIMATE };
 
 enum class TypeSwitchAction : uint8_t {
   NONE,
   TURN_ON,
   TURN_OFF,
   TOGGLE,
+  FOLLOW,
+};
+
+enum class TypeClimateAction : uint8_t {
+  NONE,
+  TURN_ON,
+  TURN_OFF,
+  SET_PRESET,
+  SET_TARGET,
   FOLLOW,
 };
 
@@ -80,6 +89,10 @@ SourceAction string_to_source_action(const std::string &str);
 // TypeSwitchAction
 const char *switch_action_type_to_string(TypeSwitchAction type);
 TypeSwitchAction string_to_switch_action_type(const std::string &str);
+
+// TypeClimateAction
+const char *climate_action_type_to_string(TypeClimateAction type);
+TypeClimateAction string_to_climate_action_type(const std::string &str);
 
 // ConditionType
 const char *condition_type_to_string(ConditionType type);

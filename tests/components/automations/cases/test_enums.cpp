@@ -31,7 +31,7 @@ TEST(Enums, SwitchTriggerTypeRoundTrip) {
 }
 
 TEST(Enums, SourceActionRoundTrip) {
-  for (auto v : {SourceAction::DELAY, SourceAction::SWITCH})
+  for (auto v : {SourceAction::DELAY, SourceAction::SWITCH, SourceAction::CLIMATE})
     EXPECT_EQ(string_to_source_action(source_action_to_string(v)), v);
   EXPECT_EQ(string_to_source_action("relay"), SourceAction::NONE);
 }
@@ -41,6 +41,14 @@ TEST(Enums, SwitchActionTypeRoundTrip) {
        {TypeSwitchAction::TURN_ON, TypeSwitchAction::TURN_OFF, TypeSwitchAction::TOGGLE, TypeSwitchAction::FOLLOW})
     EXPECT_EQ(string_to_switch_action_type(switch_action_type_to_string(v)), v);
   EXPECT_EQ(string_to_switch_action_type("tugle"), TypeSwitchAction::NONE);
+}
+
+TEST(Enums, ClimateActionTypeRoundTrip) {
+  for (auto v : {TypeClimateAction::TURN_ON, TypeClimateAction::TURN_OFF, TypeClimateAction::SET_PRESET,
+                 TypeClimateAction::SET_TARGET, TypeClimateAction::FOLLOW})
+    EXPECT_EQ(string_to_climate_action_type(climate_action_type_to_string(v)), v);
+  EXPECT_EQ(string_to_climate_action_type("heat"), TypeClimateAction::NONE);
+  EXPECT_STREQ(climate_action_type_to_string(TypeClimateAction::NONE), "none");
 }
 
 TEST(Enums, ConditionTypeRoundTrip) {

@@ -130,6 +130,8 @@ void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, Rel
 void ControllerRuntime::stop(uint64_t now_ms) {
   if (this->config_ == nullptr)
     return;
+  // The hub names a better reason first when it has one.
+  this->end_autotune(AutotuneEnd::STOPPED, now_ms);
   this->all_relays_off_(now_ms, false);
   this->config_ = nullptr;
   this->sensor_ = nullptr;
@@ -185,7 +187,7 @@ void ControllerRuntime::apply_config_() {
   this->entity_->target_temperature = c.setpoint;
 }
 
-bool ControllerRuntime::control(const climate::ClimateCall &call) {
+bool ControllerRuntime::control(const climate::ClimateCall &call, uint32_t now_ms) {
   if (this->config_ == nullptr)
     return false;
   const ClimateConfig &c = *this->config_;
@@ -203,16 +205,23 @@ bool ControllerRuntime::control(const climate::ClimateCall &call) {
   optional<float> target;
   if (call.get_target_temperature().has_value())
     target = *call.get_target_temperature();
-  return this->apply_(preset, mode, target);
+  return this->apply_(preset, mode, target, now_ms);
 }
 
-bool ControllerRuntime::pick_preset(const PresetConfig &preset) {
+bool ControllerRuntime::pick_preset(const PresetConfig &preset, uint32_t now_ms) {
   if (this->config_ == nullptr)
     return false;
-  return this->apply_(&preset, nullopt, nullopt);
+  return this->apply_(&preset, nullopt, nullopt, now_ms);
 }
 
-bool ControllerRuntime::apply_(const PresetConfig *preset, optional<HubMode> mode, optional<float> target) {
+bool ControllerRuntime::set_mode(HubMode mode, uint32_t now_ms) {
+  if (this->config_ == nullptr)
+    return false;
+  return this->apply_(nullptr, mode, nullopt, now_ms);
+}
+
+bool ControllerRuntime::apply_(const PresetConfig *preset, optional<HubMode> mode, optional<float> target,
+                               uint32_t now_ms) {
   ClimateConfig &c = *this->config_;
   const HubMode previous_mode = c.mode;
   const float previous_setpoint = c.setpoint;
@@ -221,8 +230,8 @@ bool ControllerRuntime::apply_(const PresetConfig *preset, optional<HubMode> mod
   // A target or a mode set by hand keeps the label, as upstream's thermostat does.
   if (preset != nullptr)
     c.pick_preset(*preset);
-  if (mode.has_value() && c.supports_mode(*mode))
-    c.mode = *mode;
+  if (mode.has_value() && *mode != c.mode && c.supports_mode(*mode))
+    c.set_mode(*mode);
   // A client may send anything; the document only ever holds a target inside its range.
   if (target.has_value() && !std::isnan(*target))
     c.setpoint = c.clamp_target(*target);
@@ -230,6 +239,12 @@ bool ControllerRuntime::apply_(const PresetConfig *preset, optional<HubMode> mod
   // mode change it would keep the heater running in COOL.
   if (c.mode != previous_mode)
     this->hysteresis_.reset();
+  // Here, so no path that moves them leaves a run measuring around a target it no longer has.
+  if (c.mode != previous_mode) {
+    this->end_autotune(AutotuneEnd::MODE_CHANGED, now_ms);
+  } else if (c.setpoint != previous_setpoint) {
+    this->end_autotune(AutotuneEnd::TARGET_CHANGED, now_ms);
+  }
 
   this->hysteresis_.set_setpoints(c.switch_low(), c.switch_high());
   this->entity_->mode = to_climate_mode(c.mode);
@@ -248,10 +263,58 @@ void ControllerRuntime::on_sample(float value, uint64_t now_ms) {
     return;
   this->last_sample_ms_ = now_ms;
   this->has_sample_ = true;
-  if (value == this->entity_->current_temperature)
+  // Every sample, not every update_interval_s: the swing is measured between them.
+  const bool acted = this->autotune_ != nullptr && this->feed_autotune_(value, now_ms);
+  if (value == this->entity_->current_temperature && !acted)
     return;
   this->entity_->current_temperature = value;
   this->entity_->publish_state();
+}
+
+void ControllerRuntime::begin_autotune(AutotuneRun *run, uint32_t now_ms) {
+  this->autotune_ = run;
+  bool changed;
+  if (this->has_sample_) {
+    changed = this->feed_autotune_(this->entity_->current_temperature, now_ms);
+  } else {
+    // The relays stay open until a reading comes, as at a start.
+    this->heat_duty_.set_duty(0.f);
+    this->cool_duty_.set_duty(0.f);
+    changed = this->set_action_(this->relay_action_());
+  }
+  if (changed)
+    this->entity_->publish_state();
+}
+
+bool ControllerRuntime::feed_autotune_(float value, uint32_t now_ms) {
+  AutotuneRun &run = *this->autotune_;
+  const bool on = run.feed(value, now_ms);
+  // The pass that found the gains leaves the relays to the PID the hub starts next.
+  if (run.found())
+    return false;
+  const bool heat = run.direction() == AutotuneDirection::HEAT;
+  this->heat_duty_.set_duty(heat && on ? 1.f : 0.f);
+  this->cool_duty_.set_duty(!heat && on ? 1.f : 0.f);
+  return this->set_action_(this->relay_action_());
+}
+
+void ControllerRuntime::end_autotune(AutotuneEnd why, uint32_t now_ms) {
+  if (this->autotune_ == nullptr)
+    return;
+  if (why != AutotuneEnd::NONE) {
+    this->autotune_->fail(why, now_ms);
+    ESP_LOGI(TAG, "'%s': calibration ended: %s", this->config_->id.c_str(), enums::autotune_end_to_string(why));
+  }
+  this->autotune_ = nullptr;
+  // A clean restart: nothing the PID held before the run, or the relay function's duties, carries on.
+  const ClimateConfig &c = *this->config_;
+  this->pid_.set_gains(c.pid.kp, c.pid.ki, c.pid.kd);
+  this->pid_.reset();
+  this->pid_.set_starting_integral_term(c.pid.starting_integral_term);
+  this->heat_duty_.set_duty(0.f);
+  this->cool_duty_.set_duty(0.f);
+  this->controlled_ = false;
+  this->control_due_ = true;
 }
 
 void ControllerRuntime::tick(uint64_t now_ms) {
@@ -260,6 +323,14 @@ void ControllerRuntime::tick(uint64_t now_ms) {
   const ClimateConfig &c = *this->config_;
 
   this->refresh_fault_(now_ms);
+  if (this->autotune_ != nullptr) {
+    // Any fault ends a calibration, relay_contested too: something else moved the relay it measures.
+    AutotuneEnd why = enums::autotune_end_of(this->fault_);
+    if (why == AutotuneEnd::NONE)
+      why = this->autotune_->limit_reached(now_ms);
+    if (why != AutotuneEnd::NONE)
+      this->end_autotune(why, now_ms);
+  }
   // Waiting for a first reading is no fault, but nothing to act on either. Without a reading or
   // on a cut-out a close from elsewhere is undone on every pass; only mode off paces it.
   if (cuts_out(this->fault_) || c.mode == HubMode::OFF || !this->has_sample_) {
@@ -268,7 +339,8 @@ void ControllerRuntime::tick(uint64_t now_ms) {
     this->all_relays_off_(now_ms, this->has_sample_ && !cuts_out(this->fault_));
   } else {
     const auto interval_ms = static_cast<uint32_t>(c.update_interval_s * 1000.f);
-    if (this->control_due_ || now_ms - this->last_control_ms_ >= interval_ms)
+    // A calibration sets the duties on every sample instead.
+    if (this->autotune_ == nullptr && (this->control_due_ || now_ms - this->last_control_ms_ >= interval_ms))
       this->run_control_(now_ms);
     this->drive_outputs_(now_ms);
   }

@@ -38,9 +38,11 @@ const ParamDesc PARAMS[] = {
     // pid
     {"kp", "Proportional gain", "", "pid", "pid", 0.6f, 0.f, 1000.f, 0.001f, false,
      "Output per degree of error. Raise it for a faster response, lower it if the temperature oscillates."},
-    {"ki", "Integral gain", "", "pid", "pid", 0.0025f, 0.f, 1000.f, 0.0001f, false,
+    // A slow floor tunes to an integral gain of a few millionths and a derivative gain in the
+    // thousands: a period of hours.
+    {"ki", "Integral gain", "", "pid", "pid", 0.0025f, 0.f, 1000.f, 0.000001f, false,
      "How fast the accumulated error closes the last gap. Too high overshoots."},
-    {"kd", "Derivative gain", "", "pid", "pid", 0.f, 0.f, 1000.f, 0.001f, false,
+    {"kd", "Derivative gain", "", "pid", "pid", 0.f, 0.f, 10000.f, 0.001f, false,
      "Reacts to how fast the temperature is moving. Usually left at zero for a slow room."},
     {"min_integral", "Minimum integral", "", "pid", "pid", -1.f, -100.f, 100.f, 0.01f, false,
      "Floor for the accumulated term; keeps it from winding up while the heater cannot keep up."},

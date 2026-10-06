@@ -1,5 +1,6 @@
 #include "automation_config.h"
 #include <algorithm>
+#include <utility>
 #include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
 #include "entity_lookup.h"
@@ -453,6 +454,67 @@ bool ConditionConfig::deserialize(const JsonObject &obj) {
   return true;
 }
 
+// as<std::string>() would read a number as its JSON text.
+static std::string text_of(JsonVariantConst value) { return value.is<const char *>() ? value.as<std::string>() : ""; }
+
+static void serialize_climate_step(JsonObject &obj, const ClimateStep &step) {
+  if (step.type == TypeClimateAction::SET_PRESET) {
+    obj["preset"] = step.preset;
+  } else if (step.type == TypeClimateAction::SET_TARGET) {
+    obj["target"] = step.target;
+  }
+}
+
+// What a step needs besides its type. A follow's step holds while the trigger's state lasts, so
+// it is a mode or a preset, not a target and not another follow.
+static bool deserialize_climate_step(const JsonObject &obj, ClimateStep &out, bool in_follow) {
+  if (!parse_enum(obj, "type", EnumUtils::string_to_climate_action_type, EnumUtils::climate_action_type_to_string,
+                  out.type))
+    return false;
+  if (in_follow && out.type != TypeClimateAction::TURN_ON && out.type != TypeClimateAction::TURN_OFF &&
+      out.type != TypeClimateAction::SET_PRESET) {
+    ESP_LOGE(TAG, "A follow takes turn_on, turn_off or set_preset, not '%s'",
+             EnumUtils::climate_action_type_to_string(out.type));
+    return false;
+  }
+  switch (out.type) {
+    case TypeClimateAction::SET_PRESET:
+      out.preset = text_of(obj["preset"]);
+      if (out.preset.empty()) {
+        ESP_LOGE(TAG, "Missing preset");
+        return false;
+      }
+      return true;
+    case TypeClimateAction::SET_TARGET:
+      return read_float(obj, "target", out.target);
+    default:
+      return true;
+  }
+}
+
+static bool deserialize_climate(const JsonObject &obj, ClimateActionConfig &out) {
+  out.climate = text_of(obj["climate"]);
+  if (out.climate.empty()) {
+    ESP_LOGE(TAG, "Missing climate");
+    return false;
+  }
+  if (!deserialize_climate_step(obj, out.step, false))
+    return false;
+  if (out.step.type != TypeClimateAction::FOLLOW)
+    return true;
+  const std::pair<const char *, ClimateStep *> branches[] = {{"on", &out.on}, {"off", &out.off}};
+  for (const auto &branch : branches) {
+    JsonObject value = obj[branch.first].as<JsonObject>();
+    if (value.isNull()) {
+      ESP_LOGE(TAG, "Missing %s", branch.first);
+      return false;
+    }
+    if (!deserialize_climate_step(value, *branch.second, true))
+      return false;
+  }
+  return true;
+}
+
 ActionConfig::ActionConfig() : source(SourceAction::NONE) { memset(&params, 0, sizeof(params)); }
 
 void ActionConfig::serialize(JsonObject &obj) const {
@@ -469,6 +531,21 @@ void ActionConfig::serialize(JsonObject &obj) const {
     case SourceAction::DELAY:
       obj["delay_ms"] = params.delay.delay_ms;
       break;
+    case SourceAction::CLIMATE:
+      if (climate == nullptr)
+        break;
+      obj["type"] = EnumUtils::climate_action_type_to_string(climate->step.type);
+      obj["climate"] = climate->climate;
+      serialize_climate_step(obj, climate->step);
+      if (climate->step.type == TypeClimateAction::FOLLOW) {
+        const std::pair<const char *, const ClimateStep *> branches[] = {{"on", &climate->on}, {"off", &climate->off}};
+        for (const auto &branch : branches) {
+          JsonObject value = obj[branch.first].to<JsonObject>();
+          value["type"] = EnumUtils::climate_action_type_to_string(branch.second->type);
+          serialize_climate_step(value, *branch.second);
+        }
+      }
+      break;
     default:
       break;
   }
@@ -480,6 +557,7 @@ bool ActionConfig::deserialize(const JsonObject &obj) {
 
   if (!parse_enum(obj, "source", EnumUtils::string_to_source_action, EnumUtils::source_action_to_string, source))
     return false;
+  climate.reset();
 
   switch (source) {
     case SourceAction::SWITCH: {
@@ -504,6 +582,13 @@ bool ActionConfig::deserialize(const JsonObject &obj) {
       const double limit = MAX_DELAY_MS;
       params.delay.delay_ms = static_cast<uint32_t>(ms > 0 ? std::min(ms, limit) : 0.0);
       break;
+    }
+    case SourceAction::CLIMATE: {
+      auto parsed = std::make_shared<ClimateActionConfig>();
+      if (!deserialize_climate(obj, *parsed))
+        return false;
+      climate = std::move(parsed);
+      return true;
     }
     default:
       break;

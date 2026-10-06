@@ -21,7 +21,8 @@ enum class RouteId : uint8_t {
   DELETE,
   ENABLE,
   SETPOINT,
-  PRESET
+  PRESET,
+  AUTOTUNE
 };
 
 struct Route {
@@ -77,6 +78,7 @@ class WebClimateEditor : public AsyncWebHandler, public Component {
   void handle_enable_(AsyncWebServerRequest *request);
   void handle_setpoint_(AsyncWebServerRequest *request);
   void handle_preset_(AsyncWebServerRequest *request);
+  void handle_autotune_(AsyncWebServerRequest *request);
 
   /// Answers what a job decided: `json` when it ran and succeeded, the error it set when it
   /// ran and refused, 503 when the loop task never took it.

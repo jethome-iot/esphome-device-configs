@@ -174,7 +174,7 @@ bool read_presets(JsonVariantConst value, std::vector<PresetConfig> *out, std::s
   return true;
 }
 
-// Older files read as this version; a newer one keeps its number, rounded up so 2.5 stays newer.
+// Older files read as this version; a newer one keeps its number, rounded up so 3.5 stays newer.
 uint16_t read_version(JsonVariantConst value) {
   const double version = value.is<double>() ? value.as<double>() : 0;
   if (!(version > CONFIG_VERSION))
@@ -183,6 +183,16 @@ uint16_t read_version(JsonVariantConst value) {
 }
 
 }  // namespace
+
+float as_stored(float value) {
+  JsonDocument doc;
+  doc.set(value);
+  std::string text;
+  serializeJson(doc, text);
+  JsonDocument back;
+  deserializeJson(back, text);
+  return back.as<float>();
+}
 
 std::string slugify_id(const std::string &name, const char *fallback) {
   std::string out;
@@ -295,6 +305,7 @@ std::string object_id_of_name(const std::string &name) {
 
 void ClimateConfig::serialize(JsonObject root) const {
   root["version"] = this->version;
+  root["revision"] = this->revision;
   root["id"] = this->id;
   root["name"] = this->name;
   root["enabled"] = this->enabled;
@@ -335,6 +346,7 @@ void ClimateConfig::serialize(JsonObject root) const {
   bb["above"] = this->bang_bang.above;
 
   root["mode"] = enums::mode_to_string(this->mode);
+  root["last_on_mode"] = enums::mode_to_string(this->on_mode());
   root["setpoint"] = this->setpoint;
 
   JsonArray presets = root["presets"].to<JsonArray>();
@@ -367,6 +379,7 @@ bool ClimateConfig::deserialize(const JsonObject &root, bool require_id, std::st
     return fail(error, "document is not an object");
 
   this->version = read_version(root["version"]);
+  this->revision = root["revision"] | this->revision;
 
   if (require_id) {
     this->id = text_of(root["id"]);
@@ -433,6 +446,12 @@ bool ClimateConfig::deserialize(const JsonObject &root, bool require_id, std::st
     return false;
   if (!root["mode"].isNull() && !enums::mode_from_string(root["mode"].as<std::string>(), &this->mode))
     return fail(error, "mode must be one of off/heat/cool/heat_cool");
+  // State, like active_preset: one the relays no longer serve gives way in on_mode(). A word it
+  // does not know is refused as any other is.
+  if (!root["last_on_mode"].isNull() &&
+      (!enums::mode_from_string(root["last_on_mode"].as<std::string>(), &this->last_on_mode) ||
+       this->last_on_mode == HubMode::OFF))
+    return fail(error, "last_on_mode must be one of heat/cool/heat_cool");
   this->setpoint = root["setpoint"] | this->setpoint;
   if (!check_mode(*this, error) || !read_presets(root["presets"], &this->presets, error) ||
       !check_presets(*this, error) || !validate_name(this->name, error))
@@ -550,10 +569,23 @@ bool ClimateConfig::pick_preset(const PresetConfig &preset) {
   this->setpoint = target;
   this->active_preset = preset.key;
   if (preset.mode.has_value() && *preset.mode != this->mode && this->supports_mode(*preset.mode)) {
-    this->mode = *preset.mode;
+    this->set_mode(*preset.mode);
     changed = true;
   }
   return changed;
+}
+
+void ClimateConfig::set_mode(HubMode mode) {
+  this->last_on_mode = this->on_mode();
+  this->mode = mode;
+}
+
+HubMode ClimateConfig::on_mode() const {
+  if (this->mode != HubMode::OFF)
+    return this->mode;
+  if (this->last_on_mode != HubMode::OFF && this->supports_mode(this->last_on_mode))
+    return this->last_on_mode;
+  return this->supports_heat() ? HubMode::HEAT : HubMode::COOL;
 }
 
 }  // namespace esphome::climate_hub

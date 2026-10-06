@@ -114,12 +114,15 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// doc's active_preset ignored; new values for it apply at once. A relay it holds is never
   /// refused, whoever else names it. 404 for an unknown id, 409 for one a newer firmware wrote,
   /// otherwise as create(). A relay the Save frees starts the thermostats that wait for it.
-  Result update(const std::string &id, ClimateConfig doc);
+  /// `revision`, when given, is the one the caller read: the device changed the document since
+  /// if it is not the stored one, and the Save is refused with 409. It ends a calibration.
+  Result update(const std::string &id, ClimateConfig doc, optional<uint32_t> revision = nullopt);
   /// Brings a thermostat back under the id its document names, as a backup holds it: one with
   /// that id is replaced, as update() replaces it, otherwise one is created with it. The
   /// presets keep their keys and the active preset stays, since rules name them so. Refused
   /// as create() and update() refuse, and with 400 for an id that is no slug or is `new`, and
-  /// 409 for an id a file the boot did not load holds.
+  /// 409 for an id a file the boot did not load holds. The doc's revision is ignored: a
+  /// replacement moves the stored one on, a new one starts at 0. It ends a calibration.
   Result restore(ClimateConfig doc);
   /// Stops and deletes a thermostat, and starts the thermostats that wait for its relays.
   Result remove(const std::string &id);
@@ -138,6 +141,30 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// mode if it has one, and the label. 404 for an unknown thermostat or key; `persisted` false
   /// when it changed one a newer firmware wrote, whose file keeps what it had.
   Result apply_preset(const std::string &id, const std::string &key);
+  /// Mode off, running or not, as Home Assistant would set it. 404 for an unknown thermostat;
+  /// `persisted` as apply_preset().
+  Result turn_off(const std::string &id);
+  /// Back to the mode it had before it went off, its on_mode(), as turn_off().
+  Result turn_on(const std::string &id);
+
+  /// `callback(id)` runs at the end of a create, a removal, and a Save that changed the
+  /// thermostat's preset keys: what the automation rules name of it.
+  template<typename F> void add_on_change_callback(F &&callback) {
+    this->change_callback_.add(std::forward<F>(callback));
+  }
+
+  /// Calibrates a running PID thermostat: the relay in `direction` goes full below the target
+  /// and off above it, AUTOTUNE_NOISEBAND either side, the other one held open, until the
+  /// swings give Ku and Pu. `rule` turns them into kp, ki and kd, which the thermostat then runs
+  /// with and its file keeps, its revision moved on. No `direction` takes the mode's, which
+  /// heat_cool has none of. 404, or 409 for a bang-bang or stopped thermostat, a newer
+  /// firmware's file, one calibrating already, in mode off or with a fault; 400 for a direction
+  /// the mode does not drive, or none in heat_cool.
+  Result start_autotune(const std::string &id, optional<AutotuneDirection> direction, AutotuneRule rule);
+  /// Ends the running calibration as cancelled: 404, or 409 when none runs.
+  Result cancel_autotune(const std::string &id);
+  /// The thermostat's last calibration since boot, running or ended, nullptr for none.
+  const AutotuneRun *autotune(const std::string &id) const;
 
   /// The name rules on a trimmed name, with the sentence that says which one broke.
   static bool validate_name(const std::string &name, std::string *error) {
@@ -183,7 +210,10 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   bool start_(ClimateConfig *config, std::string *error);
   /// Keeps `error` as why `id` waits, and returns it worded as a `warning`.
   const std::string &note_waiting_(const std::string &id, const std::string &error);
-  void stop_(Slot *slot);
+  /// `why` ends a calibration it runs.
+  void stop_(Slot *slot, AutotuneEnd why = AutotuneEnd::STOPPED);
+  /// Stores and runs the gains the calibration `slot` runs has found.
+  void complete_autotune_(Slot *slot);
   bool restart_(Slot *slot, const std::string &previous_name, std::string *error);
   /// Claims every relay `config` names, or none: false, nothing claimed, when one is missing or
   /// another thermostat holds it.
@@ -228,6 +258,7 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   SensorSubscription *subscribe_(sensor::Sensor *sensor);
   void on_sample_(SensorSubscription *sub, float value);
   void on_control_(uint8_t index, const climate::ClimateCall &call);
+  Result set_mode_(const std::string &id, HubMode mode);
 
   /// A free id made from `name`, "" when every one is taken.
   std::string next_id_(const std::string &name) const;
@@ -272,8 +303,12 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   std::map<std::string, std::string> waiting_;
   // Relays let go since the last announce_released_(), by object id.
   std::map<std::string, switch_::Switch *> freed_;
+  // Each thermostat's last calibration, by id, in RAM: a reboot forgets them.
+  std::map<std::string, std::unique_ptr<AutotuneRun>> autotunes_;
   // One per sensor, kept for the life of the device: upstream has no callback removal.
   std::vector<std::unique_ptr<SensorSubscription>> sensor_subs_;
+
+  CallbackManager<void(const std::string &)> change_callback_;
 
   std::set<std::string> dirty_;
   uint64_t dirty_since_ms_{0};

@@ -35,14 +35,24 @@ TEST_F(Editor, EveryRuleRouteGoesOverToTheLoopTask) {
 }
 
 // The routes that answer from what the build already fixed: App's entity lists and a string
-// literal. Nothing there is the loop task's, and holding it up for them would be a cost for
-// no reason -- the editor polls entities alongside the list.
+// literal. Nothing there is the rules', and holding the loop up for them would be a cost for no
+// reason -- the editor polls entities alongside the list. The thermostats in `entities` are the
+// hub's, and go over to the loop task in one job of the hub's own.
 TEST_F(Editor, TheRoutesThatTouchNoRuleStayOnTheServerTask) {
   for (const char *route : {"entities", "schema", "ping"}) {
     this->engine->jobs = 0;
+    hub().jobs = 0;
     EXPECT_EQ(this->get(route).code, 200) << route;
     EXPECT_EQ(this->engine->jobs, 0) << route << " went over to the loop task for nothing";
+    EXPECT_EQ(hub().jobs, std::string(route) == "entities" ? 1 : 0) << route;
   }
+}
+
+TEST_F(Editor, EntitiesAnswersBusyWhenTheLoopNeverTakesTheThermostats) {
+  hub().loop_busy = true;
+  Reply reply = this->get("entities");
+  EXPECT_EQ(reply.code, 503);
+  EXPECT_EQ(reply.error(), "Device busy");
 }
 
 // 503, not the 500 an unknown status turns into on ESP-IDF: nothing was read or written, and

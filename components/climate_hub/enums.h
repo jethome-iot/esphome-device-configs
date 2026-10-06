@@ -37,6 +37,45 @@ enum class HubFault : uint8_t {
   RELAY_CONTESTED,
 };
 
+/// Where a calibration is: running, or ended with gains or without.
+enum class AutotuneState : uint8_t {
+  RUNNING = 0,
+  SUCCEEDED,
+  FAILED,
+};
+
+/// Why a calibration ended without gains. Reported over HTTP, never persisted.
+enum class AutotuneEnd : uint8_t {
+  NONE = 0,
+  CANCELLED,
+  TARGET_CHANGED,
+  MODE_CHANGED,
+  SAVED,
+  STOPPED,
+  TAKEN_OVER,
+  SENSOR_STALE,
+  OVERTEMP,
+  RELAY_CONTESTED,
+  TIMEOUT,
+  NO_SWITCH,
+  NOISY,
+};
+
+/// The tuning rule that turns Ku and Pu into gains. A wire format.
+enum class AutotuneRule : uint8_t {
+  ZN_PI = 0,
+  ZN_PID,
+  PESSEN,
+  SOME_OVERSHOOT,
+  NO_OVERSHOOT,
+};
+
+/// The relay a calibration swings: one direction per run.
+enum class AutotuneDirection : uint8_t {
+  HEAT = 0,
+  COOL,
+};
+
 /// What holds a relay away from where its thermostat wants it: the relay's own minimum on time
 /// before it may open, or minimum off time before it may close. Reported over HTTP, never
 /// persisted.
@@ -57,6 +96,15 @@ bool mode_from_string(const std::string &s, HubMode *out);
 const char *action_to_string(HubAction v);
 const char *fault_to_string(HubFault v);
 const char *relay_wait_to_string(RelayWait v);
+
+const char *autotune_state_to_string(AutotuneState v);
+const char *autotune_end_to_string(AutotuneEnd v);
+/// The fault a calibration ends on, NONE for none.
+AutotuneEnd autotune_end_of(HubFault fault);
+const char *autotune_rule_to_string(AutotuneRule v);
+bool autotune_rule_from_string(const std::string &s, AutotuneRule *out);
+const char *autotune_direction_to_string(AutotuneDirection v);
+bool autotune_direction_from_string(const std::string &s, AutotuneDirection *out);
 
 }  // namespace enums
 

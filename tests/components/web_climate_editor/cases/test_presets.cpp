@@ -101,7 +101,7 @@ TEST_F(Editor, AThermostatStartsInThePresetPickedWhileItWasStopped) {
   EXPECT_EQ(picked.body, R"({"success":true,"message":"Preset applied","persisted":true})");
   flush();
   const std::string file = this->file("studio.json");
-  EXPECT_NE(file.find(R"("mode":"off","setpoint":12,)"), std::string::npos) << file;
+  EXPECT_NE(file.find(R"("mode":"off","last_on_mode":"heat","setpoint":12,)"), std::string::npos) << file;
   EXPECT_NE(file.find(R"("active_preset":"away"})"), std::string::npos) << file;
 
   ASSERT_EQ(this->post("enable?id=studio&value=true").code, 200);
@@ -167,8 +167,10 @@ TEST_F(Editor, SchemaDescribesThePresets) {
 // It runs and answers like any other; only a Save is refused, since it would drop what this
 // firmware does not know. Changes stay in memory, and deleting it still removes the file.
 TEST_F(Editor, AThermostatANewerFirmwareWroteRefusesASave) {
+  const unsigned newer = climate_hub::CONFIG_VERSION + 1;
   const std::string text =
-      R"({"version":3,"id":"boiler","name":"Boiler","kind":"bang_bang","sensor_id":"room",)"
+      R"({"version":)" + std::to_string(newer) +
+      R"(,"id":"boiler","name":"Boiler","kind":"bang_bang","sensor_id":"room",)"
       R"("heat":{"relay_id":"relay_1"},"mode":"heat","setpoint":21,"future":{"x":1},)"
       R"("presets":[{"key":"eco","name":"Eco","setpoint":18,"mode":"keep"}],"active_preset":"eco"})";
   mkdir(this->folder().c_str(), 0755);
@@ -179,7 +181,7 @@ TEST_F(Editor, AThermostatANewerFirmwareWroteRefusesASave) {
 
   Reply got = this->get("get?id=boiler");
   ASSERT_EQ(got.code, 200) << got.body;
-  EXPECT_EQ(got["version"].as<int>(), 3);
+  EXPECT_EQ(got["version"].as<unsigned>(), newer);
   EXPECT_EQ(got["active_preset"].as<std::string>(), "eco");
   EXPECT_EQ(this->get("list")["controllers"][0]["active_preset_name"].as<std::string>(), "Eco");
 

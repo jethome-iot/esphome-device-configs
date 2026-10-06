@@ -64,6 +64,8 @@ const char *source_action_to_string(SourceAction source) {
       return "delay";
     case SourceAction::SWITCH:
       return "switch";
+    case SourceAction::CLIMATE:
+      return "climate";
     default:
       return "none";
   }
@@ -74,6 +76,8 @@ SourceAction string_to_source_action(const std::string &str) {
     return SourceAction::DELAY;
   if (str == "switch")
     return SourceAction::SWITCH;
+  if (str == "climate")
+    return SourceAction::CLIMATE;
   return SourceAction::NONE;
 }
 
@@ -155,6 +159,38 @@ TypeSwitchAction string_to_switch_action_type(const std::string &str) {
   if (str == "follow")
     return TypeSwitchAction::FOLLOW;
   return TypeSwitchAction::NONE;
+}
+
+// TypeClimateAction
+const char *climate_action_type_to_string(TypeClimateAction type) {
+  switch (type) {
+    case TypeClimateAction::TURN_ON:
+      return "turn_on";
+    case TypeClimateAction::TURN_OFF:
+      return "turn_off";
+    case TypeClimateAction::SET_PRESET:
+      return "set_preset";
+    case TypeClimateAction::SET_TARGET:
+      return "set_target";
+    case TypeClimateAction::FOLLOW:
+      return "follow";
+    default:
+      return "none";
+  }
+}
+
+TypeClimateAction string_to_climate_action_type(const std::string &str) {
+  if (str == "turn_on")
+    return TypeClimateAction::TURN_ON;
+  if (str == "turn_off")
+    return TypeClimateAction::TURN_OFF;
+  if (str == "set_preset")
+    return TypeClimateAction::SET_PRESET;
+  if (str == "set_target")
+    return TypeClimateAction::SET_TARGET;
+  if (str == "follow")
+    return TypeClimateAction::FOLLOW;
+  return TypeClimateAction::NONE;
 }
 
 // ConditionType

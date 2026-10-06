@@ -181,6 +181,7 @@ class TestHub : public climate_hub::ClimateHub {
     this->store_.clear();
     this->dirty_.clear();
     this->waiting_.clear();
+    this->autotunes_.clear();
     // The stops above let go of relays no mutator will start anyone on.
     this->freed_.clear();
     this->cancel_timeout("ha_resync");

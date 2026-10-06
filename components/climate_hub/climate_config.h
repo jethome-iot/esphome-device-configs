@@ -15,9 +15,11 @@ namespace esphome::climate_hub {
 
 /// A document larger than this is refused before it is parsed.
 static constexpr size_t CONFIG_MAX_BYTES = 8192;
-/// The file format this firmware writes. A file with a higher one came from a newer firmware:
-/// it is read as far as this one understands it and never written back.
-static constexpr uint16_t CONFIG_VERSION = 2;
+/// The file format this firmware writes: 2 brought presets, 3 the revision and calibrated gains
+/// past 2's ranges, 4 the mode a turn-on goes back to. A file with a higher one came from a newer
+/// firmware: it is read as far as this one understands it and never written back, so an older
+/// firmware cannot clamp those gains into it.
+static constexpr uint16_t CONFIG_VERSION = 4;
 /// Presets per thermostat.
 static constexpr size_t PRESET_MAX_COUNT = 8;
 /// A preset's mode word for "leave the thermostat's mode as it is".
@@ -94,6 +96,9 @@ struct PresetConfig {
 struct ClimateConfig {
   /// CONFIG_VERSION, or the higher one of a file a newer firmware wrote.
   uint16_t version{CONFIG_VERSION};
+  /// Moves on only when a calibration writes new gains, never on a Save: a form read before that
+  /// would write the old gains back. 0 in a new one.
+  uint32_t revision{0};
   std::string id;
   std::string name;
   bool enabled{true};
@@ -108,6 +113,8 @@ struct ClimateConfig {
   PidParams pid;
   BangBangParams bang_bang;
   HubMode mode{HubMode::HEAT};
+  /// The mode it was in before it went off, OFF for none: what on_mode() goes back to.
+  HubMode last_on_mode{HubMode::OFF};
 
   // One target for both algorithms; bang-bang derives its two switching points from it, so the
   // entity never needs climate::Climate's two-point union.
@@ -153,6 +160,11 @@ struct ClimateConfig {
   /// Takes the preset's target, clamped, and its mode if it has one the relays serve, and
   /// labels it active. True when anything changed.
   bool pick_preset(const PresetConfig &preset);
+  /// Changes the mode, remembering the one it leaves for on_mode().
+  void set_mode(HubMode mode);
+  /// The mode a turn-on goes to: the mode while it is not off, else the last one before off
+  /// that the relays still serve, else heat, or cool for a cooling-only thermostat.
+  HubMode on_mode() const;
 
   /// Written by a newer firmware: this one must not write it back.
   bool from_newer_firmware() const { return this->version > CONFIG_VERSION; }
@@ -167,6 +179,9 @@ struct ClimateConfig {
   /// `value` held inside the visual range.
   float clamp_target(float value) const;
 };
+
+/// The float a file gives back for `value`: its numbers are written to a few decimals.
+float as_stored(float value);
 
 /// Reduces a display name to [a-z0-9-], collapsed and trimmed, at most ID_MAX_LENGTH chars.
 /// `fallback` when nothing survives.
