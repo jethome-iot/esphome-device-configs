@@ -289,6 +289,42 @@ TEST_F(ControlLoop, ASaveOfAPidBetweenPulsesShowsHeating) {
   EXPECT_EQ(Actions{climate::CLIMATE_ACTION_HEATING}, seen);
 }
 
+// Not when the Save moves that direction to another relay: the gap was the old relay's, and the
+// new one is idle until a pulse closes it. Heating and cooling alike.
+TEST_F(ControlLoop, ASaveOntoAnotherRelayBetweenPulsesIdlesUntilItCloses) {
+  for (bool cool : {false, true}) {
+    SCOPED_TRACE(cool ? "cool" : "heat");
+    ClimateConfig config = cool ? with_cooling(this->base(ControlKind::PID), false) : this->base(ControlKind::PID);
+    config.setpoint = cool ? 20.f : 25.f;
+    config.pid.kp = 0.1f;
+    config.pid.ki = 0.f;
+    config.update_interval_s = 60.f;
+    ControllerRuntime *rt = this->start(config, cool ? 25.f : 20.f);
+    HubClimate *entity = hub().entity_of(this->id_);
+    const HubAction acting = cool ? HubAction::COOLING : HubAction::HEATING;
+    tick(200000);
+    tick(206000);
+    ASSERT_EQ(acting, rt->action());
+    ASSERT_FALSE((cool ? entities().relay2 : entities().relay1).state) << "past the half period the relay is open";
+
+    Actions &seen = watch(entity);
+    (cool ? config.cool : config.heat).relay_id = "relay_3";
+    ASSERT_TRUE(hub().update(this->id_, config).ok);
+    EXPECT_EQ(HubAction::IDLE, rt->action()) << "relay 3 has not closed";
+    tick(207000);
+    EXPECT_FALSE(entities().relay3.state) << "the PWM keeps its phase: open until 210 s";
+    EXPECT_EQ(HubAction::IDLE, rt->action());
+    tick(210000);
+    EXPECT_TRUE(entities().relay3.state);
+    EXPECT_EQ(acting, rt->action());
+    const climate::ClimateAction shown = cool ? climate::CLIMATE_ACTION_COOLING : climate::CLIMATE_ACTION_HEATING;
+    EXPECT_EQ((Actions{climate::CLIMATE_ACTION_IDLE, shown}), seen);
+    ASSERT_TRUE(hub().remove(this->id_).ok);
+    reset_entities();
+    hub().ms = 100000;
+  }
+}
+
 // The same for cooling, in cool and in heat and cool.
 TEST_F(ControlLoop, ASaveOfACoolingPidShowsCooling) {
   for (bool keep_heat : {false, true}) {

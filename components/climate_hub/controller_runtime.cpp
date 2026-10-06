@@ -75,6 +75,11 @@ void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, Rel
   const bool keep_pid = same_sensor && this->kind_ == ControlKind::PID && config->kind == ControlKind::PID;
   // The latch too: a relay min_on holds closed after the latch let it go is not heating.
   const bool keep_latch = restart && this->kind_ == ControlKind::BANG_BANG && config->kind == ControlKind::BANG_BANG;
+  // A PID's gap between pulses was the old relay's: the one a Save moves it to has not closed.
+  if (this->heat_claim_ != heat && this->action_ == HubAction::HEATING)
+    this->action_ = HubAction::IDLE;
+  if (this->cool_claim_ != cool && this->action_ == HubAction::COOLING)
+    this->action_ = HubAction::IDLE;
   this->config_ = config;
   this->sensor_ = sensor;
   this->heat_claim_ = heat;
@@ -116,7 +121,7 @@ void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, Rel
 #endif
 
   // The hub publishes next: with what the relays do, not "off" until the first pass. A Save
-  // keeps a PID between two pulses heating.
+  // keeps a PID between two pulses heating on the relay it had.
   this->refresh_fault_(now_ms);
   this->action_ = this->relay_action_();
   this->entity_->action = to_climate_action(this->action_);
