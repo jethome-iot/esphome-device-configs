@@ -1,3 +1,7 @@
+# The board page (LEFT from the main page) belongs to the board's package, which defines two
+# scripts: board_page_show opens the page, and board_page_key(key) gets "up", "down", "left",
+# "right" or "center" whenever the menu is closed and the key does nothing else on the page
+# shown. A key reaches it on any page, so it acts only while its own page is up.
 pca9554:
   - id: jxd_display_exp
     pin_count: 16
@@ -17,9 +21,8 @@ binary_sensor:
       - lambda: |-
           if (id(display_menu).is_active()) {
             id(display_menu).up();
-          } else if (id(display1).get_active_page() == id(status_page)) {
-            id(status_temp_scroll)--;
-            id(display1).update();
+          } else {
+            id(board_page_key)->execute("up");
           }
       - script.execute: check_blank_page
 
@@ -36,9 +39,8 @@ binary_sensor:
       - lambda: |-
           if (id(display_menu).is_active()) {
             id(display_menu).down();
-          } else if (id(display1).get_active_page() == id(status_page)) {
-            id(status_temp_scroll)++;
-            id(display1).update();
+          } else {
+            id(board_page_key)->execute("down");
           }
       - script.execute: check_blank_page
 
@@ -57,13 +59,9 @@ binary_sensor:
           if (id(display_menu).is_active()) {
             id(display_menu).left();
           } else if (page == id(main_page) || page == id(blank_page)) {
-            id(status_relay_sel) = 0;
-            id(status_temp_scroll) = 0;
-            id(display1).show_page(id(status_page));
-          } else if (page == id(status_page) && !id(relays).empty()) {
-            int n = id(relays).size();
-            id(status_relay_sel) = (id(status_relay_sel) + n - 1) % n;
-            id(display1).update();
+            id(board_page_show)->execute();
+          } else {
+            id(board_page_key)->execute("left");
           }
       - script.execute: check_blank_page
 
@@ -83,10 +81,8 @@ binary_sensor:
             id(display_menu).right();
           } else if (page == id(main_page) || page == id(blank_page)) {
             id(display1).show_page(id(time_page));
-          } else if (page == id(status_page) && !id(relays).empty()) {
-            int n = id(relays).size();
-            id(status_relay_sel) = (id(status_relay_sel) + 1) % n;
-            id(display1).update();
+          } else {
+            id(board_page_key)->execute("right");
           }
       - script.execute: check_blank_page
 
@@ -106,20 +102,8 @@ binary_sensor:
             id(display_menu).enter();
           } else if (page == id(main_page)) {
             id(display_menu).show_main();
-          } else if (page == id(status_page)) {
-            int sel = id(status_relay_sel);
-            if (sel >= 0 && sel < (int) id(relays).size()) {
-              // A relay a thermostat drives is the thermostat's: the press only logs whose it is.
-              auto *relay = id(relays)[sel];
-              const std::string holder = switch_hold::holder(relay);
-              if (holder.empty()) {
-                relay->toggle();
-              } else {
-                ESP_LOGI("status_page", "'%s' left alone: thermostat '%s' drives it", relay->get_name().c_str(),
-                         holder.c_str());
-              }
-              id(display1).update();
-            }
+          } else {
+            id(board_page_key)->execute("center");
           }
       - script.execute: check_blank_page
 

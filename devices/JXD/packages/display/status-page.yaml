@@ -9,6 +9,46 @@ globals:
     type: int
     initial_value: '0'
 
+# The board page of display/buttons.yaml: LEFT and RIGHT move the relay selection, CENTER
+# toggles that relay, UP and DOWN scroll the temperatures.
+script:
+  - id: board_page_show
+    then:
+      - lambda: |-
+          id(status_relay_sel) = 0;
+          id(status_temp_scroll) = 0;
+          id(display1).show_page(id(status_page));
+
+  - id: board_page_key
+    parameters:
+      key: string
+    then:
+      - lambda: |-
+          if (id(display1).get_active_page() != id(status_page))
+            return;
+          const int n = id(relays).size();
+          if (key == "up" || key == "down") {
+            id(status_temp_scroll) += key == "up" ? -1 : 1;
+            id(display1).update();
+          } else if ((key == "left" || key == "right") && n > 0) {
+            id(status_relay_sel) = (id(status_relay_sel) + (key == "left" ? n - 1 : 1)) % n;
+            id(display1).update();
+          } else if (key == "center") {
+            const int sel = id(status_relay_sel);
+            if (sel >= 0 && sel < n) {
+              // A relay a thermostat drives is the thermostat's: the press only logs whose it is.
+              auto *relay = id(relays)[sel];
+              const std::string holder = switch_hold::holder(relay);
+              if (holder.empty()) {
+                relay->toggle();
+              } else {
+                ESP_LOGI("status_page", "'%s' left alone: thermostat '%s' drives it", relay->get_name().c_str(),
+                         holder.c_str());
+              }
+              id(display1).update();
+            }
+          }
+
 display:
   - platform: ssd1306_i2c
     id: !extend display1
