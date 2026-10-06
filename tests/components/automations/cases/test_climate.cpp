@@ -328,6 +328,40 @@ TEST_F(ClimateRules, EveryReasonARuleIsNotBuiltIsSaid) {
   }
 }
 
+// A config built in C++ skips the parser: what it would have refused, the build refuses.
+TEST_F(ClimateRules, WhatOnlyCppCanBuildIsRefusedWithAReason) {
+  std::string error;
+  CompiledCondition condition;
+  ConditionConfig group;
+  group.type = ConditionType::AND;
+  EXPECT_FALSE(compile_condition(group, condition, &error));
+  EXPECT_EQ(error, "a group without members");
+  group.sub_conditions.emplace_back();
+  EXPECT_FALSE(compile_condition(group, condition, &error));
+  EXPECT_EQ(error, "a member without a type");
+  EXPECT_FALSE(compile_condition(ConditionConfig(), condition, &error));
+  EXPECT_EQ(error, "no type");
+
+  CompiledTrigger trigger;
+  EXPECT_FALSE(compile_trigger(engine, TriggerConfig(), trigger, &error));
+  EXPECT_EQ(error, "no source");
+
+  CompiledAction action;
+  EXPECT_FALSE(compile_action(ActionConfig(), action, &error));
+  EXPECT_EQ(error, "no source");
+  ActionConfig climate;
+  climate.source = SourceAction::CLIMATE;
+  climate.climate.climate = "living-room";
+  EXPECT_FALSE(compile_action(climate, action, &error));
+  EXPECT_EQ(error, "no type");
+  climate.climate.step.type = TypeClimateAction::FOLLOW;
+  climate.climate.on.type = TypeClimateAction::TURN_ON;
+  EXPECT_FALSE(compile_action(climate, action, &error));
+  EXPECT_EQ(error, "no type");
+  climate.climate.off.type = TypeClimateAction::TURN_OFF;
+  EXPECT_TRUE(compile_action(climate, action, &error));
+}
+
 TEST_F(ClimateRules, TurnOffAndTurnOn) {
   auto off = build_rule(*engine, at_startup(TURN_OFF).c_str());
   auto on = build_rule(*engine, at_startup(TURN_ON).c_str());

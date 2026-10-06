@@ -193,6 +193,11 @@ bool compile_trigger(AutomationStorage *engine, const TriggerConfig &config, Com
 // Fail closed: a rule that would act on a thermostat or a preset the hub does not have is not
 // built at all, rather than built to do nothing.
 static bool check_climate(const ClimateActionConfig &config, std::string *error) {
+  // Only a config built in C++ gets here without one; the parser refuses it.
+  if (config.step.type == TypeClimateAction::NONE ||
+      (config.step.type == TypeClimateAction::FOLLOW &&
+       (config.on.type == TypeClimateAction::NONE || config.off.type == TypeClimateAction::NONE)))
+    return fail(error, "no type");
   const std::string who = "thermostat \"" + config.climate + "\"";
 #ifdef USE_CLIMATE_HUB
   const climate_hub::ClimateConfig *thermostat =
