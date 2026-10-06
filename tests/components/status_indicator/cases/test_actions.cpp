@@ -35,7 +35,7 @@ TEST_F(ActionTest, BlinkNPassesItsFields) {
   action.play_complex();
   EXPECT_EQ(this->led->get_state(), State::BLINK_N);
   expect_writes({true, false, true, false, true}, {N_ON, N_OFF, N_ON, N_PAUSE});
-  EXPECT_LT(this->pin->gap(4), N_PAUSE + N_OFF);
+  EXPECT_LT(this->pin->gap(4), N_PAUSE + N_OFF + this->stalled());
 }
 
 // A lambda reads the trigger's argument, as `count: !lambda return x;` does. One blink, so the

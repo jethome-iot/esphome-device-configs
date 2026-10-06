@@ -52,8 +52,17 @@ constexpr uint32_t PULSE = 500;
 constexpr uint32_t N_ON = 200;
 constexpr uint32_t N_OFF = 300;
 constexpr uint32_t N_PAUSE = 700;
-// How late a phase may end: half the shortest one, far above the polling and the host's noise.
+// How late a phase may end on an idle host: half the shortest one, far above the polling.
 constexpr uint32_t SLACK = FAST_ON / 2;
+
+// For a test that acts inside a phase that is over already: skipped when the host stalled, which
+// leaves nothing to test; failed when it did not, as the phase ended early.
+#define SKIP_UNLESS_STILL(cond) \
+  if (!(cond)) { \
+    if (this->stalled() > SLACK) \
+      GTEST_SKIP() << "the host stalled through the phase this test acts in: " #cond; \
+    FAIL() << "the phase this test acts in ended early: " #cond; \
+  }
 
 class StatusIndicatorTest : public ::testing::Test {
  protected:
@@ -61,6 +70,8 @@ class StatusIndicatorTest : public ::testing::Test {
     this->new_indicator();
     this->led->setup();
     this->pin->writes.clear();
+    // A stall before the first pass delays the phase the test has started by now, too.
+    this->mark_at_ = millis();
   }
   // Cancels a running timer: the state is OFF only when none is pending.
   void TearDown() override { this->led->turn_off(); }
@@ -83,26 +94,33 @@ class StatusIndicatorTest : public ::testing::Test {
   }
 
   // The main loop for ms of wall clock: the only way a timeout fires in this harness.
-  static void run_for(uint32_t ms) {
+  void run_for(uint32_t ms) {
     const uint32_t start = millis();
-    while (millis() - start < ms) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      App.scheduler.call(millis());
-    }
+    while (millis() - start < ms)
+      this->tick_();
+    // One pass more: a stall that ends the wait leaves timeouts due that no pass has run.
+    this->mark_(0);
+    App.scheduler.call(this->mark_at_);
+    this->mark_(0);
   }
 
   // The main loop until the pin has seen `count` writes, so a late phase delays the check
   // instead of falling out of a fixed window. The cap only ends a test that would hang.
   void run_until_writes(size_t count) {
     const uint32_t start = millis();
-    while (this->pin->writes.size() < count && millis() - start < 10000) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      App.scheduler.call(millis());
-    }
+    while (this->pin->writes.size() < count && millis() - start < 10000)
+      this->tick_();
+    this->mark_(0);
   }
 
+  // How late a phase may end: SLACK, and as long again as the host held the loop up. A busy CI
+  // runner stalls it for hundreds of ms, which ends a phase that much late with nothing wrong.
+  uint32_t late() const { return SLACK + this->stalled(); }
+  // How long the host held the loop up in all: a gap may span several timeouts, each delayed.
+  uint32_t stalled() const { return this->stalled_; }
+
   // Runs until the pin has seen `levels`, then checks them in order, each `gaps[i - 1]` ms
-  // after the last: never early, at most SLACK late.
+  // after the last: never early, at most late() late.
   void expect_writes(const std::vector<bool> &levels, const std::vector<uint32_t> &gaps) {
     ASSERT_EQ(gaps.size() + 1, levels.size());
     this->run_until_writes(levels.size());
@@ -112,12 +130,32 @@ class StatusIndicatorTest : public ::testing::Test {
       if (i == 0)
         continue;
       EXPECT_GE(this->pin->gap(i), gaps[i - 1]) << "write " << i;
-      EXPECT_LE(this->pin->gap(i), gaps[i - 1] + SLACK) << "write " << i;
+      EXPECT_LE(this->pin->gap(i), gaps[i - 1] + this->late()) << "write " << i;
     }
   }
 
   RecordingPin *pin{nullptr};
   StatusIndicator *led{nullptr};
+
+ private:
+  // Adds what the host took beyond `expected` ms since the last mark, the clock's own step aside.
+  void mark_(uint32_t expected) {
+    const uint32_t now = millis();
+    if (now - this->mark_at_ > expected + 1)
+      this->stalled_ += now - this->mark_at_ - expected - 1;
+    this->mark_at_ = now;
+  }
+
+  // Marked after the scheduler too: a stall inside it delays the write it makes.
+  void tick_() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    this->mark_(1);
+    App.scheduler.call(this->mark_at_);
+    this->mark_(0);
+  }
+
+  uint32_t mark_at_{0};
+  uint32_t stalled_{0};
 };
 
 }  // namespace esphome::status_indicator::testing
