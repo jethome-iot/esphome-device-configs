@@ -89,6 +89,13 @@ external_components:
       ref: master
       path: components
     components:
+      - modbus_map
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
       - filesystem_storage_abstract
       - littlefs_storage
       - config_base
@@ -1546,6 +1553,19 @@ modbus_server:
         read_lambda: return id(input_5).state;
       - address: 21
         read_lambda: return id(input_6).state;
+modbus_map:
+  modbus_server_id: modbus_server1
+  bits:
+    - address: 0
+      name: Relays
+    - address: 16
+      name: Inputs
+  registers:
+    - address: 0
+      name: Temperature slots
+      scale: 0.1
+      unit: °C
+      no_value: 32768
 network:
   priority:
     - ethernet

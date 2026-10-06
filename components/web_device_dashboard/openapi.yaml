@@ -9,8 +9,9 @@ info:
     `/api/device/`: the device identity (with the CPU board's EEPROM record when
     a `jethome_board_info` is wired in), the runtime status, the live network
     link, on a firmware with a `web_auth` the HTTP credentials, with a
-    `dallas_scan` the temperature slots and their offsets, and — on a firmware
-    with a `config_json` store — the per-entity settings and their form fields.
+    `dallas_scan` the temperature slots and their offsets, with a `modbus_map`
+    the Modbus server's address map, and — on a firmware with a `config_json`
+    store — the per-entity settings and their form fields.
     ESP-IDF (ESP32) only.
 
     This document is the wire contract; the TypeScript client in `client/device`
@@ -1793,6 +1794,8 @@ components:
             A `dallas_scan` is wired in, so `/temperature-slots`,
             `/temperature-slots/forget`, `/temperature-slots/assign` and
             `/temperature-slots/offset` answer.
+        modbus:
+          $ref: "#/components/schemas/ModbusMap"
       example:
         reboot: true
         factory_reset:
@@ -1815,6 +1818,125 @@ components:
           types: [switch, binary_sensor]
         board_info: true
         temperature_slots: true
+        modbus:
+          bits:
+            - address: 0
+              last_address: 5
+              count: 6
+              writable: true
+              name: Relays
+            - address: 16
+              last_address: 21
+              count: 6
+              writable: false
+              name: Inputs
+          registers:
+            - address: 0
+              last_address: 15
+              count: 16
+              writable: false
+              name: Temperature slots
+              value_type: S_WORD
+              scale: 0.1
+              unit: °C
+              no_value: 32768
+          courtesy_response:
+            last_address: 65535
+            value: 0
+
+    ModbusMap:
+      type: object
+      required: [bits, registers]
+      description: >-
+        The Modbus server's address map, as ranges; present when a `modbus_map`
+        is wired in. FC 01 and 02 read the one bit table, FC 03 and 04 the one
+        register table. Addresses, counts and access are the server's own, so
+        only the names come from the map. An address in no range answers
+        exception 02, except an unmapped register under `courtesy_response`.
+      properties:
+        bits:
+          type: array
+          description: By address; empty when the server serves no bits.
+          items:
+            $ref: "#/components/schemas/ModbusRange"
+        registers:
+          type: array
+          description: By address; empty when the server serves no registers.
+          items:
+            $ref: "#/components/schemas/ModbusRegisterRange"
+        courtesy_response:
+          type: object
+          required: [last_address, value]
+          description: >-
+            Unmapped registers up to `last_address` read `value` instead of
+            answering exception 02. Absent when the server answers the exception.
+          properties:
+            last_address:
+              type: integer
+              minimum: 0
+              maximum: 65535
+            value:
+              type: integer
+              minimum: 0
+              maximum: 65535
+
+    ModbusRange:
+      type: object
+      required: [address, last_address, count, writable, name]
+      description: One run of consecutive addresses that mean one thing, e.g. relays 1–6.
+      properties:
+        address:
+          type: integer
+          minimum: 0
+          maximum: 65535
+          description: First address of the run.
+        last_address:
+          type: integer
+          minimum: 0
+          maximum: 65535
+          description: >-
+            Last address of the run, inclusive; for registers it counts every
+            word of the last value.
+        count:
+          type: integer
+          minimum: 1
+          maximum: 65536
+          description: >-
+            How many values the run holds: bits on a bit run, values on a
+            register run.
+        writable:
+          type: boolean
+          description: False when a write answers exception 02.
+        name:
+          type: string
+
+    ModbusRegisterRange:
+      allOf:
+        - $ref: "#/components/schemas/ModbusRange"
+        - type: object
+          required: [value_type]
+          properties:
+            value_type:
+              type: string
+              description: ESPHome's `value_type`, e.g. `S_WORD`.
+              example: S_WORD
+            scale:
+              type: number
+              exclusiveMinimum: 0
+              description: What one raw unit is worth. Absent when the map gives none.
+              example: 0.1
+            unit:
+              type: string
+              description: The unit after scaling. Absent when the map gives none.
+              example: °C
+            no_value:
+              type: integer
+              minimum: 0
+              maximum: 65535
+              description: >-
+                The raw word that means "no reading". Absent when the map gives
+                none.
+              example: 32768
 
     StorageCapability:
       type: object

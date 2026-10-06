@@ -46,6 +46,7 @@ external_components:
       - loop_job
       - firmware_rollback
       - dallas_scan
+      - modbus_map
   - source: ../../harness/components
     components: [dir_storage, web_server_base, web_server, one_wire_host]
   # web_device_dashboard depends on web_server for the entity REST API its page calls, and
@@ -100,6 +101,42 @@ dallas_scan:
   id: temps
   max_sensors: 64
   storage: file
+
+# A modbus_map is what sets USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP; the cases build their own maps.
+# The bus is only there for the server to hang off: nothing opens the port.
+uart:
+  id: modbus_uart
+  port: /dev/null
+  baud_rate: 9600
+
+modbus:
+  uart_id: modbus_uart
+  role: server
+
+modbus_server:
+  - id: modbus_server1
+    courtesy_response:
+      enabled: true
+    bits:
+      - address: 0x0000
+        read_lambda: 'return false;'
+        write_lambda: 'return true;'
+    registers:
+      - address: 0x0000
+        value_type: S_WORD
+        read_lambda: 'return 0;'
+
+modbus_map:
+  modbus_server_id: modbus_server1
+  bits:
+    - address: 0x0000
+      name: Relays
+  registers:
+    - address: 0x0000
+      name: Temperature slots
+      scale: 0.1
+      unit: "°C"
+      no_value: 0x8000
 
 # board_info_id sets USE_WEB_DEVICE_DASHBOARD_BOARD_INFO, so /api/device/info carries the board;
 # storage_id sets USE_WEB_DEVICE_DASHBOARD_STORAGE, so the factory reset has a mount to wipe;
