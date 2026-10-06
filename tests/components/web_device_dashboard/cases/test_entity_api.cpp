@@ -9,10 +9,25 @@ TEST_F(Dashboard, EntitiesListsOneEntryPerEntityWithSettings) {
   ASSERT_EQ(switches.size(), 1u) << reply.body;  // the internal switch is left out
   EXPECT_EQ(switches[0]["source_name"].as<std::string>(), "relay_1");
   EXPECT_EQ(switches[0]["name"].as<std::string>(), "Relay 1");
+  EXPECT_EQ(switches[0]["label"].as<std::string>(), "");
+  EXPECT_TRUE(switches[0]["label"].is<const char *>()) << reply.body;  // there, empty: no label
   JsonVariant inputs = reply["binary_sensor"];
   ASSERT_EQ(inputs.size(), 1u) << reply.body;
   EXPECT_EQ(inputs[0]["source_name"].as<std::string>(), "in_1");
   EXPECT_EQ(inputs[0]["name"].as<std::string>(), "In 1");
+  EXPECT_EQ(inputs[0]["label"].as<std::string>(), "");
+}
+
+// The page shows the labels without reading every record; each type answers for its own.
+TEST_F(Dashboard, EntitiesCarriesEachEntitysLabel) {
+  store().sw.seed("relay_1", false, "Свет на кухне");
+  store().bs.seed("in_1", false, "Door");
+  store().bs.seed("relay_1", false, "not this one");  // a binary_sensor record says nothing about a switch
+  Reply reply = this->get("/api/device/entities");
+  ASSERT_EQ(reply.code, 200);
+  EXPECT_EQ(reply["switch"][0]["label"].as<std::string>(), "Свет на кухне") << reply.body;
+  EXPECT_EQ(reply["switch"][0]["name"].as<std::string>(), "Relay 1");
+  EXPECT_EQ(reply["binary_sensor"][0]["label"].as<std::string>(), "Door") << reply.body;
 }
 
 TEST_F(Dashboard, EntitiesLeavesOutASettingsTypeItHasNoEntityKindFor) {

@@ -72,6 +72,7 @@ static const Route ROUTES[] = {
     {"temperature-slots/forget", RouteId::TEMPERATURE_SLOTS_FORGET, false, true},
     {"temperature-slots/assign", RouteId::TEMPERATURE_SLOTS_ASSIGN, false, true},
     {"temperature-slots/offset", RouteId::TEMPERATURE_SLOTS_OFFSET, false, true},
+    {"temperature-slots/label", RouteId::TEMPERATURE_SLOTS_LABEL, false, true},
 #endif
 #ifdef USE_CONFIG_JSON
     {"entities", RouteId::ENTITIES, true, false},
@@ -195,6 +196,9 @@ void WebDeviceDashboard::handleRequest(AsyncWebServerRequest *request) {
         break;
       case RouteId::TEMPERATURE_SLOTS_OFFSET:
         this->handle_temperature_slots_offset_(request);
+        break;
+      case RouteId::TEMPERATURE_SLOTS_LABEL:
+        this->handle_temperature_slots_label_(request);
         break;
 #endif
 #ifdef USE_CONFIG_JSON
@@ -667,9 +671,50 @@ void WebDeviceDashboard::handle_capabilities_(AsyncWebServerRequest *request) {
     if (this->temperature_slots_ != nullptr)
       root["temperature_slots"] = true;
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
+    if (this->modbus_map_ != nullptr)
+      write_modbus_map_(root["modbus"].to<JsonObject>(), *this->modbus_map_);
+#endif
   });
   request->send(200, "application/json", body.c_str());
 }
+
+#ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
+// The shape client/device/types.ts reads: both tables even when empty, the optional fields only
+// when the map gives them.
+void WebDeviceDashboard::write_modbus_map_(JsonObject modbus, const modbus_map::ModbusMap &map) {
+  JsonArray bits = modbus["bits"].to<JsonArray>();
+  for (const auto &range : map.bits()) {
+    JsonObject entry = bits.add<JsonObject>();
+    entry["address"] = range.address;
+    entry["last_address"] = range.last_address;
+    entry["count"] = range.count;
+    entry["writable"] = range.writable;
+    entry["name"] = range.name;
+  }
+  JsonArray registers = modbus["registers"].to<JsonArray>();
+  for (const auto &range : map.registers()) {
+    JsonObject entry = registers.add<JsonObject>();
+    entry["address"] = range.address;
+    entry["last_address"] = range.last_address;
+    entry["count"] = range.count;
+    entry["writable"] = range.writable;
+    entry["name"] = range.name;
+    entry["value_type"] = range.value_type;
+    if (range.scale > 0.0f)
+      entry["scale"] = range.scale;
+    if (range.unit != nullptr)
+      entry["unit"] = range.unit;
+    if (range.no_value >= 0)
+      entry["no_value"] = range.no_value;
+  }
+  if (map.has_courtesy_response()) {
+    JsonObject courtesy = modbus["courtesy_response"].to<JsonObject>();
+    courtesy["last_address"] = map.courtesy_last_address();
+    courtesy["value"] = map.courtesy_value();
+  }
+}
+#endif
 
 bool WebDeviceDashboard::read_json_body_(AsyncWebServerRequest *request, JsonDocument &doc) {
   if (!this->require_json_(request))
@@ -796,10 +841,10 @@ static std::string offset_text(float celsius) {
 }
 
 // GET /api/device/temperature-slots: the dallas_scan slots up to the last one bound at boot, in
-// the saved table or holding an offset, numbered from 1 as the sensor names and the log number
-// them. A freed slot between bound ones keeps its row, as it does in the panel's Temperatures
-// menu. Read on the loop task, where a forget or an assign that cannot write the table puts it
-// back.
+// the saved table or holding an offset or a label, numbered from 1 as the sensor names and the log
+// number them. A freed slot between bound ones keeps its row, as it does in the panel's
+// Temperatures menu. Read on the loop task, where a forget or an assign that cannot write the table
+// puts it back, and which owns the labels.
 void WebDeviceDashboard::handle_temperature_slots_(AsyncWebServerRequest *request) {
   auto *scan = this->temperature_slots_;
   if (scan == nullptr) {
@@ -825,16 +870,20 @@ std::string WebDeviceDashboard::temperature_slots_json_(dallas_scan::DallasScan 
     const bool writable = scan->can_save();
     root["max_slots"] = scan->max_sensors();
     root["reboot_required"] = scan->reboot_required();
-    // Not the rows' can_forget: offsets alone are something to forget for every slot.
+    // Not the rows' can_forget: offsets and labels alone are something to forget for every slot.
     root["can_forget_all"] = writable && scan->can_forget(-1);
     // Floats, which print to their own precision: 0.1f as a double would print 0.100000001.
     root["max_offset"] = dallas_scan::DallasScan::MAX_OFFSET;
     root["offset_step"] = dallas_scan::DallasScan::OFFSET_STEP;
+    // Its presence tells the page this firmware keeps labels.
+    const bool labels = scan->labels_supported();
+    if (labels)
+      root["max_label_length"] = panel_text::LABEL_MAX_LENGTH;
     JsonArray slots = root["slots"].to<JsonArray>();
     size_t rows = std::max(scan->used_slots(), scan->saved_slots());
-    // A free slot past them may hold an offset for the sensor that takes it.
+    // A free slot past them may hold an offset or a label for the sensor that takes it.
     for (size_t slot = rows; slot < scan->max_sensors(); slot++) {
-      if (scan->offset(slot) != 0.0f)
+      if (scan->offset(slot) != 0.0f || !scan->label(slot).empty())
         rows = slot + 1;
     }
     for (size_t slot = 0; slot < rows; slot++) {
@@ -851,8 +900,11 @@ std::string WebDeviceDashboard::temperature_slots_json_(dallas_scan::DallasScan 
       entry["pending"] = pending;
       if (const uint64_t running = scan->address(slot); pending && running != 0)
         entry["running_address"] = rom_text(running);
-      if (!scan->pinned(slot))
+      if (!scan->pinned(slot)) {
         entry["offset"] = scan->offset(slot);
+        if (labels)
+          entry["label"] = scan->label(slot);
+      }
     }
   });
 }
@@ -915,7 +967,9 @@ void WebDeviceDashboard::handle_temperature_slots_forget_(AsyncWebServerRequest 
   int code = 0;
   std::string why;
   bool waits = false;
-  bool cleared = false;  // an offset goes with every slot
+  // What goes with every slot.
+  bool offsets = false;
+  bool labels = false;
   const bool stored = this->run_on_loop_([&]() {
     if (!scan->can_forget(slot)) {
       code = 409;
@@ -925,10 +979,10 @@ void WebDeviceDashboard::handle_temperature_slots_forget_(AsyncWebServerRequest 
                                        : str_sprintf("Slot %d is free", slot + 1);
       return false;
     }
-    // Listed slots hold none, so every offset is one this clears.
+    // Listed slots hold none, so every offset and label is one this clears.
     for (size_t i = 0; all && i < scan->max_sensors(); i++) {
-      if (scan->offset(i) != 0.0f)
-        cleared = true;
+      offsets |= scan->offset(i) != 0.0f;
+      labels |= !scan->label(i).empty();
     }
     if (!scan->forget_and_save(slot)) {
       code = 500;
@@ -945,9 +999,14 @@ void WebDeviceDashboard::handle_temperature_slots_forget_(AsyncWebServerRequest 
   }
   if (all) {
     ESP_LOGW(TAG, "Forgot every temperature slot over the API");
-    // The offsets are gone already, so the reboot the answer may name is the slots' alone.
-    if (cleared) {
-      this->send_slot_change_(request, "Offsets cleared; every slot forgotten", waits, ", applies after a reboot");
+    // The offsets and labels are gone already, so the reboot the answer may name is the slots' alone.
+    const char *cleared = offsets && labels ? "Offsets and labels cleared"
+                          : offsets         ? "Offsets cleared"
+                          : labels          ? "Labels cleared"
+                                            : nullptr;
+    if (cleared != nullptr) {
+      this->send_slot_change_(request, std::string(cleared) + "; every slot forgotten", waits,
+                              ", applies after a reboot");
     } else {
       this->send_slot_change_(request, "Every slot forgotten", waits);
     }
@@ -1120,8 +1179,84 @@ void WebDeviceDashboard::handle_temperature_slots_offset_(AsyncWebServerRequest 
   request->send(200, "application/json", body.c_str());
 }
 
-// A file table whose partition did not mount: a forget, an assign or an offset would change
-// nothing, so the request is refused up front.
+// POST /api/device/temperature-slots/label: {"slot": N, "label": "text"}, "" to clear it. No
+// confirmation: it shows at once and is undone the same way, and nothing reads it but the panel and
+// the page. What dallas_scan would refuse is refused with the reason; the check and the write go
+// over to the loop task together, which owns the labels.
+void WebDeviceDashboard::handle_temperature_slots_label_(AsyncWebServerRequest *request) {
+  auto *scan = this->temperature_slots_;
+  if (scan == nullptr) {
+    this->send_error_(request, 404, "No temperature slots");
+    return;
+  }
+  if (!scan->labels_supported()) {
+    this->send_error_(request, 404, "Slot labels need storage: file");
+    return;
+  }
+  JsonDocument doc;
+  if (!this->read_json_body_(request, doc))
+    return;
+  if (!this->check_slots_writable_(request, scan))
+    return;
+  // This boot's slots are not the table then, and the file waits for a person to fix it.
+  if (!scan->can_set_label()) {
+    this->send_error_(request, 503, "The slot file did not load; fix it and reboot");
+    return;
+  }
+  size_t slot;
+  if (!this->read_slot_(request, doc["slot"], slot))
+    return;
+  const std::string rules = str_sprintf("'label' must be text of at most %u characters, with no control characters",
+                                        (unsigned) panel_text::LABEL_MAX_LENGTH);
+  JsonVariant value = doc["label"];
+  if (!value.is<const char *>()) {
+    this->send_error_(request, 400, rules.c_str());
+    return;
+  }
+  // Straight to std::string: a NUL decoded from "\u0000" is a character the rules refuse, not the end.
+  const std::string text = value.as<std::string>();
+  int code = 0;
+  std::string why;
+  std::string held;
+  const bool stored = this->run_on_loop_([&]() {
+    switch (scan->check_label(slot, text)) {
+      case dallas_scan::LabelCheck::OK:
+        break;
+      case dallas_scan::LabelCheck::BAD_SLOT:  // read_slot_ checked the range already
+      case dallas_scan::LabelCheck::BAD_TEXT:
+        code = 400;
+        why = rules;
+        return false;
+      case dallas_scan::LabelCheck::LISTED_SLOT:
+        code = 409;
+        why = str_sprintf("Slot %u belongs to a sensor listed in YAML", (unsigned) slot + 1);
+        return false;
+    }
+    if (!scan->set_label_and_save(slot, text)) {
+      code = 500;
+      why = "The label was not written";
+      return false;
+    }
+    held = scan->label(slot);
+    return true;
+  });
+  if (!stored) {
+    // No code means the loop task never took the job: nothing was set.
+    this->send_error_(request, code == 0 ? 503 : code, code == 0 ? "Device busy" : why.c_str());
+    return;
+  }
+  ESP_LOGI(TAG, "Set the label of temperature slot %u over the API", (unsigned) slot + 1);
+  const std::string message = str_sprintf("Slot %u label %s", (unsigned) slot + 1, held.empty() ? "cleared" : "set");
+  auto body = json::build_json([&message, &held](JsonObject root) {
+    root["success"] = true;
+    root["message"] = message;
+    root["label"] = held;
+  });
+  request->send(200, "application/json", body.c_str());
+}
+
+// A file table whose partition did not mount: a forget, an assign, an offset or a label would
+// change nothing, so the request is refused up front.
 bool WebDeviceDashboard::check_slots_writable_(AsyncWebServerRequest *request, dallas_scan::DallasScan *scan) {
   if (scan->can_save())
     return true;
@@ -1141,39 +1276,51 @@ bool WebDeviceDashboard::read_slot_(AsyncWebServerRequest *request, JsonVariant 
 #endif  // USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
 
 #ifdef USE_CONFIG_JSON
-template<typename T> static void write_entity_index(JsonObject root, const char *type, const T &entities) {
-  JsonArray list = root[type].to<JsonArray>();
+template<typename T>
+static void write_entity_index(JsonObject root, config_json::SettingsBaseJson *settings, const T &entities) {
+  JsonArray list = root[settings->get_key()].to<JsonArray>();
   for (auto *obj : entities) {
     if (obj->is_internal())
       continue;
     char buf[OBJECT_ID_MAX_LEN];
+    const StringRef object_id = obj->get_object_id_to(buf);
     JsonObject entry = list.add<JsonObject>();
-    entry["source_name"] = obj->get_object_id_to(buf).str();
+    entry["source_name"] = object_id.str();
     entry["name"] = obj->get_name().str();
+    entry["label"] = settings->get_label(object_id.c_str());
   }
 }
 
-// GET /api/device/entities: object_id (the settings key) and name of every entity
+// GET /api/device/entities: object_id (the settings key), name and label of every entity
 // that has a settings type. The web_server REST and SSE address entities by name.
 void WebDeviceDashboard::handle_entities_(AsyncWebServerRequest *request) {
   auto *keeper = config_json::global_config_json_keeper;
-  JsonDocument doc;
-  JsonObject root = doc.to<JsonObject>();
-  if (keeper != nullptr) {
-    for (auto *settings : keeper->settings()) {
-      const char *key = settings->get_key();
+  // The labels are in the records, which belong to the loop task: built there, as the
+  // entity-settings read is.
+  std::string json;
+  const bool read = this->run_on_loop_([&]() {
+    JsonDocument doc;
+    JsonObject root = doc.to<JsonObject>();
+    if (keeper != nullptr) {
+      for (auto *settings : keeper->settings()) {
+        const char *key = settings->get_key();
 #ifdef USE_SWITCH
-      if (strcmp(key, "switch") == 0)
-        write_entity_index(root, key, App.get_switches());
+        if (strcmp(key, "switch") == 0)
+          write_entity_index(root, settings, App.get_switches());
 #endif
 #ifdef USE_BINARY_SENSOR
-      if (strcmp(key, "binary_sensor") == 0)
-        write_entity_index(root, key, App.get_binary_sensors());
+        if (strcmp(key, "binary_sensor") == 0)
+          write_entity_index(root, settings, App.get_binary_sensors());
 #endif
+      }
     }
+    serializeJson(doc, json);
+    return true;
+  });
+  if (!read) {
+    this->send_error_(request, 503, "Device busy");
+    return;
   }
-  std::string json;
-  serializeJson(doc, json);
   request->send(200, "application/json", json.c_str());
 }
 

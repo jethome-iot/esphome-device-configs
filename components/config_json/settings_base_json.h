@@ -23,10 +23,9 @@ class SettingsBaseJson : public config_base::SettingsBaseCommon {
   virtual bool parse_json(JsonObject root, uint32_t version) = 0;
   virtual void write_json(JsonObject root, uint32_t version) = 0;
 
-  // The record hooks: the per-record read/write/delete surface and the form description a device
-  // dashboard drives. Nothing in this repository calls them yet — the dashboard is a later PR, and
-  // the overrides stay so it does not have to reinstate them. The display menu edits records
-  // through the typed lambda API instead.
+  // The record hooks: the per-record read/write/delete surface and the form description
+  // web_device_dashboard drives. The display menu edits records through the typed lambda API
+  // instead.
   virtual void *update_record_from_json(JsonObject obj) { return nullptr; }
   /// After update_record_from_json() refused a sound request because of the device's state (a
   /// relay a thermostat drives), the sentence that says so; "" after any other answer.
@@ -36,6 +35,8 @@ class SettingsBaseJson : public config_base::SettingsBaseCommon {
   virtual bool delete_record(void *record) { return false; }
   virtual void write_json_single(JsonObject root, uint32_t version, const char *source_name) {}
   virtual void write_settings_meta(JsonObject obj) {}
+  // The label a record gives its entity; empty for none, and from a type that has no labels.
+  virtual std::string get_label(const char *source_name) { return {}; }
 
   bool load_from_file(filesystem_storage_abstract::FilesystemStorageAbstract *storage, const std::string &dir_path);
   bool save_to_file(filesystem_storage_abstract::FilesystemStorageAbstract *storage, const std::string &dir_path);
