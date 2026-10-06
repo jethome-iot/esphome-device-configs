@@ -248,8 +248,8 @@ TEST_F(Calibration, ACoolingRoomIsCalibratedWithItsCoolingRelay) {
   const std::string id = this->start(config, room.reading());
   ASSERT_TRUE(this->calibrate(id).ok);
   EXPECT_EQ(AutotuneDirection::COOL, hub().autotune(id)->direction()) << "mode cool calibrates cooling";
-  swing(
-      room, model, 24.f, [&id] { return ended(id); }, true);
+  const auto done = [&id] { return ended(id); };
+  swing(room, model, 24.f, done, true);
   EXPECT_EQ(AutotuneState::SUCCEEDED, hub().autotune(id)->state());
   EXPECT_GT(hub().store().get(id)->pid.kp, 0.f) << "the gains are the cooler's, positive as for heating";
 }
