@@ -453,7 +453,7 @@ TEST_F(Calibration, ADayEndsIt) {
   EXPECT_LE(run->elapsed_ms(hub().ms), AUTOTUNE_MAX_MS + 61000);
 }
 
-// A probe that hovers at the target crosses it on every other reading and never swings the relay.
+// A probe that hovers at the target crosses it reading after reading and never swings the relay.
 TEST_F(Calibration, ANoisyProbeAtTheTargetEndsIt) {
   const std::string id = this->start(living_room(), 21.f);
   ASSERT_TRUE(this->calibrate(id).ok);

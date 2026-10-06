@@ -47,7 +47,7 @@ class PidAutotuner {
   float swing_ratio() const;
 
   /// Crossings of the target it keeps the time between: a run stops at a handful, a probe that
-  /// hovers at the target crosses on every other reading.
+  /// hovers at the target crosses it reading after reading.
   static constexpr size_t MAX_INTERVALS = 64;
   /// More crossings came than that: the readings are noise around the target, not a swing, and
   /// the run neither keeps them nor finishes.

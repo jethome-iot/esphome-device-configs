@@ -107,7 +107,7 @@ void PidAutotuner::FrequencyDetector::update(uint32_t now_ms, float error) {
   }
   if (!crossing)
     return;
-  // Upstream keeps every one: a probe hovering at the target would add one every other reading.
+  // Upstream keeps every one: a probe hovering at the target would add one reading after reading.
   if (this->crossed && this->intervals.size() >= MAX_INTERVALS) {
     this->overflowed = true;
   } else if (this->crossed) {

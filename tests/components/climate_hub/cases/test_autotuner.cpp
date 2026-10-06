@@ -169,7 +169,7 @@ TEST(PidAutotuner, AFinishedTunerChangesNothing) {
   EXPECT_EQ(ku, tuner.ku());
 }
 
-// A probe hovering at the target crosses it on every other reading, inside the relay's band: past
+// A probe hovering at the target crosses it reading after reading, inside the relay's band: past
 // MAX_INTERVALS crossings the tuner keeps no more of them, and never finishes.
 TEST(PidAutotuner, AProbeHoveringAtTheTargetIsNoisy) {
   PidAutotuner tuner = heating();
