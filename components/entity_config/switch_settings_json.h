@@ -62,12 +62,13 @@ inline bool parse_restore_mode(const char *name, switch_::SwitchRestoreMode &mod
 }
 
 // Why `inverted` may not change on `sw` now: a flipped contact would invert what the running
-// thermostat that holds it does. "" when nothing holds it.
-inline std::string inverted_refusal(const switch_::Switch *sw) {
+// thermostat that holds it does. "" when nothing holds it. `shown` names the relay, as the
+// dashboard shows it; its name when empty.
+inline std::string inverted_refusal(const switch_::Switch *sw, const std::string &shown = {}) {
   const std::string holder = switch_hold::holder(sw);
   if (holder.empty())
     return "";
-  return "\"" + std::string(sw->get_name().c_str()) + "\" is driven by \"" + holder +
+  return "\"" + (shown.empty() ? std::string(sw->get_name().c_str()) : shown) + "\" is driven by \"" + holder +
          "\": stop that thermostat to change Inverted";
 }
 
@@ -274,7 +275,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
 
     // Last: a request that is wrong anyway is a 400 whoever holds the relay.
     if (inverted != sw->is_inverted()) {
-      this->conflict_ = inverted_refusal(sw);
+      this->conflict_ = inverted_refusal(sw, this->display_name(sw));
       if (!this->conflict_.empty())
         return nullptr;
     }

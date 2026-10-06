@@ -76,7 +76,8 @@ with the `bindings` component `BINDING_INPUT`, `BINDING_MODE`), each field is a 
   hand-edited file); `option_label` with `-1` names that value
 - `set_option(sw, field, index)`: `false`, nothing changed, for an index out of range or an
   `INVERTED` the relay's thermostat holds it at; `inverted_refusal(sw)` is the sentence that says
-  so, `""` when nothing holds the relay
+  so, `""` when nothing holds the relay. It names the relay by its name; the dashboard's refusal
+  names it by `display_name()`
 
 `binary_sensor` settings, given a `binary_sensor::BinarySensor *`: `is_inverted(sensor)`,
 `set_inverted(sensor, inverted)`.
