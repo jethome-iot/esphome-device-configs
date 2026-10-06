@@ -238,7 +238,8 @@ The folder is writable by hand, so what it holds is checked at boot:
   boot too, and `update()` refuses it with 409, `A newer firmware wrote this thermostat; update
   the firmware to change it`. A take-over by it disables the others in memory only, the holder
   and the ones that wait alike: `set_enabled()` returns `persisted` false and their files stay
-  enabled. `remove()` still deletes it. A newer file that breaks one of this firmware's rules (a preset `mode` it
+  enabled, and `apply_preset()` returns it false too when the pick changed something. `remove()`
+  still deletes it. A newer file that breaks one of this firmware's rules (a preset `mode` it
   does not know, nine presets, a `kind` it does not have) is refused and left as it is, as any
   other file that does.
 

@@ -436,7 +436,9 @@ TEST_F(Presets, HomeAssistantReconnectsWhenThePresetListChanges) {
 TEST_F(Presets, ApplyPresetPicksByKey) {
   this->create(with_presets());
   HubClimate *entity = hub().entity_of("boiler");
-  ASSERT_TRUE(hub().apply_preset("boiler", "night").ok);
+  Result picked = hub().apply_preset("boiler", "night");
+  ASSERT_TRUE(picked.ok);
+  EXPECT_TRUE(picked.persisted);
   EXPECT_FLOAT_EQ(19.5f, entity->target_temperature);
   EXPECT_EQ(climate::CLIMATE_MODE_HEAT_COOL, entity->mode);
   EXPECT_EQ("Night", label(entity));
@@ -502,8 +504,11 @@ TEST_F(Presets, AFileFromANewerFirmwareRunsButIsNeverWritten) {
   EXPECT_FLOAT_EQ(23.f, saved->setpoint) << "in memory";
   EXPECT_FALSE(hub().dirty("boiler"));
   ASSERT_TRUE(hub().set_setpoint("boiler", 24.f).ok);
-  ASSERT_TRUE(hub().apply_preset("boiler", "eco").ok);
+  Result picked = hub().apply_preset("boiler", "eco");
+  ASSERT_TRUE(picked.ok);
+  EXPECT_FALSE(picked.persisted) << "the pick lasts until the next boot";
   EXPECT_FLOAT_EQ(18.f, saved->setpoint);
+  EXPECT_TRUE(hub().apply_preset("boiler", "eco").persisted) << "nothing moved";
   hub().on_shutdown();
   EXPECT_EQ(text, read_file(this->file_of("boiler")));
 
