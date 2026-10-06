@@ -130,6 +130,11 @@ TEST_F(ControlLoop, PidRunsTheRelayOnADutyCycle) {
   // Past the on-fraction of a ten second period, the relay opens again.
   tick(206000);
   EXPECT_FALSE(rt->heat_relay_on());
+  tick(210000);
+  EXPECT_TRUE(rt->heat_relay_on());
+  tick(216000);
+  EXPECT_FALSE(rt->heat_relay_on());
+  EXPECT_EQ(0u, hub().claim("relay_1")->moves()) << "its own switching is no move from elsewhere";
 }
 
 TEST_F(ControlLoop, ReachingTheSetpointDropsTheDutyToZero) {
