@@ -133,14 +133,20 @@ paths:
         climate answers to, or on a create for a name whose every id is taken
         by a file in the folder; and, for an enabled thermostat, `400` when its
         sensor does not report °C, then `409` when a running thermostat holds
-        its relay. While the thermostat storage is not usable, a body is `500`
-        before it is read.
+        its relay, then `409` when another enabled thermostat that waits names
+        it. A relay the thermostat holds already is never refused. While the
+        thermostat storage is not usable, a body is `500` before it is read.
 
         An enabled thermostat whose sensor or a relay is not on the device is
         no refusal: it is saved, stays enabled, and waits without running (a
         running one is stopped). The `200` then carries a `warning` naming
         what is missing. It starts at the next boot that finds what it names,
         or at a Save or an `/enable` that finds it there.
+
+        A relay the Save frees, by moving the thermostat off it, switching it
+        off or leaving it waiting, starts the enabled thermostats that wait
+        for it, the first by id; the message names them before its own
+        `warning`.
       requestBody:
         required: true
         content:
@@ -170,6 +176,12 @@ paths:
                     message: "Thermostat created; not started: sensor 'temp_3' not found"
                     id: attic
                     warning: "not started: sensor 'temp_3' not found"
+                handedOn:
+                  summary: Moved off a relay another thermostat waited for
+                  value:
+                    success: true
+                    message: Thermostat updated; "Winter" started
+                    id: summer
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -216,6 +228,9 @@ paths:
       tags: [write]
       operationId: deleteThermostat
       summary: Stop a thermostat and remove its file.
+      description: >-
+        The enabled thermostats that waited for one of its relays start, the
+        first by id, and the message names them.
       parameters:
         - $ref: "#/components/parameters/IdQuery"
       responses:
@@ -240,6 +255,12 @@ paths:
                     success: true
                     message: Thermostat deleted; its file could not be removed, so it comes back at the next boot
                     persisted: false
+                handedOn:
+                  summary: Another thermostat waited for its relay
+                  value:
+                    success: true
+                    message: Thermostat deleted; "Winter" started
+                    persisted: true
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -261,16 +282,22 @@ paths:
       description: >-
         Starting is refused as a `/save` of the thermostat would be: `400` when
         its sensor does not report °C, then `409` when a running thermostat
-        holds its relay. With `take_over=true` the thermostat holding the relay
-        is stopped and stored as disabled first, in the same step, and the
-        answer names it; a take-over by one whose sensor or a relay is not on
-        the device is `400` instead, and the holder runs on.
+        holds its relay or another enabled thermostat that waits names it. With
+        `take_over=true` each of those is stored as disabled first, the running
+        one stopped, in the same step, and the answer names them, the running
+        one first; a take-over by one whose sensor or a relay is not on the
+        device is `400` instead, and nothing changes, as is a `409` when only
+        waiting thermostats name its relays and no climate entity is free.
 
         Otherwise a sensor or a relay that is not on the device is no refusal,
         for a thermostat already stored enabled too: it is stored enabled and
         waits without running, and the `200` carries a `warning` naming what is
         missing. It starts at the next boot that finds what it names, or at a
         Save or an `/enable` that finds it there.
+
+        A relay a stop frees, or one a stopped holder drove alone, starts the
+        enabled thermostats that wait for it, the first by id and after the
+        one taking over; the message names them before any `warning`.
       parameters:
         - $ref: "#/components/parameters/IdQuery"
         - name: value
@@ -283,7 +310,7 @@ paths:
         - name: take_over
           in: query
           required: false
-          description: "`true` to stop whichever running thermostat holds the relay. Nothing but `true` or `false` is taken."
+          description: "`true` to store as disabled every other enabled thermostat on its relays, stopping the one that holds them. Nothing but `true` or `false` is taken."
           schema:
             type: string
             enum: ["true", "false"]
@@ -307,6 +334,18 @@ paths:
                   value:
                     success: true
                     message: Thermostat enabled; "Living Room" stopped
+                    persisted: true
+                takeOverAndHandOn:
+                  summary: Took one relay over, and the holder's other went to the one waiting for it
+                  value:
+                    success: true
+                    message: Thermostat enabled; "House" and "Attic" stopped; "Porch" started
+                    persisted: true
+                handedOn:
+                  summary: Stopped, and another thermostat waited for its relay
+                  value:
+                    success: true
+                    message: Thermostat disabled; "Winter" started
                     persisted: true
                 waiting:
                   summary: Enabled, waiting for its relay
@@ -508,9 +547,9 @@ components:
         Bad request — a missing or malformed parameter, a body that is empty or
         not JSON, a document that breaks a rule, an enabled thermostat whose
         sensor does not report °C, or an `/enable` with `take_over=true` that
-        would stop a running thermostat for one whose sensor or relay is not on
-        the device. With no running thermostat on its relays, that `/enable` is
-        a `200` with a `warning`, as without `take_over`.
+        would switch another thermostat off for one whose sensor or relay is not
+        on the device. With no other enabled thermostat on its relays, that
+        `/enable` is a `200` with a `warning`, as without `take_over`.
       content:
         application/json:
           schema:
@@ -525,7 +564,7 @@ components:
                 success: false
                 error: "Name cannot contain '/'"
             entity:
-              summary: "/enable taking a running thermostat's relay over only"
+              summary: "/enable taking another thermostat's relay over only"
               value:
                 success: false
                 error: No sensor "temp_3" on this device
@@ -570,8 +609,8 @@ components:
     Conflict:
       description: >-
         The name is one another thermostat or a YAML climate answers to, every
-        id it gives is taken by a file in the folder, or a running thermostat
-        holds the relay.
+        id it gives is taken by a file in the folder, a running thermostat
+        holds the relay, or another enabled thermostat waits and names it.
       content:
         application/json:
           schema:
@@ -589,6 +628,10 @@ components:
               value:
                 success: false
                 error: '"Relay 1" is already driven by "Living Room"'
+            reserved:
+              value:
+                success: false
+                error: '"Relay 1" is reserved by "Attic", which is enabled and waits to start'
             ids:
               value:
                 success: false
@@ -1010,8 +1053,10 @@ components:
       type: string
       description: >-
         Why an enabled thermostat does not run, word for word the `warning`
-        the Save or the `/enable` that left it waiting answered with, or the
-        boot that found it so; `""` when it runs or is disabled. A waiting
+        the Save or the `/enable` that left it waiting answered with, or what
+        the boot found, or the retry when a relay it names came free; `""`
+        when it runs or is disabled. One that waits for a relay another
+        thermostat holds starts as soon as the relay is free. A waiting
         thermostat's `fault` is `none`: a fault is a running one's.
       examples:
         - ""
@@ -1203,7 +1248,11 @@ components:
                 type: string
               claimed_by:
                 type: string
-                description: The id of the running thermostat that holds the relay, `""` when none does.
+                description: >-
+                  The id of the running thermostat that holds the relay, `""` when
+                  none does. An enabled thermostat that waits (`/list`) still
+                  reserves the relays it names: a Save or an `/enable` of
+                  another one on them is a `409` too.
       example:
         success: true
         sensors:

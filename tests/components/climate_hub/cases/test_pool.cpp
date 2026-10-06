@@ -388,12 +388,12 @@ TEST_F(HubTest, BootStartsOneOfTwoOnTheSameRelay) {
   EXPECT_TRUE(hub().store().get("winter")->enabled) << "still enabled, just not running";
   EXPECT_EQ("not started: relay 'relay_1' is held by 'summer'", hub().waiting_reason("winter"));
 
-  // Its turn comes with an enable once the relay is free: started, it has nothing left to say.
-  ASSERT_TRUE(hub().set_enabled("summer", false).ok);
-  EXPECT_EQ("not started: relay 'relay_1' is held by 'summer'", hub().waiting_reason("winter"))
-      << "never retried on its own";
-  ASSERT_TRUE(hub().set_enabled("winter", true).ok);
+  // Its turn comes the moment the relay is free: started, it has nothing left to say.
+  Result stopped = hub().set_enabled("summer", false);
+  ASSERT_TRUE(stopped.ok);
+  EXPECT_EQ(std::vector<std::string>{"winter"}, stopped.started);
   EXPECT_TRUE(hub().is_running("winter"));
+  EXPECT_EQ("winter", hub().claimed_by("relay_1"));
   EXPECT_EQ("", hub().waiting_reason("winter"));
   EXPECT_EQ(0u, hub().reasons_kept());
 }
@@ -540,6 +540,24 @@ TEST_F(HubTest, ARenameAtBootThatCannotBeWrittenStillHolds) {
 
 // The entity table codegen sized is full, as when YAML and the pool disagree: the hub says so,
 // keeps its documents, and answers every start with why it did not run.
+TEST(HubWithoutRoom, ATakeOverFromWaitersNeedsAFreeEntity) {
+  SecondHub second("crowded");
+  TestHub &crowded = *second.hub;
+  crowded.setup();
+  ASSERT_TRUE(crowded.create(draft("Boiler")).ok);  // enabled, waits for an entity
+  ClimateConfig attic = draft("Attic");
+  attic.enabled = false;
+  ASSERT_TRUE(crowded.create(attic).ok);
+
+  Result taken = crowded.set_enabled("attic", true, true);
+  EXPECT_FALSE(taken.ok);
+  EXPECT_EQ(409, taken.code);
+  EXPECT_EQ("No free climate entity to run it in", taken.error);
+  EXPECT_TRUE(crowded.store().get("boiler")->enabled) << "not disabled for a thermostat that cannot run";
+  EXPECT_FALSE(crowded.store().get("attic")->enabled);
+  EXPECT_TRUE(taken.stopped.empty());
+}
+
 TEST(HubWithoutRoom, ThermostatsAreKeptButNotRun) {
   LogCapture::instance().clear();
   SecondHub second("crowded");
