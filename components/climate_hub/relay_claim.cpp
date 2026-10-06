@@ -38,6 +38,11 @@ bool RelayClaim::request(bool want, uint32_t now_ms) {
     this->settled_(now_ms);
   }
   this->fresh_ = false;
+  if (this->state_ == want || this->pending_) {
+    this->wait_ = RelayWait::NONE;
+  } else {
+    this->wait_ = this->state_ ? RelayWait::MIN_ON : RelayWait::MIN_OFF;
+  }
   return this->state_;
 }
 
@@ -132,6 +137,8 @@ void RelayClaim::force_off(uint32_t now_ms, bool paced) {
     this->apply_(false, now_ms);
   }
   this->fresh_ = false;
+  // A cut-out or mode off waits on no dwell; a close from elsewhere that stays is a put-back.
+  this->wait_ = RelayWait::NONE;
 }
 
 void RelayClaim::resume(const RelaySwitching &last) {
@@ -141,6 +148,7 @@ void RelayClaim::resume(const RelaySwitching &last) {
   this->forget_moves_();
   this->pending_ = false;
   this->fresh_ = true;
+  this->wait_ = RelayWait::NONE;
 }
 
 void RelayClaim::set_owner(const std::string &owner) {
@@ -148,6 +156,7 @@ void RelayClaim::set_owner(const std::string &owner) {
   this->forget_moves_();
   this->pending_ = false;
   this->fresh_ = true;
+  this->wait_ = RelayWait::NONE;
 }
 
 void RelayClaim::forget_moves_() {

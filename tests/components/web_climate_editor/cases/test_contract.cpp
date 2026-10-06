@@ -298,8 +298,8 @@ TEST_F(Contract, TheContractCoversEveryStatusAndEveryRoute) {
   }
   for (int status : {400, 404, 405, 409, 413, 500, 503, 507})
     EXPECT_EQ(statuses.count(status), 1u) << status;
-  for (const char *route :
-       {"list", "get", "status", "entities", "schema", "ping", "save", "delete", "enable", "setpoint", "preset"})
+  for (const char *route : {"list", "get", "status", "entities", "schema", "ping", "save", "import", "delete", "enable",
+                            "setpoint", "preset"})
     EXPECT_EQ(answered.count(route), 1u) << route;
 }
 

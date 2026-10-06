@@ -30,7 +30,7 @@ struct Result {
   uint16_t code{200};
   /// On failure, the sentence the editor shows.
   std::string error;
-  /// create(): the id the new thermostat got.
+  /// create(): the id the new thermostat got; restore(): the id it brought.
   std::string id;
   /// A 409 over a relay: the id of the thermostat that holds it, or that is enabled, waits and
   /// names it.
@@ -115,6 +115,12 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// refused, whoever else names it. 404 for an unknown id, 409 for one a newer firmware wrote,
   /// otherwise as create(). A relay the Save frees starts the thermostats that wait for it.
   Result update(const std::string &id, ClimateConfig doc);
+  /// Brings a thermostat back under the id its document names, as a backup holds it: one with
+  /// that id is replaced, as update() replaces it, otherwise one is created with it. The
+  /// presets keep their keys and the active preset stays, since rules name them so. Refused
+  /// as create() and update() refuse, and with 400 for an id that is no slug or is `new`, and
+  /// 409 for an id a file the boot did not load holds.
+  Result restore(ClimateConfig doc);
   /// Stops and deletes a thermostat, and starts the thermostats that wait for its relays.
   Result remove(const std::string &id);
   /// Starts or stops a thermostat and stores the flag. Enabling is refused as a Save is: 400
@@ -178,6 +184,12 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   bool load_file_(const std::string &folder, const std::string &filename);
   void resolve_name_(ClimateConfig *config);
 
+  /// The end of create() and restore(): `doc`, written already, joins the store and starts.
+  /// `verb` heads the log line.
+  Result add_(const ClimateConfig &doc, const char *verb);
+  /// The end of update() and restore(): `doc`, written already, takes `stored`'s place.
+  Result replace_(ClimateConfig *stored, const ClimateConfig &doc, const char *verb);
+
   bool start_(ClimateConfig *config, std::string *error);
   /// Keeps `error` as why `id` waits, and returns it worded as a `warning`.
   const std::string &note_waiting_(const std::string &id, const std::string &error);
@@ -213,12 +225,16 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// announce_released_(), in id order, and adds the ones that started to `result`.
   void start_waiters_(const std::string &skip_id, Result *result);
   Slot *slot_for_(const std::string &id) const;
-  /// The hidden slot that last carried `name` (by object id), so a thermostat back under its
-  /// name gets back its key; otherwise the one freed longest ago. Only while one is free.
+  /// The hidden slot that carries `name`, else one with its object id; free_.end() for none.
+  std::deque<Slot *>::iterator free_slot_like_(const std::string &name);
+  /// free_slot_like_(), so a thermostat back under its name gets back its key; otherwise the
+  /// one freed longest ago. Only while one is free.
   Slot *take_free_slot_(const std::string &name);
-  /// Parks every hidden slot but `keep` whose name `name` is about to take: the web server
-  /// answers the first climate that matches, hidden or not.
-  void park_names_like_(const std::string &name, const Slot *keep);
+  /// Before `renamed`, running, shows `name`: free_slot_like_() takes the name `renamed` leaves.
+  /// The web server answers the first climate by a name, and a listing queued before the slot
+  /// was hidden sends its key, so neither may stay with it. Never the placeholder: an API client
+  /// may still be encoding that slot.
+  void give_way_(const std::string &name, const Slot *renamed);
   SensorSubscription *subscribe_(sensor::Sensor *sensor);
   void on_sample_(SensorSubscription *sub, float value);
   void on_control_(uint8_t index, const climate::ClimateCall &call);

@@ -9,7 +9,20 @@
 
 namespace esphome::web_climate_editor {
 
-enum class RouteId : uint8_t { LIST, GET, STATUS, ENTITIES, SCHEMA, PING, SAVE, DELETE, ENABLE, SETPOINT, PRESET };
+enum class RouteId : uint8_t {
+  LIST,
+  GET,
+  STATUS,
+  ENTITIES,
+  SCHEMA,
+  PING,
+  SAVE,
+  IMPORT,
+  DELETE,
+  ENABLE,
+  SETPOINT,
+  PRESET
+};
 
 struct Route {
   const char *name;
@@ -59,7 +72,7 @@ class WebClimateEditor : public AsyncWebHandler, public Component {
   void handle_status_(AsyncWebServerRequest *request);
   void handle_entities_(AsyncWebServerRequest *request);
   void handle_schema_(AsyncWebServerRequest *request);
-  void handle_save_(AsyncWebServerRequest *request);
+  void handle_document_(AsyncWebServerRequest *request, bool importing);
   void handle_delete_(AsyncWebServerRequest *request);
   void handle_enable_(AsyncWebServerRequest *request);
   void handle_setpoint_(AsyncWebServerRequest *request);

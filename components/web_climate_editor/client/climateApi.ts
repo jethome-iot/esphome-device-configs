@@ -5,7 +5,7 @@
 // base URL and its fetch wrapper through createClimateApi().
 //
 // Backend behaviour (web_climate_editor.cpp follows ./types.ts):
-//  - save, delete, enable, setpoint and preset answer POST only, the rest GET only; a GET
+//  - save, import, delete, enable, setpoint and preset answer POST only, the rest GET only; a GET
 //    or POST to the wrong route, or an OPTIONS, is 405 with an Allow header, and
 //    an unknown route is 404. The server answers PUT, DELETE, HEAD and PATCH with
 //    its own text 405 and closes the connection; this client sends none of them;
@@ -14,6 +14,9 @@
 //    takes it back as it is: the device gives the presets' keys and keeps the
 //    active preset, so a form sends back what it got. A document whose `version`
 //    is above CONFIG_VERSION came from a newer firmware, and its Save is 409;
+//  - /import takes what /get answered, or a backup's file, under its own id: it
+//    replaces the thermostat with that id or creates it, presets' keys and active
+//    preset kept, and answers as /save does;
 //  - /ping returns {status:"ok"} (NOT the success envelope);
 //  - every route but /schema and /ping does its read or write on the device's main
 //    loop, so an answer describes what actually happened; 503 means the loop did not
@@ -24,6 +27,7 @@ import type {
   ClimateSchema,
   ControllerDocument,
   ControllerDraft,
+  ControllerImportInput,
   ControllerSaveInput,
   ControllersResponse,
   DeleteResponse,
@@ -65,6 +69,12 @@ export interface ClimateApi {
    * preset sent back with its key keeps it.
    */
   update(id: string, doc: ControllerDocument | ControllerDraft): Promise<SaveResponse>
+  /**
+   * POST /import — bring a thermostat back under the id `doc` names, as a restore does: the one
+   * with that id is replaced, otherwise it is created with it. The presets' keys and the active
+   * preset are kept, so the rules naming them still find them.
+   */
+  importController(doc: ControllerImportInput): Promise<SaveResponse>
   /** POST /delete?id= — remove it (no body). */
   remove(id: string): Promise<DeleteResponse>
   /** POST /enable?id=&value=[&take_over=true] — start or stop without deleting (no body). */
@@ -143,6 +153,9 @@ export function createClimateApi(options: ClimateApiOptions): ClimateApi {
     },
     update(id, doc) {
       return save({ ...doc, id })
+    },
+    importController(doc) {
+      return jpost<SaveResponse>('/import', doc)
     },
     remove(id) {
       return jpost<DeleteResponse>(`/delete?id=${q(id)}`)

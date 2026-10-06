@@ -218,6 +218,16 @@ std::string id_with_suffix(const std::string &base, unsigned n) {
   return (head.empty() ? std::string("climate") : head) + tail;
 }
 
+bool validate_id(const std::string &id, std::string *error) {
+  if (id.empty())
+    return fail(error, "id is required");
+  // The id becomes a path component: a hand-edited file could otherwise send the next save
+  // anywhere on the filesystem.
+  if (slugify_id(id) != id)
+    return fail(error, "id must be a slug: lowercase letters, digits and single dashes");
+  return true;
+}
+
 std::string trim_name(const std::string &name) {
   size_t begin = 0;
   size_t end = name.size();
@@ -361,12 +371,8 @@ bool ClimateConfig::deserialize(const JsonObject &root, bool require_id, std::st
 
   if (require_id) {
     this->id = text_of(root["id"]);
-    if (this->id.empty())
-      return fail(error, "id is required");
-    // The id becomes a path component: a hand-edited file could otherwise send the next save
-    // anywhere on the filesystem.
-    if (slugify_id(this->id) != this->id)
-      return fail(error, "id must be a slug: lowercase letters, digits and single dashes");
+    if (!validate_id(this->id, error))
+      return false;
   } else if (!root["id"].isNull()) {
     this->id = text_of(root["id"]);
   }
