@@ -10,7 +10,7 @@ export interface AutomationSummary {
   action_count: number
   else_action_count: number
   mode: string
-  /** False when the rule is on the device but does not run: something it names is missing. */
+  /** False when the rule is on the device but cannot be built; build_error says why. */
   built: boolean
   /** Why it is not built, in the device's words; "" when it is. */
   build_error: string

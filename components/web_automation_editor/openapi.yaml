@@ -384,9 +384,9 @@ components:
         built:
           type: boolean
           description: >-
-            False when the rule is on the device but does not run: an entity, a
-            thermostat or a preset it names is not there. It runs again once
-            that thermostat or preset is back.
+            False when the rule is on the device but cannot be built;
+            `build_error` says why. One that names a thermostat or a preset
+            that is not there runs again once it is back.
         build_error:
           type: string
           description: Why it is not built, `""` when it is.

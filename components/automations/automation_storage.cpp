@@ -312,7 +312,7 @@ bool AutomationStorage::run_on_loop_(std::function<bool()> &&job) {
 uint32_t AutomationStorage::add_automation(const AutomationConfig &config, std::string *error) {
   auto copy = std::make_shared<AutomationConfig>(config);
   auto assigned = std::make_shared<uint32_t>(0);
-  // Shared, like the copy: a job the caller gave up on may still run and write here.
+  // Shared, like the copy: a job the caller gave up on never runs, but outlives this call.
   auto why = std::make_shared<std::string>();
   const bool ran = this->run_on_loop_([this, copy, assigned, why]() {
     *assigned = this->add_automation_(*copy, why.get());

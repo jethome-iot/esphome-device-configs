@@ -55,7 +55,7 @@ simply be made again.
 
 | Method | Path | |
 |---|---|---|
-| GET | `list` | `{"automations": [{"id", "name", "enabled", "trigger_count", "action_count", "else_action_count", "mode", "built", "build_error"}, ...]}`; `built` is false for a rule that does not run because something it names is missing, and `build_error` says what (`Action 1: thermostat "attic" not found`), `""` when it runs |
+| GET | `list` | `{"automations": [{"id", "name", "enabled", "trigger_count", "action_count", "else_action_count", "mode", "built", "build_error"}, ...]}`; `built` is false for a rule on the device that cannot be built, and `build_error` says why (`Action 1: thermostat "attic" not found`), `""` when it runs |
 | GET | `get?id=` | One rule, in the file format of [automations](../automations/README.md#a-rule) |
 | POST | `save` | A rule as a JSON body; `id` absent or `0` creates, an existing `id` replaces that rule, renamed or not. Answers `{"success": true, "message", "id"}` on create, without `id` on update |
 | POST | `delete?id=` | Removes the rule and its file; `Failed to delete automation` when the engine refuses |

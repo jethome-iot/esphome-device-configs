@@ -62,7 +62,7 @@ struct CompiledTrigger {
 
 // Resolve one config item against the registered entities and the thermostats. Free functions
 // so the unit tests can build and inspect them without a rule around them. On failure `error`,
-// when given, says what is missing.
+// when given, says why.
 bool compile_trigger(AutomationStorage *engine, const TriggerConfig &config, CompiledTrigger &out,
                      std::string *error = nullptr);
 bool compile_condition(const ConditionConfig &config, CompiledCondition &out, std::string *error = nullptr);

@@ -152,7 +152,7 @@ they run on the loop task and block the caller. From inside a rule's own action 
 callback, say) they refuse and return false.
 
 - `add_automation(config, &error)`: the assigned id, `0` on failure; `error`, when given, says
-  what the rule names that is missing, when that is why
+  why the rule cannot be built, when that is why
 - `update_automation(id, config, &error)`, `remove_automation(id)`
 - `set_enable_automation(id, enable, persisted = nullptr)`: `persisted` says whether it reached flash
 - `reset_all()`: remove every rule and its file
