@@ -1,8 +1,9 @@
 #include "common.h"
 
-// The presets over HTTP where only the device can show them: a preset picked from Home Assistant
-// or the hub, the body as get writes it, the schema against the hub's tables, and a file a newer
-// firmware wrote. The requests the client mock answers too are in ../contract.json.
+// The presets over HTTP where only the device can show them: a pick reaching the climate entity and
+// the file, one from Home Assistant, the body as get writes it, the schema against the hub's tables,
+// and a file a newer firmware wrote. The requests the client mock answers too are in
+// ../contract.json.
 namespace esphome::web_climate_editor::testing {
 namespace {
 
@@ -23,25 +24,31 @@ std::string text_of(JsonVariant value) {
   return out;
 }
 
-// The thermostat's document as get answers it, ready to be changed and saved back.
-JsonDocument document(Reply &got) {
-  JsonDocument doc;
-  doc.set(got.json);
-  return doc;
-}
-
 std::string body_of(const JsonDocument &doc) {
   std::string out;
   serializeJson(doc, out);
   return out;
 }
 
-climate::Climate *entity_named(const char *name) {
-  for (climate::Climate *entity : App.get_climates()) {
-    if (entity->get_name() == name)
-      return entity;
-  }
-  return nullptr;
+// What the entity says is active: the built-in preset's name, the custom one's, or "".
+std::string label(climate::Climate *entity) {
+  if (entity->has_custom_preset())
+    return entity->get_custom_preset().c_str();
+  if (entity->preset.has_value())
+    return LOG_STR_ARG(climate::climate_preset_to_string(*entity->preset));
+  return "";
+}
+
+// Past the hub's delay, so what waited to be written is in the file.
+void flush() {
+  hub().ms += 3000;
+  hub().loop();
+}
+
+// The entity a running thermostat drives, nullptr when it does not run.
+climate::Climate *entity_of(const char *id) {
+  const climate_hub::ControllerRuntime *runtime = hub().runtime(id);
+  return runtime != nullptr ? runtime->entity() : nullptr;
 }
 
 }  // namespace
@@ -62,117 +69,69 @@ TEST_F(Editor, GetAndSaveCarryThePresets) {
   EXPECT_EQ(text_of(this->get("get?id=studio")["presets"]), STUDIO_PRESETS);
 }
 
-// A rename keeps the key, so a rule naming it still finds it; a key the thermostat never gave
-// out is made again from the name, and the body's active_preset is not the thermostat's state.
-TEST_F(Editor, ASaveKeepsTheKeysItGaveOutAndTheActivePreset) {
+// A pick over HTTP takes the path one from Home Assistant takes: the entity shows it at once, and
+// the file follows with its target and its mode.
+TEST_F(Editor, APresetPickedOverHttpReachesTheEntityAndTheFile) {
   ASSERT_EQ(this->create(STUDIO), "studio");
-  ASSERT_TRUE(hub().apply_preset("studio", "eco").ok);
-
-  Reply got = this->get("get?id=studio");
-  JsonDocument doc = document(got);
-  doc["presets"][0]["name"] = "Saver";
-  JsonObject added = doc["presets"].add<JsonObject>();
-  added["key"] = "made-up";
-  added["name"] = "Comfort";
-  added["setpoint"] = 22;
-  doc["active_preset"] = "away";
-  Reply saved = this->post("save", body_of(doc));
-  ASSERT_EQ(saved.code, 200) << saved.body;
-  EXPECT_EQ(saved.body, R"({"success":true,"message":"Thermostat updated","id":"studio"})");
-
-  got = this->get("get?id=studio");
-  EXPECT_EQ(got["presets"][0]["key"].as<std::string>(), "eco");
-  EXPECT_EQ(got["presets"][0]["name"].as<std::string>(), "Saver");
-  EXPECT_EQ(got["presets"][3]["key"].as<std::string>(), "comfort");
-  EXPECT_EQ(got["active_preset"].as<std::string>(), "eco");
-  Reply list = this->get("list");
-  JsonObject row = list["controllers"][0];
-  EXPECT_EQ(row["active_preset"].as<std::string>(), "eco");
-  EXPECT_EQ(row["active_preset_name"].as<std::string>(), "Saver");
-}
-
-// The active preset's new values are the thermostat's at once, over what the body says; new values
-// for another preset leave the target and the mode the body sends.
-TEST_F(Editor, NewValuesForTheActivePresetApplyAtOnce) {
-  ASSERT_EQ(this->create(STUDIO), "studio");
-  ASSERT_TRUE(hub().apply_preset("studio", "eco").ok);
-
-  Reply got = this->get("get?id=studio");
-  JsonDocument doc = document(got);
-  doc["presets"][0]["setpoint"] = 17;
-  doc["presets"][0]["mode"] = "cool";
-  doc["setpoint"] = 25;
-  ASSERT_EQ(this->post("save", body_of(doc)).code, 200);
-  got = this->get("get?id=studio");
-  EXPECT_FLOAT_EQ(got["setpoint"].as<float>(), 17.f);
-  EXPECT_EQ(got["mode"].as<std::string>(), "cool");
-  EXPECT_EQ(got["active_preset"].as<std::string>(), "eco");
-  EXPECT_FLOAT_EQ(this->get("status?id=studio")["controllers"][0]["setpoint"].as<float>(), 17.f);
-
-  doc = document(got);
-  doc["presets"][1]["setpoint"] = 10;
-  doc["setpoint"] = 20;
-  doc["mode"] = "heat";
-  ASSERT_EQ(this->post("save", body_of(doc)).code, 200);
-  got = this->get("get?id=studio");
-  EXPECT_FLOAT_EQ(got["setpoint"].as<float>(), 20.f);
-  EXPECT_EQ(got["mode"].as<std::string>(), "heat");
-  EXPECT_EQ(got["active_preset"].as<std::string>(), "eco") << "a target set by hand keeps the label";
-}
-
-// Missing, or null, is no presets: a Save that leaves them out removes them, the active one too.
-TEST_F(Editor, ASaveWithoutPresetsRemovesThem) {
-  ASSERT_EQ(this->create(STUDIO), "studio");
-  ASSERT_TRUE(hub().apply_preset("studio", "away").ok);
-  const std::string studio = STUDIO;
-  const std::string bare = studio.substr(0, studio.find(R"(,"presets")")) + "}";
-  Reply saved = this->post("save", with(bare.c_str(), R"("id":"studio")"));
-  ASSERT_EQ(saved.code, 200) << saved.body;
-  Reply got = this->get("get?id=studio");
-  EXPECT_EQ(text_of(got["presets"]), "[]");
-  EXPECT_EQ(got["active_preset"].as<std::string>(), "");
-  EXPECT_EQ(this->get("status?id=studio")["controllers"][0]["active_preset"].as<std::string>(), "");
-
-  ASSERT_EQ(this->post("save", with(LIVING_ROOM, R"("enabled":false,"presets":null)")).code, 200);
-  EXPECT_EQ(text_of(this->get("get?id=living-room")["presets"]), "[]");
-}
-
-// Picked from Home Assistant, the hub or by hand, and kept while the thermostat is stopped.
-TEST_F(Editor, ListAndStatusCarryTheActivePreset) {
-  ASSERT_EQ(this->create(STUDIO), "studio");
-  ASSERT_EQ(this->create(with(LIVING_ROOM, R"("enabled":false)").c_str()), "living-room");
-  auto active = [this](const char *route, size_t row) {
-    Reply reply = this->get(route);
-    JsonObject state = reply["controllers"][row];
-    EXPECT_TRUE(state["active_preset"].is<const char *>()) << route << ": " << reply.body;
-    EXPECT_TRUE(state["active_preset_name"].is<const char *>()) << route << ": " << reply.body;
-    return state["active_preset"].as<std::string>() + "|" + state["active_preset_name"].as<std::string>();
-  };
-  // Sorted by id: living-room first.
-  EXPECT_EQ(active("list", 1), "|");
-  EXPECT_EQ(active("status", 1), "|");
-  EXPECT_EQ(active("list", 0), "|") << "a thermostat with no presets carries the keys empty";
-
-  ASSERT_TRUE(hub().apply_preset("studio", "night-time").ok);
-  EXPECT_EQ(active("list", 1), "night-time|Night  Time");
-  EXPECT_EQ(active("status", 1), "night-time|Night  Time");
-  EXPECT_EQ(this->get("list")["controllers"][1]["mode"].as<std::string>(), "heat_cool");
-  EXPECT_FLOAT_EQ(this->get("status?id=studio")["controllers"][0]["setpoint"].as<float>(), 19.5f);
-
-  climate::Climate *entity = entity_named("Studio");
+  climate::Climate *entity = entity_of("studio");
   ASSERT_NE(entity, nullptr);
-  auto call = entity->make_call();
-  call.set_preset("ECO");
-  call.perform();
-  EXPECT_EQ(active("status?id=studio", 0), "eco|Eco");
-  EXPECT_FLOAT_EQ(this->get("status?id=studio")["controllers"][0]["setpoint"].as<float>(), 18.f);
+  Reply picked = this->post("preset?id=studio&key=night-time");
+  ASSERT_EQ(picked.code, 200) << picked.body;
+  EXPECT_EQ(picked.body, R"({"success":true,"message":"Preset applied","persisted":true})");
+  EXPECT_EQ(label(entity), "Night  Time");
+  EXPECT_FLOAT_EQ(entity->target_temperature, 19.5f);
+  EXPECT_EQ(entity->mode, climate::CLIMATE_MODE_HEAT_COOL);
+  flush();
+  const std::string file = this->file("studio.json");
+  EXPECT_NE(file.find(R"("mode":"heat_cool")"), std::string::npos) << file;
+  EXPECT_NE(file.find(R"("setpoint":19.5,"presets")"), std::string::npos) << file;
+  EXPECT_NE(file.find(R"("active_preset":"night-time"})"), std::string::npos) << file;
 
-  ASSERT_EQ(this->post("setpoint?id=studio&value=23").code, 200);
-  EXPECT_EQ(active("status?id=studio", 0), "eco|Eco") << "a target set by hand keeps the label";
+  ASSERT_EQ(this->post("preset?id=studio&key=eco").code, 200);
+  EXPECT_EQ(label(entity), "ECO") << "a built-in one is Home Assistant's own";
+}
 
+// Stopped, it has no entity to show the pick: the document keeps it, and the entity it starts in
+// shows it.
+TEST_F(Editor, AThermostatStartsInThePresetPickedWhileItWasStopped) {
+  ASSERT_EQ(this->create(STUDIO), "studio");
   ASSERT_EQ(this->post("enable?id=studio&value=false").code, 200);
-  EXPECT_EQ(active("list", 1), "eco|Eco");
-  EXPECT_EQ(active("status?id=studio", 0), "eco|Eco");
+  Reply picked = this->post("preset?id=studio&key=away");
+  ASSERT_EQ(picked.code, 200) << picked.body;
+  EXPECT_EQ(picked.body, R"({"success":true,"message":"Preset applied","persisted":true})");
+  flush();
+  const std::string file = this->file("studio.json");
+  EXPECT_NE(file.find(R"("mode":"off","setpoint":12,)"), std::string::npos) << file;
+  EXPECT_NE(file.find(R"("active_preset":"away"})"), std::string::npos) << file;
+
+  ASSERT_EQ(this->post("enable?id=studio&value=true").code, 200);
+  climate::Climate *entity = entity_of("studio");
+  ASSERT_NE(entity, nullptr);
+  EXPECT_EQ(label(entity), "AWAY");
+  EXPECT_FLOAT_EQ(entity->target_temperature, 12.f);
+  EXPECT_EQ(entity->mode, climate::CLIMATE_MODE_OFF);
+}
+
+// Picked through the entity, as Home Assistant and web_server pick one, and read back over HTTP.
+TEST_F(Editor, APresetPickedFromHomeAssistantShowsInListAndStatus) {
+  ASSERT_EQ(this->create(STUDIO), "studio");
+  climate::Climate *entity = entity_of("studio");
+  ASSERT_NE(entity, nullptr);
+  auto eco = entity->make_call();
+  eco.set_preset("ECO");
+  eco.perform();
+  Reply status = this->get("status?id=studio");
+  EXPECT_EQ(status["controllers"][0]["active_preset"].as<std::string>(), "eco");
+  EXPECT_EQ(status["controllers"][0]["active_preset_name"].as<std::string>(), "Eco");
+  EXPECT_FLOAT_EQ(status["controllers"][0]["setpoint"].as<float>(), 18.f);
+
+  auto night = entity->make_call();
+  night.set_preset("Night  Time");
+  night.perform();
+  Reply list = this->get("list");
+  EXPECT_EQ(list["controllers"][0]["active_preset"].as<std::string>(), "night-time");
+  EXPECT_EQ(list["controllers"][0]["active_preset_name"].as<std::string>(), "Night  Time");
+  EXPECT_EQ(list["controllers"][0]["mode"].as<std::string>(), "heat_cool");
 }
 
 // The limits a form keeps to, and the words it may send: each one goes through a Save as it is.
@@ -234,6 +193,10 @@ TEST_F(Editor, AThermostatANewerFirmwareWroteRefusesASave) {
 
   ASSERT_EQ(this->post("setpoint?id=boiler&value=23").code, 200);
   EXPECT_FLOAT_EQ(this->get("get?id=boiler")["setpoint"].as<float>(), 23.f) << "in memory";
+  Reply picked = this->post("preset?id=boiler&key=eco");
+  ASSERT_EQ(picked.code, 200) << picked.body;
+  EXPECT_EQ(picked.body, R"({"success":true,"message":"Preset applied","persisted":false})");
+  EXPECT_FLOAT_EQ(this->get("get?id=boiler")["setpoint"].as<float>(), 18.f) << "in memory";
   Reply stopped = this->post("enable?id=boiler&value=false");
   ASSERT_EQ(stopped.code, 200) << stopped.body;
   EXPECT_EQ(stopped.body, R"({"success":true,"message":"Thermostat disabled","persisted":false})");

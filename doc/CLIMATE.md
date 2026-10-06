@@ -16,8 +16,9 @@ at the next boot. The file format and the C++ API are in
   period of minutes.
 - **Modes**: off, heat, cool, or heat and cool, as far as its relays allow.
 - **Presets**: up to eight per thermostat, each a name, a target and a mode or "keep the
-  current one". Picking one, from Home Assistant or the web server, sets its target and its
-  mode; a target or a mode set by hand afterwards keeps it shown as the active preset.
+  current one". Picking one, from Home Assistant, the web server or the editor's API, sets its
+  target and its mode; a stopped thermostat keeps the pick and starts in it. A target or a mode
+  set by hand afterwards keeps it shown as the active preset.
   Editing the active preset's values applies them at once, and the active preset comes back
   after a reboot.
 - **Safety**: it keeps its relays open until its sensor's first reading, and waits for one
@@ -96,9 +97,9 @@ it.
 ## Over HTTP
 
 `features/climate-editor.yaml` serves the thermostats on the web server port under
-`/climate-editor/api`: list them, read, create, change and delete one, edit its presets, start
-or stop it, move its target, and watch what each one is doing and which preset is active. The
-routes and their contract are in
+`/climate-editor/api`: list them, read, create, change and delete one, edit and pick its
+presets, start or stop it, move its target, and watch what each one is doing and which preset is
+active. The routes and their contract are in
 [components/web_climate_editor/openapi.yaml](../components/web_climate_editor/openapi.yaml),
 the usage in [its README](../components/web_climate_editor/README.md).
 

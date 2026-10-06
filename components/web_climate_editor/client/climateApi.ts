@@ -5,7 +5,7 @@
 // base URL and its fetch wrapper through createClimateApi().
 //
 // Backend behaviour (web_climate_editor.cpp follows ./types.ts):
-//  - save, delete, enable and setpoint answer POST only, the rest GET only; a GET
+//  - save, delete, enable, setpoint and preset answer POST only, the rest GET only; a GET
 //    or POST to the wrong route, or an OPTIONS, is 405 with an Allow header, and
 //    an unknown route is 404. The server answers PUT, DELETE, HEAD and PATCH with
 //    its own text 405 and closes the connection; this client sends none of them;
@@ -28,6 +28,7 @@ import type {
   ControllersResponse,
   DeleteResponse,
   EnableResponse,
+  PresetResponse,
   SaveResponse,
   StatusResponse,
   SuccessResponse
@@ -70,6 +71,11 @@ export interface ClimateApi {
   setEnabled(id: string, value: boolean, options?: EnableOptions): Promise<EnableResponse>
   /** POST /setpoint?id=&value= — move the target alone, running or not (no body). */
   setSetpoint(id: string, value: number): Promise<SuccessResponse>
+  /**
+   * POST /preset?id=&key= — pick a preset by its key, running or not (no body): its target, its
+   * mode unless `keep`, and the label. A stopped one keeps it for when it starts.
+   */
+  applyPreset(id: string, key: string): Promise<PresetResponse>
   /** GET /status[?id=] — live readings and the active preset; recomputed per request, nothing persisted. */
   status(id?: string): Promise<StatusResponse>
   /** GET /entities — bindable sensors and relays, with current relay owners. */
@@ -147,6 +153,9 @@ export function createClimateApi(options: ClimateApiOptions): ClimateApi {
     },
     setSetpoint(id, value) {
       return jpost<SuccessResponse>(`/setpoint?id=${q(id)}&value=${q(String(value))}`)
+    },
+    applyPreset(id, key) {
+      return jpost<PresetResponse>(`/preset?id=${q(id)}&key=${q(key)}`)
     },
     status(id) {
       return jget<StatusResponse>(id ? `/status?id=${q(id)}` : '/status')

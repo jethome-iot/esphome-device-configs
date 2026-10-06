@@ -129,7 +129,8 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// Moves the target, clamped into the visual range, running or not.
   Result set_setpoint(const std::string &id, float value);
   /// Picks the preset with this key, running or not, as Home Assistant would: its target, its
-  /// mode if it has one, and the label. 404 for an unknown thermostat or key.
+  /// mode if it has one, and the label. 404 for an unknown thermostat or key; `persisted` false
+  /// when it changed one a newer firmware wrote, whose file keeps what it had.
   Result apply_preset(const std::string &id, const std::string &key);
 
   /// The name rules on a trimmed name, with the sentence that says which one broke.

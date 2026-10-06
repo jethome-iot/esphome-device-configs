@@ -329,6 +329,14 @@ export interface EnableResponse extends SuccessResponse {
   warning?: string
 }
 
+/**
+ * POST /preset: `persisted` is false when the pick changed the target, the mode or the label of a
+ * thermostat whose file a newer firmware wrote: a reboot undoes it.
+ */
+export interface PresetResponse extends SuccessResponse {
+  persisted: boolean
+}
+
 export interface ErrorResponse {
   success: false
   error: string
