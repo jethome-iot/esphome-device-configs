@@ -829,10 +829,15 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       keepLatch
         ? prev!.rt.latch === (dir === 'heat' ? 'heating' : 'cooling')
         : !!doc[dir].relay_id && relayOf(doc[dir].relay_id).on
-    // A relay the Save keeps carries what holds it until the next pass.
+    // A relay the Save keeps carries what holds it until the next pass, in either direction now:
+    // the device's claim is the relay's.
     const keeps = (dir: 'heat' | 'cool') => !!prev && prev.doc[dir].relay_id === doc[dir].relay_id
-    const keptWait = (dir: 'heat' | 'cool'): RelayWait =>
-      keeps(dir) ? prev!.rt[dir === 'heat' ? 'heatWait' : 'coolWait'] : 'none'
+    const keptWait = (dir: 'heat' | 'cool'): RelayWait => {
+      const relay = doc[dir].relay_id
+      if (!prev || !relay) return 'none'
+      if (prev.doc.heat.relay_id === relay) return prev.rt.heatWait
+      return prev.doc.cool.relay_id === relay ? prev.rt.coolWait : 'none'
+    }
     // A PID's gap between pulses was the old relay's: the one a Save moves it to has not closed.
     const keptAction = (): ClimateHubAction => {
       if (!prev) return 'off'
