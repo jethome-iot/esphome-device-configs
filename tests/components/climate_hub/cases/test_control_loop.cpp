@@ -1884,6 +1884,21 @@ TEST_F(ControlLoop, ARelayClosedFromElsewhereShowsUntilItIsPutBack) {
   EXPECT_EQ(HubAction::IDLE, rt->action());
 }
 
+// Beside the relay the thermostat drives, one closed from elsewhere does not take the action over.
+TEST_F(ControlLoop, ARelayClosedFromElsewhereBesideTheDrivenOneLeavesTheAction) {
+  ControllerRuntime *rt = this->start(with_cooling(this->base(ControlKind::BANG_BANG), true), 25.f);
+  tick(200000);
+  ASSERT_TRUE(entities().relay2.state);
+  ASSERT_EQ(HubAction::COOLING, rt->action());
+  entities().relay1.turn_on();
+  tick(201000);
+  ASSERT_FALSE(entities().relay1.state) << "the first close goes back at once";
+  entities().relay1.turn_on();
+  tick(202000);
+  ASSERT_TRUE(entities().relay1.state) << "the second waits the floor";
+  EXPECT_EQ(HubAction::COOLING, rt->action());
+}
+
 // Mode off and a cut-out open the relay without waiting for min_on, so nothing waits on it.
 TEST_F(ControlLoop, NoWaitWhileTheRelaysAreHeldOpen) {
   for (bool cut_out : {false, true}) {

@@ -321,7 +321,8 @@ HubAction ControllerRuntime::relay_action_() const {
                                     c.mode == HubMode::HEAT || c.mode == HubMode::HEAT_COOL);
   const bool cooling = this->shows_(this->cool_claim_, this->cool_duty_, HubAction::COOLING,
                                     c.mode == HubMode::COOL || c.mode == HubMode::HEAT_COOL);
-  // Both closed only while min_on holds one after a switch-over: the one it drives now is what it does.
+  // Both closed while min_on holds one after a switch-over, or while one closed from elsewhere waits
+  // for its put-back: the one it drives now is what it does.
   if (heating && (!cooling || this->heat_duty_.duty() > 0.f))
     return HubAction::HEATING;
   return cooling ? HubAction::COOLING : HubAction::IDLE;
