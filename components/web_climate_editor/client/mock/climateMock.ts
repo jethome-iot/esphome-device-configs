@@ -1234,7 +1234,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
   }
 
   // ClimateHub::apply_preset: through the entity when it runs, into the document when not.
-  function preset(search: URLSearchParams): MockResult {
+  function applyPreset(search: URLSearchParams): MockResult {
     const id = idParam(search)
     if (typeof id !== 'string') return id
     const key = search.get('key')
@@ -1326,7 +1326,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
         return setpoint(search)
 
       case 'preset':
-        return preset(search)
+        return applyPreset(search)
 
       default:
         return fail(404, 'Unknown endpoint')
