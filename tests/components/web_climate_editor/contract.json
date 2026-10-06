@@ -393,7 +393,9 @@
         "controllers.0.min_temperature": 5,
         "controllers.0.max_temperature": 45,
         "controllers.0.active_preset": "",
-        "controllers.0.active_preset_name": ""
+        "controllers.0.active_preset_name": "",
+        "controllers.0.heat_relay_wait": "none",
+        "controllers.0.cool_relay_wait": "none"
       },
       "absent": [
         "controllers.0.switch_low"
@@ -416,6 +418,8 @@
         "controllers.0.sensor_age_s": null,
         "controllers.0.heat_duty": 0,
         "controllers.0.heat_relay_on": false,
+        "controllers.0.heat_relay_wait": "none",
+        "controllers.0.cool_relay_wait": "none",
         "controllers.0.switch_low": 18.5,
         "controllers.0.switch_high": 19.5
       },

@@ -37,6 +37,15 @@ enum class HubFault : uint8_t {
   RELAY_CONTESTED,
 };
 
+/// What holds a relay away from where its thermostat wants it: the relay's own minimum on time
+/// before it may open, or minimum off time before it may close. Reported over HTTP, never
+/// persisted.
+enum class RelayWait : uint8_t {
+  NONE = 0,
+  MIN_ON,
+  MIN_OFF,
+};
+
 namespace enums {
 
 const char *control_kind_to_string(ControlKind v);
@@ -47,6 +56,7 @@ bool mode_from_string(const std::string &s, HubMode *out);
 
 const char *action_to_string(HubAction v);
 const char *fault_to_string(HubFault v);
+const char *relay_wait_to_string(RelayWait v);
 
 }  // namespace enums
 

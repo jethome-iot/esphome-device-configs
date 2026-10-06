@@ -86,4 +86,16 @@ const char *fault_to_string(HubFault v) {
   return "none";
 }
 
+const char *relay_wait_to_string(RelayWait v) {
+  switch (v) {
+    case RelayWait::NONE:
+      return "none";
+    case RelayWait::MIN_ON:
+      return "min_on";
+    case RelayWait::MIN_OFF:
+      return "min_off";
+  }
+  return "none";
+}
+
 }  // namespace esphome::climate_hub::enums

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include "enums.h"
 #include "esphome/core/defines.h"
 
 // A config without a switch: section has no switch sources; the name must still exist.
@@ -58,6 +59,10 @@ class RelayClaim {
   uint32_t moves() const { return this->moves_; }
 
   bool state() const { return this->state_; }
+  /// What kept the relay from the last request()'s `want`: its own min_on or min_off. NONE once
+  /// it got there, after force_off(), and while it stays where something else moved it until the
+  /// put-back, which waits on that move rather than on the thermostat.
+  RelayWait wait() const { return this->wait_; }
   const std::string &owner() const { return this->owner_; }
   /// A new holder starts with no moves held against it, and, as after resume(), what its first
   /// look finds is no move.
@@ -89,6 +94,7 @@ class RelayClaim {
   // When the last move from elsewhere was put back or left nothing to put back, counted or not.
   uint32_t put_back_ms_{0};
   uint32_t moves_{0};
+  RelayWait wait_{RelayWait::NONE};
   // A move went back at once since the last quiet spell, counted or not: the next one is paced.
   bool moved_{false};
   bool state_{false};
