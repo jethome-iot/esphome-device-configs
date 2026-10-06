@@ -532,11 +532,13 @@ void ActionConfig::serialize(JsonObject &obj) const {
       obj["delay_ms"] = params.delay.delay_ms;
       break;
     case SourceAction::CLIMATE:
-      obj["type"] = EnumUtils::climate_action_type_to_string(climate.step.type);
-      obj["climate"] = climate.climate;
-      serialize_climate_step(obj, climate.step);
-      if (climate.step.type == TypeClimateAction::FOLLOW) {
-        const std::pair<const char *, const ClimateStep *> branches[] = {{"on", &climate.on}, {"off", &climate.off}};
+      if (climate == nullptr)
+        break;
+      obj["type"] = EnumUtils::climate_action_type_to_string(climate->step.type);
+      obj["climate"] = climate->climate;
+      serialize_climate_step(obj, climate->step);
+      if (climate->step.type == TypeClimateAction::FOLLOW) {
+        const std::pair<const char *, const ClimateStep *> branches[] = {{"on", &climate->on}, {"off", &climate->off}};
         for (const auto &branch : branches) {
           JsonObject value = obj[branch.first].to<JsonObject>();
           value["type"] = EnumUtils::climate_action_type_to_string(branch.second->type);
@@ -555,6 +557,7 @@ bool ActionConfig::deserialize(const JsonObject &obj) {
 
   if (!parse_enum(obj, "source", EnumUtils::string_to_source_action, EnumUtils::source_action_to_string, source))
     return false;
+  climate.reset();
 
   switch (source) {
     case SourceAction::SWITCH: {
@@ -580,8 +583,13 @@ bool ActionConfig::deserialize(const JsonObject &obj) {
       params.delay.delay_ms = static_cast<uint32_t>(ms > 0 ? std::min(ms, limit) : 0.0);
       break;
     }
-    case SourceAction::CLIMATE:
-      return deserialize_climate(obj, climate);
+    case SourceAction::CLIMATE: {
+      auto parsed = std::make_shared<ClimateActionConfig>();
+      if (!deserialize_climate(obj, *parsed))
+        return false;
+      climate = std::move(parsed);
+      return true;
+    }
     default:
       break;
   }

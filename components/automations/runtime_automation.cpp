@@ -235,8 +235,11 @@ bool compile_action(const ActionConfig &config, CompiledAction &out, std::string
       out.delay_ms = config.params.delay.delay_ms;
       return true;
     case SourceAction::CLIMATE:
+      // Only a config built in C++ gets here without one; the parser refuses it.
+      if (config.climate == nullptr)
+        return fail(error, "no type");
       out.climate = config.climate;
-      return check_climate(config.climate, error);
+      return check_climate(*config.climate, error);
     default:
       return fail(error, "no source");
   }
@@ -257,7 +260,7 @@ static bool compile_actions(const std::vector<ActionConfig> &configs, std::vecto
 bool names_climate(const AutomationConfig &config, const std::string &climate_id) {
   for (const auto *list : {&config.actions, &config.else_actions}) {
     for (const ActionConfig &action : *list) {
-      if (action.source == SourceAction::CLIMATE && action.climate.climate == climate_id)
+      if (action.source == SourceAction::CLIMATE && action.climate != nullptr && action.climate->climate == climate_id)
         return true;
     }
   }
@@ -520,7 +523,7 @@ void RuntimeAutomation::play_switch_(const CompiledAction &action, const Run &ru
 
 void RuntimeAutomation::play_climate_(const CompiledAction &action, const Run &run) {
 #ifdef USE_CLIMATE_HUB
-  const ClimateActionConfig &climate = action.climate;
+  const ClimateActionConfig &climate = *action.climate;
   const ClimateStep *step = &climate.step;
   if (step->type == TypeClimateAction::FOLLOW) {
     if (!run.has_state)

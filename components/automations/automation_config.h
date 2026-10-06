@@ -1,6 +1,7 @@
 #pragma once
 #include <ArduinoJson.h>
 #include <cmath>
+#include <memory>
 #include <string>
 #include <vector>
 #include "enums.h"
@@ -109,8 +110,9 @@ struct ActionConfig {
     } delay;
   } params;
 
-  // Strings, so not in the union.
-  ClimateActionConfig climate;
+  // A climate action's, null for any other: strings, so not in the union, and apart so a switch
+  // or a delay does not carry them. Never changed once read, so copies and builds share it.
+  std::shared_ptr<const ClimateActionConfig> climate;
 
   ActionConfig();
   ~ActionConfig() = default;

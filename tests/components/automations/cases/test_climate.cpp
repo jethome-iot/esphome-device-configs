@@ -121,15 +121,35 @@ TEST(ClimateActionConfig, ReadsWhatItSays) {
   ASSERT_TRUE(load(R"({"source":"climate","type":"follow","climate":"attic","on":{"type":"turn_on"},)"
                    R"("off":{"type":"set_preset","preset":"eco","target":3}})",
                    action));
-  EXPECT_EQ(action.climate.climate, "attic");
-  EXPECT_EQ(action.climate.step.type, TypeClimateAction::FOLLOW);
-  EXPECT_EQ(action.climate.on.type, TypeClimateAction::TURN_ON);
-  EXPECT_EQ(action.climate.off.type, TypeClimateAction::SET_PRESET);
-  EXPECT_EQ(action.climate.off.preset, "eco");
-  EXPECT_TRUE(std::isnan(action.climate.off.target)) << "a word a step does not take is not read";
+  ASSERT_NE(action.climate, nullptr);
+  EXPECT_EQ(action.climate->climate, "attic");
+  EXPECT_EQ(action.climate->step.type, TypeClimateAction::FOLLOW);
+  EXPECT_EQ(action.climate->on.type, TypeClimateAction::TURN_ON);
+  EXPECT_EQ(action.climate->off.type, TypeClimateAction::SET_PRESET);
+  EXPECT_EQ(action.climate->off.preset, "eco");
+  EXPECT_TRUE(std::isnan(action.climate->off.target)) << "a word a step does not take is not read";
 
   ASSERT_TRUE(load(R"({"source":"climate","type":"set_target","climate":"attic","target":19})", action));
-  EXPECT_FLOAT_EQ(action.climate.step.target, 19.f);
+  EXPECT_FLOAT_EQ(action.climate->step.target, 19.f);
+  EXPECT_EQ(action.climate->on.type, TypeClimateAction::NONE) << "nothing left of the follow read before";
+}
+
+// Only a climate action holds the thermostat's words, and a copy shares them.
+TEST(ClimateActionConfig, OnlyAClimateActionCarriesOne) {
+  ActionConfig action;
+  ASSERT_TRUE(load(ECO, action));
+  ASSERT_NE(action.climate, nullptr);
+  const ActionConfig copy = action;
+  EXPECT_EQ(copy.climate, action.climate);
+
+  entities();
+  ASSERT_TRUE(load(R"({"source":"switch","type":"turn_on","object_id":"relay_1"})", action));
+  EXPECT_EQ(action.climate, nullptr) << "nothing left of the climate action read before";
+  ASSERT_TRUE(load(R"({"source":"delay","delay_ms":5})", action));
+  EXPECT_EQ(action.climate, nullptr);
+  // A pointer in place of the strings: what a switch or a delay pays for the climate words.
+  EXPECT_LT(sizeof(ActionConfig), sizeof(ClimateActionConfig));
+  EXPECT_LT(sizeof(CompiledAction), sizeof(ClimateActionConfig));
 }
 
 // Each refusal fails the whole rule at the parser, as any other word the engine does not know.
@@ -276,6 +296,15 @@ TEST_F(ClimateRules, BuildsWhenTheThermostatAndItsPresetsAreThere) {
   EXPECT_NE(build_rule(*engine, FOLLOW_IN_1), nullptr);
 }
 
+// The built action shares the config's words instead of a copy of its own.
+TEST_F(ClimateRules, ABuiltActionSharesItsConfig) {
+  ActionConfig config;
+  ASSERT_TRUE(load(ECO, config));
+  CompiledAction built;
+  ASSERT_TRUE(compile_action(config, built));
+  EXPECT_EQ(built.climate, config.climate);
+}
+
 TEST_F(ClimateRules, ARuleNamingWhatIsNotThereIsNotBuilt) {
   struct Case {
     std::string json;
@@ -359,14 +388,18 @@ TEST_F(ClimateRules, WhatOnlyCppCanBuildIsRefusedWithAReason) {
   EXPECT_EQ(error, "no source");
   ActionConfig climate;
   climate.source = SourceAction::CLIMATE;
-  climate.climate.climate = "living-room";
   EXPECT_FALSE(compile_action(climate, action, &error));
   EXPECT_EQ(error, "no type");
-  climate.climate.step.type = TypeClimateAction::FOLLOW;
-  climate.climate.on.type = TypeClimateAction::TURN_ON;
+  auto words = std::make_shared<ClimateActionConfig>();
+  words->climate = "living-room";
+  climate.climate = words;
   EXPECT_FALSE(compile_action(climate, action, &error));
   EXPECT_EQ(error, "no type");
-  climate.climate.off.type = TypeClimateAction::TURN_OFF;
+  words->step.type = TypeClimateAction::FOLLOW;
+  words->on.type = TypeClimateAction::TURN_ON;
+  EXPECT_FALSE(compile_action(climate, action, &error));
+  EXPECT_EQ(error, "no type");
+  words->off.type = TypeClimateAction::TURN_OFF;
   EXPECT_TRUE(compile_action(climate, action, &error));
 }
 

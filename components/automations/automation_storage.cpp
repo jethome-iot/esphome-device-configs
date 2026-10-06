@@ -984,9 +984,13 @@ void AutomationStorage::print_action_info_(const ActionConfig &action, int inden
       ESP_LOGCONFIG(TAG, "%sAction: delay %u ms", pad.c_str(), static_cast<unsigned>(action.params.delay.delay_ms));
       break;
     case SourceAction::CLIMATE:
-      ESP_LOGCONFIG(TAG, "%sAction: climate %s '%s'", pad.c_str(),
-                    EnumUtils::climate_action_type_to_string(action.climate.step.type), action.climate.climate.c_str());
-      break;
+      if (action.climate != nullptr) {
+        ESP_LOGCONFIG(TAG, "%sAction: climate %s '%s'", pad.c_str(),
+                      EnumUtils::climate_action_type_to_string(action.climate->step.type),
+                      action.climate->climate.c_str());
+        break;
+      }
+      [[fallthrough]];
     default:
       ESP_LOGCONFIG(TAG, "%sAction: none", pad.c_str());
       break;

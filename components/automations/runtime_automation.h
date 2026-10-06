@@ -30,8 +30,9 @@ struct CompiledAction {
   TypeSwitchAction type{TypeSwitchAction::NONE};
   bool invert{false};
   uint32_t delay_ms{0};
-  // By id, looked up when it runs: the hub may drop the thermostat while the rule lives.
-  ClimateActionConfig climate;
+  // The config's own. By id, looked up when it runs: the hub may drop the thermostat while the
+  // rule lives.
+  std::shared_ptr<const ClimateActionConfig> climate;
 };
 
 struct CompiledTrigger {
