@@ -4780,6 +4780,47 @@
       ]
     },
     {
+      "name": "An import ends a calibration as a Save does",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "autotune?id=living-room&value=true",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "import",
+          "body": {
+            "name": "Living Room",
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 22,
+            "id": "living-room"
+          },
+          "status": 200,
+          "expect": {
+            "message": "Thermostat replaced"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "status?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.autotune.state": "failed",
+            "controllers.0.autotune.reason": "saved"
+          }
+        }
+      ]
+    },
+    {
       "name": "A new target ends a calibration",
       "setup": [
         "living-room"

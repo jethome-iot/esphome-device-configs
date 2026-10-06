@@ -213,9 +213,10 @@ id, one is created under it. Either way the thermostat comes back as the documen
 - `revision` is not read either: a replaced thermostat's moves on by one, so a Save of a form read
   before the import is `409`, and a new one starts at `0`.
 
-Keys left out take their defaults and every number is clamped, as on `save`. The answer is a
-Save's, `"Thermostat created"` or `"Thermostat replaced"` with the `id`, a `warning` when it was
-stored enabled but does not run, and the thermostats that started on a relay it freed:
+Keys left out take their defaults and every number is clamped, as on `save`, and a calibration the
+replaced thermostat runs ends as at a Save. The answer is a Save's, `"Thermostat created"` or
+`"Thermostat replaced"` with the `id`, a `warning` when it was stored enabled but does not run, and
+the thermostats that started on a relay it freed:
 
 ```json
 {"success": true, "message": "Thermostat replaced", "id": "living-room"}
@@ -243,11 +244,11 @@ as `no_switch` before its first swing. `direction` picks the relay: required in 
 the other relay stays open, and the mode's otherwise. Home Assistant sees only heating and idle,
 as from any PID.
 
-A run ends without gains on `value=false`, a target or a mode changed from anywhere, a Save, the
-thermostat stopped or taken over, any fault, 24 hours in all, 6 hours without a relay switch, or
-readings that cross the target more than 65 times, as a noisy probe at the target makes them; the
-thermostat goes back to its PID with the gains it had. It lives in memory only, so a reboot
-ends it too.
+A run ends without gains on `value=false`, a target or a mode changed from anywhere, a Save or an
+import, the thermostat stopped or taken over, any fault, 24 hours in all, 6 hours without a relay
+switch, or readings that cross the target more than 65 times, as a noisy probe at the target makes
+them; the thermostat goes back to its PID with the gains it had. It lives in memory only, so a
+reboot ends it too.
 
 `status` shows the last run as `autotune` until the next one, a delete or a reboot: `state`
 (`running`, `succeeded`, `failed`), the `reason` a failed one ended (`cancelled`, `target_changed`,

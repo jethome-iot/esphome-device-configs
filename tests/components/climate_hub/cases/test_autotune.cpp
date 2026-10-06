@@ -384,6 +384,35 @@ TEST_F(Calibration, ASaveEndsItAndARefusedOneDoesNot) {
   EXPECT_TRUE(hub().is_running(id));
 }
 
+// An import over it is a Save: the run ends as one, and a refused import leaves it running.
+TEST_F(Calibration, AnImportEndsItAndARefusedOneDoesNot) {
+  const std::string id = this->start(living_room(), 18.f);
+  this->create(draft("Hall heating", "relay_2"));
+  ASSERT_TRUE(this->calibrate(id).ok);
+  ClimateConfig doc = *hub().store().get(id);
+  doc.name = "Hall";
+  EXPECT_EQ(409, hub().restore(doc).code) << "a YAML climate's name";
+  EXPECT_TRUE(hub().autotune(id)->running());
+  doc.name = "Living room";
+  ASSERT_TRUE(hub().restore(doc).ok);
+  EXPECT_EQ(AutotuneEnd::SAVED, hub().autotune(id)->reason());
+  EXPECT_EQ(nullptr, hub().runtime_of(id)->autotune());
+  EXPECT_TRUE(hub().is_running(id));
+  EXPECT_EQ(0.6f, hub().store().get(id)->pid.kp) << "no gains from it";
+}
+
+// A disabled import stops the thermostat too; the run ends once, as the import's.
+TEST_F(Calibration, ADisabledImportEndsItOnce) {
+  const std::string id = this->start(living_room(), 18.f);
+  ASSERT_TRUE(this->calibrate(id).ok);
+  ClimateConfig doc = *hub().store().get(id);
+  doc.enabled = false;
+  ASSERT_TRUE(hub().restore(doc).ok);
+  EXPECT_EQ(AutotuneEnd::SAVED, hub().autotune(id)->reason()) << "not stopped: the import ended it first";
+  EXPECT_FALSE(hub().is_running(id));
+  EXPECT_FALSE(entities().relay1.state);
+}
+
 TEST_F(Calibration, DisablingStopsItAndTheResultStays) {
   const std::string id = this->start(living_room(), 18.f);
   ASSERT_TRUE(this->calibrate(id).ok);

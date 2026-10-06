@@ -261,7 +261,8 @@ paths:
         thermostat's moves on by one, so a Save of a form read before the
         import is `409`, and a new one starts at 0. Keys left out take their
         defaults and every number is clamped, as on `/save`; the body is read
-        the same way.
+        the same way. An import over a thermostat that calibrates ends the
+        run, as a Save does.
 
         The refusals are a Save's, in its order: `400` for an empty body, a
         body that is not JSON, or a document that breaks a rule, the `id`
@@ -617,8 +618,8 @@ paths:
         delete or a reboot: the run itself lives in memory only.
 
         A run ends without gains when it is cancelled (`value=false`), when the
-        target or the mode changes from anywhere, at a Save, when the
-        thermostat stops or another takes its relay over, on any fault, after
+        target or the mode changes from anywhere, at a Save or an import, when
+        the thermostat stops or another takes its relay over, on any fault, after
         24 hours in all, after 6 hours without a relay switch, and when the
         readings cross the target more than 65 times, as a noisy probe at the
         target makes them. The thermostat then goes back to its PID with the
