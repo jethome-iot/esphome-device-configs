@@ -184,6 +184,16 @@ uint16_t read_version(JsonVariantConst value) {
 
 }  // namespace
 
+float as_stored(float value) {
+  JsonDocument doc;
+  doc.set(value);
+  std::string text;
+  serializeJson(doc, text);
+  JsonDocument back;
+  deserializeJson(back, text);
+  return back.as<float>();
+}
+
 std::string slugify_id(const std::string &name, const char *fallback) {
   std::string out;
   out.reserve(name.size());

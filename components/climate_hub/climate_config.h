@@ -171,6 +171,9 @@ struct ClimateConfig {
   float clamp_target(float value) const;
 };
 
+/// The float a file gives back for `value`: its numbers are written to a few decimals.
+float as_stored(float value);
+
 /// Reduces a display name to [a-z0-9-], collapsed and trimmed, at most ID_MAX_LENGTH chars.
 /// `fallback` when nothing survives.
 std::string slugify_id(const std::string &name, const char *fallback = "climate");

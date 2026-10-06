@@ -48,6 +48,8 @@ static const char *const NOT_FOUND = "Thermostat not found";
 static const char *const PRESET_NOT_FOUND = "Preset not found";
 // Its fields this firmware does not know would be lost.
 static const char *const NEWER_FILE = "A newer firmware wrote this thermostat; update the firmware to change it";
+// A form read before the device rewrote the thermostat, after a calibration, say.
+static const char *const STALE_DOCUMENT = "The device changed this thermostat since it was read; reload it";
 // The dashboard's editor opens a blank form at /climate/new.
 static const char *const RESERVED_ID = "new";
 
@@ -336,7 +338,8 @@ void ClimateHub::dump_config() {
   for (const auto &config : this->store_.all()) {
     std::string state = "disabled";
     if (this->is_running(config->id)) {
-      state = "running";
+      const AutotuneRun *run = this->autotune(config->id);
+      state = run != nullptr && run->running() ? "running, calibrating" : "running";
     } else if (config->enabled) {
       state = this->waiting_reason(config->id);
     }
@@ -477,6 +480,7 @@ Result ClimateHub::create(ClimateConfig draft) {
   if (draft.enabled && !this->check_savable_(draft, &result))
     return result;
   draft.version = CONFIG_VERSION;
+  draft.revision = 0;
   bool too_large = false;
   if (!this->save_(draft, &too_large))
     return not_saved(too_large);
@@ -497,7 +501,7 @@ Result ClimateHub::create(ClimateConfig draft) {
   return result;
 }
 
-Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
+Result ClimateHub::update(const std::string &id, ClimateConfig doc, optional<uint32_t> revision) {
   Result result;
   if (this->refuse_if_failed_(&result))
     return result;
@@ -506,6 +510,8 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
     return failure(404, NOT_FOUND);
   if (stored->from_newer_firmware())
     return failure(409, NEWER_FILE);
+  if (revision.has_value() && *revision != stored->revision)
+    return failure(409, STALE_DOCUMENT);
   std::string error;
   doc.name = trim_name(doc.name);
   for (PresetConfig &preset : doc.presets)
@@ -519,6 +525,8 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
   // The path wins: a Save never re-keys a thermostat.
   doc.id = id;
   doc.version = CONFIG_VERSION;
+  // The device's to move: a Save builds on the revision it was checked against.
+  doc.revision = stored->revision;
   keep_preset_state(*stored, &doc);
   if (doc.enabled && !this->check_savable_(doc, &result))
     return result;
@@ -529,6 +537,8 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
 
   const ClimateConfig previous = *stored;
   Slot *slot = this->slot_for_(id);
+  if (slot != nullptr)
+    slot->runtime.end_autotune(AutotuneEnd::SAVED, this->now_ms());
   bool structural = false;
   *stored = doc;
   this->dirty_.erase(id);
@@ -584,6 +594,7 @@ Result ClimateHub::remove(const std::string &id) {
   result.persisted = this->delete_file_(id);
   this->dirty_.erase(id);
   this->waiting_.erase(id);
+  this->autotunes_.erase(id);
   ESP_LOGD(TAG, "Removed '%s'", id.c_str());
   // Last: `id` may be the document's own string.
   this->store_.remove(id);
@@ -666,7 +677,7 @@ Result ClimateHub::set_enabled(const std::string &id, bool enabled, bool take_ov
     Slot *holding = this->slot_for_(holder);
     this->hand_over_(holder, holding, *stored);
     if (holding != nullptr) {
-      this->stop_(holding);
+      this->stop_(holding, AutotuneEnd::TAKEN_OVER);
     } else {
       this->release_claims_(holder);
     }
@@ -727,13 +738,121 @@ Result ClimateHub::apply_preset(const std::string &id, const std::string &key) {
     return failure(404, PRESET_NOT_FOUND);
   Slot *slot = this->slot_for_(id);
   result = success();
+  const HubMode mode = stored->mode;
+  const float target = stored->setpoint;
   // Running, through the entity, which Home Assistant then hears about.
   if (slot != nullptr ? slot->runtime.pick_preset(*preset) : stored->pick_preset(*preset)) {
     this->mark_dirty_(id);
     // A newer firmware's file is never written: the pick lasts until the next boot.
     result.persisted = !stored->from_newer_firmware();
   }
+  if (slot != nullptr)
+    this->end_moved_autotune_(slot->runtime, mode, target);
   return result;
+}
+
+Result ClimateHub::start_autotune(const std::string &id, optional<AutotuneDirection> direction, AutotuneRule rule) {
+  Result result;
+  if (this->refuse_if_failed_(&result))
+    return result;
+  const ClimateConfig *stored = this->store_.get(id);
+  if (stored == nullptr)
+    return failure(404, NOT_FOUND);
+  if (stored->kind != ControlKind::PID)
+    return failure(409, "Only a PID thermostat can be calibrated");
+  Slot *slot = this->slot_for_(id);
+  if (slot == nullptr)
+    return failure(409, "The thermostat is not running");
+  // The gains it finds could not be written back.
+  if (stored->from_newer_firmware())
+    return failure(409, NEWER_FILE);
+  ControllerRuntime &runtime = slot->runtime;
+  if (runtime.autotune() != nullptr)
+    return failure(409, "A calibration is already running");
+  const HubMode mode = stored->mode;
+  if (mode == HubMode::OFF)
+    return failure(409, "The thermostat is off: set it to heat or cool first");
+  if (!direction.has_value()) {
+    if (mode == HubMode::HEAT_COOL)
+      return failure(400, "In heat_cool, direction must say heat or cool");
+    direction = mode == HubMode::COOL ? AutotuneDirection::COOL : AutotuneDirection::HEAT;
+  }
+  const bool heat = *direction == AutotuneDirection::HEAT;
+  const HubMode own = heat ? HubMode::HEAT : HubMode::COOL;
+  if (mode != own && mode != HubMode::HEAT_COOL) {
+    const std::string word = enums::autotune_direction_to_string(*direction);
+    return failure(400, "direction '" + word + "' needs mode " + word + " or heat_cool");
+  }
+  // It would end at the next pass, before a single swing.
+  if (runtime.fault() != HubFault::NONE)
+    return failure(409, std::string("The thermostat reports ") + enums::fault_to_string(runtime.fault()) +
+                            "; calibrate it once that clears");
+
+  const uint32_t now = this->now_ms();
+  auto run =
+      std::make_unique<AutotuneRun>(*direction, rule, PidGains{stored->pid.kp, stored->pid.ki, stored->pid.kd}, now);
+  AutotuneRun *running = run.get();
+  // The last one's numbers go: they stay until the next run.
+  this->autotunes_[id] = std::move(run);
+  runtime.begin_autotune(running, now);
+  ESP_LOGI(TAG, "'%s': calibration started, %s, rule %s", id.c_str(), enums::autotune_direction_to_string(*direction),
+           enums::autotune_rule_to_string(rule));
+  return success();
+}
+
+Result ClimateHub::cancel_autotune(const std::string &id) {
+  Result result;
+  if (this->refuse_if_failed_(&result))
+    return result;
+  if (this->store_.get(id) == nullptr)
+    return failure(404, NOT_FOUND);
+  Slot *slot = this->slot_for_(id);
+  if (slot == nullptr || slot->runtime.autotune() == nullptr)
+    return failure(409, "No calibration is running");
+  slot->runtime.end_autotune(AutotuneEnd::CANCELLED, this->now_ms());
+  return success();
+}
+
+const AutotuneRun *ClimateHub::autotune(const std::string &id) const {
+  auto it = this->autotunes_.find(id);
+  return it == this->autotunes_.end() ? nullptr : it->second.get();
+}
+
+void ClimateHub::end_moved_autotune_(ControllerRuntime &runtime, HubMode mode, float target) {
+  const ClimateConfig &config = *runtime.config();
+  if (config.mode != mode) {
+    runtime.end_autotune(AutotuneEnd::MODE_CHANGED, this->now_ms());
+  } else if (config.setpoint != target) {
+    runtime.end_autotune(AutotuneEnd::TARGET_CHANGED, this->now_ms());
+  }
+}
+
+void ClimateHub::complete_autotune_(Slot *slot) {
+  ControllerRuntime &runtime = slot->runtime;
+  AutotuneRun *run = runtime.autotune();
+  ClimateConfig *config = runtime.config();
+  bool clamped = false;
+  PidGains gains = run->result(&clamped);
+  // What runs now is what the file gives back after a reboot.
+  gains.kp = as_stored(gains.kp);
+  gains.ki = as_stored(gains.ki);
+  gains.kd = as_stored(gains.kd);
+  config->pid.kp = gains.kp;
+  config->pid.ki = gains.ki;
+  config->pid.kd = gains.kd;
+  // A form read before now would write the old gains back.
+  config->revision++;
+  const bool persisted = this->save_(*config);
+  if (persisted)
+    this->dirty_.erase(config->id);
+  const uint32_t now = this->now_ms();
+  run->succeed(gains, clamped, persisted, now);
+  runtime.end_autotune(AutotuneEnd::NONE, now);
+  ESP_LOGI(TAG, "'%s': calibrated in %" PRIu32 " s: Ku %.5g, Pu %.0f s, rule %s: kp %.5g, ki %.5g, kd %.5g%s%s%s%s",
+           config->id.c_str(), run->elapsed_ms(now) / 1000, run->tuner().ku(), run->tuner().pu(),
+           enums::autotune_rule_to_string(run->rule()), gains.kp, gains.ki, gains.kd,
+           run->asymmetric() ? ", asymmetric" : "", run->uneven() ? ", uneven" : "", clamped ? ", clamped" : "",
+           persisted ? "" : ", not written");
 }
 
 // --- Running and stopping ---
@@ -1008,10 +1127,11 @@ bool ClimateHub::restart_(Slot *slot, const std::string &previous_name, std::str
   return true;
 }
 
-void ClimateHub::stop_(Slot *slot) {
+void ClimateHub::stop_(Slot *slot, AutotuneEnd why) {
   if (slot == nullptr || !slot->runtime.running())
     return;
   const std::string id = slot->runtime.config()->id;
+  slot->runtime.end_autotune(why, this->now_ms());
   slot->runtime.stop(this->now_ms());
   // Its last word under the old name: stopped. Then it drops out of every listing.
   slot->entity.publish_state();
@@ -1047,8 +1167,12 @@ void ClimateHub::on_sample_(SensorSubscription *sub, float value) {
   const uint32_t now = this->now_ms();
   sub->last = Reading{value, now, true};
   for (Slot *slot : this->slots_) {
-    if (slot->runtime.running() && slot->runtime.sensor() == sub->sensor)
-      slot->runtime.on_sample(value, now);
+    if (!slot->runtime.running() || slot->runtime.sensor() != sub->sensor)
+      continue;
+    slot->runtime.on_sample(value, now);
+    const AutotuneRun *run = slot->runtime.autotune();
+    if (run != nullptr && run->found())
+      this->complete_autotune_(slot);
   }
 }
 
@@ -1056,8 +1180,13 @@ void ClimateHub::on_control_(uint8_t index, const climate::ClimateCall &call) {
   if (index >= this->slots_.size())
     return;
   ControllerRuntime &runtime = this->slots_[index]->runtime;
-  if (runtime.running() && runtime.control(call))
+  if (!runtime.running())
+    return;
+  const HubMode mode = runtime.config()->mode;
+  const float target = runtime.config()->setpoint;
+  if (runtime.control(call))
     this->mark_dirty_(runtime.config()->id);
+  this->end_moved_autotune_(runtime, mode, target);
 }
 
 // --- Files ---

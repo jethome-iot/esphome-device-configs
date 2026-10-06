@@ -114,7 +114,9 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// doc's active_preset ignored; new values for it apply at once. A relay it holds is never
   /// refused, whoever else names it. 404 for an unknown id, 409 for one a newer firmware wrote,
   /// otherwise as create(). A relay the Save frees starts the thermostats that wait for it.
-  Result update(const std::string &id, ClimateConfig doc);
+  /// `revision`, when given, is the one the caller read: the device changed the document since
+  /// if it is not the stored one, and the Save is refused with 409. It ends a calibration.
+  Result update(const std::string &id, ClimateConfig doc, optional<uint32_t> revision = nullopt);
   /// Stops and deletes a thermostat, and starts the thermostats that wait for its relays.
   Result remove(const std::string &id);
   /// Starts or stops a thermostat and stores the flag. Enabling is refused as a Save is: 400
@@ -132,6 +134,19 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// mode if it has one, and the label. 404 for an unknown thermostat or key; `persisted` false
   /// when it changed one a newer firmware wrote, whose file keeps what it had.
   Result apply_preset(const std::string &id, const std::string &key);
+
+  /// Calibrates a running PID thermostat: the relay in `direction` goes full below the target
+  /// and off above it, AUTOTUNE_NOISEBAND either side, the other one held open, until the
+  /// swings give Ku and Pu. `rule` turns them into kp, ki and kd, which the thermostat then runs
+  /// with and its file keeps, its revision moved on. No `direction` takes the mode's, which
+  /// heat_cool has none of. 404, or 409 for a bang-bang or stopped thermostat, a newer
+  /// firmware's file, one calibrating already, in mode off or with a fault; 400 for a direction
+  /// the mode does not drive, or none in heat_cool.
+  Result start_autotune(const std::string &id, optional<AutotuneDirection> direction, AutotuneRule rule);
+  /// Ends the running calibration as cancelled: 404, or 409 when none runs.
+  Result cancel_autotune(const std::string &id);
+  /// The thermostat's last calibration since boot, running or ended, nullptr for none.
+  const AutotuneRun *autotune(const std::string &id) const;
 
   /// The name rules on a trimmed name, with the sentence that says which one broke.
   static bool validate_name(const std::string &name, std::string *error) {
@@ -170,7 +185,13 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   bool start_(ClimateConfig *config, std::string *error);
   /// Keeps `error` as why `id` waits, and returns it worded as a `warning`.
   const std::string &note_waiting_(const std::string &id, const std::string &error);
-  void stop_(Slot *slot);
+  /// `why` ends a calibration it runs.
+  void stop_(Slot *slot, AutotuneEnd why = AutotuneEnd::STOPPED);
+  /// Ends the calibration `runtime` runs when the call it took moved its mode or its target
+  /// away from these.
+  void end_moved_autotune_(ControllerRuntime &runtime, HubMode mode, float target);
+  /// Stores and runs the gains the calibration `slot` runs has found.
+  void complete_autotune_(Slot *slot);
   bool restart_(Slot *slot, const std::string &previous_name, std::string *error);
   /// Claims every relay `config` names, or none: false, nothing claimed, when one is missing or
   /// another thermostat holds it.
@@ -255,6 +276,8 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   std::map<std::string, std::string> waiting_;
   // Relays let go since the last announce_released_(), by object id.
   std::map<std::string, switch_::Switch *> freed_;
+  // Each thermostat's last calibration, by id, in RAM: a reboot forgets them.
+  std::map<std::string, std::unique_ptr<AutotuneRun>> autotunes_;
   // One per sensor, kept for the life of the device: upstream has no callback removal.
   std::vector<std::unique_ptr<SensorSubscription>> sensor_subs_;
 
