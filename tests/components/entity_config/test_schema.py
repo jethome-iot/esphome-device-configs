@@ -16,6 +16,12 @@ loader.install_meta_finder(Path(__file__).resolve().parents[3] / "components")
 from esphome.components import entity_config  # noqa: E402
 
 
+class AutoLoad(unittest.TestCase):
+    def test_the_label_rules_come_with_it(self):
+        # A label is checked with panel_text's rules.
+        self.assertIn("panel_text", entity_config.AUTO_LOAD)
+
+
 class Settings(unittest.TestCase):
     def setUp(self):
         # only_on() reads the target platform; the suite builds for host.

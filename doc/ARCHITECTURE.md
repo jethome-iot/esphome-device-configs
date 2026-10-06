@@ -19,10 +19,10 @@ boundaries; everything else is local to its file.
 - `relays`, `inputs` (`boards/jxd-d6-r6-rev1.2.yaml`) are `globals` that the status page, buttons
   and menu iterate over. `temps` (`features/temperature.yaml`) is the `dallas_scan` component; the
   status page, the menu and the Modbus map read the temperatures through it (`used_slots()`,
-  `slot_name(slot)`, `sensor(slot)`, `temperature(slot)`), and `forget_temperatures` (a script)
+  `display_name(slot)`, `sensor(slot)`, `temperature(slot)`), and `forget_temperatures` (a script)
   clears slots. `features/web-device-dashboard.yaml` hands it to the dashboard as
   `dallas_scan_id`, for `/api/device/temperature-slots`, which forgets, assigns and sets offsets
-  through the component itself.
+  and labels through the component itself.
 - `board_info` (`boards/jxd-cpu-e1eth.yaml`) is the `jethome_board_info` component over the
   CPU board's EEPROM `eeprom_cpu`; `display/menu-serial.yaml` reads it for the Serial row and
   `features/web-device-dashboard.yaml` for `/api/device/info`.
@@ -35,7 +35,8 @@ boundaries; everything else is local to its file.
   them. A submenu may be empty, and `info_submenu`, `relays_menu` and `inputs_menu` declare no
   rows of their own: the last two are filled at boot from the `relays` / `inputs` vectors, so the
   menu follows whatever the board package put there. `temperatures_menu` gets a `Temp N` submenu per
-  slot up to the last bound one at boot; a freed slot's submenu only says `Free slot`.
+  slot up to the last bound one at boot, named after the slot's label or name; a freed slot's
+  submenu only names the slot and says `Free slot`.
   `automations_menu` is filled at boot with a row per loaded rule, or one `No automations` row.
   `thermostats_menu` is filled at boot with a submenu per loaded thermostat, or one
   `No thermostats` row.
@@ -76,8 +77,9 @@ boundaries; everything else is local to its file.
 - `config_json_keeper` (`features/storage.yaml`) owns the JSON settings files on that partition
   for any component that registers a settings type with it.
 - `switch_settings` and `binary_sensor_settings` (`features/entity-settings.yaml`) are the
-  settings objects the menu's Relay N and Input N rows call. Those two ids are set explicitly: a
-  generated id cannot be named from a lambda.
+  settings objects the menu's Relay N and Input N rows call, and whose `display_name()` names
+  each relay and input there. Those two ids are set explicitly: a generated id cannot be named
+  from a lambda.
 - `web_auth_credentials` (`features/web-auth.yaml`) holds the credentials the web server checks.
   The `auth:` block in the same file is the factory pair; a pair set through the dashboard is
   kept in the device's flash preferences and replaces it from the next request on, so a factory
@@ -101,7 +103,7 @@ boundaries; everything else is local to its file.
 | Priority | What runs |
 | --- | --- |
 | 800 | fill the `relays` / `inputs` vectors |
-| 700 | `apply_modbus_bus` (the stored baud rate, parity and stop bits into `jxm_uart2`, and the Modbus frame timing re-derived from them), then `modbus_bus_applied = true`; the selects' `on_value` is a no-op before that flag. Build a submenu per entry of those vectors, named after the entity, with its settings rows |
+| 700 | `apply_modbus_bus` (the stored baud rate, parity and stop bits into `jxm_uart2`, and the Modbus frame timing re-derived from them), then `modbus_bus_applied = true`; the selects' `on_value` is a no-op before that flag. Build a submenu per entry of those vectors, named after the entity's label or name, with its settings rows |
 | 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); restore the timezone and read the RTC (`setup_time`, called from the device config). `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
 | 599.5 | `climate_hub` sets up: it registers its pool of climate entities, loads the thermostats and starts the enabled ones, so it sits below the `Temp N` sensors (600) and above `automations`, which may one day name a thermostat |
 | 599.25 | `bindings` sets up and drives the `Follow` relays once, skipping those a thermostat claimed at 599.5 |
@@ -152,8 +154,11 @@ see "More slots" in [ONEWIRE_WORKFLOW.md](ONEWIRE_WORKFLOW.md).
 `modbus_server` on `jxm_uart2`. Coils and discrete inputs share one bit table (a bit is a coil iff
 it has a `write_lambda`), holding and input registers share one register table, hence inputs sit
 at `0x0010`. A coil's `write_lambda` returns `false`, which `modbus_server` answers with exception
-`0x04`, when the write would move a relay a thermostat holds. The map is documented at the top of
-`features/modbus-server.yaml`; keep `scripts/modbus_probe.py` and the README in step with it.
+`0x04`, when the write would move a relay a thermostat holds. The ranges' names live in
+`modbus_map:` next to the server in `features/modbus-server.yaml`, and the build checks them against
+it: a range left unnamed, or a name on an address the server does not serve, fails the build. The
+dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` and the README in step with the
+server.
 
 ## Coupled to upstream internals
 
@@ -184,7 +189,11 @@ at `0x0010`. A coil's `write_lambda` returns `false`, which `modbus_server` answ
   asks its handlers in registration order. `web_server` therefore runs without `local: true`:
   the page it would embed is never served. Its `to_code` also reads the validated config of
   `web_file_browser`, `web_automation_editor` and `web_climate_editor` out of `CORE.config` to
-  report their prefixes.
+  report their prefixes, and the id of a `modbus_map` to report the map.
+- `components/modbus_map` derives its ranges from the validated `modbus_server` config: each
+  `bits:` and `registers:` entry's `address`, `value_type` and whether it has a `write_lambda`,
+  `courtesy_response`, and a value's width from `TYPE_REGISTER_MAP` in `modbus/helpers.py`. Final
+  validation keeps nothing, so `to_code` derives them again out of `CORE.config`.
 - `components/firmware_rollback`, behind the dashboard's `/api/device/system/rollback` and the
   display's Rollback row, reads otadata the way the bootloader does: the other slot is a target
   only when its entry is one `bootloader_common_ota_select_valid` would boot, so an entry marked

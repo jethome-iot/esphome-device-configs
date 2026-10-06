@@ -21,6 +21,9 @@
 #ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
 #include "esphome/components/dallas_scan/dallas_scan.h"
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
+#include "esphome/components/modbus_map/modbus_map.h"
+#endif
 
 namespace esphome::web_device_dashboard {
 
@@ -40,6 +43,7 @@ enum class RouteId : uint8_t {
   TEMPERATURE_SLOTS_FORGET,
   TEMPERATURE_SLOTS_ASSIGN,
   TEMPERATURE_SLOTS_OFFSET,
+  TEMPERATURE_SLOTS_LABEL,
 #endif
 #ifdef USE_CONFIG_JSON
   ENTITIES,
@@ -61,8 +65,9 @@ using firmware_rollback::RollbackTarget;
 // The dashboard page at / and the device API under /api/device/: info (with the board's
 // EEPROM identity when jethome_board_info is wired in), status, network, what the firmware
 // can do, the three system actions, with web_auth the HTTP credentials, with dallas_scan the
-// temperature slots, forgetting and assigning them and their offsets, and with config_json the
-// entity index, the entity settings and their form fields.
+// temperature slots, forgetting and assigning them, their offsets and labels, and with config_json the
+// entity index, the entity settings and their form fields. A modbus_map is reported in
+// /capabilities.
 class WebDeviceDashboard : public AsyncWebHandler, public Component {
  public:
   explicit WebDeviceDashboard(web_server_base::WebServerBase *base) : base_(base) {}
@@ -80,6 +85,9 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
   void set_temperature_slots(dallas_scan::DallasScan *slots) { this->temperature_slots_ = slots; }
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
+  void set_modbus_map(const modbus_map::ModbusMap *map) { this->modbus_map_ = map; }
 #endif
   // Where the other web components serve, as this firmware configured them; nullptr when it
   // has none. Only /capabilities reads them.
@@ -136,11 +144,15 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
   void write_board_(JsonObject root);
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
+  static void write_modbus_map_(JsonObject modbus, const modbus_map::ModbusMap &map);
+#endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
   void handle_temperature_slots_(AsyncWebServerRequest *request);
   void handle_temperature_slots_forget_(AsyncWebServerRequest *request);
   void handle_temperature_slots_assign_(AsyncWebServerRequest *request);
   void handle_temperature_slots_offset_(AsyncWebServerRequest *request);
+  void handle_temperature_slots_label_(AsyncWebServerRequest *request);
   static std::string temperature_slots_json_(dallas_scan::DallasScan *scan);
   void send_slot_change_(AsyncWebServerRequest *request, std::string message, bool reboot_required,
                          const char *waits = "; applies after a reboot");
@@ -171,6 +183,9 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
   dallas_scan::DallasScan *temperature_slots_{nullptr};
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
+  const modbus_map::ModbusMap *modbus_map_{nullptr};
 #endif
   const char *files_url_prefix_{nullptr};
   const char *automations_url_prefix_{nullptr};
