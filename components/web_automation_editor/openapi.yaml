@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: web_automation_editor HTTP API
-  version: 1.0.0
+  version: 1.1.0
   description: >-
     JSON/REST API of the ESPHome `automations` component, served by the
     `web_automation_editor` component on the device's own web server (default
@@ -74,6 +74,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
 
   /get:
     get:
@@ -97,6 +99,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
 
   /save:
     post:
@@ -110,9 +114,12 @@ paths:
         form: a form-encoded body is parsed into fields by the server and answered
         `Empty request body`. Names collide by file name (`Porch light` and
         `porch-LIGHT` are one), and a name another rule owns is refused with the
-        reason. The engine's own refusals — the rule limit, a file the loader had
-        refused under that name, a call from inside a running rule — come back as
-        `Failed to create automation` / `Failed to update automation`.
+        reason. So is a rule that names what the device does not have: an
+        entity, a thermostat, or a preset key the thermostat lacks
+        (`Action 1: thermostat "attic" not found`). The engine's other refusals
+        — the rule limit, a file the loader had refused under that name, a call
+        from inside a running rule — come back as `Failed to create automation`
+        / `Failed to update automation`.
       requestBody:
         required: true
         content:
@@ -134,6 +141,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
         "413":
           description: The body is over 16 KiB, the engine's ceiling on a rule file.
           content:
@@ -162,6 +171,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
 
   /export:
     get:
@@ -182,13 +193,19 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
 
   /entities:
     get:
       tags: [read]
       operationId: listEntities
-      summary: The entities a rule may name.
-      description: Internal entities are left out. Sensors carry their unit.
+      summary: The entities and the thermostats a rule may name.
+      description: >-
+        Internal entities are left out. Sensors carry their unit. The
+        thermostats are `climate_hub`'s, running or not, by the id and the
+        preset keys a climate action names; `503` when the loop task does not
+        get to reading them.
       responses:
         "200":
           description: Entities by domain.
@@ -200,6 +217,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
 
   /schema:
     get:
@@ -329,11 +348,23 @@ components:
           example:
             success: false
             error: Method not allowed
+    Busy:
+      description: >-
+        The loop task, which owns the rules and the thermostats, did not take
+        the request within five seconds. Nothing was read or written; the call
+        can be made again.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Device busy
 
   schemas:
     AutomationSummary:
       type: object
-      required: [id, name, enabled, trigger_count, action_count, else_action_count, mode]
+      required: [id, name, enabled, trigger_count, action_count, else_action_count, mode, built, build_error]
       properties:
         id:
           type: integer
@@ -349,6 +380,16 @@ components:
           type: integer
         mode:
           $ref: "#/components/schemas/Mode"
+        built:
+          type: boolean
+          description: >-
+            False when the rule is on the device but does not run: an entity, a
+            thermostat or a preset it names is not there. It runs again once
+            that thermostat or preset is back.
+        build_error:
+          type: string
+          description: Why it is not built, `""` when it is.
+          example: 'Action 1: thermostat "attic" not found'
       example:
         id: 1
         name: Porch light
@@ -357,6 +398,8 @@ components:
         action_count: 1
         else_action_count: 0
         mode: single
+        built: true
+        build_error: ""
 
     Mode:
       type: string
@@ -489,19 +532,62 @@ components:
       properties:
         source:
           type: string
-          enum: [switch, delay]
+          enum: [switch, delay, climate]
         type:
           type: string
-          enum: [turn_on, turn_off, toggle, follow]
-          description: For `switch`. `follow` copies the state the trigger carried.
+          enum: [turn_on, turn_off, toggle, follow, set_preset, set_target]
+          description: >-
+            `switch`: turn_on, turn_off, toggle, follow, which copies the state
+            the trigger carried. `climate`: turn_off sets mode off, turn_on the
+            mode the thermostat was in before it went off; set_preset,
+            set_target, and follow, which takes `on` while the trigger's state
+            is on and `off` while it is off. A thermostat moves on the next loop
+            pass, running or not.
         object_id:
           type: string
+          description: For `switch`.
         invert:
           type: boolean
-          description: For `follow`; absent is false.
+          description: For a `switch` follow; absent is false.
         delay_ms:
           type: integer
           description: For `delay`.
+        climate:
+          type: string
+          description: >-
+            For `climate`: the thermostat's id in `/entities`, which a rename
+            leaves as it is.
+        preset:
+          type: string
+          description: For `set_preset`, a key of that thermostat's presets.
+        target:
+          type: number
+          description: For `set_target`, in °C, held inside the thermostat's range.
+        "on":
+          $ref: "#/components/schemas/ClimateFollowStep"
+        "off":
+          $ref: "#/components/schemas/ClimateFollowStep"
+      example:
+        source: climate
+        type: follow
+        climate: living-room
+        "on":
+          type: set_preset
+          preset: comfort
+        "off":
+          type: turn_off
+
+    ClimateFollowStep:
+      type: object
+      required: [type]
+      description: What a climate `follow` does while the trigger's state is on, or off.
+      properties:
+        type:
+          type: string
+          enum: [turn_on, turn_off, set_preset]
+        preset:
+          type: string
+          description: For `set_preset`.
 
     SaveResult:
       type: object
@@ -545,9 +631,30 @@ components:
           type: string
           description: Sensors only.
 
+    ClimateRef:
+      type: object
+      required: [id, name, presets]
+      properties:
+        id:
+          type: string
+          description: What a climate action names it by.
+        name:
+          type: string
+        presets:
+          type: array
+          items:
+            type: object
+            required: [key, name]
+            properties:
+              key:
+                type: string
+                description: What a climate action names it by.
+              name:
+                type: string
+
     Entities:
       type: object
-      required: [binary_sensors, sensors, switches]
+      required: [binary_sensors, sensors, switches, climates]
       properties:
         binary_sensors:
           type: array
@@ -561,6 +668,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/EntityRef"
+        climates:
+          type: array
+          description: The thermostats, in id order; empty on a firmware without them.
+          items:
+            $ref: "#/components/schemas/ClimateRef"
       example:
         binary_sensors:
           - object_id: input_1
@@ -572,6 +684,12 @@ components:
         switches:
           - object_id: relay_1
             name: Relay 1
+        climates:
+          - id: living-room
+            name: Living Room
+            presets:
+              - key: eco
+                name: Eco
 
     Schema:
       type: object

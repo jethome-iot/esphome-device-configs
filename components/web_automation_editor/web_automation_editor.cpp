@@ -5,6 +5,9 @@
 #include "esphome/components/automations/enums.h"
 #include "esphome/core/application.h"
 #include "esphome/core/log.h"
+#ifdef USE_CLIMATE_HUB
+#include "esphome/components/climate_hub/climate_hub.h"
+#endif
 
 namespace esphome::web_automation_editor {
 
@@ -44,7 +47,8 @@ static const char *const SCHEMA = R"({
   ],
   "actions": [
     {"type": "switch", "subtypes": ["turn_on", "turn_off", "toggle", "follow"]},
-    {"type": "delay"}
+    {"type": "delay"},
+    {"type": "climate", "subtypes": ["turn_on", "turn_off", "set_preset", "set_target", "follow"]}
   ],
   "cron_presets": ["daily", "hourly", "every_n_minutes", "weekly", "monthly", "custom"]
 })";
@@ -206,6 +210,8 @@ void WebAutomationEditor::handle_list_(AsyncWebServerRequest *request) {
       row["action_count"] = config.actions.size();
       row["else_action_count"] = config.else_actions.size();
       row["mode"] = automations::EnumUtils::automation_mode_to_string(config.mode);
+      row["built"] = config.build_error.empty();
+      row["build_error"] = config.build_error;
     }
     serializeJson(doc, json);
     return true;
@@ -280,6 +286,8 @@ void WebAutomationEditor::handle_save_(AsyncWebServerRequest *request) {
   std::string reason;
   int code = 400;
   uint32_t assigned = 0;
+  // Why the engine could not build it, when that was the refusal: what it names is missing.
+  std::string missing;
   const bool wrote = this->storage_->run_on_loop([&]() {
     // The engine refuses a taken name too; this is here to answer with the reason.
     if (this->storage_->is_name_taken(config.name, config.id)) {
@@ -292,15 +300,15 @@ void WebAutomationEditor::handle_save_(AsyncWebServerRequest *request) {
         reason = "Automation not found";
         return false;
       }
-      if (!this->storage_->update_automation(config.id, config)) {
-        reason = "Failed to update automation";
+      if (!this->storage_->update_automation(config.id, config, &missing)) {
+        reason = missing.empty() ? "Failed to update automation" : missing;
         return false;
       }
       return true;
     }
-    assigned = this->storage_->add_automation(config);
+    assigned = this->storage_->add_automation(config, &missing);
     if (assigned == 0) {
-      reason = "Failed to create automation";
+      reason = missing.empty() ? "Failed to create automation" : missing;
       return false;
     }
     return true;
@@ -382,6 +390,30 @@ void WebAutomationEditor::handle_entities_(AsyncWebServerRequest *request) {
   JsonArray binary_sensors = doc["binary_sensors"].to<JsonArray>();
   JsonArray sensors = doc["sensors"].to<JsonArray>();
   JsonArray switches = doc["switches"].to<JsonArray>();
+  JsonArray climates = doc["climates"].to<JsonArray>();
+#ifdef USE_CLIMATE_HUB
+  // The thermostats are the hub's, on the loop task: read them there, as the rules are.
+  climate_hub::ClimateHub *hub = global_climate_hub;
+  if (hub != nullptr && !hub->run_on_loop([&]() {
+        for (const auto &config : hub->store().all()) {
+          JsonObject row = climates.add<JsonObject>();
+          row["id"] = config->id;
+          row["name"] = config->name;
+          JsonArray presets = row["presets"].to<JsonArray>();
+          for (const climate_hub::PresetConfig &preset : config->presets) {
+            JsonObject entry = presets.add<JsonObject>();
+            entry["key"] = preset.key;
+            entry["name"] = preset.name;
+          }
+        }
+        return true;
+      })) {
+    this->send_busy_(request);
+    return;
+  }
+#else
+  (void) climates;
+#endif
 #ifdef USE_BINARY_SENSOR
   for (auto *entity : App.get_binary_sensors()) {
     if (entity->is_internal())
