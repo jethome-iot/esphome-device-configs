@@ -29,7 +29,8 @@ static const Route ROUTES[] = {
 };
 // clang-format on
 
-// What the editor may offer; the engine's parsers are the authority on each word.
+// What the editor may offer; the engine's parsers are the authority on each word. Climate only
+// with the hub: without it a climate action never builds, so it cannot be saved.
 static const char *const SCHEMA = R"({
   "triggers": [
     {"type": "input", "subtypes": ["press", "release", "click", "state_change"]},
@@ -47,8 +48,12 @@ static const char *const SCHEMA = R"({
   ],
   "actions": [
     {"type": "switch", "subtypes": ["turn_on", "turn_off", "toggle", "follow"]},
-    {"type": "delay"},
-    {"type": "climate", "subtypes": ["turn_on", "turn_off", "set_preset", "set_target", "follow"]}
+    {"type": "delay"})"
+#ifdef USE_CLIMATE_HUB
+                                  R"(,
+    {"type": "climate", "subtypes": ["turn_on", "turn_off", "set_preset", "set_target", "follow"]})"
+#endif
+                                  R"(
   ],
   "cron_presets": ["daily", "hourly", "every_n_minutes", "weekly", "monthly", "custom"]
 })";

@@ -228,6 +228,7 @@ paths:
       description: >-
         The trigger, condition and action types with their subtypes, and the
         cron presets, as the engine parses them. A static catalog for menus.
+        The `climate` action is offered only on a firmware with thermostats.
       responses:
         "200":
           description: The catalog.

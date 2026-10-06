@@ -32,6 +32,8 @@ tests/
       test.yaml             # host config: the component under test, its entities, the harness
       cases/                # the tests; common.h holds what they share
       test_schema.py        # the component's YAML schema, run with unittest by run.py
+    automations_no_climate/   # automations and web_automation_editor on a firmware without
+                              # climate_hub; their own suites build with it
     bindings/               # the same layout, one suite per component
     climate_hub/
     config_json/

@@ -60,8 +60,8 @@ simply be made again.
 | POST | `save` | A rule as a JSON body; `id` absent or `0` creates, an existing `id` replaces that rule, renamed or not. Answers `{"success": true, "message", "id"}` on create, without `id` on update |
 | POST | `delete?id=` | Removes the rule and its file; `Failed to delete automation` when the engine refuses |
 | GET | `export` | `{"version": 1, "automations": [...]}`, every rule as `get` returns it — the backup file a client re-imports rule by rule through `save`, with each `id` dropped so the rules are created |
-| GET | `entities` | `{"binary_sensors", "sensors", "switches"}`, each `[{"object_id", "name"}, ...]`, sensors with `"unit"`; internal entities are left out. `"climates"`: the thermostats, `[{"id", "name", "presets": [{"key", "name"}, ...]}, ...]`, by the id and keys a climate action names |
-| GET | `schema` | The trigger, condition and action types and subtypes and the cron presets the engine parses, for an editor's menus |
+| GET | `entities` | `{"binary_sensors", "sensors", "switches"}`, each `[{"object_id", "name"}, ...]`, sensors with `"unit"`; internal entities are left out. `"climates"`: the thermostats, `[{"id", "name", "presets": [{"key", "name"}, ...]}, ...]`, by the id and keys a climate action names; empty on a firmware without them |
+| GET | `schema` | The trigger, condition and action types and subtypes and the cron presets the engine parses, for an editor's menus. The `climate` action only on a firmware with thermostats (`climate_hub`) |
 | POST | `reboot` | Answers, then `App.safe_reboot()` |
 | GET | `ping` | `{"status": "ok"}` |
 
@@ -111,4 +111,5 @@ type-checks them yet.
 `python tests/run.py web_automation_editor` builds the handler for the ESPHome `host` platform
 over the real engine, a directory standing in for the flash and the harness's `web_server_base`
 stand-in, and drives every route through it; the cases are in
-`tests/components/web_automation_editor/`. See [doc/TESTING.md](../../doc/TESTING.md).
+`tests/components/web_automation_editor/`. `python tests/run.py automations_no_climate` does
+the same on a firmware without `climate_hub`. See [doc/TESTING.md](../../doc/TESTING.md).

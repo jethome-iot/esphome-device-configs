@@ -60,6 +60,7 @@ the usage in [its README](../components/web_automation_editor/README.md).
 ```bash
 python tests/run.py automations [-- --gtest_filter='Storage.*']
 python tests/run.py web_automation_editor
+python tests/run.py automations_no_climate
 ```
 
 Builds the engine for the host platform into a Google Test binary and runs
@@ -67,4 +68,5 @@ Builds the engine for the host platform into a Google Test binary and runs
 the JSON and cron parsers, rules driven by hand with every delay held back until the test fires
 it, the cron tick against a clock the test moves, and the whole component over a directory that
 stands in for the flash. The second suite drives every HTTP route through the handler, over the
-real engine and a stand-in for the web server. How to add a case: [TESTING.md](TESTING.md).
+real engine and a stand-in for the web server. The third builds both on a firmware without
+thermostats. How to add a case: [TESTING.md](TESTING.md).
