@@ -77,6 +77,9 @@ struct Entities {
   // Visible, but not in °C: no thermostat input.
   sensor::Sensor uptime;
   sensor::Sensor counter;
+  // contract.json's probes, under the client mock's ids.
+  sensor::Sensor temp1;
+  sensor::Sensor temp2;
   FakeSwitch relay1;
   FakeSwitch relay2;
   FakeSwitch hidden;
@@ -105,6 +108,8 @@ inline Entities &entities() {
     App.register_sensor(&e->probe, "Probe", fnv1_hash("probe"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);
     App.register_sensor(&e->uptime, "Uptime", fnv1_hash("uptime"), unit_field("s"));
     App.register_sensor(&e->counter, "Counter", fnv1_hash("counter"), 0);
+    App.register_sensor(&e->temp1, "Temp 1", fnv1_hash("temp_1"), celsius);
+    App.register_sensor(&e->temp2, "Temp 2", fnv1_hash("temp_2"), celsius);
     App.register_switch(&e->relay1, "Relay 1", fnv1_hash("relay_1"), 0);
     App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
     App.register_switch(&e->hidden, "Hidden", fnv1_hash("hidden"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);
@@ -112,6 +117,16 @@ inline Entities &entities() {
     return e;
   }();
   return *instance;
+}
+
+// The probes without a reading and the relays off, as each case starts.
+inline void reset_entities() {
+  for (sensor::Sensor *sensor : {&entities().room, &entities().floor, &entities().temp1, &entities().temp2}) {
+    sensor->state = NAN;
+    sensor->set_has_state(false);
+  }
+  for (FakeSwitch *relay : {&entities().relay1, &entities().relay2})
+    relay->publish_state(false);
 }
 
 inline dir_storage::DirStorage &storage() {
@@ -143,6 +158,14 @@ class TestHub : public climate_hub::ClimateHub {
 
   // Every climate entity in use, as when App had no room for the whole pool.
   void take_every_slot() { this->free_.clear(); }
+  // And back: every entity no thermostat runs in is free again.
+  void free_idle_slots() {
+    this->free_.clear();
+    for (Slot *slot : this->slots_) {
+      if (!slot->runtime.running())
+        this->free_.push_back(slot);
+    }
+  }
 
   // Back to a hub that has loaded nothing, its pool as setup() left it. App keeps the entities
   // and the sensors keep their callbacks into the hub, so it is reset, never replaced.
@@ -228,13 +251,7 @@ inline std::string with(const char *json, const std::string &fields) {
 class Editor : public ::testing::Test {
  protected:
   void SetUp() override {
-    entities();
-    for (sensor::Sensor *sensor : {&entities().room, &entities().floor}) {
-      sensor->state = NAN;
-      sensor->set_has_state(false);
-    }
-    for (FakeSwitch *relay : {&entities().relay1, &entities().relay2})
-      relay->publish_state(false);
+    reset_entities();
     mkdir(".storage", 0755);
     char folder[] = ".storage/XXXXXX";
     ASSERT_NE(mkdtemp(folder), nullptr);

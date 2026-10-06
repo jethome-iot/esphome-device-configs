@@ -270,6 +270,8 @@ untouched; any button then takes the page away, and it leaves on its own after h
 - **Relays** - a submenu per relay: toggle it, and set its inversion, start mode and bound input; on a relay a running thermostat drives, the State row shows the thermostat and does not toggle, and Inverted opens on the thermostat's name and does not change
 - **Inputs** - a submenu per input: live state and inversion
 - **Temperatures** - temperature sensor readings; a DS18B20 row opens its slot: the ROM address and a forget command
+- **Thermostats** - a row per thermostat with what its sensor reads; it opens the thermostat's name, the reading, what it is doing (heating, idle, waiting, a fault), the target and Enabled. The list is the one the device booted with: a thermostat created later shows after a reboot
+- **Automations** - a row per rule that switches it on or off; the list is the one the device booted with
 - **Info** - network information (Ethernet and WiFi IP and MAC addresses, access point password), then the serial number from the CPU board's EEPROM (`--` when it holds none)
 - **Settings** - display auto-off timer, Modbus settings, firmware updates (the running and the offered version, the release channel, a check, an install, and a rollback row that says whether there is a firmware to go back to; after a rollback the same row goes forward again), temperature slots, network mode, WiFi credential reset, reboot; a factory reset clears the stored preferences (WiFi credentials, settings) and formats the user partition, taking the temperature slot table, the automation rules and uploaded files with it
 
