@@ -42,7 +42,7 @@ class RelayClaim {
   /// it open but something else closed it. A relay already open is not touched: nothing moves,
   /// so no dwell starts. `paced`: a relay closed from elsewhere is put back as request() puts
   /// it back; otherwise, for a safety cut-out, no reading yet or a teardown, at once.
-  void force_off(uint32_t now_ms, bool paced = false);
+  void force_off(uint32_t now_ms, bool paced);
 
   /// Carries on from a switching an earlier claim on the relay made, dwell and all. What the
   /// relay shows at the first look after it is no move from elsewhere: a boot may have
@@ -59,7 +59,8 @@ class RelayClaim {
 
   bool state() const { return this->state_; }
   const std::string &owner() const { return this->owner_; }
-  /// A new holder starts with no moves held against it.
+  /// A new holder starts with no moves held against it, and, as after resume(), what its first
+  /// look finds is no move.
   void set_owner(const std::string &owner);
   switch_::Switch *relay() const { return this->sw_; }
 
@@ -85,7 +86,7 @@ class RelayClaim {
   uint32_t min_on_ms_{0};
   uint32_t min_off_ms_{0};
   uint32_t last_change_ms_{0};
-  // When the last counted move was put back, or the demand came round to it.
+  // When the last move from elsewhere was put back or left nothing to put back, counted or not.
   uint32_t put_back_ms_{0};
   uint32_t moves_{0};
   // A move went back at once since the last quiet spell, counted or not: the next one is paced.
@@ -94,7 +95,7 @@ class RelayClaim {
   bool initialized_{false};
   // state_ is where something else moved the relay, held until its dwell is over.
   bool pending_{false};
-  // Nothing has looked at the relay since the claim was made or resumed.
+  // Nothing has looked at the relay since the claim was made, resumed or handed over.
   bool fresh_{true};
 };
 

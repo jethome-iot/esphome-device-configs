@@ -147,15 +147,14 @@ before its name rules.
 - A change of mode or target takes effect at the next loop pass, not at the next interval.
 - **Safety.** A thermostat keeps its relays open until its first reading, idle and without a
   fault, and opens one closed from elsewhere meanwhile again on every pass. With no reading
-  within `sensor_timeout_s` of its start it reports `sensor_stale`. It opens
-  them as well when its sensor has been silent for `sensor_timeout_s`, while the reading is
-  above `safety.max_temperature`, and in mode `off`. A thermostat that starts shows its
-  sensor's last value at once, but acts on it only if it arrived within `sensor_timeout_s`
-  while a thermostat was running on that sensor, and the timeout runs from that reading;
-  otherwise it waits for the next one. A reading that is not a finite number, `NaN` or an
-  infinity, is no reading: it is neither shown nor acted on, so a thermostat whose sensor sends
-  nothing else reports `sensor_stale` once `sensor_timeout_s` has passed since its last good
-  one.
+  within `sensor_timeout_s` of its start it reports `sensor_stale`. It opens them as well when
+  its sensor has been silent for `sensor_timeout_s`, while the reading is above
+  `safety.max_temperature`, and in mode `off`. A thermostat that starts shows its sensor's last
+  value at once, but acts on it only if it arrived within `sensor_timeout_s` while a thermostat
+  was running on that sensor, and the timeout runs from that reading; otherwise it waits for the
+  next one. A reading that is not a finite number, `NaN` or an infinity, is no reading: it is
+  neither shown nor acted on, so a thermostat whose sensor sends nothing else reports
+  `sensor_stale` once `sensor_timeout_s` has passed since its last good one.
 - `min_on_s` and `min_off_s` hold a relay closed or open that long after it moved, whichever
   thermostat moved it or put it back; a safety cut-out does not wait for them. A relay no
   thermostat has held since boot counts as opened at boot, so `min_off_s` holds across a
@@ -186,14 +185,15 @@ thermostat puts back. The first move goes back within a loop pass. From the seco
 relay stays where it was moved until its `min_on_s` or `min_off_s` there is over, 10 s at
 least, so a writer that keeps at it gets one switch per dwell. A relay moved where the
 thermostat would switch it now stays and is not counted; moved there before the thermostat's
-own `min_on_s` or `min_off_s` is over, it goes back but is not counted either. Once 5 moves
-come without 10 quiet minutes after a put-back between them, the thermostat reports
-`relay_contested`: it goes on controlling and putting the relay back, and the fault clears by
-itself 10 minutes after the last put-back. The count starts over when a thermostat starts or
-takes the relay over, not at a Save, and a relay the thermostat finds moved when it claims it,
-closed by Start mode On at boot say, counts as no move. Until the first reading and during
-`sensor_stale` and `overtemp`, a relay closed from elsewhere is opened again on every pass,
-without waiting. Mode `off` keeps holding the relays open and puts them back the same way.
+own `min_on_s` or `min_off_s` is over, it is not counted either: as the first move it goes
+back, from the second on it stays. Once 5 moves come without 10 quiet minutes after a put-back
+between them, the thermostat reports `relay_contested`: it goes on controlling and putting the
+relay back, and the fault clears by itself 10 minutes after the last put-back. The count
+starts over when a thermostat starts or takes the relay over, not at a Save, and a relay the
+thermostat finds moved when it claims it, closed by Start mode On at boot say, counts as no
+move. Until the first reading and during `sensor_stale` and `overtemp`, a relay closed from
+elsewhere is opened again on every pass, without waiting. Mode `off` keeps holding the relays
+open and puts them back the same way.
 
 Two thermostats may name the same relay and take turns: only one of them is enabled at a time.
 Enabling the second, or saving it enabled, while the first is enabled is refused, naming the

@@ -1582,7 +1582,8 @@ TEST_F(ControlLoop, AStopFreesTheRelay) {
   EXPECT_TRUE(entities().relay1.state);
 }
 
-// A thermostat that takes the relay over starts with no moves held against it.
+// A thermostat that takes the relay over starts with no moves held against it, and a move it
+// finds at its first look, made after the holder's last pass, is none either.
 TEST_F(ControlLoop, ATakeOverStartsWithNoMovesAgainstTheTaker) {
   ClimateConfig winter = this->base(ControlKind::BANG_BANG);
   winter.name = "Winter";
@@ -1600,11 +1601,16 @@ TEST_F(ControlLoop, ATakeOverStartsWithNoMovesAgainstTheTaker) {
   summer.enabled = false;
   this->create(summer);
 
+  entities().relay1.turn_off();
   ASSERT_TRUE(hub().set_enabled("summer", true, true).ok);
   EXPECT_EQ(0u, hub().claim("relay_1")->moves());
+  tick(t += 1000);
+  EXPECT_TRUE(entities().relay1.state) << "found moved, it goes back";
+  EXPECT_EQ(0u, hub().claim("relay_1")->moves()) << "and is no move";
   entities().relay1.turn_off();
   tick(t += 1000);
   EXPECT_TRUE(entities().relay1.state) << "the taker's first move goes back at once";
+  EXPECT_EQ(1u, hub().claim("relay_1")->moves());
   EXPECT_EQ(HubFault::NONE, hub().runtime_of("summer")->fault());
 }
 
@@ -1624,6 +1630,26 @@ TEST_F(ControlLoop, ASaveKeepsTheMoves) {
   ASSERT_TRUE(hub().update(this->id_, config).ok);
   tick(t += 1000);
   EXPECT_EQ(HubFault::RELAY_CONTESTED, rt->fault());
+}
+
+// A Save that drops a relay whose put-back waits opens it at once: let go, nothing would open it
+// later, and it would stay closed with no thermostat on it.
+TEST_F(ControlLoop, ASaveThatDropsARelayWhosePutBackWaitsOpensItAtOnce) {
+  ClimateConfig config = this->base(ControlKind::BANG_BANG);
+  this->start(config, 22.f);
+  tick(200000);
+  ASSERT_FALSE(entities().relay1.state);
+  entities().relay1.turn_on();
+  tick(201000);
+  ASSERT_FALSE(entities().relay1.state) << "the first close goes back at once";
+  entities().relay1.turn_on();
+  tick(202000);
+  ASSERT_TRUE(entities().relay1.state) << "the second waits the floor";
+
+  config.heat.relay_id = "relay_2";
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  EXPECT_EQ("", hub().claimed_by("relay_1"));
+  EXPECT_FALSE(entities().relay1.state);
 }
 
 // The runtime on its own: with no reading every close from elsewhere is undone at once; in mode

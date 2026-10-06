@@ -22,10 +22,10 @@ export type StandardPresetName = 'eco' | 'away' | 'boost' | 'comfort' | 'home' |
 export type ClimateHubAction = 'off' | 'idle' | 'heating' | 'cooling'
 
 /**
- * Why a running controller is not controlling. Never persisted. `relay_contested`
- * alone keeps it controlling: something else keeps moving one of its relays. A sensor
- * or relay the device does not have is no fault: the thermostat waits, and says why
- * in `waiting`.
+ * What is wrong with a running controller. Never persisted. `sensor_stale` and
+ * `overtemp` stop it controlling; `relay_contested` only reports that something else
+ * keeps moving one of its relays, and it goes on. A sensor or relay the device does
+ * not have is no fault: the thermostat waits, and says why in `waiting`.
  */
 export type ClimateHubFault = 'none' | 'sensor_stale' | 'overtemp' | 'relay_contested'
 

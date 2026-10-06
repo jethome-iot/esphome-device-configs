@@ -136,7 +136,7 @@ TEST(RelayClaim, ForceOffIgnoresMinimumOnTime) {
   claim.set_dwell(60000, 0);
 
   claim.request(true, 0);
-  claim.force_off(10);
+  claim.force_off(10, false);
   EXPECT_FALSE(claim.state()) << "a safety cut-out cannot wait out a dwell floor";
   EXPECT_FALSE(relay.state);
 }
@@ -236,18 +236,18 @@ TEST(RelayClaim, ARelayMovedWhereTheDemandMayGoStays) {
 TEST(RelayClaim, ForceOffReopensARelayClosedByHand) {
   FakeSwitch relay;
   RelayClaim claim(&relay, "boiler");
-  claim.force_off(0);
+  claim.force_off(0, false);
   ASSERT_FALSE(relay.state);
 
   relay.turn_on();  // by hand, while the claim believes it open
   ASSERT_TRUE(relay.state);
   const int writes = relay.writes;
 
-  claim.force_off(10);
+  claim.force_off(10, false);
   EXPECT_FALSE(relay.state) << "compared against the switch, not against the belief";
   EXPECT_EQ(writes + 1, relay.writes);
 
-  claim.force_off(20);
+  claim.force_off(20, false);
   EXPECT_EQ(writes + 1, relay.writes) << "an open relay is left alone";
 }
 
@@ -257,7 +257,7 @@ TEST(RelayClaim, ForceOffOnAnOpenRelayLeavesTheFirstRequestFree) {
   FakeSwitch relay;
   RelayClaim claim(&relay, "boiler");
   claim.set_dwell(0, 60000);
-  claim.force_off(1000);
+  claim.force_off(1000, false);
   EXPECT_EQ(0, relay.writes) << "nothing to open";
   RelaySwitching last;
   EXPECT_FALSE(claim.last_switching(&last)) << "nothing switched yet";
@@ -274,7 +274,7 @@ TEST(RelayClaim, AClaimOpenSinceBootCountsMinOffFromTheBoot) {
   claim.set_dwell(0, 60000);
   claim.resume({false, 0});
   EXPECT_FALSE(claim.request(false, 1000));
-  claim.force_off(2000);
+  claim.force_off(2000, false);
   EXPECT_EQ(0, relay.writes) << "keeping an open relay open is no move";
   EXPECT_FALSE(claim.request(true, 59999));
   EXPECT_TRUE(claim.request(true, 60000));
@@ -289,7 +289,7 @@ TEST(RelayClaim, ResumesTheDwellOfAnEarlierClaim) {
     RelayClaim before(&relay, "winter");
     EXPECT_FALSE(before.last_switching(&last)) << "nothing switched yet";
     before.request(true, 0);
-    before.force_off(1000);
+    before.force_off(1000, false);
     ASSERT_TRUE(before.last_switching(&last));
   }
   EXPECT_FALSE(last.on);
@@ -308,7 +308,7 @@ TEST(RelayClaim, AResumedClaimStillCutsOutAtOnce) {
   RelayClaim claim(&relay, "boiler");
   claim.set_dwell(60000, 0);
   claim.resume({true, 0});
-  claim.force_off(10);
+  claim.force_off(10, false);
   EXPECT_FALSE(relay.state) << "a safety cut-out cannot wait out a dwell floor";
 }
 
@@ -538,7 +538,7 @@ TEST(RelayClaim, TheFirstLookAfterAResumeCountsNothing) {
     RelayClaim claim(&relay, "boiler");
     claim.resume({false, 0});
     if (cut_out) {
-      claim.force_off(1000);
+      claim.force_off(1000, false);
     } else {
       claim.request(false, 1000);
     }
@@ -587,7 +587,7 @@ TEST(RelayClaim, ACutOutKeepsARelayOpenedElsewhereOpen) {
   claim.set_dwell(60000, 0);
   claim.request(true, 0);
   relay.turn_off();
-  claim.force_off(1000);
+  claim.force_off(1000, false);
   EXPECT_FALSE(relay.state);
   EXPECT_FALSE(claim.state());
   EXPECT_EQ(0u, claim.moves());
@@ -599,7 +599,7 @@ TEST(RelayClaim, AClaimWithoutASwitchSeesNoMoves) {
   claim.set_dwell(5000, 0);
   EXPECT_TRUE(claim.request(true, 0));
   EXPECT_TRUE(claim.request(false, 4999));
-  claim.force_off(5000);
+  claim.force_off(5000, false);
   EXPECT_FALSE(claim.state());
   EXPECT_EQ(0u, claim.moves());
 }
@@ -611,10 +611,10 @@ TEST(RelayClaim, ACutOutOpensEveryCloseAtOnce) {
   RelayClaim claim(&relay, "boiler");
   claim.set_dwell(60000, 60000);
   claim.resume({false, 0});
-  claim.force_off(1000);
+  claim.force_off(1000, false);
   for (uint32_t t = 2000; t <= 7000; t += 1000) {
     relay.turn_on();
-    claim.force_off(t);
+    claim.force_off(t, false);
     EXPECT_FALSE(relay.state) << "at " << t;
   }
   EXPECT_EQ(6u, claim.moves());
@@ -635,7 +635,7 @@ TEST(RelayClaim, ACutOutOpensAPacedCloseAtOnce) {
 
   claim.force_off(3000, true);
   EXPECT_TRUE(relay.state) << "held open as in mode off, it still waits";
-  claim.force_off(3000);
+  claim.force_off(3000, false);
   EXPECT_FALSE(relay.state);
   EXPECT_EQ(2u, claim.moves());
 }
@@ -687,7 +687,7 @@ TEST(RelayClaim, AMoveOnEveryPassIsLoggedAtEachDoubling) {
   LogCapture::instance().clear();
   for (uint32_t t = 1000; t <= 75000; t += 1000) {
     relay.turn_on();
-    claim.force_off(t);
+    claim.force_off(t, false);
   }
   ASSERT_EQ(75u, claim.moves());
   std::vector<unsigned long> logged;

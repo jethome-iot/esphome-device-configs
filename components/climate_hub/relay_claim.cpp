@@ -147,6 +147,7 @@ void RelayClaim::set_owner(const std::string &owner) {
   this->owner_ = owner;
   this->forget_moves_();
   this->pending_ = false;
+  this->fresh_ = true;
 }
 
 void RelayClaim::forget_moves_() {
