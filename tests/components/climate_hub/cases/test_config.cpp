@@ -19,7 +19,7 @@ ClimateConfig sample() {
 }
 
 const char *const GOLDEN =
-    R"({"version":2,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
+    R"({"version":3,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
     R"("update_interval_s":30,"heat":{"relay_id":"relay_1","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("cool":{"relay_id":"","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("visual":{"min_temperature":5,"max_temperature":45,"step":0.5},)"
@@ -28,7 +28,7 @@ const char *const GOLDEN =
     R"("output_samples":1,"derivative_samples":8,"deadband_threshold_low":0,"deadband_threshold_high":0,)"
     R"("deadband_kp_multiplier":0,"deadband_ki_multiplier":0,"deadband_kd_multiplier":0,)"
     R"("deadband_output_samples":1},"bang_bang":{"below":0.5,"above":0.5},"mode":"heat",)"
-    R"("setpoint":21,"presets":[],"active_preset":""})";
+    R"("last_on_mode":"heat","setpoint":21,"presets":[],"active_preset":""})";
 
 // What the first firmware with thermostats wrote: no presets, version 1.
 const char *const GOLDEN_V1 =
@@ -61,7 +61,7 @@ ClimateConfig with_presets() {
 }
 
 const char *const GOLDEN_PRESETS =
-    R"({"version":2,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
+    R"({"version":3,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
     R"("update_interval_s":30,"heat":{"relay_id":"relay_1","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("cool":{"relay_id":"relay_2","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("visual":{"min_temperature":5,"max_temperature":45,"step":0.5},)"
@@ -70,7 +70,7 @@ const char *const GOLDEN_PRESETS =
     R"("output_samples":1,"derivative_samples":8,"deadband_threshold_low":0,"deadband_threshold_high":0,)"
     R"("deadband_kp_multiplier":0,"deadband_ki_multiplier":0,"deadband_kd_multiplier":0,)"
     R"("deadband_output_samples":1},"bang_bang":{"below":0.5,"above":0.5},"mode":"heat",)"
-    R"("setpoint":21,"presets":[{"key":"eco","name":"Eco","setpoint":18,"mode":"keep"},)"
+    R"("last_on_mode":"heat","setpoint":21,"presets":[{"key":"eco","name":"Eco","setpoint":18,"mode":"keep"},)"
     R"({"key":"night","name":"Night","setpoint":19.5,"mode":"heat_cool"}],"active_preset":"night"})";
 
 // A document with a heating and a cooling relay and `presets` spliced in as its preset list.
@@ -123,7 +123,7 @@ TEST(ClimateConfigJson, ANewerVersionIsKept) {
     const char *version;
     uint16_t expected;
   };
-  const Case cases[] = {{"3", 3}, {"2.5", 3}, {"70000", 65535}, {"2", 2}, {"0", 2}, {"-4", 2}, {"\"9\"", 2}};
+  const Case cases[] = {{"4", 4}, {"3.5", 4}, {"70000", 65535}, {"3", 3}, {"2", 3}, {"0", 3}, {"-4", 3}, {"\"9\"", 3}};
   for (const Case &c : cases) {
     ClimateConfig parsed;
     std::string error;

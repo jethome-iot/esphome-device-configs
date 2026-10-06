@@ -40,6 +40,7 @@ import type {
   ClimateHubAction,
   ClimateHubFault,
   ClimateHubMode,
+  ClimateHubOnMode,
   ClimateSchema,
   ControllerDocument,
   ControllerStatus,
@@ -63,6 +64,7 @@ import { nameError, presetKey, presetNameError, slugify, standardPreset, trimNam
 
 const MAX_CONTROLLERS = 8
 const MODES = ['off', 'heat', 'cool', 'heat_cool'] as const
+const ON_MODES = ['heat', 'cool', 'heat_cool'] as const
 
 // --- Seed data ---------------------------------------------------------------
 // Typed against the SDK contract, so these double as canonical example payloads
@@ -241,6 +243,7 @@ export function blankDocument(): ControllerDocument {
     },
     bang_bang: { below: def('hysteresis_below'), above: def('hysteresis_above') },
     mode: 'heat',
+    last_on_mode: 'heat',
     setpoint: 21,
     presets: [],
     active_preset: ''
@@ -441,6 +444,21 @@ function modeSupported(doc: ControllerDocument, mode: ClimateHubMode): boolean {
   )
 }
 
+// ClimateConfig::on_mode(): the mode while it is not off, else `last` while the relays serve
+// it, else heat, or cool for a cooling-only thermostat. What the device serves as last_on_mode.
+function onMode(doc: ControllerDocument, last: ClimateHubOnMode | undefined): ClimateHubOnMode {
+  if (doc.mode !== 'off') return doc.mode
+  if (last && modeSupported(doc, last)) return last
+  return doc.heat.relay_id ? 'heat' : 'cool'
+}
+
+// ClimateConfig::set_mode(): the mode it leaves is the one a turn-on goes back to.
+function setMode(doc: ControllerDocument, mode: ClimateHubMode) {
+  const last = onMode(doc, doc.last_on_mode)
+  doc.mode = mode
+  doc.last_on_mode = onMode(doc, last)
+}
+
 // ClimateConfig's own mode rule, worded for the thermostat or for one of its presets.
 function modeNeeds(mode: ClimateHubMode): string {
   return mode === 'heat' ? 'heat.relay_id' : mode === 'cool' ? 'cool.relay_id' : 'both relays'
@@ -511,7 +529,7 @@ function findPreset(doc: ControllerDocument, key: string): PresetConfig | undefi
 function pickPreset(doc: ControllerDocument, preset: PresetConfig) {
   doc.setpoint = Math.min(Math.max(preset.setpoint, doc.visual.min_temperature), doc.visual.max_temperature)
   doc.active_preset = preset.key
-  if (preset.mode !== 'keep' && modeSupported(doc, preset.mode)) doc.mode = preset.mode
+  if (preset.mode !== 'keep' && modeSupported(doc, preset.mode)) setMode(doc, preset.mode)
 }
 
 export function decodeDocument(raw: unknown): { doc: ControllerDocument } | { error: string } {
@@ -582,6 +600,14 @@ export function decodeDocument(raw: unknown): { doc: ControllerDocument } | { er
     if (!mode) return { error: 'mode must be one of off/heat/cool/heat_cool' }
     doc.mode = mode
   }
+  // State, like active_preset: one the relays no longer serve gives way. A word it does not
+  // know is refused as any other is.
+  let last: ClimateHubOnMode | undefined
+  if (root.last_on_mode !== undefined && root.last_on_mode !== null) {
+    last = ON_MODES.find((m) => m === root.last_on_mode)
+    if (!last) return { error: 'last_on_mode must be one of heat/cool/heat_cool' }
+  }
+  doc.last_on_mode = onMode(doc, last)
   if (!modeSupported(doc, doc.mode)) return { error: `mode '${doc.mode}' needs ${modeNeeds(doc.mode)}` }
 
   doc.setpoint = numberOr(root.setpoint, doc.setpoint)
@@ -1029,7 +1055,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     const previousMode = doc.mode
     if (call.preset) pickPreset(doc, call.preset)
     const mode = MODES.find((m) => m === call.mode)
-    if (mode && modeSupported(doc, mode)) doc.mode = mode
+    if (mode && mode !== doc.mode && modeSupported(doc, mode)) setMode(doc, mode)
     if (typeof call.target === 'number' && !Number.isNaN(call.target)) {
       doc.setpoint = clamp(call.target, doc.visual.min_temperature, doc.visual.max_temperature)
     }
@@ -1125,6 +1151,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     }
     const taken = nameError(doc.name, doc.id, [...docs, ...yamlClimates])
     if (taken) return fail(409, taken)
+    // The thermostat's state, not the body's: a create starts from its mode.
+    doc.last_on_mode = onMode(doc, stored?.last_on_mode)
     if (stored) {
       keepPresetState(stored, doc)
     } else {

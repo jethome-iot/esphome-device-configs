@@ -65,6 +65,8 @@ class ControllerRuntime {
   bool control(const climate::ClimateCall &call);
   /// Takes `preset`, one of the running document's, as a pick from Home Assistant would.
   bool pick_preset(const PresetConfig &preset);
+  /// Takes `mode`, as Home Assistant's mode would; one the relays do not serve is ignored.
+  bool set_mode(HubMode mode);
 
   /// OFF only in mode off, on a fault but relay_contested, or stopped; otherwise IDLE when
   /// neither heating nor cooling.

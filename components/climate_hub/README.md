@@ -60,7 +60,7 @@ component: it would list the entities no thermostat is using.
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "id": "living-room",
   "name": "Living room",
   "enabled": true,
@@ -78,6 +78,7 @@ component: it would list the entities no thermostat is using.
           "deadband_output_samples": 1},
   "bang_bang": {"below": 0.5, "above": 0.5},
   "mode": "heat",
+  "last_on_mode": "heat",
   "setpoint": 21,
   "presets": [
     {"key": "eco", "name": "Eco", "setpoint": 18, "mode": "keep"},
@@ -89,13 +90,14 @@ component: it would list the entities no thermostat is using.
 
 | Key                  | Values                                                                     |
 | -------------------- | -------------------------------------------------------------------------- |
-| `version`            | `2`, the format this firmware writes; a file without one, or with `1`, is read as `2`. A higher one is a file from a newer firmware, see [Storage](#storage) |
+| `version`            | `3`, the format this firmware writes; a file without one, or with `1` or `2`, is read as `3`. A higher one is a file from a newer firmware, see [Storage](#storage) |
 | `id`                 | Made from the name when the thermostat is created (`a-z`, `0-9`, single dashes, at most 48; `New` gets `new-2`, since the dashboard opens a blank editor at `new`), then never changes; the file is `<id>.json` |
 | `name`               | 1 to 48 printable ASCII characters, neither `/` nor `\`, trimmed; also the climate entity's name |
 | `kind`               | `bang_bang` (the default) or `pid`                                         |
 | `sensor_id`          | The object id of a temperature sensor that reports °C, `temp_1` for `Temp 1`; at most 120 characters, the longest an object id gets |
 | `heat`, `cool`       | `relay_id`: the object id of a switch, `""` for a direction not used; at least one, not the same one twice, at most 120 characters |
 | `mode`               | `off`, `heat`, `cool` or `heat_cool`; a mode needs the relays it drives    |
+| `last_on_mode`       | The mode `turn_on()` goes back to: `mode` while it is not `off`, otherwise the one it was in before, `heat`, `cool` or `heat_cool`. One the relays no longer serve, or none in the file, reads as `heat`, or `cool` for a cooling-only thermostat. The thermostat's state: `create()` starts it from `mode`, `update()` keeps it |
 | `setpoint`           | The one target, held inside `visual.min_temperature` … `visual.max_temperature` |
 | `bang_bang`          | The switching points sit `below` and `above` the target                   |
 | `presets`            | Up to 8, in the order Home Assistant lists the custom ones; see [Presets](#presets) |
@@ -287,14 +289,20 @@ got to it.
 - `sensor_reading(sensor_object_id)`: what a sensor reads now, `NaN` without a finite reading
   in °C
 - `create(draft)`, `update(id, doc)`, `remove(id)`, `set_enabled(id, enabled, take_over)`,
-  `set_setpoint(id, value)`, `apply_preset(id, key)`: each returns a `Result` — `ok`, the HTTP
+  `set_setpoint(id, value)`, `apply_preset(id, key)`, `turn_off(id)`, `turn_on(id)`: each
+  returns a `Result` — `ok`, the HTTP
   `code` that fits (400, 404, 409, 413 for a file that would be over 8 KiB, 500, 507), an
   `error` sentence (the one the editor shows), the new `id`, the `holder` of a relay (running,
   or enabled and waiting), a `warning` when the thermostat was saved enabled but does not run
   (its sensor or a relay is not on the device, or no climate entity was free), `persisted`,
   false when the change is live but did not reach flash, the ids a take-over `stopped`, and the
   ids of the waiting thermostats that `started` on a relay the change freed. `apply_preset()`
-  picks a preset by its key, running or not: 404 `Thermostat not found` or `Preset not found`
+  picks a preset by its key, running or not: 404 `Thermostat not found` or `Preset not found`.
+  `turn_off()` sets mode `off` and `turn_on()` the `last_on_mode`, running or not, as Home
+  Assistant would, with `persisted` false when the file came from a newer firmware
+- `add_on_change_callback(callback)`: `callback(id)` runs after a thermostat is created or
+  removed, and after a Save that changed its preset keys, so the automation rules that name it
+  are built or dropped to match
 - a document's `from_newer_firmware()`: its file came from a newer firmware, so `update()`
   refuses it
 - `validate_name(name, &error)`, `is_name_taken(name, exclude_id, &error)`

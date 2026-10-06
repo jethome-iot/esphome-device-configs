@@ -132,6 +132,17 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// mode if it has one, and the label. 404 for an unknown thermostat or key; `persisted` false
   /// when it changed one a newer firmware wrote, whose file keeps what it had.
   Result apply_preset(const std::string &id, const std::string &key);
+  /// Mode off, running or not, as Home Assistant would set it. 404 for an unknown thermostat;
+  /// `persisted` as apply_preset().
+  Result turn_off(const std::string &id);
+  /// Back to the mode it had before it went off, its on_mode(), as turn_off().
+  Result turn_on(const std::string &id);
+
+  /// `callback(id)` runs at the end of a create, a removal, and a Save that changed the
+  /// thermostat's preset keys: what the automation rules name of it.
+  template<typename F> void add_on_change_callback(F &&callback) {
+    this->change_callback_.add(std::forward<F>(callback));
+  }
 
   /// The name rules on a trimmed name, with the sentence that says which one broke.
   static bool validate_name(const std::string &name, std::string *error) {
@@ -211,6 +222,7 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   SensorSubscription *subscribe_(sensor::Sensor *sensor);
   void on_sample_(SensorSubscription *sub, float value);
   void on_control_(uint8_t index, const climate::ClimateCall &call);
+  Result set_mode_(const std::string &id, HubMode mode);
 
   /// A free id made from `name`, "" when every one is taken.
   std::string next_id_(const std::string &name) const;
@@ -257,6 +269,8 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   std::map<std::string, switch_::Switch *> freed_;
   // One per sensor, kept for the life of the device: upstream has no callback removal.
   std::vector<std::unique_ptr<SensorSubscription>> sensor_subs_;
+
+  CallbackManager<void(const std::string &)> change_callback_;
 
   std::set<std::string> dirty_;
   uint32_t dirty_since_ms_{0};

@@ -334,11 +334,12 @@
       "body": null,
       "status": 200,
       "expect": {
-        "version": 2,
+        "version": 3,
         "id": "living-room",
         "name": "Living Room",
         "enabled": true,
         "setpoint": 22,
+        "last_on_mode": "heat",
         "heat.relay_id": "relay_1",
         "heat.min_on_s": 10,
         "cool.relay_id": "",
@@ -2991,10 +2992,135 @@
           "expect": {
             "setpoint": 19.5,
             "mode": "off",
-            "active_preset": "night"
+            "active_preset": "night",
+            "last_on_mode": "heat"
           }
         }
       ]
+    },
+    {
+      "name": "A Save that turns a thermostat off keeps the mode it goes back on in, whatever the body says",
+      "setup": [
+        "studio"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "id": "studio",
+        "name": "Studio",
+        "enabled": false,
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "off",
+        "last_on_mode": "cool",
+        "setpoint": 22
+      },
+      "status": 200,
+      "expect": {
+        "success": true
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "mode": "off",
+            "last_on_mode": "heat_cool"
+          }
+        }
+      ]
+    },
+    {
+      "name": "A create goes back on in its own mode, or in heat when it is created off, whatever the body says",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Studio",
+        "enabled": false,
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "off",
+        "last_on_mode": "cool",
+        "setpoint": 22
+      },
+      "status": 200,
+      "expect": {
+        "success": true,
+        "id": "studio"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "mode": "off",
+            "last_on_mode": "heat"
+          }
+        }
+      ]
+    },
+    {
+      "name": "A last_on_mode that is no mode a thermostat is on in is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Studio",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "last_on_mode": "off",
+        "setpoint": 22
+      },
+      "status": 400,
+      "error": "last_on_mode must be one of heat/cool/heat_cool",
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "count": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "A last_on_mode the device does not know is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Studio",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "last_on_mode": "dry",
+        "setpoint": 22
+      },
+      "status": 400,
+      "error": "last_on_mode must be one of heat/cool/heat_cool"
     },
     {
       "name": "Preset picks a stopped thermostat's preset, which it keeps and starts in",
@@ -3629,7 +3755,7 @@
       "body": null,
       "status": 200,
       "expect": {
-        "version": 3,
+        "version": 4,
         "name": "Living Room"
       }
     },
