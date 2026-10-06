@@ -1455,7 +1455,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     const stored = updating ? find(doc.id) : undefined
     if (updating && !stored) return fail(404, 'Thermostat not found')
     if (stored && newer(stored)) return fail(409, NEWER_FILE)
-    // A form read before the device rewrote it: the revision the body carries, if it is a count.
+    // A form read before a calibration wrote new gains: the revision the body carries, if a count.
     const sentRevision = readRevision(objectOf(parsed.value)?.revision)
     if (stored && sentRevision !== null && sentRevision !== stored.revision) return fail(409, STALE_DOCUMENT)
     if (!updating && docs.length >= maxControllers) {

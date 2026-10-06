@@ -585,8 +585,8 @@ void WebClimateEditor::handle_save_(AsyncWebServerRequest *request) {
       return true;
     // An id picks the thermostat to replace; none, or "", creates one.
     const std::string id = config.id;
-    // The revision the form was read at, when it sends one: a form read before the device
-    // rewrote the thermostat would write the old values back.
+    // The revision the form was read at, when it sends one: a form read before a calibration
+    // wrote new gains would write the old ones back.
     optional<uint32_t> revision;
     if (doc["revision"].is<uint32_t>())
       revision = doc["revision"].as<uint32_t>();

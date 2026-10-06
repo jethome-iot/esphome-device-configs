@@ -48,7 +48,7 @@ static const char *const NOT_FOUND = "Thermostat not found";
 static const char *const PRESET_NOT_FOUND = "Preset not found";
 // Its fields this firmware does not know would be lost.
 static const char *const NEWER_FILE = "A newer firmware wrote this thermostat; update the firmware to change it";
-// A form read before the device rewrote the thermostat, after a calibration, say.
+// A form read before a calibration wrote new gains.
 static const char *const STALE_DOCUMENT = "The device changed this thermostat since it was read; reload it";
 // The dashboard's editor opens a blank form at /climate/new.
 static const char *const RESERVED_ID = "new";

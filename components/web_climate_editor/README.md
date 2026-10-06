@@ -88,8 +88,8 @@ form sends back the key it got and none for a new preset. `active_preset` is the
 state, not the form's: a Save ignores it, keeps the active preset while its key is in the list,
 and applies that preset's new target and mode at once.
 
-A document carries a `revision`, `0` until the device rewrites the thermostat itself, as a
-calibration that found new gains does; a Save never moves it. A Save whose body has a `revision`
+A document carries a `revision`, `0` until a calibration writes new gains, the only thing that
+moves it on; a Save never does. A Save whose body has a `revision`
 other than the thermostat's is `409`, `The device changed this thermostat since it was read;
 reload it`: the form was read before, and would write the old gains back. One without it is not
 checked, and a create ignores it.

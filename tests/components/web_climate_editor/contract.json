@@ -4154,7 +4154,7 @@
       "error": "A newer firmware wrote this thermostat; update the firmware to change it"
     },
     {
-      "name": "Get carries the revision, 0 until the device rewrites the thermostat",
+      "name": "Get carries the revision, 0 until a calibration writes new gains",
       "setup": [
         "living-room"
       ],

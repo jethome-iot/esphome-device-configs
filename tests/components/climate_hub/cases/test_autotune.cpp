@@ -670,7 +670,7 @@ TEST_F(Calibration, TheLogSaysWhichRunsCalibrate) {
 
 // --- The revision ---
 
-// A form read before the device rewrote the thermostat is refused; one read after goes through,
+// A form read before a calibration wrote new gains is refused; one read after goes through,
 // and a Save keeps the revision.
 TEST_F(Calibration, ASaveOfAnOlderDocumentIsRefused) {
   const RoomModel model = radiator_room();
@@ -698,6 +698,25 @@ TEST_F(Calibration, ASaveOfAnOlderDocumentIsRefused) {
   ASSERT_TRUE(hub().update(id, form).ok);
   EXPECT_EQ(1u, hub().store().get(id)->revision);
   EXPECT_EQ(0.6f, hub().store().get(id)->pid.kp);
+}
+
+// The device writes a thermostat for other reasons too; none of them moves the revision.
+TEST_F(Calibration, OnlyACalibrationMovesTheRevision) {
+  const std::string id = this->start(living_room(), 18.f);
+  ASSERT_TRUE(hub().set_setpoint(id, 22.f).ok);
+  hub().ms += 3000;
+  hub().loop();
+  ASSERT_EQ(22.f, this->on_flash(id).setpoint) << "written";
+  ASSERT_TRUE(hub().set_enabled(id, false).ok);
+  ASSERT_TRUE(hub().set_enabled(id, true).ok);
+  // Renamed at boot, since a YAML climate has its name now, and written back so.
+  std::string file = read_file(this->file_of(id));
+  file.replace(file.find("Living room"), 11, "Hall");
+  write_file(this->file_of(id), file);
+  this->reboot();
+  ASSERT_EQ("Hall 2", this->on_flash(id).name);
+  EXPECT_EQ(0u, this->on_flash(id).revision);
+  EXPECT_EQ(0u, hub().store().get(id)->revision);
 }
 
 TEST_F(Calibration, ACreateStartsAtRevisionZero) {

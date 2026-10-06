@@ -95,8 +95,8 @@ struct PresetConfig {
 struct ClimateConfig {
   /// CONFIG_VERSION, or the higher one of a file a newer firmware wrote.
   uint16_t version{CONFIG_VERSION};
-  /// Moves on when the device rewrites the document itself, as a calibration does, and never
-  /// on a Save: a form read before that would write the old values back. 0 in a new one.
+  /// Moves on only when a calibration writes new gains, never on a Save: a form read before that
+  /// would write the old gains back. 0 in a new one.
   uint32_t revision{0};
   std::string id;
   std::string name;

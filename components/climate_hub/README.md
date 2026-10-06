@@ -91,7 +91,7 @@ component: it would list the entities no thermostat is using.
 | Key                  | Values                                                                     |
 | -------------------- | -------------------------------------------------------------------------- |
 | `version`            | `3`, the format this firmware writes; a file without one, or with `1` or `2`, is read as `3` and written back as `3`. A higher one is a file from a newer firmware, see [Storage](#storage) |
-| `revision`           | `0` when created; moves on when the device rewrites the file itself, as a [calibration](#calibration) does, and never on an `update()`. A file without one reads as `0` |
+| `revision`           | `0` when created; moves on only when a [calibration](#calibration) writes new gains, never on an `update()` or any other write. A file without one reads as `0` |
 | `id`                 | Made from the name when the thermostat is created (`a-z`, `0-9`, single dashes, at most 48; `New` gets `new-2`, since the dashboard opens a blank editor at `new`), then never changes; the file is `<id>.json` |
 | `name`               | 1 to 48 printable ASCII characters, neither `/` nor `\`, trimmed; also the climate entity's name |
 | `kind`               | `bang_bang` (the default) or `pid`                                         |

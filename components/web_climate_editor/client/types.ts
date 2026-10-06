@@ -102,8 +102,8 @@ export interface ControllerDocument {
    */
   version: number
   /**
-   * Moves on when the device rewrites the document itself, as a calibration that found new gains
-   * does; a Save never moves it, and a new thermostat has 0. A Save that sends one other than the
+   * Moves on only when a calibration writes new gains; a Save or any other write never moves it,
+   * and a new thermostat has 0. A Save that sends one other than the
    * device's is 409 (STALE_DOCUMENT): the form was read before, and would write the old values back.
    */
   revision: number
@@ -450,7 +450,7 @@ export const NEWER_FILE = 'A newer firmware wrote this thermostat; update the fi
 
 /**
  * The 409 error of a Save whose `revision` is not the device's, in the device's words: the form
- * was read before the device rewrote the thermostat.
+ * was read before a calibration wrote new gains.
  */
 export const STALE_DOCUMENT = 'The device changed this thermostat since it was read; reload it'
 

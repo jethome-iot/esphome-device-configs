@@ -135,10 +135,10 @@ paths:
         create starts with none.
 
         `revision`, when the body has it as a whole number, must be the one
-        `/get` gives now: the device moves it when it rewrites the thermostat
-        itself, as a calibration that found new gains does, so a form read
-        before that is refused rather than write the old gains back. A Save
-        never moves it, and one without it is not checked. A Save ends a
+        `/get` gives now: it moves on only when a calibration writes new
+        gains, so a form read before that is refused rather than write the
+        old gains back. A Save never moves it, and one without it is not
+        checked. A Save ends a
         calibration the thermostat runs.
 
         The refusals come in this order, and the first one a document meets is
@@ -1163,9 +1163,9 @@ components:
           type: integer
           minimum: 0
           description: >-
-            Moves on when the device rewrites the thermostat itself, as a
-            calibration that found new gains does; a Save never moves it, and
-            a new thermostat has `0`. A Save that sends another one is `409`.
+            Moves on only when a calibration writes new gains; a Save or any
+            other write never moves it, and a new thermostat has `0`. A Save
+            that sends another one is `409`.
         id:
           $ref: "#/components/schemas/Id"
         name:
