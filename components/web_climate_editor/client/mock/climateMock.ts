@@ -815,9 +815,9 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
   }
 
   // ControllerRuntime::start(). `prev` is what a Save replaces: the wait for a first
-  // reading, the duties and the action carry over, the PID too while its law and sensor
-  // stand, and a bang-bang's latch while both are bang-bang; a start latches on a
-  // closed relay instead.
+  // reading, the duties and the action of a direction that keeps its relay carry over, the
+  // PID too while its law and sensor stand, and a bang-bang's latch while both are
+  // bang-bang; a start latches on a closed relay instead.
   function bind(doc: ControllerDocument, prev?: { doc: ControllerDocument; rt: Runtime }) {
     const t = simulatedTo
     const waiting = prev && prev.doc.sensor_id === doc.sensor_id ? prev.rt : null
@@ -828,8 +828,15 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
         ? prev!.rt.latch === (dir === 'heat' ? 'heating' : 'cooling')
         : !!doc[dir].relay_id && relayOf(doc[dir].relay_id).on
     // A relay the Save keeps carries what holds it until the next pass.
+    const keeps = (dir: 'heat' | 'cool') => !!prev && prev.doc[dir].relay_id === doc[dir].relay_id
     const keptWait = (dir: 'heat' | 'cool'): RelayWait =>
-      prev && prev.doc[dir].relay_id === doc[dir].relay_id ? prev.rt[dir === 'heat' ? 'heatWait' : 'coolWait'] : 'none'
+      keeps(dir) ? prev!.rt[dir === 'heat' ? 'heatWait' : 'coolWait'] : 'none'
+    // A PID's gap between pulses was the old relay's: the one a Save moves it to has not closed.
+    const keptAction = (): ClimateHubAction => {
+      if (!prev) return 'off'
+      const was = prev.rt.action
+      return (was === 'heating' && !keeps('heat')) || (was === 'cooling' && !keeps('cool')) ? 'idle' : was
+    }
     const integral = pid
       ? clamp(pid.integral, doc.pid.min_integral, doc.pid.max_integral)
       : doc.pid.starting_integral_term
@@ -841,7 +848,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       prevError: pid ? pid.prevError : null,
       integral,
       latch: heatAllowed(doc) && latched('heat') ? 'heating' : coolAllowed(doc) && latched('cool') ? 'cooling' : 'idle',
-      action: prev ? prev.rt.action : 'off',
+      action: keptAction(),
       fault: 'none',
       heatDuty: prev ? prev.rt.heatDuty : 0,
       coolDuty: prev ? prev.rt.coolDuty : 0,
