@@ -64,9 +64,6 @@ float clamp01(float v) { return std::isnan(v) ? 0.f : (v < 0.f ? 0.f : (v > 1.f 
 // Every fault but relay_contested stops control; that one only reports.
 bool cuts_out(HubFault f) { return f != HubFault::NONE && f != HubFault::RELAY_CONTESTED; }
 
-// The reading is in doubt or too hot: a relay closed from elsewhere cannot wait out a dwell.
-bool unsafe(HubFault f) { return f == HubFault::SENSOR_STALE || f == HubFault::OVERTEMP; }
-
 }  // namespace
 
 void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, RelayClaim *heat, RelayClaim *cool,
@@ -246,10 +243,10 @@ void ControllerRuntime::tick(uint32_t now_ms) {
   const ClimateConfig &c = *this->config_;
 
   this->refresh_fault_(now_ms);
-  // Waiting for a first reading is no fault, but nothing to act on either. Only a cut-out on the
-  // reading undoes a close from elsewhere on every pass; mode off and the wait pace it.
+  // Waiting for a first reading is no fault, but nothing to act on either. Without a reading or
+  // on a cut-out a close from elsewhere is undone on every pass; only mode off paces it.
   if (cuts_out(this->fault_) || c.mode == HubMode::OFF || !this->has_sample_) {
-    this->all_relays_off_(now_ms, !unsafe(this->fault_));
+    this->all_relays_off_(now_ms, this->has_sample_ && !cuts_out(this->fault_));
     if (this->set_action_(this->standing_action_()))
       this->entity_->publish_state();
     return;

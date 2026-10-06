@@ -619,8 +619,8 @@ TEST(RelayClaim, ACutOutOpensAPacedCloseAtOnce) {
   EXPECT_EQ(2u, claim.moves());
 }
 
-// Held open outside a cut-out, in mode off or before a first reading, the relay is put back as
-// a request puts it back: the second close waits out min_on.
+// Held open in mode off with a reading, the relay is put back as a request puts it back: the
+// second close waits out min_on.
 TEST(RelayClaim, HeldOpenTheSecondCloseWaitsOutMinOn) {
   FakeSwitch relay;
   RelayClaim claim(&relay, "boiler");

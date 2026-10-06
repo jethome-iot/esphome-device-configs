@@ -1522,6 +1522,21 @@ TEST_F(ControlLoop, AStaleSensorOpensEveryCloseAtOnce) {
   }
 }
 
+// Before its first reading the thermostat has nothing to heat for: a close from elsewhere is
+// opened on every pass, and each one is counted.
+TEST_F(ControlLoop, NoReadingYetOpensEveryCloseAtOnce) {
+  this->id_ = this->create(this->base(ControlKind::BANG_BANG)).id;
+  ControllerRuntime *rt = hub().runtime_of(this->id_);
+  tick(100000);
+  ASSERT_FALSE(rt->has_sample());
+  for (uint32_t n = 1; n <= CONTEST_MOVES + 2; n++) {
+    entities().relay1.turn_on();
+    tick(100000 + n * 1000);
+    EXPECT_FALSE(entities().relay1.state) << "pass " << n;
+    EXPECT_EQ(n, hub().claim("relay_1")->moves());
+  }
+}
+
 // Mode off holds the relay open: a close from elsewhere is put back, paced as in any mode.
 TEST_F(ControlLoop, ModeOffKeepsTheRelayOpenAndPutsItBack) {
   ControllerRuntime *rt = this->start(this->base(ControlKind::BANG_BANG), 18.f);
@@ -1602,18 +1617,31 @@ TEST_F(ControlLoop, ASaveKeepsTheMoves) {
   EXPECT_EQ(HubFault::RELAY_CONTESTED, rt->fault());
 }
 
-// The runtime on its own: in mode off with a reading, a close from elsewhere is put back paced.
-TEST(ControllerRuntimeAlone, ModeOffPacesThePutBack) {
+// The runtime on its own: with no reading every close from elsewhere is undone at once; in mode
+// off with a reading it is put back paced.
+TEST(ControllerRuntimeAlone, OnlyModeOffWithAReadingPacesThePutBack) {
   HubClimate entity(&hub(), 200);
   FakeSwitch heat;
   RelayClaim claim(&heat, "alone");
   claim.resume({false, 0});
   ControllerRuntime rt(&entity);
   ClimateConfig config = draft("Alone");
-  config.mode = HubMode::OFF;
   sensor::Sensor probe;
+  rt.start(&config, &probe, &claim, nullptr, 1000);
+  rt.tick(1000);
+  for (uint32_t t = 2000; t <= 5000; t += 1000) {
+    heat.turn_on();
+    rt.tick(t);
+    EXPECT_EQ(HubFault::NONE, rt.fault());
+    EXPECT_FALSE(heat.state) << "at " << t;
+  }
+  EXPECT_EQ(4u, claim.moves());
+
+  RelayClaim fresh(&heat, "alone");
+  fresh.resume({false, 0});
+  config.mode = HubMode::OFF;
   // A reading handed over rather than sampled: a sample would publish an entity App never set up.
-  rt.start(&config, &probe, &claim, nullptr, 5000, Reading{18.f, 5000, true});
+  rt.start(&config, &probe, &fresh, nullptr, 5000, Reading{18.f, 5000, true});
   rt.tick(5500);
   heat.turn_on();
   rt.tick(6000);

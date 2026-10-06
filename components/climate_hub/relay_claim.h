@@ -41,7 +41,7 @@ class RelayClaim {
   /// Opens the relay regardless of the min-on floor, and also when the claim already believes
   /// it open but something else closed it. A relay already open is not touched: nothing moves,
   /// so no dwell starts. `paced`: a relay closed from elsewhere is put back as request() puts
-  /// it back; otherwise, for a safety cut-out or a teardown, at once.
+  /// it back; otherwise, for a safety cut-out, no reading yet or a teardown, at once.
   void force_off(uint32_t now_ms, bool paced = false);
 
   /// Carries on from a switching an earlier claim on the relay made, dwell and all. What the
