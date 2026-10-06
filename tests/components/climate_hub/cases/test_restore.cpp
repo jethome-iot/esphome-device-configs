@@ -298,7 +298,8 @@ TEST_F(Restore, AReplacementThatFreesARelayStartsWhoWaitedForIt) {
 // What a newer firmware wrote is not this one's to rewrite, as for a Save.
 TEST_F(Restore, RefusesToReplaceAThermostatANewerFirmwareWrote) {
   mkdir(this->folder().c_str(), 0755);
-  const std::string text = R"({"version":3,"id":"boiler","name":"Boiler","sensor_id":"room",)"
+  const std::string text = R"({"version":)" + std::to_string(CONFIG_VERSION + 1) +
+                           R"(,"id":"boiler","name":"Boiler","sensor_id":"room",)"
                            R"("heat":{"relay_id":"relay_1"},"mode":"heat","future":1})";
   write_file(this->file_of("boiler"), text);
   this->reboot();
@@ -314,7 +315,7 @@ TEST_F(Restore, RefusesToReplaceAThermostatANewerFirmwareWrote) {
 // A backup from a newer firmware comes back in this firmware's format, as a Save writes it.
 TEST_F(Restore, WritesItsOwnVersionWhateverTheDocumentSays) {
   ClimateConfig doc = backup();
-  doc.version = 3;
+  doc.version = CONFIG_VERSION + 1;
   ASSERT_TRUE(hub().restore(doc).ok);
   EXPECT_FALSE(hub().store().get("lounge")->from_newer_firmware());
   EXPECT_EQ(CONFIG_VERSION, this->on_flash("lounge").version);

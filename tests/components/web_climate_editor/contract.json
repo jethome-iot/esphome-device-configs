@@ -2650,7 +2650,7 @@
         },
         "mode": "heat",
         "setpoint": 21,
-        "version": 3
+        "version": 9
       },
       "status": 200,
       "expect": {

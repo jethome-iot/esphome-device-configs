@@ -194,7 +194,8 @@ TEST_F(Import, RefusesAnIdAFileTheBootDidNotLoadHolds) {
 
 // As for a save: a newer firmware's file is never written over.
 TEST_F(Import, RefusesToReplaceAThermostatANewerFirmwareWrote) {
-  const std::string text = R"({"version":3,"id":"lounge","name":"Lounge","sensor_id":"room",)"
+  const std::string text = R"({"version":)" + std::to_string(climate_hub::CONFIG_VERSION + 1) +
+                           R"(,"id":"lounge","name":"Lounge","sensor_id":"room",)"
                            R"("heat":{"relay_id":"relay_1"},"future":1})";
   this->boot_with({text});
   Reply reply = this->import(LOUNGE);
@@ -205,10 +206,12 @@ TEST_F(Import, RefusesToReplaceAThermostatANewerFirmwareWrote) {
 
 // A backup a newer firmware made comes back in this firmware's format, as a save writes it.
 TEST_F(Import, WritesThisFirmwaresVersion) {
-  Reply reply = this->import(replaced(LOUNGE, "\"version\":2", "\"version\":3"));
+  const std::string version = "\"version\":";
+  Reply reply =
+      this->import(replaced(LOUNGE, version + "2", version + std::to_string(climate_hub::CONFIG_VERSION + 1)));
   ASSERT_EQ(reply.code, 200) << reply.body;
   EXPECT_EQ(this->get("get?id=lounge")["version"].as<int>(), climate_hub::CONFIG_VERSION);
-  EXPECT_NE(this->file("lounge.json").find("\"version\":2"), std::string::npos);
+  EXPECT_NE(this->file("lounge.json").find(version + std::to_string(climate_hub::CONFIG_VERSION)), std::string::npos);
 }
 
 TEST_F(Import, AFileThatCannotBeWrittenChangesNothing) {
