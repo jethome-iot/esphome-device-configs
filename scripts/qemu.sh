@@ -36,6 +36,8 @@
 #   --eeprom <file>    attach the CPU-board EEPROM (0x54) backed by this file, so the
 #                      device reports the identity the file carries; needs the JetHome
 #                      QEMU build (install-qemu)
+#   --eeprom-meter <file>
+#                      the same for a metering board's EEPROM (0x56)
 #   --fresh            recreate the flash image, wiping emulated flash state
 #                      (NVS, LittleFS, saved config) — like erasing a real device
 #   --no-build         skip `esphome compile`, use whatever was built last
@@ -84,7 +86,8 @@ NO_WDT=0
 DAEMON=0
 WAIT_HTTP=0
 EEPROM=""
-# Bytes: the 64 Kbit part the config declares.
+EEPROM_METER=""
+# Bytes: the 64 Kbit part the config declares, on either board.
 EEPROM_SIZE=8192
 
 CMD=${1:-help}
@@ -116,6 +119,7 @@ while [ $# -gt 0 ]; do
     --wait-http) opt_uint "$1" "${2:-}"; WAIT_HTTP=$OPT_VALUE; shift 2 ;;
     --psram)     opt_arg  "$1" "${2:-}"; PSRAM=$OPT_VALUE;     shift 2 ;;
     --eeprom)    opt_arg  "$1" "${2:-}"; EEPROM=$OPT_VALUE;    shift 2 ;;
+    --eeprom-meter) opt_arg "$1" "${2:-}"; EEPROM_METER=$OPT_VALUE; shift 2 ;;
     --fresh)     FRESH=1;      shift ;;
     --no-build)  DO_BUILD=0;   shift ;;
     --no-wdt)    NO_WDT=1;     shift ;;
@@ -209,22 +213,22 @@ find_qemu() {
 require_i2c_devices() {
   LD_LIBRARY_PATH="${QEMU_LIBDIR}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     "$QEMU_BIN" -device help 2>/dev/null | grep -q 'name "at24c-eeprom"' && return 0
-  die "--eeprom needs the JetHome QEMU build, $QEMU_BIN has no chips to attach — run: scripts/qemu.sh install-qemu"
+  die "$1 needs the JetHome QEMU build, $QEMU_BIN has no chips to attach — run: scripts/qemu.sh install-qemu"
 }
 
 # Before the build, so a missing capability or a wrong-sized image costs a message, not a
 # compile.
 prepare_eeprom() {
-  local size
-  require_i2c_devices
-  if [ ! -e "$EEPROM" ]; then
-    info "==> $EEPROM does not exist — creating an erased part"
-    head -c "$EEPROM_SIZE" /dev/zero | tr '\0' '\377' >"$EEPROM"
+  local option=$1 file=$2 size
+  require_i2c_devices "$option"
+  if [ ! -e "$file" ]; then
+    info "==> $file does not exist — creating an erased part"
+    head -c "$EEPROM_SIZE" /dev/zero | tr '\0' '\377' >"$file"
   fi
-  size=$(stat -c%s "$EEPROM" 2>/dev/null || stat -f%z "$EEPROM" 2>/dev/null) || die "cannot read --eeprom file: $EEPROM"
+  size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null) || die "cannot read $option file: $file"
   # at24c refuses a file that is not exactly rom-size, and says so only in the QEMU log.
   [ "$size" -eq "$EEPROM_SIZE" ] ||
-    die "--eeprom file is $size bytes, the emulated part is $EEPROM_SIZE"
+    die "$option file is $size bytes, the emulated part is $EEPROM_SIZE"
 }
 
 # The JetHome build of Espressif's QEMU: the same machines, plus I2C chips that can be
@@ -441,6 +445,9 @@ do_run() {
   # The CPU-board part at 0x54, on the controller ESPHome's bus takes (i2c0).
   [ -n "$EEPROM" ] && args+=(-drive "if=none,id=eeprom0,format=raw,file=$EEPROM"
                              -device "at24c-eeprom,bus=i2c0,address=0x54,rom-size=$EEPROM_SIZE,address-size=2,drive=eeprom0")
+  # The metering board's part at 0x56, on the same bus.
+  [ -n "$EEPROM_METER" ] && args+=(-drive "if=none,id=eeprom1,format=raw,file=$EEPROM_METER"
+                                   -device "at24c-eeprom,bus=i2c0,address=0x56,rom-size=$EEPROM_SIZE,address-size=2,drive=eeprom1")
 
   info "==> $device on QEMU"
   info "    web    http://127.0.0.1:$HTTP_PORT"
@@ -568,7 +575,8 @@ case "$CMD" in
     # Everything that can refuse to proceed runs before anything is touched, and
     # the old instance goes before the image it holds is rewritten.
     find_qemu
-    [ -n "$EEPROM" ] && prepare_eeprom
+    [ -n "$EEPROM" ] && prepare_eeprom --eeprom "$EEPROM"
+    [ -n "$EEPROM_METER" ] && prepare_eeprom --eeprom-meter "$EEPROM_METER"
     stop_previous "$DEVICE"
     # After stop_previous, so re-running the same device is not a clash with
     # itself, and before the build, so a taken port costs a message and not a

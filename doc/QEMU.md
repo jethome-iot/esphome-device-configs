@@ -46,7 +46,8 @@ which the script activates itself.
 `<device>` is the bare name of a config under `devices/<family>/`, e.g. `jxd-r6-e1eth-lcd`.
 
 Options: `--http-port` (default 8080), `--api-port` (6053), `--ota-port` (3232),
-`--psram 2M|4M|none`, `--eeprom <file>` (below), `--no-wdt`, `--daemon`, `--wait-http <sec>`. Exit an interactive session
+`--psram 2M|4M|none`, `--eeprom <file>` and `--eeprom-meter <file>` (below), `--no-wdt`, `--daemon`,
+`--wait-http <sec>`. Exit an interactive session
 with `Ctrl-A x`. Each instance holds all three forwarded ports, so a second one needs its own
 trio — a clash is caught before QEMU starts and names the port:
 
@@ -165,6 +166,10 @@ hardware: Info → Serial shows the serial, `/api/device/info` carries the `boar
 what the page shows follows what the header holds, down to one written for another chip.
 Images come from a dump of a real part or from JetHome's board tooling; v3 and v4 are both
 read.
+
+`--eeprom-meter <file>` attaches a metering board's part at `0x56` the same way, with the same
+size and the same erased default, for a config that declares one. What the device makes of it
+is in [meter_calibration](../components/meter_calibration/README.md).
 
 ## What works and what is dead
 
