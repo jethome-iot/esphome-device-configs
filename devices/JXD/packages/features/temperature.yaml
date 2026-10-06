@@ -4,7 +4,7 @@
 # first slots. Details: doc/ONEWIRE_WORKFLOW.md
 external_components:
   - source: ${components}
-    components: [dallas_scan]
+    components: [dallas_scan, panel_text]
 
 dallas_scan:
   id: temps

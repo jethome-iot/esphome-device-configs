@@ -13,10 +13,11 @@
 namespace esphome::dallas_scan {
 
 /// The slot table as <key>.json: {"version": 1, "records": [{"slot": 1, "address": "0x28..."}],
-/// "offsets": [{"slot": 1, "offset": -0.3}]}.
+/// "offsets": [{"slot": 1, "offset": -0.3}], "labels": [{"slot": 1, "label": "Boiler"}]}.
 class SlotFile : public config_json::SettingsBaseJson {
  public:
-  SlotFile(std::string key, size_t slots) : key_(std::move(key)), table_(slots, 0), offsets_(slots, 0) {}
+  SlotFile(std::string key, size_t slots)
+      : key_(std::move(key)), table_(slots, 0), offsets_(slots, 0), labels_(slots) {}
 
   const char *get_key() override { return this->key_.c_str(); }
   bool parse_json(JsonObject root, uint32_t version) override;
@@ -27,6 +28,7 @@ class SlotFile : public config_json::SettingsBaseJson {
   void reset() override {
     std::fill(this->table_.begin(), this->table_.end(), 0);
     std::fill(this->offsets_.begin(), this->offsets_.end(), 0);
+    std::fill(this->labels_.begin(), this->labels_.end(), std::string());
   }
 
   /// Slot -> ROM address, 0 = empty.
@@ -35,13 +37,18 @@ class SlotFile : public config_json::SettingsBaseJson {
   /// Slot -> offset in tenths of a degree, 0 = none.
   const std::vector<int16_t> &offsets() const { return this->offsets_; }
   void set_offsets(const std::vector<int16_t> &offsets) { this->offsets_ = offsets; }
+  /// Slot -> label, "" = none. Not get_label(): that would hide the base's per-record one.
+  const std::vector<std::string> &labels() const { return this->labels_; }
+  void set_labels(const std::vector<std::string> &labels) { this->labels_ = labels; }
 
  protected:
   void parse_offsets_(JsonObject root);
+  void parse_labels_(JsonObject root);
 
   std::string key_;
   std::vector<uint64_t> table_;
   std::vector<int16_t> offsets_;
+  std::vector<std::string> labels_;
 };
 
 /// "0x" and 1-16 hex digits; false for anything else, and for 0.
