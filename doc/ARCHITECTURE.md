@@ -216,7 +216,11 @@ at `0x0010`. The map is documented at the top of `features/modbus-server.yaml`; 
     and the traits change only in `setup()` or in a loop job an HTTP handler waits on, so that
     task is never mid-read.
   - `StaticVector::capacity()` for the room check, and `ClimateTraits` built with no custom
-    modes, so a copy owns no vector.
+    modes: `get_traits()` adds the custom presets as a pointer to the slot's own list, so a copy
+    owns no vector. That list (`Climate::set_supported_custom_presets`) has room for 8 from the
+    slot's constructor and never reallocates, and its pointers are the slot's fixed name
+    buffers, rewritten in place, so `web_server` reading it on its own task never follows a
+    freed pointer.
   - `api::APIServer::active_clients()`, `APIConnection::send_message(DisconnectRequest)` and
     `on_fatal_error()`: after a structural change the component makes Home Assistant reconnect
     the way upstream does after a new API key, since a client lists entities only on connect.
