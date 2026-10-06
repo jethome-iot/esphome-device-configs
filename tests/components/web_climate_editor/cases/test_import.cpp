@@ -181,6 +181,40 @@ TEST_F(Import, AReplacementThatFreesARelayNamesWhoStarted) {
   EXPECT_EQ(hub().claimed_by("relay_1"), "winter");
 }
 
+// One enabled that waits since the boot, its relay held: refused that relay as a save would be,
+// it waits on, then waits for what the body names, then starts.
+TEST_F(Import, ReplacesAThermostatThatWaitsSinceTheBoot) {
+  const std::string summer =
+      R"({"version":1,"id":"summer","name":"Summer","sensor_id":"room","heat":{"relay_id":"relay_1"}})";
+  const std::string winter =
+      R"({"version":1,"id":"winter","name":"Winter","sensor_id":"room","heat":{"relay_id":"relay_1"}})";
+  this->boot_with({summer, winter});
+  const std::string held = "not started: relay 'relay_1' is held by 'summer'";
+  ASSERT_EQ(hub().waiting_reason("winter"), held);
+
+  Reply refused = this->import(winter);
+  EXPECT_EQ(refused.code, 409);
+  EXPECT_EQ(refused.error(), "\"Relay 1\" is already driven by \"Summer\"");
+  EXPECT_EQ(hub().waiting_reason("winter"), held);
+  EXPECT_EQ(this->file("winter.json"), winter);
+
+  const std::string moved = replaced(winter, "relay_1", "relay_2");
+  Reply waits = this->import(replaced(moved, "\"room\"", "\"attic\""));
+  ASSERT_EQ(waits.code, 200) << waits.body;
+  EXPECT_EQ(waits.body, R"({"success":true,"message":"Thermostat replaced; not started: sensor 'attic' not found",)"
+                        R"("id":"winter","warning":"not started: sensor 'attic' not found"})");
+  EXPECT_EQ(this->get("list")["controllers"][1]["waiting"].as<std::string>(), "not started: sensor 'attic' not found");
+
+  Reply started = this->import(moved);
+  ASSERT_EQ(started.code, 200) << started.body;
+  EXPECT_EQ(started.body, R"({"success":true,"message":"Thermostat replaced","id":"winter"})");
+  Reply list = this->get("list");
+  EXPECT_TRUE(list["controllers"][1]["running"].as<bool>());
+  EXPECT_EQ(list["controllers"][1]["waiting"].as<std::string>(), "");
+  EXPECT_EQ(hub().claimed_by("relay_2"), "winter");
+  EXPECT_EQ(hub().claimed_by("relay_1"), "summer");
+}
+
 // A file the boot refused holds its id: the import names it rather than write over it.
 TEST_F(Import, RefusesAnIdAFileTheBootDidNotLoadHolds) {
   std::ofstream(this->folder() + "/lounge.json") << "left alone";
