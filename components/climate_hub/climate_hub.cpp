@@ -485,10 +485,10 @@ Result ClimateHub::create(ClimateConfig draft) {
   bool too_large = false;
   if (!this->save_(draft, &too_large))
     return not_saved(too_large);
-  return this->add_(draft);
+  return this->add_(draft, "Created");
 }
 
-Result ClimateHub::add_(const ClimateConfig &doc) {
+Result ClimateHub::add_(const ClimateConfig &doc, const char *verb) {
   ClimateConfig *stored = this->store_.add(doc);
   this->store_.sort_by_id();
   Result result = success();
@@ -502,7 +502,7 @@ Result ClimateHub::add_(const ClimateConfig &doc) {
       ESP_LOGW(TAG, "'%s' created but %s", stored->id.c_str(), result.warning.c_str());
     }
   }
-  ESP_LOGD(TAG, "Created '%s' (%s)", stored->name.c_str(), stored->id.c_str());
+  ESP_LOGD(TAG, "%s '%s' (%s)", verb, stored->name.c_str(), stored->id.c_str());
   return result;
 }
 
@@ -535,7 +535,7 @@ Result ClimateHub::update(const std::string &id, ClimateConfig doc) {
   bool too_large = false;
   if (!this->save_(doc, &too_large))
     return not_saved(too_large);
-  return this->replace_(stored, doc);
+  return this->replace_(stored, doc, "Updated");
 }
 
 // A Save's refusals, in a Save's order, under the id the document brings. Its keys and its
@@ -577,13 +577,13 @@ Result ClimateHub::restore(ClimateConfig doc) {
   if (!this->save_(doc, &too_large))
     return not_saved(too_large);
   if (stored == nullptr)
-    return this->add_(doc);
-  result = this->replace_(stored, doc);
+    return this->add_(doc, "Restored");
+  result = this->replace_(stored, doc, "Restored");
   result.id = doc.id;
   return result;
 }
 
-Result ClimateHub::replace_(ClimateConfig *stored, const ClimateConfig &doc) {
+Result ClimateHub::replace_(ClimateConfig *stored, const ClimateConfig &doc, const char *verb) {
   // A copy: *stored is overwritten below.
   const std::string id = stored->id;
   const ClimateConfig previous = *stored;
@@ -622,7 +622,7 @@ Result ClimateHub::replace_(ClimateConfig *stored, const ClimateConfig &doc) {
     this->schedule_ha_resync_();
   if (!result.warning.empty())
     ESP_LOGW(TAG, "'%s' saved but %s", id.c_str(), result.warning.c_str());
-  ESP_LOGD(TAG, "Updated '%s' (%s)", stored->name.c_str(), id.c_str());
+  ESP_LOGD(TAG, "%s '%s' (%s)", verb, stored->name.c_str(), id.c_str());
   // Its own start failed just now, for the reason the warning gives.
   this->start_waiters_(id, &result);
   this->announce_released_();

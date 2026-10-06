@@ -123,6 +123,20 @@ TEST_F(Restore, ReplacesTheThermostatThatHasTheIdInPlace) {
   EXPECT_EQ(1, hub().resyncs) << "the preset list changed";
 }
 
+// A backup coming back, not a person's Save: the log says which, created or replaced.
+TEST_F(Restore, LogsARestore) {
+  this->create(draft("Boiler"));
+  LogCapture::instance().clear();
+  ASSERT_TRUE(hub().restore(backup("lounge", "relay_2")).ok);
+  ClimateConfig boiler = backup("boiler");
+  boiler.name = "Boiler";
+  ASSERT_TRUE(hub().restore(boiler).ok);
+  EXPECT_TRUE(LogCapture::instance().has("Restored 'Living Room' (lounge)"));
+  EXPECT_TRUE(LogCapture::instance().has("Restored 'Boiler' (boiler)"));
+  EXPECT_FALSE(LogCapture::instance().has("Created '"));
+  EXPECT_FALSE(LogCapture::instance().has("Updated '"));
+}
+
 TEST_F(Restore, ADisabledDocumentStopsTheThermostatItReplaces) {
   this->create(draft("Boiler"));
   ClimateConfig doc = backup("boiler");

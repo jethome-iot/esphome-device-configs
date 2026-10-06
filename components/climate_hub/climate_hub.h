@@ -174,9 +174,10 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   void resolve_name_(ClimateConfig *config);
 
   /// The end of create() and restore(): `doc`, written already, joins the store and starts.
-  Result add_(const ClimateConfig &doc);
+  /// `verb` heads the log line.
+  Result add_(const ClimateConfig &doc, const char *verb);
   /// The end of update() and restore(): `doc`, written already, takes `stored`'s place.
-  Result replace_(ClimateConfig *stored, const ClimateConfig &doc);
+  Result replace_(ClimateConfig *stored, const ClimateConfig &doc, const char *verb);
 
   bool start_(ClimateConfig *config, std::string *error);
   /// Keeps `error` as why `id` waits, and returns it worded as a `warning`.
