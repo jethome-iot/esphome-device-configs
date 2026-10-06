@@ -124,8 +124,8 @@ included. Set it on the web dashboard, in the slot's **Edit** dialog in **Settin
 or in the `Temp N` entity's dialog; the panel has no text entry. An empty label clears it.
 
 The label shows at once, with no reboot, wherever the panel and the dashboard name the slot: the
-**Temperatures** rows (`Подача: 21.5°C`, cut with `…` when it does not fit), the status page (its
-first seven characters) and the dashboard's lists and pickers. Opening a slot in the menu shows
+**Temperatures** rows (`Подача: 21.5°C`, cut with `…` when it does not fit), the status page (up
+to seven characters, cut with `…`) and the dashboard's lists and pickers. Opening a slot in the menu shows
 the label on top and `Slot N` under it, so the number stays in sight. Home Assistant, Modbus,
 automations and thermostats keep calling the sensor `Temp N`.
 

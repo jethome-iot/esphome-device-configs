@@ -406,6 +406,7 @@ bool DallasScan::forget_and_save(int slot) {
     if (!this->store_offsets_now_()) {
       this->slots_ = before;
       this->offsets_ = offsets;
+      this->labels_ = labels;
       ESP_LOGE(TAG, "The offsets were not written: nothing is forgotten");
       return false;
     }
