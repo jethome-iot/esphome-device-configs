@@ -48,7 +48,8 @@ web_climate_editor:
 # App sizes its entity lists from what is declared here and silently drops a
 # registration past that, so this is at least what cases/common.h registers: one
 # YAML climate beside the pool, the sensors, the relays, one internal sensor and one
-# internal switch.
+# internal switch. Temp 1 and Temp 2 are contract.json's, named as the client mock
+# names them.
 # The units fill the generated unit table the cases' sensors take theirs from.
 climate:
   - platform: template
@@ -76,6 +77,14 @@ sensor:
   - platform: template
     id: counter_unused
     name: "Counter"
+  - platform: template
+    id: temp_1_unused
+    name: "Temp 1"
+    unit_of_measurement: "°C"
+  - platform: template
+    id: temp_2_unused
+    name: "Temp 2"
+    unit_of_measurement: "°C"
 
 switch:
   - platform: template

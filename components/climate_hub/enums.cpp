@@ -76,12 +76,8 @@ const char *fault_to_string(HubFault v) {
   switch (v) {
     case HubFault::NONE:
       return "none";
-    case HubFault::SENSOR_MISSING:
-      return "sensor_missing";
     case HubFault::SENSOR_STALE:
       return "sensor_stale";
-    case HubFault::RELAY_MISSING:
-      return "relay_missing";
     case HubFault::OVERTEMP:
       return "overtemp";
     case HubFault::RELAY_CONTESTED:

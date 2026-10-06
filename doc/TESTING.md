@@ -51,7 +51,8 @@ tests/
                               # which the host platform has no header for
     web_auth/
     web_automation_editor/
-    web_climate_editor/
+    web_climate_editor/       # contract.json: requests and their answers, which the dashboard
+                              # also runs against the client mock (see below)
     web_device_dashboard/
     web_file_browser/
     web_origin_guard/
@@ -67,6 +68,44 @@ tests/
 3. `tests/components/<name>/test_*.py` for the schema: what a bad config is refused with.
 4. Nothing else: `run.py` and CI pick the directory up. A component the host platform cannot
    build gets a directory with `test_*.py` and no `test.yaml`; the runner then skips the build.
+
+## Thermostat editor cases
+
+`web_climate_editor` keeps its cases in two places. A request whose answer the dashboard's client
+mock must give as well goes in `contract.json`: the suite sends it through the handler, and the
+dashboard runs the same file against the mock. What only the device can show stays in `cases/`:
+the files on disk, the log, a job reaching the loop task, the relays' states.
+
+`contract.json` holds:
+
+- `$comment`: free text.
+- `environment`: what both sides have: `max_controllers`, the YAML `climates`, the `sensors`
+  (`object_id`, `name`, `unit`) and `switches` (`object_id`, `name`) a case may name, and the
+  ids neither has (`missing`).
+- `fixtures`: thermostat documents by name. A case's `setup` lists the ones it needs, each
+  POSTed to `save` in that order and answered `200`.
+- `cases`: each one starts on a device with no thermostat but its `setup`:
+  - `name`: a sentence, unique.
+  - `setup`: fixture names, optional.
+  - `device_only`: a state only the device can be put in: `loop_busy`, `storage_failed`,
+    `storage_unwritable`, `file_cap`, `no_free_entity`, `file_stays`. The mock skips the case.
+    The state holds for the case's own request, not for `then`.
+  - `method`, `path`: `GET`, `POST` or `OPTIONS`, and the route below `<url_prefix>/api/` with
+    its query, sent as written.
+  - `body`: `null` for none, a string as written, anything else as its JSON.
+  - `pad_to`: blanks appended to the body up to that many bytes, optional.
+  - `status`: the HTTP status.
+  - `error`: the exact error of a failure; or `error_prefix`, how it starts, when the rest is
+    not the API's own words (the JSON parser's name for what it refused).
+  - `headers`: headers the answer carries, by name.
+  - `expect`: dotted paths into the answer and the value found there, numbers to a float's
+    precision and `null` for a null that is there. A segment is a key, an array index, or
+    `key=value` for the first element whose `key` has that value.
+  - `absent`: paths the answer does not have.
+  - `then`: requests that follow, each with the keys from `method` to `absent` and no other: no
+    `name`, `setup` or `device_only`.
+
+A key not listed here fails the suite, a misspelt one included.
 
 ## Rules every suite lives by
 

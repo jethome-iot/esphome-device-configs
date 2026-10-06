@@ -40,9 +40,7 @@ TEST(Enums, ActionAndFaultNamesAreStable) {
   EXPECT_STREQ("cooling", enums::action_to_string(HubAction::COOLING));
 
   EXPECT_STREQ("none", enums::fault_to_string(HubFault::NONE));
-  EXPECT_STREQ("sensor_missing", enums::fault_to_string(HubFault::SENSOR_MISSING));
   EXPECT_STREQ("sensor_stale", enums::fault_to_string(HubFault::SENSOR_STALE));
-  EXPECT_STREQ("relay_missing", enums::fault_to_string(HubFault::RELAY_MISSING));
   EXPECT_STREQ("overtemp", enums::fault_to_string(HubFault::OVERTEMP));
   EXPECT_STREQ("relay_contested", enums::fault_to_string(HubFault::RELAY_CONTESTED));
 }

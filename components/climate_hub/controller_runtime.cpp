@@ -65,9 +65,7 @@ float clamp01(float v) { return std::isnan(v) ? 0.f : (v < 0.f ? 0.f : (v > 1.f 
 bool cuts_out(HubFault f) { return f != HubFault::NONE && f != HubFault::RELAY_CONTESTED; }
 
 // The reading is in doubt or too hot: a relay closed from elsewhere cannot wait out a dwell.
-bool unsafe(HubFault f) {
-  return f == HubFault::SENSOR_MISSING || f == HubFault::SENSOR_STALE || f == HubFault::OVERTEMP;
-}
+bool unsafe(HubFault f) { return f == HubFault::SENSOR_STALE || f == HubFault::OVERTEMP; }
 
 }  // namespace
 
@@ -271,15 +269,10 @@ void ControllerRuntime::refresh_fault_(uint32_t now_ms) {
   const uint32_t silent_ms = now_ms - (this->has_sample_ ? this->last_sample_ms_ : this->waiting_since_ms_);
 
   HubFault fault = HubFault::NONE;
-  if (this->sensor_ == nullptr) {
-    fault = HubFault::SENSOR_MISSING;
-  } else if (silent_ms > timeout_ms) {
+  if (silent_ms > timeout_ms) {
     fault = HubFault::SENSOR_STALE;
   } else if (this->has_sample_ && this->entity_->current_temperature > c.safety.max_temperature) {
     fault = HubFault::OVERTEMP;
-  } else if ((c.supports_heat() && this->heat_claim_ == nullptr) ||
-             (c.supports_cool() && this->cool_claim_ == nullptr)) {
-    fault = HubFault::RELAY_MISSING;
   } else if ((this->heat_claim_ != nullptr && this->heat_claim_->contested(now_ms)) ||
              (this->cool_claim_ != nullptr && this->cool_claim_->contested(now_ms))) {
     fault = HubFault::RELAY_CONTESTED;

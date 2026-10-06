@@ -419,9 +419,8 @@ void WebClimateEditor::handle_schema_(AsyncWebServerRequest *request) {
                     climate_hub::HubMode::HEAT_COOL})
     modes.add(climate_hub::enums::mode_to_string(mode));
   JsonArray faults = doc["faults"].to<JsonArray>();
-  for (auto fault :
-       {climate_hub::HubFault::NONE, climate_hub::HubFault::SENSOR_MISSING, climate_hub::HubFault::SENSOR_STALE,
-        climate_hub::HubFault::RELAY_MISSING, climate_hub::HubFault::OVERTEMP, climate_hub::HubFault::RELAY_CONTESTED})
+  for (auto fault : {climate_hub::HubFault::NONE, climate_hub::HubFault::SENSOR_STALE, climate_hub::HubFault::OVERTEMP,
+                     climate_hub::HubFault::RELAY_CONTESTED})
     faults.add(climate_hub::enums::fault_to_string(fault));
   doc["max_controllers"] = this->hub_->max_controllers();
   doc["name_max_length"] = climate_hub::NAME_MAX_LENGTH;

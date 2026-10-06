@@ -16,16 +16,12 @@ export type ClimateHubMode = 'off' | 'heat' | 'cool' | 'heat_cool'
 export type ClimateHubAction = 'off' | 'idle' | 'heating' | 'cooling'
 
 /**
- * Why a controller is not controlling. Never persisted. `relay_contested` alone
- * keeps it controlling: something else keeps moving one of its relays.
+ * Why a running controller is not controlling. Never persisted. `relay_contested`
+ * alone keeps it controlling: something else keeps moving one of its relays. A sensor
+ * or relay the device does not have is no fault: the thermostat waits, and says why
+ * in `waiting`.
  */
-export type ClimateHubFault =
-  | 'none'
-  | 'sensor_missing'
-  | 'sensor_stale'
-  | 'relay_missing'
-  | 'overtemp'
-  | 'relay_contested'
+export type ClimateHubFault = 'none' | 'sensor_stale' | 'overtemp' | 'relay_contested'
 
 /** One driven direction. An empty relay_id means the direction is unused. */
 export interface OutputConfig {

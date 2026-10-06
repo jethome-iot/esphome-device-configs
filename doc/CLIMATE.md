@@ -29,7 +29,7 @@ at the next boot. The file format and the C++ API are in
   put back once it has stayed there for its minimum on or off time, 10 s at least, so whatever
   keeps switching it gets one switch per that time. After five switches with no ten quiet
   minutes after a put-back, the thermostat reports `relay_contested`: it goes on working, and
-  the fault clears ten minutes after the last put-back. While the sensor is gone or silent or
+  the fault clears ten minutes after the last put-back. While the sensor is silent or
   the room is above the cut-out temperature, a relay switched on from elsewhere is switched off
   again at once, every time. Mode off keeps holding the relay open; only stopping the
   thermostat, by switching it off or deleting it, frees the relay.
@@ -66,6 +66,15 @@ thermostat drives its relay, or when its sensor does not report °C; one whose s
 missing is stored enabled and waits, as above. A start can take the relay over instead of being
 refused, which stops the other thermostat and stores it as disabled; one whose sensor or relay
 is missing cannot.
+
+## On the display
+
+**Thermostats** in the display menu of `jxd-r6-e1eth-lcd` lists the thermostats the device
+booted with, each with what its sensor reads; one created later shows after a reboot. A row
+opens its name, the reading, what it is doing (Heating, Cooling, Idle, Off, Waiting, Disabled,
+or in a word the fault that keeps it from controlling), the target and Enabled. The target moves
+in the thermostat's own step inside its range; Enabled starts or stops it like the start over
+HTTP, never taking a relay over: an On that is refused stays Off, and the log says why.
 
 ## Home Assistant
 
