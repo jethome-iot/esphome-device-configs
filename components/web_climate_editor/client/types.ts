@@ -324,6 +324,9 @@ export const CONFIG_MAX_BYTES = 8192
 /** The file format this contract describes; a document with a higher `version` came from a newer firmware. */
 export const CONFIG_VERSION = 2
 
+/** The 409 error of a Save over a document whose `version` is above CONFIG_VERSION, in the device's words. */
+export const NEWER_FILE = 'A newer firmware wrote this thermostat; update the firmware to change it'
+
 /** Presets per thermostat; the same number /schema serves. */
 export const PRESET_MAX_COUNT = 8
 

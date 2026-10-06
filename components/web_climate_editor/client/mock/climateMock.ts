@@ -51,6 +51,7 @@ import {
   CONFIG_VERSION,
   ENTITY_ID_MAX_LENGTH,
   NAME_MAX_LENGTH,
+  NEWER_FILE,
   PRESET_MAX_COUNT,
   STANDARD_PRESETS
 } from '../types'
@@ -701,9 +702,6 @@ interface Runtime {
   coolDuty: number
   terms: PidTerms
 }
-
-// A Save would drop what this firmware does not know of the file.
-const NEWER_FILE = 'A newer firmware wrote this thermostat; update the firmware to change it'
 
 function fail(status: number, error: string): MockResult {
   return { status, body: { success: false, error } }
