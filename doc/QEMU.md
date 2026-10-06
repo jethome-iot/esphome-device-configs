@@ -100,7 +100,7 @@ device by `packages/qemu/qemu-<device>.yaml`, together with a room for the therm
 |---|---|
 | `board-d6-r6.yaml` | The six relays and six inputs become `template`, keeping every id, name and automation — a relay then toggles over REST and holds. A `template` input cannot change on its own, so six `internal:` switches publish onto them — unlisted, still drivable by name. With nothing left pointing at the expander it is removed too, which is where most of the log noise went. |
 | `panel-jxd-display.yaml` | The panel becomes a [`virtual_display`](../components/virtual_display/README.md) and the joystick becomes `template` sensors the front panel publishes into. |
-| `climate-plant.yaml` | A room for the thermostats: the `QEMU Room Temperature` sensor warms while `Relay 1` is on and cools towards 15 °C otherwise, since no `Temp N` probe exists here. |
+| `climate-plant.yaml` | A room for the thermostats: the `QEMU Room Temperature` sensor warms while `Relay 1` is on and cools towards 15 °C otherwise, since no `Temp N` probe exists here. What the relay does reaches it ten seconds later, so a calibration has a delay to measure, and takes a few minutes. |
 
 The panel overlay patches the joystick sensors by id, so every button in
 `packages/display/buttons.yaml` needs one.

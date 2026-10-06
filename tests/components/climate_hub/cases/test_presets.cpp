@@ -5,6 +5,9 @@
 namespace esphome::climate_hub::testing {
 namespace {
 
+// The version a newer firmware writes, whatever this one's is.
+const std::string NEWER = std::to_string(CONFIG_VERSION + 1);
+
 PresetConfig preset(const char *name, float setpoint, optional<HubMode> mode = nullopt, const char *key = "") {
   PresetConfig p;
   p.key = key;
@@ -486,13 +489,14 @@ TEST_F(Presets, AStoppedThermostatShowsNoPreset) {
 // changes stay in memory, and an editor Save is refused.
 TEST_F(Presets, AFileFromANewerFirmwareRunsButIsNeverWritten) {
   const std::string text =
-      R"({"version":4,"id":"boiler","name":"Boiler","kind":"bang_bang","sensor_id":"room",)"
+      R"({"version":)" + NEWER +
+      R"(,"id":"boiler","name":"Boiler","kind":"bang_bang","sensor_id":"room",)"
       R"("heat":{"relay_id":"relay_1"},"mode":"heat","setpoint":21,"future":{"x":1},)"
       R"("presets":[{"key":"eco","name":"Eco","setpoint":18,"mode":"keep","colour":"green"}],"active_preset":"eco"})";
   write_file(this->file_of("boiler"), text);
   LogCapture::instance().clear();
   this->reboot();
-  EXPECT_TRUE(LogCapture::instance().has("is version 4, from a newer firmware"));
+  EXPECT_TRUE(LogCapture::instance().has("is version " + NEWER + ", from a newer firmware"));
 
   ASSERT_TRUE(hub().is_running("boiler"));
   const ClimateConfig *saved = hub().store().get("boiler");
@@ -535,7 +539,8 @@ TEST_F(Presets, AFileFromANewerFirmwareRunsButIsNeverWritten) {
 // holder is stopped in memory only: the next boot runs what the files say, not neither of them.
 TEST_F(Presets, ATakeOverByANewerFileLastsUntilTheReboot) {
   this->create(draft("Winter"));
-  const std::string text = R"({"version":4,"id":"summer","name":"Summer","enabled":false,"sensor_id":"room",)"
+  const std::string text = R"({"version":)" + NEWER +
+                           R"(,"id":"summer","name":"Summer","enabled":false,"sensor_id":"room",)"
                            R"("heat":{"relay_id":"relay_1"},"mode":"heat"})";
   write_file(this->file_of("summer"), text);
   this->reboot();
@@ -566,8 +571,9 @@ TEST_F(Presets, ATakeOverByANewerFileLastsUntilTheReboot) {
 // take-over still is not recorded.
 TEST_F(Presets, ATakeOverByAWaitingNewerFileIsNotWrittenEither) {
   this->create(draft("Boiler"));
-  write_file(this->file_of("summer"), R"({"version":4,"id":"summer","name":"Summer","sensor_id":"room",)"
-                                      R"("heat":{"relay_id":"relay_1"},"mode":"heat"})");
+  write_file(this->file_of("summer"), R"({"version":)" + NEWER +
+                                          R"(,"id":"summer","name":"Summer","sensor_id":"room",)"
+                                          R"("heat":{"relay_id":"relay_1"},"mode":"heat"})");
   this->reboot();
   ASSERT_NE("", hub().waiting_reason("summer"));
 
@@ -584,7 +590,8 @@ TEST_F(Presets, ATakeOverByANewerFileLeavesAWaitersFileEnabled) {
   ClimateConfig attic = draft("Attic");
   attic.sensor_id = "gone";
   this->create(attic);
-  const std::string text = R"({"version":4,"id":"summer","name":"Summer","enabled":false,"sensor_id":"room",)"
+  const std::string text = R"({"version":)" + NEWER +
+                           R"(,"id":"summer","name":"Summer","enabled":false,"sensor_id":"room",)"
                            R"("heat":{"relay_id":"relay_1"},"mode":"heat"})";
   write_file(this->file_of("summer"), text);
   this->reboot();
@@ -614,7 +621,8 @@ TEST_F(Presets, ATakeOverByANewerFileLeavesAWaitersFileEnabled) {
 // A newer file whose name another thermostat has is renamed for this boot only.
 TEST_F(Presets, ANewerFileRenamedAtBootIsNotWritten) {
   this->create(draft("Boiler"));
-  const std::string text = R"({"version":9,"id":"kettle","name":"boiler","enabled":false,"sensor_id":"room",)"
+  const std::string text = R"({"version":)" + NEWER +
+                           R"(,"id":"kettle","name":"boiler","enabled":false,"sensor_id":"room",)"
                            R"("heat":{"relay_id":"relay_2"}})";
   write_file(this->file_of("kettle"), text);
   this->reboot();
