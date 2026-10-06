@@ -51,6 +51,12 @@ class Defaults(unittest.TestCase):
         self.assertFalse(bus.is_declaration)
 
 
+class AutoLoad(unittest.TestCase):
+    def test_the_label_rules_come_with_it(self):
+        # set_label_and_save() and the slot file check a label with panel_text's rules.
+        self.assertIn("panel_text", dallas_scan.AUTO_LOAD)
+
+
 class Ranges(unittest.TestCase):
     def test_max_sensors_is_one_to_sixty_four(self):
         for value in (1, 64):

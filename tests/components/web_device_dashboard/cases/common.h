@@ -124,6 +124,7 @@ inline Entities &entities() {
 struct TestRecord {
   std::string source_name_;
   bool inverted{false};
+  std::string label;
 
   const char *source_name() const { return this->source_name_.c_str(); }
 
@@ -196,11 +197,17 @@ class TestSettings : public config_json::SettingsBaseJsonTyped<TestSettings, Tes
     fields.add("inverted");
   }
 
+  std::string get_label(const char *source_name) override {
+    const TestRecord *record = this->find(source_name);
+    return record != nullptr ? record->label : std::string();
+  }
+
   // A record the API did not put there, for the reads that have to find more than one.
-  void seed(const char *name, bool inverted) {
+  void seed(const char *name, bool inverted, const char *label = "") {
     auto *record = new TestRecord();  // NOLINT(cppcoreguidelines-owning-memory)
     record->source_name_ = name;
     record->inverted = inverted;
+    record->label = label;
     this->records_.push_back(record);
   }
 

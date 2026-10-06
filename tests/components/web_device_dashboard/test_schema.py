@@ -4,6 +4,7 @@ import importlib
 import unittest
 from pathlib import Path
 
+import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import loader
 from esphome.const import (
@@ -13,7 +14,7 @@ from esphome.const import (
     PLATFORM_ESP8266,
     PLATFORM_HOST,
 )
-from esphome.core import CORE
+from esphome.core import CORE, ID
 
 # External components import each other as esphome.components.<name>: give them the finder
 # that external_components: installs when a config names the directory.
@@ -182,6 +183,72 @@ class ServedScreens(unittest.TestCase):
                     module.CONFIG_SCHEMA({**extra, "url_prefix": value})
 
 
+class ModbusMapWiring(unittest.TestCase):
+    """The map /capabilities reports is read off the config too: the dashboard has no key for it."""
+
+    MAP = {
+        "id": "jxd_map",
+        "modbus_server_id": "modbus_server1",
+        "bits": [{"address": 0, "name": "Relays"}],
+    }
+
+    def tearDown(self):
+        CORE.reset()
+        setUpModule()
+
+    def generate(self, core_config):
+        """to_code against @p core_config: the defines it added and the statements it emitted."""
+        CORE.reset()
+        setUpModule()
+        CORE.config = core_config
+        config = dashboard.CONFIG_SCHEMA({"id": "dash", "web_server_base_id": "web"})
+        CORE.component_ids.add("dash")
+        declared = [
+            ID("web", is_declaration=True, type=config["web_server_base_id"].type)
+        ]
+        if dashboard.CONF_MODBUS_MAP in core_config:
+            declared.append(core_config[dashboard.CONF_MODBUS_MAP]["id"])
+
+        async def declare():
+            for variable in declared:
+                cg.new_Pvariable(variable)
+
+        CORE.add_job(dashboard.to_code, config)
+        CORE.add_job(declare)
+        CORE.flush_tasks()
+        return {define.name for define in CORE.defines}, [
+            str(statement) for statement in CORE.main_statements
+        ]
+
+    def test_a_map_in_the_config_is_wired_in(self):
+        module = importlib.import_module(
+            f"esphome.components.{dashboard.CONF_MODBUS_MAP}"
+        )
+        core_config = {dashboard.CONF_MODBUS_MAP: module.CONFIG_SCHEMA(self.MAP)}
+        defines, statements = self.generate(core_config)
+        self.assertIn("USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP", defines)
+        self.assertIn("dash->set_modbus_map(jxd_map);", statements)
+
+    def test_without_one_nothing_is(self):
+        defines, statements = self.generate({})
+        self.assertNotIn("USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP", defines)
+        self.assertFalse([s for s in statements if "set_modbus_map" in s])
+
+    def test_the_setter_exists_under_that_define(self):
+        header = (
+            Path(__file__).resolve().parents[3]
+            / "components/web_device_dashboard/web_device_dashboard.h"
+        ).read_text()
+        setter = header.index("void set_modbus_map(const modbus_map::ModbusMap *")
+        guard = header.rindex("#ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP", 0, setter)
+        self.assertNotIn("#endif", header[guard:setter])
+        self.assertNotIn("#else", header[guard:setter])
+
+    def test_the_map_stays_optional(self):
+        self.assertNotIn(dashboard.CONF_MODBUS_MAP, dashboard.AUTO_LOAD)
+        self.assertNotIn(dashboard.CONF_MODBUS_MAP, dashboard.DEPENDENCIES)
+
+
 class UnknownKeys(unittest.TestCase):
     def test_a_misspelled_option_is_refused(self):
         for key in (
@@ -190,6 +257,8 @@ class UnknownKeys(unittest.TestCase):
             "url_prefix",
             "storage",
             "dallas_scan",
+            "modbus_map",
+            "modbus_map_id",
         ):
             with (
                 self.subTest(key=key),

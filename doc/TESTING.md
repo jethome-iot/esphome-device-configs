@@ -47,6 +47,9 @@ tests/
                               # upstream refuses on the host platform
     littlefs_storage/         # test_schema.py alone: the C++ is ESP-IDF only
     loop_job/
+    modbus_map/               # test_schema.py alone: the class only holds what the build derived,
+                              # and web_device_dashboard's suite reads one
+    panel_text/
     status_indicator/
     switch_hold/
     virtual_display/          # test_schema.py alone: the C++ includes <esp_http_server.h>,

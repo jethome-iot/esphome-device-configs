@@ -5,6 +5,7 @@
 #include <cmath>
 #include <fstream>
 #include <map>
+#include <sstream>
 
 namespace esphome::web_device_dashboard::testing {
 
@@ -12,6 +13,7 @@ static const char *const SLOTS = "/api/device/temperature-slots";
 static const char *const FORGET = "/api/device/temperature-slots/forget";
 static const char *const ASSIGN = "/api/device/temperature-slots/assign";
 static const char *const OFFSET = "/api/device/temperature-slots/offset";
+static const char *const LABEL = "/api/device/temperature-slots/label";
 static const char *const CAPABILITIES = "/api/device/capabilities";
 static const char *const STATUS = "/api/device/status";
 static const char *const REBOOT = "/api/device/system/reboot";
@@ -972,6 +974,403 @@ TEST_F(TemperatureSlots, AnOffsetWaitsForASlotFileThatLoads) {
   remove(file.c_str());
   rmdir(dir.c_str());
   rmdir(folder);
+}
+
+// --- labels ---
+
+static const char *const LABEL_RULES = "'label' must be text of at most 24 characters, with no control characters";
+
+static std::string cyrillic(size_t letters) {
+  std::string out;
+  for (size_t i = 0; i < letters; i++)
+    out += "ж";
+  return out;
+}
+
+// Labels live in the slot file only, so these boots keep the table in a file under a folder of
+// their own, over the same flash from one boot to the next.
+class TemperatureSlotLabels : public TemperatureSlots {
+ protected:
+  void SetUp() override {
+    TemperatureSlots::SetUp();
+    mkdir(".storage", 0755);
+    char folder[] = ".storage/XXXXXX";
+    ASSERT_NE(mkdtemp(folder), nullptr);
+    this->folder = folder;
+  }
+
+  void TearDown() override {
+    const std::string dir = this->dir();
+    chmod(dir.c_str(), 0755);
+    remove(this->file().c_str());
+    remove((this->file() + ".tmp").c_str());
+    rmdir(dir.c_str());
+    rmdir(this->folder.c_str());
+    TemperatureSlots::TearDown();
+  }
+
+  // storage: file; @p listed gives slot 1 to a YAML sensor; @p mounted false is a partition that
+  // did not mount.
+  TestScan &boot_file(std::vector<uint64_t> devices, bool listed = false, bool mounted = true) {
+    auto storage = std::make_unique<dir_storage::DirStorage>();
+    storage->set_base_path(this->folder);
+    if (mounted)
+      storage->setup();
+    auto keeper = std::make_unique<config_json::ConfigJsonKeeper>();
+    keeper->set_storage(storage.get());
+    keeper->set_config_dir("config");
+    keeper->setup();
+    this->bus.set_devices(std::move(devices));
+    auto scan = std::make_unique<TestScan>();
+    scan->set_one_wire_bus(&this->bus);
+    scan->set_max_sensors(4);
+    scan->set_slot_file(keeper.get(), "dallas_scan_temps");
+    if (listed)
+      scan->set_sensor(0, &boiler());
+    scan->setup();
+    this->dashboard->set_temperature_slots(scan.get());
+    this->storages.push_back(std::move(storage));
+    this->keepers.push_back(std::move(keeper));
+    this->boots.push_back(std::move(scan));
+    return *this->boots.back();
+  }
+
+  std::string dir() const { return this->folder + "/config"; }
+  std::string file() const { return this->dir() + "/dallas_scan_temps.json"; }
+  void write(const std::string &text) {
+    mkdir(this->dir().c_str(), 0755);
+    std::ofstream out(this->file());
+    out << text;
+  }
+  std::string read() const {
+    std::ifstream in(this->file());
+    std::stringstream text;
+    text << in.rdbuf();
+    return text.str();
+  }
+
+  // {"slot": N, "label": X} as a POST body; @p label is the JSON text, so a case can send any.
+  Reply set_label(int slot, const std::string &label) {
+    return this->post(LABEL, R"({"slot":)" + std::to_string(slot) + R"(,"label":)" + label + "}");
+  }
+
+  std::string folder;
+  std::vector<std::unique_ptr<dir_storage::DirStorage>> storages;
+  std::vector<std::unique_ptr<config_json::ConfigJsonKeeper>> keepers;
+};
+
+TEST_F(TemperatureSlotLabels, TheListCarriesTheLengthAndEveryUnlistedSlotsLabel) {
+  this->boot_file({ROM_A, ROM_B}, true);
+  ASSERT_EQ(this->set_label(3, R"("Подача")").code, 200);
+  Reply reply = this->get(SLOTS);
+  ASSERT_EQ(reply.code, 200);
+  EXPECT_EQ(reply["max_label_length"].as<int>(), 24);
+  JsonArray slots = reply["slots"].as<JsonArray>();
+  ASSERT_EQ(slots.size(), 3u) << reply.body;
+  EXPECT_TRUE(slots[0]["listed"].as<bool>());
+  EXPECT_TRUE(slots[0]["label"].isUnbound()) << reply.body;
+  EXPECT_TRUE(slots[1]["label"].is<const char *>());
+  EXPECT_EQ(slots[1]["label"].as<std::string>(), "");
+  EXPECT_EQ(slots[2]["label"].as<std::string>(), "Подача");
+  // The name stays the sensor's, the key the page joins the entities by.
+  EXPECT_EQ(slots[2]["name"].as<std::string>(), "Temp 3");
+}
+
+TEST_F(TemperatureSlotLabels, PreferencesListNoLabels) {
+  this->boot({ROM_A}, true);
+  ASSERT_EQ(this->set_offset(2, "0.5").code, 200);
+  Reply reply = this->get(SLOTS);
+  ASSERT_EQ(reply.code, 200);
+  EXPECT_TRUE(reply["max_label_length"].isUnbound()) << reply.body;
+  for (JsonObject slot : reply["slots"].as<JsonArray>())
+    EXPECT_TRUE(slot["label"].isUnbound()) << reply.body;
+}
+
+TEST_F(TemperatureSlotLabels, ALabelIsSetAtOnceAndStays) {
+  TestScan &scan = this->boot_file({ROM_A, ROM_B});
+  Reply reply = this->set_label(2, R"("  Boiler return ")");
+  EXPECT_EQ(reply.code, 200);
+  EXPECT_EQ(reply.type, "application/json");
+  EXPECT_EQ(reply.body, R"({"success":true,"message":"Slot 2 label set","label":"Boiler return"})");
+  EXPECT_EQ(scan.label(1), "Boiler return");
+  EXPECT_EQ(this->get(SLOTS)["slots"][1]["label"].as<std::string>(), "Boiler return");
+  this->loop();
+  EXPECT_EQ(this->dashboard->restarts, 0);
+  EXPECT_EQ(scan.restarts, 0);
+  EXPECT_FALSE(this->waits());
+  EXPECT_EQ(this->boot_file({ROM_A, ROM_B}).label(1), "Boiler return");
+  EXPECT_EQ(this->get(SLOTS)["slots"][1]["label"].as<std::string>(), "Boiler return");
+}
+
+TEST_F(TemperatureSlotLabels, AnEmptyLabelClearsIt) {
+  TestScan &scan = this->boot_file({ROM_A});
+  ASSERT_EQ(this->set_label(1, R"("Boiler")").code, 200);
+  for (const char *label : {R"("")", R"("   ")"}) {
+    Reply reply = this->set_label(1, label);
+    EXPECT_EQ(reply.code, 200) << label;
+    EXPECT_EQ(reply.body, R"({"success":true,"message":"Slot 1 label cleared","label":""})") << label;
+  }
+  EXPECT_EQ(scan.label(0), "");
+}
+
+TEST_F(TemperatureSlotLabels, TwentyFourCharactersFitAndTwentyFiveDoNot) {
+  TestScan &scan = this->boot_file({ROM_A});
+  Reply fits = this->set_label(1, "\"" + cyrillic(24) + "\"");
+  EXPECT_EQ(fits.code, 200) << fits.error();
+  EXPECT_EQ(fits["label"].as<std::string>(), cyrillic(24));
+  Reply over = this->set_label(1, "\"" + cyrillic(25) + "\"");
+  EXPECT_EQ(over.code, 400);
+  EXPECT_EQ(over.error(), LABEL_RULES);
+  EXPECT_EQ(scan.label(0), cyrillic(24));
+}
+
+// Nothing to write, nothing refused: the page may save a dialog whose label it did not change.
+TEST_F(TemperatureSlotLabels, SettingTheSameLabelAgainIsFine) {
+  this->boot_file({ROM_A});
+  for (int i = 0; i < 2; i++) {
+    Reply reply = this->set_label(1, R"("Boiler")");
+    EXPECT_EQ(reply.code, 200) << reply.error();
+    EXPECT_EQ(reply.message(), "Slot 1 label set");
+  }
+  Reply none = this->set_label(3, R"("")");
+  EXPECT_EQ(none.code, 200);
+  EXPECT_EQ(none.message(), "Slot 3 label cleared");
+}
+
+TEST_F(TemperatureSlotLabels, ALabelNeedsASlotInRangeAndText) {
+  TestScan &scan = this->boot_file({ROM_A});
+  const int jobs = this->dashboard->jobs;
+  for (const char *body : {R"({"slot":0,"label":"a"})", R"({"slot":5,"label":"a"})", R"({"slot":"1","label":"a"})",
+                           R"({"slot":1.5,"label":"a"})", R"({"slot":null,"label":"a"})", R"({"label":"a"})"}) {
+    Reply reply = this->post(LABEL, body);
+    EXPECT_EQ(reply.code, 400) << body;
+    EXPECT_EQ(reply.error(), "'slot' must be a number from 1 to 4") << body;
+  }
+  // Not a string: refused where the request is.
+  for (const char *label : {"null", "5", "true", R"(["a"])", R"({"text":"a"})"}) {
+    Reply reply = this->set_label(1, label);
+    EXPECT_EQ(reply.code, 400) << label;
+    EXPECT_EQ(reply.error(), LABEL_RULES) << label;
+  }
+  Reply missing = this->post(LABEL, R"({"slot":1})");
+  EXPECT_EQ(missing.code, 400);
+  EXPECT_EQ(missing.error(), LABEL_RULES);
+  // The slot is checked before the label.
+  EXPECT_EQ(this->post(LABEL, R"({"slot":9,"label":5})").error(), "'slot' must be a number from 1 to 4");
+  for (const char *body : {"", "{", "[1,\"a\"]", "\"a\""}) {
+    Reply reply = this->post(LABEL, body);
+    EXPECT_EQ(reply.code, 400) << body;
+    EXPECT_EQ(reply.error(), "Invalid JSON") << body;
+  }
+  EXPECT_EQ(this->dashboard->jobs, jobs);
+  EXPECT_EQ(scan.label(0), "");
+}
+
+// A string the rules refuse goes to dallas_scan, which says so: the same 400.
+TEST_F(TemperatureSlotLabels, TextTheRulesRefuseIsRefused) {
+  TestScan &scan = this->boot_file({ROM_A});
+  ASSERT_EQ(this->set_label(1, R"("Boiler")").code, 200);
+  for (const char *label : {R"("a\nb")", R"("a\u0000b")", R"("\u0000")", R"("\u0085")", R"("tab\there")",
+                            R"("xxxxxxxxxxxxxxxxxxxxxxxxx")"}) {
+    Reply reply = this->set_label(1, label);
+    EXPECT_EQ(reply.code, 400) << label;
+    EXPECT_EQ(reply.error(), LABEL_RULES) << label;
+  }
+  // Raw bytes no JSON escape makes, which the parser passes through.
+  Reply broken = this->post(LABEL, std::string(R"({"slot":1,"label":"ab)") + "\xD0" + R"("})");
+  EXPECT_EQ(broken.code, 400);
+  EXPECT_EQ(broken.error(), LABEL_RULES);
+  EXPECT_EQ(scan.label(0), "Boiler");
+}
+
+TEST_F(TemperatureSlotLabels, AListedSlotTakesNoLabel) {
+  TestScan &scan = this->boot_file({ROM_A}, true);
+  Reply reply = this->set_label(1, R"("Boiler")");
+  EXPECT_EQ(reply.code, 409);
+  EXPECT_EQ(reply.error(), "Slot 1 belongs to a sensor listed in YAML");
+  // The text is checked first, as dallas_scan checks it.
+  EXPECT_EQ(this->set_label(1, R"("a\nb")").code, 400);
+  EXPECT_EQ(scan.label(0), "");
+}
+
+TEST_F(TemperatureSlotLabels, ALabelTakesNoConfirmationButJsonFromThisSite) {
+  TestScan &scan = this->boot_file({ROM_A});
+  const int jobs = this->dashboard->jobs;
+  Reply form = this->call(HTTP_POST, LABEL, R"({"slot":1,"label":"Boiler"})", 512, "text/plain");
+  EXPECT_EQ(form.code, 415);
+  EXPECT_EQ(form.error(), "Expected Content-Type: application/json");
+  Reply cross_site =
+      this->call(HTTP_POST, LABEL, R"({"slot":1,"label":"Boiler"})", 512, "application/json", "http://evil.example");
+  EXPECT_EQ(cross_site.code, 403);
+  Reply large = this->post(LABEL, R"({"slot":1,"label":"Boiler","pad":")" + std::string(5000, 'x') + R"("})");
+  EXPECT_EQ(large.code, 413);
+  EXPECT_EQ(large.error(), "Request body over 4 KiB");
+  EXPECT_EQ(this->dashboard->jobs, jobs);
+  EXPECT_EQ(scan.label(0), "");
+  Reply confirmed = this->post(LABEL, this->confirmed(R"("slot":1,"label":"Boiler")"));
+  EXPECT_EQ(confirmed.code, 200) << confirmed.error();
+  EXPECT_EQ(scan.label(0), "Boiler");
+}
+
+TEST_F(TemperatureSlotLabels, WithoutAScanOrWithPreferencesTheRouteIsNotFound) {
+  Reply none = this->set_label(1, R"("Boiler")");
+  EXPECT_EQ(none.code, 404);
+  EXPECT_EQ(none.error(), "No temperature slots");
+  this->boot({ROM_A});
+  // Before the body is read: a body that is not JSON is still the 404.
+  for (const std::string &body : {std::string(R"({"slot":1,"label":"Boiler"})"), std::string("{")}) {
+    Reply reply = this->post(LABEL, body);
+    EXPECT_EQ(reply.code, 404) << body;
+    EXPECT_EQ(reply.error(), "Slot labels need storage: file") << body;
+  }
+  Reply form = this->call(HTTP_POST, LABEL, "slot=1", 512, "text/plain");
+  EXPECT_EQ(form.code, 404);
+}
+
+// A partition that did not mount: refused up front, after the body is read and before the slot.
+TEST_F(TemperatureSlotLabels, WithoutAMountTheRouteIsUnavailable) {
+  TestScan &scan = this->boot_file({ROM_A}, false, false);
+  ASSERT_FALSE(scan.can_save());
+  for (const char *body : {R"({"slot":1,"label":"Boiler"})", R"({"slot":1,"label":""})", R"({"slot":9})"}) {
+    Reply reply = this->post(LABEL, body);
+    EXPECT_EQ(reply.code, 503) << body;
+    EXPECT_EQ(reply.error(), "Temperature slot storage unavailable") << body;
+  }
+  EXPECT_EQ(this->post(LABEL, "{").code, 400);
+  EXPECT_FALSE(this->get(SLOTS)["can_forget_all"].as<bool>());
+}
+
+// A slot file that did not load waits for a person to fix it: no label is written over it.
+TEST_F(TemperatureSlotLabels, ALabelWaitsForASlotFileThatLoads) {
+  this->write(R"({"version":1,"records":[)");
+  TestScan &scan = this->boot_file({ROM_A});
+  ASSERT_FALSE(scan.can_set_label());
+  for (const char *body : {R"({"slot":1,"label":"Boiler"})", R"({"slot":1,"label":""})", R"({"slot":9})"}) {
+    Reply reply = this->post(LABEL, body);
+    EXPECT_EQ(reply.code, 503) << body;
+    EXPECT_EQ(reply.error(), "The slot file did not load; fix it and reboot") << body;
+  }
+  EXPECT_EQ(this->read(), R"({"version":1,"records":[)");
+  // Still listed, with the length, so the page knows labels exist once the file is fixed.
+  Reply list = this->get(SLOTS);
+  EXPECT_EQ(list.code, 200);
+  EXPECT_EQ(list["max_label_length"].as<int>(), 24);
+}
+
+TEST_F(TemperatureSlotLabels, AWriteThatFailsIsAnError) {
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root writes into a read-only folder";
+  TestScan &scan = this->boot_file({ROM_A});
+  ASSERT_EQ(this->set_label(1, R"("Boiler")").code, 200);
+  ASSERT_EQ(chmod(this->dir().c_str(), 0555), 0);
+  Reply reply = this->set_label(1, R"("Return")");
+  chmod(this->dir().c_str(), 0755);
+  EXPECT_EQ(reply.code, 500);
+  EXPECT_EQ(reply.error(), "The label was not written");
+  EXPECT_EQ(scan.label(0), "Boiler");
+  EXPECT_EQ(this->get(SLOTS)["slots"][0]["label"].as<std::string>(), "Boiler");
+}
+
+TEST_F(TemperatureSlotLabels, ABusyLoopIsUnavailable) {
+  TestScan &scan = this->boot_file({ROM_A});
+  this->dashboard->loop_busy = true;
+  Reply list = this->get(SLOTS);
+  Reply reply = this->set_label(1, R"("Boiler")");
+  this->dashboard->loop_busy = false;
+  for (Reply *r : {&list, &reply}) {
+    EXPECT_EQ(r->code, 503);
+    EXPECT_EQ(r->error(), "Device busy");
+  }
+  EXPECT_EQ(scan.label(0), "");
+}
+
+// The list runs to the last slot holding a label too, so a free one past the sensors shows it.
+TEST_F(TemperatureSlotLabels, AFreeSlotHoldingALabelIsListed) {
+  this->boot_file({ROM_A});
+  ASSERT_EQ(this->set_label(4, R"("Return")").code, 200);
+  Reply list = this->get(SLOTS);
+  JsonArray slots = list["slots"].as<JsonArray>();
+  ASSERT_EQ(slots.size(), 4u) << list.body;
+  EXPECT_EQ(slots[3]["name"].as<std::string>(), "Temp 4");
+  EXPECT_TRUE(slots[3]["free"].as<bool>());
+  EXPECT_FALSE(slots[3]["can_forget"].as<bool>());
+  EXPECT_EQ(slots[3]["label"].as<std::string>(), "Return");
+  EXPECT_FALSE(list["reboot_required"].as<bool>());
+  ASSERT_EQ(this->set_label(4, R"("")").code, 200);
+  EXPECT_EQ(this->get(SLOTS)["slots"].as<JsonArray>().size(), 1u);
+}
+
+// The label belongs to the slot number: a forget of that slot and an assign into it leave it.
+TEST_F(TemperatureSlotLabels, AForgetOrAnAssignLeavesTheLabelOnItsSlot) {
+  this->boot_file({ROM_A, ROM_B});
+  ASSERT_EQ(this->set_label(1, R"("Boiler")").code, 200);
+  ASSERT_EQ(this->post(FORGET, this->confirmed(R"("slot":1)")).code, 200);
+  Reply assign = this->post(ASSIGN, this->confirmed(R"("slot":1,"address":"0x8a0122791699dd28")"));
+  EXPECT_EQ(assign.code, 200) << assign.error();
+  Reply list = this->get(SLOTS);
+  EXPECT_EQ(list["slots"][0]["label"].as<std::string>(), "Boiler");
+  EXPECT_EQ(list["slots"][1]["label"].as<std::string>(), "");
+}
+
+// What went with the slots is named, and the reboot the slots wait for, when they do.
+TEST_F(TemperatureSlotLabels, ForgetAllNamesWhatItCleared) {
+  struct Case {
+    const char *offset;
+    const char *label;
+    const char *message;
+  };
+  for (const Case &c : std::vector<Case>{{"0.5", R"("Boiler")", "Offsets and labels cleared; every slot forgotten"},
+                                         {nullptr, R"("Boiler")", "Labels cleared; every slot forgotten"},
+                                         {"0.5", nullptr, "Offsets cleared; every slot forgotten"},
+                                         {nullptr, nullptr, "Every slot forgotten"}}) {
+    // With a device to forget, so the slots wait for a reboot.
+    this->write(R"({"version":1,"records":[]})");
+    TestScan &scan = this->boot_file({ROM_A});
+    if (c.offset != nullptr)
+      ASSERT_EQ(this->set_offset(3, c.offset).code, 200);
+    if (c.label != nullptr)
+      ASSERT_EQ(this->set_label(3, c.label).code, 200);
+    Reply reply = this->post(FORGET, this->confirmed(R"("all":true)"));
+    EXPECT_EQ(reply.code, 200) << reply.error();
+    EXPECT_EQ(reply.message(),
+              std::string(c.message) + (c.offset == nullptr && c.label == nullptr ? "; applies after a reboot"
+                                                                                  : ", applies after a reboot"));
+    EXPECT_TRUE(reply["reboot_required"].as<bool>());
+    EXPECT_EQ(scan.label(2), "");
+    EXPECT_EQ(scan.offset(2), 0.0f);
+  }
+}
+
+// Labels alone are something to forget: no longer a 409, and nothing waits for a reboot.
+TEST_F(TemperatureSlotLabels, ForgetAllWithOnlyLabelsLeftClearsThem) {
+  TestScan &scan = this->boot_file({}, true);
+  Reply nothing = this->get(SLOTS);
+  EXPECT_FALSE(nothing["can_forget_all"].as<bool>());
+  ASSERT_EQ(this->set_label(2, R"("Return")").code, 200);
+  Reply list = this->get(SLOTS);
+  EXPECT_TRUE(list["can_forget_all"].as<bool>());
+  // Forgetting that one slot would keep its label, so no row says it.
+  for (JsonObject slot : list["slots"].as<JsonArray>())
+    EXPECT_FALSE(slot["can_forget"].as<bool>()) << list.body;
+  EXPECT_EQ(this->post(FORGET, this->confirmed(R"("slot":2)")).code, 409);
+  Reply reply = this->post(FORGET, this->confirmed(R"("all":true)"));
+  EXPECT_EQ(reply.code, 200) << reply.error();
+  EXPECT_EQ(reply.message(), "Labels cleared; every slot forgotten");
+  EXPECT_FALSE(reply["reboot_required"].as<bool>());
+  EXPECT_EQ(scan.label(1), "");
+  EXPECT_FALSE(this->waits());
+  EXPECT_EQ(this->get(SLOTS)["slots"].as<JsonArray>().size(), 1u);  // the listed slot alone
+  Reply again = this->post(FORGET, this->confirmed(R"("all":true)"));
+  EXPECT_EQ(again.code, 409);
+  EXPECT_EQ(again.error(), "Nothing to forget: every slot is free or listed in YAML");
+}
+
+// Nothing waits for a reboot after a label, so /status says nothing of one.
+TEST_F(TemperatureSlotLabels, ALabelLeavesStatusAlone) {
+  this->boot_file({ROM_A});
+  ASSERT_EQ(this->set_label(1, R"("Boiler")").code, 200);
+  EXPECT_FALSE(this->waits());
+  EXPECT_EQ(this->get(STATUS).body.find("Boiler"), std::string::npos);
 }
 
 }  // namespace esphome::web_device_dashboard::testing

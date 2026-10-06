@@ -6,10 +6,14 @@
 // just reallocated away.
 namespace esphome::web_device_dashboard::testing {
 
-TEST_F(Dashboard, BothEntitySettingsRoutesGoOverToTheLoopTask) {
+TEST_F(Dashboard, TheRoutesThatReadRecordsGoOverToTheLoopTask) {
   this->dashboard->jobs = 0;
   ASSERT_EQ(this->post("/api/device/entity-settings", UPDATE_RELAY_1).code, 200);
   EXPECT_EQ(this->dashboard->jobs, 1);
+
+  this->dashboard->jobs = 0;
+  ASSERT_EQ(this->get("/api/device/entities").code, 200);
+  EXPECT_EQ(this->dashboard->jobs, 1) << "the labels were read on the server task";
 
   this->dashboard->jobs = 0;
   ASSERT_EQ(this->get("/api/device/entity-settings?type=switch").code, 200);
@@ -20,11 +24,11 @@ TEST_F(Dashboard, BothEntitySettingsRoutesGoOverToTheLoopTask) {
   EXPECT_EQ(this->dashboard->jobs, 1) << "the record was serialized on the server task";
 }
 
-// The routes that touch no record: App's entity lists, the form fields a settings type declares,
-// and /status, whose reboot reasons are atomics. Holding the loop task up for them would be a
-// cost for no reason -- the page polls them.
+// The routes that touch no record: the form fields a settings type declares, and /status, whose
+// reboot reasons are atomics. Holding the loop task up for them would be a cost for no reason --
+// the page polls them.
 TEST_F(Dashboard, TheRoutesThatTouchNoRecordStayOnTheServerTask) {
-  for (const char *url : {"/api/device/entities", "/api/device/entity-settings-meta", "/api/device/status"}) {
+  for (const char *url : {"/api/device/entity-settings-meta", "/api/device/status"}) {
     this->dashboard->jobs = 0;
     EXPECT_EQ(this->get(url).code, 200) << url;
     EXPECT_EQ(this->dashboard->jobs, 0) << url << " went over to the loop task for nothing";
@@ -43,6 +47,9 @@ TEST_F(Dashboard, ALoopThatNeverTakesTheJobAnswersBusyAndChangesNothing) {
   Reply write = this->post("/api/device/entity-settings", DELETE_RELAY_1);
   EXPECT_EQ(write.code, 503);
   EXPECT_EQ(write.error(), "Device busy");
+  Reply index = this->get("/api/device/entities");
+  EXPECT_EQ(index.code, 503);
+  EXPECT_EQ(index.error(), "Device busy");
   this->dashboard->loop_busy = false;
 
   // Refused, not half done: the record the delete would have taken is still there.

@@ -308,4 +308,13 @@ TEST_F(Storage, ResetAllClearsTheRecordsAndWritesAtOnce) {
   EXPECT_EQ(read(), R"({"version":1,"records":[]})");
 }
 
+// The dashboard asks every type for its entities' labels; one that keeps none says so.
+TEST_F(Storage, ATypeWithoutLabelsGivesNone) {
+  write(VALID);
+  boot();
+  ASSERT_GT(settings.size(), 0u);
+  EXPECT_EQ(settings.get_label(settings.records().front()->source_name()), "");
+  EXPECT_EQ(settings.get_label("anything"), "");
+}
+
 }  // namespace esphome::config_json::testing

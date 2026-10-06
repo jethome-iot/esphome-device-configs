@@ -1,5 +1,9 @@
 # RS485 bus on jxm_uart2 (pins: packages/features/uarts.yaml). Address, baud rate,
 # parity and stop bits are settings kept in flash; a change applies at once.
+external_components:
+  - source: ${components}
+    components: [modbus_map]
+
 modbus:
   - id: modbus_bus
     uart_id: jxm_uart2
@@ -127,21 +131,15 @@ esphome:
             value: 'true'
 
 # FC 0x01 and FC 0x02 read one shared bit table, so a bit counts as a coil or
-# as a discrete input only by having a write_lambda or not:
-#
-#   0x0000-0x0005  relays 1-6, read/write
-#   0x0010-0x0015  inputs 1-6, read only
+# as a discrete input only by having a write_lambda or not; FC 0x03 and FC 0x04
+# likewise read one register table. modbus_map below names the ranges.
 #
 # A write that would move a relay a running thermostat drives is refused with
 # exception 0x04 (a write lambda that returns false); writing the state it
 # already has is accepted. FC 0x0F stops at the refused coil: the ones before
 # it are written, the ones after it are not.
 #
-# FC 0x03 and FC 0x04 likewise read one register table:
-#
-#   0x0000-0x000F  temperature slots 1-16, signed, 0.1 °C; 0x8000 = no reading
-#
-# Anything else answers 0 (courtesy_response) instead of an exception.
+# An unmapped register answers 0 (courtesy_response) instead of an exception.
 modbus_server:
   - id: modbus_server1
     modbus_id: modbus_bus
@@ -353,3 +351,20 @@ modbus_server:
 
       - address: 0x0015
         read_lambda: 'return id(input_6).state;'
+
+# What the dashboard's Modbus tab lists. Addresses, counts and access come from
+# modbus_server1 above; the build refuses a map that leaves a run unnamed or
+# names an address the server does not serve.
+modbus_map:
+  modbus_server_id: modbus_server1
+  bits:
+    - address: 0x0000
+      name: Relays
+    - address: 0x0010
+      name: Inputs
+  registers:
+    - address: 0x0000
+      name: Temperature slots
+      scale: 0.1
+      unit: "°C"
+      no_value: 0x8000
