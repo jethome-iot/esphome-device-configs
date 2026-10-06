@@ -159,6 +159,31 @@
           "mode": "off"
         }
       ]
+    },
+    "loft": {
+      "name": "Loft",
+      "enabled": false,
+      "kind": "bang_bang",
+      "sensor_id": "temp_1",
+      "heat": {
+        "relay_id": "relay_1"
+      },
+      "cool": {
+        "relay_id": "relay_2"
+      },
+      "mode": "heat",
+      "setpoint": 21,
+      "presets": [
+        {
+          "name": "Eco",
+          "setpoint": 18
+        },
+        {
+          "name": "Summer",
+          "setpoint": 26,
+          "mode": "cool"
+        }
+      ]
     }
   },
   "cases": [
@@ -2919,6 +2944,526 @@
       "error": "Thermostat not found"
     },
     {
+      "name": "Preset picks a running thermostat's preset: its target, its mode and the label",
+      "setup": [
+        "office"
+      ],
+      "method": "POST",
+      "path": "preset?id=office&key=night",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "success": true,
+        "message": "Preset applied",
+        "persisted": true
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.running": true,
+            "controllers.0.mode": "off",
+            "controllers.0.active_preset": "night",
+            "controllers.0.active_preset_name": "Night"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "status?id=office",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.running": true,
+            "controllers.0.setpoint": 19.5,
+            "controllers.0.active_preset": "night",
+            "controllers.0.active_preset_name": "Night"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "get?id=office",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "setpoint": 19.5,
+            "mode": "off",
+            "active_preset": "night"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Preset picks a stopped thermostat's preset, which it keeps and starts in",
+      "setup": [
+        "loft"
+      ],
+      "method": "POST",
+      "path": "preset?id=loft&key=summer",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "success": true,
+        "message": "Preset applied",
+        "persisted": true
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.running": false,
+            "controllers.0.enabled": false,
+            "controllers.0.mode": "cool",
+            "controllers.0.active_preset": "summer",
+            "controllers.0.active_preset_name": "Summer"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "status?id=loft",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.running": false,
+            "controllers.0.setpoint": 26,
+            "controllers.0.active_preset": "summer",
+            "controllers.0.active_preset_name": "Summer"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "enable?id=loft&value=true",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "message": "Thermostat enabled"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "status?id=loft",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.running": true,
+            "controllers.0.setpoint": 26,
+            "controllers.0.active_preset": "summer",
+            "controllers.0.active_preset_name": "Summer"
+          }
+        }
+      ]
+    },
+    {
+      "name": "A target set by hand keeps the active preset, and a stop keeps both",
+      "setup": [
+        "office"
+      ],
+      "method": "POST",
+      "path": "preset?id=office&key=eco",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "success": true,
+        "message": "Preset applied",
+        "persisted": true
+      },
+      "then": [
+        {
+          "method": "POST",
+          "path": "setpoint?id=office&value=23",
+          "body": null,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "status?id=office",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.setpoint": 23,
+            "controllers.0.active_preset": "eco",
+            "controllers.0.active_preset_name": "Eco"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "enable?id=office&value=false",
+          "body": null,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.running": false,
+            "controllers.0.active_preset": "eco",
+            "controllers.0.active_preset_name": "Eco"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "status?id=office",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.setpoint": 23,
+            "controllers.0.active_preset": "eco"
+          }
+        }
+      ]
+    },
+    {
+      "name": "A Save keeps the active preset under its new name, whatever active_preset the body names",
+      "setup": [
+        "office"
+      ],
+      "method": "POST",
+      "path": "preset?id=office&key=eco",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "success": true,
+        "message": "Preset applied",
+        "persisted": true
+      },
+      "then": [
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Office",
+            "kind": "bang_bang",
+            "sensor_id": "temp_2",
+            "heat": {
+              "relay_id": "relay_2"
+            },
+            "mode": "heat",
+            "setpoint": 21,
+            "presets": [
+              {
+                "key": "eco",
+                "name": "Saver",
+                "setpoint": 18,
+                "mode": "keep"
+              },
+              {
+                "key": "night",
+                "name": "Night",
+                "setpoint": 19.5,
+                "mode": "off"
+              }
+            ],
+            "active_preset": "night",
+            "id": "office"
+          },
+          "status": 200,
+          "expect": {
+            "message": "Thermostat updated",
+            "id": "office"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "get?id=office",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "active_preset": "eco",
+            "setpoint": 21,
+            "mode": "heat"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.active_preset": "eco",
+            "controllers.0.active_preset_name": "Saver"
+          }
+        }
+      ]
+    },
+    {
+      "name": "A Save applies the active preset's new values at once, and another preset's leave the target",
+      "setup": [
+        "office"
+      ],
+      "method": "POST",
+      "path": "preset?id=office&key=eco",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "success": true,
+        "message": "Preset applied",
+        "persisted": true
+      },
+      "then": [
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Office",
+            "kind": "bang_bang",
+            "sensor_id": "temp_2",
+            "heat": {
+              "relay_id": "relay_2"
+            },
+            "mode": "heat",
+            "setpoint": 25,
+            "presets": [
+              {
+                "key": "eco",
+                "name": "Eco",
+                "setpoint": 17,
+                "mode": "off"
+              },
+              {
+                "key": "night",
+                "name": "Night",
+                "setpoint": 19.5,
+                "mode": "off"
+              }
+            ],
+            "id": "office"
+          },
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "get?id=office",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "setpoint": 17,
+            "mode": "off",
+            "active_preset": "eco"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "status?id=office",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.setpoint": 17,
+            "controllers.0.active_preset": "eco"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Office",
+            "kind": "bang_bang",
+            "sensor_id": "temp_2",
+            "heat": {
+              "relay_id": "relay_2"
+            },
+            "mode": "heat",
+            "setpoint": 20,
+            "presets": [
+              {
+                "key": "eco",
+                "name": "Eco",
+                "setpoint": 17,
+                "mode": "off"
+              },
+              {
+                "key": "night",
+                "name": "Night",
+                "setpoint": 10,
+                "mode": "off"
+              }
+            ],
+            "id": "office"
+          },
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "get?id=office",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "setpoint": 20,
+            "mode": "heat",
+            "active_preset": "eco"
+          }
+        }
+      ]
+    },
+    {
+      "name": "A Save without the active preset drops the label and keeps the target it sends",
+      "setup": [
+        "office"
+      ],
+      "method": "POST",
+      "path": "preset?id=office&key=night",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "success": true,
+        "message": "Preset applied",
+        "persisted": true
+      },
+      "then": [
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Office",
+            "kind": "bang_bang",
+            "sensor_id": "temp_2",
+            "heat": {
+              "relay_id": "relay_2"
+            },
+            "mode": "heat",
+            "setpoint": 22,
+            "presets": [
+              {
+                "key": "eco",
+                "name": "Eco",
+                "setpoint": 18,
+                "mode": "keep"
+              }
+            ],
+            "id": "office"
+          },
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "get?id=office",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "presets": [
+              {
+                "key": "eco",
+                "name": "Eco",
+                "setpoint": 18,
+                "mode": "keep"
+              }
+            ],
+            "active_preset": "",
+            "setpoint": 22,
+            "mode": "heat"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "status?id=office",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.active_preset": "",
+            "controllers.0.active_preset_name": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "Preset of an unknown thermostat is 404",
+      "method": "POST",
+      "path": "preset?id=ghost&key=eco",
+      "body": null,
+      "status": 404,
+      "error": "Thermostat not found"
+    },
+    {
+      "name": "Preset with a key the thermostat does not have is 404 and changes nothing",
+      "setup": [
+        "office"
+      ],
+      "method": "POST",
+      "path": "preset?id=office&key=party",
+      "body": null,
+      "status": 404,
+      "error": "Preset not found",
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=office",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "setpoint": 21,
+            "mode": "heat",
+            "active_preset": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "Preset without a key is 400",
+      "setup": [
+        "office"
+      ],
+      "method": "POST",
+      "path": "preset?id=office",
+      "body": null,
+      "status": 400,
+      "error": "Missing key parameter"
+    },
+    {
+      "name": "Preset with a key that is no slug is 400",
+      "setup": [
+        "office"
+      ],
+      "method": "POST",
+      "path": "preset?id=office&key=Eco",
+      "body": null,
+      "status": 400,
+      "error": "Invalid key parameter"
+    },
+    {
+      "name": "Preset with an empty key is 400",
+      "setup": [
+        "office"
+      ],
+      "method": "POST",
+      "path": "preset?id=office&key=",
+      "body": null,
+      "status": 400,
+      "error": "Invalid key parameter"
+    },
+    {
+      "name": "Preset reads its id first",
+      "method": "POST",
+      "path": "preset?key=Eco",
+      "body": null,
+      "status": 400,
+      "error": "Missing id parameter"
+    },
+    {
+      "name": "Preset reads its parameters before it looks the id up",
+      "method": "POST",
+      "path": "preset?id=ghost&key=Eco",
+      "body": null,
+      "status": 400,
+      "error": "Invalid key parameter"
+    },
+    {
+      "name": "Preset of an id that is no slug is 400",
+      "setup": [
+        "office"
+      ],
+      "method": "POST",
+      "path": "preset?id=Office&key=eco",
+      "body": null,
+      "status": 400,
+      "error": "Invalid id parameter"
+    },
+    {
       "name": "A loop that never takes the job is 503 and changes nothing",
       "setup": [
         "living-room"
@@ -3116,6 +3661,34 @@
           "status": 200,
           "expect": {
             "name": "Living Room"
+          }
+        }
+      ]
+    },
+    {
+      "name": "A pick on a thermostat a newer firmware wrote lasts until the next boot",
+      "setup": [
+        "office"
+      ],
+      "device_only": "newer_file",
+      "method": "POST",
+      "path": "preset?id=office&key=night",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "message": "Preset applied",
+        "persisted": false
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=office",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "active_preset": "",
+            "setpoint": 21,
+            "mode": "heat"
           }
         }
       ]

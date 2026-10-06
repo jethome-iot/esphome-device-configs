@@ -9,7 +9,7 @@
 
 namespace esphome::web_climate_editor {
 
-enum class RouteId : uint8_t { LIST, GET, STATUS, ENTITIES, SCHEMA, PING, SAVE, DELETE, ENABLE, SETPOINT };
+enum class RouteId : uint8_t { LIST, GET, STATUS, ENTITIES, SCHEMA, PING, SAVE, DELETE, ENABLE, SETPOINT, PRESET };
 
 struct Route {
   const char *name;
@@ -49,7 +49,8 @@ class WebClimateEditor : public AsyncWebHandler, public Component {
   void reset_body_();
   // Each of these answers 400 or 405 itself, so a false return is a finished request.
   bool check_method_(AsyncWebServerRequest *request, const Route &route);
-  bool read_id_(AsyncWebServerRequest *request, std::string &id);
+  bool read_id_(AsyncWebServerRequest *request, std::string &id) { return this->read_slug_(request, "id", id); }
+  bool read_slug_(AsyncWebServerRequest *request, const char *name, std::string &value);
   bool read_bool_(AsyncWebServerRequest *request, const char *name, bool &value);
   bool read_number_(AsyncWebServerRequest *request, float &value);
 
@@ -62,6 +63,7 @@ class WebClimateEditor : public AsyncWebHandler, public Component {
   void handle_delete_(AsyncWebServerRequest *request);
   void handle_enable_(AsyncWebServerRequest *request);
   void handle_setpoint_(AsyncWebServerRequest *request);
+  void handle_preset_(AsyncWebServerRequest *request);
 
   /// Answers what a job decided: `json` when it ran and succeeded, the error it set when it
   /// ran and refused, 503 when the loop task never took it.

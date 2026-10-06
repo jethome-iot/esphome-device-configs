@@ -726,10 +726,14 @@ Result ClimateHub::apply_preset(const std::string &id, const std::string &key) {
   if (preset == nullptr)
     return failure(404, PRESET_NOT_FOUND);
   Slot *slot = this->slot_for_(id);
+  result = success();
   // Running, through the entity, which Home Assistant then hears about.
-  if (slot != nullptr ? slot->runtime.pick_preset(*preset) : stored->pick_preset(*preset))
+  if (slot != nullptr ? slot->runtime.pick_preset(*preset) : stored->pick_preset(*preset)) {
     this->mark_dirty_(id);
-  return success();
+    // A newer firmware's file is never written: the pick lasts until the next boot.
+    result.persisted = !stored->from_newer_firmware();
+  }
+  return result;
 }
 
 // --- Running and stopping ---
