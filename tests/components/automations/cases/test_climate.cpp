@@ -693,6 +693,24 @@ TEST_F(ClimateRules, ACreateBuildsTheRulesThatNamedIt) {
   EXPECT_EQ(stored("attic").active_preset, "eco");
 }
 
+// A restore from a backup that adds the thermostat is a create to the rules.
+TEST_F(ClimateRules, ARestoreBuildsTheRulesThatNamedIt) {
+  write("attic.json", R"({"id":1,"name":"Attic","triggers":[{"source":"startup"}],)"
+                      R"("actions":[{"source":"climate","type":"set_preset","climate":"attic","preset":"eco"}]})");
+  engine->setup();
+  ASSERT_FALSE(built(0));
+
+  ClimateConfig backup = thermostat("Attic", false);
+  backup.id = "attic";
+  climate_hub::Result restored = hub().restore(backup);
+  ASSERT_TRUE(restored.ok) << restored.error;
+  ASSERT_TRUE(built(0));
+  EXPECT_TRUE(config(0).build_error.empty());
+  engine->rule(0)->on_startup();
+  ASSERT_TRUE(engine->fire_next());
+  EXPECT_EQ(stored("attic").active_preset, "eco");
+}
+
 TEST_F(ClimateRules, ARemovalDropsTheRulesThatNameIt) {
   engine->setup();
   ASSERT_NE(engine->add_automation(rule(at_startup(TURN_OFF))), 0u);

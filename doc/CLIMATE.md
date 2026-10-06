@@ -24,7 +24,7 @@ at the next boot. The file format and the C++ API are in
 - **Automation rules** can turn a thermostat off and back on, in the mode it was in before it
   went off, pick one of its presets or set its target, or follow an input or a switch with a
   preset or on/off ([Automations](AUTOMATIONS.md)). The mode to go back to is kept across a
-  reboot.
+  reboot, and a thermostat restored from a backup goes back to the backup's.
 - **Safety**: it keeps its relays open until its sensor's first reading, and waits for one
   as long as the sensor timeout before it reports a fault. A sensor silent for longer than its
   timeout, or a reading above the cut-out temperature, opens the relays until that clears. A

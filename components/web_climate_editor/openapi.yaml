@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: web_climate_editor HTTP API
-  version: 1.6.0
+  version: 1.7.0
   description: >-
     JSON/REST API of the `climate_hub` thermostats, served by the
     `web_climate_editor` component on the device's own web server (default
@@ -256,7 +256,8 @@ paths:
         presets keep the keys the document gives them and `active_preset`
         stays, so the automation rules that name them still find them; a
         preset without a key gets one from its name, and an `active_preset`
-        no preset has is none. `version` is not read: the file is written in
+        no preset has is none. `last_on_mode` is the document's too, read as
+        a file's is. `version` is not read: the file is written in
         this firmware's format. `revision` is not read either: a replaced
         thermostat's moves on by one, so a Save of a form read before the
         import is `409`, and a new one starts at 0. Keys left out take their
@@ -1471,8 +1472,9 @@ components:
         last_on_mode:
           $ref: "#/components/schemas/OnMode"
           description: >-
-            Ignored, the mode to turn back on in being the thermostat's state;
-            a word that is not one of these is still `400`.
+            Ignored by `/save`, the mode to turn back on in being the
+            thermostat's state; a word that is not one of these is still `400`.
+            `/import` takes it, as a file's is read.
         setpoint:
           type: number
         presets:
@@ -1509,7 +1511,8 @@ components:
     ControllerImportInput:
       description: >-
         What `/import` takes: a `/save` body under the `id` the thermostat is
-        to have. The presets' keys and `active_preset` are kept, not ignored.
+        to have. The presets' keys, `active_preset` and `last_on_mode` are
+        kept, not ignored.
       allOf:
         - $ref: "#/components/schemas/ControllerSaveInput"
         - type: object

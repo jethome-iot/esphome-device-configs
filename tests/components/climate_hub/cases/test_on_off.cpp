@@ -271,4 +271,43 @@ TEST_F(OnOff, TheHubReportsACreateARemovalAndNewPresetKeys) {
   EXPECT_EQ((std::vector<std::string>{"boiler"}), heard());
 }
 
+// A restore brings back the mode the backup goes back on in, as it brings back its active preset:
+// the backup's, not the replaced thermostat's, which a Save keeps.
+TEST_F(OnOff, ARestoreTakesTheBackupsModeToGoBackTo) {
+  this->create(both());
+  ASSERT_TRUE(hub().turn_off("boiler").ok);
+  ClimateConfig doc = *hub().store().get("boiler");
+  ASSERT_EQ(HubMode::COOL, doc.on_mode());
+
+  doc.last_on_mode = HubMode::HEAT_COOL;
+  ASSERT_TRUE(hub().restore(doc).ok);
+  EXPECT_EQ(HubMode::HEAT_COOL, hub().store().get("boiler")->on_mode());
+  EXPECT_NE(std::string::npos, read_file(this->file_of("boiler")).find(R"("mode":"off","last_on_mode":"heat_cool",)"));
+  ASSERT_TRUE(hub().turn_on("boiler").ok);
+  EXPECT_EQ(climate::CLIMATE_MODE_HEAT_COOL, hub().entity_of("boiler")->mode);
+
+  // A backup from before the field reads as a file without one: heat, whatever the thermostat had.
+  doc.last_on_mode = HubMode::OFF;
+  ASSERT_TRUE(hub().restore(doc).ok);
+  EXPECT_EQ(HubMode::HEAT, hub().store().get("boiler")->on_mode());
+}
+
+// To the rules, a restore that adds a thermostat is a create, and one that replaces it a Save.
+TEST_F(OnOff, TheHubReportsARestoreThatAddsOneOrChangesItsPresetKeys) {
+  heard().clear();
+  ClimateConfig doc = both();
+  doc.id = "kettle";
+  ASSERT_TRUE(hub().restore(doc).ok);
+  EXPECT_EQ((std::vector<std::string>{"kettle"}), heard());
+
+  heard().clear();
+  doc.setpoint = 23.f;
+  ASSERT_TRUE(hub().restore(doc).ok);
+  EXPECT_TRUE(heard().empty()) << "the same preset keys";
+
+  doc.presets.push_back(preset("Eco", 18.f));
+  ASSERT_TRUE(hub().restore(doc).ok);
+  EXPECT_EQ((std::vector<std::string>{"kettle"}), heard());
+}
+
 }  // namespace esphome::climate_hub::testing

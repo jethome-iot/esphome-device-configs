@@ -17,8 +17,8 @@
 //    is above CONFIG_VERSION came from a newer firmware, and its Save is 409; so is
 //    the Save of one whose `revision` the device has moved past since it was read;
 //  - /import takes what /get answered, or a backup's file, under its own id: it
-//    replaces the thermostat with that id or creates it, presets' keys and active
-//    preset kept, and answers as /save does. The body's `revision` is not read: a
+//    replaces the thermostat with that id or creates it, presets' keys, active
+//    preset and last_on_mode kept, and answers as /save does. The body's `revision` is not read: a
 //    replaced thermostat's moves on, so a form read before the import is 409;
 //  - /ping returns {status:"ok"} (NOT the success envelope);
 //  - every route but /schema and /ping does its read or write on the device's main
@@ -84,7 +84,8 @@ export interface ClimateApi {
   /**
    * POST /import — bring a thermostat back under the id `doc` names, as a restore does: the one
    * with that id is replaced, otherwise it is created with it. The presets' keys and the active
-   * preset are kept, so the rules naming them still find them.
+   * preset are kept, so the rules naming them still find them, and so is the mode a turn-on goes
+   * back to.
    */
   importController(doc: ControllerImportInput): Promise<SaveResponse>
   /** POST /delete?id= — remove it (no body). */

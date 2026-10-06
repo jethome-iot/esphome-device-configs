@@ -146,7 +146,7 @@ export interface ControllerDocument {
    * The mode a turn-on goes back to: `mode` while it is not off, else the one it was in before,
    * as far as the relays still serve it, else heat, or cool for a cooling-only thermostat. It
    * is the thermostat's state, not the form's: /save ignores it, but refuses a word that is not
-   * one of these.
+   * one of these; /import takes it, as a file's is read.
    */
   last_on_mode: ClimateHubOnMode
   /** One target for both algorithms; bang-bang derives its band from it. */

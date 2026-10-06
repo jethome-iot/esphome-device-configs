@@ -210,6 +210,8 @@ id, one is created under it. Either way the thermostat comes back as the documen
   still find them; a preset without a key gets one from its name, and an `active_preset` no
   preset has is none;
 - its target and its mode are the document's, the active preset's values not applied again;
+- so is `last_on_mode`, read as a file's is: one the relays do not serve, or none, gives way to
+  the mode, or to `heat` (`cool` for a cooling-only thermostat) when that is `off`;
 - `version` is not read: the file is written in this firmware's format, so what a newer firmware
   added to it is dropped;
 - `revision` is not read either: a replaced thermostat's moves on by one, so a Save of a form read

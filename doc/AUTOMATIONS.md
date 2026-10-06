@@ -46,8 +46,8 @@ written until the entity is back.
 A thermostat is named by its id, which a rename leaves as it is, and a preset by its key. A
 rule naming a thermostat or a preset that is not there cannot be saved. One that loses it —
 the thermostat deleted, the preset removed — stops running and keeps its file, and runs again
-as soon as a thermostat or a preset with that id or key is back. The editor's rule list says
-which rules do not run and why.
+as soon as a thermostat or a preset with that id or key is back, created or restored from a
+backup. The editor's rule list says which rules do not run and why.
 
 ## Over HTTP
 

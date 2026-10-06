@@ -3738,6 +3738,89 @@
       "error": "last_on_mode must be one of heat/cool/heat_cool"
     },
     {
+      "name": "An import takes the mode a thermostat goes back on in from the backup, not from the thermostat it replaces",
+      "setup": [
+        "studio"
+      ],
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "studio",
+        "name": "Studio",
+        "enabled": false,
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "off",
+        "setpoint": 22,
+        "last_on_mode": "cool"
+      },
+      "status": 200,
+      "expect": {
+        "success": true,
+        "message": "Thermostat replaced",
+        "id": "studio"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "mode": "off",
+            "last_on_mode": "cool"
+          }
+        }
+      ]
+    },
+    {
+      "name": "An import of a backup without last_on_mode goes back on in heat when it is off, whatever the thermostat had",
+      "setup": [
+        "studio"
+      ],
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "studio",
+        "name": "Studio",
+        "enabled": false,
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "off",
+        "setpoint": 22
+      },
+      "status": 200,
+      "expect": {
+        "success": true,
+        "message": "Thermostat replaced",
+        "id": "studio"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "mode": "off",
+            "last_on_mode": "heat"
+          }
+        }
+      ]
+    },
+    {
       "name": "Preset picks a stopped thermostat's preset, which it keeps and starts in",
       "setup": [
         "loft"

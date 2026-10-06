@@ -99,7 +99,7 @@ component: it would list the entities no thermostat is using.
 | `sensor_id`          | The object id of a temperature sensor that reports °C, `temp_1` for `Temp 1`; at most 120 characters, the longest an object id gets |
 | `heat`, `cool`       | `relay_id`: the object id of a switch, `""` for a direction not used; at least one, not the same one twice, at most 120 characters |
 | `mode`               | `off`, `heat`, `cool` or `heat_cool`; a mode needs the relays it drives    |
-| `last_on_mode`       | The mode `turn_on()` goes back to: `mode` while it is not `off`, otherwise the one it was in before, `heat`, `cool` or `heat_cool`. One the relays no longer serve, or none in the file, reads as `heat`, or `cool` for a cooling-only thermostat. The thermostat's state: `create()` starts it from `mode`, `update()` keeps it |
+| `last_on_mode`       | The mode `turn_on()` goes back to: `mode` while it is not `off`, otherwise the one it was in before, `heat`, `cool` or `heat_cool`. One the relays no longer serve, or none in the file, reads as `heat`, or `cool` for a cooling-only thermostat. The thermostat's state: `create()` starts it from `mode`, `update()` keeps it, `restore()` takes the document's |
 | `setpoint`           | The one target, held inside `visual.min_temperature` … `visual.max_temperature` |
 | `bang_bang`          | The switching points sit `below` and `above` the target                   |
 | `presets`            | Up to 8, in the order Home Assistant lists the custom ones; see [Presets](#presets) |
