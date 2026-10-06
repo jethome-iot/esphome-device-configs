@@ -34,10 +34,11 @@ i2c_eeprom:
     size: 64KB
     address: 0x54
 
-# The board's identity, as the factory wrote it.
+# The board's identity, as the factory wrote it. A list, so a peripheral board's package can add
+# an instance for its own EEPROM instead of merging into this one.
 jethome_board_info:
-  id: board_info
-  eeprom_id: eeprom_cpu
+  - id: board_info
+    eeprom_id: eeprom_cpu
 
 logger:
   level: debug
