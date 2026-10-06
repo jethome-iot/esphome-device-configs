@@ -769,6 +769,27 @@ esphome:
                 menu->add_item(address);
               }
               if (!scan->pinned(slot)) {
+                // Edited like the settings rows: CENTER opens it, LEFT / RIGHT step by 0.1 up to
+                // ±5.0, CENTER or BACK saves it. A save that fails leaves the stored offset shown.
+                const int limit = std::lround(dallas_scan::DallasScan::MAX_OFFSET * 10);
+                auto stored = [scan, slot]() { return static_cast<int>(std::lround(scan->offset(slot) * 10)); };
+                auto *pending = new optional<int>();  // tenths of a degree, while editing
+                auto *offset = new MenuItemCustom();
+                offset->set_text(std::string("Offset"));
+                offset->set_value_lambda([=](const MenuItem *) {
+                  const int tenths = pending->value_or(stored());
+                  return tenths == 0 ? std::string("0.0°C") : str_sprintf("%+.1f°C", tenths / 10.0f);
+                });
+                offset->add_on_enter_callback([=]() { *pending = stored(); });
+                offset->add_on_next_callback([=]() { *pending = std::min(pending->value_or(stored()) + 1, limit); });
+                offset->add_on_prev_callback([=]() { *pending = std::max(pending->value_or(stored()) - 1, -limit); });
+                offset->add_on_leave_callback([=]() {
+                  if (pending->has_value() && pending->value() != stored())
+                    scan->set_offset_and_save(slot, pending->value() / 10.0f);
+                  pending->reset();
+                });
+                menu->add_item(offset);
+
                 auto *question = new MenuItem(MENU_ITEM_LABEL);
                 question->set_text("Forget slot?");
                 menu->add_item(question);

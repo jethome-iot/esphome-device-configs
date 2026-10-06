@@ -323,8 +323,8 @@ export interface Capabilities {
   entity_settings?: { types: string[] }
   /** The CPU board's EEPROM identity is in `/info`. */
   board_info?: true
-  /** A `dallas_scan` is wired in: GET /temperature-slots and POST /temperature-slots/forget
-   *  and /assign answer. Without it all three are `404`. */
+  /** A `dallas_scan` is wired in: GET /temperature-slots and POST /temperature-slots/forget,
+   *  /assign and /offset answer. Without it all four are `404`. */
   temperature_slots?: true
 }
 
@@ -355,15 +355,25 @@ export interface TemperatureSlot {
   /** The ROM this slot's sensor reads until the reboot. Only on a `pending` slot that had a
    *  device at boot. */
   running_address?: string
+  /** °C added to the reading of whatever sensor is in this slot, in force already: it belongs
+   *  to the slot number, not to the device. Absent on a listed slot, which the YAML corrects. */
+  offset?: number
 }
 
-/** GET /temperature-slots — slots 1 up to the last one bound at boot or in the saved table, a
- *  freed slot between them included. */
+/** GET /temperature-slots — slots 1 up to the last one bound at boot, held in the saved table
+ *  or holding an offset, a free slot between them included. */
 export interface TemperatureSlots {
   /** The size of the table, `dallas_scan`'s `max_sensors`. */
   max_slots: number
   /** Some slot is `pending`: `/status` names `temperature_slots` too. */
   reboot_required: boolean
+  /** POST /temperature-slots/forget with `all` would change something: an unlisted slot holds a
+   *  device or an offset, and the table can be written. The rows' `can_forget` does not say it:
+   *  offsets alone are something to forget for every slot, not for one. */
+  can_forget_all: boolean
+  /** An offset runs from `-max_offset` to `max_offset` °C, in steps of `offset_step`. */
+  max_offset: number
+  offset_step: number
   slots: TemperatureSlot[]
 }
 
@@ -375,10 +385,11 @@ export interface TemperatureSlotChangeResult extends MutationResponse {
 
 /** POST /temperature-slots/forget — one slot, or every slot but the listed ones, under the
  *  system actions' confirmation. The device empties them in the saved table and writes it; the
- *  change applies after a reboot, and a write that fails is `500`. One that would change
- *  nothing (a free or listed slot, or nothing to forget) is `409`; a slot out of range, `all`
- *  that is not `true`, or both keys or neither, is `400`; a table that cannot be written is
- *  `503`. */
+ *  change applies after a reboot, and a write that fails is `500`. `all` clears every unlisted
+ *  slot's offset too, at once; one slot keeps its offset. One that would change nothing (a free
+ *  or listed slot, or no device and no offset left to forget) is `409`, which a slot's
+ *  `can_forget` and `can_forget_all` say beforehand; a slot out of range, `all` that is not
+ *  `true`, or both keys or neither, is `400`; a table that cannot be written is `503`. */
 export type ForgetSlotsPayload = ConfirmPayload & ({ slot: number; all?: never } | { all: true; slot?: never })
 
 /** POST /temperature-slots/assign — put the device with `address` into `slot` (from 1), under
@@ -390,6 +401,23 @@ export type ForgetSlotsPayload = ConfirmPayload & ({ slot: number; all?: never }
  *  slot or device, or a device that is in `slot` already, `503` for a table that cannot be
  *  written. */
 export type AssignSlotPayload = ConfirmPayload & { slot: number; address: string }
+
+/** POST /temperature-slots/offset — set `slot`'s offset (from 1) in °C, rounded to
+ *  `offset_step`; `0` removes it. No confirmation: it is written and in force at once, the
+ *  slot's reading published again with it. `400` for a slot out of range or an offset outside
+ *  ±`max_offset`, `409` for a listed slot, `503` for a table that cannot be written or a slot
+ *  file that did not load at boot (left for a person to fix), `500` when the write fails. */
+export interface SlotOffsetPayload {
+  slot: number
+  offset: number
+}
+
+/** What POST /temperature-slots/offset answers. */
+// Never reboot_required: an offset is in force at once.
+export interface TemperatureSlotOffsetResult extends Omit<MutationResponse, 'reboot_required'> {
+  /** The offset the slot holds now, after the rounding. */
+  offset: number
+}
 
 // --- Network (live status + saved config) ---
 
