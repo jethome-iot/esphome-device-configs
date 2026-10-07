@@ -1,6 +1,6 @@
 # ESPHome Device Configurations made by JetHome
 
-![ESPHome](https://img.shields.io/badge/ESPHome-2026.9.0-blue)
+![ESPHome](https://img.shields.io/badge/ESPHome-2026.9.1-blue)
 
 This repository contains ESPHome configurations for various automation devices. These are **open-source firmware configurations** that you can customize and build yourself.
 
@@ -135,8 +135,8 @@ python scripts/build-dist.py --check   # fail if stale (pre-commit and CI run th
 
 ### Requirements
 
-- **Python 3.12, 3.13 or 3.14** (ESPHome 2026.9.0 requires `>=3.12,<3.15`)
-- **ESPHome 2026.9.0** (pinned version for compatibility)
+- **Python 3.12, 3.13 or 3.14** (ESPHome 2026.9.1 requires `>=3.12,<3.15`)
+- **ESPHome 2026.9.1** (pinned version for compatibility)
 - USB cable or serial adapter for initial flashing
 - Network connection for OTA updates
 

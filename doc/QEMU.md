@@ -109,7 +109,7 @@ The panel overlay patches the joystick sensors by id, so every button in
 
 The web server wants the credentials of [`web_auth`](../components/web_auth/README.md), Digest
 and `admin`/`admin` on a freshly built image, so every request below carries `--digest -u`. Note
-that ESPHome 2026.8.2 matches REST entities by **name**, not object id, so the path segment is
+that the web server matches REST entities by **name**, not object id, so the path segment is
 the display name URL-encoded, and the ESP-IDF httpd rejects a POST with no `Content-Length`
 (`-d ""`):
 
