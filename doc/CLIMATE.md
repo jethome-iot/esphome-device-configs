@@ -198,4 +198,5 @@ relay timing, the file format, and the whole component over a directory that sta
 flash, with a clock the test moves. The second suite drives every HTTP route through the
 handler, over the real component and a stand-in for the web server. In the emulator,
 `packages/qemu/climate-plant.yaml` adds a `QEMU Room Temperature` sensor that `Relay 1` warms,
-so a thermostat has a room to control ([QEMU](QEMU.md)).
+so a thermostat has a room to control ([QEMU](QEMU.md)). Before a pull request, the
+[smoke check](QEMU.md#the-thermostat-smoke-check) runs one there over the native API.

@@ -127,6 +127,48 @@ The `Drive input N` switches are deliberately `internal:`, so they are absent fr
 list and from the `/events` stream — but a command still reaches them, because the web server
 matches a request by name and the internal flag only gates listing and state pushes.
 
+## The thermostat smoke check
+
+Run it before a pull request that touches the thermostats. CI does not run it.
+
+```bash
+.venv/bin/python scripts/qemu-climate-smoke.py                       # compile, boot, check, stop
+.venv/bin/python scripts/qemu-climate-smoke.py --no-build            # the last build, on the flash it left
+.venv/bin/python scripts/qemu-climate-smoke.py --no-build --fresh    # the last build, on blank flash
+.venv/bin/python scripts/qemu-climate-smoke.py jxd-r6-e1eth          # another device
+```
+
+It boots `jxd-r6-e1eth-lcd` unless given another device, creates a thermostat named
+`QEMU Smoke` with presets over the [climate editor's API](../components/web_climate_editor/README.md),
+on the room of `climate-plant.yaml` and the first relay that no enabled thermostat names, and
+checks from the native API, as Home Assistant sees it, that:
+
+- the built-in and custom presets are listed;
+- a pick, from the API or the editor, applies the preset's target and mode, and a preset that
+  keeps the mode leaves it as it was;
+- a values-only edit of the presets makes no client reconnect, and the active preset's new target
+  applies at once;
+- the active preset survives a restart of the emulator.
+
+It prints one line per check and stops at the first failure with exit status 1. On the way out,
+Ctrl-C and a closed terminal included, it deletes the thermostat, or warns that it could not
+when the device no longer answers, and stops the emulator; `--keep-running` leaves the emulator
+up. A start replaces an instance of the same device that is already running, as `run` does.
+
+A compiling run boots blank flash, since every compile makes a new firmware image. `--no-build`
+boots the flash the last run left, and `--fresh` blanks it there. Each run stops the emulator
+within a minute of a boot, which safe mode counts as a failed one: after several `--no-build` runs
+in a row the device comes up in safe mode, the check says so, and `--fresh` clears it.
+
+A start that nothing answers within `--boot-timeout` (180 s) is taken for a QEMU hang and made
+again, three starts in all; each hung start that is retried leaves its log as `qemu.log.<n>`, the
+last start's stays in `qemu.log`, and the `PASS` line counts the retries. A device that answers
+but never lists its thermostats in that time fails without a retry.
+
+The ports, the web credentials and the native API's encryption key are options (`--help`), the
+last two also `DEVICE_USER` and `DEVICE_API_KEY`; aioesphomeapi comes with ESPHome, so the repo
+venv runs it as is.
+
 ## The front panel
 
 The device serves its screen at `/panel`: the 128x64 canvas, with the joystick and FN as
