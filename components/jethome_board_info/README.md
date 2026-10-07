@@ -19,6 +19,18 @@ jethome_board_info:
 Declare it as a list in a package: packages merge a mapping into the mapping of the same key,
 so a second instance declared that way would overwrite the first instead of joining it.
 
+To change an instance a device's packages already declare, such as the CPU board's
+`board_info`, extend it by its id:
+
+```yaml
+jethome_board_info:
+  - id: !extend board_info
+    protect_eeprom: false
+```
+
+Written as a mapping instead, your `jethome_board_info:` replaces the whole list, a peripheral
+board's instance included.
+
 ## Options
 
 | Option           | Default | Meaning |
