@@ -539,11 +539,12 @@ esphome:
               });
               menu->add_item(target);
 
-              // Steps from the active preset, through -- as well when none was active, so the row
-              // can always be put back as it opened; picked only when it moved from that, as the
-              // target is written.
+              // Steps from the active preset, through -- as well when none was active, so a row
+              // opened on none can close on none. A stepped row picks its preset even when it is the
+              // active one, to bring back values set by hand since; an untouched one writes nothing.
               auto *seen = new optional<std::string>();  // the active key at open; none outside editing
               auto *choice = new std::string();         // the key being picked, "" for --
+              auto *touched = new bool(false);
               auto *preset = new MenuItemCustom();
               preset->set_text(std::string("Preset"));
               preset->set_value_lambda([=](const MenuItem *) {
@@ -562,6 +563,7 @@ esphome:
                 }
                 *seen = config->active_preset;
                 *choice = config->active_preset;
+                *touched = false;
               });
               auto step = [=](bool forward) {
                 const auto *config = hub->store().get(thermostat_id);
@@ -569,12 +571,13 @@ esphome:
                   return;
                 const auto *next = config->step_preset(*choice, forward, seen->value().empty());
                 *choice = next != nullptr ? next->key : "";
+                *touched = true;
               };
               preset->add_on_next_callback([=]() { step(true); });
               preset->add_on_prev_callback([=]() { step(false); });
               // A pick that fails leaves the row on the active preset, and the log says why.
               preset->add_on_leave_callback([=]() {
-                if (seen->has_value() && !choice->empty() && *choice != seen->value()) {
+                if (seen->has_value() && *touched && !choice->empty()) {
                   const auto result = hub->apply_preset(thermostat_id, *choice);
                   if (!result.ok) {
                     ESP_LOGW("menu", "Thermostat '%s' preset: %s", thermostat_id.c_str(), result.error.c_str());

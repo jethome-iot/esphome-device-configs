@@ -157,7 +157,8 @@ opens its name, the reading, what it is doing (Heating, Cooling, Idle, Off, Wait
 or in a word the fault that keeps it from controlling), the target, the preset and Enabled. The
 target moves in the thermostat's own step inside its range. Preset shows the active preset, `--`
 for none, and steps through the thermostat's presets in their order, through `--` too when none
-was active; closed on another preset, it picks that one. It does not open on a thermostat without
+was active; closed after a step, it picks the preset shown, the active one included, which brings
+back its values after a target or mode set by hand. It does not open on a thermostat without
 presets, and a pick that fails leaves the active preset, the log saying why. Enabled starts or
 stops it like the start over HTTP, never taking a relay over: an On that is refused stays Off,
 and the log says why.
