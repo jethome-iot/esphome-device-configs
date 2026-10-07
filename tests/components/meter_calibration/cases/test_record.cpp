@@ -452,6 +452,21 @@ TEST(MeterStatus, EachReadOutcomeComesToItsStatus) {
   EXPECT_EQ(status_of(static_cast<ReadStatus>(0xEE)), CalStatus::CORRUPT);
 }
 
+// The loader's file name is fixed, so BAD_NAME never reaches it; its words stand ready anyway.
+TEST(MeterStatus, EachReadOutcomeHasItsReason) {
+  EXPECT_STREQ(read_reason_str(ReadStatus::OK), "read");
+  EXPECT_STREQ(read_reason_str(ReadStatus::NO_EEPROM), "the metering board's EEPROM did not answer");
+  EXPECT_STREQ(read_reason_str(ReadStatus::READ_ERROR), "the metering board's EEPROM did not answer");
+  EXPECT_STREQ(read_reason_str(ReadStatus::NO_HEADER), "the metering board's EEPROM has no board header");
+  EXPECT_STREQ(read_reason_str(ReadStatus::NOT_FOUND), "the metering board's EEPROM has no meter.cal");
+  EXPECT_STREQ(read_reason_str(ReadStatus::UNSUPPORTED),
+               "the metering board's EEPROM uses a header or filesystem version this firmware does not read");
+  EXPECT_STREQ(read_reason_str(ReadStatus::TOO_LARGE), "meter.cal is larger than a version 1 record");
+  EXPECT_STREQ(read_reason_str(ReadStatus::CORRUPT), "the board header, the file chain or meter.cal fails its CRC");
+  EXPECT_STREQ(read_reason_str(ReadStatus::BAD_NAME), "meter.cal is not a name the file chain takes");
+  EXPECT_STREQ(read_reason_str(static_cast<ReadStatus>(0xEE)), "unknown");
+}
+
 TEST(MeterStatus, EachRecordCheckComesToItsStatus) {
   EXPECT_EQ(status_of(RecordCheck::UNSUPPORTED_VERSION), CalStatus::UNSUPPORTED);
   EXPECT_EQ(status_of(RecordCheck::UNSUPPORTED_SIGNATURE), CalStatus::UNSUPPORTED);

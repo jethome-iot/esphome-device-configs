@@ -10,30 +10,6 @@ static const char *const TAG = "meter_calibration";
 
 using jethome_board_info::field_to_string;
 
-// What a failed read means for the record, in the words the log and the reason use.
-static const char *read_reason(ReadStatus status) {
-  switch (status) {
-    case ReadStatus::OK:
-      return "read";
-    case ReadStatus::NO_EEPROM:
-    case ReadStatus::READ_ERROR:
-      return "the metering board's EEPROM did not answer";
-    case ReadStatus::NO_HEADER:
-      return "the metering board's EEPROM has no board header";
-    case ReadStatus::NOT_FOUND:
-      return "the metering board's EEPROM has no meter.cal";
-    case ReadStatus::UNSUPPORTED:
-      return "the metering board's EEPROM uses a header or filesystem version this firmware does not read";
-    case ReadStatus::TOO_LARGE:
-      return "meter.cal is larger than a version 1 record";
-    case ReadStatus::CORRUPT:
-      return "the board header, the file chain or meter.cal fails its CRC";
-    case ReadStatus::BAD_NAME:
-      return "meter.cal is not a name the file chain takes";
-  }
-  return "unknown";
-}
-
 static std::string format_time(int64_t timestamp) {
   time_t ts = static_cast<time_t>(timestamp);
   struct tm tm_info {};
@@ -71,7 +47,7 @@ void MeterCalibration::setup() {
   if (header_reason != nullptr) {
     this->reason_ = header_reason;
   } else if (this->evaluation_.read != ReadStatus::OK) {
-    this->reason_ = read_reason(this->evaluation_.read);
+    this->reason_ = read_reason_str(this->evaluation_.read);
   } else if (this->evaluation_.record != RecordCheck::OK) {
     this->reason_ = record_check_str(this->evaluation_.record);
   } else if (this->evaluation_.match != MatchCheck::OK) {
