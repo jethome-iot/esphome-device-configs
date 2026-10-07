@@ -476,8 +476,9 @@ class Smoke:
         user, _, password = args.user.partition(":")
         self.editor = Editor(f"http://127.0.0.1:{args.http_port}", user, password)
         self.api = Api(args.api_port, args.api_key)
-        # What a save may have created: cleanup deletes these and anything by our name.
-        self.ids = {THERMOSTAT_ID}
+        # The ids this run's saves answered: cleanup deletes these and anything by our name, never
+        # a thermostat of the user's that only happens to have the id we would get.
+        self.ids: set[str] = set()
         self.created = False
         self.up = False
         self.quiet_window = QUIET_WINDOW_S
@@ -662,11 +663,13 @@ class Smoke:
             THERMOSTAT_NAME,
             lambda s: same(s.target_temperature, 17)
             and s.mode == ClimateMode.OFF
-            and s.preset == ClimatePreset.ECO,
+            and s.preset == ClimatePreset.ECO
+            and not s.custom_preset,
         )
         if not done:
             raise CheckFailed(
-                "pick eco in the editor: expected target 17, mode OFF kept, preset ECO;"
+                "pick eco in the editor: expected target 17, mode OFF kept, preset ECO"
+                " and no custom one;"
                 f" got {describe(state)}"
             )
         row = await self.active_row()
