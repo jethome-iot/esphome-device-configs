@@ -206,6 +206,22 @@ TEST_F(Storage, LeavesADamagedFileAloneAndStartsFromDefaults) {
   }
 }
 
+// Not there is an empty start; there but unopenable is a failed load, which nothing writes over.
+TEST_F(Storage, AFileThatWillNotOpenIsAFailedLoadNotAnEmptyOne) {
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root opens any file";
+  TestSettings fresh;
+  EXPECT_TRUE(fresh.load_from_file(&this->backend, "config"));
+  write(VALID);
+  ASSERT_EQ(chmod(file().c_str(), 0), 0);
+  const bool loaded = fresh.load_from_file(&this->backend, "config");
+  chmod(file().c_str(), 0644);
+  EXPECT_FALSE(loaded);
+  EXPECT_EQ(fresh.size(), 0u);
+  EXPECT_TRUE(log().has(log().errors, "Cannot open"));
+  EXPECT_EQ(read(), VALID);
+}
+
 TEST_F(Storage, ASecondEditRestartsTheDelayAndOneWriteFollows) {
   boot();
   settings.update("sw_b", true, 42);

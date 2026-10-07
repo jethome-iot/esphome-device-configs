@@ -8,9 +8,9 @@ device found at boot, up to sixteen. Each is a sensor in Home Assistant, a row i
 ## Slots
 
 At boot every new sensor takes the lowest free slot, in bus order, and the slot keeps its
-ROM address in flash from then on; adding, removing or swapping other sensors does not
-move it. Empty slots have no sensor, so a device plugged in later appears after the next
-reboot. An unplugged sensor reads `--` (`0x8000` over Modbus); the log notes it once when it
+ROM address from then on; adding, removing or swapping other sensors does not move it.
+Empty slots have no sensor, so a device plugged in later appears after the next reboot. An
+unplugged sensor reads `--` (`0x8000` over Modbus); the log notes it once when it
 stops answering and once when it is back, no reboot needed. A reading of exactly 85.0 °C,
 the DS18B20 power-on value, is dropped.
 
@@ -18,12 +18,24 @@ Only Dallas temperature sensors take a slot — DS18B20, DS18S20, DS1822, DS1825
 DS28EA00. Any other 1-Wire device on the bus is skipped and logged as `Not a temperature
 sensor`.
 
-To choose the order, connect the sensors one at a time, rebooting after each.
+To choose the order, connect the sensors one at a time, rebooting after each, or move them
+afterwards from the web dashboard (below).
 
 ## Addresses
 
-**Temperatures → Temp N** shows the slot's ROM address, e.g. `0xeb01227905460228`. The boot
-log lists them too (`ds2484: Found devices`).
+**Temperatures → Temp N** on the panel and **Settings → Temperature** on the web dashboard show
+each slot's ROM address, e.g. `0xeb01227905460228`. The boot log lists them too
+(`ds2484: Found devices`).
+
+## Backup and restore
+
+The slots are kept in `/littlefs/config/dallas_scan_temps.json` on the user storage partition,
+next to the relay and input settings and the automations, so a backup of the partition carries
+them and a restore puts every sensor back in its slot, on this controller or on a replacement:
+restore, then reboot. A rule that reads `Temp 3` reads the same sensor as before.
+
+The file can also be edited by hand, then the device rebooted; the format is in
+[components/dallas_scan](../components/dallas_scan/README.md#storage).
 
 ## Your own sensors
 
@@ -56,11 +68,34 @@ before them keeps its `Temp N` row reading `--`; its menu entry says `Free slot`
 **Settings → Temp sensors → Confirm** clears every slot but the listed ones, so sensors are
 numbered again in bus order. Factory reset clears them too.
 
+The web dashboard does the same without the panel, which is the only way on a device without
+a display: **Settings → Temperature** lists the slots with their readings and ROM addresses,
+and **Forget** on a slot or **Forget All**, clicked twice, clears them. Scripts can use its
+routes, in
+[components/web_device_dashboard](../components/web_device_dashboard/README.md).
+
+## Moving and assigning
+
+Only the web dashboard does this: **Edit** on a slot in **Settings → Temperature** takes a slot
+number and a ROM address, and **Assign by Address** opens the same dialog on the lowest free slot
+with an empty address. The dialog says what will change before it saves, and the device reboots
+with that device in that slot.
+
+- The address of a sensor in another slot moves it there; if a sensor holds that slot, the two
+  swap.
+- Another address puts that device into the slot — for a sensor that is not plugged in yet, its
+  number is then waiting for it. The sensor that held the slot loses it and, if still
+  connected, takes the lowest free slot at the next boot.
+
+A `Temp N` name and its Modbus register belong to the slot: a sensor moved to slot 3 reads as
+`Temp 3`, on that slot's register. Listed slots cannot be assigned; the tab shows them as
+`Fixed in YAML`.
+
 ## More slots
 
 Raise `max_sensors` in `devices/JXD/packages/features/temperature.yaml` and add the registers in
 `devices/JXD/packages/features/modbus-server.yaml`, the README line and `TEMP_COUNT` in
-`scripts/modbus_probe.py`. Changing `max_sensors` empties the table once.
+`scripts/modbus_probe.py`. The slots already taken keep their sensors.
 
 ## The component
 

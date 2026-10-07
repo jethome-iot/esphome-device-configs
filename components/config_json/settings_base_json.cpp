@@ -1,5 +1,7 @@
 #include "settings_base_json.h"
+#include <cerrno>
 #include <cstdio>
+#include <cstring>
 
 namespace esphome::config_json {
 
@@ -16,6 +18,11 @@ bool SettingsBaseJson::load_from_file(filesystem_storage_abstract::FilesystemSto
 
   FILE *file = fopen(full_path.c_str(), "r");
   if (file == nullptr) {
+    // A file that is there but will not open is not an empty start: a save would replace it.
+    if (errno != ENOENT) {
+      ESP_LOGE(TAG, "Cannot open '%s': %s", full_path.c_str(), strerror(errno));
+      return false;
+    }
     ESP_LOGD(TAG, "File '%s' does not exist, starting with empty settings", full_path.c_str());
     return true;
   }

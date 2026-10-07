@@ -4,6 +4,7 @@
 #include <functional>
 #include <string>
 #include <ArduinoJson.h>
+#include "esphome/components/firmware_rollback/firmware_rollback.h"
 #include "esphome/components/loop_job/loop_job.h"
 #include "esphome/components/web_origin_guard/web_origin_guard.h"
 #include "esphome/components/web_server_base/web_server_base.h"
@@ -16,6 +17,9 @@
 #endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_STORAGE
 #include "esphome/components/filesystem_storage_abstract/filesystem_storage_abstract.h"
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
+#include "esphome/components/dallas_scan/dallas_scan.h"
 #endif
 
 namespace esphome::web_device_dashboard {
@@ -31,6 +35,11 @@ enum class RouteId : uint8_t {
   SYSTEM_REBOOT,
   SYSTEM_FACTORY_RESET,
   SYSTEM_ROLLBACK,
+#ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
+  TEMPERATURE_SLOTS,
+  TEMPERATURE_SLOTS_FORGET,
+  TEMPERATURE_SLOTS_ASSIGN,
+#endif
 #ifdef USE_CONFIG_JSON
   ENTITIES,
   ENTITY_SETTINGS,
@@ -46,18 +55,13 @@ struct Route {
   bool post;
 };
 
-/// The app slot a rollback would boot, empty when the other slot holds no app image.
-struct RollbackTarget {
-  std::string partition;
-  std::string version;
-  std::string project_name;
-  bool available() const { return !this->partition.empty(); }
-};
+using firmware_rollback::RollbackTarget;
 
 // The dashboard page at / and the device API under /api/device/: info (with the board's
 // EEPROM identity when jethome_board_info is wired in), status, network, what the firmware
-// can do, the three system actions, with web_auth the HTTP credentials, and with config_json
-// the entity index, the entity settings and their form fields.
+// can do, the three system actions, with web_auth the HTTP credentials, with dallas_scan the
+// temperature slots, forgetting and assigning them, and with config_json the entity index, the
+// entity settings and their form fields.
 class WebDeviceDashboard : public AsyncWebHandler, public Component {
  public:
   explicit WebDeviceDashboard(web_server_base::WebServerBase *base) : base_(base) {}
@@ -72,6 +76,9 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_STORAGE
   void set_storage(filesystem_storage_abstract::FilesystemStorageAbstract *storage) { this->storage_ = storage; }
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
+  void set_temperature_slots(dallas_scan::DallasScan *slots) { this->temperature_slots_ = slots; }
 #endif
   // Where the other two web components serve, as this firmware configured them; nullptr when
   // it has none. Only /capabilities reads them.
@@ -102,23 +109,37 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   void handle_reboot_(AsyncWebServerRequest *request);
   void handle_factory_reset_(AsyncWebServerRequest *request);
   void handle_rollback_(AsyncWebServerRequest *request);
-  /// Answers 400, 403 or 413 itself when the body is not a confirmation of this device.
-  bool check_confirm_(AsyncWebServerRequest *request);
+  /// Answers 400, 403 or 413 itself when the body is not a confirmation of this device. The
+  /// parsed body is left in @p doc for a route that takes more than the confirmation.
+  bool check_confirm_(AsyncWebServerRequest *request, JsonDocument &doc);
+  bool check_confirm_(AsyncWebServerRequest *request) {
+    JsonDocument doc;
+    return this->check_confirm_(request, doc);
+  }
   void reboot_();
   void factory_reset_();
   // Virtual so the host tests can watch these happen: the real ones end the process or move
   // the boot partition, and there is no second app slot to read off a host build.
   virtual RollbackTarget rollback_target_() const;
-  /// nullptr once the next boot is the rolled-back slot, else why it is not.
+  /// nullptr once the next boot is the rolled-back slot, else why it is not. Loop task only.
   virtual const char *select_rollback_(const RollbackTarget &target);
   virtual void restart_();
-  /// Hands @p job to the loop task, which owns the entity records, and waits for it. False
-  /// when the loop never got to it: the job did not run and never will.
+  /// Hands @p job to the loop task, which owns the entity records and the rollback, and waits
+  /// for it. False when the loop never got to it: the job did not run and never will.
   /// Virtual for the same reason: a host build has one task, so nothing crosses on its own
   /// and only a stand-in can refuse a job or count what was handed over.
   virtual bool run_on_loop_(std::function<bool()> &&job);
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
   void write_board_(JsonObject root);
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
+  void handle_temperature_slots_(AsyncWebServerRequest *request);
+  void handle_temperature_slots_forget_(AsyncWebServerRequest *request);
+  void handle_temperature_slots_assign_(AsyncWebServerRequest *request);
+  static std::string temperature_slots_json_(dallas_scan::DallasScan *scan);
+  bool check_slots_writable_(AsyncWebServerRequest *request, dallas_scan::DallasScan *scan);
+  /// The body's `slot`, 1 to max_sensors(), as an index; answers 400 itself when it is not one.
+  bool read_slot_(AsyncWebServerRequest *request, JsonVariant value, size_t &slot);
 #endif
 #ifdef USE_CONFIG_JSON
   void handle_entities_(AsyncWebServerRequest *request);
@@ -140,6 +161,9 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_STORAGE
   filesystem_storage_abstract::FilesystemStorageAbstract *storage_{nullptr};
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
+  dallas_scan::DallasScan *temperature_slots_{nullptr};
 #endif
   const char *files_url_prefix_{nullptr};
   const char *automations_url_prefix_{nullptr};
