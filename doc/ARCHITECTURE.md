@@ -42,16 +42,16 @@ boundaries; everything else is local to its file.
   `menu-thermostats.yaml`, `menu-automations.yaml` and `menu-modbus.yaml` (Settings → Modbus).
   A `weight` places every row: at the root a board's rows sit below 100, then Info (100) and
   Settings (110); in Settings, below 10 is everyday settings, 10-19 commissioning, 20-29 erases
-  data, 30 and up the whole device, and a board's rows take a band's first weight so the shared
-  ones follow them. Rows of equal weight follow the device config's package order, and rows
-  added from C++ at boot come after all of them. A submenu may be empty, and `info_submenu`,
-  `relays_menu` and `inputs_menu` declare no rows of their own: the last two are filled at boot
-  from the `relays` / `inputs` vectors, so the menu follows whatever the board package put there.
-  `temperatures_menu` gets a `Temp N` submenu per slot up to the last bound one at boot, named
-  after the slot's label or name; a freed slot's submenu only names the slot and says
-  `Free slot`. `automations_menu` is filled at boot with a row per loaded rule, or one
-  `No automations` row. `thermostats_menu` is filled at boot with a submenu per loaded
-  thermostat, or one `No thermostats` row.
+  data, 30 and up the whole device, and a board's rows take a band's first weight (0, 10, 20, 30)
+  while the shared ones sit 5 or more above it, so they follow a board's. Rows of equal weight
+  follow the device config's package order, and rows added from C++ at boot come after all of them.
+  A submenu may be empty, and `info_submenu`, `relays_menu` and `inputs_menu` declare no rows of
+  their own: the last two are filled at boot from the `relays` / `inputs` vectors, so the menu
+  follows whatever the board package put there. `temperatures_menu` gets a `Temp N` submenu per slot
+  up to the last bound one at boot, named after the slot's label or name; a freed slot's submenu
+  only names the slot and says `Free slot`. `automations_menu` is filled at boot with a row per
+  loaded rule, or one `No automations` row. `thermostats_menu` is filled at boot with a submenu per
+  loaded thermostat, or one `No thermostats` row.
 - The board page is the page LEFT opens from the main or the blank page. `display/buttons.yaml`
   knows it only by two scripts, which the board's package defines: `board_page_show` opens it,
   and `board_page_key` gets every press the menu and the main and blank pages leave unused, with

@@ -29,10 +29,12 @@ graphical_display_menu:
       id: menu_settings_id
       weight: 110
       # Weights group these by what a row does: below 10 everyday, 10-19 commissioning, 20-29
-      # erases data, 30+ the whole device; a board's rows take a band's first weight.
+      # erases data, 30+ the whole device. A board's rows take a band's first weight and the
+      # shared ones sit 5 or more above it, so they follow a board's.
       items:
         - type: select
           text: "Display off"
+          weight: 5
           select: display_off_timer_select
 
         - type: menu
@@ -52,6 +54,6 @@ graphical_display_menu:
 
         - type: command
           text: "Reboot device"
-          weight: 30
+          weight: 35
           on_value:
             - lambda: 'App.safe_reboot();'

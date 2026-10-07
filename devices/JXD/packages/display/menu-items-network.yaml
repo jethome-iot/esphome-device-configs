@@ -42,8 +42,10 @@ graphical_display_menu:
 
     - id: !extend menu_settings_id
       items:
+        # Everyday, after a board's own rows.
         - type: select
           text: "Network"
+          weight: 5
           select: network_mode
 
         # Erases data, so it sits with the other destructive rows, after a board's own.

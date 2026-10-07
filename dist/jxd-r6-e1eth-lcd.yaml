@@ -1899,6 +1899,7 @@ graphical_display_menu:
       items:
         - type: select
           text: Display off
+          weight: 5
           select: display_off_timer_select
         - type: menu
           text: Factory reset
@@ -1915,7 +1916,7 @@ graphical_display_menu:
                 - script.execute: run_factory_reset
         - type: command
           text: Reboot device
-          weight: 30
+          weight: 35
           on_value:
             - lambda: App.safe_reboot();
     - id: !extend 'info_submenu'
@@ -1955,6 +1956,7 @@ graphical_display_menu:
       items:
         - type: select
           text: Network
+          weight: 5
           select: network_mode
         - type: menu
           text: Reset WiFi creds
