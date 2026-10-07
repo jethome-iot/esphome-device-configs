@@ -97,6 +97,13 @@ external_components:
       ref: master
       path: components
     components:
+      - timezone_settings
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
       - filesystem_storage_abstract
       - littlefs_storage
       - config_base
@@ -620,11 +627,6 @@ script:
           }
   - id: setup_time
     then:
-      - lambda: |-
-          const auto &tz = id(stored_timezone);
-          if (tz.std_offset_seconds != 0 || tz.has_dst()) {
-            esphome::time::set_global_tz(tz);
-          }
       - pcf8563.read_time:
           id: pcf8563_time
   - id: forget_temperatures
@@ -980,14 +982,20 @@ interval:
             id(ap_was_active) = ap;
             id(ip).update();
           }
+timezone_settings:
+  id: device_timezone
+  timezone: ${timezone}
+  homeassistant_zone: stored_timezone
+  clocks:
+    homeassistant: homeassistant_time
+    sntp: sntp_time
+    rtc: pcf8563_time
 time:
   - platform: homeassistant
     id: homeassistant_time
     on_time_sync:
       then:
-        - pcf8563.write_time: null
-        - delay: 1s
-        - lambda: id(stored_timezone) = esphome::time::get_global_tz();
+        pcf8563.write_time: null
   - platform: sntp
     id: sntp_time
     timezone: ${timezone}

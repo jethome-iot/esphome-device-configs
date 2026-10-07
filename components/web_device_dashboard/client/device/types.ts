@@ -329,7 +329,49 @@ export interface Capabilities {
   temperature_slots?: true
   /** The Modbus server's address map, as ranges; present when a `modbus_map` is wired in. */
   modbus?: ModbusMap
+  /** GET and POST /time answer: the device clock, and a timezone this page can choose. */
+  time?: true
 }
+
+// --- Time ---
+
+/** What last set the device clock. */
+export type ClockSource = 'homeassistant' | 'sntp' | 'rtc'
+
+/** Where the timezone in effect came from: Home Assistant, the zone chosen with POST /time, or
+ *  the one compiled in (`default_zone`), which runs while Home Assistant has sent none. */
+export type ZoneSource = 'homeassistant' | 'manual' | 'default'
+
+/** GET /time, and what POST /time answers after its change. */
+export interface DeviceTime {
+  /** UTC, seconds since the epoch; null while the clock is not set. */
+  time: number | null
+  /** Seconds east of UTC in effect now: the device's local time is `time + utc_offset`. */
+  utc_offset: number
+  /** Daylight saving time is in effect now. */
+  dst: boolean
+  /** What last set the clock; null when nothing has. */
+  clock_source: ClockSource | null
+  /** The timezone comes from Home Assistant, the default. */
+  follow_homeassistant: boolean
+  zone_source: ZoneSource
+  /** The zone chosen with POST /time, kept while following Home Assistant: its IANA name and its
+   *  POSIX TZ string. Both null when none was chosen; `zone` is null too when only `posix` was sent. */
+  zone: string | null
+  posix: string | null
+  /** The zone compiled into the firmware, as its config writes it, e.g. `"UTC"`. */
+  default_zone: string
+}
+
+/** POST /time. `true` follows Home Assistant and keeps the chosen zone. `false` with `posix`
+ *  (and the zone's name, for display) stores that zone and puts it in force; `false` alone puts
+ *  the stored one in force. `422` for `false` alone with no zone stored, a `zone` without
+ *  `posix`, a POSIX string the device cannot parse or a string over 63 bytes; `400` for a
+ *  malformed body; `500` when the zone could not be stored. */
+export type DeviceTimeUpdate =
+  | { follow_homeassistant: true }
+  | { follow_homeassistant: false; posix: string; zone?: string }
+  | { follow_homeassistant: false; posix?: never; zone?: never }
 
 // --- Modbus map ---
 
