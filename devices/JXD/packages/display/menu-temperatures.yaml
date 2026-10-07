@@ -1,12 +1,5 @@
 # Temperatures: PCB Temp and a submenu per slot of features/temperature.yaml; Settings → Temp
 # sensors forgets them all.
-external_components:
-  - source: ${components}
-    components: [panel_text]
-
-# Fits the labels to a row; the lambda below calls it.
-panel_text:
-
 graphical_display_menu:
   items:
     # A Temp N submenu per slot up to the last bound one is added at boot (esphome:

@@ -1,12 +1,5 @@
 # Relays and Inputs: a submenu per relay and per input of the board's `relays` / `inputs`, with
 # the settings of features/entity-settings.yaml.
-external_components:
-  - source: ${components}
-    components: [panel_text]
-
-# Fits the labels to a row; the lambda below calls it.
-panel_text:
-
 graphical_display_menu:
   items:
     # A Relay N / Input N submenu per entry of the relays / inputs vectors is added at

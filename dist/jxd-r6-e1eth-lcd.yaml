@@ -149,20 +149,6 @@ external_components:
     components:
       - display_menu_base
       - graphical_display_menu
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - panel_text
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - panel_text
 i2c_eeprom:
   - id: eeprom_cpu
     size: 64KB
@@ -2047,7 +2033,6 @@ graphical_display_menu:
             - type: select
               text: Stop bits
               select: modbus_stop_bits
-panel_text: null
 dashboard_import:
   package_import_url: github://jethome-iot/esphome-device-configs/dist/jxd-r6-e1eth-lcd.yaml@master
   import_full_config: true
