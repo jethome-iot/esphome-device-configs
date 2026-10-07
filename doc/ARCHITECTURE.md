@@ -168,13 +168,13 @@ server.
   naming them in `external_components` shadows the built-in ones. Every changed hunk is marked
   `JetHome:` and `scripts/vendored-diff.py` prints the whole patch against the pinned ESPHome.
   Dropping the two names from `external_components` builds the upstream components instead.
-- `components/web_server_idf` is a copy of upstream's carrying two changes. The httpd task, which
-  runs every web handler, gets 8192 bytes of stack instead of the stock 4352, which handlers
-  writing LittleFS overran. ESPHome PR #17800 is backported, as it is not in the pinned release: a
+- `components/web_server_idf` is a temporary copy of upstream's carrying two fixes the pinned
+  release lacks. The httpd task, which runs every web handler, gets 8192 bytes of stack instead of
+  the stock 4352, which handlers writing LittleFS overran. ESPHome PR #17800 is backported: a
   stalled `/events` client had its session freed while `esp_http_server` still held the pointer.
-  Every hunk is marked `JetHome:` and `scripts/vendored-diff.py` prints the patch; a bump
-  re-applies the stack change even once the release carries #17800. Dropping `web_server_idf` from
-  `external_components` builds the upstream component instead, without either change.
+  Every hunk is marked `JetHome:` and `scripts/vendored-diff.py` prints the patch. The copy goes on
+  the first bump whose release carries both; dropping `web_server_idf` from `external_components`
+  builds the upstream component instead.
 - `components/dallas_scan` creates entities at runtime: codegen reserves their places in the
   entity tables (`CORE.register_platform_component`) and registers the device class and unit
   strings, C++ then calls the four-argument `App.register_sensor` and

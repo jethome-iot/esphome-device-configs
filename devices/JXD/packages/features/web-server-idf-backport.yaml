@@ -1,7 +1,6 @@
-# Shadows the built-in web_server_idf with components/web_server_idf, which raises the httpd
-# task's stack to 8192 bytes (issue #64) and carries upstream ESPHome PR #17800 ahead of its
-# release (issue #70). scripts/vendored-diff.py prints the whole patch; what a bump keeps is in
-# that component's README.
+# Shadows the built-in web_server_idf with components/web_server_idf until an ESPHome release
+# carries its two fixes: the httpd task's stack raised to 8192 bytes (issue #64) and upstream
+# PR #17800 (issue #70). scripts/vendored-diff.py prints the whole patch.
 external_components:
   - source: ${components}
     components: [web_server_idf]

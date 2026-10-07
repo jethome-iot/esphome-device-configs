@@ -93,11 +93,14 @@ re-apply that patch. Every hunk it prints is marked `JetHome:` in the source, wh
 `vendored-diff` pre-commit hook checks — it fails on the un-re-copied tree, so the pin in that
 hook has to move with the others.
 
-`components/web_server_idf` is re-copied and re-patched the same way, and carries two things: a
-change of ours, the httpd task's stack raised to 8192 bytes, which is re-applied on every bump; and a
-backport of ESPHome PR #17800, which the pinned release predates. **On a bump to a release that
-contains #17800, re-copy the directory and re-apply the stack change alone** — the #17800 hunks are
-upstream's by then. To check whether a candidate release carries it:
+`components/web_server_idf` is temporary: a copy of upstream's carrying two fixes the pinned release
+lacks, the httpd task's stack raised to 8192 bytes and ESPHome PR #17800. **On the first bump to a
+release that carries both, delete it rather than re-copying it** — the directory, the
+`devices/JXD/packages/features/web-server-idf-backport.yaml` package and that package's line in both
+device configs, then regenerate `dist/` and drop the entry from ARCHITECTURE.md and this paragraph.
+Until then, re-copy and re-patch it like the two above, leaving out what the release already
+carries. A release carries the stack fix when its `web_server_idf.cpp` gives `config.stack_size`
+8192 or more, and #17800 when this succeeds:
 
 ```bash
 git -C <esphome checkout> merge-base --is-ancestor 9309cf96b9 <tag> && echo "carried"
@@ -105,10 +108,7 @@ git -C <esphome checkout> merge-base --is-ancestor 9309cf96b9 <tag> && echo "car
 
 `scripts/vendored-diff.py web_server_idf` prints exactly what is being carried, so a hunk after a
 bump that is neither of the two means the release moved that code for some other reason, and the
-diff has to be read before anything is re-applied. Only once upstream both carries #17800 and gives
-the task 8192 bytes or more is there nothing left to carry: then delete the directory, the
-`devices/JXD/packages/features/web-server-idf-backport.yaml` package and that package's line in both
-device configs, regenerate `dist/`, and drop the entry from ARCHITECTURE.md and this paragraph.
+diff has to be read before anything is re-applied or deleted.
 
 Also re-sync `.clang-format` and the `mirrors-clang-format` rev in `.pre-commit-config.yaml` with
 upstream's: a bump can change either the style config or the version it formats with.
