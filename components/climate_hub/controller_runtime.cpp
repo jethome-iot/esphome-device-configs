@@ -1,0 +1,476 @@
+#include "controller_runtime.h"
+#include <algorithm>
+#include <cmath>
+#include "esphome/core/log.h"
+#ifdef USE_SENSOR
+#include "esphome/components/sensor/sensor.h"
+#endif
+
+namespace esphome::climate_hub {
+
+static const char *const TAG = "climate_hub";
+
+namespace {
+
+climate::ClimateMode to_climate_mode(HubMode m) {
+  switch (m) {
+    case HubMode::HEAT:
+      return climate::CLIMATE_MODE_HEAT;
+    case HubMode::COOL:
+      return climate::CLIMATE_MODE_COOL;
+    case HubMode::HEAT_COOL:
+      return climate::CLIMATE_MODE_HEAT_COOL;
+    case HubMode::OFF:
+    default:
+      return climate::CLIMATE_MODE_OFF;
+  }
+}
+
+bool from_climate_mode(climate::ClimateMode m, HubMode *out) {
+  switch (m) {
+    case climate::CLIMATE_MODE_OFF:
+      *out = HubMode::OFF;
+      return true;
+    case climate::CLIMATE_MODE_HEAT:
+      *out = HubMode::HEAT;
+      return true;
+    case climate::CLIMATE_MODE_COOL:
+      *out = HubMode::COOL;
+      return true;
+    case climate::CLIMATE_MODE_HEAT_COOL:
+      *out = HubMode::HEAT_COOL;
+      return true;
+    default:
+      return false;
+  }
+}
+
+climate::ClimateAction to_climate_action(HubAction a) {
+  switch (a) {
+    case HubAction::IDLE:
+      return climate::CLIMATE_ACTION_IDLE;
+    case HubAction::HEATING:
+      return climate::CLIMATE_ACTION_HEATING;
+    case HubAction::COOLING:
+      return climate::CLIMATE_ACTION_COOLING;
+    case HubAction::OFF:
+    default:
+      return climate::CLIMATE_ACTION_OFF;
+  }
+}
+
+float clamp01(float v) { return std::isnan(v) ? 0.f : (v < 0.f ? 0.f : (v > 1.f ? 1.f : v)); }
+
+// Every fault but relay_contested stops control; that one only reports.
+bool cuts_out(HubFault f) { return f != HubFault::NONE && f != HubFault::RELAY_CONTESTED; }
+
+}  // namespace
+
+void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, RelayClaim *heat, RelayClaim *cool,
+                              uint64_t now_ms, const Reading &last) {
+  // A Save: the PWM keeps its rhythm unless apply_config_() gives it a new period.
+  const bool restart = this->config_ != nullptr;
+  const bool same_sensor = restart && sensor == this->sensor_;
+  // What the PID learnt holds for its law and its sensor; a Save that keeps both keeps it.
+  const bool keep_pid = same_sensor && this->kind_ == ControlKind::PID && config->kind == ControlKind::PID;
+  // The latch too: a relay min_on holds closed after the latch let it go is not heating.
+  const bool keep_latch = restart && this->kind_ == ControlKind::BANG_BANG && config->kind == ControlKind::BANG_BANG;
+  // A PID's gap between pulses was the old relay's: the one a Save moves it to has not closed.
+  if (this->heat_claim_ != heat && this->action_ == HubAction::HEATING)
+    this->action_ = HubAction::IDLE;
+  if (this->cool_claim_ != cool && this->action_ == HubAction::COOLING)
+    this->action_ = HubAction::IDLE;
+  this->config_ = config;
+  this->sensor_ = sensor;
+  this->heat_claim_ = heat;
+  this->cool_claim_ = cool;
+  this->kind_ = config->kind;
+
+  if (!restart) {
+    this->heat_duty_.reset();
+    this->cool_duty_.reset();
+  }
+  if (!same_sensor)
+    this->waiting_since_ms_ = now_ms;
+  this->control_due_ = true;
+  this->apply_config_();
+  if (!keep_pid) {
+    this->pid_.reset();
+    this->pid_.set_starting_integral_term(config->pid.starting_integral_term);
+    this->controlled_ = false;
+  }
+
+  // Inside the band the latch decides: reset, it would open a relay that is heating now. A
+  // start or a take-over has no latch of its own and goes by the relays; a direction the mode
+  // no longer drives is dropped, as a mode change through control() drops it.
+  const HubMode mode = config->mode;
+  const bool may_heat = heat != nullptr && (mode == HubMode::HEAT || mode == HubMode::HEAT_COOL);
+  const bool may_cool = cool != nullptr && (mode == HubMode::COOL || mode == HubMode::HEAT_COOL);
+  const HubAction latched = this->hysteresis_.action();
+  const bool heating = may_heat && (keep_latch ? latched == HubAction::HEATING : heat->state());
+  const bool cooling = may_cool && (keep_latch ? latched == HubAction::COOLING : cool->state());
+  this->hysteresis_.seed(heating ? HubAction::HEATING : (cooling ? HubAction::COOLING : HubAction::IDLE));
+
+  this->has_sample_ = last.seen;
+  this->last_sample_ms_ = last.ms;
+  this->entity_->current_temperature = last.seen ? last.value : NAN;
+#ifdef USE_SENSOR
+  // Shown, not acted on: a probe that fell silent long ago keeps its last state for good.
+  if (!last.seen && sensor != nullptr && sensor->has_state() && std::isfinite(sensor->state))
+    this->entity_->current_temperature = sensor->state;
+#endif
+
+  // The hub publishes next: with what the relays do, not "off" until the first pass. A Save
+  // keeps a PID between two pulses heating on the relay it had.
+  this->refresh_fault_(now_ms);
+  this->action_ = this->relay_action_();
+  this->entity_->action = to_climate_action(this->action_);
+}
+
+void ControllerRuntime::stop(uint64_t now_ms) {
+  if (this->config_ == nullptr)
+    return;
+  // The hub names a better reason first when it has one.
+  this->end_autotune(AutotuneEnd::STOPPED, now_ms);
+  this->all_relays_off_(now_ms, false);
+  this->config_ = nullptr;
+  this->sensor_ = nullptr;
+  this->heat_claim_ = nullptr;
+  this->cool_claim_ = nullptr;
+  this->action_ = HubAction::OFF;
+  this->fault_ = HubFault::NONE;
+  this->has_sample_ = false;
+  this->entity_->mode = climate::CLIMATE_MODE_OFF;
+  this->entity_->action = climate::CLIMATE_ACTION_OFF;
+  this->entity_->current_temperature = NAN;
+  this->entity_->show_preset(nullptr);
+}
+
+void ControllerRuntime::release_claim(const RelayClaim *claim) {
+  if (this->heat_claim_ == claim)
+    this->heat_claim_ = nullptr;
+  if (this->cool_claim_ == claim)
+    this->cool_claim_ = nullptr;
+}
+
+void ControllerRuntime::apply_config_() {
+  const ClimateConfig &c = *this->config_;
+
+  this->pid_.set_gains(c.pid.kp, c.pid.ki, c.pid.kd);
+  this->pid_.set_integral_limits(c.pid.min_integral, c.pid.max_integral);
+  this->pid_.set_samples(static_cast<int>(c.pid.output_samples), static_cast<int>(c.pid.derivative_samples));
+  this->pid_.set_deadband(c.pid.deadband_threshold_low, c.pid.deadband_threshold_high, c.pid.deadband_kp_multiplier,
+                          c.pid.deadband_ki_multiplier, c.pid.deadband_kd_multiplier,
+                          static_cast<int>(c.pid.deadband_output_samples));
+
+  this->hysteresis_.set_setpoints(c.switch_low(), c.switch_high());
+  this->hysteresis_.set_directions(c.supports_heat(), c.supports_cool());
+
+  this->heat_duty_.set_period(static_cast<uint32_t>(c.heat.period_s * 1000.f));
+  this->cool_duty_.set_period(static_cast<uint32_t>(c.cool.period_s * 1000.f));
+  if (this->heat_claim_ != nullptr) {
+    this->heat_claim_->set_dwell(static_cast<uint32_t>(c.heat.min_on_s * 1000.f),
+                                 static_cast<uint32_t>(c.heat.min_off_s * 1000.f));
+  }
+  if (this->cool_claim_ != nullptr) {
+    this->cool_claim_->set_dwell(static_cast<uint32_t>(c.cool.min_on_s * 1000.f),
+                                 static_cast<uint32_t>(c.cool.min_off_s * 1000.f));
+  }
+
+  this->entity_->set_traits(c.supports_heat(), c.supports_cool(), c.visual.min_temperature, c.visual.max_temperature,
+                            c.visual.step);
+  this->entity_->set_presets(c.presets);
+  this->entity_->show_preset(c.find_preset(c.active_preset));
+  this->entity_->mode = to_climate_mode(c.mode);
+  // Single-point whatever the algorithm: bang-bang keeps its band in the document, so the
+  // low/high pair (the same four bytes in climate::Climate) stays unwritten.
+  this->entity_->target_temperature = c.setpoint;
+}
+
+bool ControllerRuntime::control(const climate::ClimateCall &call, uint64_t now_ms) {
+  if (this->config_ == nullptr)
+    return false;
+  const ClimateConfig &c = *this->config_;
+  // Upstream's validation has already dropped a preset the traits do not list.
+  const PresetConfig *preset = nullptr;
+  if (call.get_preset().has_value()) {
+    preset = c.find_preset(*call.get_preset());
+  } else if (call.has_custom_preset()) {
+    preset = c.find_custom_preset(call.get_custom_preset().c_str());
+  }
+  optional<HubMode> mode;
+  HubMode requested;
+  if (call.get_mode().has_value() && from_climate_mode(*call.get_mode(), &requested))
+    mode = requested;
+  optional<float> target;
+  if (call.get_target_temperature().has_value())
+    target = *call.get_target_temperature();
+  return this->apply_(preset, mode, target, now_ms);
+}
+
+bool ControllerRuntime::pick_preset(const PresetConfig &preset, uint64_t now_ms) {
+  if (this->config_ == nullptr)
+    return false;
+  return this->apply_(&preset, nullopt, nullopt, now_ms);
+}
+
+bool ControllerRuntime::set_mode(HubMode mode, uint64_t now_ms) {
+  if (this->config_ == nullptr)
+    return false;
+  return this->apply_(nullptr, mode, nullopt, now_ms);
+}
+
+bool ControllerRuntime::apply_(const PresetConfig *preset, optional<HubMode> mode, optional<float> target,
+                               uint64_t now_ms) {
+  ClimateConfig &c = *this->config_;
+  const HubMode previous_mode = c.mode;
+  const float previous_setpoint = c.setpoint;
+  const std::string previous_preset = c.active_preset;
+
+  // A target or a mode set by hand keeps the label, as upstream's thermostat does.
+  if (preset != nullptr)
+    c.pick_preset(*preset);
+  if (mode.has_value() && *mode != c.mode && c.supports_mode(*mode))
+    c.set_mode(*mode);
+  // A client may send anything; the document only ever holds a target inside its range.
+  if (target.has_value() && !std::isnan(*target))
+    c.setpoint = c.clamp_target(*target);
+  // The bang-bang latch holds the last action between the switching points: carried across a
+  // mode change it would keep the heater running in COOL.
+  if (c.mode != previous_mode)
+    this->hysteresis_.reset();
+  // Here, so no path that moves them leaves a run measuring around a target it no longer has.
+  if (c.mode != previous_mode) {
+    this->end_autotune(AutotuneEnd::MODE_CHANGED, now_ms);
+  } else if (c.setpoint != previous_setpoint) {
+    this->end_autotune(AutotuneEnd::TARGET_CHANGED, now_ms);
+  }
+
+  this->hysteresis_.set_setpoints(c.switch_low(), c.switch_high());
+  this->entity_->mode = to_climate_mode(c.mode);
+  this->entity_->target_temperature = c.setpoint;
+  this->entity_->show_preset(c.find_preset(c.active_preset));
+  // Published with the mode it replaced, the action would say "off" in HEAT until the next pass.
+  this->set_action_(this->relay_action_());
+  this->control_due_ = true;
+  // Published even when nothing moved: the caller waits for the state its command produced.
+  this->entity_->publish_state();
+  return c.mode != previous_mode || c.setpoint != previous_setpoint || c.active_preset != previous_preset;
+}
+
+void ControllerRuntime::on_sample(float value, uint64_t now_ms) {
+  if (this->config_ == nullptr)
+    return;
+  this->last_sample_ms_ = now_ms;
+  this->has_sample_ = true;
+  // Every sample, not every update_interval_s: the swing is measured between them.
+  const bool acted = this->autotune_ != nullptr && this->feed_autotune_(value, now_ms);
+  if (value == this->entity_->current_temperature && !acted)
+    return;
+  this->entity_->current_temperature = value;
+  this->entity_->publish_state();
+}
+
+void ControllerRuntime::begin_autotune(AutotuneRun *run, uint64_t now_ms) {
+  this->autotune_ = run;
+  bool changed;
+  if (this->has_sample_) {
+    changed = this->feed_autotune_(this->entity_->current_temperature, now_ms);
+  } else {
+    // The relays stay open until a reading comes, as at a start.
+    this->heat_duty_.set_duty(0.f);
+    this->cool_duty_.set_duty(0.f);
+    changed = this->set_action_(this->relay_action_());
+  }
+  if (changed)
+    this->entity_->publish_state();
+}
+
+bool ControllerRuntime::feed_autotune_(float value, uint64_t now_ms) {
+  AutotuneRun &run = *this->autotune_;
+  // Ended as the next pass would end it, before a result found on this sample gets there first.
+  const AutotuneEnd why =
+      value > this->config_->safety.max_temperature ? AutotuneEnd::OVERTEMP : run.limit_reached(now_ms);
+  if (why != AutotuneEnd::NONE) {
+    this->end_autotune(why, now_ms);
+    return true;
+  }
+  const bool on = run.feed(value, now_ms);
+  // The pass that found the gains leaves the relays to the PID the hub starts next.
+  if (run.found())
+    return false;
+  const bool heat = run.direction() == AutotuneDirection::HEAT;
+  this->heat_duty_.set_duty(heat && on ? 1.f : 0.f);
+  this->cool_duty_.set_duty(!heat && on ? 1.f : 0.f);
+  return this->set_action_(this->relay_action_());
+}
+
+void ControllerRuntime::end_autotune(AutotuneEnd why, uint64_t now_ms) {
+  if (this->autotune_ == nullptr)
+    return;
+  if (why != AutotuneEnd::NONE) {
+    this->autotune_->fail(why, now_ms);
+    ESP_LOGI(TAG, "'%s': calibration ended: %s", this->config_->id.c_str(), enums::autotune_end_to_string(why));
+  }
+  this->autotune_ = nullptr;
+  // A clean restart: nothing the PID held before the run, or the relay function's duties, carries on.
+  const ClimateConfig &c = *this->config_;
+  this->pid_.set_gains(c.pid.kp, c.pid.ki, c.pid.kd);
+  this->pid_.reset();
+  this->pid_.set_starting_integral_term(c.pid.starting_integral_term);
+  this->heat_duty_.set_duty(0.f);
+  this->cool_duty_.set_duty(0.f);
+  this->controlled_ = false;
+  this->control_due_ = true;
+}
+
+void ControllerRuntime::tick(uint64_t now_ms) {
+  if (this->config_ == nullptr || !this->config_->enabled)
+    return;
+  const ClimateConfig &c = *this->config_;
+
+  this->refresh_fault_(now_ms);
+  if (this->autotune_ != nullptr) {
+    // Any fault ends a calibration, relay_contested too: something else moved the relay it measures.
+    AutotuneEnd why = enums::autotune_end_of(this->fault_);
+    if (why == AutotuneEnd::NONE)
+      why = this->autotune_->limit_reached(now_ms);
+    if (why != AutotuneEnd::NONE)
+      this->end_autotune(why, now_ms);
+  }
+  // Waiting for a first reading is no fault, but nothing to act on either. Without a reading or
+  // on a cut-out a close from elsewhere is undone on every pass; only mode off paces it.
+  if (cuts_out(this->fault_) || c.mode == HubMode::OFF || !this->has_sample_) {
+    // Integrated over the pause, the first pass after it would wind the integral to a limit.
+    this->controlled_ = false;
+    this->all_relays_off_(now_ms, this->has_sample_ && !cuts_out(this->fault_));
+  } else {
+    const auto interval_ms = static_cast<uint32_t>(c.update_interval_s * 1000.f);
+    // A calibration sets the duties on every sample instead.
+    if (this->autotune_ == nullptr && (this->control_due_ || now_ms - this->last_control_ms_ >= interval_ms))
+      this->run_control_(now_ms);
+    this->drive_outputs_(now_ms);
+  }
+  // After the relays moved: a dwell that ran out on this pass shows now, not at the next interval.
+  if (this->set_action_(this->relay_action_()))
+    this->entity_->publish_state();
+}
+
+void ControllerRuntime::refresh_fault_(uint64_t now_ms) {
+  const ClimateConfig &c = *this->config_;
+  const auto timeout_ms = static_cast<uint64_t>(c.safety.sensor_timeout_s * 1000.f);
+  // Silence counts from the last reading, or from the start while there is none yet.
+  const uint64_t silent_ms = now_ms - (this->has_sample_ ? this->last_sample_ms_ : this->waiting_since_ms_);
+
+  HubFault fault = HubFault::NONE;
+  if (silent_ms > timeout_ms) {
+    fault = HubFault::SENSOR_STALE;
+  } else if (this->has_sample_ && this->entity_->current_temperature > c.safety.max_temperature) {
+    fault = HubFault::OVERTEMP;
+  } else if ((this->heat_claim_ != nullptr && this->heat_claim_->contested(now_ms)) ||
+             (this->cool_claim_ != nullptr && this->cool_claim_->contested(now_ms))) {
+    fault = HubFault::RELAY_CONTESTED;
+  }
+
+  if (fault == this->fault_)
+    return;
+  const bool cut_out_ends = cuts_out(this->fault_) && !cuts_out(fault);
+  if (fault == HubFault::NONE) {
+    ESP_LOGI(TAG, "'%s': fault cleared", c.id.c_str());
+  } else {
+    // Straight into relay_contested, the end of the cut-out would go unsaid.
+    if (cut_out_ends)
+      ESP_LOGI(TAG, "'%s': %s cleared", c.id.c_str(), enums::fault_to_string(this->fault_));
+    ESP_LOGW(TAG, "'%s': %s", c.id.c_str(), enums::fault_to_string(fault));
+  }
+  // The cut-out zeroed the duties: waiting out update_interval_s would leave it off for up to an hour.
+  if (cut_out_ends)
+    this->control_due_ = true;
+  this->fault_ = fault;
+}
+
+// The relays, not the demand: one that min_off holds open is not heating yet, and one that min_on
+// holds closed still is, as upstream's thermostat keeps its action until its timer lets go.
+HubAction ControllerRuntime::relay_action_() const {
+  const ClimateConfig &c = *this->config_;
+  if (cuts_out(this->fault_) || c.mode == HubMode::OFF)
+    return HubAction::OFF;
+  // The next pass opens whatever is closed, without waiting.
+  if (!this->has_sample_)
+    return HubAction::IDLE;
+  const bool heating = this->shows_(this->heat_claim_, this->heat_duty_, HubAction::HEATING,
+                                    c.mode == HubMode::HEAT || c.mode == HubMode::HEAT_COOL);
+  const bool cooling = this->shows_(this->cool_claim_, this->cool_duty_, HubAction::COOLING,
+                                    c.mode == HubMode::COOL || c.mode == HubMode::HEAT_COOL);
+  // Both closed while min_on holds one after a switch-over, or while one closed from elsewhere waits
+  // for its put-back: the one it drives now is what it does.
+  if (heating && (!cooling || this->heat_duty_.duty() > 0.f))
+    return HubAction::HEATING;
+  return cooling ? HubAction::COOLING : HubAction::IDLE;
+}
+
+bool ControllerRuntime::shows_(const RelayClaim *claim, const DutyCycler &duty, HubAction direction,
+                               bool drives) const {
+  if (claim == nullptr)
+    return false;
+  if (claim->state())
+    return true;
+  // A PID between two pulses of its PWM is still at it, once the first one has closed the relay.
+  return this->config_->kind == ControlKind::PID && drives && duty.duty() > 0.f && this->action_ == direction;
+}
+
+bool ControllerRuntime::set_action_(HubAction action) {
+  if (action == this->action_)
+    return false;
+  this->action_ = action;
+  this->entity_->action = to_climate_action(action);
+  return true;
+}
+
+void ControllerRuntime::run_control_(uint64_t now_ms) {
+  const ClimateConfig &c = *this->config_;
+  const float dt_s = this->controlled_ ? static_cast<float>(now_ms - this->last_control_ms_) / 1000.f : 0.f;
+  // After a pause the averages still hold samples from before it; a start emptied them already.
+  if (!this->controlled_)
+    this->pid_.forget_samples();
+  this->last_control_ms_ = now_ms;
+  this->controlled_ = true;
+  this->control_due_ = false;
+
+  // Only the demand: what the entity shows follows the relays once they have moved.
+  if (c.kind == ControlKind::PID) {
+    const float output = this->pid_.update(c.setpoint, this->entity_->current_temperature, dt_s);
+    const bool may_heat = c.supports_heat() && (c.mode == HubMode::HEAT || c.mode == HubMode::HEAT_COOL);
+    const bool may_cool = c.supports_cool() && (c.mode == HubMode::COOL || c.mode == HubMode::HEAT_COOL);
+    this->heat_duty_.set_duty(may_heat ? clamp01(output) : 0.f);
+    this->cool_duty_.set_duty(may_cool ? clamp01(-output) : 0.f);
+  } else {
+    const HubAction latched = this->hysteresis_.update(c.mode, this->entity_->current_temperature);
+    this->heat_duty_.set_duty(latched == HubAction::HEATING ? 1.f : 0.f);
+    this->cool_duty_.set_duty(latched == HubAction::COOLING ? 1.f : 0.f);
+  }
+}
+
+void ControllerRuntime::drive_outputs_(uint64_t now_ms) {
+  if (this->heat_claim_ != nullptr)
+    this->heat_claim_->request(this->heat_duty_.update(now_ms), now_ms);
+  if (this->cool_claim_ != nullptr)
+    this->cool_claim_->request(this->cool_duty_.update(now_ms), now_ms);
+}
+
+void ControllerRuntime::all_relays_off_(uint64_t now_ms, bool paced) {
+  this->heat_duty_.set_duty(0.f);
+  this->cool_duty_.set_duty(0.f);
+  if (this->heat_claim_ != nullptr)
+    this->heat_claim_->force_off(now_ms, paced);
+  if (this->cool_claim_ != nullptr)
+    this->cool_claim_->force_off(now_ms, paced);
+}
+
+float ControllerRuntime::sensor_age_s(uint64_t now_ms) const {
+  if (!this->has_sample_)
+    return NAN;
+  return static_cast<float>(now_ms - this->last_sample_ms_) / 1000.f;
+}
+
+}  // namespace esphome::climate_hub

@@ -5,7 +5,7 @@ Setting up, building, and the checks that gate a push.
 ## Environment
 
 `scripts/setup.sh` (`scripts\setup.bat` on Windows) creates `.venv/`, installs `requirements.txt`
-and `requirements-dev.txt`, and installs the pre-commit hook. ESPHome is pinned to 2026.9.0;
+and `requirements-dev.txt`, and installs the pre-commit hook. ESPHome is pinned to 2026.9.1;
 Python 3.12–3.14. Activate the venv before committing: the hooks run with whatever `python3`
 git sees.
 
@@ -19,7 +19,7 @@ git sees.
 esphome config  devices/JXD/jxd-r6-e1eth-lcd.yaml                 # validate only, no toolchain
 esphome compile devices/JXD/jxd-r6-e1eth-lcd.yaml                 # full build
 esphome run     devices/JXD/jxd-r6-e1eth-lcd.yaml --device <ip>   # build + OTA (omit --device for USB)
-esphome -s version 2026.9.0.0 -s timezone Europe/Berlin compile <config>   # substitutions from the CLI
+esphome -s version 2026.9.1.0 -s timezone Europe/Berlin compile <config>   # substitutions from the CLI
 
 python scripts/build-dist.py  [--check]    # regenerate / verify dist/ (imports esphome: use the venv)
 python scripts/build-icons.py [--check]    # regenerate / verify assets/res/
@@ -33,6 +33,7 @@ SKIP=build-dist pre-commit run --all-files # what the CI lint job runs
 
 ./scripts/qemu.sh run jxd-r6-e1eth-lcd --daemon --wait-http 240   # boot it in QEMU, see doc/QEMU.md
 ./scripts/qemu.sh stop                                            # and shut it down again
+.venv/bin/python scripts/qemu-climate-smoke.py                    # the thermostats in QEMU, before a thermostat PR
 
 .venv/bin/python scripts/modbus_probe.py --port /dev/ttyUSB2 probe   # walk the Modbus map over RS485
 ```

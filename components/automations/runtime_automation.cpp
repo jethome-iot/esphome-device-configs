@@ -1,7 +1,11 @@
 #include "runtime_automation.h"
 #include <cmath>
 #include "automation_storage.h"
+#include "esphome/components/switch_hold/switch_hold.h"
 #include "esphome/core/log.h"
+#ifdef USE_CLIMATE_HUB
+#include "esphome/components/climate_hub/climate_hub.h"
+#endif
 
 namespace esphome::automations {
 
@@ -12,6 +16,12 @@ static const uint32_t CLICK_MIN_MS = 200;
 static const uint32_t CLICK_MAX_MS = 1000;
 // Timer ids carry the run sequence in their low 4 bits.
 static const uint8_t MAX_RUNS = 8;
+
+static bool fail(std::string *error, const std::string &message) {
+  if (error != nullptr)
+    *error = message;
+  return false;
+}
 
 // --- Conditions ---
 
@@ -61,20 +71,21 @@ bool CompiledCondition::check() const {
   }
 }
 
-bool compile_condition(const ConditionConfig &config, CompiledCondition &out) {
+bool compile_condition(const ConditionConfig &config, CompiledCondition &out, std::string *error) {
   out.type = config.type;
   switch (config.type) {
     case ConditionType::INPUT:
       out.binary_sensor = find_binary_sensor(config.sensor_id);
       out.expected = config.state == InputConditionState::TRUE;
-      if (out.binary_sensor == nullptr)
-        ESP_LOGE(TAG, "Condition: binary sensor 0x%08X not found", static_cast<unsigned>(config.sensor_id));
-      return out.binary_sensor != nullptr;
+      if (out.binary_sensor != nullptr)
+        return true;
+      ESP_LOGE(TAG, "Condition: binary sensor 0x%08X not found", static_cast<unsigned>(config.sensor_id));
+      return fail(error, "input not found");
     case ConditionType::TEMPERATURE:
       out.sensor = find_sensor(config.sensor_id);
       if (out.sensor == nullptr) {
         ESP_LOGE(TAG, "Condition: sensor 0x%08X not found", static_cast<unsigned>(config.sensor_id));
-        return false;
+        return fail(error, "sensor not found");
       }
       switch (config.temperature_type) {
         case TypesTemperatureCondition::BELOW:
@@ -91,23 +102,25 @@ bool compile_condition(const ConditionConfig &config, CompiledCondition &out) {
           return true;
         default:
           ESP_LOGE(TAG, "Condition: temperature needs a 'temperature_type' of below, above or range");
-          return false;
+          return fail(error, "temperature_type missing");
       }
     case ConditionType::AND:
     case ConditionType::OR:
     case ConditionType::XOR:
       // Fail closed: a group missing one member would silently change its meaning.
       if (config.sub_conditions.empty())
-        return false;
+        return fail(error, "a group without members");
       for (const auto &sub_config : config.sub_conditions) {
         CompiledCondition sub;
-        if (!sub_config.is_valid() || !compile_condition(sub_config, sub))
+        if (!sub_config.is_valid())
+          return fail(error, "a member without a type");
+        if (!compile_condition(sub_config, sub, error))
           return false;
         out.subs.push_back(std::move(sub));
       }
       return true;
     default:
-      return false;
+      return fail(error, "no type");
   }
 }
 
@@ -125,35 +138,41 @@ bool CompiledTrigger::cron_matches(const ESPTime &time) const {
          this->days_of_month[time.day_of_month] && this->months[time.month] && this->days_of_week[time.day_of_week];
 }
 
-bool compile_trigger(AutomationStorage *engine, const TriggerConfig &config, CompiledTrigger &out) {
+bool compile_trigger(AutomationStorage *engine, const TriggerConfig &config, CompiledTrigger &out, std::string *error) {
   out.source = config.source;
   switch (config.source) {
     case SourceTrigger::INPUT:
       out.binary_sensor = find_binary_sensor(config.params.input.input_id);
       out.input_type = config.params.input.type;
-      if (out.binary_sensor == nullptr)
+      if (out.binary_sensor == nullptr) {
         ESP_LOGE(TAG, "Trigger: binary sensor 0x%08X not found", static_cast<unsigned>(config.params.input.input_id));
-      return out.binary_sensor != nullptr && out.input_type != TypesInputTrigger::NONE;
+        return fail(error, "input not found");
+      }
+      return out.input_type != TypesInputTrigger::NONE || fail(error, "no type");
     case SourceTrigger::SWITCH:
       out.sw = find_switch(config.params.switch_trigger.switch_id);
       out.switch_type = config.params.switch_trigger.type;
-      if (out.sw == nullptr)
+      if (out.sw == nullptr) {
         ESP_LOGE(TAG, "Trigger: switch 0x%08X not found",
                  static_cast<unsigned>(config.params.switch_trigger.switch_id));
-      return out.sw != nullptr && out.switch_type != TypesSwitchTrigger::NONE;
+        return fail(error, "switch not found");
+      }
+      return out.switch_type != TypesSwitchTrigger::NONE || fail(error, "no type");
     case SourceTrigger::TEMPERATURE:
       out.sensor = find_sensor(config.params.temperature.sensor_id);
       out.temperature_type = config.params.temperature.type;
       out.threshold = config.params.temperature.threshold;
       out.min = config.params.temperature.min_threshold;
       out.max = config.params.temperature.max_threshold;
-      if (out.sensor == nullptr)
+      if (out.sensor == nullptr) {
         ESP_LOGE(TAG, "Trigger: sensor 0x%08X not found", static_cast<unsigned>(config.params.temperature.sensor_id));
-      return out.sensor != nullptr && out.temperature_type != TypesTemperatureTrigger::NONE;
+        return fail(error, "sensor not found");
+      }
+      return out.temperature_type != TypesTemperatureTrigger::NONE || fail(error, "no type");
     case SourceTrigger::CRON:
       if (!engine->has_rtc()) {
         ESP_LOGE(TAG, "Trigger: cron needs a time source (time_id)");
-        return false;
+        return fail(error, "cron needs a time source");
       }
       set_bits(out.seconds, config.cron_seconds);
       set_bits(out.minutes, config.cron_minutes);
@@ -165,38 +184,102 @@ bool compile_trigger(AutomationStorage *engine, const TriggerConfig &config, Com
     case SourceTrigger::STARTUP:
       return true;
     default:
-      return false;
+      return fail(error, "no source");
   }
 }
 
 // --- Actions ---
 
-bool compile_action(const ActionConfig &config, CompiledAction &out) {
+// Only a config built in C++ gets here with a step the parser would have refused.
+static bool check_step(const ClimateStep &step, bool in_follow, std::string *error) {
+  if (step.type == TypeClimateAction::NONE)
+    return fail(error, "no type");
+  if (in_follow && (step.type == TypeClimateAction::SET_TARGET || step.type == TypeClimateAction::FOLLOW))
+    return fail(error, "a follow takes turn_on, turn_off or set_preset");
+  if (step.type == TypeClimateAction::SET_TARGET && !std::isfinite(step.target))
+    return fail(error, "no target");
+  if (step.type == TypeClimateAction::SET_PRESET && step.preset.empty())
+    return fail(error, "no preset");
+  return true;
+}
+
+// Fail closed: a rule that would act on a thermostat or a preset the hub does not have is not
+// built at all, rather than built to do nothing.
+static bool check_climate(const ClimateActionConfig &config, std::string *error) {
+  if (!check_step(config.step, false, error))
+    return false;
+  if (config.step.type == TypeClimateAction::FOLLOW &&
+      (!check_step(config.on, true, error) || !check_step(config.off, true, error)))
+    return false;
+  const std::string who = "thermostat \"" + config.climate + "\"";
+#ifdef USE_CLIMATE_HUB
+  const climate_hub::ClimateConfig *thermostat =
+      global_climate_hub != nullptr ? global_climate_hub->store().get(config.climate) : nullptr;
+  if (thermostat == nullptr) {
+    ESP_LOGE(TAG, "Action: thermostat '%s' not found", config.climate.c_str());
+    return fail(error, who + " not found");
+  }
+  // What it plays: a follow's two branches, or its one step.
+  const bool follow = config.step.type == TypeClimateAction::FOLLOW;
+  for (const ClimateStep *step : {follow ? &config.on : &config.step, follow ? &config.off : &config.step}) {
+    if (step->type == TypeClimateAction::SET_PRESET && thermostat->find_preset(step->preset) == nullptr) {
+      ESP_LOGE(TAG, "Action: thermostat '%s' has no preset '%s'", config.climate.c_str(), step->preset.c_str());
+      return fail(error, who + " has no preset \"" + step->preset + "\"");
+    }
+  }
+  return true;
+#else
+  ESP_LOGE(TAG, "Action: no thermostats on this device");
+  return fail(error, who + " not found");
+#endif
+}
+
+bool compile_action(const ActionConfig &config, CompiledAction &out, std::string *error) {
   out.source = config.source;
   switch (config.source) {
     case SourceAction::SWITCH:
       out.target = find_switch(config.params.switch_action.switch_id);
       out.type = config.params.switch_action.type;
       out.invert = config.params.switch_action.invert;
-      if (out.target == nullptr)
+      if (out.target == nullptr) {
         ESP_LOGE(TAG, "Action: switch 0x%08X not found", static_cast<unsigned>(config.params.switch_action.switch_id));
-      return out.target != nullptr && out.type != TypeSwitchAction::NONE;
+        return fail(error, "switch not found");
+      }
+      return out.type != TypeSwitchAction::NONE || fail(error, "no type");
     case SourceAction::DELAY:
       out.delay_ms = config.params.delay.delay_ms;
       return true;
+    case SourceAction::CLIMATE:
+      // Only a config built in C++ gets here without one; the parser refuses it.
+      if (config.climate == nullptr)
+        return fail(error, "no type");
+      out.climate = config.climate;
+      return check_climate(*config.climate, error);
     default:
-      return false;
+      return fail(error, "no source");
   }
 }
 
-static bool compile_actions(const std::vector<ActionConfig> &configs, std::vector<CompiledAction> &out) {
-  for (const auto &config : configs) {
+static bool compile_actions(const std::vector<ActionConfig> &configs, std::vector<CompiledAction> &out,
+                            const char *label, std::string *error) {
+  for (size_t i = 0; i < configs.size(); i++) {
     CompiledAction action;
-    if (!compile_action(config, action))
-      return false;
+    std::string why;
+    if (!compile_action(configs[i], action, &why))
+      return fail(error, std::string(label) + " " + std::to_string(i + 1) + ": " + why);
     out.push_back(action);
   }
   return true;
+}
+
+bool names_climate(const AutomationConfig &config, const std::string &climate_id) {
+  for (const auto *list : {&config.actions, &config.else_actions}) {
+    for (const ActionConfig &action : *list) {
+      if (action.source == SourceAction::CLIMATE && action.climate != nullptr && action.climate->climate == climate_id)
+        return true;
+    }
+  }
+  return false;
 }
 
 // --- RuntimeAutomation ---
@@ -206,29 +289,36 @@ RuntimeAutomation::RuntimeAutomation(AutomationStorage *engine, const Automation
 
 RuntimeAutomation::~RuntimeAutomation() { this->stop(); }
 
-std::unique_ptr<RuntimeAutomation> RuntimeAutomation::build(AutomationStorage *engine, const AutomationConfig &config) {
+std::unique_ptr<RuntimeAutomation> RuntimeAutomation::build(AutomationStorage *engine, const AutomationConfig &config,
+                                                            std::string *error) {
   if (config.triggers.empty()) {
     ESP_LOGE(TAG, "Automation '%s' has no triggers", config.name.c_str());
+    fail(error, "No triggers");
     return nullptr;
   }
   std::unique_ptr<RuntimeAutomation> automation(new RuntimeAutomation(engine, config));
-  for (const auto &trigger_config : config.triggers) {
+  for (size_t i = 0; i < config.triggers.size(); i++) {
     CompiledTrigger trigger;
-    if (!compile_trigger(engine, trigger_config, trigger)) {
+    std::string why;
+    if (!compile_trigger(engine, config.triggers[i], trigger, &why)) {
       ESP_LOGE(TAG, "Automation '%s': trigger cannot be built", config.name.c_str());
+      fail(error, "Trigger " + std::to_string(i + 1) + ": " + why);
       return nullptr;
     }
     automation->triggers_.push_back(trigger);
   }
   if (config.condition.is_valid()) {
     auto condition = std::make_unique<CompiledCondition>();
-    if (!compile_condition(config.condition, *condition)) {
+    std::string why;
+    if (!compile_condition(config.condition, *condition, &why)) {
       ESP_LOGE(TAG, "Automation '%s': condition cannot be built", config.name.c_str());
+      fail(error, "Condition: " + why);
       return nullptr;
     }
     automation->condition_ = std::move(condition);
   }
-  if (!compile_actions(config.actions, automation->then_) || !compile_actions(config.else_actions, automation->else_)) {
+  if (!compile_actions(config.actions, automation->then_, "Action", error) ||
+      !compile_actions(config.else_actions, automation->else_, "Else action", error)) {
     ESP_LOGE(TAG, "Automation '%s': action cannot be built", config.name.c_str());
     return nullptr;
   }
@@ -349,6 +439,14 @@ void RuntimeAutomation::fire_(bool has_state, bool state) {
   if (!this->runs_.empty()) {
     switch (this->mode_) {
       case AutomationMode::SINGLE:
+        // The edge is ignored, its state is not: a follow still to play lands where the trigger
+        // is now. A climate step waits for the loop pass, so a second edge in one pass is common.
+        if (has_state) {
+          for (const auto &run : this->runs_) {
+            run->has_state = true;
+            run->state = state;
+          }
+        }
         return;
       case AutomationMode::RESTART:
         this->stop();
@@ -373,16 +471,27 @@ void RuntimeAutomation::fire_(bool has_state, bool state) {
   this->step_(token);
 }
 
-void RuntimeAutomation::step_(uint32_t token) {
+void RuntimeAutomation::step_(uint32_t token, bool scheduled) {
   Run *run = this->find_run_(token);
   while (run != nullptr && run->cursor < run->branch->size()) {
-    const CompiledAction &action = (*run->branch)[run->cursor++];
-    if (action.source == SourceAction::DELAY) {
-      this->engine_->schedule_delay(this->timer_id_(run->seq), action.delay_ms,
-                                    [this, token]() { this->engine_->drive([this, token]() { this->step_(token); }); });
+    const CompiledAction &action = (*run->branch)[run->cursor];
+    // A thermostat moves on the next loop pass, off the stack of the callback that fired the
+    // rule: the hub hears the same sensors, and would be changed halfway through hearing one.
+    const bool wait_for_loop = action.source == SourceAction::CLIMATE && !scheduled;
+    if (action.source == SourceAction::DELAY || wait_for_loop) {
+      if (!wait_for_loop)
+        run->cursor++;
+      this->engine_->schedule_delay(this->timer_id_(run->seq), wait_for_loop ? 0 : action.delay_ms, [this, token]() {
+        this->engine_->drive([this, token]() { this->step_(token, true); });
+      });
       return;
     }
-    this->play_switch_(action, *run);
+    run->cursor++;
+    if (action.source == SourceAction::CLIMATE) {
+      this->play_climate_(action, *run);
+    } else {
+      this->play_switch_(action, *run);
+    }
     // The switch callback may have restarted or stopped this automation: then this run is gone
     // and whatever replaced it is already being stepped.
     run = this->find_run_(token);
@@ -395,6 +504,13 @@ void RuntimeAutomation::play_switch_(const CompiledAction &action, const Run &ru
 #ifdef USE_SWITCH
   if (action.source != SourceAction::SWITCH)
     return;
+  // A running thermostat's relay is the thermostat's: the run goes on without this step.
+  const std::string holder = switch_hold::holder(action.target);
+  if (!holder.empty()) {
+    ESP_LOGI(TAG, "Automation '%s' left '%s' alone: thermostat '%s' drives it", this->name_.c_str(),
+             action.target->get_name().c_str(), holder.c_str());
+    return;
+  }
   switch (action.type) {
     case TypeSwitchAction::TURN_ON:
       action.target->turn_on();
@@ -417,6 +533,46 @@ void RuntimeAutomation::play_switch_(const CompiledAction &action, const Run &ru
     default:
       break;
   }
+#endif
+}
+
+void RuntimeAutomation::play_climate_(const CompiledAction &action, const Run &run) {
+#ifdef USE_CLIMATE_HUB
+  const ClimateActionConfig &climate = *action.climate;
+  const ClimateStep *step = &climate.step;
+  if (step->type == TypeClimateAction::FOLLOW) {
+    if (!run.has_state)
+      return;
+    step = run.state ? &climate.on : &climate.off;
+  }
+  climate_hub::ClimateHub *hub = global_climate_hub;
+  if (hub == nullptr)
+    return;
+  climate_hub::Result result;
+  switch (step->type) {
+    case TypeClimateAction::TURN_ON:
+      result = hub->turn_on(climate.climate);
+      break;
+    case TypeClimateAction::TURN_OFF:
+      result = hub->turn_off(climate.climate);
+      break;
+    case TypeClimateAction::SET_PRESET:
+      result = hub->apply_preset(climate.climate, step->preset);
+      break;
+    case TypeClimateAction::SET_TARGET:
+      result = hub->set_setpoint(climate.climate, step->target);
+      break;
+    default:
+      return;
+  }
+  // The hub dropped it, or its preset, since the rule was built: the rest of the run goes on.
+  if (!result.ok)
+    ESP_LOGW(TAG, "Automation '%s': thermostat '%s': %s", this->name_.c_str(), climate.climate.c_str(),
+             result.error.c_str());
+#else
+  // Never built without the hub.
+  (void) action;
+  (void) run;
 #endif
 }
 

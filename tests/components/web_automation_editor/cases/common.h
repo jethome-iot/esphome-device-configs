@@ -10,6 +10,7 @@
 #include <vector>
 #include "esphome/components/automations/automation_storage.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
+#include "esphome/components/climate_hub/climate_hub.h"
 #include "esphome/components/dir_storage/dir_storage.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
@@ -71,6 +72,62 @@ class TestEngine : public automations::AutomationStorage {
   }
 };
 
+// The hub, its loop jobs counted and refused at will, as TestEngine's are.
+class TestHub : public climate_hub::ClimateHub {
+ public:
+  int jobs{0};
+  bool loop_busy{false};
+
+  bool run_on_loop(std::function<bool()> &&job) override {
+    this->jobs++;
+    if (this->loop_busy)
+      return false;
+    return climate_hub::ClimateHub::run_on_loop(std::move(job));
+  }
+};
+
+// The one hub of the process, over a folder of its own: App has room for the one pool
+// test.yaml declares. The cases add thermostats and the fixture removes them.
+inline TestHub &hub() {
+  static TestHub *instance = [] {
+    mkdir(".storage", 0755);
+    static dir_storage::DirStorage storage;
+    storage.set_base_path(".storage/thermostats");
+    storage.setup();
+    const std::string folder = storage.get_base_path() + "/climates";
+    if (DIR *dir = opendir(folder.c_str())) {
+      while (struct dirent *entry = readdir(dir)) {
+        if (entry->d_name[0] != '.')
+          remove((folder + "/" + entry->d_name).c_str());
+      }
+      closedir(dir);
+    }
+    auto *h = new TestHub();
+    h->set_storage(&storage);
+    h->set_max_controllers(2);
+    h->setup();
+    return h;
+  }();
+  return *instance;
+}
+
+// A stopped thermostat named `name`, with an Eco preset: a rule may name it, and it holds no
+// relay the cases switch.
+inline std::string add_thermostat(const char *name) {
+  climate_hub::ClimateConfig config;
+  config.name = name;
+  config.enabled = false;
+  config.sensor_id = "temp";
+  config.heat.relay_id = "relay_1";
+  climate_hub::PresetConfig eco;
+  eco.name = "Eco";
+  eco.setpoint = 18.f;
+  config.presets.push_back(eco);
+  climate_hub::Result created = hub().create(config);
+  EXPECT_TRUE(created.ok) << created.error;
+  return created.id;
+}
+
 // The editor with the reboot held back: App.safe_reboot() would end the process.
 class TestEditor : public WebAutomationEditor {
  public:
@@ -105,6 +162,8 @@ class Editor : public ::testing::Test {
  protected:
   void SetUp() override {
     entities();
+    hub();
+    hub().jobs = 0;
     mkdir(".storage", 0755);
     char folder[] = ".storage/XXXXXX";
     ASSERT_NE(mkdtemp(folder), nullptr);
@@ -120,6 +179,12 @@ class Editor : public ::testing::Test {
 
   void TearDown() override {
     this->engine->forget();
+    hub().loop_busy = false;
+    std::vector<std::string> ids;
+    for (const auto &config : hub().store().all())
+      ids.push_back(config->id);
+    for (const std::string &id : ids)
+      hub().remove(id);
     for (const std::string &name : this->files())
       remove((this->rules() + "/" + name).c_str());
     rmdir(this->rules().c_str());

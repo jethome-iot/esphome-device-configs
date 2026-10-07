@@ -12,8 +12,8 @@ comes up and stays up until WiFi is provisioned, cable or not.
 
 1. **Flash the firmware** over USB.
 
-2. **Switch WiFi on.** **Settings → Network** on the display, or the `Network mode`
-   entity: `WiFi` for WiFi only, `Auto` for Ethernet with WiFi as the fallback.
+2. **Switch WiFi on.** **Settings → Network** on the display or the dashboard, or the
+   `Network mode` entity: `WiFi` for WiFi only, `Auto` for Ethernet with WiFi as the fallback.
 
 3. **Wait for the access point.** It comes up at once when no network is stored,
    and 90 seconds after the device fails to reach a stored one. With no Ethernet

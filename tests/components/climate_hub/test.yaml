@@ -1,0 +1,94 @@
+# Google Test binary for components/climate_hub, built through esphome compile by
+# tests/run.py. The harness main.cpp replaces the generated one, so nothing declared
+# here is ever set up: the entities and the hub exist only to get the sources compiled
+# and the USE_* defines set. The tests create their own.
+esphome:
+  name: climate-hub-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+      - -DUSE_LOG_LISTENERS
+      - -DESPHOME_LOG_MAX_LISTENERS=1
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../../components
+    components: [filesystem_storage_abstract, climate_hub, loop_job, switch_hold]
+  - source: ../../harness/components
+    components: [dir_storage, pid_host]
+
+dir_storage:
+  id: test_storage
+  path: .storage
+
+# Upstream's autotuner, which the cases measure the port against.
+pid_host:
+
+# Reserves the pool the cases' one hub registers: its max_controllers must match.
+climate_hub:
+  storage: test_storage
+  max_controllers: 4
+
+# App sizes its entity lists from what is declared here and silently drops a
+# registration past that, so this is at least what cases/common.h registers:
+# two YAML climates beside the pool, a sensor for each probe, a switch per relay.
+# The units fill the table the cases' sensors take theirs from.
+climate:
+  - platform: template
+    id: hall_unused
+    name: "Hall"
+    supported_modes: [heat]
+  - platform: template
+    id: cellar_unused
+    name: "Cellar"
+    internal: true
+    supported_modes: [heat]
+
+sensor:
+  - platform: template
+    id: room_unused
+    name: "Room"
+    unit_of_measurement: "°C"
+  - platform: template
+    id: floor_unused
+    name: "Floor"
+    unit_of_measurement: "°C"
+  - platform: template
+    id: hidden_unused
+    name: "Hidden"
+    unit_of_measurement: "°C"
+    internal: true
+  - platform: template
+    id: uptime_unused
+    name: "Uptime"
+    unit_of_measurement: s
+  - platform: template
+    id: counter_unused
+    name: "Counter"
+
+switch:
+  - platform: template
+    id: relay_1_unused
+    name: "Relay 1"
+    optimistic: true
+  - platform: template
+    id: relay_2_unused
+    name: "Relay 2"
+    optimistic: true
+  - platform: template
+    id: relay_3_unused
+    name: "Relay 3"
+    optimistic: true

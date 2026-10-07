@@ -27,8 +27,9 @@ class BindingsManager : public Component {
 
   void setup() override;
   void dump_config() override;
-  // After every entity's own setup(), so a follow binding has the last word.
-  float get_setup_priority() const override { return setup_priority::DATA; }
+  // After every entity's own setup(), so a follow binding has the last word, and after
+  // climate_hub (DATA - 0.5) has claimed its relays, so the boot drive leaves those alone.
+  float get_setup_priority() const override { return setup_priority::DATA - 0.75f; }
 
   // Keys are fnv1 hashes of the object_id. NONE or a zero input clears the binding.
   void set_binding(uint32_t output_key, uint32_t input_key, BindingMode mode);
@@ -57,8 +58,13 @@ class BindingsManager : public Component {
   bool take_level_only_(uint32_t input_key);
   void ensure_listener_(binary_sensor::BinarySensor *sensor, uint32_t input_key);
   void on_input_state_(uint32_t input_key, bool state, bool rising);
+  // A follow binding copies its input again once a thermostat lets go of the output.
+  void on_released_(switch_::Switch *output);
+  // Both leave alone an output a thermostat holds.
   void drive_output_(uint32_t output_key, bool state);
   void toggle_output_(uint32_t output_key);
+  // The output, or nullptr when it is missing or held; says which in the log.
+  switch_::Switch *writable_output_(uint32_t output_key);
 };
 
 extern BindingsManager *global_bindings_manager;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)

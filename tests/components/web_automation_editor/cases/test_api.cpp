@@ -65,6 +65,8 @@ TEST_F(Editor, SaveCreatesARuleTheOtherRoutesThenSee) {
   EXPECT_EQ(row["action_count"].as<int>(), 2);
   EXPECT_EQ(row["else_action_count"].as<int>(), 1);
   EXPECT_EQ(row["mode"].as<std::string>(), "restart");
+  EXPECT_TRUE(row["built"].as<bool>());
+  EXPECT_EQ(row["build_error"].as<std::string>(), "");
 
   Reply got = this->get("get?id=" + std::to_string(id));
   ASSERT_EQ(got.code, 200) << got.body;
@@ -220,7 +222,81 @@ TEST_F(Editor, EntitiesListsWhatIsNotInternal) {
   ASSERT_EQ(reply.code, 200);
   EXPECT_EQ(reply.body, R"({"binary_sensors":[{"object_id":"in_1","name":"In 1"}],)"
                         R"("sensors":[{"object_id":"temp","name":"Temp","unit":"°C"}],)"
-                        R"("switches":[{"object_id":"relay_1","name":"Relay 1"}]})");
+                        R"("switches":[{"object_id":"relay_1","name":"Relay 1"}],"climates":[]})");
+}
+
+// By the hub's id, which a rule names, running or not; the presets by the key a rule names.
+TEST_F(Editor, EntitiesListsTheThermostatsAndTheirPresets) {
+  ASSERT_EQ(add_thermostat("Living room"), "living-room");
+  ASSERT_EQ(add_thermostat("Attic"), "attic");
+  Reply reply = this->get("entities");
+  ASSERT_EQ(reply.code, 200);
+  EXPECT_NE(reply.body.find(R"("climates":[{"id":"attic","name":"Attic","presets":[{"key":"eco","name":"Eco"}]},)"
+                            R"({"id":"living-room","name":"Living room","presets":[{"key":"eco","name":"Eco"}]}])"),
+            std::string::npos)
+      << reply.body;
+}
+
+static const char *const ECO_AT_STARTUP =
+    R"({"name":"Eco","triggers":[{"source":"startup"}],)"
+    R"("actions":[{"source":"climate","type":"set_preset","climate":"living-room","preset":"eco"}]})";
+
+TEST_F(Editor, SaveTakesARuleOnAThermostatAndGetAnswersIt) {
+  add_thermostat("Living room");
+  const uint32_t id = this->create(ECO_AT_STARTUP);
+  ASSERT_GT(id, 0u);
+  Reply got = this->get("get?id=" + std::to_string(id));
+  EXPECT_EQ(got["actions"][0]["climate"].as<std::string>(), "living-room");
+  EXPECT_EQ(got["actions"][0]["preset"].as<std::string>(), "eco");
+}
+
+// Fail closed: what the rule names must be there, and the refusal says what is not.
+TEST_F(Editor, SaveRefusesARuleOnAThermostatOrPresetThatIsNotThere) {
+  Reply reply = this->post("save", ECO_AT_STARTUP);
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), R"(Action 1: thermostat "living-room" not found)");
+
+  add_thermostat("Living room");
+  std::string boost = ECO_AT_STARTUP;
+  boost.replace(boost.find(R"("preset":"eco")"), 14, R"("preset":"boost")");
+  reply = this->post("save", boost);
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), R"(Action 1: thermostat "living-room" has no preset "boost")");
+  EXPECT_TRUE(this->files().empty());
+
+  const uint32_t id = this->create(ECO_AT_STARTUP);
+  ASSERT_GT(id, 0u);
+  boost.replace(1, 0, "\"id\":" + std::to_string(id) + ",");
+  reply = this->post("save", boost);
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), R"(Action 1: thermostat "living-room" has no preset "boost")");
+  EXPECT_EQ(this->get("get?id=" + std::to_string(id))["actions"][0]["preset"].as<std::string>(), "eco");
+
+  // Any other missing entity says so too.
+  reply = this->post(
+      "save", R"({"name":"Lost","triggers":[{"source":"input","type":"press","object_id":"gone"}],"actions":[]})");
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "Trigger 1: input not found");
+}
+
+// The list says which rules do not run and why: here the thermostat they name went away.
+TEST_F(Editor, ListSaysWhichRulesAreNotBuiltAndWhy) {
+  add_thermostat("Living room");
+  ASSERT_GT(this->create(ECO_AT_STARTUP), 0u);
+  ASSERT_GT(this->create(PORCH_LIGHT), 0u);
+  ASSERT_TRUE(hub().remove("living-room").ok);
+
+  Reply list = this->get("list");
+  JsonArray rows = list["automations"];
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_FALSE(rows[0]["built"].as<bool>());
+  EXPECT_EQ(rows[0]["build_error"].as<std::string>(), R"(Action 1: thermostat "living-room" not found)");
+  EXPECT_TRUE(rows[1]["built"].as<bool>());
+  EXPECT_EQ(rows[1]["build_error"].as<std::string>(), "");
+  EXPECT_EQ(this->files().size(), 2u) << "the rule's file is kept";
+
+  add_thermostat("Living room");
+  EXPECT_TRUE(this->get("list")["automations"][0]["built"].as<bool>());
 }
 
 // The schema is a static string; this keeps every word in it one the engine's parsers take.
@@ -283,6 +359,9 @@ TEST_F(Editor, SchemaOffersOnlyWhatTheEngineParses) {
     }
     words++;
   }
+  // Every field each type may need: a parser ignores what its type does not read.
+  static const char *const CLIMATE_FIELDS = R"(,"climate":"attic","preset":"eco","target":20,)"
+                                            R"("on":{"type":"turn_on"},"off":{"type":"turn_off"})";
   for (JsonObject entry : reply["actions"].as<JsonArray>()) {
     const std::string type = entry["type"];
     if (entry["subtypes"].size() == 0) {
@@ -290,7 +369,9 @@ TEST_F(Editor, SchemaOffersOnlyWhatTheEngineParses) {
       words++;
     }
     for (std::string subtype : entry["subtypes"].as<JsonArray>()) {
-      EXPECT_TRUE(action(R"({"source":"switch","type":")" + subtype + R"(","object_id":"relay_1"})")) << subtype;
+      const std::string fields = type == "climate" ? CLIMATE_FIELDS : R"(,"object_id":"relay_1")";
+      EXPECT_TRUE(action(R"({"source":")" + type + R"(","type":")" + subtype + "\"" + fields + "}"))
+          << type << "/" << subtype;
       words++;
     }
   }
@@ -299,7 +380,7 @@ TEST_F(Editor, SchemaOffersOnlyWhatTheEngineParses) {
     words++;
   }
   // Every word above was checked, not an empty schema.
-  EXPECT_EQ(words, 31);
+  EXPECT_EQ(words, 36);
 }
 
 TEST_F(Editor, RebootAnswersFirst) {

@@ -10,6 +10,10 @@ export interface AutomationSummary {
   action_count: number
   else_action_count: number
   mode: string
+  /** False when the rule is on the device but cannot be built; build_error says why. */
+  built: boolean
+  /** Why it is not built, in the device's words; "" when it is. */
+  build_error: string
 }
 
 export interface AutomationListResponse {
@@ -42,8 +46,17 @@ export interface AutomationCondition {
   conditions?: AutomationCondition[]
 }
 
+/** What a climate `follow` does while the trigger's state is on, or off. */
+export interface ClimateFollowStep {
+  type: 'turn_on' | 'turn_off' | 'set_preset'
+  /** set_preset: the preset's key. */
+  preset?: string
+}
+
 export interface AutomationAction {
-  source?: string
+  source?: string // 'switch' | 'delay' | 'climate'
+  // switch: 'turn_on' | 'turn_off' | 'toggle' | 'follow';
+  // climate: 'turn_on' | 'turn_off' | 'set_preset' | 'set_target' | 'follow'
   type?: string
   object_id?: string
   // Milliseconds is the scheduler's own unit and the one the device writes; the
@@ -53,6 +66,15 @@ export interface AutomationAction {
   delay_s?: number
   // Only meaningful for type 'follow', and only sent back for it; absent is false.
   invert?: boolean
+  // climate: the thermostat's id in climate_hub, which a rename leaves as it is.
+  climate?: string
+  // climate set_preset: the preset's key.
+  preset?: string
+  // climate set_target, in °C; the device holds it inside the thermostat's range.
+  target?: number
+  // climate follow: one while the trigger's state is on, the other while it is off.
+  on?: ClimateFollowStep
+  off?: ClimateFollowStep
 }
 
 export interface AutomationConfig {
@@ -83,10 +105,18 @@ export interface AutomationEntityRef {
   unit?: string // sensors only
 }
 
+/** A thermostat a climate action may name, by the id and the preset keys a rule names. */
+export interface AutomationClimateRef {
+  id: string
+  name: string
+  presets: Array<{ key: string; name: string }>
+}
+
 export interface AutomationEntitiesResponse {
   binary_sensors: AutomationEntityRef[]
   sensors: AutomationEntityRef[]
   switches: AutomationEntityRef[]
+  climates: AutomationClimateRef[]
 }
 
 export interface AutomationSchema {

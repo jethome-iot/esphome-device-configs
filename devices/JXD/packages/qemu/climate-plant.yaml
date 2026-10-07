@@ -1,0 +1,26 @@
+# QEMU overlay: a room for the thermostats to control. The emulator has no 1-Wire,
+# so no Temp N sensor exists; this one warms while relay_1 is on and cools towards
+# 15 °C otherwise, ten seconds after the relay moves, as a radiator delays it: a
+# calibration measures the swing that delay makes.
+sensor:
+  - platform: template
+    id: qemu_room_temperature
+    name: "QEMU Room Temperature"
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 1
+    update_interval: 2s
+    lambda: |-
+      static float room = 18.0f;
+      // Five readings of 2 s in flight: the oldest is what the relay did 10 s ago.
+      static bool line[5] = {};
+      static size_t head = 0;
+      const bool arriving = line[head];
+      line[head] = id(relay_1).state;
+      head = (head + 1) % 5;
+      room += (arriving ? 0.35f : 0.0f) - (room - 15.0f) * 0.02f;
+      return room;
+    web_server:
+      sorting_group_id: group_temperature
+      sorting_weight: 0

@@ -6,55 +6,8 @@
 #include <cstdio>
 #include <fstream>
 #include <sstream>
-#include "esphome/components/logger/logger.h"
 
 namespace esphome::automations::testing {
-
-// A mounted directory, the way littlefs_storage presents the partition.
-class FakeStorage : public filesystem_storage_abstract::FilesystemStorageAbstract {
- public:
-  std::string path;
-  bool mounted{true};
-  bool is_mounted() const override { return this->mounted; }
-  const std::string &get_base_path() const override { return this->path; }
-  const char *get_filesystem_type() const override { return "Directory"; }
-  // Never called here: a factory reset is the dashboard's and the menu's business.
-  bool request_format() override { return false; }
-};
-
-// Every error and warning the process logs. Registered once: the logger keeps its listeners.
-class LogCapture {
- public:
-  std::vector<std::string> errors;
-  std::vector<std::string> warnings;
-
-  static LogCapture &instance() {
-    static LogCapture *capture = [] {
-      auto *c = new LogCapture();
-      logger::global_logger->add_log_callback(c, &LogCapture::on_log);
-      return c;
-    }();
-    return *capture;
-  }
-  void clear() {
-    this->errors.clear();
-    this->warnings.clear();
-  }
-  bool has(const std::vector<std::string> &lines, const char *needle) const {
-    return std::any_of(lines.begin(), lines.end(),
-                       [needle](const std::string &line) { return line.find(needle) != std::string::npos; });
-  }
-
- protected:
-  static void on_log(void *self, uint8_t level, const char *, const char *message, size_t len) {
-    auto *capture = static_cast<LogCapture *>(self);
-    if (level == ESPHOME_LOG_LEVEL_ERROR) {
-      capture->errors.emplace_back(message, len);
-    } else if (level == ESPHOME_LOG_LEVEL_WARN) {
-      capture->warnings.emplace_back(message, len);
-    }
-  }
-};
 
 static const char *const PRESS_RELAY_1 =
     R"({"id":1,"name":"Input press","enabled":true,"mode":"single","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})";

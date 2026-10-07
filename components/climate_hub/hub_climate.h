@@ -1,0 +1,81 @@
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <vector>
+#include "climate_config.h"
+#include "esphome/components/climate/climate.h"
+
+namespace esphome::climate_hub {
+
+class ClimateHub;
+
+/// The name of a slot no thermostat has had since boot. '/' is the one character no web_server
+/// URL segment can carry, so nothing can address it; an empty name would fall back to the device's.
+/// As long as a name buffer and zero-filled, so a reader that pairs this pointer with a longer
+/// name's length stays inside it.
+inline constexpr char FREE_SLOT_NAME[64] = "climate_hub/free";
+
+/// One climate entity of the hub's pool. The hub registers every slot with App in its setup()
+/// and never frees one: a thermostat that starts takes a free slot, one that stops hands it
+/// back, hidden again under the name it had.
+///
+/// Invariant: the name and the traits change only on the loop task (setup(), an HTTP handler's
+/// loop job, the panel). The web server reads both from its own task meanwhile (the name to
+/// match a URL, traits() for a climate's JSON); the two name buffers, the fixed preset buffers
+/// and the scalar-built traits keep even a torn read in bounds. Nothing here points at a document.
+class HubClimate final : public climate::Climate {
+ public:
+  HubClimate(ClimateHub *hub, uint8_t index);
+
+  uint8_t index() const { return this->index_; }
+  bool is_free() const { return this->free_; }
+  /// Whether the slot carries a thermostat's name rather than the placeholder.
+  bool is_named() const { return this->named_; }
+
+  /// Visible under `name`, which the caller has validated; its object id derives from it.
+  void show(const std::string &name, uint32_t entity_fields);
+  /// Internal, keeping its name, key and traits: an API client may still be encoding the
+  /// entity it listed a moment ago, and upstream reads the name then, not when it queued it.
+  void hide(uint32_t entity_fields);
+  /// A hidden slot under `name` instead of its own, whose name or object id a running thermostat
+  /// is about to take: `name` is the one that thermostat leaves, so an API client still encoding
+  /// this slot sends a thermostat's name and key, never the placeholder or one key twice.
+  void hide_as(const std::string &name, uint32_t entity_fields);
+  /// Back under the placeholder with no traits, as setup() registered it: for tests that start
+  /// the hub over. The firmware never calls it, since a listing may still hold a slot once shown.
+  void park(uint32_t entity_fields);
+  void set_traits(bool heat, bool cool, float min_temperature, float max_temperature, float step);
+  /// The presets Home Assistant and the web server list: a built-in one by its enum, a custom
+  /// one by its name, copied into this slot's buffers.
+  void set_presets(const std::vector<PresetConfig> &presets);
+  /// Labels `preset` active, one of those set_presets() was given; nullptr for none.
+  void show_preset(const PresetConfig *preset);
+
+ protected:
+  climate::ClimateTraits traits() override;
+  void control(const climate::ClimateCall &call) override;
+  /// Writes `name` into the buffer not in use and points the entity at it.
+  void rename_(const std::string &name, uint32_t entity_fields);
+
+  ClimateHub *hub_;
+  uint8_t index_;
+  bool free_{true};
+  bool named_{false};
+  // EntityBase keeps a StringRef to the name, not a copy. A rename alternates the buffers, so a
+  // reader still holding the previous pointer reads intact bytes; byte 63 is never written.
+  char names_[2][64]{};
+  uint8_t current_name_{0};
+  bool heat_{false};
+  bool cool_{false};
+  float min_temperature_{5.f};
+  float max_temperature_{45.f};
+  float step_{0.5f};
+  climate::ClimatePresetMask standard_presets_;
+  // Upstream keeps const char * into these, as the custom preset list and as the active one, and
+  // the web server reads them on its task: they live as long as the slot, and the list never
+  // outgrows the room the constructor gave it. Byte NAME_MAX_LENGTH is never written.
+  char custom_presets_[PRESET_MAX_COUNT][NAME_MAX_LENGTH + 1]{};
+};
+
+}  // namespace esphome::climate_hub

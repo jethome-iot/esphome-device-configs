@@ -23,7 +23,10 @@ tests/
       dir_storage           # test-only storage backend: a directory on the host
       display_menu_host     # test-only key that pulls display_menu_base into a host build
       loop_job_host         # the same for loop_job
+      switch_hold_host      # the same for switch_hold
       one_wire_host         # test-only 1-Wire bus: the cases set what the boot scan found
+      pid_host              # test-only key that pulls upstream's pid in: climate_hub's
+                            # autotuner is checked against upstream's own
       web_server            # stand-in for upstream's, which builds for ESP platforms only
       web_server_base       # stand-in for upstream's, so HTTP handlers run on the host
   components/
@@ -31,7 +34,10 @@ tests/
       test.yaml             # host config: the component under test, its entities, the harness
       cases/                # the tests; common.h holds what they share
       test_schema.py        # the component's YAML schema, run with unittest by run.py
+    automations_no_climate/   # automations and web_automation_editor on a firmware without
+                              # climate_hub; their own suites build with it
     bindings/               # the same layout, one suite per component
+    climate_hub/
     config_json/
     crash_report/
     dallas_scan/
@@ -45,11 +51,17 @@ tests/
                               # upstream refuses on the host platform
     littlefs_storage/         # test_schema.py alone: the C++ is ESP-IDF only
     loop_job/
+    modbus_map/               # test_schema.py alone: the class only holds what the build derived,
+                              # and web_device_dashboard's suite reads one
+    panel_text/
     status_indicator/
+    switch_hold/
     virtual_display/          # test_schema.py alone: the C++ includes <esp_http_server.h>,
                               # which the host platform has no header for
     web_auth/
     web_automation_editor/
+    web_climate_editor/       # contract.json: requests and their answers, which the dashboard
+                              # also runs against the client mock (see below)
     web_device_dashboard/
     web_file_browser/
     web_origin_guard/
@@ -65,6 +77,58 @@ tests/
 3. `tests/components/<name>/test_*.py` for the schema: what a bad config is refused with.
 4. Nothing else: `run.py` and CI pick the directory up. A component the host platform cannot
    build gets a directory with `test_*.py` and no `test.yaml`; the runner then skips the build.
+
+## Thermostat editor cases
+
+`web_climate_editor` keeps its cases in two places. A request whose answer the dashboard's client
+mock must give as well goes in `contract.json`: the suite sends it through the handler, and the
+dashboard runs the same file against the mock. What only the device can show stays in `cases/`:
+the files on disk, the log, a job reaching the loop task, the relays' states.
+
+`contract.json` holds:
+
+- `$comment`: free text.
+- `environment`: what both sides have: `max_controllers`, the YAML `climates`, the `sensors`
+  (`object_id`, `name`, `unit`) and `switches` (`object_id`, `name`) a case may name, and the
+  ids neither has (`missing`).
+- `fixtures`: thermostat documents by name. A case's `setup` lists the ones it needs, each
+  POSTed to `save` in that order and answered `200`.
+- `cases`: each one starts on a device with no thermostat but its `setup`:
+  - `name`: a sentence, unique.
+  - `setup`: fixture names, optional.
+  - `device_only`: a state only the device can be put in: `loop_busy`, `storage_failed`,
+    `storage_unwritable`, `file_cap`, `no_free_entity`, `file_stays`, or `newer_file`, where a
+    newer firmware wrote the files of the `setup`, as version 9, and the device booted on them.
+    The mock skips the case. The state holds for the case's own request, not for `then`.
+  - `method`, `path`: `GET`, `POST` or `OPTIONS`, and the route below `<url_prefix>/api/` with
+    its query, sent as written.
+  - `body`: `null` for none, a string as written, anything else as its JSON.
+  - `pad_to`: blanks appended to the body up to that many bytes, optional.
+  - `status`: the HTTP status.
+  - `error`: the exact error of a failure; or `error_prefix`, how it starts, when the rest is
+    not the API's own words (the JSON parser's name for what it refused).
+  - `headers`: headers the answer carries, by name.
+  - `expect`: dotted paths into the answer and the value found there, numbers to a float's
+    precision and `null` for a null that is there. A segment is a key, an array index, or
+    `key=value` for the first element whose `key` has that value.
+  - `absent`: paths the answer does not have.
+  - `then`: requests that follow, each with the keys from `method` to `absent` and no other: no
+    `name`, `setup` or `device_only`.
+
+A key not listed here fails the suite, a misspelt one included.
+
+## Before a thermostat pull request
+
+The host suites restart a thermostat over a directory that stands in for the flash; only QEMU
+shows it across a power cut on the real LittleFS, and as Home Assistant sees it over the native
+API. Before a pull request that touches the thermostats, run the QEMU smoke check as well; CI
+does not:
+
+```bash
+.venv/bin/python scripts/qemu-climate-smoke.py
+```
+
+What it checks and its options are in [QEMU.md](QEMU.md#the-thermostat-smoke-check).
 
 ## Rules every suite lives by
 

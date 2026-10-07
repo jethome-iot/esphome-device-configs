@@ -83,6 +83,13 @@ class TestScan : public dallas_scan::DallasScan {
  public:
   int restarts{0};
 
+  // One poll without the conversion wait: the scheduler runs the read of each slot after the first.
+  void poll() {
+    this->read_slot_(0);
+    for (size_t pass = 0; pass <= this->max_sensors(); pass++)
+      App.scheduler.call(millis());
+  }
+
  protected:
   void restart_() override { this->restarts++; }
 };
@@ -117,6 +124,7 @@ inline Entities &entities() {
 struct TestRecord {
   std::string source_name_;
   bool inverted{false};
+  std::string label;
 
   const char *source_name() const { return this->source_name_.c_str(); }
 
@@ -147,11 +155,17 @@ class TestSettings : public config_json::SettingsBaseJsonTyped<TestSettings, Tes
 
   // What apply_record() handed over, in order.
   std::vector<std::string> applied;
+  // When set, update_record() refuses a sound request with this conflict, as a held relay does.
+  std::string conflict_with;
 
   TestRecord *update_record(JsonObject obj) {
     const char *name = obj["source_name"];
     if (name == nullptr || name[0] == '\0')
       return nullptr;
+    if (!this->conflict_with.empty()) {
+      this->conflict_ = this->conflict_with;
+      return nullptr;
+    }
     TestRecord *record = this->find(name);
     if (record == nullptr) {
       record = new TestRecord();  // NOLINT(cppcoreguidelines-owning-memory)
@@ -183,11 +197,17 @@ class TestSettings : public config_json::SettingsBaseJsonTyped<TestSettings, Tes
     fields.add("inverted");
   }
 
+  std::string get_label(const char *source_name) override {
+    const TestRecord *record = this->find(source_name);
+    return record != nullptr ? record->label : std::string();
+  }
+
   // A record the API did not put there, for the reads that have to find more than one.
-  void seed(const char *name, bool inverted) {
+  void seed(const char *name, bool inverted, const char *label = "") {
     auto *record = new TestRecord();  // NOLINT(cppcoreguidelines-owning-memory)
     record->source_name_ = name;
     record->inverted = inverted;
+    record->label = label;
     this->records_.push_back(record);
   }
 
@@ -214,6 +234,7 @@ class TestSettings : public config_json::SettingsBaseJsonTyped<TestSettings, Tes
     this->clear_records_();
     this->applied.clear();
     this->clear_dirty();
+    this->conflict_with.clear();
   }
 
  protected:

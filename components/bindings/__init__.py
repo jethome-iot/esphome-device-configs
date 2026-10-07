@@ -6,6 +6,7 @@ import esphome.final_validate as fv
 from esphome.const import CONF_ID
 
 CODEOWNERS = ["@jethome-iot"]
+AUTO_LOAD = ["switch_hold"]
 
 bindings_ns = cg.esphome_ns.namespace("bindings")
 BindingsManager = bindings_ns.class_("BindingsManager", cg.Component)

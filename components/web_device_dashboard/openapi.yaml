@@ -9,8 +9,9 @@ info:
     `/api/device/`: the device identity (with the CPU board's EEPROM record when
     a `jethome_board_info` is wired in), the runtime status, the live network
     link, on a firmware with a `web_auth` the HTTP credentials, with a
-    `dallas_scan` the temperature slots, and — on a firmware with a
-    `config_json` store — the per-entity settings and their form fields.
+    `dallas_scan` the temperature slots and their offsets, with a `modbus_map`
+    the Modbus server's address map, and — on a firmware with a `config_json`
+    store — the per-entity settings and their form fields.
     ESP-IDF (ESP32) only.
 
     This document is the wire contract; the TypeScript client in `client/device`
@@ -249,7 +250,8 @@ paths:
       summary: Restart the device.
       description: >-
         Answers first and restarts half a second later, so the answer reaches the
-        caller. Nothing is cleared: settings and files are as they were.
+        caller. Nothing is cleared: settings and files are as they were, and
+        what waits for a restart (`/status` `reboot_reasons`) applies.
       requestBody:
         $ref: "#/components/requestBodies/Confirmation"
       responses:
@@ -382,13 +384,18 @@ paths:
       operationId: getTemperatureSlots
       summary: The temperature slots and what is in them.
       description: >-
-        The slots of the firmware's `dallas_scan` up to the last bound one,
-        numbered from 1 as the `Temp N` sensors are. A slot freed between bound
-        ones keeps its row, as it does in the panel's Temperatures menu. The table
-        changes only at boot and through `/temperature-slots/forget` and
-        `/temperature-slots/assign`, which reboot, so this is read once per page
-        load. Readings are not here: they
-        are the sensors' state on `web_server`'s `/events`, matched by `name`.
+        The slots of the firmware's `dallas_scan` up to the last one bound at
+        boot, holding a device in the saved table or holding an offset or a
+        label, numbered from 1 as the `Temp N` sensors are. A free slot between
+        them keeps its row, as it does in the panel's Temperatures menu. A
+        slot's `free`, `address` and `can_forget` describe the saved table, the
+        one `/temperature-slots/forget` and `/temperature-slots/assign` change
+        and the next boot binds; the sensors keep reading the devices they
+        booted with until then, and `pending` marks a slot where the two differ.
+        A slot's `offset` and `label` are in force already. Read again after a
+        forget, an assign, an offset or a label. Readings are not here: they are
+        the sensors' state on `web_server`'s `/events`, matched by `name`, the
+        offset included.
       responses:
         "200":
           description: The slots.
@@ -401,10 +408,7 @@ paths:
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
         "503":
-          description: >-
-            The loop task did not take the request in time (`Device busy`), or a
-            forget or an assign has just been written and the reboot that applies
-            it is under way (`Rebooting: the slots change with it`). Nothing was read.
+          description: The loop task did not take the request in time (`Device busy`). Nothing was read.
           content:
             application/json:
               schema:
@@ -417,20 +421,25 @@ paths:
     post:
       tags: [write]
       operationId: forgetTemperatureSlots
-      summary: Empty one slot, or every slot but the listed ones, and restart.
+      summary: Empty one slot, or every slot but the listed ones, from the next boot on.
       description: >-
         What **Temperatures → Temp N → Confirm** and **Settings → Temp sensors →
-        Confirm** do on the panel. `slot` empties that slot: the device in it, if
-        it is still on the bus, takes the lowest free slot again at the next
-        boot, and the other slots keep their numbers. `all` empties every slot
-        but the ones `sensors:` lists, so the devices are numbered again in bus
-        order. A request that would change nothing — a free slot, a listed one,
-        or `all` with nothing but listed slots bound — is refused with `409`
-        rather than answered with a reboot that leaves the table as it was; the
-        slot's `can_forget` in `/temperature-slots` says beforehand. A table that
-        cannot be written is `503`. Otherwise it empties the slots and writes the
-        table, then answers and restarts half a second later; a write that fails
-        is `500`, and the device keeps running with the table as it was.
+        Confirm** do on the panel, except that the device does not restart: the
+        change is saved and applies after a reboot, and changes made before that
+        add up. `slot` empties that slot: the device in it, if it is still on the
+        bus, takes the lowest free slot again at the next boot, and the other
+        slots keep their numbers; the slot keeps its offset and label. `all`
+        empties every slot but the ones `sensors:` lists, so the devices are
+        numbered again in bus order, and clears every offset and label at once,
+        so none lands on another sensor: the readings and names move straight
+        away, with no reboot. The message names what went with the slots. A
+        request that would change nothing — a free slot, a listed one, or `all`
+        with nothing but listed slots and no offset or label left — is refused
+        with `409`; a slot's
+        `can_forget` in `/temperature-slots` says beforehand, and
+        `can_forget_all` for `all`. A table that cannot be written is `503`.
+        Otherwise it empties the slots and writes the table before it answers; a
+        write that fails is `500`, and the table stays as it was.
       requestBody:
         required: true
         content:
@@ -450,20 +459,57 @@ paths:
                   confirm_token: "DD:EE:FF"
       responses:
         "200":
-          description: Forgetting.
+          description: Forgotten in the saved table.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SuccessEnvelope"
+                $ref: "#/components/schemas/TemperatureSlotChangeResult"
               examples:
                 one:
                   value:
                     success: true
-                    message: Forgetting slot 2, rebooting
+                    message: Slot 2 forgotten; applies after a reboot
+                    reboot_required: true
                 all:
                   value:
                     success: true
-                    message: Forgetting every slot, rebooting
+                    message: Every slot forgotten; applies after a reboot
+                    reboot_required: true
+                allWithOffsets:
+                  summary: The offsets cleared at once, the slots after the reboot
+                  value:
+                    success: true
+                    message: Offsets cleared; every slot forgotten, applies after a reboot
+                    reboot_required: true
+                allWithOffsetsAndLabels:
+                  summary: The offsets and labels cleared at once, the slots after the reboot
+                  value:
+                    success: true
+                    message: Offsets and labels cleared; every slot forgotten, applies after a reboot
+                    reboot_required: true
+                allWithLabels:
+                  value:
+                    success: true
+                    message: Labels cleared; every slot forgotten, applies after a reboot
+                    reboot_required: true
+                onlyOffsets:
+                  summary: No device was left in the saved table, only offsets
+                  value:
+                    success: true
+                    message: Offsets cleared; every slot forgotten
+                    reboot_required: false
+                onlyLabels:
+                  summary: No device was left in the saved table, only labels
+                  value:
+                    success: true
+                    message: Labels cleared; every slot forgotten
+                    reboot_required: false
+                undone:
+                  summary: The table is back as the device booted with it
+                  value:
+                    success: true
+                    message: Slot 4 forgotten
+                    reboot_required: false
         "400":
           description: >-
             Not a confirmation (`'confirm' must be true`, as on the system
@@ -501,7 +547,9 @@ paths:
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
         "409":
-          description: Nothing would change. Nothing happened, and the device keeps running.
+          description: >-
+            Nothing would change in the saved table. Nothing happened. A slot
+            emptied since boot, by a forget or a move, says so.
           content:
             application/json:
               schema:
@@ -511,6 +559,10 @@ paths:
                   value:
                     success: false
                     error: Slot 3 is free
+                freeAfterReboot:
+                  value:
+                    success: false
+                    error: Slot 2 is free after a reboot
                 listed:
                   value:
                     success: false
@@ -526,7 +578,9 @@ paths:
         "500":
           description: >-
             The table could not be written, so it stays as it was and the device
-            keeps running. The log says why.
+            keeps running. The log says why. With the table in preferences
+            (`storage: nvs`), `all` writes the offsets first, and they stay
+            cleared when only the table fails.
           content:
             application/json:
               schema:
@@ -537,10 +591,9 @@ paths:
         "503":
           description: >-
             The table is kept in a file and the user partition did not mount, so
-            nothing could be written (`Temperature slot storage unavailable`), the
-            loop task did not take the request in time (`Device busy`), or an
-            earlier forget or assign is waiting for its reboot (`Rebooting: the
-            slots change with it`). Nothing happened.
+            nothing could be written (`Temperature slot storage unavailable`), or
+            the loop task did not take the request in time (`Device busy`).
+            Nothing happened.
           content:
             application/json:
               schema:
@@ -553,7 +606,7 @@ paths:
     post:
       tags: [write]
       operationId: assignTemperatureSlot
-      summary: Put a device into a slot, and restart.
+      summary: Put a device into a slot, from the next boot on.
       description: >-
         Puts the device with this ROM into `slot`. If the table holds it in
         another slot already, the two slots swap what they hold, which is how a
@@ -564,9 +617,10 @@ paths:
         name and Modbus register with it. Refused before anything happens:
         a malformed or non-thermometer address (`400`), and a listed slot, a
         listed sensor's address, or a device already in that slot (`409`), and
-        a table that cannot be written (`503`). Otherwise it writes the table,
-        then answers and restarts half a second later; a write that fails is
-        `500`, and the device keeps running with the table as it was.
+        a table that cannot be written (`503`), each judged against the saved
+        table. Otherwise it writes the table before it answers, and the change
+        applies after a reboot, together with any made before it; a write that
+        fails is `500`, and the table stays as it was.
       requestBody:
         required: true
         content:
@@ -580,14 +634,23 @@ paths:
               confirm_token: "DD:EE:FF"
       responses:
         "200":
-          description: Assigning.
+          description: Assigned in the saved table.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SuccessEnvelope"
-              example:
-                success: true
-                message: Assigning slot 1, rebooting
+                $ref: "#/components/schemas/TemperatureSlotChangeResult"
+              examples:
+                waits:
+                  value:
+                    success: true
+                    message: Slot 1 assigned; applies after a reboot
+                    reboot_required: true
+                undone:
+                  summary: The table is back as the device booted with it
+                  value:
+                    success: true
+                    message: Slot 1 assigned
+                    reboot_required: false
         "400":
           description: >-
             Not a confirmation, a slot out of range, an address that is not 16
@@ -619,8 +682,8 @@ paths:
           $ref: "#/components/responses/MethodNotAllowed"
         "409":
           description: >-
-            The YAML decides this slot or this device, or nothing would change.
-            Nothing happened, and the device keeps running.
+            The YAML decides this slot or this device, or the saved table has
+            this device in this slot already. Nothing happened.
           content:
             application/json:
               schema:
@@ -656,10 +719,9 @@ paths:
         "503":
           description: >-
             The table is kept in a file and the user partition did not mount, so
-            nothing could be written (`Temperature slot storage unavailable`), the
-            loop task did not take the request in time (`Device busy`), or an
-            earlier forget or assign is waiting for its reboot (`Rebooting: the
-            slots change with it`). Nothing happened.
+            nothing could be written (`Temperature slot storage unavailable`), or
+            the loop task did not take the request in time (`Device busy`).
+            Nothing happened.
           content:
             application/json:
               schema:
@@ -668,6 +730,287 @@ paths:
                 success: false
                 error: Temperature slot storage unavailable
 
+  /temperature-slots/offset:
+    post:
+      tags: [write]
+      operationId: setTemperatureSlotOffset
+      summary: Set a slot's temperature offset, in force at once.
+      description: >-
+        What **Temperatures → Temp N → Offset** does on the panel. The offset,
+        in °C, is added to every reading of the sensor in `slot`, rounded to
+        `offset_step` (halves away from zero) and within ±`max_offset` of
+        `/temperature-slots`; `0` removes it. It belongs to the slot number, not
+        to the device: a forget of that slot, an assign or a swap leave it where
+        it is, and a sensor that takes the slot reads with it; a forget of every
+        slot clears it. A free slot takes one too, for the sensor that takes it
+        later. It is written before the answer and applies at once, with no
+        reboot and no confirmation: the slot's last reading is published again
+        with it on `/events`. Setting the offset a slot holds already is a
+        success with nothing written. Refused before anything happens: a slot
+        out of range or an offset out of range (`400`), a slot `sensors:` lists,
+        whose sensor has `filters:` of its own (`409`), a table that cannot be
+        written, and a slot file that did not load at boot (`503`): this boot's
+        slots are not the table then, and the file is left for a person to fix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SlotOffsetRequest"
+            example:
+              slot: 3
+              offset: -0.3
+      responses:
+        "200":
+          description: Saved and in force.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemperatureSlotOffsetResult"
+              examples:
+                set:
+                  value:
+                    success: true
+                    message: Slot 3 offset -0.3 °C; applies now
+                    offset: -0.3
+                rounded:
+                  summary: 0.25 sent, rounded to the step
+                  value:
+                    success: true
+                    message: Slot 2 offset +0.3 °C; applies now
+                    offset: 0.3
+                removed:
+                  value:
+                    success: true
+                    message: Slot 3 offset 0.0 °C; applies now
+                    offset: 0
+        "400":
+          description: >-
+            A body that is empty, not JSON or not an object (`Invalid JSON`), a
+            slot out of range, or an offset that is missing, not a JSON number,
+            or past ±`max_offset` once rounded. Nothing happened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                body:
+                  value:
+                    success: false
+                    error: Invalid JSON
+                slot:
+                  value:
+                    success: false
+                    error: "'slot' must be a number from 1 to 16"
+                offset:
+                  value:
+                    success: false
+                    error: "'offset' must be a number from -5.0 to 5.0"
+        "404":
+          $ref: "#/components/responses/NoTemperatureSlots"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          description: >-
+            The slot belongs to a sensor `sensors:` lists, which the YAML
+            corrects with `filters:`. Nothing happened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Slot 1 belongs to a sensor listed in YAML
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          description: >-
+            The offset could not be written, so the slot keeps the one it had and
+            the device keeps running. The log says why.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: The offset was not written
+        "503":
+          description: >-
+            The table is kept in a file and the user partition did not mount, so
+            nothing could be written (`Temperature slot storage unavailable`); the
+            slot file is there but did not load at boot, so it waits for a person
+            to fix it and a reboot (`The slot file did not load; fix it and
+            reboot`); or the loop task did not take the request in time (`Device
+            busy`). Nothing happened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                unavailable:
+                  value:
+                    success: false
+                    error: Temperature slot storage unavailable
+                unloaded:
+                  value:
+                    success: false
+                    error: The slot file did not load; fix it and reboot
+                busy:
+                  value:
+                    success: false
+                    error: Device busy
+
+  /temperature-slots/label:
+    post:
+      tags: [write]
+      operationId: setTemperatureSlotLabel
+      summary: Set or clear a slot's label, shown at once.
+      description: >-
+        What the panel and the page show in place of the slot's `name`. Only the
+        panel and the page show it: the sensor, Home Assistant, Modbus, the
+        rules and the thermostats keep `Temp N`. The device trims the spaces at
+        both ends; `""` clears the label. It belongs to the slot number, not to
+        the device, as the offset does: a forget of that slot, an assign or a
+        swap leave it where it is, and a forget of every slot clears it. A free
+        slot takes one too, for the sensor that takes it later. It is written
+        before the answer and shown at once, with no reboot and no
+        confirmation, and nothing is published. Setting the label a slot holds
+        already is a success with nothing written. Only with `dallas_scan`'s
+        `storage: file`: `/temperature-slots` then carries `max_label_length`.
+        Refused before anything happens: a slot out of range or a label the
+        rules refuse (`400`), a slot `sensors:` lists, which the YAML names
+        (`409`), a table that cannot be written, and a slot file that did not
+        load at boot (`503`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SlotLabelRequest"
+            example:
+              slot: 3
+              label: Подача
+      responses:
+        "200":
+          description: Saved and shown.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemperatureSlotLabelResult"
+              examples:
+                set:
+                  value:
+                    success: true
+                    message: Slot 3 label set
+                    label: Подача
+                trimmed:
+                  summary: "\"  Boiler return \" sent, stored trimmed"
+                  value:
+                    success: true
+                    message: Slot 2 label set
+                    label: Boiler return
+                cleared:
+                  value:
+                    success: true
+                    message: Slot 3 label cleared
+                    label: ""
+        "400":
+          description: >-
+            A body that is empty, not JSON or not an object (`Invalid JSON`), a
+            slot out of range, or a label that is missing, `null`, not a string,
+            over 24 characters (code points) once trimmed, or holding a control
+            character or malformed UTF-8. Nothing happened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                body:
+                  value:
+                    success: false
+                    error: Invalid JSON
+                slot:
+                  value:
+                    success: false
+                    error: "'slot' must be a number from 1 to 16"
+                label:
+                  value:
+                    success: false
+                    error: "'label' must be text of at most 24 characters, with no control characters"
+        "404":
+          description: >-
+            This firmware has no `dallas_scan` wired to the dashboard (`No
+            temperature slots`), or keeps its slots in preferences, where there
+            are no labels (`Slot labels need storage: file`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                unwired:
+                  value:
+                    success: false
+                    error: No temperature slots
+                nvs:
+                  value:
+                    success: false
+                    error: "Slot labels need storage: file"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          description: >-
+            The slot belongs to a sensor `sensors:` lists, which the YAML names.
+            Nothing happened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Slot 1 belongs to a sensor listed in YAML
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          description: >-
+            The label could not be written, so the slot keeps the one it had and
+            the device keeps running. The log says why.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: The label was not written
+        "503":
+          description: >-
+            The table is kept in a file and the user partition did not mount, so
+            nothing could be written (`Temperature slot storage unavailable`); the
+            slot file is there but did not load at boot, so it waits for a person
+            to fix it and a reboot (`The slot file did not load; fix it and
+            reboot`); or the loop task did not take the request in time (`Device
+            busy`). Nothing happened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                unavailable:
+                  value:
+                    success: false
+                    error: Temperature slot storage unavailable
+                unloaded:
+                  value:
+                    success: false
+                    error: The slot file did not load; fix it and reboot
+                busy:
+                  value:
+                    success: false
+                    error: Device busy
+
   /entities:
     get:
       tags: [read]
@@ -675,10 +1018,11 @@ paths:
       summary: The entities that have settings, per type.
       description: >-
         For every settings type the firmware keeps, the entities of that type:
-        the object id, which keys the settings records, and the display name,
-        which `web_server`'s routes and `/events` address entities by. Internal
-        entities are left out. The types are `entity_config`'s: `switch` and
-        `binary_sensor`.
+        the object id, which keys the settings records, the display name, which
+        `web_server`'s routes and `/events` address entities by, and the label
+        the owner gave the entity, which the page shows in place of the name.
+        Internal entities are left out. The types are `entity_config`'s:
+        `switch` and `binary_sensor`.
       responses:
         "200":
           description: The index.
@@ -692,6 +1036,15 @@ paths:
           $ref: "#/components/responses/NoStore"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          description: The loop task did not take the request in time (`Device busy`). Nothing was read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Device busy
 
   /entity-settings:
     get:
@@ -742,7 +1095,8 @@ paths:
         An update replaces the entity's record with the fields given, saves the
         type's file and applies the record on the loop task once the answer is
         out. A field left out keeps its current value on a `switch`; on a
-        `binary_sensor`, `inverted` left out counts as false. The body is read
+        `binary_sensor`, `inverted` left out counts as false and `label` left
+        out keeps its value. A `null` counts as left out. The body is read
         raw, so the request needs a `Content-Type` that is not a form: a
         form-encoded body is parsed into fields by the server and answered
         `Invalid JSON`. `action: delete` removes the record on a type that
@@ -781,7 +1135,8 @@ paths:
             refuses (`Failed to update settings record`: no `source_name`, one
             naming no entity of that type, an `inverted` that is not a boolean, a
             `restore_mode` or `binding_mode` outside its options, a
-            `binding_input` naming no input); a delete on a type that keeps its
+            `binding_input` naming no input, a `label` that is not a string or
+            breaks its rules); a delete on a type that keeps its
             records (`Cannot delete: record not found`).
           content:
             application/json:
@@ -796,6 +1151,22 @@ paths:
           $ref: "#/components/responses/TypeNotFound"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          description: >-
+            A sound request the device's state stands in the way of, and the
+            sentence that says why; nothing changed. A `switch` whose `inverted`
+            would change while a running thermostat drives that relay is the one
+            case; a request that leaves `inverted` as it is changes the other
+            fields as usual.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: >-
+                  "Relay 1" is driven by "Living room": stop that thermostat
+                  to change Inverted
         "413":
           description: The body is over 4 KiB; a record is a few hundred bytes.
           content:
@@ -1209,7 +1580,18 @@ components:
           description: The first address the network stack has, null before one is set.
         reboot_required:
           type: boolean
-          description: Always false; nothing here changes a saved setting. Kept for the client's contract.
+          description: >-
+            A saved change waits for a restart; `reboot_reasons` names it.
+            `/system/reboot` applies it.
+        reboot_reasons:
+          type: array
+          description: What waits for the restart; omitted when nothing does.
+          items:
+            type: string
+            enum: [temperature_slots]
+            description: >-
+              `temperature_slots`: a forget or an assign changed the saved slot
+              table, see `/temperature-slots`.
       example:
         ha_connected: true
         uptime_s: 86400
@@ -1217,7 +1599,8 @@ components:
         connection_type: ethernet
         rssi: null
         ip_address: 192.168.1.50
-        reboot_required: false
+        reboot_required: true
+        reboot_reasons: [temperature_slots]
 
     ConnectionType:
       type: string
@@ -1286,22 +1669,56 @@ components:
 
     TemperatureSlots:
       type: object
-      required: [max_slots, slots]
+      required: [max_slots, reboot_required, can_forget_all, max_offset, offset_step, slots]
       properties:
         max_slots:
           type: integer
           minimum: 1
           maximum: 64
           description: The size of the table, `dallas_scan`'s `max_sensors`.
+        reboot_required:
+          type: boolean
+          description: >-
+            Some slot is `pending`; `/status` names `temperature_slots` in
+            `reboot_reasons` too.
+        can_forget_all:
+          type: boolean
+          description: >-
+            `/temperature-slots/forget` with `all` would change something: a slot
+            `sensors:` does not list holds a device, an offset or a label, and the
+            table can be written. Not the same as any slot's `can_forget`: offsets
+            and labels alone are something to forget for every slot, not for one.
+        max_offset:
+          type: number
+          description: An offset runs from `-max_offset` to `max_offset` °C.
+          example: 5
+        offset_step:
+          type: number
+          description: The step an offset is rounded to, in °C.
+          example: 0.1
+        max_label_length:
+          type: integer
+          description: >-
+            A label's most characters (code points). Only when the slots take
+            labels, with `dallas_scan`'s `storage: file`; absent with `storage:
+            nvs`, where `/temperature-slots/label` is `404`, and on firmware
+            older than labels.
+          example: 24
         slots:
           type: array
           description: >-
-            Slots 1 up to the last bound one, in order; empty when nothing was
-            ever bound.
+            Slots 1 up to the last one bound at boot, holding a device in the
+            saved table or holding an offset or a label, in order; empty when
+            there is none.
           items:
             $ref: "#/components/schemas/TemperatureSlot"
       example:
         max_slots: 16
+        reboot_required: true
+        can_forget_all: true
+        max_offset: 5
+        offset_step: 0.1
+        max_label_length: 24
         slots:
           - slot: 1
             name: Boiler
@@ -1309,21 +1726,33 @@ components:
             listed: true
             address: "0x8a0122791699dd28"
             can_forget: false
+            pending: false
           - slot: 2
             name: Temp 2
             free: true
             listed: false
             can_forget: false
+            pending: true
+            running_address: "0x9b01b5566e8a1f28"
+            offset: 0
+            label: ""
           - slot: 3
             name: Temp 3
             free: false
             listed: false
             address: "0xeb01227905460228"
             can_forget: true
+            pending: false
+            offset: -0.3
+            label: Подача
 
     TemperatureSlot:
       type: object
-      required: [slot, name, free, listed, can_forget]
+      description: >-
+        `free`, `address` and `can_forget` describe the saved table, the one the
+        next boot binds; `name` and `running_address` describe what runs until
+        then.
+      required: [slot, name, free, listed, can_forget, pending]
       properties:
         slot:
           type: integer
@@ -1333,10 +1762,13 @@ components:
           type: string
           description: >-
             The name of the slot's sensor — the entity `web_server` serves, so
-            the key to its reading — or `<prefix> N` for a free slot.
+            the key to its reading — or `<prefix> N` for a slot with no sensor
+            this boot.
         free:
           type: boolean
-          description: No sensor — the slot was forgotten and nothing took it since.
+          description: >-
+            The saved table holds no device here: the slot was forgotten and
+            nothing took it since.
         listed:
           type: boolean
           description: >-
@@ -1346,16 +1778,109 @@ components:
           type: string
           pattern: "^0x[0-9a-f]{16}$"
           description: >-
-            The device's 1-Wire ROM, as the panel prints it. A string, because 64
-            bits do not survive a JavaScript number. Absent for a free slot and
-            for a listed sensor that is not a 1-Wire one.
+            The device's 1-Wire ROM in the saved table, as the panel prints it. A
+            string, because 64 bits do not survive a JavaScript number. Absent
+            for a free slot and for a listed sensor that is not a 1-Wire one.
         can_forget:
           type: boolean
           description: >-
             `/temperature-slots/forget` with this `slot` would empty it: it holds
-            a device, is not listed, and the table can be written. Whether that
-            device still answers does not matter — an unplugged sensor is the
-            usual reason to forget one.
+            a device in the saved table, is not listed, and the table can be
+            written. Whether that device still answers does not matter — an
+            unplugged sensor is the usual reason to forget one.
+        pending:
+          type: boolean
+          description: >-
+            A forget or an assign changed this slot since boot; it applies after
+            a reboot.
+        running_address:
+          type: string
+          pattern: "^0x[0-9a-f]{16}$"
+          description: >-
+            The ROM this slot's sensor reads until the reboot. Only on a
+            `pending` slot that had a device at boot.
+        offset:
+          type: number
+          description: >-
+            °C added to the reading of whatever sensor is in this slot, within
+            ±`max_offset` and in force already, `0` for none; `/temperature-slots/offset` sets it. It
+            belongs to the slot number, not to the device. Absent on a `listed`
+            slot, whose sensor the YAML corrects with `filters:`.
+        label:
+          type: string
+          description: >-
+            What the panel and the page show in place of `name`, `""` for none;
+            `/temperature-slots/label` sets it. It belongs to the slot number, not
+            to the device, and `name` stays the key to the sensor. Absent on a
+            `listed` slot, which the YAML names, and in an answer without
+            `max_label_length`.
+
+    TemperatureSlotChangeResult:
+      description: What a forget or an assign answers once the saved table is written.
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          required: [reboot_required]
+          properties:
+            reboot_required:
+              type: boolean
+              description: >-
+                The saved table differs from the one the device booted with,
+                after this change; `/status` reports it too. False when the
+                change put the table back as it booted, and the message then
+                does not end in `applies after a reboot`.
+
+    SlotOffsetRequest:
+      type: object
+      required: [slot, offset]
+      properties:
+        slot:
+          type: integer
+          minimum: 1
+          description: The slot, from 1 up to `max_slots`.
+        offset:
+          type: number
+          description: >-
+            °C, rounded to `offset_step`, halves away from zero; past
+            ±`max_offset` once rounded is refused. `0` removes the offset.
+
+    SlotLabelRequest:
+      type: object
+      required: [slot, label]
+      properties:
+        slot:
+          type: integer
+          minimum: 1
+          description: The slot, from 1 up to `max_slots`.
+        label:
+          type: string
+          description: >-
+            Valid UTF-8 with no control character, at most `max_label_length`
+            characters (code points, not bytes) once the spaces at both ends are
+            trimmed, which the device does before it stores it, so there is no
+            `maxLength`. `""` clears the label.
+
+    TemperatureSlotLabelResult:
+      description: What a label answers once it is written. Never `reboot_required`.
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          required: [label]
+          properties:
+            label:
+              type: string
+              description: The label the slot holds now, trimmed; `""` for none.
+
+    TemperatureSlotOffsetResult:
+      description: What an offset answers once it is written and in force.
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          required: [offset]
+          properties:
+            offset:
+              type: number
+              description: The offset the slot holds now, after the rounding.
 
     AssignSlotRequest:
       allOf:
@@ -1464,6 +1989,16 @@ components:
             url_prefix:
               type: string
               example: /automation-editor
+        climates:
+          type: object
+          required: [url_prefix]
+          description: >-
+            The firmware serves the thermostat API the Climate screens use.
+            Absent without a `web_climate_editor`.
+          properties:
+            url_prefix:
+              type: string
+              example: /climate-editor
         entity_settings:
           type: object
           required: [types]
@@ -1485,7 +2020,11 @@ components:
           enum: [true]
           description: >-
             A `dallas_scan` is wired in, so `/temperature-slots`,
-            `/temperature-slots/forget` and `/temperature-slots/assign` answer.
+            `/temperature-slots/forget`, `/temperature-slots/assign`,
+            `/temperature-slots/offset` and, with `storage: file`,
+            `/temperature-slots/label` answer.
+        modbus:
+          $ref: "#/components/schemas/ModbusMap"
       example:
         reboot: true
         factory_reset:
@@ -1502,10 +2041,134 @@ components:
           url_prefix: /files
         automations:
           url_prefix: /automation-editor
+        climates:
+          url_prefix: /climate-editor
         entity_settings:
           types: [switch, binary_sensor]
         board_info: true
         temperature_slots: true
+        modbus:
+          bits:
+            - address: 0
+              last_address: 5
+              count: 6
+              writable: true
+              name: Relays
+            - address: 16
+              last_address: 21
+              count: 6
+              writable: false
+              name: Inputs
+          registers:
+            - address: 0
+              last_address: 15
+              count: 16
+              writable: false
+              name: Temperature slots
+              value_type: S_WORD
+              scale: 0.1
+              unit: °C
+              no_value: 32768
+          courtesy_response:
+            last_address: 65535
+            value: 0
+
+    ModbusMap:
+      type: object
+      required: [bits, registers]
+      description: >-
+        The Modbus server's address map, as ranges; present when a `modbus_map`
+        is wired in. FC 01 and 02 read the one bit table, FC 03 and 04 the one
+        register table. Addresses, counts, access and value types are the
+        server's own; the names, and a register range's scale, unit and
+        no_value, come from the map. An address in no range answers exception
+        02, except an unmapped register under `courtesy_response`; a table the
+        server does not have at all answers exception 01, except a register read
+        while `courtesy_response` is on.
+      properties:
+        bits:
+          type: array
+          description: By address; empty when the server serves no bits.
+          items:
+            $ref: "#/components/schemas/ModbusRange"
+        registers:
+          type: array
+          description: By address; empty when the server serves no registers.
+          items:
+            $ref: "#/components/schemas/ModbusRegisterRange"
+        courtesy_response:
+          type: object
+          required: [last_address, value]
+          description: >-
+            Unmapped registers up to `last_address` read `value` instead of
+            answering exception 02. Absent when the server answers the exception.
+          properties:
+            last_address:
+              type: integer
+              minimum: 0
+              maximum: 65535
+            value:
+              type: integer
+              minimum: 0
+              maximum: 65535
+
+    ModbusRange:
+      type: object
+      required: [address, last_address, count, writable, name]
+      description: One run of consecutive addresses that mean one thing, e.g. relays 1–6.
+      properties:
+        address:
+          type: integer
+          minimum: 0
+          maximum: 65535
+          description: First address of the run.
+        last_address:
+          type: integer
+          minimum: 0
+          maximum: 65535
+          description: >-
+            Last address of the run, inclusive; for registers it counts every
+            word of the last value.
+        count:
+          type: integer
+          minimum: 1
+          maximum: 65536
+          description: >-
+            How many values the run holds: bits on a bit run, values on a
+            register run.
+        writable:
+          type: boolean
+          description: False when a write answers exception 02.
+        name:
+          type: string
+
+    ModbusRegisterRange:
+      allOf:
+        - $ref: "#/components/schemas/ModbusRange"
+        - type: object
+          required: [value_type]
+          properties:
+            value_type:
+              type: string
+              description: ESPHome's `value_type`, e.g. `S_WORD`.
+              example: S_WORD
+            scale:
+              type: number
+              exclusiveMinimum: 0
+              description: What one raw unit is worth. Absent when the map gives none.
+              example: 0.1
+            unit:
+              type: string
+              description: The unit after scaling. Absent when the map gives none.
+              example: °C
+            no_value:
+              type: integer
+              minimum: 0
+              maximum: 65535
+              description: >-
+                The raw word that means "no reading". Absent when the map gives
+                none.
+              example: 32768
 
     StorageCapability:
       type: object
@@ -1540,13 +2203,15 @@ components:
         switch:
           - source_name: relay_1
             name: Relay 1
+            label: Kitchen light
         binary_sensor:
           - source_name: input_1
             name: Input 1
+            label: ""
 
     EntityIndexEntry:
       type: object
-      required: [source_name, name]
+      required: [source_name, name, label]
       properties:
         source_name:
           type: string
@@ -1554,6 +2219,12 @@ components:
         name:
           type: string
           description: The display name, the key of `web_server`'s routes and `/events`.
+        label:
+          type: string
+          description: >-
+            What the panel and the page show in place of `name`; empty when the
+            entity has none, and then they show `name`. Changes with the record:
+            read again after a write.
 
     SettingsRecords:
       type: object
@@ -1573,6 +2244,7 @@ components:
             inverted: false
             binding_input: input_1
             binding_mode: toggle
+            label: Kitchen light
 
     SettingsRecord:
       type: object
@@ -1609,13 +2281,31 @@ components:
         binding_mode:
           type: string
           enum: [none, toggle, follow]
+        label:
+          $ref: "#/components/schemas/EntityLabel"
 
     BinarySensorSettings:
       type: object
-      description: The `binary_sensor` fields. On write, `inverted` left out counts as false.
+      description: >-
+        The `binary_sensor` fields. On write, `inverted` left out counts as
+        false; `label` left out keeps its current value.
       properties:
         inverted:
           type: boolean
+        label:
+          $ref: "#/components/schemas/EntityLabel"
+
+    EntityLabel:
+      type: [string, "null"]
+      description: >-
+        Shown on the panel and the page in place of the entity's name; empty for
+        none, and `null` on write is a label left out. The name, the object id
+        and everything keyed by them stay as they are. Valid UTF-8 with no
+        control character, at most 24 characters (code points, not bytes) once
+        the spaces at both ends are trimmed, which the device does before it
+        stores it, so there is no `maxLength`; anything else is refused. Applied
+        at once.
+      example: Kitchen light
 
     EntitySettingsUpdate:
       type: object
@@ -1647,6 +2337,7 @@ components:
           inverted: false
           binding_input: input_1
           binding_mode: toggle
+          label: Kitchen light
 
     EntitySettingsDelete:
       type: object
@@ -1683,6 +2374,12 @@ components:
       example:
         settings:
           switch:
+            label:
+              type: string
+              label: Label
+              description: Shown on the panel and the dashboard in place of the name. Empty shows the name.
+              default: ""
+              max_length: 24
             restore_mode:
               type: enum
               label: Start Mode
@@ -1723,6 +2420,12 @@ components:
               description: "Swaps the physical output: the app's On drives the pin low, Off drives it high."
               default: false
           binary_sensor:
+            label:
+              type: string
+              label: Label
+              description: Shown on the panel and the dashboard in place of the name. Empty shows the name.
+              default: ""
+              max_length: 24
             inverted:
               type: boolean
               label: Inverted
@@ -1761,6 +2464,9 @@ components:
           description: "For `number`: the unit the page shows, `unit` times `display_factor`."
         display_factor:
           type: number
+        max_length:
+          type: integer
+          description: "For `string`: the most characters (code points, not bytes) the field takes."
 
     FieldOption:
       type: object

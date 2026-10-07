@@ -48,6 +48,25 @@ external_components:
     components:
       - automations
       - loop_job
+      - switch_hold
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - web_climate_editor
+      - web_origin_guard
+      - loop_job
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - climate_hub
+      - loop_job
+      - switch_hold
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -63,6 +82,15 @@ external_components:
     components:
       - entity_config
       - bindings
+      - switch_hold
+      - panel_text
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - modbus_map
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -80,6 +108,7 @@ external_components:
       path: components
     components:
       - dallas_scan
+      - panel_text
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -134,6 +163,9 @@ web_server:
     - id: group_temperature
       name: Temperature
       sorting_weight: 30
+    - id: group_climate
+      name: Climate
+      sorting_weight: 35
     - id: group_modbus
       name: Modbus
       sorting_weight: 40
@@ -436,6 +468,9 @@ globals:
     type: std::vector<switch_::Switch *>
   - id: inputs
     type: std::vector<binary_sensor::BinarySensor *>
+  - id: modbus_bus_applied
+    type: bool
+    initial_value: 'false'
   - id: network_mode_applied
     type: bool
     initial_value: 'false'
@@ -456,13 +491,10 @@ esphome:
                           id(input_4), id(input_5), id(input_6)};
     - priority: 700
       then:
-        - lambda: |-
-            id(modbus_server1).set_address((uint8_t) id(modbus_address).state);
-            auto *bus = id(jxm_uart2);
-            bus->set_baud_rate(parse_number<uint32_t>(id(modbus_baud_rate).current_option().c_str()).value_or(9600));
-            bus->set_stop_bits(parse_number<uint8_t>(id(modbus_stop_bits).current_option().c_str()).value_or(1));
-            bus->set_parity((uart::UARTParityOptions) id(modbus_parity).active_index().value_or(0));
-            bus->load_settings(false);
+        - script.execute: apply_modbus_bus
+        - globals.set:
+            id: modbus_bus_applied
+            value: 'true'
     - priority: 600
       then:
         - script.execute: set_wifi_ap
@@ -487,6 +519,12 @@ automations:
   id: automations_engine
   storage: user_storage
   time_id: pcf8563_time
+web_climate_editor: null
+climate_hub:
+  id: climates
+  storage: user_storage
+  web_server:
+    sorting_group_id: group_climate
 crash_report:
   storage: user_storage
 entity_config:
@@ -515,6 +553,23 @@ script:
       - status_indicator.blink_fast: red_led
       - delay: 5s
       - script.execute: run_factory_reset
+  - id: apply_modbus_bus
+    then:
+      - lambda: |-
+          auto *bus = id(jxm_uart2);
+          const uint32_t baud = parse_number<uint32_t>(id(modbus_baud_rate).current_option().c_str()).value_or(9600);
+          const uint8_t stop_bits = parse_number<uint8_t>(id(modbus_stop_bits).current_option().c_str()).value_or(1);
+          const auto parity = (uart::UARTParityOptions) id(modbus_parity).active_index().value_or(0);
+          // A select re-set to its own option fires too, and a reload drops what is on the wire.
+          if (baud == bus->get_baud_rate() && stop_bits == bus->get_stop_bits() && parity == bus->get_parity()) {
+            return;
+          }
+          bus->set_baud_rate(baud);
+          bus->set_stop_bits(stop_bits);
+          bus->set_parity(parity);
+          bus->load_settings(false);
+          // Modbus takes its frame timing from the UART in setup(), which ran before this.
+          id(modbus_bus).setup();
   - id: set_wifi_ap
     then:
       - lambda: |-
@@ -603,6 +658,8 @@ number:
     min_value: 1
     max_value: 247
     step: 1
+    on_value:
+      - lambda: id(modbus_server1).set_address((uint8_t) x);
 select:
   - platform: template
     name: Modbus baud rate
@@ -623,6 +680,12 @@ select:
       - '38400'
       - '57600'
       - '115200'
+    on_value:
+      - if:
+          condition:
+            lambda: return id(modbus_bus_applied);
+          then:
+            - script.execute: apply_modbus_bus
   - platform: template
     name: Modbus parity
     id: modbus_parity
@@ -637,6 +700,12 @@ select:
       - None
       - Even
       - Odd
+    on_value:
+      - if:
+          condition:
+            lambda: return id(modbus_bus_applied);
+          then:
+            - script.execute: apply_modbus_bus
   - platform: template
     name: Modbus stop bits
     id: modbus_stop_bits
@@ -650,6 +719,12 @@ select:
     options:
       - '1'
       - '2'
+    on_value:
+      - if:
+          condition:
+            lambda: return id(modbus_bus_applied);
+          then:
+            - script.execute: apply_modbus_bus
   - platform: template
     name: Network mode
     id: network_mode
@@ -761,6 +836,11 @@ modbus_server:
       - address: 0
         read_lambda: return id(relay_1).state;
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_1));
+          if (!holder.empty() && x != id(relay_1).state) {
+            ESP_LOGW("modbus", "Coil 0x0000 refused: thermostat '%s' drives relay_1", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_1).turn_on();
           } else {
@@ -770,6 +850,11 @@ modbus_server:
       - address: 1
         read_lambda: return id(relay_2).state;
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_2));
+          if (!holder.empty() && x != id(relay_2).state) {
+            ESP_LOGW("modbus", "Coil 0x0001 refused: thermostat '%s' drives relay_2", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_2).turn_on();
           } else {
@@ -779,6 +864,11 @@ modbus_server:
       - address: 2
         read_lambda: return id(relay_3).state;
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_3));
+          if (!holder.empty() && x != id(relay_3).state) {
+            ESP_LOGW("modbus", "Coil 0x0002 refused: thermostat '%s' drives relay_3", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_3).turn_on();
           } else {
@@ -788,6 +878,11 @@ modbus_server:
       - address: 3
         read_lambda: return id(relay_4).state;
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_4));
+          if (!holder.empty() && x != id(relay_4).state) {
+            ESP_LOGW("modbus", "Coil 0x0003 refused: thermostat '%s' drives relay_4", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_4).turn_on();
           } else {
@@ -797,6 +892,11 @@ modbus_server:
       - address: 4
         read_lambda: return id(relay_5).state;
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_5));
+          if (!holder.empty() && x != id(relay_5).state) {
+            ESP_LOGW("modbus", "Coil 0x0004 refused: thermostat '%s' drives relay_5", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_5).turn_on();
           } else {
@@ -806,6 +906,11 @@ modbus_server:
       - address: 5
         read_lambda: return id(relay_6).state;
         write_lambda: |-
+          const std::string holder = switch_hold::holder(id(relay_6));
+          if (!holder.empty() && x != id(relay_6).state) {
+            ESP_LOGW("modbus", "Coil 0x0005 refused: thermostat '%s' drives relay_6", holder.c_str());
+            return false;
+          }
           if (x) {
             id(relay_6).turn_on();
           } else {
@@ -824,6 +929,19 @@ modbus_server:
         read_lambda: return id(input_5).state;
       - address: 21
         read_lambda: return id(input_6).state;
+modbus_map:
+  modbus_server_id: modbus_server1
+  bits:
+    - address: 0
+      name: Relays
+    - address: 16
+      name: Inputs
+  registers:
+    - address: 0
+      name: Temperature slots
+      scale: 0.1
+      unit: °C
+      no_value: 32768
 network:
   priority:
     - ethernet

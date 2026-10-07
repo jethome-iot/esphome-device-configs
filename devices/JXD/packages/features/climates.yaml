@@ -1,0 +1,11 @@
+# Thermostats the user creates at run time, stored as JSON files on the LittleFS partition.
+# Details: doc/CLIMATE.md
+external_components:
+  - source: ${components}
+    components: [climate_hub, loop_job, switch_hold]
+
+climate_hub:
+  id: climates
+  storage: user_storage
+  web_server:
+    sorting_group_id: group_climate

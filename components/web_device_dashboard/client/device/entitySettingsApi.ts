@@ -4,7 +4,7 @@ import { createHttp, type HttpOptions } from './http'
 import type { EntityIndexResponse, EntitySettingsMetaResponse, EntitySettingsGetResponse } from './types'
 
 export interface EntitySettingsApi {
-  /** GET /entities — object_id and name of every settable entity, per type. */
+  /** GET /entities — object_id, name and label of every settable entity, per type. */
   index(): Promise<EntityIndexResponse>
   /** GET /entity-settings-meta — field definitions per entity type. */
   meta(): Promise<EntitySettingsMetaResponse>
@@ -12,7 +12,10 @@ export interface EntitySettingsApi {
   list(type: string): Promise<EntitySettingsGetResponse>
   /** GET /entity-settings?type=&source_name= — saved settings records. */
   get(type: string, sourceName: string): Promise<EntitySettingsGetResponse>
-  /** POST /entity-settings — save settings for one entity. */
+  /**
+   * POST /entity-settings — save settings for one entity. A change of a relay's `inverted`
+   * while a running thermostat drives it rejects with a 409 ApiError naming the thermostat.
+   */
   save(type: string, sourceName: string, settings: Record<string, unknown>): Promise<void>
   /** POST /entity-settings — delete settings for one entity. */
   remove(type: string, sourceName: string): Promise<void>

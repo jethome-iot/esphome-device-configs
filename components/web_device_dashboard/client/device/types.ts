@@ -218,7 +218,7 @@ export interface DeviceGroup {
 }
 
 /** Which group of saved-but-unapplied settings is waiting for a restart. */
-export type RebootReason = 'network' | 'wifi' | 'mqtt' | 'auth' | 'api'
+export type RebootReason = 'network' | 'wifi' | 'mqtt' | 'auth' | 'api' | 'temperature_slots'
 
 export interface DeviceStatus {
   /** An API client is connected. Absent — not false — on a build with no API server. */
@@ -230,7 +230,7 @@ export interface DeviceStatus {
   rssi: number | null
   /** Persisted but not yet applied; no config endpoint restarts on its own. */
   reboot_required: boolean
-  /** Omitted when nothing is waiting. */
+  /** Omitted when nothing is waiting. This firmware names only `temperature_slots`. */
   reboot_reasons?: RebootReason[]
   /** Live MQTT client state. Lives here (not only in /network) so the frequently
    *  polled status endpoint carries the dynamic connection flags and the Overview
@@ -251,8 +251,8 @@ export interface DeviceStatus {
 export interface MutationResponse {
   success: boolean
   message?: string
-  /** Set by a route whose change waits for a restart; no route here has one — /auth
-   *  applies what it stores. */
+  /** Set by a route whose change waits for a restart: /temperature-slots/forget and
+   *  /assign. */
   reboot_required?: boolean
 }
 
@@ -317,24 +317,64 @@ export interface Capabilities {
   files?: { url_prefix: string }
   /** Present when the firmware serves the automations API the Automations screen uses. */
   automations?: { url_prefix: string }
+  /** Present when the firmware serves the thermostat API the Climate screens use. */
+  climates?: { url_prefix: string }
   /** Present with a `config_json` store; `types` are the keys `/entity-settings` takes. */
   entity_settings?: { types: string[] }
   /** The CPU board's EEPROM identity is in `/info`. */
   board_info?: true
-  /** A `dallas_scan` is wired in: GET /temperature-slots and POST /temperature-slots/forget
-   *  and /assign answer. Without it all three are `404`. */
+  /** A `dallas_scan` is wired in: GET /temperature-slots and POST /temperature-slots/forget,
+   *  /assign and /offset answer, and /label too when GET carries `max_label_length` (not with
+   *  `storage: nvs`). Without it all five are `404`. */
   temperature_slots?: true
+  /** The Modbus server's address map, as ranges; present when a `modbus_map` is wired in. */
+  modbus?: ModbusMap
+}
+
+// --- Modbus map ---
+
+/** One run of consecutive addresses that mean one thing, e.g. relays 1–6. */
+export interface ModbusRange {
+  /** First address of the run. */
+  address: number
+  /** Last address of the run, inclusive; for registers it counts every word of the last value. */
+  last_address: number
+  /** How many values the run holds: bits on a bit run, values on a register run. */
+  count: number
+  /** False when a write answers exception 02. */
+  writable: boolean
+  name: string
+}
+
+export interface ModbusRegisterRange extends ModbusRange {
+  /** ESPHome's `value_type`, e.g. `"S_WORD"`. */
+  value_type: string
+  /** What one raw unit is worth, e.g. `0.1`. */
+  scale?: number
+  unit?: string
+  /** The raw word that means "no reading", e.g. `0x8000`. */
+  no_value?: number
+}
+
+/** FC 01 and 02 read the one bit table, FC 03 and 04 the one register table. */
+export interface ModbusMap {
+  bits: ModbusRange[]
+  registers: ModbusRegisterRange[]
+  /** Unmapped registers up to `last_address` read `value` instead of answering exception 02. */
+  courtesy_response?: { last_address: number; value: number }
 }
 
 // --- Temperature slots ---
 
-/** One `dallas_scan` slot. `slot` numbers from 1, as the `Temp N` sensors do. */
+/** One `dallas_scan` slot. `slot` numbers from 1, as the `Temp N` sensors do. `free`,
+ *  `address` and `can_forget` describe the saved table, the one the next boot binds; the
+ *  sensors read the table the device booted with until then, and `pending` says the two differ. */
 export interface TemperatureSlot {
   slot: number
   /** The slot's sensor name — the entity web_server serves, and so the key to its reading on
-   *  `/events` — or `<prefix> N` for a free slot. */
+   *  `/events` — or `<prefix> N` for a slot with no sensor. */
   name: string
-  /** No sensor: the slot was forgotten and nothing took it since. */
+  /** The saved table holds no device here: forgotten, and nothing took it since. */
   free: boolean
   /** Taken by a sensor from `dallas_scan`'s `sensors:`: the YAML fixes it there, and nothing
    *  here forgets it. */
@@ -346,33 +386,100 @@ export interface TemperatureSlot {
    *  listed, and the table can be written. Whether the device still answers does not matter: an
    *  unplugged sensor is the usual reason to forget one. */
   can_forget: boolean
+  /** A forget or an assign changed this slot since boot; it applies after a reboot. */
+  pending: boolean
+  /** The ROM this slot's sensor reads until the reboot. Only on a `pending` slot that had a
+   *  device at boot. */
+  running_address?: string
+  /** °C added to the reading of whatever sensor is in this slot, in force already: it belongs
+   *  to the slot number, not to the device. Absent on a listed slot, which the YAML corrects. */
+  offset?: number
+  /** What the panel and the page show in place of `name`, `''` for none; like the offset it
+   *  belongs to the slot number. `name` stays the key to the sensor. Absent on a listed slot,
+   *  which the YAML names, and in an answer without `max_label_length`. */
+  label?: string
 }
 
-/** GET /temperature-slots — slots 1 up to the last bound one, a freed slot between them
- *  included. The table changes only at boot and through a forget or an assign, which reboot. */
+/** GET /temperature-slots — slots 1 up to the last one bound at boot, held in the saved table
+ *  or holding an offset or a label, a free slot between them included. */
 export interface TemperatureSlots {
   /** The size of the table, `dallas_scan`'s `max_sensors`. */
   max_slots: number
+  /** Some slot is `pending`: `/status` names `temperature_slots` too. */
+  reboot_required: boolean
+  /** POST /temperature-slots/forget with `all` would change something: an unlisted slot holds a
+   *  device, an offset or a label, and the table can be written. The rows' `can_forget` does not
+   *  say it: offsets and labels alone are something to forget for every slot, not for one. */
+  can_forget_all: boolean
+  /** An offset runs from `-max_offset` to `max_offset` °C, in steps of `offset_step`. */
+  max_offset: number
+  offset_step: number
+  /** A label's most characters (code points). Present only when the slots take labels: absent
+   *  with `storage: nvs` and on firmware older than labels, where POST /temperature-slots/label
+   *  is `404`. */
+  max_label_length?: number
   slots: TemperatureSlot[]
 }
 
+/** What POST /temperature-slots/forget and /assign answer. */
+export interface TemperatureSlotChangeResult extends MutationResponse {
+  /** The saved table differs from the one the device booted with, after this change. */
+  reboot_required: boolean
+}
+
 /** POST /temperature-slots/forget — one slot, or every slot but the listed ones, under the
- *  system actions' confirmation. The device empties them and writes the table, answers, then
- *  reboots; a write that fails is `500` and the device keeps running. One that
- *  would change nothing (a free or listed slot, or nothing to forget) is `409`, and the
- *  device keeps running; a slot out of range, `all` that is not `true`, or both keys or
- *  neither, is `400`; a table that cannot be written is `503`. */
+ *  system actions' confirmation. The device empties them in the saved table and writes it; the
+ *  change applies after a reboot, and a write that fails is `500`. `all` clears every unlisted
+ *  slot's offset and label too, at once; one slot keeps its own. One that would change nothing (a
+ *  free or listed slot, or no device, offset or label left to forget) is `409`, which a slot's
+ *  `can_forget` and `can_forget_all` say beforehand; a slot out of range, `all` that is not
+ *  `true`, or both keys or neither, is `400`; a table that cannot be written is `503`. */
 export type ForgetSlotsPayload = ConfirmPayload & ({ slot: number; all?: never } | { all: true; slot?: never })
 
 /** POST /temperature-slots/assign — put the device with `address` into `slot` (from 1), under
- *  the same confirmation: the table is written, then the device answers and reboots, or answers
- *  `500` and keeps running when the write fails. A device already in another slot swaps with what `slot`
- *  held; a new address takes `slot` from its device, which takes the lowest free slot at the
- *  next boot if it is still on the bus. `address` is `0x` and 16 hex digits, the prefix
+ *  the same confirmation: the saved table is written and the change applies after a reboot, or
+ *  `500` when the write fails. A device already in another slot swaps with what `slot` held; a
+ *  new address takes `slot` from its device, which takes the lowest free slot at the next boot
+ *  if it is still on the bus. `address` is `0x` and 16 hex digits, the prefix
  *  optional. `400` for a malformed or non-thermometer ROM (family or CRC), `409` for a listed
  *  slot or device, or a device that is in `slot` already, `503` for a table that cannot be
  *  written. */
 export type AssignSlotPayload = ConfirmPayload & { slot: number; address: string }
+
+/** POST /temperature-slots/offset — set `slot`'s offset (from 1) in °C, rounded to
+ *  `offset_step`; `0` removes it. No confirmation: it is written and in force at once, the
+ *  slot's reading published again with it. `400` for a slot out of range or an offset outside
+ *  ±`max_offset`, `409` for a listed slot, `503` for a table that cannot be written or a slot
+ *  file that did not load at boot (left for a person to fix), `500` when the write fails. */
+export interface SlotOffsetPayload {
+  slot: number
+  offset: number
+}
+
+/** What POST /temperature-slots/offset answers. */
+// Never reboot_required: an offset is in force at once.
+export interface TemperatureSlotOffsetResult extends Omit<MutationResponse, 'reboot_required'> {
+  /** The offset the slot holds now, after the rounding. */
+  offset: number
+}
+
+/** POST /temperature-slots/label — set `slot`'s label (from 1); `''` clears it. The device trims
+ *  the spaces at both ends. No confirmation: it is written and shown at once, with no reboot.
+ *  `400` for a slot out of range, or a label that is not a string, is over `max_label_length`
+ *  characters once trimmed, or holds a control character or malformed UTF-8; `404` without
+ *  `max_label_length`; `409` for a listed slot; `503` for a table that cannot be written or a
+ *  slot file that did not load at boot; `500` when the write fails. */
+export interface SlotLabelPayload {
+  slot: number
+  label: string
+}
+
+/** What POST /temperature-slots/label answers. */
+// Never reboot_required: a label shows at once.
+export interface TemperatureSlotLabelResult extends Omit<MutationResponse, 'reboot_required'> {
+  /** The label the slot holds now, trimmed; `''` for none. */
+  label: string
+}
 
 // --- Network (live status + saved config) ---
 
@@ -511,6 +618,8 @@ export interface EntitySettingsFieldDef {
   unit?: string
   display_unit?: string
   display_factor?: number
+  /** For `string`: the most characters (code points, not bytes) the field takes. */
+  max_length?: number
 }
 
 export interface EntitySettingsMetaResponse {
@@ -532,10 +641,12 @@ export interface EntitySettingsGetResponse {
 // --- Entity index (object_id <-> name) ---
 
 /** One settable entity. `source_name` is the object_id the entity-settings records
- *  are keyed by; `name` is the display name the web_server REST and SSE use. */
+ *  are keyed by; `name` is the display name the web_server REST and SSE use; `label`
+ *  is what to show in place of `name`, empty when the entity has none. */
 export interface EntityIndexEntry {
   source_name: string
   name: string
+  label: string
 }
 
 /** GET /entities — settable entities per settings type (`switch`, `binary_sensor`, ...). */

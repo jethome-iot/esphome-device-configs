@@ -28,7 +28,7 @@ logger:
 
 external_components:
   - source: ../../../components
-    components: [filesystem_storage_abstract, automations, loop_job]
+    components: [filesystem_storage_abstract, automations, climate_hub, loop_job, switch_hold]
   - source: ../../harness/components
     components: [dir_storage]
 
@@ -45,6 +45,11 @@ automations:
   storage: test_storage
   time_id: host_time
 
+# The thermostats the climate actions name; the cases' one hub registers this pool.
+climate_hub:
+  storage: test_storage
+  max_controllers: 2
+
 # App sizes its entity lists from what is declared here and silently drops a
 # registration past that, so this is at least what cases/common.h registers.
 binary_sensor:
@@ -59,6 +64,10 @@ sensor:
   - platform: template
     id: temp_unused
     name: "Temp"
+  - platform: template
+    id: room_unused
+    name: "Room"
+    unit_of_measurement: "°C"
 
 switch:
   - platform: template
@@ -68,4 +77,8 @@ switch:
   - platform: template
     id: relay_2_unused
     name: "Relay 2"
+    optimistic: true
+  - platform: template
+    id: boiler_unused
+    name: "Boiler"
     optimistic: true

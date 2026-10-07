@@ -21,6 +21,9 @@
 #ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
 #include "esphome/components/dallas_scan/dallas_scan.h"
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
+#include "esphome/components/modbus_map/modbus_map.h"
+#endif
 
 namespace esphome::web_device_dashboard {
 
@@ -39,6 +42,8 @@ enum class RouteId : uint8_t {
   TEMPERATURE_SLOTS,
   TEMPERATURE_SLOTS_FORGET,
   TEMPERATURE_SLOTS_ASSIGN,
+  TEMPERATURE_SLOTS_OFFSET,
+  TEMPERATURE_SLOTS_LABEL,
 #endif
 #ifdef USE_CONFIG_JSON
   ENTITIES,
@@ -60,8 +65,9 @@ using firmware_rollback::RollbackTarget;
 // The dashboard page at / and the device API under /api/device/: info (with the board's
 // EEPROM identity when jethome_board_info is wired in), status, network, what the firmware
 // can do, the three system actions, with web_auth the HTTP credentials, with dallas_scan the
-// temperature slots, forgetting and assigning them, and with config_json the entity index, the
-// entity settings and their form fields.
+// temperature slots, forgetting and assigning them, their offsets and labels, and with config_json the
+// entity index, the entity settings and their form fields. A modbus_map is reported in
+// /capabilities.
 class WebDeviceDashboard : public AsyncWebHandler, public Component {
  public:
   explicit WebDeviceDashboard(web_server_base::WebServerBase *base) : base_(base) {}
@@ -80,10 +86,14 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
   void set_temperature_slots(dallas_scan::DallasScan *slots) { this->temperature_slots_ = slots; }
 #endif
-  // Where the other two web components serve, as this firmware configured them; nullptr when
-  // it has none. Only /capabilities reads them.
+#ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
+  void set_modbus_map(const modbus_map::ModbusMap *map) { this->modbus_map_ = map; }
+#endif
+  // Where the other web components serve, as this firmware configured them; nullptr when it
+  // has none. Only /capabilities reads them.
   void set_files_url_prefix(const char *prefix) { this->files_url_prefix_ = prefix; }
   void set_automations_url_prefix(const char *prefix) { this->automations_url_prefix_ = prefix; }
+  void set_climates_url_prefix(const char *prefix) { this->climates_url_prefix_ = prefix; }
 
   bool canHandle(AsyncWebServerRequest *request) const override;
   void handleRequest(AsyncWebServerRequest *request) override;
@@ -109,7 +119,9 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   void handle_reboot_(AsyncWebServerRequest *request);
   void handle_factory_reset_(AsyncWebServerRequest *request);
   void handle_rollback_(AsyncWebServerRequest *request);
-  /// Answers 400, 403 or 413 itself when the body is not a confirmation of this device. The
+  /// Answers 400, 413 or 415 itself when the body is not a JSON object; else it is left in @p doc.
+  bool read_json_body_(AsyncWebServerRequest *request, JsonDocument &doc);
+  /// Answers 400, 403, 413 or 415 itself when the body is not a confirmation of this device. The
   /// parsed body is left in @p doc for a route that takes more than the confirmation.
   bool check_confirm_(AsyncWebServerRequest *request, JsonDocument &doc);
   bool check_confirm_(AsyncWebServerRequest *request) {
@@ -132,11 +144,18 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
   void write_board_(JsonObject root);
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
+  static void write_modbus_map_(JsonObject modbus, const modbus_map::ModbusMap &map);
+#endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
   void handle_temperature_slots_(AsyncWebServerRequest *request);
   void handle_temperature_slots_forget_(AsyncWebServerRequest *request);
   void handle_temperature_slots_assign_(AsyncWebServerRequest *request);
+  void handle_temperature_slots_offset_(AsyncWebServerRequest *request);
+  void handle_temperature_slots_label_(AsyncWebServerRequest *request);
   static std::string temperature_slots_json_(dallas_scan::DallasScan *scan);
+  void send_slot_change_(AsyncWebServerRequest *request, std::string message, bool reboot_required,
+                         const char *waits = "; applies after a reboot");
   bool check_slots_writable_(AsyncWebServerRequest *request, dallas_scan::DallasScan *scan);
   /// The body's `slot`, 1 to max_sensors(), as an index; answers 400 itself when it is not one.
   bool read_slot_(AsyncWebServerRequest *request, JsonVariant value, size_t &slot);
@@ -165,8 +184,12 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
   dallas_scan::DallasScan *temperature_slots_{nullptr};
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
+  const modbus_map::ModbusMap *modbus_map_{nullptr};
+#endif
   const char *files_url_prefix_{nullptr};
   const char *automations_url_prefix_{nullptr};
+  const char *climates_url_prefix_{nullptr};
   // How long the answer is given to leave the socket before the device stops serving it. A
   // member so the tests can drop it and run the deferred work in the same loop call.
   uint32_t action_delay_ms_{500};

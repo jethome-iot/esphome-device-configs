@@ -1,0 +1,2148 @@
+openapi: 3.1.0
+
+info:
+  title: web_climate_editor HTTP API
+  version: 1.7.1
+  description: >-
+    JSON/REST API of the `climate_hub` thermostats, served by the
+    `web_climate_editor` component on the device's own web server (default
+    prefix `/climate-editor`, routes under `<prefix>/api/`). List, read,
+    create, change, start, stop and delete thermostats, bring one back from a
+    backup under its own id, edit and pick their presets, move a target,
+    calibrate a PID thermostat, watch the control loop, and discover the
+    sensors and relays a thermostat may name. ESP-IDF (ESP32) only.
+
+    This document is the wire contract; the TypeScript client and mock in
+    `client/` implement it, and `client/types.ts` is where a shape changes
+    first. Every route answers exactly one HTTP method: a `GET` or `POST` it
+    does not take, and an `OPTIONS`, is `405` with an `Allow` header naming
+    the one it does. The server takes no other method to any path — a `PUT`,
+    `DELETE`, `HEAD` or `PATCH` gets ESP-IDF's own `405`, an HTML sentence
+    with no `Allow` header and no JSON, and the connection is closed. Route
+    names match the URL path exactly, and any other path under the prefix is
+    `404`. A POST needs a `Content-Length`, even `0`: ESP-IDF's server answers
+    `411` without one.
+
+    Every route that reads or changes the thermostats runs on the device's
+    main loop, so an answer describes what actually happened; `503` means the
+    loop did not get to the request within five seconds and nothing changed.
+    `/schema` and `/ping` never wait for the loop.
+
+    A request whose `Origin` header is not the `Host` it was sent to is answered
+    `403` before it reaches a route: the credentials a browser has cached for
+    this device cannot be steered here from a page on another site. That refusal
+    is `text/plain`, not one of the JSON envelopes below — it is the server
+    turning the request away, not a route answering it. Clients that send no
+    `Origin` — `curl`, a script, a Home Assistant `rest_command` — are
+    unaffected.
+
+servers:
+  - url: http://{host}:{port}{prefix}/api
+    description: A device on the local network.
+    variables:
+      host:
+        default: device.local
+      port:
+        default: "80"
+      prefix:
+        default: /climate-editor
+        description: The component's `url_prefix`, reported by the device dashboard's `/api/device/capabilities`.
+
+# The routes inherit whatever auth the `web_server:` block sets. The configs in
+# this repository set Digest credentials, so that is the shipped default; the
+# empty requirement covers a firmware built without an `auth:` block, where
+# anything that reaches the port may call every route.
+security:
+  - webServerAuth: []
+  - {}
+
+tags:
+  - name: read
+    description: Read-only routes (GET).
+  - name: write
+    description: Mutating routes (POST).
+
+paths:
+  /list:
+    get:
+      tags: [read]
+      operationId: listThermostats
+      summary: Every thermostat, summarized, sorted by id.
+      responses:
+        "200":
+          description: The thermostats and the firmware's limit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControllersResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /get:
+    get:
+      tags: [read]
+      operationId: getThermostat
+      summary: One thermostat's document, as its file stores it.
+      description: The bare document, not the success envelope; `/save` takes it back as it is.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+      responses:
+        "200":
+          description: The document.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControllerDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /save:
+    post:
+      tags: [write]
+      operationId: saveThermostat
+      summary: Create or replace a thermostat.
+      description: >-
+        `id` absent or `""` creates a thermostat, whose id the device makes from
+        the name; an existing `id` replaces that thermostat's document, renamed
+        or not, and the id stays. A missing key, in a nested object too, takes
+        its default and every number is clamped into the range `/schema`
+        gives, so a partial document is accepted. The body is read raw, so
+        the request needs a `Content-Type` that is not a form:
+        `application/json`. A form body
+        (`application/x-www-form-urlencoded`, or no `Content-Type` at all) is
+        parsed into fields by the server instead: up to 1024 bytes it is
+        answered `Empty request body`, and a longer one gets the server's own
+        bare `400` before it reaches this API.
+
+        `presets` left out, or `null`, is none, so a Save without them removes
+        them. The device gives the presets their keys: a create makes every key
+        from its preset's name, and an update keeps the key of every preset
+        that comes back with it and makes one for a new preset. `active_preset`
+        is ignored: an update keeps the active preset while its key is in the
+        list and applies that preset's new target and mode at once, and a
+        create starts with none.
+
+        `revision`, when the body has it as a whole number, must be the one
+        `/get` gives now: it moves on when a calibration writes new gains and
+        when an `/import` replaces the thermostat, so a form read before
+        either is refused rather than write the old document back. A Save
+        never moves it, and one without it is not checked. A Save ends a
+        calibration the thermostat runs.
+
+        The refusals come in this order, and the first one a document meets is
+        the answer: `400` for an empty body, a body that is not JSON, or a
+        document that breaks a rule (the thermostat's structure first, then its
+        presets, its name rules last; a preset's sentence names its row from
+        1); `404` for an unknown `id`, `409` for a thermostat whose file a
+        newer firmware wrote, which a Save would strip of what this firmware
+        does not know, `409` when the body's `revision` is not the
+        thermostat's, or `507` for a create past
+        `max_controllers`; `409` for a name another thermostat or a YAML
+        climate answers to, or on a create for a name whose every id is taken
+        by a file in the folder; and, for an enabled thermostat, `400` when its
+        sensor does not report °C, then `409` when a running thermostat holds
+        its relay, then `409` when another enabled thermostat that waits names
+        it. A relay the thermostat holds already is never refused. While the
+        thermostat storage is not usable, a body is `500` before it is read.
+
+        An enabled thermostat whose sensor or a relay is not on the device is
+        no refusal: it is saved, stays enabled, and waits without running (a
+        running one is stopped). The `200` then carries a `warning` naming
+        what is missing. It starts at the next boot that finds what it names,
+        or at a Save or an `/enable` that finds it there.
+
+        A relay the Save frees, by moving the thermostat off it, switching it
+        off or leaving it waiting, starts the enabled thermostats that wait
+        for it, the first by id; a climate entity it frees then starts the
+        first by id of those that wait for one. The message names them before
+        its own `warning`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ControllerSaveInput"
+      responses:
+        "200":
+          description: >-
+            Created or updated; the message says which. A thermostat saved
+            enabled that does not run gets a `warning` saying why, which the
+            message repeats after a `;`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaveResponse"
+              examples:
+                running:
+                  value:
+                    success: true
+                    message: Thermostat created
+                    id: living-room
+                waiting:
+                  summary: Saved enabled, waiting for its sensor
+                  value:
+                    success: true
+                    message: "Thermostat created; not started: sensor 'temp_3' not found"
+                    id: attic
+                    warning: "not started: sensor 'temp_3' not found"
+                handedOn:
+                  summary: Moved off a relay another thermostat waited for
+                  value:
+                    success: true
+                    message: Thermostat updated; "Winter" started
+                    id: summer
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          description: >-
+            The body is over 8 KiB, or the file the document makes would be:
+            a guard, since no document within the rules comes near it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                body:
+                  value:
+                    success: false
+                    error: Request body over 8 KiB
+                file:
+                  value:
+                    success: false
+                    error: The thermostat's file would be over 8 KiB
+        "500":
+          $ref: "#/components/responses/NotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+        "507":
+          description: A create would pass the firmware's `max_controllers`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: This device allows 8 thermostats; delete one to add another
+
+  /import:
+    post:
+      tags: [write]
+      operationId: importThermostat
+      summary: Bring a thermostat back under its own id.
+      description: >-
+        What a restore sends: a thermostat's document as `/get` answers it, or
+        as a backup's file holds it, `id` included. The thermostat with that
+        id is replaced, as a Save replaces it, and runs on in the same climate
+        entity; with no thermostat by that id one is created under it. The
+        presets keep the keys the document gives them and `active_preset`
+        stays, so the automation rules that name them still find them; a
+        preset without a key gets one from its name, and an `active_preset`
+        no preset has is none. `last_on_mode` is the document's too, read as
+        a file's is. `version` is not read: the file is written in
+        this firmware's format. `revision` is not read either: a replaced
+        thermostat's moves on by one, so a Save of a form read before the
+        import is `409`, and a new one starts at 0. Keys left out take their
+        defaults and every number is clamped, as on `/save`; the body is read
+        the same way. An import over a thermostat that calibrates ends the
+        run, as a Save does.
+
+        The refusals are a Save's, in its order: `400` for an empty body, a
+        body that is not JSON, or a document that breaks a rule, the `id`
+        first (`id is required`, then `id must be a slug: lowercase letters,
+        digits and single dashes`) and `id 'new' is reserved` once the rest is
+        sound; `409` for a thermostat whose file a newer firmware wrote, `507`
+        for a new one past `max_controllers`, `409` for an id a file in the
+        thermostat folder holds that the device did not load at boot; `409`
+        for a name another thermostat or a YAML climate answers to; and, for
+        an enabled thermostat, `400` when its sensor does not report °C, then
+        `409` when a running thermostat holds its relay, then `409` when
+        another enabled thermostat that waits names it. A relay the
+        thermostat holds already is never refused.
+
+        An enabled thermostat whose sensor or a relay is not on the device is
+        stored and waits, with a `warning`, and a relay or a climate entity the
+        import frees starts the thermostats that wait for it, as on `/save`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ControllerImportInput"
+      responses:
+        "200":
+          description: >-
+            Created or replaced; the message says which. A thermostat stored
+            enabled that does not run gets a `warning` saying why, which the
+            message repeats after a `;`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaveResponse"
+              examples:
+                created:
+                  value:
+                    success: true
+                    message: Thermostat created
+                    id: living-room
+                replaced:
+                  value:
+                    success: true
+                    message: Thermostat replaced
+                    id: living-room
+                waiting:
+                  summary: Stored enabled, waiting for its sensor
+                  value:
+                    success: true
+                    message: "Thermostat created; not started: sensor 'temp_3' not found"
+                    id: attic
+                    warning: "not started: sensor 'temp_3' not found"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          description: >-
+            The body is over 8 KiB, or the file the document makes would be.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                body:
+                  value:
+                    success: false
+                    error: Request body over 8 KiB
+                file:
+                  value:
+                    success: false
+                    error: The thermostat's file would be over 8 KiB
+        "500":
+          $ref: "#/components/responses/NotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+        "507":
+          description: A new thermostat would pass the firmware's `max_controllers`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: This device allows 8 thermostats; delete one to add another
+
+  /delete:
+    post:
+      tags: [write]
+      operationId: deleteThermostat
+      summary: Stop a thermostat and remove its file.
+      description: >-
+        The enabled thermostats that waited for one of its relays start, the
+        first by id, then the first by id of those that waited for a climate
+        entity, and the message names them.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+      responses:
+        "200":
+          description: >-
+            Removed. Should the partition refuse both the removal and blanking
+            the file, `persisted` is false and the message says the thermostat
+            comes back at the next boot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResponse"
+              examples:
+                deleted:
+                  value:
+                    success: true
+                    message: Thermostat deleted
+                    persisted: true
+                comesBack:
+                  summary: Gone until the next boot
+                  value:
+                    success: true
+                    message: Thermostat deleted; its file could not be removed, so it comes back at the next boot
+                    persisted: false
+                handedOn:
+                  summary: Another thermostat waited for its relay
+                  value:
+                    success: true
+                    message: Thermostat deleted; "Winter" started
+                    persisted: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/NotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /enable:
+    post:
+      tags: [write]
+      operationId: enableThermostat
+      summary: Start or stop a thermostat, and store the flag.
+      description: >-
+        Starting is refused as a `/save` of the thermostat would be: `400` when
+        its sensor does not report °C, then `409` when a running thermostat
+        holds its relay or another enabled thermostat that waits names it. With
+        `take_over=true` each of those is stored as disabled first, the running
+        one stopped, in the same step, and the answer names them, the running
+        one first; a take-over by one whose sensor or a relay is not on the
+        device is `400` instead, and nothing changes, as is a `409` when only
+        waiting thermostats name its relays and no climate entity is free.
+
+        Otherwise a sensor or a relay that is not on the device is no refusal,
+        for a thermostat already stored enabled too: it is stored enabled and
+        waits without running, and the `200` carries a `warning` naming what is
+        missing. It starts at the next boot that finds what it names, or at a
+        Save or an `/enable` that finds it there.
+
+        A relay a stop frees, or one a stopped holder drove alone, starts the
+        enabled thermostats that wait for it, the first by id and after the
+        one taking over; a climate entity a stop frees, or a take-over does
+        not run in, then starts the first by id of those that wait for one.
+        The message names them before any `warning`.
+
+        A thermostat whose file a newer firmware wrote starts or stops all the
+        same, but its file is never written: `persisted` is false when the flag
+        changed or it took a relay over, and the next boot finds it, and the
+        thermostats it stopped, running or waiting, as before.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+        - name: value
+          in: query
+          required: true
+          description: "`true` starts, `false` stops. Nothing else is taken."
+          schema:
+            type: string
+            enum: ["true", "false"]
+        - name: take_over
+          in: query
+          required: false
+          description: "`true` to store as disabled every other enabled thermostat on its relays, stopping the one that holds them. Nothing but `true` or `false` is taken."
+          schema:
+            type: string
+            enum: ["true", "false"]
+      responses:
+        "200":
+          description: >-
+            Started or stopped. A thermostat enabled that does not run gets a
+            `warning` saying why, which the message repeats after a `;`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnableResponse"
+              examples:
+                running:
+                  value:
+                    success: true
+                    message: Thermostat enabled
+                    persisted: true
+                takeOver:
+                  summary: Took the relay over
+                  value:
+                    success: true
+                    message: Thermostat enabled; "Living Room" stopped
+                    persisted: true
+                takeOverAndHandOn:
+                  summary: Took one relay over, and the holder's other went to the one waiting for it
+                  value:
+                    success: true
+                    message: Thermostat enabled; "House" and "Attic" stopped; "Porch" started
+                    persisted: true
+                handedOn:
+                  summary: Stopped, and another thermostat waited for its relay
+                  value:
+                    success: true
+                    message: Thermostat disabled; "Winter" started
+                    persisted: true
+                waiting:
+                  summary: Enabled, waiting for its relay
+                  value:
+                    success: true
+                    message: "Thermostat enabled; not started: relay 'relay_9' not found"
+                    persisted: true
+                    warning: "not started: relay 'relay_9' not found"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/NotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /setpoint:
+    post:
+      tags: [write]
+      operationId: setSetpoint
+      summary: Move a thermostat's target, running or not.
+      description: >-
+        Clamped into the thermostat's visual range. A running thermostat
+        applies it at once, as a target from Home Assistant; the file follows
+        within three seconds, unless a newer firmware wrote it. The active
+        preset stays.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+        - name: value
+          in: query
+          required: true
+          description: >-
+            A plain decimal number, optionally with an exponent; `nan`, `inf`,
+            hex and padding are `400`. Send a `+` as `%2B`: the server decodes a
+            bare `+` in the query to a space.
+          schema:
+            type: string
+            pattern: "^[+-]?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?$"
+          example: "21.5"
+      responses:
+        "200":
+          description: Moved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+              example:
+                success: true
+                message: Setpoint updated
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/NotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /preset:
+    post:
+      tags: [write]
+      operationId: applyPreset
+      summary: Pick one of a thermostat's presets, running or not.
+      description: >-
+        Sets the preset's target and, unless it says `keep`, its mode, and
+        makes it the active preset, as a pick from Home Assistant does. A
+        running thermostat applies it at once; a stopped one keeps it and runs
+        in it when it starts. The file follows within three seconds.
+
+        A thermostat whose file a newer firmware wrote takes the pick all the
+        same, but its file is never written: `persisted` is false when the pick
+        changed something, and the next boot finds it as before.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+        - name: key
+          in: query
+          required: true
+          description: >-
+            The preset's `key`, as `/get` reports it. `Missing key parameter`
+            without one, `Invalid key parameter` for anything but a slug.
+          schema:
+            $ref: "#/components/schemas/PresetKey"
+      responses:
+        "200":
+          description: Picked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PresetResponse"
+              example:
+                success: true
+                message: Preset applied
+                persisted: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/NotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /autotune:
+    post:
+      tags: [write]
+      operationId: autotune
+      summary: Start or cancel the calibration of a PID thermostat.
+      description: >-
+        `value=true` starts one: the relay in `direction` closes fully when the
+        room is 0.25 °C under the target and opens 0.25 °C over it (cooling the
+        other way round), the other relay held open, with its minimum on and
+        off times and the cut-out temperature kept. Every reading feeds it.
+        After its sixth relay switch it has measured the ultimate gain and
+        period of the room, `rule` turns them into kp, ki and kd, and the
+        device writes them into the thermostat and runs with them, its
+        `revision` moved on. A room with radiators takes about an hour and a
+        half, a floor heating eight to ten hours; start near the target, since
+        a floor that needs more than 6 hours to reach the band ends the run as
+        `no_switch` before its first swing. `/status` follows it, and
+        keeps what it found, or why it ended without, until the next run, a
+        delete or a reboot: the run itself lives in memory only.
+
+        A run ends without gains when it is cancelled (`value=false`), when the
+        target or the mode changes from anywhere, at a Save or an import, when
+        the thermostat stops or another takes its relay over, on any fault, after
+        24 hours in all, after 6 hours without a relay switch, and when the
+        readings cross the target more than 65 times, as a noisy probe at the
+        target makes them. The thermostat then goes back to its PID with the
+        gains it had, from a clean start.
+
+        The parameters are read first: `400` for a missing or malformed `id`
+        or `value`, a `direction` other than `heat` or `cool`, a `rule` not
+        among the five. Then a start is `404` for an unknown `id`, `409` for a
+        bang-bang or stopped thermostat, one a newer firmware wrote, one that
+        calibrates already, or one in mode off, `400` for a `direction` its
+        mode does not drive, or none in `heat_cool`, and `409` while it
+        reports a fault. A cancel is `404`, or `409` when nothing runs.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+        - name: value
+          in: query
+          required: true
+          description: "`true` starts a calibration, `false` cancels the one that runs."
+          schema:
+            type: string
+            enum: ["true", "false"]
+        - name: direction
+          in: query
+          required: false
+          description: >-
+            The relay to swing. Required in `heat_cool`; in `heat` or `cool`
+            the mode's, and the other one is `400`.
+          schema:
+            $ref: "#/components/schemas/AutotuneDirection"
+        - name: rule
+          in: query
+          required: false
+          description: How Ku and Pu become gains; `zn_pi` when left out.
+          schema:
+            $ref: "#/components/schemas/AutotuneRule"
+      responses:
+        "200":
+          description: Started, or cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+              examples:
+                started:
+                  value:
+                    success: true
+                    message: Calibration started
+                cancelled:
+                  value:
+                    success: true
+                    message: Calibration cancelled
+        "400":
+          description: A malformed parameter, or a direction the thermostat's mode does not drive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                rule:
+                  value:
+                    success: false
+                    error: Invalid rule parameter
+                heatCool:
+                  value:
+                    success: false
+                    error: "In heat_cool, direction must say heat or cool"
+                direction:
+                  value:
+                    success: false
+                    error: "direction 'cool' needs mode cool or heat_cool"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          description: The thermostat cannot be calibrated now, or nothing runs to cancel.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                bangBang:
+                  value:
+                    success: false
+                    error: Only a PID thermostat can be calibrated
+                stopped:
+                  value:
+                    success: false
+                    error: The thermostat is not running
+                newerFirmware:
+                  value:
+                    success: false
+                    error: A newer firmware wrote this thermostat; update the firmware to change it
+                running:
+                  value:
+                    success: false
+                    error: A calibration is already running
+                "off":
+                  value:
+                    success: false
+                    error: "The thermostat is off: set it to heat or cool first"
+                fault:
+                  value:
+                    success: false
+                    error: The thermostat reports overtemp; calibrate it once that clears
+                none:
+                  value:
+                    success: false
+                    error: No calibration is running
+        "500":
+          $ref: "#/components/responses/NotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /status:
+    get:
+      tags: [read]
+      operationId: getStatus
+      summary: The control loop of every thermostat, or of one.
+      parameters:
+        - name: id
+          in: query
+          required: false
+          description: One thermostat's id, as `/list` reports it; absent for all of them.
+          schema:
+            $ref: "#/components/schemas/Id"
+      responses:
+        "200":
+          description: Live readings, recomputed per request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /entities:
+    get:
+      tags: [read]
+      operationId: listEntities
+      summary: The sensors and relays a thermostat may name.
+      description: >-
+        Internal entities are left out, and so is a sensor that does not report
+        °C, which no thermostat runs on. Each switch says which running
+        thermostat holds it.
+      responses:
+        "200":
+          description: Entities by domain.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntitiesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /schema:
+    get:
+      tags: [read]
+      operationId: getSchema
+      summary: What an editor may offer.
+      description: >-
+        The kinds, modes and faults, the firmware's limits, and every tunable
+        number from the table the device clamps a document against, grouped as
+        a form shows them.
+      responses:
+        "200":
+          description: The catalog.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClimateSchema"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /ping:
+    get:
+      tags: [read]
+      operationId: ping
+      summary: Liveness.
+      responses:
+        "200":
+          description: The API answers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+components:
+  securitySchemes:
+    webServerAuth:
+      type: http
+      scheme: digest
+      description: >-
+        Credentials from the `web_server:` `auth:` block. The scheme is fixed at
+        build time; the configs in this repository build Digest. A firmware with a
+        `web_auth` serves the pair stored on the device instead of the compiled
+        one, so a client must be ready for either.
+
+  parameters:
+    IdQuery:
+      name: id
+      in: query
+      required: true
+      description: The thermostat's id, as `/list` reports it. `Missing id parameter` without one, `Invalid id parameter` for anything but a slug.
+      schema:
+        $ref: "#/components/schemas/Id"
+      example: living-room
+
+  responses:
+    Unauthorized:
+      description: >-
+        The credentials the `web_server:` `auth:` block set — replaced by what a
+        `web_auth` stored — are missing or wrong. The server names the scheme in
+        `WWW-Authenticate`; the body is the HTTP server's, not this API's.
+      headers:
+        WWW-Authenticate:
+          description: The scheme the firmware was built with.
+          schema:
+            type: string
+    BadRequest:
+      description: >-
+        Bad request — a missing or malformed parameter, a body that is empty or
+        not JSON, a document that breaks a rule, an enabled thermostat whose
+        sensor does not report °C, or an `/enable` with `take_over=true` that
+        would switch another thermostat off for one whose sensor or relay is not
+        on the device. With no other enabled thermostat on its relays, that
+        `/enable` is a `200` with a `warning`, as without `take_over`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            parameter:
+              value:
+                success: false
+                error: Invalid id parameter
+            document:
+              value:
+                success: false
+                error: "Name cannot contain '/'"
+            entity:
+              summary: "/enable taking another thermostat's relay over only"
+              value:
+                success: false
+                error: No sensor "temp_3" on this device
+            unit:
+              value:
+                success: false
+                error: '"Uptime" reports s, not °C'
+            preset:
+              value:
+                success: false
+                error: 'Preset 2: "ECO" is already used by Preset 1'
+            importId:
+              summary: "/import with no id"
+              value:
+                success: false
+                error: id is required
+    NotFound:
+      description: No thermostat has that id, it has no preset with that key, or the path names no route.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            thermostat:
+              value:
+                success: false
+                error: Thermostat not found
+            preset:
+              value:
+                success: false
+                error: Preset not found
+            route:
+              value:
+                success: false
+                error: Unknown endpoint
+    MethodNotAllowed:
+      description: >-
+        A `GET` to a route that takes `POST`, a `POST` to one that takes
+        `GET`, or an `OPTIONS`. Any other method never reaches a route: the
+        server answers it with a `405` of its own, `text/html`, no `Allow`,
+        and closes the connection.
+      headers:
+        Allow:
+          description: The one method this route accepts.
+          schema:
+            type: string
+            enum: [GET, POST]
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Method not allowed
+    Conflict:
+      description: >-
+        The name is one another thermostat or a YAML climate answers to, every
+        id it gives is taken by a file in the folder (or, on `/import`, the id
+        is), a running thermostat holds the relay, another enabled thermostat
+        waits and names it, a newer firmware wrote the thermostat's file, or
+        the Save's `revision` is older than the device's.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            name:
+              value:
+                success: false
+                error: '"living room" is already used by another thermostat'
+            entityId:
+              value:
+                success: false
+                error: '"Room_1" is too close to "Room 1": both are room_1 to Home Assistant'
+            relay:
+              value:
+                success: false
+                error: '"Relay 1" is already driven by "Living Room"'
+            reserved:
+              value:
+                success: false
+                error: '"Relay 1" is reserved by "Attic", which is enabled and waits to start'
+            ids:
+              value:
+                success: false
+                error: >-
+                  Every id made from "Boiler" is taken by a file in the
+                  thermostat folder; choose another name
+            newerFirmware:
+              value:
+                success: false
+                error: A newer firmware wrote this thermostat; update the firmware to change it
+            revision:
+              value:
+                success: false
+                error: The device changed this thermostat since it was read; reload it
+            importId:
+              summary: "/import onto a file the device did not load"
+              value:
+                success: false
+                error: The id "living-room" is taken by a file in the thermostat folder that was not loaded
+    NotWritten:
+      description: >-
+        Nothing changed: the thermostat's file could not be written, or the
+        storage the thermostats live on was not usable at boot, and every
+        write is refused until a restart finds it usable.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            file:
+              value:
+                success: false
+                error: The thermostat's file could not be written
+            storage:
+              value:
+                success: false
+                error: Thermostat storage is not available
+    Busy:
+      description: The main loop did not take the request in time. Nothing was read or written; ask again.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Device busy
+
+  schemas:
+    Id:
+      type: string
+      description: A slug made from the name at creation, or the one an `/import` brings; never `new` (`New` gets `new-2`), and the file's name; a rename never changes it.
+      pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+      maxLength: 48
+      example: living-room
+
+    Name:
+      type: string
+      description: >-
+        The climate entity's name: 1 to 48 printable ASCII characters, neither
+        `/` nor `\`, surrounding blanks trimmed. Home Assistant knows the entity
+        by it, so a rename is a new entity there.
+      minLength: 1
+      maxLength: 48
+      example: Living Room
+
+    ControlKind:
+      type: string
+      enum: [pid, bang_bang]
+      description: The control law. `bang_bang` is the hysteresis a dashboard may label so.
+
+    Mode:
+      type: string
+      enum: ["off", heat, cool, heat_cool]
+
+    OnMode:
+      type: string
+      enum: [heat, cool, heat_cool]
+      description: >-
+        The mode a turn-on goes back to: `mode` while it is not off, otherwise
+        the one it was in before, as far as the relays still serve it, else
+        `heat`, or `cool` for a cooling-only thermostat.
+
+    PresetMode:
+      type: string
+      enum: [keep, "off", heat, cool, heat_cool]
+      description: >-
+        `keep` leaves the thermostat's mode as it is; any other needs the
+        relays it drives, as the thermostat's own mode does.
+
+    PresetKey:
+      type: string
+      description: >-
+        The slug of the name the preset was created with, `-2` and on when
+        another preset of the thermostat has it. A rename keeps it, so a rule
+        naming the preset still finds it.
+      pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+      maxLength: 48
+      example: eco
+
+    PresetName:
+      type: string
+      description: >-
+        The thermostat name rules, trimmed; `none`, in any case, is reserved,
+        and two presets of one thermostat may not share a name compared
+        without case and runs of spaces. One of Home Assistant's standard
+        presets (`eco`, `away`, `boost`, `comfort`, `home`, `sleep`,
+        `activity`), in any case, is that built-in preset there; any other
+        name is shown as it is.
+      minLength: 1
+      maxLength: 48
+      example: Eco
+
+    Preset:
+      type: object
+      description: A target, and a mode or `keep`, that a thermostat takes in one step.
+      required: [key, name, setpoint, mode]
+      properties:
+        key:
+          $ref: "#/components/schemas/PresetKey"
+        name:
+          $ref: "#/components/schemas/PresetName"
+        setpoint:
+          type: number
+          description: Held inside the thermostat's visual range.
+        mode:
+          $ref: "#/components/schemas/PresetMode"
+
+    PresetInput:
+      type: object
+      description: >-
+        A preset as `/save` takes it. A new one has no key: the device gives
+        it. A key the thermostat never gave out is made again from the name;
+        on `/import` every key stays as it comes.
+      required: [name, setpoint]
+      properties:
+        key:
+          $ref: "#/components/schemas/PresetKey"
+        name:
+          type: string
+        setpoint:
+          type: number
+        mode:
+          $ref: "#/components/schemas/PresetMode"
+          default: keep
+
+    ActivePreset:
+      type: string
+      description: >-
+        The key of the preset picked last, `""` for none. A target or a mode
+        set by hand keeps it, and it stays while the thermostat is stopped.
+      example: eco
+
+    ActivePresetName:
+      type: string
+      description: The active preset's name, `""` for none.
+      example: Eco
+
+    Action:
+      type: string
+      enum: ["off", idle, heating, cooling]
+      description: >-
+        What the relays do. `heating` or `cooling` while that relay is
+        closed, whatever the thermostat wants: a relay that its minimum off
+        time holds open is not heating yet, one that its minimum on time holds
+        closed still is (`heat_relay_wait`, `cool_relay_wait`). A PID also
+        stays `heating` or `cooling` between two pulses once the first has
+        closed the relay. `idle` otherwise, and before the first reading.
+        `off` in mode off, on a fault other than `relay_contested`, or when
+        the thermostat is not running.
+
+    RelayWait:
+      type: string
+      enum: [none, min_on, min_off]
+      description: >-
+        What holds a relay away from where the thermostat wants it:
+        `min_off` before it may close, `min_on` before it may open. `none`
+        when it is where the thermostat wants it, when the thermostat is not
+        running or holds its relays open (mode off, a fault other than
+        `relay_contested`, no reading yet), and while a relay switched from
+        elsewhere stays there until it is put back, which waits on that
+        switch, not on the thermostat. Under `relay_contested` the thermostat
+        goes on controlling, and its relays wait as at any other time.
+
+    Fault:
+      type: string
+      enum: [none, sensor_stale, overtemp, relay_contested]
+      description: >-
+        What is wrong with a running thermostat. `sensor_stale`, when its
+        sensor has given no reading for `sensor_timeout_s`, and `overtemp`,
+        while the reading is above `safety.max_temperature`, hold its relays
+        open. `relay_contested` only reports: something else has moved one of
+        its relays five times without ten minutes of quiet after a put-back,
+        and the thermostat goes on controlling and putting it back; it clears
+        by itself after those ten minutes. A sensor or a relay that is not on
+        the device is no fault: the thermostat does not start, and says why in
+        `waiting`.
+
+    PartialOutputConfig:
+      type: object
+      description: One driven direction. An empty `relay_id` means the direction is unused.
+      properties:
+        relay_id:
+          type: string
+          maxLength: 120
+          description: The switch's object id.
+        period_s:
+          type: number
+        min_on_s:
+          type: number
+        min_off_s:
+          type: number
+
+    OutputConfig:
+      allOf:
+        - $ref: "#/components/schemas/PartialOutputConfig"
+      required: [relay_id, period_s, min_on_s, min_off_s]
+
+    PartialVisualConfig:
+      type: object
+      properties:
+        min_temperature:
+          type: number
+        max_temperature:
+          type: number
+        step:
+          type: number
+
+    VisualConfig:
+      allOf:
+        - $ref: "#/components/schemas/PartialVisualConfig"
+      required: [min_temperature, max_temperature, step]
+
+    PartialSafetyConfig:
+      type: object
+      properties:
+        sensor_timeout_s:
+          type: number
+        max_temperature:
+          type: number
+
+    SafetyConfig:
+      allOf:
+        - $ref: "#/components/schemas/PartialSafetyConfig"
+      required: [sensor_timeout_s, max_temperature]
+
+    PartialPidConfig:
+      type: object
+      properties:
+        kp:
+          type: number
+        ki:
+          type: number
+        kd:
+          type: number
+        min_integral:
+          type: number
+        max_integral:
+          type: number
+        starting_integral_term:
+          type: number
+        output_samples:
+          type: number
+        derivative_samples:
+          type: number
+        deadband_threshold_low:
+          type: number
+        deadband_threshold_high:
+          type: number
+        deadband_kp_multiplier:
+          type: number
+        deadband_ki_multiplier:
+          type: number
+        deadband_kd_multiplier:
+          type: number
+        deadband_output_samples:
+          type: number
+
+    PidConfig:
+      allOf:
+        - $ref: "#/components/schemas/PartialPidConfig"
+      required:
+        - kp
+        - ki
+        - kd
+        - min_integral
+        - max_integral
+        - starting_integral_term
+        - output_samples
+        - derivative_samples
+        - deadband_threshold_low
+        - deadband_threshold_high
+        - deadband_kp_multiplier
+        - deadband_ki_multiplier
+        - deadband_kd_multiplier
+        - deadband_output_samples
+
+    PartialBangBangConfig:
+      type: object
+      description: The band around the target, as deviations below and above it.
+      properties:
+        below:
+          type: number
+        above:
+          type: number
+
+    BangBangConfig:
+      allOf:
+        - $ref: "#/components/schemas/PartialBangBangConfig"
+      required: [below, above]
+
+    ControllerDocument:
+      type: object
+      description: >-
+        One thermostat, in its file format. Every number has a default and a
+        range, both in `/schema`.
+      required:
+        - version
+        - revision
+        - id
+        - name
+        - enabled
+        - kind
+        - sensor_id
+        - update_interval_s
+        - heat
+        - cool
+        - visual
+        - safety
+        - pid
+        - bang_bang
+        - mode
+        - last_on_mode
+        - setpoint
+        - presets
+        - active_preset
+      properties:
+        version:
+          type: integer
+          minimum: 4
+          description: >-
+            `4`, the format this firmware writes, or the higher number of a
+            file a newer firmware wrote: that thermostat runs, but its Save is
+            `409`.
+        revision:
+          type: integer
+          minimum: 0
+          description: >-
+            Moves on when a calibration writes new gains and when an
+            `/import` replaces the thermostat; a Save or any other write never
+            moves it, and a new thermostat has `0`. A Save that sends another
+            one is `409`.
+        id:
+          $ref: "#/components/schemas/Id"
+        name:
+          $ref: "#/components/schemas/Name"
+        enabled:
+          type: boolean
+        kind:
+          $ref: "#/components/schemas/ControlKind"
+        sensor_id:
+          type: string
+          maxLength: 120
+          description: The object id of a temperature sensor that reports °C.
+        update_interval_s:
+          type: number
+        heat:
+          $ref: "#/components/schemas/OutputConfig"
+        cool:
+          $ref: "#/components/schemas/OutputConfig"
+        visual:
+          $ref: "#/components/schemas/VisualConfig"
+        safety:
+          $ref: "#/components/schemas/SafetyConfig"
+        pid:
+          $ref: "#/components/schemas/PidConfig"
+        bang_bang:
+          $ref: "#/components/schemas/BangBangConfig"
+        mode:
+          $ref: "#/components/schemas/Mode"
+        last_on_mode:
+          $ref: "#/components/schemas/OnMode"
+        setpoint:
+          type: number
+          description: One target for both laws, held inside the visual range.
+        presets:
+          type: array
+          maxItems: 8
+          description: In the order Home Assistant lists the custom ones.
+          items:
+            $ref: "#/components/schemas/Preset"
+        active_preset:
+          $ref: "#/components/schemas/ActivePreset"
+      example:
+        version: 4
+        revision: 0
+        id: living-room
+        name: Living Room
+        enabled: true
+        kind: bang_bang
+        sensor_id: temp_1
+        update_interval_s: 30
+        heat:
+          relay_id: relay_1
+          period_s: 300
+          min_on_s: 10
+          min_off_s: 10
+        cool:
+          relay_id: ""
+          period_s: 300
+          min_on_s: 10
+          min_off_s: 10
+        visual:
+          min_temperature: 5
+          max_temperature: 45
+          step: 0.5
+        safety:
+          sensor_timeout_s: 300
+          max_temperature: 60
+        pid:
+          kp: 0.6
+          ki: 0.0025
+          kd: 0
+          min_integral: -1
+          max_integral: 1
+          starting_integral_term: 0
+          output_samples: 1
+          derivative_samples: 8
+          deadband_threshold_low: 0
+          deadband_threshold_high: 0
+          deadband_kp_multiplier: 0
+          deadband_ki_multiplier: 0
+          deadband_kd_multiplier: 0
+          deadband_output_samples: 1
+        bang_bang:
+          below: 0.5
+          above: 0.5
+        mode: heat
+        last_on_mode: heat
+        setpoint: 21
+        presets:
+          - key: eco
+            name: Eco
+            setpoint: 18
+            mode: keep
+          - key: night
+            name: Night
+            setpoint: 19.5
+            mode: heat
+        active_preset: eco
+
+    ControllerSaveInput:
+      type: object
+      description: >-
+        What `/save` takes: a document whose keys may be missing, nested ones
+        too, each then taking its default. `name` and `sensor_id` are needed,
+        and `heat.relay_id` or `cool.relay_id` must name a relay, not the same
+        one for both. `mode` defaults to `heat`, which needs `heat.relay_id`.
+        `id` absent or `""` creates. `presets` left out, or `null`, is none.
+      required: [name, sensor_id]
+      properties:
+        version:
+          type: number
+          description: Ignored; a Save writes this firmware's format.
+        revision:
+          type: integer
+          minimum: 0
+          description: >-
+            The one `/get` gave. Checked when it is a whole number: another one
+            than the thermostat's is `409`. Ignored on a create.
+        id:
+          type: string
+        name:
+          type: string
+          minLength: 1
+        enabled:
+          type: boolean
+          default: true
+        kind:
+          $ref: "#/components/schemas/ControlKind"
+        sensor_id:
+          type: string
+          minLength: 1
+          maxLength: 120
+        update_interval_s:
+          type: number
+        heat:
+          $ref: "#/components/schemas/PartialOutputConfig"
+        cool:
+          $ref: "#/components/schemas/PartialOutputConfig"
+        visual:
+          $ref: "#/components/schemas/PartialVisualConfig"
+        safety:
+          $ref: "#/components/schemas/PartialSafetyConfig"
+        pid:
+          $ref: "#/components/schemas/PartialPidConfig"
+        bang_bang:
+          $ref: "#/components/schemas/PartialBangBangConfig"
+        mode:
+          $ref: "#/components/schemas/Mode"
+        last_on_mode:
+          $ref: "#/components/schemas/OnMode"
+          description: >-
+            Ignored by `/save`, the mode to turn back on in being the
+            thermostat's state; a word that is not one of these is still `400`.
+            `/import` takes it, as a file's is read.
+        setpoint:
+          type: number
+        presets:
+          type: [array, "null"]
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/PresetInput"
+        active_preset:
+          type: string
+          description: >-
+            Ignored by `/save`: the active preset is the thermostat's state.
+            `/import` keeps it while a preset has that key, otherwise none.
+      anyOf:
+        - required: [heat]
+          properties:
+            heat:
+              required: [relay_id]
+              properties:
+                relay_id:
+                  minLength: 1
+        - required: [cool]
+          properties:
+            cool:
+              required: [relay_id]
+              properties:
+                relay_id:
+                  minLength: 1
+      example:
+        name: Living Room
+        sensor_id: temp_1
+        heat:
+          relay_id: relay_1
+
+    ControllerImportInput:
+      description: >-
+        What `/import` takes: a `/save` body under the `id` the thermostat is
+        to have. The presets' keys, `active_preset` and `last_on_mode` are
+        kept, not ignored.
+      allOf:
+        - $ref: "#/components/schemas/ControllerSaveInput"
+        - type: object
+          required: [id]
+          properties:
+            version:
+              type: number
+              description: Not read; the file is written in this firmware's format.
+            revision:
+              type: integer
+              minimum: 0
+              description: >-
+                Not read: a replaced thermostat's revision moves on by one, a
+                new one's is `0`.
+            id:
+              $ref: "#/components/schemas/Id"
+            presets:
+              type: [array, "null"]
+              maxItems: 8
+              description: >-
+                Each keeps the key it brings; one without a key gets one from
+                its name.
+              items:
+                $ref: "#/components/schemas/PresetInput"
+            active_preset:
+              $ref: "#/components/schemas/ActivePreset"
+      example:
+        id: living-room
+        name: Living Room
+        sensor_id: temp_1
+        heat:
+          relay_id: relay_1
+        setpoint: 20.5
+        presets:
+          - key: eco
+            name: Eco
+            setpoint: 18
+        active_preset: eco
+
+    ControllerSummary:
+      type: object
+      required:
+        - id
+        - name
+        - enabled
+        - kind
+        - mode
+        - sensor_id
+        - heat_relay_id
+        - cool_relay_id
+        - running
+        - waiting
+        - active_preset
+        - active_preset_name
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        name:
+          type: string
+          description: Also the name of the climate entity it drives.
+        enabled:
+          type: boolean
+        kind:
+          $ref: "#/components/schemas/ControlKind"
+        mode:
+          $ref: "#/components/schemas/Mode"
+        sensor_id:
+          type: string
+        heat_relay_id:
+          type: string
+        cool_relay_id:
+          type: string
+        running:
+          type: boolean
+          description: >-
+            Enabled, and its sensor and relays were there to run on. Enabled
+            and not running, it waits: see `waiting`.
+        waiting:
+          $ref: "#/components/schemas/Waiting"
+        active_preset:
+          $ref: "#/components/schemas/ActivePreset"
+        active_preset_name:
+          $ref: "#/components/schemas/ActivePresetName"
+
+    ControllersResponse:
+      type: object
+      required: [success, count, max_controllers, controllers]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        count:
+          type: integer
+        max_controllers:
+          type: integer
+          description: How many thermostats this firmware has room for.
+        controllers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ControllerSummary"
+      example:
+        success: true
+        count: 1
+        max_controllers: 8
+        controllers:
+          - id: living-room
+            name: Living Room
+            enabled: true
+            kind: pid
+            mode: heat
+            sensor_id: temp_1
+            heat_relay_id: relay_1
+            cool_relay_id: ""
+            running: true
+            waiting: ""
+            active_preset: eco
+            active_preset_name: Eco
+
+    Waiting:
+      type: string
+      description: >-
+        Why an enabled thermostat does not run, word for word the `warning`
+        the Save or the `/enable` that left it waiting answered with, or what
+        the boot found, or the retry when a relay it names or a climate
+        entity came free; `""` when it runs or is disabled. One that waits for
+        a relay another thermostat holds starts as soon as the relay is free,
+        and one that waits for a climate entity as soon as a stop frees one. A
+        waiting thermostat's `fault` is `none`: a fault is a running one's.
+      examples:
+        - ""
+        - "not started: sensor 'temp_3' not found"
+        - "not started: sensor 'uptime' reports s, not °C"
+        - "not started: relay 'relay_9' not found"
+        - "not started: relay 'relay_1' is held by 'living-room'"
+        - "not started: no free climate entity"
+
+    PidTerms:
+      type: object
+      description: A running PID's last pass; a term is `null` where it is not a number.
+      required: [error, proportional, integral, derivative, in_deadband]
+      properties:
+        error:
+          type: [number, "null"]
+        proportional:
+          type: [number, "null"]
+        integral:
+          type: [number, "null"]
+        derivative:
+          type: [number, "null"]
+        in_deadband:
+          type: boolean
+
+    ControllerStatus:
+      type: object
+      required:
+        - id
+        - running
+        - waiting
+        - action
+        - fault
+        - current_temperature
+        - sensor_age_s
+        - setpoint
+        - active_preset
+        - active_preset_name
+        - min_temperature
+        - max_temperature
+        - step
+        - heat_duty
+        - cool_duty
+        - heat_relay_on
+        - cool_relay_on
+        - heat_relay_wait
+        - cool_relay_wait
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        running:
+          type: boolean
+        waiting:
+          $ref: "#/components/schemas/Waiting"
+        action:
+          $ref: "#/components/schemas/Action"
+        fault:
+          $ref: "#/components/schemas/Fault"
+        current_temperature:
+          type: [number, "null"]
+          description: The sensor's reading, running or not; `null` without one.
+        sensor_age_s:
+          type: [number, "null"]
+          description: Seconds since the running thermostat's last reading; `null` before one, or when stopped.
+        setpoint:
+          type: number
+        active_preset:
+          $ref: "#/components/schemas/ActivePreset"
+        active_preset_name:
+          $ref: "#/components/schemas/ActivePresetName"
+        min_temperature:
+          type: number
+        max_temperature:
+          type: number
+        step:
+          type: number
+        switch_low:
+          type: number
+          description: Bang-bang only.
+        switch_high:
+          type: number
+          description: Bang-bang only.
+        heat_duty:
+          type: number
+          minimum: 0
+          maximum: 1
+        cool_duty:
+          type: number
+          minimum: 0
+          maximum: 1
+        heat_relay_on:
+          type: boolean
+        cool_relay_on:
+          type: boolean
+        heat_relay_wait:
+          $ref: "#/components/schemas/RelayWait"
+        cool_relay_wait:
+          $ref: "#/components/schemas/RelayWait"
+        pid:
+          $ref: "#/components/schemas/PidTerms"
+        autotune:
+          $ref: "#/components/schemas/AutotuneStatus"
+
+    AutotuneDirection:
+      type: string
+      enum: [heat, cool]
+
+    AutotuneRule:
+      type: string
+      description: >-
+        Ziegler-Nichols PI, Ziegler-Nichols PID, Pessen Integral, Some
+        Overshoot, No Overshoot: kp = a·Ku, ki = b·Ku/Pu, kd = c·Ku·Pu with
+        (a, b, c) = (0.45, 0.54, 0), (0.6, 1.2, 0.075), (0.7, 1.75, 0.105),
+        (0.333, 0.667, 0.111), (0.2, 0.4, 0.0625).
+      enum: [zn_pi, zn_pid, pessen, some_overshoot, no_overshoot]
+
+    Gains:
+      type: object
+      required: [kp, ki, kd]
+      properties:
+        kp:
+          type: number
+        ki:
+          type: number
+        kd:
+          type: number
+
+    AutotuneStatus:
+      type: object
+      description: >-
+        A thermostat's last calibration since boot, running or ended, present
+        until the next one, a delete or a reboot.
+      required:
+        [state, reason, direction, rule, setpoint, phase, aim, swings, elapsed_s, extremes, ku, pu, flags, old, new,
+         persisted]
+      properties:
+        state:
+          type: string
+          enum: [running, succeeded, failed]
+        reason:
+          type: string
+          description: >-
+            Why a failed run ended: `cancelled`; a target or a mode changed
+            from anywhere; a Save or an import; the thermostat stopped
+            (`stopped`) or another took its relay over (`taken_over`); a
+            fault; 24 hours in all (`timeout`); 6 hours without a relay switch
+            (`no_switch`); readings that crossed the target more than 65
+            times, a noisy probe at the target (`noisy`). `""` while it runs
+            and after a success.
+          enum:
+            - ""
+            - cancelled
+            - target_changed
+            - mode_changed
+            - saved
+            - stopped
+            - taken_over
+            - sensor_stale
+            - overtemp
+            - relay_contested
+            - timeout
+            - no_switch
+            - noisy
+        direction:
+          $ref: "#/components/schemas/AutotuneDirection"
+        rule:
+          $ref: "#/components/schemas/AutotuneRule"
+        setpoint:
+          type: number
+          description: >-
+            The target the run swings the room around: the thermostat's when
+            it started, kept after a later target ended it or moved on.
+        phase:
+          type: [string, "null"]
+          enum: ["on", "off", null]
+          description: Whether the run holds its relay closed now; `null` once it ended, or before its first reading.
+        aim:
+          type: [number, "null"]
+          description: The reading that switches the relay next, 0.25 °C from `setpoint`; `null` as `phase`.
+        swings:
+          type: integer
+          description: Relay switches so far; the run has its numbers at the sixth.
+        elapsed_s:
+          type: integer
+          description: Seconds since the start, up to the end once it ended.
+        extremes:
+          type: array
+          description: >-
+            The far end of each relay phase that ended, in order, the first
+            phase's too: the room's coldest in a heating phase, its warmest in
+            the next. A chart of the swing.
+          items:
+            type: object
+            required: [at_s, temperature]
+            properties:
+              at_s:
+                type: integer
+                description: Seconds since the start.
+              temperature:
+                type: number
+        ku:
+          type: [number, "null"]
+          description: The ultimate gain it measured; `null` unless it succeeded.
+        pu:
+          type: [number, "null"]
+          description: The ultimate period, in seconds; `null` unless it succeeded.
+        flags:
+          type: array
+          description: >-
+            Warnings on a result; none ever makes a run longer. `asymmetric`:
+            the shortest half-period is under 0.66 of the longest, the room
+            rose and fell at very different rates. `uneven`: the smallest
+            swing is under 0.66 of the largest, something else moved the room.
+            `clamped`: a gain had to be held inside its range.
+          items:
+            type: string
+            enum: [asymmetric, uneven, clamped]
+        old:
+          $ref: "#/components/schemas/Gains"
+        new:
+          oneOf:
+            - $ref: "#/components/schemas/Gains"
+            - type: "null"
+          description: The gains it wrote; `null` unless it succeeded.
+        persisted:
+          type: boolean
+          description: >-
+            False when the gains it found run but did not reach the file, so a
+            reboot loses them; true again once the thermostat is written, by the
+            device's retry a few seconds later or any later change.
+      example:
+        state: succeeded
+        reason: ""
+        direction: heat
+        rule: zn_pi
+        setpoint: 21
+        phase: null
+        aim: null
+        swings: 6
+        elapsed_s: 6900
+        extremes:
+          - {at_s: 0, temperature: 18.2}
+          - {at_s: 3060, temperature: 21.6}
+          - {at_s: 3920, temperature: 20.3}
+          - {at_s: 4970, temperature: 21.6}
+          - {at_s: 5830, temperature: 20.3}
+          - {at_s: 6880, temperature: 21.6}
+        ku: 0.9689
+        pu: 1880
+        flags: []
+        old: {kp: 0.6, ki: 0.0025, kd: 0}
+        new: {kp: 0.436022, ki: 0.000278, kd: 0}
+        persisted: true
+
+    StatusResponse:
+      type: object
+      required: [success, controllers]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        controllers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ControllerStatus"
+
+    ParamDesc:
+      type: object
+      required: [key, label, unit, group, def, min, max, step, integer, kind, hint]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        unit:
+          type: string
+        group:
+          type: string
+        def:
+          type: number
+        min:
+          type: number
+        max:
+          type: number
+        step:
+          type: number
+        integer:
+          type: boolean
+        kind:
+          type: string
+          enum: ["", pid, bang_bang]
+          description: The law this number belongs to, `""` when both use it.
+        hint:
+          type: string
+
+    ClimateSchema:
+      type: object
+      required: [kinds, modes, faults, max_controllers, name_max_length, presets, params]
+      properties:
+        kinds:
+          type: array
+          items:
+            $ref: "#/components/schemas/ControlKind"
+        modes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Mode"
+        faults:
+          type: array
+          items:
+            $ref: "#/components/schemas/Fault"
+        max_controllers:
+          type: integer
+        name_max_length:
+          type: integer
+          enum: [48]
+        presets:
+          type: object
+          description: >-
+            What a preset may be. Its name follows `name_max_length`; its
+            target, the thermostat's visual range.
+          required: [max_count, modes, standard]
+          properties:
+            max_count:
+              type: integer
+              enum: [8]
+              description: Presets per thermostat.
+            modes:
+              type: array
+              description: "`keep` first, then the modes."
+              items:
+                $ref: "#/components/schemas/PresetMode"
+            standard:
+              type: array
+              description: Home Assistant's built-in presets; a preset by one of these names, in any case, is that one.
+              items:
+                type: string
+                enum: [eco, away, boost, comfort, home, sleep, activity]
+        params:
+          type: object
+          description: The tunable numbers by group, in the order a form shows them.
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/ParamDesc"
+
+    EntitiesResponse:
+      type: object
+      required: [success, sensors, switches]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        sensors:
+          type: array
+          items:
+            type: object
+            required: [object_id, name, unit]
+            properties:
+              object_id:
+                type: string
+              name:
+                type: string
+              unit:
+                type: string
+                enum: ["°C"]
+        switches:
+          type: array
+          items:
+            type: object
+            required: [object_id, name, claimed_by]
+            properties:
+              object_id:
+                type: string
+              name:
+                type: string
+              claimed_by:
+                type: string
+                description: >-
+                  The id of the running thermostat that holds the relay, `""` when
+                  none does. An enabled thermostat that waits (`/list`) still
+                  reserves the relays it names: a Save or an `/enable` of
+                  another one on them is a `409` too.
+      example:
+        success: true
+        sensors:
+          - object_id: temp_1
+            name: Temp 1
+            unit: °C
+        switches:
+          - object_id: relay_1
+            name: Relay 1
+            claimed_by: living-room
+
+    SaveResponse:
+      type: object
+      description: What `/save` and `/import` answer.
+      required: [success, message, id]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+        id:
+          $ref: "#/components/schemas/Id"
+        warning:
+          type: string
+          description: >-
+            Present only when the thermostat was saved enabled but does not
+            run: its sensor or a relay is not on the device, or no climate
+            entity was free. It waits, stored enabled.
+          examples:
+            - "not started: sensor 'temp_3' not found"
+            - "not started: relay 'relay_9' not found"
+            - "not started: no free climate entity"
+      example:
+        success: true
+        message: Thermostat created
+        id: living-room
+
+    DeleteResponse:
+      type: object
+      required: [success, message, persisted]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+        persisted:
+          type: boolean
+          description: False when the thermostat is gone but its file is not, so the next boot brings it back.
+      example:
+        success: true
+        message: Thermostat deleted
+        persisted: true
+
+    EnableResponse:
+      type: object
+      required: [success, message, persisted]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+        persisted:
+          type: boolean
+          description: False when the change is live but the flag did not reach flash, so a reboot undoes it.
+        warning:
+          type: string
+          description: >-
+            Present only when the thermostat was enabled but does not run, in
+            the words of `SaveResponse.warning`. It waits, stored enabled.
+          examples:
+            - "not started: sensor 'temp_3' not found"
+            - "not started: no free climate entity"
+      example:
+        success: true
+        message: Thermostat enabled; "Living Room" stopped
+        persisted: true
+
+    PresetResponse:
+      type: object
+      required: [success, message, persisted]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+        persisted:
+          type: boolean
+          description: >-
+            False when the pick changed the target, the mode or the label of a
+            thermostat whose file a newer firmware wrote: a reboot undoes it.
+      example:
+        success: true
+        message: Preset applied
+        persisted: true
+
+    SuccessEnvelope:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+
+    ErrorEnvelope:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: string
+          description: A sentence an editor can show as it is.

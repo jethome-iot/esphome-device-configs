@@ -96,6 +96,7 @@ TEST_F(Dashboard, StatusReportsAHostWithNoLink) {
   EXPECT_TRUE(reply["rssi"].isNull());
   EXPECT_TRUE(reply["ip_address"].isNull());
   EXPECT_FALSE(reply["reboot_required"].as<bool>());
+  EXPECT_TRUE(reply["reboot_reasons"].isUnbound());
   // esp_reset_reason() is ESP32 only; everywhere else the page is told so.
   EXPECT_EQ(reply["reset_reason"].as<std::string>(), "unknown");
 }

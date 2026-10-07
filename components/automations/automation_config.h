@@ -1,5 +1,7 @@
 #pragma once
 #include <ArduinoJson.h>
+#include <cmath>
+#include <memory>
 #include <string>
 #include <vector>
 #include "enums.h"
@@ -79,6 +81,20 @@ struct ConditionConfig {
   bool is_valid() const { return type != ConditionType::NONE; }
 };
 
+/// One thing a climate action does to a thermostat; a follow holds one for each state.
+struct ClimateStep {
+  TypeClimateAction type = TypeClimateAction::NONE;
+  std::string preset;  // set_preset: the preset's key
+  float target = NAN;  // set_target, in °C
+};
+
+struct ClimateActionConfig {
+  std::string climate;  // the thermostat's id in climate_hub, never its entity
+  ClimateStep step;     // what it does; for a follow, `on` and `off` say what
+  ClimateStep on;
+  ClimateStep off;
+};
+
 struct ActionConfig {
   SourceAction source = SourceAction::NONE;
 
@@ -93,6 +109,10 @@ struct ActionConfig {
       uint32_t delay_ms;  // the scheduler's own unit, one below its never-run sentinel: ~49.7 days
     } delay;
   } params;
+
+  // A climate action's, null for any other: strings, so not in the union, and apart so a switch
+  // or a delay does not carry them. Never changed once read, so copies and builds share it.
+  std::shared_ptr<const ClimateActionConfig> climate;
 
   ActionConfig();
   ~ActionConfig() = default;
@@ -113,6 +133,7 @@ struct AutomationConfig {
   std::vector<ActionConfig> actions;
   std::vector<ActionConfig> else_actions;  // Actions to execute when condition is false
   std::string file;                        // the file the rule sits in, set by the storage; not part of the format
+  std::string build_error;  // why the rule is not built, "" when it is; set by the storage, not part of the format
 
   void serialize(JsonObject &obj) const;
   bool deserialize(const JsonObject &obj);
