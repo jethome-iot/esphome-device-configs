@@ -47,7 +47,8 @@ tests/
                               # upstream refuses on the host platform
     littlefs_storage/         # test_schema.py alone: the C++ is ESP-IDF only
     loop_job/
-    meter_calibration/        # shares jethome_board_info's image builder through includes:
+    meter_calibration/        # shares jethome_board_info's image builder through
+                              # esphome: includes
     modbus_map/               # test_schema.py alone: the class only holds what the build derived,
                               # and web_device_dashboard's suite reads one
     panel_text/

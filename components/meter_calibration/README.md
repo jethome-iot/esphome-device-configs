@@ -45,10 +45,10 @@ None of them stops metering; they decide which coefficients a driver may take.
 | `factory`     | The record is sound, belongs to this board, and the line check passed (flag bit 5) | info |
 | `unverified`  | The same, but bit 5 is clear: the station never finished. The record is still usable | warning |
 | `missing`     | The EEPROM has no board header (blank, erased) or no `meter.cal` | info |
-| `corrupt`     | A CRC fails (board header, file chain, file, record), the record is not 256 bytes, or a field holds a value the format does not allow | warning |
+| `corrupt`     | A CRC fails (board header, file chain, file, record), the record is shorter than 256 bytes, or a field holds a value the format does not allow | warning |
 | `foreign`     | The chip, channel count, board model or board serial differs from this board's, the board header has no serial, or the chip type is unknown | warning |
 | `unsupported` | A board header that is not v4; an unknown filesystem, record or signature version; flag bits or reserved bytes version 1 leaves zero; a CT nominal ratio other than 2000; a PGA setting other than the firmware's; a file longer than 256 bytes | warning |
-| `no_eeprom`   | The metering board's EEPROM does not answer; its `i2c_eeprom` is marked failed | warning |
+| `no_eeprom`   | The metering board's EEPROM does not answer, or stops answering part way through a read; its `i2c_eeprom` is marked failed when it never answered | warning |
 
 `dump_config` prints the status, why, and with a usable record its board, date, station and
 coefficients.
@@ -82,11 +82,13 @@ once per board; the firmware only reads it.
 
 The board header follows JEEFS header v4: magic `JETHOME\0`, `version` 4, `fs_version` 1,
 `boardname` the board model (`JXD-D3-PM3-3`, `JXD-D3-PM1-6`), `boardversion` its revision
-(`1.2`, `1.1.0`), `board_serial` the metering board's serial number, never empty, `usid`, `cpuid` and `mac`
-left empty, `timestamp` the time the header was written, and the CRC-32 over bytes 0–251. The
-signature fields are the factory's; the firmware does not read them. The file header follows JEEFS filesystem v1: name `meter.cal`,
-`data_size` 256, the CRC-32 of the 256 data bytes, `next` 0 when `meter.cal` is the last file,
-and the CRC-32 over the file header's bytes 0–23. A `device.id` is not needed on this part.
+(`1.2`, `1.1.0`), `board_serial` the metering board's serial number, never empty, `usid`,
+`cpuid` and `mac` left empty, `timestamp` the time the header was written, and the CRC-32 over
+bytes 0–251. The signature fields are the factory's; the firmware does not read them.
+
+The file header follows JEEFS filesystem v1: name `meter.cal`, `data_size` 256, the CRC-32 of
+the 256 data bytes, `next` 0 when `meter.cal` is the last file, and the CRC-32 over the file
+header's bytes 0–23. A `device.id` is not needed on this part.
 
 ## The record, `meter.cal`
 

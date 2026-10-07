@@ -46,10 +46,10 @@ which the script activates itself.
 `<device>` is the bare name of a config under `devices/<family>/`, e.g. `jxd-r6-e1eth-lcd`.
 
 Options: `--http-port` (default 8080), `--api-port` (6053), `--ota-port` (3232),
-`--psram 2M|4M|none`, `--eeprom <file>` and `--eeprom-meter <file>` (below), `--no-wdt`, `--daemon`,
-`--wait-http <sec>`. Exit an interactive session
-with `Ctrl-A x`. Each instance holds all three forwarded ports, so a second one needs its own
-trio — a clash is caught before QEMU starts and names the port:
+`--psram 2M|4M|none`, `--eeprom <file>` and `--eeprom-meter <file>` (below), `--no-wdt`,
+`--daemon`, `--wait-http <sec>`. Exit an interactive session with `Ctrl-A x`. Each instance
+holds all three forwarded ports, so a second one needs its own trio — a clash is caught before
+QEMU starts and names the port:
 
 ```bash
 ./scripts/qemu.sh run <device> --http-port 8091 --api-port 6064 --ota-port 3243 --daemon
