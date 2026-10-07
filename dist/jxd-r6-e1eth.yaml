@@ -1020,10 +1020,6 @@ dallas_scan:
   web_server:
     sorting_group_id: group_temperature
     sorting_weight: 1
-web_device_dashboard:
-  dallas_scan_id: temps
-  board_info_id: board_info
-  storage_id: user_storage
 uart:
   - id: jxm_uart1
     tx_pin: GPIO33
@@ -1037,6 +1033,9 @@ uart:
     stop_bits: 1
 web_auth:
   id: web_auth_credentials
+web_device_dashboard:
+  board_info_id: board_info
+  storage_id: user_storage
 web_file_browser:
   storage_id: user_storage
 dashboard_import:

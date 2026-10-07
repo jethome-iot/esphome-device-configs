@@ -183,6 +183,98 @@ class ServedScreens(unittest.TestCase):
                     module.CONFIG_SCHEMA({**extra, "url_prefix": value})
 
 
+def generate(core_config, options=None, declared=()):
+    """to_code against @p core_config: the defines it added and the statements it emitted.
+
+    @p options go into the dashboard's own config; @p declared are ids no config declares.
+    """
+    CORE.reset()
+    setUpModule()
+    CORE.config = core_config
+    config = dashboard.CONFIG_SCHEMA(
+        {"id": "dash", "web_server_base_id": "web", **(options or {})}
+    )
+    CORE.component_ids.add("dash")
+    declared = [
+        ID("web", is_declaration=True, type=config["web_server_base_id"].type),
+        *declared,
+    ]
+    for key in (dashboard.CONF_MODBUS_MAP, dashboard.CONF_DALLAS_SCAN):
+        if key in core_config:
+            declared.append(core_config[key]["id"])
+
+    async def declare():
+        for variable in declared:
+            cg.new_Pvariable(variable)
+
+    CORE.add_job(dashboard.to_code, config)
+    CORE.add_job(declare)
+    CORE.flush_tasks()
+    return {define.name for define in CORE.defines}, [
+        str(statement) for statement in CORE.main_statements
+    ]
+
+
+class DallasScanWiring(unittest.TestCase):
+    """The slots are read off the config, so the temperature package does not name the dashboard."""
+
+    def tearDown(self):
+        CORE.reset()
+        setUpModule()
+
+    @staticmethod
+    def scan(name):
+        module = importlib.import_module(
+            f"esphome.components.{dashboard.CONF_DALLAS_SCAN}"
+        )
+        return module.CONFIG_SCHEMA({"id": name})
+
+    def test_a_scan_in_the_config_is_wired_in(self):
+        defines, statements = generate({dashboard.CONF_DALLAS_SCAN: self.scan("temps")})
+        self.assertIn("USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS", defines)
+        self.assertIn("dash->set_temperature_slots(temps);", statements)
+
+    def test_dallas_scan_id_overrides_the_one_found(self):
+        other = ID("other_temps", is_declaration=True, type=dashboard.DallasScan)
+        defines, statements = generate(
+            {dashboard.CONF_DALLAS_SCAN: self.scan("temps")},
+            {"dallas_scan_id": "other_temps"},
+            [other],
+        )
+        self.assertIn("USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS", defines)
+        self.assertEqual(
+            [s for s in statements if "set_temperature_slots" in s],
+            ["dash->set_temperature_slots(other_temps);"],
+        )
+
+    def test_dallas_scan_id_alone_is_enough(self):
+        named = ID("temps", is_declaration=True, type=dashboard.DallasScan)
+        defines, statements = generate({}, {"dallas_scan_id": "temps"}, [named])
+        self.assertIn("USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS", defines)
+        self.assertIn("dash->set_temperature_slots(temps);", statements)
+
+    def test_without_one_nothing_is(self):
+        defines, statements = generate({})
+        self.assertNotIn("USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS", defines)
+        self.assertFalse([s for s in statements if "set_temperature_slots" in s])
+
+    def test_the_setter_exists_under_that_define(self):
+        header = (
+            Path(__file__).resolve().parents[3]
+            / "components/web_device_dashboard/web_device_dashboard.h"
+        ).read_text()
+        setter = header.index("void set_temperature_slots(dallas_scan::DallasScan *")
+        guard = header.rindex(
+            "#ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS", 0, setter
+        )
+        self.assertNotIn("#endif", header[guard:setter])
+        self.assertNotIn("#else", header[guard:setter])
+
+    def test_the_scan_stays_optional(self):
+        self.assertNotIn(dashboard.CONF_DALLAS_SCAN, dashboard.AUTO_LOAD)
+        self.assertNotIn(dashboard.CONF_DALLAS_SCAN, dashboard.DEPENDENCIES)
+
+
 class ModbusMapWiring(unittest.TestCase):
     """The map /capabilities reports is read off the config too: the dashboard has no key for it."""
 
@@ -196,41 +288,17 @@ class ModbusMapWiring(unittest.TestCase):
         CORE.reset()
         setUpModule()
 
-    def generate(self, core_config):
-        """to_code against @p core_config: the defines it added and the statements it emitted."""
-        CORE.reset()
-        setUpModule()
-        CORE.config = core_config
-        config = dashboard.CONFIG_SCHEMA({"id": "dash", "web_server_base_id": "web"})
-        CORE.component_ids.add("dash")
-        declared = [
-            ID("web", is_declaration=True, type=config["web_server_base_id"].type)
-        ]
-        if dashboard.CONF_MODBUS_MAP in core_config:
-            declared.append(core_config[dashboard.CONF_MODBUS_MAP]["id"])
-
-        async def declare():
-            for variable in declared:
-                cg.new_Pvariable(variable)
-
-        CORE.add_job(dashboard.to_code, config)
-        CORE.add_job(declare)
-        CORE.flush_tasks()
-        return {define.name for define in CORE.defines}, [
-            str(statement) for statement in CORE.main_statements
-        ]
-
     def test_a_map_in_the_config_is_wired_in(self):
         module = importlib.import_module(
             f"esphome.components.{dashboard.CONF_MODBUS_MAP}"
         )
         core_config = {dashboard.CONF_MODBUS_MAP: module.CONFIG_SCHEMA(self.MAP)}
-        defines, statements = self.generate(core_config)
+        defines, statements = generate(core_config)
         self.assertIn("USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP", defines)
         self.assertIn("dash->set_modbus_map(jxd_map);", statements)
 
     def test_without_one_nothing_is(self):
-        defines, statements = self.generate({})
+        defines, statements = generate({})
         self.assertNotIn("USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP", defines)
         self.assertFalse([s for s in statements if "set_modbus_map" in s])
 

@@ -23,20 +23,21 @@ web_server:
 web_device_dashboard:
   board_info_id: board_info   # optional: the jethome_board_info to report
   storage_id: user_storage    # optional: the mount a factory reset wipes
-  dallas_scan_id: temps       # optional: the temperature slots, their offsets and labels
 ```
 
 `board_info_id` names a `jethome_board_info`; with it `/api/device/info` carries the identity the
 firmware read from the CPU board's EEPROM. `storage_id` names a `filesystem_storage_abstract`
 mount: `/api/device/system/factory-reset` wipes it, and `/api/device/capabilities` reports it.
 Both are optional and no route disappears without them — `/api/device/info` omits the board
-block, and a factory reset clears only the stored settings. `dallas_scan_id` names a
-[`dallas_scan`](../dallas_scan/README.md); without it the temperature-slot routes are `404`.
+block, and a factory reset clears only the stored settings.
 
 The Files, Automations and Climate screens need no option of their own: the component reads
 the `url_prefix` of a `web_file_browser`, a `web_automation_editor` and a `web_climate_editor`
 off the config and reports whichever of them this firmware has in `/api/device/capabilities`.
-A [`modbus_map`](../modbus_map/README.md) is picked up the same way.
+A [`modbus_map`](../modbus_map/README.md) is picked up the same way, and so is a
+[`dallas_scan`](../dallas_scan/README.md), whose temperature slots, offsets and labels the page
+edits; without one the temperature-slot routes are `404`. `dallas_scan_id: <id>` names the scan
+instead of picking it up.
 
 The **Settings → Network** and **Settings → Modbus** tabs show the entities of the `web_server`
 sorting groups named `Network` and `Modbus`, and the Entities screen leaves those groups out. The
@@ -136,7 +137,7 @@ these routes are `404`:
 | GET | `/api/device/auth` | `{"username", "password_length", "is_default"}` — never the password |
 | POST | `/api/device/auth` | `{"username", "password"}` replaces both; needs `Content-Type: application/json`, which no HTML form can send. Answers `200` for a pair it accepted, under the old credentials; the change itself happens on the next turn of the main loop, and the `GET` confirms it |
 
-With a `dallas_scan_id`, the temperature slots; without one these routes are `404`:
+With a `dallas_scan`, the temperature slots; without one these routes are `404`:
 
 | Method | Path | |
 |---|---|---|

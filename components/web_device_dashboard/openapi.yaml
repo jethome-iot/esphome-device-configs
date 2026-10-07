@@ -1324,10 +1324,10 @@ components:
             error: Request body over 4 KiB
     NoTemperatureSlots:
       description: >-
-        This firmware has no `dallas_scan` wired to the dashboard
-        (`dallas_scan_id:`): `capabilities` carries no `temperature_slots`. On a
-        firmware built without one at all the routes do not exist, and the
-        answer is the prefix's plain `Not found`.
+        This firmware has no `dallas_scan` wired to the dashboard:
+        `capabilities` carries no `temperature_slots`. On a firmware built
+        without one at all the routes do not exist, and the answer is the
+        prefix's plain `Not found`.
       content:
         application/json:
           schema:

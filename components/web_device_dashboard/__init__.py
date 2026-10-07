@@ -12,6 +12,7 @@ DEPENDENCIES = ["web_server_base", "web_server"]
 AUTO_LOAD = ["web_origin_guard", "loop_job", "firmware_rollback"]
 
 CONF_BOARD_INFO_ID = "board_info_id"
+CONF_DALLAS_SCAN = "dallas_scan"
 CONF_DALLAS_SCAN_ID = "dallas_scan_id"
 CONF_MODBUS_MAP = "modbus_map"
 CONF_STORAGE_ID = "storage_id"
@@ -67,10 +68,14 @@ async def to_code(config):
         cg.add_define("USE_WEB_DEVICE_DASHBOARD_STORAGE")
         storage = await cg.get_variable(config[CONF_STORAGE_ID])
         cg.add(var.set_storage(storage))
-    if CONF_DALLAS_SCAN_ID in config:
+    # Read off the config like the map below, so neither package names the other;
+    # dallas_scan_id overrides it.
+    scan_id = config.get(CONF_DALLAS_SCAN_ID)
+    if scan_id is None and (scan := CORE.config.get(CONF_DALLAS_SCAN)) is not None:
+        scan_id = scan[CONF_ID]
+    if scan_id is not None:
         cg.add_define("USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS")
-        slots = await cg.get_variable(config[CONF_DALLAS_SCAN_ID])
-        cg.add(var.set_temperature_slots(slots))
+        cg.add(var.set_temperature_slots(await cg.get_variable(scan_id)))
     for component, setter in SERVED_BY.items():
         served = CORE.config.get(component)
         if served is not None:

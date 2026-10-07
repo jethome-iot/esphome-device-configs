@@ -23,10 +23,9 @@ boundaries; everything else is local to its file.
   Relays and Inputs rows iterate over. `temps` (`features/temperature.yaml`) is the `dallas_scan`
   component; the status page, the menu and the Modbus map read the temperatures through it
   (`used_slots()`, `display_name(slot)`, `sensor(slot)`, `temperature(slot)`), and
-  `forget_temperatures` (a script) clears slots. The same file hands it to the dashboard as
-  `dallas_scan_id`, for `/api/device/temperature-slots`, which forgets, assigns and sets offsets
-  and labels through the component itself; it counts on `features/web-device-dashboard.yaml`
-  being in the firmware.
+  `forget_temperatures` (a script) clears slots. `web_device_dashboard` finds it in the config,
+  as it finds the Modbus map and the editors, for `/api/device/temperature-slots`, which forgets,
+  assigns and sets offsets and labels through the component itself.
 - `board_info` (`boards/jxd-cpu-e1eth.yaml`) is the `jethome_board_info` component over the
   CPU board's EEPROM `eeprom_cpu`; `display/menu-serial.yaml` reads it for the Serial row and
   `features/web-device-dashboard.yaml` for `/api/device/info`.

@@ -30,8 +30,3 @@ script:
     then:
       - delay: 1s
       - lambda: 'id(temps)->forget(slot);'
-
-# The slots the dashboard lists, forgets, assigns and labels. Needs the
-# web-device-dashboard package.
-web_device_dashboard:
-  dallas_scan_id: temps

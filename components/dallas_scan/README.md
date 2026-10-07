@@ -144,9 +144,9 @@ Like a forget, an assign that cannot write the table changes nothing.
 `forget_and_save()` and `assign_and_save()` change the saved table without the reboot. The
 sensors keep reading the devices they booted with until the next boot binds the saved table, so
 several changes add up and one reboot applies them all; a change that puts the table back as
-booted leaves nothing waiting. [`web_device_dashboard`](../web_device_dashboard/README.md) with
-`dallas_scan_id:` lists the slots, forgets and assigns them over HTTP this way, numbered from 1;
-its page does the same under **Settings → Temperature**.
+booted leaves nothing waiting. [`web_device_dashboard`](../web_device_dashboard/README.md) in the
+same firmware lists the slots, forgets and assigns them over HTTP this way, numbered from 1; its
+page does the same under **Settings → Temperature**.
 
 ## Offsets
 

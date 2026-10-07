@@ -140,12 +140,12 @@ modbus_map:
       no_value: 0x8000
 
 # board_info_id sets USE_WEB_DEVICE_DASHBOARD_BOARD_INFO, so /api/device/info carries the board;
-# storage_id sets USE_WEB_DEVICE_DASHBOARD_STORAGE, so the factory reset has a mount to wipe;
-# dallas_scan_id sets USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS, so the slot routes exist.
+# storage_id sets USE_WEB_DEVICE_DASHBOARD_STORAGE, so the factory reset has a mount to wipe. The
+# dallas_scan above, found without being named, sets USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS,
+# so the slot routes exist.
 web_device_dashboard:
   board_info_id: board
   storage_id: test_storage
-  dallas_scan_id: temps
 
 # App sizes its entity lists from what is declared here and silently drops a registration past
 # that, so this is at least what cases/common.h registers.
