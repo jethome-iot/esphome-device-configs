@@ -82,7 +82,8 @@ bool I2CEeprom::put(uint16_t memaddr, const uint8_t *value, size_t size) {
 }
 
 // Two transactions per chunk, address then data: the chip keeps its address counter across the
-// stop. An EEPROM is read whole, once at boot; FRAM is read at runtime, so it is read in chunks.
+// stop. An EEPROM read stays one transaction, as before FRAM support; FRAM reads are cut like its
+// writes, since fram_store reads payloads of up to 4 KiB, which would near the driver's timeout.
 bool I2CEeprom::get(uint16_t memaddr, uint8_t *value, size_t size) {
   if (!this->in_range_(memaddr, size))
     return false;

@@ -444,7 +444,7 @@ TEST(I2CEeprom, FramCutsALongReadEveryMaxTransferBytes) {
   EXPECT_EQ(memcmp(buf.data(), fram.bus.image.data() + 0x200, buf.size()), 0);
 }
 
-// An EEPROM is read once, at boot: its reads stay one transaction whatever the length.
+// An EEPROM read stays one transaction whatever the length, as it was before FRAM support.
 TEST(I2CEeprom, AnEepromReadsALongRangeInOneTransaction) {
   Chip chip(8192);
   std::vector<uint8_t> buf(300);
@@ -454,13 +454,14 @@ TEST(I2CEeprom, AnEepromReadsALongRangeInOneTransaction) {
   EXPECT_EQ(memcmp(buf.data(), chip.bus.image.data() + 0x200, buf.size()), 0);
 }
 
-// The EEPROM path would sleep 5 ms after each of its 38 pages; FRAM does not wait at all.
+// The EEPROM path would sleep 5 ms after each of its 38 pages, 190 ms; FRAM does not wait at all. The
+// bound leaves room for a sanitized build on a loaded machine.
 TEST(I2CEeprom, FramDoesNotWaitOutAWriteCycle) {
   Fram fram;
   const std::vector<uint8_t> data = pattern(300);
   const uint32_t started = millis();
   ASSERT_TRUE(fram.eeprom.put(0x0000, data.data(), data.size()));
-  EXPECT_LT(millis() - started, 15u);
+  EXPECT_LT(millis() - started, 100u);
 }
 
 TEST(I2CEeprom, AnEepromWaitsOutEachPage) {

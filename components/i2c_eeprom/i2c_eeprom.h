@@ -9,8 +9,9 @@ namespace esphome::i2c_eeprom {
 
 class I2CEeprom : public Component, public i2c::I2CDevice {
  public:
-  // Bytes one transaction carries at most: ~3 ms of a 400 kHz bus the display and the
-  // expanders share.
+  // Bytes one FRAM transaction carries at most. It bounds the frame put() keeps on the stack and
+  // keeps each transaction far under the I2C driver's timeout; the bus is held for the whole
+  // call either way.
   static constexpr size_t MAX_TRANSFER = 128;
 
   void setup() override;

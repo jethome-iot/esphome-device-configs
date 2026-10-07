@@ -18,7 +18,7 @@ i2c_eeprom:
 
 | Option      | Default | Meaning |
 | ----------- | ------- | ------- |
-| `type`      | `eeprom` | `eeprom`, or `fram` for a ferroelectric part such as the FM24CL64B: it writes at bus speed, so a write is neither split at pages nor followed by a wait, and transfers both ways are cut every 128 bytes instead. `page_size` is refused with it |
+| `type`      | `eeprom` | `eeprom`, or `fram` for a ferroelectric part such as the FM24CL64B: it writes at bus speed, so a write is neither split at pages nor followed by a wait, and transfers both ways are cut every 128 bytes instead, which keeps each one far under the I2C driver's timeout. The bus stays busy for the whole call either way. `page_size` is refused with it |
 | `size`      |         | The part's size in kilobits, as printed on it: `1KB`, `2KB`, `4KB`, `8KB`, `16KB`, `32KB`, `64KB`, `128KB`, `256KB` or `512KB`. Parts above `16KB` are addressed with two bytes; `4KB` to `16KB` parts are reached in their first 256 bytes only, as their block-select bits in the device address are not driven, and a request past that is refused |
 | `page_size` | `8`     | EEPROM only. Bytes the part writes in one page. A write is split at these boundaries, since the chip rolls over to the start of the page instead of carrying into the next one. The default splits inside the real pages of every 24Cxx; naming the part's own page size only saves transactions. A power of two, at most the largest page the density has: `16` up to `16KB`, `32` for `32KB` and `64KB`, `64` for `128KB` and `256KB`, `128` for `512KB` |
 | `address`   | `0x50`  | I2C address |
