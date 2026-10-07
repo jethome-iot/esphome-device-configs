@@ -170,10 +170,11 @@ read.
 ## The CPU board's FRAM
 
 `--fram <file>` attaches the FM24CL64B at `0x52` that `features/fram.yaml` declares, backed by a
-host file of 8192 bytes; `run` creates a zeroed one where the file does not exist. What
-`fram_store` keeps there survives `stop` and `run`, `--fresh` included, since the emulated flash
-does not hold it. Without the option no chip answers at `0x52` and the store reports itself
-unavailable.
+host file of 8192 bytes; `run` creates a zeroed one where the file does not exist. No device
+includes `features/fram.yaml` yet, so the option matters only to a config that includes it. What
+its stores keep there survives `stop` and `run`, `--fresh` included, since the emulated flash
+does not hold it; bytes outside the stores' ranges are never written. Without the option no chip
+answers at `0x52` and the stores report themselves unavailable.
 
 ```bash
 ./scripts/qemu.sh run <device> --daemon --wait-http 600 --fram /tmp/fram.bin
@@ -188,7 +189,7 @@ unavailable.
 | Relays and inputs — state flips over REST and holds | 1-Wire: the bus reads as held low, the DS2484 scan finds nothing and no `Temp N` entity is created |
 | `PCB Temp` — QEMU's own TMP105 at `0x48`, a constant 25 °C | Wi-Fi and BT; Modbus sees an emulated UART with nothing on it |
 | `jethome_board_info`, reading the file `--eeprom` attaches | Without `--eeprom`: no chip answers at `0x54`, `i2c_eeprom` fails at setup and Info → Serial reads `--` |
-| `fram_store`, on the file `--fram` attaches | Without `--fram`: no chip answers at `0x52` and the store is unavailable |
+| `fram_store`, on the file `--fram` attaches | Without `--fram`: no chip answers at `0x52` and the stores are unavailable |
 | Ethernet on 10.0.2.15, native API on 6053, OTA, outbound HTTPS | |
 | NVS and `preferences`; flash state survives restarts | |
 

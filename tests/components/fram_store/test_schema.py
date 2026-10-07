@@ -395,45 +395,84 @@ class ReadmeExample(unittest.TestCase):
 
 
 class ShippedLayout(unittest.TestCase):
-    """features/fram.yaml as devices carry it. A change here empties every meter's store."""
+    """features/fram.yaml as devices will carry it. A change to a store empties that store on every meter."""
 
     @classmethod
     def setUpClass(cls):
         package = REPO / "devices" / "JXD" / "packages" / "features" / "fram.yaml"
         cls.package = yaml.safe_load(package.read_text())
-        (store,) = cls.package["fram_store"]
-        cls.config = validate(store)
+        cls.stores = {
+            entry["id"]: validate(entry) for entry in cls.package["fram_store"]
+        }
+
+    def offsets(self, name):
+        config = self.stores[name]
+        offsets, end, layout_hash = fram_store.layout(config)
+        names = [str(region["id"]) for region in config["regions"]]
+        return dict(zip(names, offsets)), end, layout_hash
 
     def test_the_part_is_the_cpu_boards_fram(self):
         (fram,) = self.package["i2c_eeprom"]
-        self.assertEqual(fram["id"], "fram_cpu")
-        self.assertEqual(fram["address"], 0x52)
-        self.assertEqual(fram["type"], "fram")
-        self.assertEqual(i2c_eeprom.EEPROM_SIZES[fram["size"]], self.config["size"])
+        config = i2c_eeprom.CONFIG_SCHEMA(fram)
+        self.assertEqual(config["address"], 0x52)
+        self.assertEqual(config["type"], "fram")
+        self.assertNotIn("page_size", config)
+        for store_config in self.stores.values():
+            self.assertEqual(config["size"].enum_value, store_config["size"])
+            self.assertEqual(store_config["eeprom_id"].id, fram["id"])
 
-    def test_the_factory_stations_bytes_are_left_alone(self):
-        self.assertEqual(self.config["base_offset"], 0x200)
+    def test_the_stores_pass_final_validation_together(self):
+        (fram,) = self.package["i2c_eeprom"]
+        validated = i2c_eeprom.CONFIG_SCHEMA(fram)
+        validated["id"] = ID(fram["id"], is_declaration=True)
+        stores = []
+        for name, config in self.stores.items():
+            config = dict(config)
+            config["id"] = ID(name, is_declaration=True)
+            stores.append(config)
+        final_validate_all(stores, [validated])
 
-    def test_the_layout_is_v1(self):
-        offsets, end, layout_hash = fram_store.layout(self.config)
-        names = [str(region["id"]) for region in self.config["regions"]]
+    def test_the_meter_store_is_frozen(self):
+        offsets, end, layout_hash = self.offsets("fram_store_meter")
+        self.assertEqual(self.stores["fram_store_meter"]["base_offset"], 0x0200)
         self.assertEqual(
-            dict(zip(names, offsets)),
-            {
-                "fram_meter_board": 0x0220,
-                "fram_odometers": 0x02B0,
-                **{f"fram_counter_{n:02d}": 0x04C0 + n * 112 for n in range(16)},
-                "fram_history": 0x0BC0,
-            },
+            offsets, {"fram_meter_board": 0x0220, "fram_odometers": 0x02B0}
         )
-        self.assertEqual(end, 0x1340)
-        self.assertEqual(8192 - end, 3264)
+        self.assertEqual(end, 0x06C0)
         self.assertEqual(
             layout_hash,
-            0xF62347B9,
-            "the shipped FRAM layout changed: every device that boots this firmware loses "
-            "its stored energy",
+            0x3A0A8CA7,
+            "fram_store_meter changed: every meter that boots this firmware loses its energy",
         )
+
+    def test_the_counters_store(self):
+        offsets, end, layout_hash = self.offsets("fram_store_counters")
+        self.assertEqual(self.stores["fram_store_counters"]["base_offset"], 0x06C0)
+        self.assertEqual(
+            offsets, {f"fram_counter_{n:02d}": 0x06E0 + n * 112 for n in range(16)}
+        )
+        self.assertEqual(end, 0x0DE0)
+        self.assertEqual(
+            layout_hash,
+            0x0B81531F,
+            "fram_store_counters changed: every device that boots this firmware loses its "
+            "counters; put new data in a new store instead",
+        )
+
+    def test_the_station_bytes_and_the_spare_are_left_alone(self):
+        ranges = sorted(
+            (config["base_offset"], fram_store.layout(config)[1])
+            for config in self.stores.values()
+        )
+        self.assertEqual(ranges, [(0x0200, 0x06C0), (0x06C0, 0x0DE0)])
+        self.assertEqual(8192 - ranges[-1][1], 4640)
+
+    def test_no_store_keeps_a_ring_yet(self):
+        for name, config in self.stores.items():
+            with self.subTest(store=name):
+                self.assertEqual(
+                    {region["type"] for region in config["regions"]}, {"slot"}
+                )
 
 
 if __name__ == "__main__":

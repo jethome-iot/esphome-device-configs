@@ -26,10 +26,15 @@ boundaries; everything else is local to its file.
 - `board_info` (`boards/jxd-cpu-e1eth.yaml`) is the `jethome_board_info` component over the
   CPU board's EEPROM `eeprom_cpu`; `display/menu-serial.yaml` reads it for the Serial row and
   `features/web-device-dashboard.yaml` for `/api/device/info`.
-- `fram_store_cpu` (`features/fram.yaml`) is the `fram_store` component over the CPU board's FRAM
-  `fram_cpu`, with the regions `fram_meter_board`, `fram_odometers`, `fram_counter_00` …
-  `fram_counter_15` and `fram_history`. Their ids, kinds and sizes are the FRAM's layout: changing
-  any of them empties the store on every device that boots the change.
+- `features/fram.yaml`, which no device includes yet, declares the CPU board's FRAM `fram_cpu`
+  and two `fram_store` stores on it, one per life cycle: `fram_store_meter` (`0x0200`–`0x06BF`,
+  the slots `fram_meter_board` and `fram_odometers`), frozen for good, and `fram_store_counters`
+  (`0x06C0`–`0x0DDF`, the slots `fram_counter_00` … `fram_counter_15`). `0x0000`–`0x01FF` is the
+  factory station's and `0x0DE0`–`0x1FFF` is spare. A store's region ids, kinds and sizes are its
+  layout, and a change to them empties that store on every device that boots it, so a shipped
+  store never changes: new data goes into a new store in the spare, and a store that has to
+  change moves to a new base there while its old range stays reserved for as long as a rollback
+  target uses it. A rollback between builds that only add stores then wipes nothing.
 - `display1` and `main_page` come from `display/display.yaml`; the other pages attach with
   `id: !extend display1`. `display_menu` (`display/menu.yaml`) exposes `info_submenu` and
   `menu_settings_id` as extension points that `menu-items-network.yaml`, `menu-serial.yaml`
@@ -111,7 +116,7 @@ boundaries; everything else is local to its file.
 | 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); restore the timezone and read the RTC (`setup_time`, called from the device config). `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
 | 599.5 | `climate_hub` sets up: it registers its pool of climate entities, loads the thermostats and starts the enabled ones, so it sits below the `Temp N` sensors (600) and above `automations`, which may one day name a thermostat |
 | 599.25 | `bindings` sets up and drives the `Follow` relays once, skipping those a thermostat claimed at 599.5 |
-| 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created. `board_info` reads the EEPROM here too, once `eeprom_cpu` (600) has answered, and `fram_store_cpu` opens the FRAM once `fram_cpu` (600) has |
+| 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created. `board_info` reads the EEPROM here too, once `eeprom_cpu` (600) has answered; a config that includes `features/fram.yaml` opens its stores here, once `fram_cpu` (600) has |
 | 500 | add a `Temp N` submenu per bound slot to the Temperatures menu; add a row per loaded rule to the Automations menu; add a submenu per loaded thermostat to the Thermostats menu |
 | 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
 

@@ -1,17 +1,21 @@
-# The CPU board's FRAM (FM24CL64B at 0x52, 8 KiB, WP grounded) and the regions the meters keep
-# their energy state in. Details: components/fram_store/README.md
+# The CPU board's FRAM (FM24CL64B at 0x52, 8 KiB, WP grounded) and the stores the meters keep
+# their state in. No device includes this package yet. Details: components/fram_store/README.md
 #
-# Layout v1. Changing a region's id, kind or size, adding one or removing one empties the store
-# on every device that boots that firmware, so the regions carry headroom and version what they
-# hold inside their payload. tests/components/fram_store/test_schema.py pins it.
+# One store per life cycle, each formatting only its own range. A shipped store never changes:
+# changing a region's id, kind or size, adding one or removing one empties that store on every
+# device that boots the firmware. New data goes into a new store in the spare; a store that has
+# to change moves to a new base in the spare, and its old range stays reserved for as long as a
+# rollback target still uses it. tests/components/fram_store/test_schema.py pins all of it.
 #
 #   0x0000-0x01FF  the factory station's; never read or written here
-#   0x0200         superblock, 32 B
-#   0x0220         fram_meter_board   slot 64 B: which metering board the energy belongs to
-#   0x02B0         fram_odometers     slot 256 B: lifetime energy per channel and direction
-#   0x04C0         fram_counter_00-15 slots 48 B: the state of each user counter
-#   0x0BC0         fram_history       ring 64 x 24 B: closed periods, reserved
-#   0x1340-0x1FFF  spare, 3264 B
+#   0x0200-0x06BF  fram_store_meter, frozen for good
+#     0x0200         superblock, 32 B
+#     0x0220         fram_meter_board   slot 64 B: which metering board the energy belongs to
+#     0x02B0         fram_odometers     slot 512 B: lifetime energy per channel and direction
+#   0x06C0-0x0DDF  fram_store_counters
+#     0x06C0         superblock, 32 B
+#     0x06E0         fram_counter_00-15 slots 48 B: the state of each user counter
+#   0x0DE0-0x1FFF  spare, 4640 B, declared by no store
 external_components:
   - source: ${components}
     components: [fram_store]
@@ -23,13 +27,18 @@ i2c_eeprom:
     address: 0x52
 
 fram_store:
-  - id: fram_store_cpu
+  - id: fram_store_meter
     eeprom_id: fram_cpu
     size: 8192
-    base_offset: 0x200
+    base_offset: 0x0200
     regions:
       - {id: fram_meter_board, type: slot, size: 64}
-      - {id: fram_odometers, type: slot, size: 256}
+      - {id: fram_odometers, type: slot, size: 512}
+  - id: fram_store_counters
+    eeprom_id: fram_cpu
+    size: 8192
+    base_offset: 0x06C0
+    regions:
       - {id: fram_counter_00, type: slot, size: 48}
       - {id: fram_counter_01, type: slot, size: 48}
       - {id: fram_counter_02, type: slot, size: 48}
@@ -46,4 +55,3 @@ fram_store:
       - {id: fram_counter_13, type: slot, size: 48}
       - {id: fram_counter_14, type: slot, size: 48}
       - {id: fram_counter_15, type: slot, size: 48}
-      - {id: fram_history, type: ring, record_size: 24, capacity: 64}
