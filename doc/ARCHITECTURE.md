@@ -181,6 +181,10 @@ server.
   entity tables (`CORE.register_platform_component`) and registers the device class and unit
   strings, C++ then calls the four-argument `App.register_sensor` and
   `web_server::WebServer::add_entity_config`. The menu rows are `MenuItem`s built by hand.
+- `components/fram_store` checks every superblock, slot copy and ring record on the FRAM with
+  ESPHome's `crc16` at its default parameters (CRC-16/MODBUS). Should upstream change those
+  defaults, every record would fail its check and every store would be emptied at the next boot;
+  `tests/components/fram_store` pins the check value and a formatted image byte for byte.
 - Upstream builds ESP-IDF with `CONFIG_VFS_SUPPORT_DIR` off, so `components/littlefs_storage`
   calls `esp32.require_vfs_dir()` to keep `opendir`/`mkdir` from being stubs.
 - `components/web_file_browser` sits on web-server internals: `/download` writes straight to

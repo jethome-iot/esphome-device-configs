@@ -1,5 +1,6 @@
 #include "fram_region.h"
 #include <algorithm>
+#include <cinttypes>
 #include <cstring>
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
@@ -32,21 +33,30 @@ template<typename T> static uint16_t header_crc(const T &header) {
   return crc16(reinterpret_cast<const uint8_t *>(&header), static_cast<uint16_t>(sizeof(T) - sizeof(header.crc)));
 }
 
-bool FramRegion::read_(uint16_t offset, uint8_t *data, size_t len) {
-  return this->store_->read(this->offset_ + offset, data, len);
+bool FramRegion::read_(uint32_t offset, uint8_t *data, size_t len) {
+  return this->in_region_(offset, len) && this->store_->read(this->offset_ + offset, data, len);
 }
 
-bool FramRegion::write_(uint16_t offset, const uint8_t *data, size_t len) {
-  return this->store_->write(this->offset_ + offset, data, len);
+bool FramRegion::write_(uint32_t offset, const uint8_t *data, size_t len) {
+  return this->in_region_(offset, len) && this->store_->write(this->offset_ + offset, data, len);
 }
 
-bool FramRegion::fill_(uint16_t offset, uint8_t value, size_t len) {
-  return this->store_->fill(this->offset_ + offset, value, len);
+bool FramRegion::fill_(uint32_t offset, uint8_t value, size_t len) {
+  return this->in_region_(offset, len) && this->store_->fill(this->offset_ + offset, value, len);
+}
+
+// Every access stays inside the region, so a bad offset cannot reach a neighbour or the superblock.
+bool FramRegion::in_region_(uint32_t offset, size_t len) const {
+  if (offset <= this->size_ && len <= this->size_ - offset)
+    return true;
+  ESP_LOGE(TAG, "%zu bytes at +%" PRIu32 " run past the %" PRIu32 "-byte region at 0x%04X", len, offset, this->size_,
+           this->offset_);
+  return false;
 }
 
 bool FramRegion::wipe_() { return this->fill_(0, 0, this->size_); }
 
-bool FramRegion::crc_of_range_(uint16_t offset, size_t len, uint16_t &crc) {
+bool FramRegion::crc_of_range_(uint32_t offset, size_t len, uint16_t &crc) {
   uint8_t buffer[CHUNK];
 
   while (len != 0) {
@@ -66,6 +76,7 @@ bool FramRegion::crc_of_range_(uint16_t offset, size_t len, uint16_t &crc) {
 void FramSlot::init() {
   this->initialised_ = false;
   this->has_data_ = false;
+  this->load_failed_ = false;
   this->active_ = 0;
   this->seq_ = 0;
   this->highest_seq_ = 0;
@@ -117,19 +128,47 @@ CheckResult FramSlot::validate_copy_(uint8_t copy, const SlotHeader &header) {
   return crc == header.crc ? CheckResult::OK : CheckResult::DAMAGED;
 }
 
-// Re-validates on the way out: init() only proves the copy was good at boot, not that it still is.
+CheckResult FramSlot::read_copy_(uint8_t copy, uint8_t *data, uint32_t &seq) {
+  SlotHeader header;
+  if (!this->read_header_(copy, header) ||
+      !this->read_(this->copy_offset_(copy) + HEADER_SIZE, data, this->payload_size_))
+    return CheckResult::IO_ERROR;
+
+  uint16_t crc = crc16(data, this->payload_size_, header_crc(header));
+  if (header.seq == 0 || header.len != this->payload_size_ || crc != header.crc)
+    return CheckResult::DAMAGED;
+
+  seq = header.seq;
+  return CheckResult::OK;
+}
+
+// Re-validates on the way out: init() only proves the copy was good at boot, not that it still is. A
+// damaged newest copy falls back to the one before it, as a boot would; an unreadable one does not, since
+// the newer value may well be intact.
 bool FramSlot::load(uint8_t *data, size_t len) {
   if (!this->initialised_ || !this->has_data_ || len != this->payload_size_)
     return false;
 
-  SlotHeader header;
-  if (!this->read_header_(this->active_, header))
-    return false;
-  if (!this->read_(this->copy_offset_(this->active_) + HEADER_SIZE, data, len))
-    return false;
+  uint32_t seq = 0;
+  CheckResult active = this->read_copy_(this->active_, data, seq);
+  if (active == CheckResult::OK) {
+    this->load_failed_ = false;
+    return true;
+  }
 
-  uint16_t crc = crc16(data, static_cast<uint16_t>(len), header_crc(header));
-  return header.seq != 0 && header.len == this->payload_size_ && crc == header.crc;
+  const uint8_t other = 1 - this->active_;
+  if (active == CheckResult::DAMAGED && this->read_copy_(other, data, seq) == CheckResult::OK) {
+    ESP_LOGW(TAG, "Slot at 0x%04X: the newest copy is damaged, loaded the one before it", this->offset_);
+    this->active_ = other;
+    this->seq_ = seq;
+    this->load_failed_ = false;
+    return true;
+  }
+
+  ESP_LOGE(TAG, "Slot at 0x%04X could not be loaded; saving is refused until a load succeeds or clear()",
+           this->offset_);
+  this->load_failed_ = true;
+  return false;
 }
 
 // Payload first, header last: an interrupted save leaves the previous copy as the newest valid one.
@@ -138,13 +177,17 @@ bool FramSlot::save(const uint8_t *data, size_t len) {
     ESP_LOGE(TAG, "Slot at 0x%04X is not initialised", this->offset_);
     return false;
   }
+  if (this->load_failed_) {
+    ESP_LOGE(TAG, "Slot at 0x%04X failed its last load, refusing to save over it", this->offset_);
+    return false;
+  }
   if (len != this->payload_size_) {
     ESP_LOGE(TAG, "Slot at 0x%04X takes %u bytes, got %zu", this->offset_, this->payload_size_, len);
     return false;
   }
 
   uint8_t target = this->has_data_ ? 1 - this->active_ : 0;
-  uint16_t base = this->copy_offset_(target);
+  uint32_t base = this->copy_offset_(target);
 
   SlotHeader header;
   header.seq = next_seq(this->highest_seq_);
@@ -163,12 +206,19 @@ bool FramSlot::save(const uint8_t *data, size_t len) {
   return true;
 }
 
-// Refuses on an uninitialised region for the same reason save() does: its contents are unknown.
+// Refuses on an uninitialised region for the same reason save() does: its contents are unknown. The older
+// copy goes first, so a clear cut short leaves the current value, never the one before it.
 bool FramSlot::clear() {
-  if (!this->initialised_ || !this->wipe_())
+  if (!this->initialised_)
+    return false;
+
+  const size_t copy_size = HEADER_SIZE + this->payload_size_;
+  if (!this->fill_(this->copy_offset_(1 - this->active_), 0, copy_size) ||
+      !this->fill_(this->copy_offset_(this->active_), 0, copy_size))
     return false;
 
   this->has_data_ = false;
+  this->load_failed_ = false;
   this->active_ = 0;
   this->seq_ = 0;
   this->highest_seq_ = 0;
@@ -240,7 +290,8 @@ void FramRing::init() {
   }
 
   // No usable head: keeping the records would make every later append invisible, so start the ring over.
-  ESP_LOGW(TAG, "Ring at 0x%04X has more than %u damaged records, wiping it", this->offset_, MAX_TORN_RECORDS);
+  ESP_LOGW(TAG, "Ring at 0x%04X: the newest %u record(s) are all damaged, wiping it", this->offset_,
+           std::min<uint16_t>(found, HEAD_CANDIDATES));
   if (!this->wipe_()) {
     this->initialised_ = false;
     return;
@@ -366,7 +417,7 @@ bool FramRing::scan_(uint16_t *indices, uint32_t *seqs, uint8_t candidates, uint
 
 CheckResult FramRing::validate_entry_(uint16_t index, uint32_t &seq) {
   RingHeader header;
-  uint16_t base = this->entry_offset_(index);
+  uint32_t base = this->entry_offset_(index);
 
   if (!this->read_(base, reinterpret_cast<uint8_t *>(&header), sizeof(header)))
     return CheckResult::IO_ERROR;
@@ -394,7 +445,7 @@ bool FramRing::append(const uint8_t *data, size_t len) {
   }
 
   uint16_t index = this->count_ == 0 ? 0 : static_cast<uint16_t>((this->head_index_ + 1) % this->capacity_);
-  uint16_t base = this->entry_offset_(index);
+  uint32_t base = this->entry_offset_(index);
 
   RingHeader header;
   header.seq = next_seq(this->head_seq_);
@@ -419,7 +470,7 @@ bool FramRing::peek(uint16_t index, uint8_t *data, size_t len) {
     return false;
 
   uint16_t phys = (this->head_index_ + this->capacity_ - index) % this->capacity_;
-  uint16_t base = this->entry_offset_(phys);
+  uint32_t base = this->entry_offset_(phys);
 
   RingHeader header;
   if (!this->read_(base, reinterpret_cast<uint8_t *>(&header), sizeof(header)))
@@ -431,8 +482,13 @@ bool FramRing::peek(uint16_t index, uint8_t *data, size_t len) {
   return crc == header.crc && header.seq == this->head_seq_ - index;
 }
 
+// Physically, everything past the head is older than everything up to it, so two fills go oldest to newest.
 bool FramRing::clear() {
-  if (!this->initialised_ || !this->wipe_())
+  if (!this->initialised_)
+    return false;
+
+  const uint32_t past_head = this->entry_offset_(this->head_index_ + 1);
+  if (!this->fill_(past_head, 0, this->size_ - past_head) || !this->fill_(0, 0, past_head))
     return false;
 
   this->head_index_ = 0;

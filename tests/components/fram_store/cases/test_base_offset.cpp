@@ -25,6 +25,7 @@ class BaseOffsetTest : public ::testing::Test {
       store.set_backend(backend);
       store.set_expected_size(PART_SIZE);
       store.set_base_offset(base);
+      store.set_end(base + STORE_END);
       store.set_layout_hash(LAYOUT_HASH);
       store.add_region(&slot);
       store.add_region(&ring);
@@ -64,7 +65,7 @@ TEST_F(BaseOffsetTest, PlacesTheSuperblockAtTheBase) {
   ASSERT_TRUE(mounted->store.is_ready());
   EXPECT_EQ(mounted->store.base_offset(), BASE);
   EXPECT_EQ(mounted->store.format_count(), 1u);
-  EXPECT_TRUE(LogCapture::instance().has_warning("Formatting 512 bytes from 0x0200"));
+  EXPECT_TRUE(LogCapture::instance().has_warning("Formatting 120 bytes at 0x0200-0x0277"));
 
   uint8_t magic[4] = {};
   ASSERT_TRUE(this->backend_.read(BASE, magic, sizeof(magic)));
@@ -142,6 +143,7 @@ TEST_F(BaseOffsetTest, RefusesABaseWithNoRoomForTheSuperblock) {
   store.set_backend(&this->backend_);
   store.set_expected_size(PART_SIZE);
   store.set_base_offset(PART_SIZE - SUPERBLOCK_SIZE / 2);
+  store.set_end(PART_SIZE);
   store.setup();
 
   EXPECT_FALSE(store.is_ready());

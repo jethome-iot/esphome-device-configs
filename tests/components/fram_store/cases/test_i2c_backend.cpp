@@ -12,6 +12,8 @@ static const uint8_t FRAM_ADDRESS = 0x52;
 static const uint32_t FRAM_SIZE = 8192;
 static const uint16_t STORE_BASE = 0x200;
 static const uint16_t ODOMETERS = 200;
+static const uint16_t RING_AT = STORE_BASE + SUPERBLOCK_SIZE + 2 * (FramSlot::HEADER_SIZE + ODOMETERS);
+static const uint32_t STORE_ENDS = RING_AT + 16 * (FramRing::HEADER_SIZE + RING_RECORD);
 
 // An FM24CL64B: a two-byte address, then a write streams into the array with no page to wrap at.
 class FakeFramBus : public i2c::I2CBus {
@@ -21,6 +23,7 @@ class FakeFramBus : public i2c::I2CBus {
   bool refuse_reads{false};
   size_t longest_transfer{0};
   uint32_t lowest_write{FRAM_SIZE};
+  uint32_t highest_write{0};
 
   i2c::ErrorCode write_readv(uint8_t addr, const uint8_t *write_buffer, size_t write_count, uint8_t *read_buffer,
                              size_t read_count) override {
@@ -31,8 +34,10 @@ class FakeFramBus : public i2c::I2CBus {
       this->pointer_ = (static_cast<size_t>(write_buffer[0]) << 8) | write_buffer[1];
       if (write_count > 2)
         this->lowest_write = std::min<uint32_t>(this->lowest_write, this->pointer_);
-      for (size_t i = 2; i < write_count; i++)
+      for (size_t i = 2; i < write_count; i++) {
+        this->highest_write = std::max<uint32_t>(this->highest_write, this->pointer_);
         this->image.at(this->pointer_++) = write_buffer[i];
+      }
     }
     if (read_count != 0 && this->refuse_reads)
       return i2c::ERROR_TIMEOUT;
@@ -67,11 +72,11 @@ struct Boot {
   FramRing ring;
 
   explicit Boot(NvramBackend *backend)
-      : slot(&store, STORE_BASE + SUPERBLOCK_SIZE, ODOMETERS),
-        ring(&store, STORE_BASE + SUPERBLOCK_SIZE + 2 * (FramSlot::HEADER_SIZE + ODOMETERS), RING_RECORD, 16) {
+      : slot(&store, STORE_BASE + SUPERBLOCK_SIZE, ODOMETERS), ring(&store, RING_AT, RING_RECORD, 16) {
     store.set_backend(backend);
     store.set_expected_size(FRAM_SIZE);
     store.set_base_offset(STORE_BASE);
+    store.set_end(STORE_ENDS);
     store.set_layout_hash(LAYOUT_HASH);
     store.add_region(&slot);
     store.add_region(&ring);
@@ -130,10 +135,10 @@ TEST_F(I2CBackendTest, AValueSurvivesARestart) {
   EXPECT_EQ(record, 99u);
 }
 
-// The format, the scans and an odometer-sized save all go out in bounded transfers, above the base.
-TEST_F(I2CBackendTest, StaysAboveTheBaseInBoundedTransfers) {
+// The format, the scans and an odometer-sized save all go out in bounded transfers, inside the store's range.
+TEST_F(I2CBackendTest, StaysInsideItsRangeInBoundedTransfers) {
   Part part;
-  std::fill(part.bus.image.begin(), part.bus.image.begin() + STORE_BASE, 0xA5);
+  std::fill(part.bus.image.begin(), part.bus.image.end(), 0xA5);
   part.boot();
   Boot boot(&part.backend);
   const std::vector<uint8_t> data = payload(1);
@@ -141,7 +146,10 @@ TEST_F(I2CBackendTest, StaysAboveTheBaseInBoundedTransfers) {
 
   EXPECT_LE(part.bus.longest_transfer, 2u + i2c_eeprom::I2CEeprom::MAX_TRANSFER);
   EXPECT_EQ(part.bus.lowest_write, STORE_BASE);
+  EXPECT_LT(part.bus.highest_write, STORE_ENDS);
   EXPECT_TRUE(std::all_of(part.bus.image.begin(), part.bus.image.begin() + STORE_BASE,
+                          [](uint8_t byte) { return byte == 0xA5; }));
+  EXPECT_TRUE(std::all_of(part.bus.image.begin() + STORE_ENDS, part.bus.image.end(),
                           [](uint8_t byte) { return byte == 0xA5; }));
 }
 
@@ -171,7 +179,7 @@ TEST_F(I2CBackendTest, APartThatStopsAnsweringIsNotFormatted) {
   part.bus.refuse_reads = true;
   Boot silent(&part.backend);
   EXPECT_FALSE(silent.store.is_ready());
-  EXPECT_TRUE(LogCapture::instance().has_error("Superblock could not be read"));
+  EXPECT_TRUE(LogCapture::instance().has_error("Superblock at 0x0200 could not be read"));
   EXPECT_EQ(part.bus.image, before);
 }
 

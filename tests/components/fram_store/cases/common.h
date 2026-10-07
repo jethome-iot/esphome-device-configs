@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -20,6 +21,8 @@ static const uint16_t SLOT_PAYLOAD = 8;
 static const uint16_t RING_RECORD = 8;
 static const uint16_t RING_CAPACITY = 4;
 static const uint16_t RING_OFFSET = SLOT_OFFSET + 2 * (FramSlot::HEADER_SIZE + SLOT_PAYLOAD);
+// Where the shared layout ends, as codegen would pass it; the device goes on past it.
+static const uint32_t STORE_END = RING_OFFSET + RING_CAPACITY * (FramRing::HEADER_SIZE + RING_RECORD);
 
 // Copy 1 of the slot, and the payload inside a copy or a record: the addresses the tests damage.
 inline uint16_t slot_copy(uint8_t copy) { return SLOT_OFFSET + copy * (FramSlot::HEADER_SIZE + SLOT_PAYLOAD); }
@@ -33,11 +36,19 @@ class FaultyBackend : public RamBackend {
  public:
   using RamBackend::RamBackend;
 
-  void fail_reads_covering(uint16_t address) {
+  // The next `count` reads covering `address` fail; by default until stop_failing().
+  void fail_reads_covering(uint16_t address, uint32_t count = UINT32_MAX) {
     this->fail_address_ = address;
-    this->failing_ = true;
+    this->failing_ = count;
   }
-  void stop_failing() { this->failing_ = false; }
+  void stop_failing() { this->failing_ = 0; }
+  // The next `count` reads covering `address` succeed with a wrong byte there: a different one each time,
+  // or the same one when `same`, which is what a part returning garbage that looks stable does.
+  void garble_reads_covering(uint16_t address, uint32_t count, bool same = false) {
+    this->garble_address_ = address;
+    this->garbling_ = count;
+    this->garble_same_ = same;
+  }
   void fail_writes(bool fail) { this->failing_writes_ = fail; }
   // Every write below this address fails the test: it is someone else's memory.
   void guard_below(uint16_t address) { this->guard_ = address; }
@@ -50,19 +61,37 @@ class FaultyBackend : public RamBackend {
   bool read(uint16_t address, uint8_t *data, size_t len) override {
     EXPECT_GE(address, this->guard_) << "read " << len << " bytes below the store";
     this->reads_++;
-    if (this->failing_ && address <= this->fail_address_ && this->fail_address_ < address + len)
+    if (this->failing_ != 0 && covers(address, len, this->fail_address_)) {
+      if (this->failing_ != UINT32_MAX)
+        this->failing_--;
       return false;
-    return RamBackend::read(address, data, len);
+    }
+    if (!RamBackend::read(address, data, len))
+      return false;
+    if (this->garbling_ != 0 && covers(address, len, this->garble_address_)) {
+      this->garbling_--;
+      this->garbled_++;
+      data[this->garble_address_ - address] ^= this->garble_same_ ? 0xFF : this->garbled_;
+    }
+    return true;
   }
 
   uint32_t reads() const { return this->reads_; }
   void reset_reads() { this->reads_ = 0; }
 
  protected:
+  static bool covers(uint16_t address, size_t len, uint16_t target) {
+    return address <= target && target < address + len;
+  }
+
   uint16_t fail_address_{0};
+  uint16_t garble_address_{0};
   uint16_t guard_{0};
   uint32_t reads_{0};
-  bool failing_{false};
+  uint32_t failing_{0};
+  uint32_t garbling_{0};
+  uint8_t garbled_{0};
+  bool garble_same_{false};
   bool failing_writes_{false};
 };
 
@@ -102,26 +131,28 @@ class LogCapture {
   }
 };
 
+// One boot of the shared layout: the superblock at 0, a slot, then a ring.
+struct Mounted {
+  FramStore store;
+  FramSlot slot;
+  FramRing ring;
+
+  explicit Mounted(NvramBackend *backend, uint32_t layout_hash = LAYOUT_HASH)
+      : slot(&store, SLOT_OFFSET, SLOT_PAYLOAD), ring(&store, RING_OFFSET, RING_RECORD, RING_CAPACITY) {
+    store.set_backend(backend);
+    store.set_expected_size(DEVICE_SIZE);
+    store.set_end(STORE_END);
+    store.set_layout_hash(layout_hash);
+    store.add_region(&slot);
+    store.add_region(&ring);
+    store.setup();
+  }
+};
+
 // One device, rebuilt stores: a fresh store over the same backend is what a reboot looks like from the
 // format's point of view, which is the only way to test recovery without hardware.
 class FramStoreTest : public ::testing::Test {
  protected:
-  struct Mounted {
-    FramStore store;
-    FramSlot slot;
-    FramRing ring;
-
-    Mounted(NvramBackend *backend, uint32_t layout_hash)
-        : slot(&store, SLOT_OFFSET, SLOT_PAYLOAD), ring(&store, RING_OFFSET, RING_RECORD, RING_CAPACITY) {
-      store.set_backend(backend);
-      store.set_expected_size(DEVICE_SIZE);
-      store.set_layout_hash(layout_hash);
-      store.add_region(&slot);
-      store.add_region(&ring);
-      store.setup();
-    }
-  };
-
   void SetUp() override { LogCapture::instance().clear(); }
 
   std::unique_ptr<Mounted> mount(uint32_t layout_hash = LAYOUT_HASH) {
@@ -152,6 +183,7 @@ class FramRingGeometryTest : public ::testing::Test {
       this->device = shared == nullptr ? &this->own_backend : shared;
       store.set_backend(this->device);
       store.set_expected_size(device_size);
+      store.set_end(SLOT_OFFSET + ring.size());
       store.set_layout_hash(LAYOUT_HASH);
       store.add_region(&ring);
       store.setup();

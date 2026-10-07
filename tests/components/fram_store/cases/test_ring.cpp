@@ -169,6 +169,7 @@ TEST_F(FramStoreTest, RingRecoversWhenEveryRecordIsDamaged) {
   auto mounted = this->mount();
   EXPECT_TRUE(mounted->ring.is_initialised());
   EXPECT_EQ(mounted->ring.count(), 0u);
+  EXPECT_TRUE(LogCapture::instance().has_warning("Ring at 0x0040: the newest 4 record(s) are all damaged, wiping it"));
 
   uint64_t value = 77;
   ASSERT_TRUE(mounted->ring.append(value));
@@ -413,9 +414,11 @@ TEST_F(FramRingGeometryTest, WipesItselfWhenTooManyRecordsAreDamaged) {
     this->damage_record(rig, index);
   }
 
+  LogCapture::instance().clear();
   auto wiped = this->remount(rig, RING_RECORD, CAPACITY);
   EXPECT_TRUE(wiped->ring.is_initialised());
   EXPECT_EQ(wiped->ring.count(), 0u);
+  EXPECT_TRUE(LogCapture::instance().has_warning("Ring at 0x0020: the newest 5 record(s) are all damaged, wiping it"));
 
   uint64_t value = 77;
   ASSERT_TRUE(wiped->ring.append(value));

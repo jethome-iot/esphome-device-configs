@@ -1,9 +1,14 @@
 """Crash-safe slots and rings on a byte-addressable non-volatile part, laid out at build time."""
 
+import logging
+
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.const import CONF_CAPACITY, CONF_ID, CONF_SIZE, CONF_TYPE
+from esphome.core import CORE
 import esphome.final_validate as fv
+
+_LOGGER = logging.getLogger(__name__)
 
 CODEOWNERS = ["@jethome-iot"]
 MULTI_CONF = True
@@ -24,6 +29,9 @@ DEFAULT_DEVICE_SIZE = 8192
 
 TYPE_SLOT = "slot"
 TYPE_RING = "ring"
+
+# What i2c_eeprom reaches with its one address byte; 4 to 16 Kbit parts hold more than that.
+ONE_BYTE_REACH = 256
 
 fram_store_ns = cg.esphome_ns.namespace("fram_store")
 FramStore = fram_store_ns.class_("FramStore", cg.Component)
@@ -148,12 +156,43 @@ def _part(full_config, eeprom_id):
     return None
 
 
+def _span(config):
+    base = config[CONF_BASE_OFFSET]
+    return f"0x{base:04X}-0x{layout(config)[1] - 1:04X}"
+
+
+# Each store formats only its own range, so two that overlap would wipe each other at every boot.
+# Reported on the later of the two, once per pair.
+def _check_overlaps(config, full_config):
+    name = config[CONF_ID].id
+    eeprom = config[CONF_EEPROM_ID].id
+    base = config[CONF_BASE_OFFSET]
+    end = layout(config)[1]
+    for other in full_config.get("fram_store") or []:
+        if other[CONF_ID].id == name:
+            return
+        if CONF_EEPROM_ID not in other or other[CONF_EEPROM_ID].id != eeprom:
+            continue
+        if base < layout(other)[1] and other[CONF_BASE_OFFSET] < end:
+            raise cv.Invalid(
+                f"{name} ({_span(config)}) overlaps {other[CONF_ID].id} ({_span(other)}) on {eeprom}",
+                path=[CONF_BASE_OFFSET],
+            )
+
+
 # The store rewrites a record on every save, which an EEPROM's write cycles and endurance cannot
 # take, and it is laid out for the size it names.
 def _final_validate(config):
     if CONF_EEPROM_ID not in config:
+        if not CORE.is_host:
+            _LOGGER.warning(
+                "fram_store %s names no eeprom_id: its regions live in RAM and are lost at every reboot",
+                config[CONF_ID].id,
+            )
         return config
-    part = _part(fv.full_config.get(), config[CONF_EEPROM_ID])
+    full_config = fv.full_config.get()
+    _check_overlaps(config, full_config)
+    part = _part(full_config, config[CONF_EEPROM_ID])
     if part is None:
         return config
     name = config[CONF_EEPROM_ID].id
@@ -164,6 +203,12 @@ def _final_validate(config):
             path=[CONF_EEPROM_ID],
         )
     part_size = getattr(part.get(CONF_SIZE), "enum_value", None)
+    if part_size is not None and ONE_BYTE_REACH < part_size <= 2048:
+        raise cv.Invalid(
+            f"{name} is a {part[CONF_SIZE]} part, of which i2c_eeprom reaches only the first "
+            f"{ONE_BYTE_REACH} bytes; the store needs a part it can address whole",
+            path=[CONF_EEPROM_ID],
+        )
     if part_size is not None and part_size != config[CONF_SIZE]:
         raise cv.Invalid(
             f"size is {config[CONF_SIZE]} bytes, but {name} holds {part_size}",
@@ -188,10 +233,11 @@ async def to_code(config):
     else:
         backend = cg.new_Pvariable(config[CONF_RAM_BACKEND_ID], config[CONF_SIZE])
 
-    offsets, _, layout_hash = layout(config)
+    offsets, end, layout_hash = layout(config)
     cg.add(var.set_backend(backend))
     cg.add(var.set_expected_size(config[CONF_SIZE]))
     cg.add(var.set_base_offset(config[CONF_BASE_OFFSET]))
+    cg.add(var.set_end(end))
     cg.add(var.set_layout_hash(layout_hash))
 
     for region, offset in zip(config[CONF_REGIONS], offsets):

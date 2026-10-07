@@ -7,7 +7,7 @@ from pathlib import Path
 import esphome.config_validation as cv
 import esphome.final_validate as fv
 from esphome import loader
-from esphome.const import KEY_CORE, KEY_TARGET_PLATFORM, PLATFORM_HOST
+from esphome.const import KEY_CORE, KEY_TARGET_PLATFORM, PLATFORM_ESP32, PLATFORM_HOST
 from esphome.core import CORE, ID
 import yaml
 
@@ -29,6 +29,40 @@ def final_validate(config, full_config):
     token = fv.full_config.set(full_config)
     try:
         return fram_store.FINAL_VALIDATE_SCHEMA(validate(config))
+    finally:
+        fv.full_config.reset(token)
+
+
+def store(name, eeprom_id, base_offset, regions, size=8192):
+    """A validated fram_store: entry, as the full config holds it."""
+    config = validate(
+        {
+            "eeprom_id": eeprom_id,
+            "size": size,
+            "base_offset": base_offset,
+            "regions": regions,
+        }
+    )
+    config["id"] = ID(name, is_declaration=True)
+    config["eeprom_id"] = ID(eeprom_id)
+    return config
+
+
+def refusal(check, *args):
+    """The message a refused config gets, without the path voluptuous appends to str()."""
+    try:
+        check(*args)
+    except cv.Invalid as error:
+        return error.msg
+    raise AssertionError("the config was taken")
+
+
+def final_validate_all(stores, parts):
+    """Every store's final validation over one full config, as a build runs it."""
+    token = fv.full_config.set({"fram_store": stores, "i2c_eeprom": parts})
+    try:
+        for config in stores:
+            fram_store.FINAL_VALIDATE_SCHEMA(config)
     finally:
         fv.full_config.reset(token)
 
@@ -182,6 +216,132 @@ class ThePart(unittest.TestCase):
     def test_a_store_in_ram_names_no_part(self):
         final_validate({"regions": [slot("a", 8)]}, {})
 
+    def test_a_part_missing_from_the_config_is_left_to_the_id_check(self):
+        final_validate({"eeprom_id": "fram_cpu", "regions": [slot("a", 8)]}, {})
+
+    def test_a_part_i2c_eeprom_cannot_address_whole_is_refused(self):
+        for name, size in (("4KB", 512), ("8KB", 1024), ("16KB", 2048)):
+            with self.subTest(name=name):
+                self.assertEqual(
+                    refusal(
+                        final_validate,
+                        {
+                            "eeprom_id": "fram_cpu",
+                            "size": size,
+                            "regions": [slot("a", 8)],
+                        },
+                        {"i2c_eeprom": [part("fram_cpu", type="fram", size=name)]},
+                    ),
+                    f"fram_cpu is a {name} part, of which i2c_eeprom reaches only the first "
+                    "256 bytes; the store needs a part it can address whole",
+                )
+
+    def test_the_parts_one_address_byte_reaches_whole_are_taken(self):
+        for name, size in (("1KB", 128), ("2KB", 256), ("32KB", 4096)):
+            with self.subTest(name=name):
+                final_validate(
+                    {"eeprom_id": "fram_cpu", "size": size, "regions": [slot("a", 8)]},
+                    {"i2c_eeprom": [part("fram_cpu", type="fram", size=name)]},
+                )
+
+
+class StoresOnOnePart(unittest.TestCase):
+    """Each store formats only its own range, so ranges on one part must not overlap."""
+
+    PARTS = [part("fram_cpu", type="fram")]
+
+    def test_stores_side_by_side_are_taken(self):
+        # 0x0200 + 32 + 2 * (8 + 8) = 0x0240, where the second one may start.
+        final_validate_all(
+            [
+                store("low", "fram_cpu", 0x0200, [slot("a", 8)]),
+                store("high", "fram_cpu", 0x0240, [slot("b", 8)]),
+            ],
+            self.PARTS,
+        )
+
+    def test_an_overlap_is_refused_on_the_later_store(self):
+        self.assertEqual(
+            refusal(
+                final_validate_all,
+                [
+                    store("low", "fram_cpu", 0x0200, [slot("a", 8)]),
+                    store("high", "fram_cpu", 0x023C, [slot("b", 8)]),
+                ],
+                self.PARTS,
+            ),
+            "high (0x023C-0x027B) overlaps low (0x0200-0x023F) on fram_cpu",
+        )
+
+    def test_a_store_inside_another_is_refused(self):
+        # 0x0200 + 32 + 2 * (8 + 1024) = 0x0A30.
+        self.assertEqual(
+            refusal(
+                final_validate_all,
+                [
+                    store("outer", "fram_cpu", 0x0200, [slot("a", 1024)]),
+                    store("inner", "fram_cpu", 0x0400, [slot("b", 8)]),
+                ],
+                self.PARTS,
+            ),
+            "inner (0x0400-0x043F) overlaps outer (0x0200-0x0A2F) on fram_cpu",
+        )
+
+    def test_a_store_below_another_is_refused_too(self):
+        # Listed first or not, the store that comes later in the config is the one named.
+        self.assertEqual(
+            refusal(
+                final_validate_all,
+                [
+                    store("high", "fram_cpu", 0x0400, [slot("b", 8)]),
+                    store("low", "fram_cpu", 0x03F0, [slot("a", 8)]),
+                ],
+                self.PARTS,
+            ),
+            "low (0x03F0-0x042F) overlaps high (0x0400-0x043F) on fram_cpu",
+        )
+
+    def test_the_same_range_on_another_part_is_not_an_overlap(self):
+        final_validate_all(
+            [
+                store("first", "fram_a", 0x0200, [slot("a", 8)]),
+                store("second", "fram_b", 0x0200, [slot("b", 8)]),
+            ],
+            [part("fram_a", type="fram"), part("fram_b", type="fram")],
+        )
+
+    def test_a_store_in_ram_overlaps_nothing(self):
+        ram = validate({"base_offset": 0x0200, "regions": [slot("r", 8)]})
+        ram["id"] = ID("ram", is_declaration=True)
+        final_validate_all(
+            [ram, store("fram", "fram_cpu", 0x0200, [slot("a", 8)])], self.PARTS
+        )
+
+
+class StoreInRam(unittest.TestCase):
+    def tearDown(self):
+        CORE.data[KEY_CORE][KEY_TARGET_PLATFORM] = PLATFORM_HOST
+
+    def test_a_device_build_without_a_part_is_warned_about(self):
+        CORE.data[KEY_CORE][KEY_TARGET_PLATFORM] = PLATFORM_ESP32
+        config = validate({"regions": [slot("a", 8)]})
+        config["id"] = ID("scratch_store", is_declaration=True)
+        with self.assertLogs("esphome.components.fram_store", level="WARNING") as logs:
+            fram_store.FINAL_VALIDATE_SCHEMA(config)
+        self.assertEqual(
+            logs.output,
+            [
+                "WARNING:esphome.components.fram_store:fram_store scratch_store names no "
+                "eeprom_id: its regions live in RAM and are lost at every reboot"
+            ],
+        )
+
+    def test_the_host_build_keeps_quiet(self):
+        config = validate({"regions": [slot("a", 8)]})
+        config["id"] = ID("host_store", is_declaration=True)
+        with self.assertNoLogs("esphome.components.fram_store", level="WARNING"):
+            fram_store.FINAL_VALIDATE_SCHEMA(config)
+
 
 class Constants(unittest.TestCase):
     """The placement here and the format in C++ have to agree byte for byte."""
@@ -205,6 +365,33 @@ class Constants(unittest.TestCase):
             fram_store.RING_HEADER_SIZE,
             int(re.search(r"\bHEADER_SIZE = (\d+);", ring_part).group(1)),
         )
+
+
+class ReadmeExample(unittest.TestCase):
+    """The README's configuration builds as it stands, and its C++ names the regions it declares."""
+
+    def test_the_example_validates(self):
+        text = (REPO / "components" / "fram_store" / "README.md").read_text()
+        example = yaml.safe_load(re.search(r"```yaml\n(.*?)```", text, re.S).group(1))
+        (fram,) = example["i2c_eeprom"]
+        validated = i2c_eeprom.CONFIG_SCHEMA(fram)
+        validated["id"] = ID(fram["id"], is_declaration=True)
+        stores = []
+        for entry in example["fram_store"]:
+            config = validate(entry)
+            config["id"] = ID(entry["id"], is_declaration=True)
+            stores.append(config)
+        final_validate_all(stores, [validated])
+
+        cpp = re.search(r"```cpp\n(.*?)```", text, re.S).group(1)
+        regions = {
+            str(region["id"]): region
+            for config in stores
+            for region in config["regions"]
+        }
+        self.assertEqual(set(re.findall(r"id\((\w+)\)", cpp)), set(regions))
+        self.assertIn(f"sizeof(Totals) == {regions['totals']['size']}", cpp)
+        self.assertIn(f"sizeof(Event) == {regions['events']['record_size']}", cpp)
 
 
 class ShippedLayout(unittest.TestCase):
