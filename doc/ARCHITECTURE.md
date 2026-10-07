@@ -55,8 +55,8 @@ boundaries; everything else is local to its file.
 - The board page is the page LEFT opens from the main or the blank page. `display/buttons.yaml`
   knows it only by two scripts, which the board's package defines: `board_page_show` opens it,
   and `board_page_key` gets every press the menu and the main and blank pages leave unused, with
-  `button` set to `up`, `down`, `left`, `right` or `center`, on whatever page is shown, so it acts
-  only while its own page is up. The relay board's is `display/status-page.yaml`. A device with
+  `button` set to `up`, `down`, `left`, `right` or `center`, on whatever page is shown, so it has
+  to check that its own page is up. The relay board's is `display/status-page.yaml`. A device with
   the display packages and no board page fails to build.
 - `automations_engine` (`features/automations.yaml`) is the rule engine;
   `display/menu-automations.yaml` reads `configs()` for the Automations rows and calls
@@ -79,9 +79,11 @@ boundaries; everything else is local to its file.
   `features/climates.yaml`, `automations.yaml` and `entity-settings.yaml` load `switch_hold`;
   `display/status-page.yaml`, `display/menu-relays.yaml` and `features/modbus-server.yaml` call
   `switch_hold::` without loading it, so they count on one of those three being in the same
-  firmware. The menu packages count on the feature their rows show: `menu-relays.yaml` on
-  `entity-settings.yaml`, `menu-thermostats.yaml` on `climates.yaml`, `menu-automations.yaml` on
-  `automations.yaml`.
+  firmware. The relay board's display packages count on the packages whose ids they use:
+  `status-page.yaml` on the relay board (`relays`, `inputs`) and `temperature.yaml` (`temps`),
+  `menu-relays.yaml` on the relay board and `entity-settings.yaml`, `menu-temperatures.yaml` on
+  `temperature.yaml` (`temps`, `forget_temperatures`), `menu-modbus.yaml` on `modbus-server.yaml`,
+  `menu-thermostats.yaml` on `climates.yaml` and `menu-automations.yaml` on `automations.yaml`.
 - `${link_icon}` is a substitution holding a C++ expression, defined in
   `display/network-icons.yaml` and expanded inside the main-page lambda in `display/display.yaml`.
   Package substitutions share one namespace with the device config's.
@@ -129,7 +131,7 @@ boundaries; everything else is local to its file.
 | 599.5 | `climate_hub` sets up: it registers its pool of climate entities, loads the thermostats and starts the enabled ones, so it sits below the `Temp N` sensors (600) and above `automations`, which may one day name a thermostat |
 | 599.25 | `bindings` sets up and drives the `Follow` relays once, skipping those a thermostat claimed at 599.5 |
 | 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created. `board_info` reads the EEPROM here too, once `eeprom_cpu` (600) has answered |
-| 500 | add a `Temp N` submenu per bound slot to the Temperatures menu; add a row per loaded rule to the Automations menu; add a submenu per loaded thermostat to the Thermostats menu |
+| 500 | add a `Temp N` submenu per bound slot to the Temperatures menu; add a submenu per loaded thermostat to the Thermostats menu; add a row per loaded rule to the Automations menu |
 | 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
 
 `littlefs_storage` mounts at 810, so the rule files are readable by the time `automations` loads

@@ -15,8 +15,8 @@ graphical_display_menu:
   on_redraw:
     then:
       - component.update: display1
-  # Weights, not the package order, place the root rows: a board's own rows (menu-*.yaml) sit
-  # below 100, Info and Settings after them.
+  # Weights, not the package order, place the root rows: a board's own rows (menu-relays.yaml
+  # and the like) sit below 100, Info and Settings after them.
   items:
     - type: menu
       text: "Info"
