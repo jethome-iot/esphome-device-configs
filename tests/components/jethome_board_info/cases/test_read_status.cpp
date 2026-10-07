@@ -1,5 +1,8 @@
 // What read_file returns for each way a file can be missing or broken, and how an EEPROM that
-// is allowed to be blank reports a header it cannot use: a warning, never a failed component.
+// is allowed to be blank reports a header it cannot use: a note when blank, a warning otherwise,
+// never a failed component.
+
+#include <utility>
 
 #include "common.h"
 
@@ -32,11 +35,24 @@ TEST(ReadFile, NoFileAreaIsNotFound) {
   EXPECT_TRUE(board.log().errors.empty());
 }
 
+// Said once at boot, not again by every read that runs into it.
 TEST(ReadFile, AnUnknownFilesystemVersionIsUnsupported) {
   Board board(one_file_image(7));
   board.boot();
   EXPECT_EQ(read_wifi(board), ReadStatus::UNSUPPORTED);
-  EXPECT_TRUE(board.log().has_error("Unsupported filesystem version 7, so wifi.conf cannot be read"));
+  EXPECT_EQ(read_wifi(board), ReadStatus::UNSUPPORTED);
+  ASSERT_EQ(board.log().errors.size(), 1u);
+  EXPECT_TRUE(board.log().has_error("EEPROM 0x54: Unsupported filesystem version 7, ignoring the file area"));
+}
+
+TEST(ReadFile, AnUnknownFilesystemVersionOnAnOptionalPartIsOneWarning) {
+  Board board(one_file_image(7));
+  board.info.set_required(false);
+  board.boot();
+  EXPECT_EQ(read_wifi(board), ReadStatus::UNSUPPORTED);
+  EXPECT_TRUE(board.log().errors.empty());
+  ASSERT_EQ(board.log().warnings.size(), 1u);
+  EXPECT_TRUE(board.log().has_warning("Unsupported filesystem version 7, ignoring the file area"));
 }
 
 TEST(ReadFile, AFileHeaderWithABadCrcIsCorrupt) {
@@ -170,13 +186,40 @@ std::vector<uint8_t> erased_but_byte_one() {
   return image;
 }
 
-TEST(OptionalEeprom, AHeaderItCannotUseIsAWarningNotAFailure) {
+void expect_running_without_a_header(Board &board, ReadStatus status) {
+  EXPECT_FALSE(board.info.is_failed());
+  EXPECT_FALSE(board.info.status_has_error());
+  EXPECT_FALSE(board.info.is_valid());
+  EXPECT_EQ(board.info.get_header_status(), status);
+  EXPECT_TRUE(board.log().errors.empty());
+  EXPECT_EQ(read_wifi(board), status);
+  board.info.dump_config();
+  EXPECT_TRUE(board.log().has_config(read_status_str(status)));
+}
+
+// Boards shipped before anything was written there: expected, so a note and nothing louder.
+TEST(OptionalEeprom, ABlankPartIsANoteNotAWarning) {
+  const std::vector<std::pair<const char *, std::vector<uint8_t>>> cases = {
+      {"erased", std::vector<uint8_t>(8192, ERASED_BYTE)},
+      {"zeroed", std::vector<uint8_t>(8192, EMPTY_BYTE)},
+      {"byte one cleared", erased_but_byte_one()},
+  };
+  for (const auto &c : cases) {
+    SCOPED_TRACE(c.first);
+    Board board(c.second);
+    board.info.set_required(false);
+    board.boot();
+
+    expect_running_without_a_header(board, ReadStatus::NO_HEADER);
+    EXPECT_TRUE(board.log().warnings.empty());
+    EXPECT_TRUE(board.log().has_info("EEPROM 0x54: no board header"));
+  }
+}
+
+TEST(OptionalEeprom, AHeaderThatIsThereButUnusableIsAWarning) {
   const std::vector<OptionalCase> cases = {
-      {"erased", std::vector<uint8_t>(8192, ERASED_BYTE), ReadStatus::NO_HEADER, "EEPROM 0x54: Invalid magic"},
-      {"zeroed", std::vector<uint8_t>(8192, EMPTY_BYTE), ReadStatus::NO_HEADER, "Invalid magic"},
-      {"byte one cleared", erased_but_byte_one(), ReadStatus::NO_HEADER, "Invalid magic"},
-      {"bad CRC", with_bad_crc(), ReadStatus::CORRUPT, "CRC32 mismatch"},
-      {"newer header", with_version(5), ReadStatus::UNSUPPORTED, "Unsupported header version: 5"},
+      {"bad CRC", with_bad_crc(), ReadStatus::CORRUPT, "EEPROM 0x54: CRC32 mismatch"},
+      {"newer header", with_version(5), ReadStatus::UNSUPPORTED, "EEPROM 0x54: Unsupported header version: 5"},
   };
   for (const OptionalCase &c : cases) {
     SCOPED_TRACE(c.name);
@@ -184,15 +227,20 @@ TEST(OptionalEeprom, AHeaderItCannotUseIsAWarningNotAFailure) {
     board.info.set_required(false);
     board.boot();
 
-    EXPECT_FALSE(board.info.is_failed());
-    EXPECT_FALSE(board.info.status_has_error());
-    EXPECT_FALSE(board.info.is_valid());
-    EXPECT_EQ(board.info.get_header_status(), c.status);
-    EXPECT_TRUE(board.log().errors.empty());
+    expect_running_without_a_header(board, c.status);
     EXPECT_TRUE(board.log().has_warning(c.warning));
-    EXPECT_EQ(read_wifi(board), c.status);
-    board.info.dump_config();
+    EXPECT_FALSE(board.log().has_info("no board header"));
   }
+}
+
+// The same blank part on a board that must carry a header is an error and fails the component.
+TEST(OptionalEeprom, ABlankRequiredPartIsStillAnError) {
+  Board board(std::vector<uint8_t>(8192, ERASED_BYTE));
+  board.boot();
+
+  EXPECT_TRUE(board.info.is_failed());
+  EXPECT_TRUE(board.log().has_error("EEPROM 0x54: Invalid magic"));
+  EXPECT_FALSE(board.log().has_info("no board header"));
 }
 
 TEST(OptionalEeprom, APartThatNeverAnsweredIsNoEeprom) {

@@ -81,7 +81,12 @@ ReadStatus JetHomeBoardInfo::read_header_() {
       this->crc_valid_ = true;
       break;
     case HeaderStatus::BAD_MAGIC:
-      this->report_("Invalid magic");
+      // Blank is what a part allowed to be blank is expected to hold: a note, not a warning.
+      if (this->required_) {
+        this->report_("Invalid magic");
+      } else {
+        ESP_LOGI(TAG, "%s: no board header", this->where_());
+      }
       break;
     case HeaderStatus::UNSUPPORTED_VERSION:
       this->report_("Unsupported header version: %u", this->data_.version);
@@ -185,10 +190,9 @@ void JetHomeBoardInfo::log_walk_status_(WalkStatus status, const char *name) {
       ESP_LOGI(TAG, "%s: no %s in the file chain", this->where_(), name);
       return;
     case WalkStatus::NO_FILESYSTEM:
+      // An unknown version was reported once by setup(); every read would only repeat it.
       if (this->data_.fs_version == FS_VERSION_NONE) {
         ESP_LOGI(TAG, "%s: no filesystem, so there is no %s", this->where_(), name);
-      } else {
-        this->report_("Unsupported filesystem version %u, so %s cannot be read", this->data_.fs_version, name);
       }
       return;
     case WalkStatus::BAD_NAME:

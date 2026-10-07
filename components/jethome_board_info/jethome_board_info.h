@@ -17,8 +17,8 @@ class JetHomeBoardInfo : public Component {
   float get_setup_priority() const override { return setup_priority::DATA - 1.0f; }
 
   void set_eeprom(i2c_eeprom::I2CEeprom *eeprom) { this->eeprom_ = eeprom; }
-  // Off for a part that may legitimately be blank: what is wrong with it is then a warning,
-  // not a failed component.
+  // Off for a part that may legitimately be blank: a blank one is then a note, anything else
+  // wrong with it a warning, and neither fails the component.
   void set_required(bool required) { this->required_ = required; }
   bool is_required() const { return this->required_; }
 

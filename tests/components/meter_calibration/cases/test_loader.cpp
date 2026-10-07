@@ -124,9 +124,10 @@ TEST(MeterLoader, ABlankPartIsMissingAndFailsNothing) {
     EXPECT_EQ(board.cal.get_read_status(), ReadStatus::NO_HEADER);
     EXPECT_EQ(board.cal.get_reason(), "the metering board's EEPROM has no board header");
     expect_no_record(board);
-    // The board info's own warning, nothing from the loader: no record is not a fault.
-    EXPECT_EQ(board.log().warnings.size(), 1u);
-    EXPECT_TRUE(board.log().has_warning("EEPROM 0x56: Invalid magic"));
+    // A note from each and nothing louder: no record is not a fault.
+    EXPECT_TRUE(board.log().warnings.empty());
+    EXPECT_TRUE(board.log().has_info("EEPROM 0x56: no board header"));
+    EXPECT_TRUE(board.log().has_info("No factory calibration: the metering board's EEPROM has no board header"));
     board.cal.dump_config();
   }
 }
@@ -258,6 +259,18 @@ TEST(MeterLoader, EveryWayARecordCanBeUnusableHasItsStatusAndReason) {
     EXPECT_TRUE(board.log().has_warning(warning.c_str()));
     board.cal.dump_config();
   }
+}
+
+// The board info says it once, the loader once: nothing repeats per file read.
+TEST(MeterLoader, AnUnknownFilesystemVersionIsOneWarningFromEach) {
+  MeterBoard board(header_fs_version(2));
+  board.boot();
+
+  expect_nothing_failed(board);
+  EXPECT_EQ(board.cal.get_status(), CalStatus::UNSUPPORTED);
+  ASSERT_EQ(board.log().warnings.size(), 2u);
+  EXPECT_TRUE(board.log().has_warning("EEPROM 0x56: Unsupported filesystem version 2, ignoring the file area"));
+  EXPECT_TRUE(board.log().has_warning("Factory calibration unsupported: "));
 }
 
 TEST(MeterLoader, ATimestampPastTheCalendarStillDumps) {

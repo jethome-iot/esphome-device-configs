@@ -72,11 +72,13 @@ class FakeEepromBus : public i2c::I2CBus {
   size_t pointer_{0};
 };
 
-// Every error and warning logged since clear(). Registered once: the logger keeps its listeners.
+// Every line logged since clear(), by level. Registered once: the logger keeps its listeners.
 class LogCapture {
  public:
   std::vector<std::string> errors;
   std::vector<std::string> warnings;
+  std::vector<std::string> infos;
+  std::vector<std::string> configs;
 
   static LogCapture &instance() {
     static LogCapture *capture = [] {
@@ -89,9 +91,13 @@ class LogCapture {
   void clear() {
     this->errors.clear();
     this->warnings.clear();
+    this->infos.clear();
+    this->configs.clear();
   }
   bool has_error(const char *needle) const { return has(this->errors, needle); }
   bool has_warning(const char *needle) const { return has(this->warnings, needle); }
+  bool has_info(const char *needle) const { return has(this->infos, needle); }
+  bool has_config(const char *needle) const { return has(this->configs, needle); }
 
  protected:
   static bool has(const std::vector<std::string> &lines, const char *needle) {
@@ -104,6 +110,10 @@ class LogCapture {
       capture->errors.emplace_back(message, len);
     } else if (level == ESPHOME_LOG_LEVEL_WARN) {
       capture->warnings.emplace_back(message, len);
+    } else if (level == ESPHOME_LOG_LEVEL_INFO) {
+      capture->infos.emplace_back(message, len);
+    } else if (level == ESPHOME_LOG_LEVEL_CONFIG) {
+      capture->configs.emplace_back(message, len);
     }
   }
 };
