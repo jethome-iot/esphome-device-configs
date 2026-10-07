@@ -894,6 +894,24 @@ TEST_F(HubTest, AWaiterForAnEntityThatStillCannotStartPassesItOn) {
   EXPECT_TRUE(LogCapture::instance().has("'attic' not started: relay 'relay_9' not found"));
 }
 
+// A freed entity is for the ones that wait for an entity: one that waits for its sensor is not
+// tried, its reason stands.
+TEST_F(HubTest, AFreedEntityIsNotTriedOnAThermostatThatWaitsForSomethingElse) {
+  hub().shorten_pool(1);
+  this->create(draft("Boiler", "relay_1"));
+  ClimateConfig porch = draft("Porch", "relay_2");
+  porch.sensor_id = "gone";
+  ASSERT_EQ("not started: sensor 'gone' not found", this->create(porch).warning);
+  LogCapture::instance().clear();
+
+  Result result = hub().set_enabled("boiler", false);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_TRUE(result.started.empty());
+  EXPECT_EQ("not started: sensor 'gone' not found", hub().waiting_reason("porch"));
+  EXPECT_EQ(1u, hub().free_count());
+  EXPECT_FALSE(LogCapture::instance().has("'porch' not started")) << "not tried";
+}
+
 // A stop that frees a relay and an entity hands both to the one that waits for the relay, as
 // it did before entities were waited for, even ahead of one earlier by id that waits only for
 // an entity. That one's turn is the next stop. At boot every start that finds no entity says
