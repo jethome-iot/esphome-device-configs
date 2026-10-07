@@ -119,9 +119,10 @@ A key not listed here fails the suite, a misspelt one included.
 
 ## Before a thermostat pull request
 
-The host suites never show what Home Assistant sees over the native API, nor what a thermostat
-keeps across a restart. Before a pull request that touches the thermostats, run the QEMU smoke
-check as well; CI does not:
+The host suites restart a thermostat over a directory that stands in for the flash; only QEMU
+shows it across a power cut on the real LittleFS, and as Home Assistant sees it over the native
+API. Before a pull request that touches the thermostats, run the QEMU smoke check as well; CI
+does not:
 
 ```bash
 .venv/bin/python scripts/qemu-climate-smoke.py
