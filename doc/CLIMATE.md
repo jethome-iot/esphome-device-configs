@@ -161,7 +161,11 @@ HTTP, never taking a relay over: an On that is refused stays Off, and the log sa
 ## Home Assistant
 
 - Home Assistant knows an entity by its name, so **renaming a thermostat makes a new entity
-  there** and leaves the old one unavailable; its history and automations stay with the old one.
+  there** and Home Assistant removes the old one: what names it there (automations, scripts,
+  dashboards) has to be pointed at the new one, what was set for it there (name, icon, area) does
+  not follow, and its history stays under the old entity id. A thermostat that stops, or that a
+  boot leaves waiting, is removed there the same way; whenever one runs again under that name, it
+  comes back as the same entity, with what was set for it in Home Assistant.
 - Home Assistant reconnects to see the change when a thermostat starts or stops (removing a
   running one stops it), and when a running one is renamed, gains or loses its heating or
   cooling relay, gets a new temperature range or step, gains or loses one of Home Assistant's
