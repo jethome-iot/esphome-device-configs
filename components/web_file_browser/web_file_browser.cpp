@@ -22,11 +22,9 @@ namespace web_file_browser {
 
 static const char *const TAG = "web_file_browser";
 
-// How deep delete/copy may recurse. Both run on the 4352-byte esp_http_server
-// task stack, where a deeper tree would smash it instead of failing the request.
-// mkdir has no such limit, so delete measures the tree first: an error, not a
-// partial delete.
-static const unsigned MAX_RECURSION_DEPTH = 8;
+// How deep delete/copy may recurse, counting the directory named in the request as 0.
+// Deeper overruns the esp_http_server task stack instead of failing the request.
+static const unsigned MAX_RECURSION_DEPTH = 3;
 
 void WebFileBrowser::setup() {
   this->base_->init();
@@ -1013,7 +1011,7 @@ bool WebFileBrowser::is_valid_path_(const std::string &path) const {
 // Read-only walk under delete_recursive_'s depth rule, run before it removes
 // anything: a tree it would refuse partway has to be refused whole.
 bool WebFileBrowser::tree_too_deep_(const std::string &path, unsigned depth) const {
-#ifdef USE_ESP32
+#if defined(USE_ESP32) || defined(USE_HOST)
   if (depth > MAX_RECURSION_DEPTH) {
     return true;
   }
@@ -1044,9 +1042,10 @@ bool WebFileBrowser::tree_too_deep_(const std::string &path, unsigned depth) con
 }
 
 bool WebFileBrowser::delete_recursive_(const std::string &path, unsigned depth) {
-#ifdef USE_ESP32
+#if defined(USE_ESP32) || defined(USE_HOST)
   if (depth > MAX_RECURSION_DEPTH) {
-    ESP_LOGE(TAG, "Directory tree deeper than %u levels, refusing to delete '%s'", MAX_RECURSION_DEPTH, path.c_str());
+    ESP_LOGE(TAG, "Directory tree deeper than %u levels, refusing to delete '%s'", MAX_RECURSION_DEPTH + 1,
+             path.c_str());
     return false;
   }
 
@@ -1114,7 +1113,7 @@ bool WebFileBrowser::delete_recursive_(const std::string &path, unsigned depth) 
 }
 
 bool WebFileBrowser::copy_file_(const std::string &src, const std::string &dst) {
-#ifdef USE_ESP32
+#if defined(USE_ESP32) || defined(USE_HOST)
   FILE *in = fopen(src.c_str(), "rb");
   if (in == nullptr) {
     ESP_LOGE(TAG, "Failed to open source file for copy: %s", src.c_str());
@@ -1161,7 +1160,9 @@ bool WebFileBrowser::copy_file_(const std::string &src, const std::string &dst) 
     }
 
     // Yield to prevent watchdog timeout on large files
+#ifdef USE_ESP32
     vTaskDelay(1);
+#endif
   }
 
   fclose(in);
@@ -1185,9 +1186,9 @@ bool WebFileBrowser::copy_file_(const std::string &src, const std::string &dst) 
 }
 
 bool WebFileBrowser::copy_recursive_(const std::string &src, const std::string &dst, unsigned depth) {
-#ifdef USE_ESP32
+#if defined(USE_ESP32) || defined(USE_HOST)
   if (depth > MAX_RECURSION_DEPTH) {
-    ESP_LOGE(TAG, "Directory tree deeper than %u levels, refusing to copy '%s'", MAX_RECURSION_DEPTH, src.c_str());
+    ESP_LOGE(TAG, "Directory tree deeper than %u levels, refusing to copy '%s'", MAX_RECURSION_DEPTH + 1, src.c_str());
     return false;
   }
 
@@ -1238,7 +1239,9 @@ bool WebFileBrowser::copy_recursive_(const std::string &src, const std::string &
     }
 
     // Small entries never reach the chunk yield in copy_file_
+#ifdef USE_ESP32
     vTaskDelay(1);
+#endif
     errno = 0;
   }
 

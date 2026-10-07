@@ -1,6 +1,6 @@
 # ESPHome Device Configurations made by JetHome
 
-![ESPHome](https://img.shields.io/badge/ESPHome-2026.8.2-blue)
+![ESPHome](https://img.shields.io/badge/ESPHome-2026.9.0-blue)
 
 This repository contains ESPHome configurations for various automation devices. These are **open-source firmware configurations** that you can customize and build yourself.
 
@@ -11,6 +11,12 @@ This repository contains ESPHome configurations for various automation devices. 
 JetHome DIN-rail automation controller with display. For a proprietary firmware version with additional features and support, visit [JetHome official website](https://jethome.com/).
 
 **Configuration file**: `devices/JXD/jxd-r6-e1eth-lcd.yaml`
+
+### JXD-R6-E1ETH
+
+The same controller without the OLED display: everything the LCD variant carries except the display, its pages and menu, and the front-panel buttons.
+
+**Configuration file**: `devices/JXD/jxd-r6-e1eth.yaml`
 
 ## JXD-R6-E1ETH-LCD Features
 
@@ -40,6 +46,9 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
 - **Display Control**: Interactive OLED menu with status, time, relay control, input monitoring, and settings
 - **Dallas Temperature Sensors**: a sensor per DS18B20 found at boot, numbered once and kept across reboots ([details](doc/ONEWIRE_WORKFLOW.md))
 - **User Storage**: a 4 MB LittleFS partition mounted at `/littlefs`, kept across OTA updates, served over HTTP as a JSON file API under `/files` ([details](components/web_file_browser/README.md))
+- **Crash reports**: after a panic or a watchdog reset the device saves what ESPHome recorded
+  about the crash on that partition, to fetch under `/files` and decode against the build's
+  `firmware.elf` ([details](components/crash_report/README.md))
 - **Runtime Automations**: rules stored on that partition as JSON, loaded at boot and editable without a recompile, over HTTP under `/automation-editor/api` ([details](doc/AUTOMATIONS.md))
 - **Per-entity settings**: each relay's inversion, start mode and the input bound to it, and each
   input's inversion, set from the display menu and kept on that partition
@@ -51,7 +60,8 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
 
 ```
 devices/JXD/
-  jxd-r6-e1eth-lcd.yaml     # device config
+  jxd-r6-e1eth-lcd.yaml     # device config, OLED variant
+  jxd-r6-e1eth.yaml         # device config, displayless variant
   packages/                 # boards, features, display, qemu
 assets/
   fonts/  res/
@@ -60,8 +70,9 @@ tests/                      # Google Test suites, one per component under tests/
 ```
 
 Each device config sets `assets: ../../assets`, `components: ../../components`,
-`boards: packages/boards`, `features: packages/features` and `display: packages/display`, all
-relative to the device config: it lists its packages as `!include ${features}/…`, and the
+`boards: packages/boards` and `features: packages/features`, all relative to the device
+config; display-carrying ones add `display: packages/display`. It lists its packages as
+`!include ${features}/…`, and the
 packages reference fonts and icons as `${assets}/fonts/…` and external components as
 `source: ${components}`.
 
@@ -71,7 +82,7 @@ the device. Those packages live under the family's `packages/`, split by role:
 | Directory            | Contents |
 | -------------------- | -------- |
 | `packages/boards/`   | Platform and the chips sitting on each board — `jxd-cpu-e1eth.yaml` (ESP32, api/ota/logger/web_server, TMP102, LED, the identity EEPROM) and `jxd-d6-r6-rev1.2.yaml` (PCA9554 expander, 6 relays, 6 inputs, DS2484 1-Wire bridge) |
-| `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `entity-settings`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network`, `web-auth`, `web-device-dashboard`, `web-file-browser`, `automations`, `automation-editor`, `firmware-update` |
+| `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `entity-settings`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network`, `web-auth`, `web-device-dashboard`, `web-file-browser`, `automations`, `automation-editor`, `crash-report`, `firmware-update` |
 | `packages/display/`  | Display, pages, menu and buttons — `display.yaml`, `menu.yaml`, `buttons.yaml`, `menu-items-network.yaml`, `menu-serial.yaml`, `menu-firmware.yaml`, `firmware-page.yaml` |
 | `packages/qemu/`     | Overlays that `scripts/qemu.sh` layers over the real config to run it in the emulator — never part of a firmware build |
 
@@ -79,7 +90,7 @@ Shared code and tooling stay at the repository root:
 
 | Directory  | Contents |
 | ---------- | -------- |
-| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `web_device_dashboard` (the web UI at `/` and its device API), `web_auth` (the web server's credentials, changeable at runtime), `web_origin_guard` (the cross-origin refusal every handler on that server answers with), `loop_job` (what a web handler hands the loop task so it does not edit its state from the server's), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), `entity_config` (the per-entity settings) with the `config_base` / `config_json` it is built on, `bindings` (an input driving a relay), `jethome_update` (the firmware update entity) over the `jethome_manifest` parser of the firmware server's answer, and `display_menu_base` with `graphical_display_menu` (upstream's, with the menu options `packages/display/menu.yaml` needs) |
+| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `crash_report` (the last panic's record, written to that partition at the next boot), `web_device_dashboard` (the web UI at `/` and its device API), `web_auth` (the web server's credentials, changeable at runtime), `web_origin_guard` (the cross-origin refusal every handler on that server answers with), `loop_job` (what a web handler hands the loop task so it does not edit its state from the server's), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), `entity_config` (the per-entity settings) with the `config_base` / `config_json` it is built on, `bindings` (an input driving a relay), `jethome_update` (the firmware update entity) over the `jethome_manifest` parser of the firmware server's answer, and `display_menu_base` with `graphical_display_menu` (upstream's, with the menu options `packages/display/menu.yaml` needs) |
 | `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `device-files.py` (the `web_file_browser` API from a terminal), `qemu.sh` (the emulator), `setup.sh` / `setup.bat` |
 | `dist/`    | Generated self-contained configs the ESPHome Builder imports |
 | `doc/`     | Guides, plus the README's UI mockups in `doc/images/` |
@@ -119,8 +130,8 @@ python scripts/build-dist.py --check   # fail if stale (pre-commit and CI run th
 
 ### Requirements
 
-- **Python 3.12, 3.13 or 3.14** (ESPHome 2026.8.2 requires `>=3.12,<3.15`)
-- **ESPHome 2026.8.2** (pinned version for compatibility)
+- **Python 3.12, 3.13 or 3.14** (ESPHome 2026.9.0 requires `>=3.12,<3.15`)
+- **ESPHome 2026.9.0** (pinned version for compatibility)
 - USB cable or serial adapter for initial flashing
 - Network connection for OTA updates
 

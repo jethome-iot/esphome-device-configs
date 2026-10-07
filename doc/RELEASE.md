@@ -7,7 +7,7 @@ How firmware gets built, versioned and published, and what runs where.
 | Workflow | When | What it does |
 | --- | --- | --- |
 | Build (`ci.yml`) | push to `dev` or `master`, every PR, manual | Discovers firmwares in `firmwares.yaml`, validates then compiles each with the pinned ESPHome, runs the component tests, verifies `dist/` is current, runs lint; `ci-ok` aggregates the lot into the one check branch protection requires |
-| Release (`release.yml`) | a release is published (incl. prerelease), manual dispatch | Compiles every firmware, attaches binaries to the GitHub release, uploads the `upload: true` ones to fw.jethome.com |
+| Release (`release.yml`) | a release is published (incl. prerelease), push to `dev` (nightly), manual dispatch | Compiles every firmware, uploads the `upload: true` ones to fw.jethome.com; GitHub releases are minted for published releases and dispatches only — dev pushes go to the nightly channel without a GitHub release |
 | ESPHome release check (`esphome-release-check.yml`) | weekly, manual | On a new upstream ESPHome release: compiles every firmware with it and opens an issue with the results — the go/no-go for the dependabot bump |
 | Draft release (`draft-release.yml`) | push to `master`, manual | Refreshes the rolling draft release tagged with the next version — publish it to build and ship |
 | Community issues (`community-issues.yml`) | an issue is opened | Labels it `community` when its author has less than triage access here — see [Labels](DEVELOPMENT.md#labels) |
@@ -24,9 +24,11 @@ firmwares:
     upload: true                           # copy ota+factory to fw.jethome.com on release
 ```
 
-Binaries of `upload: false` firmwares still ship as GitHub release assets —
-they just never reach the firmware server. `scripts/firmware-matrix.py`
-validates the file and turns it into the workflow matrices.
+Binaries of `upload: false` firmwares ship as GitHub release assets on
+release events and non-dry-run dispatches — they never reach the firmware
+server, and dev nightlies carry no GitHub release at all.
+`scripts/firmware-matrix.py` validates the file and turns it into the
+workflow matrices.
 
 ## Channels and versions
 
@@ -36,7 +38,7 @@ The firmware version is derived from the ESPHome pin in `requirements.txt`
 | Channel | When | Version format | Example |
 | --- | --- | --- | --- |
 | `release` | full releases; manual dispatch with `channel: release` | `<esphome>.<sub>` | `2026.8.2.0` |
-| `nightly` | prereleases; manual dispatch (default channel) | `<esphome>.<YYYYMMDD>.<attempt>` | `2026.8.2.20260911.1` |
+| `nightly` | push to `dev`; prereleases; manual dispatch (default channel) | `<esphome>.<YYYYMMDD>.<attempt>` | `2026.8.2.20260911.1` |
 
 `<sub>` and `<attempt>` auto-increment from the existing git tags of previous
 releases (max + 1), so no counter lives anywhere: a re-release of the same
@@ -86,7 +88,8 @@ server is never fed from an unpublished draft.
 
 ## What lands where
 
-**GitHub release assets** — every built firmware, both images:
+**GitHub release assets** (release events, non-dry-run dispatches) — every
+built firmware, both images; dev nightlies have no GitHub release:
 
 ```
 <config-stem>-<version>-factory.bin   # merged image for flashing

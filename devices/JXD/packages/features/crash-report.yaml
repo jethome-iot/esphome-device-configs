@@ -1,0 +1,8 @@
+# The record of a panic or watchdog reset, written to /littlefs/crash/ at the next boot so
+# /files hands it back. Details: components/crash_report/README.md
+external_components:
+  - source: ${components}
+    components: [crash_report]
+
+crash_report:
+  storage: user_storage

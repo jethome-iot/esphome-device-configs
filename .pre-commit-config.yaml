@@ -59,7 +59,7 @@ repos:
         name: regenerate dist/
         entry: python scripts/build-dist.py
         language: python
-        additional_dependencies: [esphome==2026.8.2]
+        additional_dependencies: [esphome==2026.9.0]
         pass_filenames: false
         files: ^(devices/|scripts/build-dist\.py)
 
@@ -70,6 +70,6 @@ repos:
         name: vendored components match the ESPHome pin
         entry: python scripts/vendored-diff.py --check
         language: python
-        additional_dependencies: [esphome==2026.8.2]
+        additional_dependencies: [esphome==2026.9.0]
         pass_filenames: false
         files: ^(components/|requirements\.txt$|scripts/vendored-diff\.py$)

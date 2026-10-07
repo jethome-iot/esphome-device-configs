@@ -5,7 +5,7 @@ Setting up, building, and the checks that gate a push.
 ## Environment
 
 `scripts/setup.sh` (`scripts\setup.bat` on Windows) creates `.venv/`, installs `requirements.txt`
-and `requirements-dev.txt`, and installs the pre-commit hook. ESPHome is pinned to 2026.8.2;
+and `requirements-dev.txt`, and installs the pre-commit hook. ESPHome is pinned to 2026.9.0;
 Python 3.12–3.14. Activate the venv before committing: the hooks run with whatever `python3`
 git sees.
 
@@ -19,7 +19,7 @@ git sees.
 esphome config  devices/JXD/jxd-r6-e1eth-lcd.yaml                 # validate only, no toolchain
 esphome compile devices/JXD/jxd-r6-e1eth-lcd.yaml                 # full build
 esphome run     devices/JXD/jxd-r6-e1eth-lcd.yaml --device <ip>   # build + OTA (omit --device for USB)
-esphome -s version 2026.8.2.0 -s timezone Europe/Berlin compile <config>   # substitutions from the CLI
+esphome -s version 2026.9.0.0 -s timezone Europe/Berlin compile <config>   # substitutions from the CLI
 
 python scripts/build-dist.py  [--check]    # regenerate / verify dist/ (imports esphome: use the venv)
 python scripts/build-icons.py [--check]    # regenerate / verify assets/res/
@@ -92,6 +92,21 @@ components of those names, so a bump does not reach them. Before changing the pi
 re-apply that patch. Every hunk it prints is marked `JetHome:` in the source, which is what the
 `vendored-diff` pre-commit hook checks — it fails on the un-re-copied tree, so the pin in that
 hook has to move with the others.
+
+`components/web_server_idf` is a different case: it is not a change of ours but a backport, ESPHome
+PR #17800, carried only because the pinned release predates it. **On the first bump to a release that
+contains #17800, delete it rather than re-copying it** — the directory, the
+`devices/JXD/packages/features/web-server-idf-backport.yaml` package, and that package's line in both
+device configs, then regenerate `dist/` and drop the entry from ARCHITECTURE.md. To check whether a
+candidate release carries it:
+
+```bash
+git -C <esphome checkout> merge-base --is-ancestor 9309cf96b9 <tag> && echo "carried"
+```
+
+`scripts/vendored-diff.py web_server_idf` prints exactly what is being carried, so a mismatch after a
+bump means the release moved that code for some other reason and the diff has to be read before
+anything is deleted.
 
 Also re-sync `.clang-format` and the `mirrors-clang-format` rev in `.pre-commit-config.yaml` with
 upstream's: a bump can change either the style config or the version it formats with.

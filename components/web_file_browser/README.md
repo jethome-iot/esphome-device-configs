@@ -79,8 +79,11 @@ machine-readable: [openapi.yaml](openapi.yaml) (OpenAPI 3.1).
 response-sized one, so `read`'s 1 MB ceiling is about the editor on the other end, not about the
 device's heap. A read that fails partway leaves the JSON unterminated (`list`, `read`) or drops
 the connection (`download`), so an incomplete answer cannot pass for a complete short one.
-`delete` and `copy` recurse at most eight directory levels — a deeper tree is an error before
-anything is removed, not a smashed web server stack.
+`delete` and `copy` refuse a tree deeper than four directory levels, counting the one named in
+the request. `delete` measures the tree first, so an over-deep tree is an error rather than a
+partial delete; `copy` does not measure it, so it copies down to the limit, fails there, and
+rolls the partial copy back — the destination is removed and the source is untouched. `mkdir` has
+no such limit, so a deeper tree can exist: it has to be removed in parts, deepest first.
 
 JSON is UTF-8, so `read` and `list` answer U+FFFD for bytes of a file or a name that are not:
 what comes back is a valid JSON text, but not what is on the device, and saving it back through
