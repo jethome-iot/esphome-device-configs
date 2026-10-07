@@ -310,6 +310,32 @@ TEST(MeterLoader, EverySerialThatDoesNotNameThisBoardIsForeign) {
   }
 }
 
+// v3 keeps the device's serial where v4 keeps the board's: nothing to match a record against,
+// so the record is not even read.
+TEST(MeterLoader, AV3BoardHeaderIsUnsupported) {
+  for (bool with_record : {true, false}) {
+    SCOPED_TRACE(with_record);
+    std::vector<uint8_t> image = with_record ? meter_image(make_meter_record()) : meter_image(std::vector<FileSpec>{});
+    image[HDR_OFF_VERSION] = jethome_board_info::HEADER_VERSION_V3;
+    reseal_header(image);
+    MeterBoard board(image);
+    board.info.setup();
+    const int reads = board.bus.reads;
+    board.cal.setup();
+
+    EXPECT_EQ(board.bus.reads, reads);
+    expect_nothing_failed(board);
+    EXPECT_TRUE(board.info.is_valid());
+    EXPECT_EQ(board.info.get_header_version(), jethome_board_info::HEADER_VERSION_V3);
+    EXPECT_EQ(board.cal.get_status(), CalStatus::UNSUPPORTED);
+    EXPECT_EQ(board.cal.get_read_status(), ReadStatus::UNSUPPORTED);
+    EXPECT_EQ(board.cal.get_reason(), "board header is not v4");
+    expect_no_record(board);
+    EXPECT_TRUE(board.log().has_warning("Factory calibration unsupported: board header is not v4"));
+    board.cal.dump_config();
+  }
+}
+
 TEST(MeterLoader, ATimestampPastTheCalendarStillDumps) {
   MeterRecordBuf rec = make_meter_record();
   put_i64(rec.data(), MC_OFF_TIMESTAMP, INT64_MAX);

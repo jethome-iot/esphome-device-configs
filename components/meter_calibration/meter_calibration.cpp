@@ -49,9 +49,17 @@ void MeterCalibration::setup() {
   auto *raw = reinterpret_cast<uint8_t *>(&rec);
   uint16_t size = 0;
   ReadStatus read = ReadStatus::NO_EEPROM;
+  const char *header_reason = nullptr;
   Expectation expect{this->chip_, this->board_model_, "", this->pga_code_};
   if (this->board_info_ != nullptr) {
-    read = this->board_info_->read_file(RECORD_FILE_NAME, raw, sizeof(rec), &size);
+    // The station writes v4 only; a v3 header keeps no board serial to match the record against.
+    if (this->board_info_->is_valid() &&
+        this->board_info_->get_header_version() != jethome_board_info::HEADER_VERSION_V4) {
+      read = ReadStatus::UNSUPPORTED;
+      header_reason = "board header is not v4";
+    } else {
+      read = this->board_info_->read_file(RECORD_FILE_NAME, raw, sizeof(rec), &size);
+    }
     expect.board_serial = this->board_info_->get_board_serial();
   }
 
@@ -60,7 +68,9 @@ void MeterCalibration::setup() {
     this->record_ = rec;
   }
 
-  if (this->evaluation_.read != ReadStatus::OK) {
+  if (header_reason != nullptr) {
+    this->reason_ = header_reason;
+  } else if (this->evaluation_.read != ReadStatus::OK) {
     this->reason_ = read_reason(this->evaluation_.read);
   } else if (this->evaluation_.record != RecordCheck::OK) {
     this->reason_ = record_check_str(this->evaluation_.record);
