@@ -5,7 +5,7 @@ Boots the device with scripts/qemu.sh, creates a thermostat with presets through
 editor's HTTP API, and checks from the native API, as Home Assistant sees it, that:
 
 - the built-in and custom presets are listed;
-- a pick applies the preset's target and mode;
+- a pick applies the preset's target and mode, and a preset that keeps the mode leaves it be;
 - a values-only edit of the presets causes no reconnect;
 - the active preset survives a restart.
 
@@ -23,13 +23,19 @@ import argparse
 import asyncio
 from collections.abc import Callable
 import contextlib
+from functools import partial
 import json
 import os
 from pathlib import Path
+import queue
 import re
+import shutil
+import signal
 import subprocess
 import sys
+import threading
 import time
+from typing import TypeVar
 
 from aioesphomeapi import (
     APIClient,
@@ -38,12 +44,18 @@ from aioesphomeapi import (
     ClimateMode,
     ClimatePreset,
     ClimateState,
+    EncryptionPlaintextAPIError,
+    InvalidAuthAPIError,
+    InvalidEncryptionKeyAPIError,
+    RequiresEncryptionAPIError,
 )
 import requests
 from requests.auth import HTTPDigestAuth
 
 ROOT = Path(__file__).resolve().parent.parent
 QEMU_SH = ROOT / "scripts" / "qemu.sh"
+USER_ENV = "DEVICE_USER"
+API_KEY_ENV = "DEVICE_API_KEY"
 
 THERMOSTAT_ID = "qemu-smoke"
 THERMOSTAT_NAME = "QEMU Smoke"
@@ -68,14 +80,20 @@ THERMOSTAT = {
     ],
 }
 
-# The hub asks API clients to reconnect 2 s after a change that needs it.
-RECONNECT_WINDOW_S = 8.0
+# The hub asks API clients to reconnect 2 s after a change that needs it; QEMU adds to that.
+RECONNECT_WAIT_S = 16.0
+# A no-reconnect check waits this long at least, and twice what the control's drop took.
+QUIET_WINDOW_S = 8.0
 STATE_TIMEOUT_S = 20.0
-# LittleFS under QEMU is slow: a save or a first boot's format takes seconds.
+# LittleFS under QEMU is slow: a save takes seconds.
 HTTP_TIMEOUT_S = 60.0
 FILE_TIMEOUT_S = 30.0
+# Longer than the 5 s a route waits for a busy loop before it answers 503.
+PROBE_TIMEOUT_S = 8.0
 # QEMU now and then hangs right after the bootloader; a second cold start gets through.
 BOOT_ATTEMPTS = 3
+
+T = TypeVar("T")
 
 
 class CheckFailed(Exception):
@@ -88,6 +106,10 @@ def ok(text: str) -> None:
 
 def note(text: str) -> None:
     print(f"==    {text}", flush=True)
+
+
+def warn(text: str) -> None:
+    print(f"warn  {text}", file=sys.stderr, flush=True)
 
 
 def same(a: float, b: float) -> bool:
@@ -128,50 +150,125 @@ class Emulator:
         self.verbose = args.verbose
         self.started = False
 
-    def _qemu_sh(self, *argv: str) -> None:
-        cmd = [str(QEMU_SH), *argv]
-        if self.verbose:
-            result = subprocess.run(cmd, cwd=ROOT, check=False)
-            output = ""
-        else:
-            result = subprocess.run(
-                cmd,
-                cwd=ROOT,
-                check=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-            output = result.stdout
-        if result.returncode != 0:
-            tail = "\n".join(output.splitlines()[-30:])
+    async def _qemu_sh(self, *argv: str) -> None:
+        pipe = None if self.verbose else asyncio.subprocess.PIPE
+        proc = await asyncio.create_subprocess_exec(
+            str(QEMU_SH),
+            *argv,
+            cwd=ROOT,
+            stdout=pipe,
+            stderr=None if self.verbose else asyncio.subprocess.STDOUT,
+        )
+        try:
+            output, _ = await proc.communicate()
+        except asyncio.CancelledError:
+            # A SIGTERM reaches this process alone: take a compile or a start down with it.
+            with contextlib.suppress(ProcessLookupError):
+                proc.terminate()
+            await proc.wait()
+            raise
+        if proc.returncode != 0:
+            text = output.decode(errors="replace") if output else ""
+            tail = "\n".join(text.splitlines()[-30:])
             raise CheckFailed(
-                f"scripts/qemu.sh {' '.join(argv)} exited {result.returncode}"
+                f"scripts/qemu.sh {' '.join(argv)} exited {proc.returncode}"
                 + (f"\n{tail}" if tail else "")
             )
 
-    def build(self) -> None:
-        self._qemu_sh("build", self.device)
-
-    def start(self, fresh: bool) -> None:
+    async def start(self, build: bool, fresh: bool) -> None:
         """Starts the emulator and returns; whether the firmware comes up is the caller's to see."""
-        argv = ["run", self.device, "--no-build", "--daemon", *self.ports]
+        # `run` itself compiles, so its port check and old-instance stop come before the compile.
+        argv = ["run", self.device, "--daemon", *self.ports]
+        if not build:
+            argv.append("--no-build")
         if fresh:
             argv.append("--fresh")
         self.started = True
-        self._qemu_sh(*argv)
+        await self._qemu_sh(*argv)
 
-    def log(self) -> str:
+    async def stop(self) -> None:
+        await self._qemu_sh("stop", self.device)
+
+    def stop_now(self) -> None:
+        """Blocking, for the way out: nothing a signal cancels on the loop can skip it."""
+        result = subprocess.run(
+            [str(QEMU_SH), "stop", self.device],
+            cwd=ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if self.verbose or result.returncode != 0:
+            # The terminal may be gone (SIGHUP); the emulator is stopped all the same.
+            with contextlib.suppress(OSError):
+                sys.stdout.write(result.stdout)
+                if result.returncode != 0:
+                    warn(f"scripts/qemu.sh stop exited {result.returncode}")
+
+    def log_path(self) -> Path | None:
         found = sorted(
             ROOT.glob(f"devices/*/.esphome/build/{self.device}-qemu/qemu.log")
         )
-        return str(found[0].relative_to(ROOT)) if found else "the emulator's qemu.log"
+        return found[0] if found else None
 
-    def stop(self) -> None:
-        self._qemu_sh("stop", self.device)
+    def log(self) -> str:
+        path = self.log_path()
+        return str(path.relative_to(ROOT)) if path else "the emulator's qemu.log"
+
+    def keep_log(self, number: int) -> str | None:
+        """Copies qemu.log aside as qemu.log.<number>: the next `run` truncates it."""
+        path = self.log_path()
+        if path is None:
+            return None
+        kept = path.with_name(f"{path.name}.{number}")
+        shutil.copyfile(path, kept)
+        return str(kept.relative_to(ROOT))
 
 
 # --- the climate editor's HTTP API --------------------------------------------
+
+
+class Worker:
+    """One daemon thread that makes every HTTP request.
+
+    One thread: Digest keeps its challenge per thread, and a POST sent without one gets a 401
+    that leaves its body unread and the connection out of step. A daemon: an interrupted run
+    need not wait out a request in flight.
+    """
+
+    def __init__(self) -> None:
+        self.jobs: queue.SimpleQueue = queue.SimpleQueue()
+        threading.Thread(target=self._serve, daemon=True).start()
+
+    def _serve(self) -> None:
+        while True:
+            loop, future, job = self.jobs.get()
+            result, error = None, None
+            try:
+                result = job()
+            except Exception as err:
+                error = err
+            # The run may be over and its loop closed by now.
+            with contextlib.suppress(RuntimeError):
+                loop.call_soon_threadsafe(self._settle, future, result, error)
+
+    @staticmethod
+    def _settle(
+        future: asyncio.Future, result: object, error: Exception | None
+    ) -> None:
+        if future.done():  # its caller was cancelled
+            return
+        if error is None:
+            future.set_result(result)
+        else:
+            future.set_exception(error)
+
+    async def run(self, job: Callable[[], T]) -> T:
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        self.jobs.put((loop, future, job))
+        return await future
 
 
 class Editor:
@@ -181,6 +278,7 @@ class Editor:
         self.base = base
         self.session = requests.Session()
         self.session.auth = HTTPDigestAuth(user, password)
+        self.worker = Worker()
 
     def _request(
         self, method: str, path: str, params: dict | None, body: object
@@ -208,10 +306,13 @@ class Editor:
             time.sleep(2)
         return response
 
-    def call(
+    async def call(
         self, method: str, route: str, params: dict | None = None, body: object = None
     ) -> dict:
         """A route that must succeed: its JSON answer, or CheckFailed with the device's words."""
+        return await self.worker.run(partial(self._call, method, route, params, body))
+
+    def _call(self, method: str, route: str, params: dict | None, body: object) -> dict:
         response = self._request(method, "/climate-editor/api/" + route, params, body)
         try:
             answer = response.json()
@@ -223,7 +324,10 @@ class Editor:
             )
         return answer
 
-    def read_file(self, path: str) -> dict | None:
+    async def read_file(self, path: str) -> dict | None:
+        return await self.worker.run(partial(self._read_file, path))
+
+    def _read_file(self, path: str) -> dict | None:
         response = self._request("GET", "/files/download", {"path": path}, None)
         if response.status_code != 200:
             return None
@@ -232,24 +336,22 @@ class Editor:
         except ValueError:
             return None
 
-    def wait_ready(self, timeout: float) -> bool:
-        """Until the thermostats are loaded: the web server answers before LittleFS is up."""
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            try:
-                response = self.session.get(
-                    self.base + "/climate-editor/api/list", timeout=10
-                )
-                if response.status_code == 200:
-                    return True
-                if response.status_code == 401:
-                    raise CheckFailed("the web server refused the credentials (--user)")
-                if response.status_code == 404:
-                    raise CheckFailed("this firmware serves no /climate-editor/api/")
-            except requests.RequestException:
-                pass
-            time.sleep(2)
-        return False
+    async def probe(self) -> int:
+        """The list route's status, or 0 when nothing answered."""
+        return await self.worker.run(self._probe)
+
+    def _probe(self) -> int:
+        try:
+            response = self.session.get(
+                self.base + "/climate-editor/api/list", timeout=PROBE_TIMEOUT_S
+            )
+        except requests.RequestException:
+            return 0
+        if response.status_code == 401:
+            raise CheckFailed("the web server refused the credentials (--user)")
+        if response.status_code == 404:
+            raise CheckFailed("this firmware serves no /climate-editor/api/")
+        return response.status_code
 
 
 # --- the native API, as Home Assistant ----------------------------------------
@@ -269,12 +371,14 @@ class Api:
             provide_time=False,
         )
         self.dropped = asyncio.Event()
+        self.dropped_at = 0.0
         self.climates: dict[str, ClimateInfo] = {}
         self.states: dict[int, ClimateState] = {}
         self.connected = False
 
     async def _on_stop(self, expected_disconnect: bool) -> None:
         self.connected = False
+        self.dropped_at = time.monotonic()
         self.dropped.set()
 
     def _on_state(self, state: object) -> None:
@@ -285,8 +389,22 @@ class Api:
         deadline = time.monotonic() + timeout
         while True:
             try:
-                await self.client.connect(on_stop=self._on_stop, login=True)
+                # Logged by aioesphomeapi too otherwise; the FAIL line carries the last one.
+                await self.client.connect(
+                    on_stop=self._on_stop, login=True, log_errors=False
+                )
                 break
+            except (
+                RequiresEncryptionAPIError,
+                InvalidEncryptionKeyAPIError,
+                EncryptionPlaintextAPIError,
+                InvalidAuthAPIError,
+            ) as err:
+                # A key that is missing, wrong or not wanted stays so however long we wait.
+                raise CheckFailed(
+                    f"the native API refused this client (--api-key, ${API_KEY_ENV}):"
+                    f" {type(err).__name__}: {err}"
+                ) from err
             except APIConnectionError as err:
                 if time.monotonic() > deadline:
                     raise CheckFailed(
@@ -329,8 +447,10 @@ class Api:
             await asyncio.sleep(0.1)
 
     async def wait_dropped(self, timeout: float) -> bool:
+        if self.dropped.is_set():
+            return True
         try:
-            await asyncio.wait_for(self.dropped.wait(), timeout)
+            await asyncio.wait_for(self.dropped.wait(), max(timeout, 0))
         except TimeoutError:
             return False
         return True
@@ -346,31 +466,64 @@ class Smoke:
         user, _, password = args.user.partition(":")
         self.editor = Editor(f"http://127.0.0.1:{args.http_port}", user, password)
         self.api = Api(args.api_port, args.api_key)
+        # What a save may have created: cleanup deletes these and anything by our name.
+        self.ids = {THERMOSTAT_ID}
         self.created = False
+        self.up = False
+        self.quiet_window = QUIET_WINDOW_S
         self.checks = 0
+        self.retries = 0
 
     def passed(self, text: str) -> None:
         self.checks += 1
         ok(text)
 
     async def http(self, method: str, route: str, **kwargs) -> dict:
-        return await asyncio.to_thread(self.editor.call, method, route, **kwargs)
+        return await self.editor.call(method, route, **kwargs)
+
+    async def wait_ready(self, timeout: float) -> int:
+        """200 once the thermostats are listed; else the last status seen, 0 for none at all.
+
+        Before the guest network is up slirp accepts and never answers; while setup still
+        holds the loop, the routes answer 503.
+        """
+        deadline = time.monotonic() + timeout
+        last = 0
+        while time.monotonic() < deadline:
+            status = await self.editor.probe()
+            if status == 200:
+                return status
+            last = status or last
+            await asyncio.sleep(2)
+        return last
 
     async def boot(self, build: bool, fresh: bool) -> None:
-        if build:
-            await asyncio.to_thread(self.qemu.build)
+        self.up = False
         timeout = self.args.boot_timeout
         for attempt in range(BOOT_ATTEMPTS):
-            # Only the first start wipes the flash: a retry boots what that one left.
-            await asyncio.to_thread(self.qemu.start, fresh and attempt == 0)
-            if await asyncio.to_thread(self.editor.wait_ready, timeout):
+            # Only the first start compiles or wipes the flash: a retry boots what that one left.
+            first = attempt == 0
+            await self.qemu.start(build and first, fresh and first)
+            status = await self.wait_ready(timeout)
+            if status == 200:
+                self.up = True
                 return
-            await asyncio.to_thread(self.qemu.stop)
+            if status:
+                raise CheckFailed(
+                    f"the device answered HTTP {status} and never listed its thermostats in"
+                    f" {timeout} s: the firmware is stuck, not QEMU; see {self.qemu.log()}"
+                )
+            await self.qemu.stop()
             if attempt + 1 < BOOT_ATTEMPTS:
-                note(f"no answer in {timeout} s, the emulator hung: starting it again")
+                self.retries += 1
+                kept = self.qemu.keep_log(self.retries)
+                note(
+                    f"no answer in {timeout} s, QEMU hung (its log is kept as {kept}):"
+                    " starting it again"
+                )
         raise CheckFailed(
-            f"the device did not come up in {BOOT_ATTEMPTS} starts of {timeout} s;"
-            f" see {self.qemu.log()}"
+            f"nothing answered in {BOOT_ATTEMPTS} starts of {timeout} s;"
+            f" see {self.qemu.log()} and the earlier starts' qemu.log.<n>"
         )
 
     async def free_relay(self) -> str:
@@ -391,19 +544,37 @@ class Smoke:
                 return relay
         raise CheckFailed("every relay is held or reserved by another thermostat")
 
-    async def remove_leftover(self) -> None:
+    async def remove_ours(self) -> list[str]:
+        """Deletes every thermostat listed under our name or an id a save gave; their ids."""
         listed = await self.http("GET", "list")
-        if any(row["id"] == THERMOSTAT_ID for row in listed["controllers"]):
-            await self.http("POST", "delete", params={"id": THERMOSTAT_ID})
-            note(f'removed "{THERMOSTAT_NAME}" left over from an earlier run')
-            # Its removal asks API clients to reconnect; let that pass before connecting.
-            await asyncio.sleep(RECONNECT_WINDOW_S / 2)
+        ids = [
+            row["id"]
+            for row in listed["controllers"]
+            if row["id"] in self.ids or row["name"] == THERMOSTAT_NAME
+        ]
+        for id_ in ids:
+            answer = await self.http("POST", "delete", params={"id": id_})
+            if answer.get("persisted") is False:
+                warn(f"{id_} is gone, its file is not: it returns at the next boot")
+        return ids
+
+    async def remove_leftover(self) -> None:
+        if not await self.remove_ours():
+            return
+        note(f'removed "{THERMOSTAT_NAME}" left over from an earlier run')
+        # A drop the removal asks for lands here, not on create()'s control check.
+        if await self.api.wait_dropped(RECONNECT_WAIT_S):
+            await self.api.connect(self.args.boot_timeout)
 
     async def create(self) -> None:
         relay = await self.free_relay()
         doc = dict(THERMOSTAT, heat={"relay_id": relay})
-        answer = await self.http("POST", "save", body=doc)
+        # Before the request: one that times out may still have created it.
         self.created = True
+        sent = time.monotonic()
+        answer = await self.http("POST", "save", body=doc)
+        if isinstance(answer.get("id"), str):
+            self.ids.add(answer["id"])
         if answer.get("id") != THERMOSTAT_ID:
             raise CheckFailed(
                 f"create: answered id {answer.get('id')!r}, not {THERMOSTAT_ID}"
@@ -414,12 +585,18 @@ class Smoke:
             )
         note(f'created "{THERMOSTAT_NAME}" on {relay} and {SENSOR_ID}')
         # The control for the no-reconnect check below: a change that needs one gets one.
-        if not await self.api.wait_dropped(RECONNECT_WINDOW_S * 2):
+        if not await self.api.wait_dropped(RECONNECT_WAIT_S):
             raise CheckFailed(
                 "create: a new running thermostat did not make the API client reconnect"
+                f" in {RECONNECT_WAIT_S:g} s"
             )
+        took = self.api.dropped_at - sent
+        self.quiet_window = max(QUIET_WINDOW_S, 2 * took)
         await self.api.connect(self.args.boot_timeout)
-        self.passed("create: a new running thermostat makes the API client reconnect")
+        self.passed(
+            "create: a new running thermostat makes the API client reconnect"
+            f" ({took:.1f} s after the save)"
+        )
 
     def check_listed(self) -> None:
         info = self.api.info(THERMOSTAT_NAME)
@@ -459,6 +636,7 @@ class Smoke:
         self.passed(f"pick {label} over the API: target {target:g}, mode {mode.name}")
 
     async def pick_editor(self) -> None:
+        """Eco keeps the mode, and the pick before it turned the thermostat off."""
         answer = await self.http(
             "POST", "preset", params={"id": THERMOSTAT_ID, "key": "eco"}
         )
@@ -467,12 +645,12 @@ class Smoke:
         done, state = await self.api.wait_state(
             THERMOSTAT_NAME,
             lambda s: same(s.target_temperature, 17)
-            and s.mode == ClimateMode.HEAT
+            and s.mode == ClimateMode.OFF
             and s.preset == ClimatePreset.ECO,
         )
         if not done:
             raise CheckFailed(
-                "pick eco in the editor: expected target 17, mode HEAT kept, preset ECO;"
+                "pick eco in the editor: expected target 17, mode OFF kept, preset ECO;"
                 f" got {describe(state)}"
             )
         row = await self.active_row()
@@ -481,7 +659,7 @@ class Smoke:
                 f"pick eco in the editor: the list shows {active_of(row)}"
             )
         self.passed(
-            "pick eco in the editor: target 17, mode HEAT kept, listed as active"
+            "pick eco in the editor: target 17, mode OFF kept, listed as active"
         )
 
     async def active_row(self) -> dict:
@@ -498,21 +676,25 @@ class Smoke:
                 preset["setpoint"] = 16.5
             elif preset["name"] == CUSTOM:
                 preset["setpoint"] = 9
+        sent = time.monotonic()
         await self.http("POST", "save", body=doc)
         done, state = await self.api.wait_state(
             THERMOSTAT_NAME,
             lambda s: same(s.target_temperature, 16.5)
+            and s.mode == ClimateMode.OFF
             and s.preset == ClimatePreset.ECO,
         )
         if not done:
             raise CheckFailed(
-                "values-only edit: the active preset's new target 16.5 did not apply;"
+                "values-only edit: expected the active ECO's new target 16.5, mode OFF;"
                 f" got {describe(state)}"
             )
         self.passed(
             "values-only edit: the active preset's new target 16.5 applies at once"
         )
-        if await self.api.wait_dropped(RECONNECT_WINDOW_S):
+        # Timed from the save, like the control's drop in create().
+        window = self.quiet_window
+        if await self.api.wait_dropped(window - (time.monotonic() - sent)):
             raise CheckFailed(
                 "values-only edit: the device made the API client reconnect"
             )
@@ -521,7 +703,9 @@ class Smoke:
             await asyncio.wait_for(self.api.client.device_info(), 10)
         except (APIConnectionError, TimeoutError) as err:
             raise CheckFailed(f"values-only edit: the API link is gone: {err}") from err
-        self.passed(f"values-only edit: no API reconnect in {RECONNECT_WINDOW_S:g} s")
+        self.passed(
+            f"values-only edit: no API reconnect in {window:.1f} s after the save"
+        )
 
     async def restart(self) -> None:
         await self.pick_api(
@@ -531,7 +715,7 @@ class Smoke:
         path = f"/climates/{THERMOSTAT_ID}.json"
         deadline = time.monotonic() + FILE_TIMEOUT_S
         while True:
-            stored = await asyncio.to_thread(self.editor.read_file, path)
+            stored = await self.editor.read_file(path)
             if stored is not None and stored.get("active_preset") == CUSTOM_KEY:
                 break
             if time.monotonic() > deadline:
@@ -542,7 +726,7 @@ class Smoke:
             await asyncio.sleep(1)
         await self.api.disconnect()
         note("restarting the emulator (stop, then a cold boot of the same flash)")
-        await asyncio.to_thread(self.qemu.stop)
+        await self.qemu.stop()
         await self.boot(build=False, fresh=False)
         await self.api.connect(self.args.boot_timeout)
         row = await self.active_row()
@@ -565,23 +749,23 @@ class Smoke:
         )
 
     async def cleanup(self) -> None:
-        await self.api.disconnect()
-        if self.created:
-            try:
-                answer = await self.http("POST", "delete", params={"id": THERMOSTAT_ID})
-            except CheckFailed as err:
-                print(f"warn  could not delete the thermostat: {err}", file=sys.stderr)
-            else:
-                if answer.get("persisted") is False:
-                    print(
-                        "warn  the thermostat is gone, its file is not: it returns at the next boot",
-                        file=sys.stderr,
+        try:
+            await self.api.disconnect()
+            if self.created and not self.up:
+                warn(
+                    f'the device is not up to delete "{THERMOSTAT_NAME}": it stays on the'
+                    " emulated flash until the next run removes it"
+                )
+            elif self.created:
+                try:
+                    await self.remove_ours()
+                except CheckFailed as err:
+                    warn(
+                        f'could not delete "{THERMOSTAT_NAME}", it may still be there: {err}'
                     )
-        if self.qemu.started and not self.args.keep_running:
-            try:
-                await asyncio.to_thread(self.qemu.stop)
-            except CheckFailed as err:
-                print(f"warn  {err}", file=sys.stderr)
+        finally:
+            if self.qemu.started and not self.args.keep_running:
+                self.qemu.stop_now()
 
     async def run(self) -> None:
         note(
@@ -589,14 +773,14 @@ class Smoke:
             + (" (compiling first)" if self.args.build else "")
         )
         await self.boot(self.args.build, self.args.fresh)
-        await self.remove_leftover()
         await self.api.connect(self.args.boot_timeout)
+        await self.remove_leftover()
         await self.create()
         self.check_listed()
-        await self.pick_api(f'"{CUSTOM}"', 8, ClimateMode.OFF, custom_preset=CUSTOM)
         await self.pick_api(
             "COMFORT", 22.5, ClimateMode.HEAT, preset=ClimatePreset.COMFORT
         )
+        await self.pick_api(f'"{CUSTOM}"', 8, ClimateMode.OFF, custom_preset=CUSTOM)
         await self.pick_editor()
         await self.edit_values()
         await self.restart()
@@ -617,15 +801,32 @@ def parse_args() -> argparse.Namespace:
         "--no-build",
         dest="build",
         action="store_false",
-        help="boot what was built last",
+        help="boot what was built last, on the flash the last run left",
     )
     parser.add_argument(
-        "--fresh", action="store_true", help="wipe the emulated flash first"
+        "--fresh",
+        action="store_true",
+        help="wipe the emulated flash first; a compile does that anyway",
     )
     # The defaults of scripts/qemu.sh.
-    parser.add_argument("--http-port", type=int, default=8080)
-    parser.add_argument("--api-port", type=int, default=6053)
-    parser.add_argument("--ota-port", type=int, default=3232)
+    parser.add_argument(
+        "--http-port",
+        type=int,
+        default=8080,
+        help="host port for the web server (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--api-port",
+        type=int,
+        default=6053,
+        help="host port for the native API (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--ota-port",
+        type=int,
+        default=3232,
+        help="host port for OTA (default: %(default)s)",
+    )
     parser.add_argument(
         "--boot-timeout",
         type=int,
@@ -633,16 +834,17 @@ def parse_args() -> argparse.Namespace:
         help="seconds a start may take before it counts as hung, LittleFS included"
         " (default: %(default)s)",
     )
+    # The environment's values stay out of --help: a password or a key would show there.
     parser.add_argument(
         "-u",
         "--user",
-        default=os.environ.get("DEVICE_USER", "admin:admin"),
         metavar="USER:PASSWORD",
-        help="the web server's credentials; also $DEVICE_USER (default: %(default)s)",
+        help=f"the web server's credentials; also ${USER_ENV} (default: admin:admin)",
     )
     parser.add_argument(
         "--api-key",
-        help="the native API's encryption key, once one was set on the device",
+        help="the native API's encryption key, once one was set on the device;"
+        f" also ${API_KEY_ENV}, which keeps it out of ps and the shell history",
     )
     parser.add_argument(
         "--keep-running", action="store_true", help="leave the emulator up afterwards"
@@ -650,11 +852,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="show scripts/qemu.sh's output"
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    args.user = args.user or os.environ.get(USER_ENV) or "admin:admin"
+    args.api_key = args.api_key or os.environ.get(API_KEY_ENV) or None
+    return args
 
 
-async def main() -> int:
-    smoke = Smoke(parse_args())
+async def main(args: argparse.Namespace) -> int:
+    smoke = Smoke(args)
+    task = asyncio.current_task()
+    caught: list[int] = []
+
+    def interrupted(signum: int) -> None:
+        caught.append(signum)
+        task.cancel()
+
+    # A kill or a closed terminal still deletes the thermostat and stops the emulator.
+    loop = asyncio.get_running_loop()
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        loop.add_signal_handler(signum, interrupted, signum)
     try:
         await smoke.run()
     except CheckFailed as err:
@@ -663,11 +879,23 @@ async def main() -> int:
     except APIConnectionError as err:
         print(f"FAIL  the native API: {err}", flush=True)
         return 1
+    except asyncio.CancelledError:
+        if not caught:
+            raise  # Ctrl-C: asyncio.run makes it a KeyboardInterrupt
+        return 128 + caught[0]
     finally:
         await smoke.cleanup()
-    print(f"PASS  {smoke.checks} checks", flush=True)
+    retries = ""
+    if smoke.retries:
+        retries = f", after {smoke.retries} boot {'retry' if smoke.retries == 1 else 'retries'}"
+        retries += " on a QEMU hang"
+    print(f"PASS  {smoke.checks} checks{retries}", flush=True)
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    try:
+        sys.exit(asyncio.run(main(parse_args())))
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        print("stopped", file=sys.stderr)
+        sys.exit(130)
