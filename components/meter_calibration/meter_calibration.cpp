@@ -1,7 +1,6 @@
 #include "meter_calibration.h"
 #include <cinttypes>
 #include <cstdio>
-#include <cstring>
 #include <ctime>
 #include "esphome/core/log.h"
 
@@ -46,19 +45,19 @@ static std::string format_time(int64_t timestamp) {
 }
 
 void MeterCalibration::setup() {
-  uint8_t raw[RECORD_SIZE] = {};
+  MeterCalRecord rec{};
+  auto *raw = reinterpret_cast<uint8_t *>(&rec);
   uint16_t size = 0;
   ReadStatus read = ReadStatus::NO_EEPROM;
   Expectation expect{this->chip_, this->board_model_, "", this->pga_code_};
   if (this->board_info_ != nullptr) {
-    read = this->board_info_->read_file(RECORD_FILE_NAME, raw, sizeof(raw), &size);
+    read = this->board_info_->read_file(RECORD_FILE_NAME, raw, sizeof(rec), &size);
     expect.board_serial = this->board_info_->get_board_serial();
   }
 
   this->evaluation_ = evaluate(read, raw, size, expect);
-  const auto *rec = reinterpret_cast<const MeterCalRecord *>(raw);
   if (this->has_record()) {
-    memcpy(&this->record_, raw, sizeof(this->record_));
+    this->record_ = rec;
   }
 
   if (this->evaluation_.read != ReadStatus::OK) {
@@ -66,7 +65,7 @@ void MeterCalibration::setup() {
   } else if (this->evaluation_.record != RecordCheck::OK) {
     this->reason_ = record_check_str(this->evaluation_.record);
   } else if (this->evaluation_.match != MatchCheck::OK) {
-    this->reason_ = this->describe_(*rec, expect);
+    this->reason_ = this->describe_(rec, expect);
   } else if (this->evaluation_.status == CalStatus::UNVERIFIED) {
     this->reason_ = "the station did not finish: the line check flag is clear";
   }
