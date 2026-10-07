@@ -301,8 +301,7 @@ class AsyncEventSourceResponse {
   void deq_push_back_with_dedup_(void *source, message_generator_t *message_generator);
   void process_deferred_queue_();
   void process_buffer_();
-  // JetHome: backport of upstream #17800, unreleased at the 2026.9.0 pin. Drop this copy on the bump
-  // that carries it.
+  // JetHome: backport of upstream #17800, unreleased at the 2026.9.0 pin.
   void request_close_();
   void process_close_();
   static void close_session_work(void *arg);

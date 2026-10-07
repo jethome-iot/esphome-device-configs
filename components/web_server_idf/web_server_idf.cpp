@@ -142,7 +142,7 @@ void AsyncWebServer::begin() {
   // Default httpd stack is defined by ESP-IDF. Increase to accommodate SerializationBuffer's
   // 640-byte stack buffer used by web_server JSON request handlers.
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.stack_size = config.stack_size + 256;
+  config.stack_size = 8192;  // JetHome: handlers writing LittleFS overran the stock 4352 B on hardware (#64)
   config.server_port = this->port_;
   config.uri_match_fn = [](const char * /*unused*/, const char * /*unused*/, size_t /*unused*/) { return true; };
   // Always enable LRU purging to handle socket exhaustion gracefully.

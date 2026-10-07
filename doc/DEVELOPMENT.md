@@ -93,20 +93,22 @@ re-apply that patch. Every hunk it prints is marked `JetHome:` in the source, wh
 `vendored-diff` pre-commit hook checks — it fails on the un-re-copied tree, so the pin in that
 hook has to move with the others.
 
-`components/web_server_idf` is a different case: it is not a change of ours but a backport, ESPHome
-PR #17800, carried only because the pinned release predates it. **On the first bump to a release that
-contains #17800, delete it rather than re-copying it** — the directory, the
-`devices/JXD/packages/features/web-server-idf-backport.yaml` package, and that package's line in both
-device configs, then regenerate `dist/` and drop the entry from ARCHITECTURE.md. To check whether a
-candidate release carries it:
+`components/web_server_idf` is re-copied and re-patched the same way, and carries two things: a
+change of ours, the httpd task's stack raised to 8192 bytes, which is re-applied on every bump; and a
+backport of ESPHome PR #17800, which the pinned release predates. **On a bump to a release that
+contains #17800, re-copy the directory and re-apply the stack change alone** — the #17800 hunks are
+upstream's by then. To check whether a candidate release carries it:
 
 ```bash
 git -C <esphome checkout> merge-base --is-ancestor 9309cf96b9 <tag> && echo "carried"
 ```
 
-`scripts/vendored-diff.py web_server_idf` prints exactly what is being carried, so a mismatch after a
-bump means the release moved that code for some other reason and the diff has to be read before
-anything is deleted.
+`scripts/vendored-diff.py web_server_idf` prints exactly what is being carried, so a hunk after a
+bump that is neither of the two means the release moved that code for some other reason, and the
+diff has to be read before anything is re-applied. Only once upstream both carries #17800 and gives
+the task 8192 bytes or more is there nothing left to carry: then delete the directory, the
+`devices/JXD/packages/features/web-server-idf-backport.yaml` package and that package's line in both
+device configs, regenerate `dist/`, and drop the entry from ARCHITECTURE.md and this paragraph.
 
 Also re-sync `.clang-format` and the `mirrors-clang-format` rev in `.pre-commit-config.yaml` with
 upstream's: a bump can change either the style config or the version it formats with.

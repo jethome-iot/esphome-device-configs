@@ -23,7 +23,7 @@ namespace web_file_browser {
 static const char *const TAG = "web_file_browser";
 
 // How deep delete/copy may recurse, counting the directory named in the request as 0.
-// Deeper overruns the esp_http_server task stack instead of failing the request.
+// The cap keeps a deep tree within the esp_http_server task stack instead of smashing it.
 static const unsigned MAX_RECURSION_DEPTH = 3;
 
 void WebFileBrowser::setup() {

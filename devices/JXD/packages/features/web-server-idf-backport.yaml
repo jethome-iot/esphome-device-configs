@@ -1,10 +1,7 @@
-# Carries upstream ESPHome PR #17800 ahead of the release that contains it: a stalled
-# /events client had its session freed while esp_http_server still held the pointer, which
-# corrupted whatever took the block over and panicked the device hours later somewhere
-# unrelated. See issue #70. Naming web_server_idf here shadows the built-in one.
-#
-# Delete this package, its entry in the device configs and components/web_server_idf on the
-# ESPHome bump that ships #17800. scripts/vendored-diff.py prints the whole patch.
+# Shadows the built-in web_server_idf with components/web_server_idf, which raises the httpd
+# task's stack to 8192 bytes (issue #64) and carries upstream ESPHome PR #17800 ahead of its
+# release (issue #70). scripts/vendored-diff.py prints the whole patch; what a bump keeps is in
+# that component's README.
 external_components:
   - source: ${components}
     components: [web_server_idf]
