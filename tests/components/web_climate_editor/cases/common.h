@@ -141,14 +141,14 @@ inline dir_storage::DirStorage &storage() {
 // tests/components/loop_job/. `refuse_remove` makes the partition refuse an unlink.
 class TestHub : public climate_hub::ClimateHub {
  public:
-  uint32_t ms{100000};
+  uint64_t ms{100000};
   int jobs{0};
   bool loop_busy{false};
   int resyncs{0};
   bool refuse_remove{false};
   size_t max_file_bytes{climate_hub::CONFIG_MAX_BYTES};
 
-  uint32_t now_ms() const override { return this->ms; }
+  uint64_t now_ms() const override { return this->ms; }
   bool run_on_loop(std::function<bool()> &&job) override {
     this->jobs++;
     if (this->loop_busy)

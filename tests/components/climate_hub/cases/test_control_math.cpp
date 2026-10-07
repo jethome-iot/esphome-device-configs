@@ -82,6 +82,24 @@ TEST(PidCore, ResetDropsTheIntegralButKeepsTheTuning) {
   EXPECT_FLOAT_EQ(0.2f, pid.integral_term()) << "the gain survived, the accumulation did not";
 }
 
+// After a pause: the next update averages nothing from before it in, and goes on from the
+// integral held.
+TEST(PidCore, ForgetSamplesKeepsTheIntegral) {
+  PidCore pid;
+  pid.set_gains(1.f, 0.1f, 1.f);
+  pid.set_integral_limits(-10.f, 10.f);
+  pid.set_samples(4, 4);
+  pid.update(22.f, 20.f, 1.f);
+  pid.update(22.f, 19.f, 1.f);
+  ASSERT_FLOAT_EQ(1.5f, pid.derivative_term());
+  ASSERT_FLOAT_EQ(0.5f, pid.integral_term());
+
+  pid.forget_samples();
+  EXPECT_FLOAT_EQ(2.5f, pid.update(22.f, 20.f, 0.f)) << "2 proportional and the 0.5 held, averaged with nothing";
+  EXPECT_FLOAT_EQ(0.5f, pid.integral_term());
+  EXPECT_EQ(0.f, pid.derivative_term());
+}
+
 // New limits take a kept integral in at once: clamped only at the next update, it would first
 // move from where it was and land on the limit.
 TEST(PidCore, NewIntegralLimitsClampTheKeptIntegral) {

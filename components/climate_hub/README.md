@@ -149,7 +149,11 @@ before its name rules.
 - **Hysteresis.** Heating starts below `setpoint - below` and stops above `setpoint + above`;
   cooling the other way round. Between the two points the relay keeps what it was doing.
 - **PID.** ESPHome's `pid` law, run every `update_interval_s`, drives each relay as a slow PWM
-  over `period_s`: positive output heats, negative cools.
+  over `period_s`: positive output heats, negative cools. The first pass after mode `off`, a
+  fault other than `relay_contested` or the wait for a first reading is a first pass, as after
+  a start, that keeps the integral: it integrates nothing, takes no derivative and averages
+  nothing from before the pause into its output. The pause adds nothing to what the PID has
+  learnt.
 - A change of mode or target takes effect at the next loop pass, not at the next interval.
 - **Safety.** A thermostat keeps its relays open until its first reading, idle and without a
   fault, and opens one closed from elsewhere meanwhile again on every pass. With no reading

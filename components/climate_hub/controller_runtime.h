@@ -18,15 +18,16 @@ class Sensor;
 
 namespace esphome::climate_hub {
 
-/// A sensor reading and when it arrived.
+/// A sensor reading and when it arrived, on the hub's clock.
 struct Reading {
   float value{NAN};
-  uint32_t ms{0};
+  uint64_t ms{0};
   bool seen{false};
 };
 
 /// The control loop of one running thermostat, paired for life with one entity of the pool.
-/// Loop task only: the hub starts and stops it, ticks it, and hands it samples and calls.
+/// Loop task only: the hub starts and stops it, ticks it, and hands it samples and calls. Its
+/// clock is the hub's 64-bit one, so a silence or a pause of any length measures as it is.
 class ControllerRuntime {
  public:
   explicit ControllerRuntime(HubClimate *entity) : entity_(entity) {}
@@ -47,35 +48,37 @@ class ControllerRuntime {
   /// keeps its latch in the directions the mode still drives (a start latches on a closed relay
   /// instead), the PID keeps its state while its law and sensor stand, and so does the wait for
   /// a first reading while the sensor does.
-  void start(ClimateConfig *config, sensor::Sensor *sensor, RelayClaim *heat, RelayClaim *cool, uint32_t now_ms,
+  void start(ClimateConfig *config, sensor::Sensor *sensor, RelayClaim *heat, RelayClaim *cool, uint64_t now_ms,
              const Reading &last = Reading{});
   /// Opens both relays through the claims and lets go of them and the document. The entity
   /// reads off, with no temperature.
-  void stop(uint32_t now_ms);
+  void stop(uint64_t now_ms);
   /// Lets go of `claim` without touching its relay: another thermostat carries on with it.
   void release_claim(const RelayClaim *claim);
 
-  /// The control loop, with the clock passed in.
-  void tick(uint32_t now_ms);
+  /// The control loop, with the clock passed in. A pass that follows a pause, in mode off, on a
+  /// fault but relay_contested, or waiting for a first reading, runs the PID as a first pass:
+  /// nothing integrated or differentiated over the pause.
+  void tick(uint64_t now_ms);
   /// A reading from the sensor; the hub drops NaN and infinities before they get here. The
   /// entity is republished only when the temperature changed.
-  void on_sample(float value, uint32_t now_ms);
+  void on_sample(float value, uint64_t now_ms);
   /// A preset, mode or target from Home Assistant, the web server or the API: the preset first,
   /// then a mode or target the call carries besides. True when the document changed and needs
   /// writing.
-  bool control(const climate::ClimateCall &call, uint32_t now_ms);
+  bool control(const climate::ClimateCall &call, uint64_t now_ms);
   /// Takes `preset`, one of the running document's, as a pick from Home Assistant would.
-  bool pick_preset(const PresetConfig &preset, uint32_t now_ms);
+  bool pick_preset(const PresetConfig &preset, uint64_t now_ms);
   /// Takes `mode`, as Home Assistant's mode would; one the relays do not serve is ignored.
-  bool set_mode(HubMode mode, uint32_t now_ms);
+  bool set_mode(HubMode mode, uint64_t now_ms);
 
   /// Hands the relay in `run`'s direction to the calibration, the other one held open: full
   /// or nothing around the target, set on every sample, until the run ends. A target or a mode
   /// that changes, a fault, or a limit of the run ends it.
-  void begin_autotune(AutotuneRun *run, uint32_t now_ms);
+  void begin_autotune(AutotuneRun *run, uint64_t now_ms);
   /// Lets go of the calibration, failed for `why` unless NONE (the hub has marked it a
   /// success), and starts the PID over with the document's gains. No-op without one.
-  void end_autotune(AutotuneEnd why, uint32_t now_ms);
+  void end_autotune(AutotuneEnd why, uint64_t now_ms);
   /// The calibration running here, nullptr for none.
   AutotuneRun *autotune() const { return this->autotune_; }
 
@@ -86,7 +89,7 @@ class ControllerRuntime {
   HubFault fault() const { return this->fault_; }
   bool has_sample() const { return this->has_sample_; }
   /// Seconds since the last reading, NaN before the first.
-  float sensor_age_s(uint32_t now_ms) const;
+  float sensor_age_s(uint64_t now_ms) const;
   float heat_duty() const { return this->heat_duty_.duty(); }
   float cool_duty() const { return this->cool_duty_.duty(); }
   bool heat_relay_on() const { return this->heat_claim_ != nullptr && this->heat_claim_->state(); }
@@ -103,7 +106,7 @@ class ControllerRuntime {
  protected:
   void apply_config_();
   /// Sets fault_ from the reading and how old it is; logs a change.
-  void refresh_fault_(uint32_t now_ms);
+  void refresh_fault_(uint64_t now_ms);
   /// What the relays do now; see action().
   HubAction relay_action_() const;
   /// Whether the relay `claim` holds shows its `direction`: closed, or a PID's between two pulses
@@ -111,16 +114,16 @@ class ControllerRuntime {
   bool shows_(const RelayClaim *claim, const DutyCycler &duty, HubAction direction, bool drives) const;
   /// Puts `action` on the entity; true when it changed.
   bool set_action_(HubAction action);
-  void run_control_(uint32_t now_ms);
-  void drive_outputs_(uint32_t now_ms);
+  void run_control_(uint64_t now_ms);
+  void drive_outputs_(uint64_t now_ms);
   /// `paced`: a relay closed from elsewhere goes back as RelayClaim::request() puts it back.
-  void all_relays_off_(uint32_t now_ms, bool paced);
+  void all_relays_off_(uint64_t now_ms, bool paced);
   /// Applies a preset, then a mode and a target, each when given; publishes the outcome. A mode
   /// or a target it moves ends a calibration.
-  bool apply_(const PresetConfig *preset, optional<HubMode> mode, optional<float> target, uint32_t now_ms);
+  bool apply_(const PresetConfig *preset, optional<HubMode> mode, optional<float> target, uint64_t now_ms);
   /// Feeds a sample to the calibration and sets its relay; true when the action changed or the
   /// run ended.
-  bool feed_autotune_(float value, uint32_t now_ms);
+  bool feed_autotune_(float value, uint64_t now_ms);
 
   HubClimate *entity_;
   ClimateConfig *config_{nullptr};
@@ -137,12 +140,12 @@ class ControllerRuntime {
   HubFault fault_{HubFault::NONE};
   // The law the PID state was built under: on a Save, config_ already holds the new one.
   ControlKind kind_{ControlKind::PID};
-  uint32_t last_sample_ms_{0};
+  uint64_t last_sample_ms_{0};
   // Since when the sensor has had its chance to give a first reading.
-  uint32_t waiting_since_ms_{0};
-  uint32_t last_control_ms_{0};
+  uint64_t waiting_since_ms_{0};
+  uint64_t last_control_ms_{0};
   bool has_sample_{false};
-  // A pass has run since start(): the next one integrates over the time since.
+  // A pass has run since start() or the last pause: the next one integrates over the time since.
   bool controlled_{false};
   // Run a pass at the next tick instead of waiting out update_interval_s, up to an hour.
   bool control_due_{true};

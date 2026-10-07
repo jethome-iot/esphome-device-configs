@@ -31,6 +31,9 @@ extern "C" size_t __sanitizer_get_current_allocated_bytes();
 
 namespace esphome::climate_hub::testing {
 
+// 2^32 ms, about 49.7 days: where a 32-bit millis() count starts again from zero.
+constexpr uint64_t MILLIS_WRAP = 1ull << 32;
+
 #ifdef __SANITIZE_ADDRESS__
 // Bytes the process holds on the heap right now. Only the sanitizer's allocator says exactly:
 // glibc counts a small block waiting in its cache as in use.
@@ -114,14 +117,14 @@ class CountdownAllocator : public ArduinoJson::Allocator {
 // can be made undeletable, and the encoder given a smaller cap or a heap that runs out.
 class TestHub : public ClimateHub {
  public:
-  uint32_t ms{100000};
+  uint64_t ms{100000};
   int loop_jobs{0};
   int resyncs{0};
   std::vector<std::string> undeletable;
   size_t max_file_bytes{CONFIG_MAX_BYTES};
   ArduinoJson::Allocator *json_allocator{nullptr};
 
-  uint32_t now_ms() const override { return this->ms; }
+  uint64_t now_ms() const override { return this->ms; }
   bool run_on_loop(std::function<bool()> &&job) override {
     this->loop_jobs++;
     return ClimateHub::run_on_loop(std::move(job));

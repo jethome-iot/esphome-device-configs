@@ -67,7 +67,7 @@ bool cuts_out(HubFault f) { return f != HubFault::NONE && f != HubFault::RELAY_C
 }  // namespace
 
 void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, RelayClaim *heat, RelayClaim *cool,
-                              uint32_t now_ms, const Reading &last) {
+                              uint64_t now_ms, const Reading &last) {
   // A Save: the PWM keeps its rhythm unless apply_config_() gives it a new period.
   const bool restart = this->config_ != nullptr;
   const bool same_sensor = restart && sensor == this->sensor_;
@@ -127,7 +127,7 @@ void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, Rel
   this->entity_->action = to_climate_action(this->action_);
 }
 
-void ControllerRuntime::stop(uint32_t now_ms) {
+void ControllerRuntime::stop(uint64_t now_ms) {
   if (this->config_ == nullptr)
     return;
   // The hub names a better reason first when it has one.
@@ -187,7 +187,7 @@ void ControllerRuntime::apply_config_() {
   this->entity_->target_temperature = c.setpoint;
 }
 
-bool ControllerRuntime::control(const climate::ClimateCall &call, uint32_t now_ms) {
+bool ControllerRuntime::control(const climate::ClimateCall &call, uint64_t now_ms) {
   if (this->config_ == nullptr)
     return false;
   const ClimateConfig &c = *this->config_;
@@ -208,20 +208,20 @@ bool ControllerRuntime::control(const climate::ClimateCall &call, uint32_t now_m
   return this->apply_(preset, mode, target, now_ms);
 }
 
-bool ControllerRuntime::pick_preset(const PresetConfig &preset, uint32_t now_ms) {
+bool ControllerRuntime::pick_preset(const PresetConfig &preset, uint64_t now_ms) {
   if (this->config_ == nullptr)
     return false;
   return this->apply_(&preset, nullopt, nullopt, now_ms);
 }
 
-bool ControllerRuntime::set_mode(HubMode mode, uint32_t now_ms) {
+bool ControllerRuntime::set_mode(HubMode mode, uint64_t now_ms) {
   if (this->config_ == nullptr)
     return false;
   return this->apply_(nullptr, mode, nullopt, now_ms);
 }
 
 bool ControllerRuntime::apply_(const PresetConfig *preset, optional<HubMode> mode, optional<float> target,
-                               uint32_t now_ms) {
+                               uint64_t now_ms) {
   ClimateConfig &c = *this->config_;
   const HubMode previous_mode = c.mode;
   const float previous_setpoint = c.setpoint;
@@ -258,7 +258,7 @@ bool ControllerRuntime::apply_(const PresetConfig *preset, optional<HubMode> mod
   return c.mode != previous_mode || c.setpoint != previous_setpoint || c.active_preset != previous_preset;
 }
 
-void ControllerRuntime::on_sample(float value, uint32_t now_ms) {
+void ControllerRuntime::on_sample(float value, uint64_t now_ms) {
   if (this->config_ == nullptr)
     return;
   this->last_sample_ms_ = now_ms;
@@ -271,7 +271,7 @@ void ControllerRuntime::on_sample(float value, uint32_t now_ms) {
   this->entity_->publish_state();
 }
 
-void ControllerRuntime::begin_autotune(AutotuneRun *run, uint32_t now_ms) {
+void ControllerRuntime::begin_autotune(AutotuneRun *run, uint64_t now_ms) {
   this->autotune_ = run;
   bool changed;
   if (this->has_sample_) {
@@ -286,7 +286,7 @@ void ControllerRuntime::begin_autotune(AutotuneRun *run, uint32_t now_ms) {
     this->entity_->publish_state();
 }
 
-bool ControllerRuntime::feed_autotune_(float value, uint32_t now_ms) {
+bool ControllerRuntime::feed_autotune_(float value, uint64_t now_ms) {
   AutotuneRun &run = *this->autotune_;
   // Ended as the next pass would end it, before a result found on this sample gets there first.
   const AutotuneEnd why =
@@ -305,7 +305,7 @@ bool ControllerRuntime::feed_autotune_(float value, uint32_t now_ms) {
   return this->set_action_(this->relay_action_());
 }
 
-void ControllerRuntime::end_autotune(AutotuneEnd why, uint32_t now_ms) {
+void ControllerRuntime::end_autotune(AutotuneEnd why, uint64_t now_ms) {
   if (this->autotune_ == nullptr)
     return;
   if (why != AutotuneEnd::NONE) {
@@ -324,7 +324,7 @@ void ControllerRuntime::end_autotune(AutotuneEnd why, uint32_t now_ms) {
   this->control_due_ = true;
 }
 
-void ControllerRuntime::tick(uint32_t now_ms) {
+void ControllerRuntime::tick(uint64_t now_ms) {
   if (this->config_ == nullptr || !this->config_->enabled)
     return;
   const ClimateConfig &c = *this->config_;
@@ -341,6 +341,8 @@ void ControllerRuntime::tick(uint32_t now_ms) {
   // Waiting for a first reading is no fault, but nothing to act on either. Without a reading or
   // on a cut-out a close from elsewhere is undone on every pass; only mode off paces it.
   if (cuts_out(this->fault_) || c.mode == HubMode::OFF || !this->has_sample_) {
+    // Integrated over the pause, the first pass after it would wind the integral to a limit.
+    this->controlled_ = false;
     this->all_relays_off_(now_ms, this->has_sample_ && !cuts_out(this->fault_));
   } else {
     const auto interval_ms = static_cast<uint32_t>(c.update_interval_s * 1000.f);
@@ -354,11 +356,11 @@ void ControllerRuntime::tick(uint32_t now_ms) {
     this->entity_->publish_state();
 }
 
-void ControllerRuntime::refresh_fault_(uint32_t now_ms) {
+void ControllerRuntime::refresh_fault_(uint64_t now_ms) {
   const ClimateConfig &c = *this->config_;
-  const auto timeout_ms = static_cast<uint32_t>(c.safety.sensor_timeout_s * 1000.f);
+  const auto timeout_ms = static_cast<uint64_t>(c.safety.sensor_timeout_s * 1000.f);
   // Silence counts from the last reading, or from the start while there is none yet.
-  const uint32_t silent_ms = now_ms - (this->has_sample_ ? this->last_sample_ms_ : this->waiting_since_ms_);
+  const uint64_t silent_ms = now_ms - (this->has_sample_ ? this->last_sample_ms_ : this->waiting_since_ms_);
 
   HubFault fault = HubFault::NONE;
   if (silent_ms > timeout_ms) {
@@ -425,9 +427,12 @@ bool ControllerRuntime::set_action_(HubAction action) {
   return true;
 }
 
-void ControllerRuntime::run_control_(uint32_t now_ms) {
+void ControllerRuntime::run_control_(uint64_t now_ms) {
   const ClimateConfig &c = *this->config_;
   const float dt_s = this->controlled_ ? static_cast<float>(now_ms - this->last_control_ms_) / 1000.f : 0.f;
+  // After a pause the averages still hold samples from before it; a start emptied them already.
+  if (!this->controlled_)
+    this->pid_.forget_samples();
   this->last_control_ms_ = now_ms;
   this->controlled_ = true;
   this->control_due_ = false;
@@ -446,14 +451,14 @@ void ControllerRuntime::run_control_(uint32_t now_ms) {
   }
 }
 
-void ControllerRuntime::drive_outputs_(uint32_t now_ms) {
+void ControllerRuntime::drive_outputs_(uint64_t now_ms) {
   if (this->heat_claim_ != nullptr)
     this->heat_claim_->request(this->heat_duty_.update(now_ms), now_ms);
   if (this->cool_claim_ != nullptr)
     this->cool_claim_->request(this->cool_duty_.update(now_ms), now_ms);
 }
 
-void ControllerRuntime::all_relays_off_(uint32_t now_ms, bool paced) {
+void ControllerRuntime::all_relays_off_(uint64_t now_ms, bool paced) {
   this->heat_duty_.set_duty(0.f);
   this->cool_duty_.set_duty(0.f);
   if (this->heat_claim_ != nullptr)
@@ -462,7 +467,7 @@ void ControllerRuntime::all_relays_off_(uint32_t now_ms, bool paced) {
     this->cool_claim_->force_off(now_ms, paced);
 }
 
-float ControllerRuntime::sensor_age_s(uint32_t now_ms) const {
+float ControllerRuntime::sensor_age_s(uint64_t now_ms) const {
   if (!this->has_sample_)
     return NAN;
   return static_cast<float>(now_ms - this->last_sample_ms_) / 1000.f;

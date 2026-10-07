@@ -13,7 +13,8 @@ at the next boot. The file format and the C++ API are in
 
 - **Hysteresis**: heats below the target minus a band and stops above the target plus a band,
   or cools the other way round. **PID**: drives the relay as a slow PWM, from 0 to 100 % of a
-  period of minutes.
+  period of minutes; time spent in mode off, on a fault that stops it or waiting for a reading
+  adds nothing to what it has learnt.
 - **Modes**: off, heat, cool, or heat and cool, as far as its relays allow.
 - **Presets**: up to eight per thermostat, each a name, a target and a mode or "keep the
   current one". Picking one, from Home Assistant, the web server or the editor's API, sets its

@@ -39,7 +39,7 @@ float clamp_gain(const char *key, float value, bool *clamped) {
 }  // namespace
 
 AutotuneRun::AutotuneRun(AutotuneDirection direction, AutotuneRule rule, const PidGains &gains, float setpoint,
-                         uint32_t now_ms)
+                         uint64_t now_ms)
     : direction_(direction),
       rule_(rule),
       old_gains_(gains),
@@ -55,8 +55,9 @@ AutotuneRun::AutotuneRun(AutotuneDirection direction, AutotuneRule rule, const P
   this->tuner_.set_noiseband(AUTOTUNE_NOISEBAND);
 }
 
-bool AutotuneRun::feed(float value, uint32_t now_ms) {
-  const float output = this->tuner_.update(this->setpoint_, value, now_ms);
+bool AutotuneRun::feed(float value, uint64_t now_ms) {
+  // Upstream's tuner keeps 32-bit times: counted from the start, a run's AUTOTUNE_MAX_MS never wraps them.
+  const float output = this->tuner_.update(this->setpoint_, value, static_cast<uint32_t>(now_ms - this->started_ms_));
   if (this->tuner_.phase_count() != this->switches_) {
     this->switches_ = this->tuner_.phase_count();
     this->last_switch_ms_ = now_ms;
@@ -64,7 +65,7 @@ bool AutotuneRun::feed(float value, uint32_t now_ms) {
   return this->direction_ == AutotuneDirection::HEAT ? output > 0.f : output < 0.f;
 }
 
-AutotuneEnd AutotuneRun::limit_reached(uint32_t now_ms) const {
+AutotuneEnd AutotuneRun::limit_reached(uint64_t now_ms) const {
   if (now_ms - this->started_ms_ >= AUTOTUNE_MAX_MS)
     return AutotuneEnd::TIMEOUT;
   if (now_ms - this->last_switch_ms_ >= AUTOTUNE_STALL_MS)
@@ -85,7 +86,7 @@ PidGains AutotuneRun::result(bool *clamped) const {
   return gains;
 }
 
-void AutotuneRun::succeed(const PidGains &gains, bool clamped, bool persisted, uint32_t now_ms) {
+void AutotuneRun::succeed(const PidGains &gains, bool clamped, bool persisted, uint64_t now_ms) {
   this->state_ = AutotuneState::SUCCEEDED;
   this->ended_ms_ = now_ms;
   this->new_gains_ = gains;
@@ -95,13 +96,13 @@ void AutotuneRun::succeed(const PidGains &gains, bool clamped, bool persisted, u
   this->uneven_ = this->tuner_.swing_ratio() < AUTOTUNE_EVEN_RATIO;
 }
 
-void AutotuneRun::fail(AutotuneEnd why, uint32_t now_ms) {
+void AutotuneRun::fail(AutotuneEnd why, uint64_t now_ms) {
   this->state_ = AutotuneState::FAILED;
   this->reason_ = why;
   this->ended_ms_ = now_ms;
 }
 
-uint32_t AutotuneRun::elapsed_ms(uint32_t now_ms) const {
+uint64_t AutotuneRun::elapsed_ms(uint64_t now_ms) const {
   return (this->running() ? now_ms : this->ended_ms_) - this->started_ms_;
 }
 

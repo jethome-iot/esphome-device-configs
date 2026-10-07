@@ -159,7 +159,7 @@ ClimateHub::ClimateHub() {
   switch_hold::set_holder(this);
 }
 
-uint32_t ClimateHub::now_ms() const { return millis(); }
+uint64_t ClimateHub::now_ms() const { return millis_64(); }
 
 #ifdef USE_WEBSERVER_SORTING
 void ClimateHub::set_web_server_sorting(web_server::WebServer *server, uint64_t group, float weight) {
@@ -331,7 +331,7 @@ void ClimateHub::resolve_name_(ClimateConfig *config) {
 }
 
 void ClimateHub::loop() {
-  const uint32_t now = this->now_ms();
+  const uint64_t now = this->now_ms();
   for (Slot *slot : this->slots_) {
     if (slot->runtime.running())
       slot->runtime.tick(now);
@@ -894,7 +894,7 @@ Result ClimateHub::start_autotune(const std::string &id, optional<AutotuneDirect
     return failure(409, std::string("The thermostat reports ") + enums::fault_to_string(runtime.fault()) +
                             "; calibrate it once that clears");
 
-  const uint32_t now = this->now_ms();
+  const uint64_t now = this->now_ms();
   auto run = std::make_unique<AutotuneRun>(*direction, rule, PidGains{stored->pid.kp, stored->pid.ki, stored->pid.kd},
                                            stored->setpoint, now);
   AutotuneRun *running = run.get();
@@ -951,10 +951,10 @@ void ClimateHub::complete_autotune_(Slot *slot) {
   } else {
     this->mark_dirty_(config->id);
   }
-  const uint32_t now = this->now_ms();
+  const uint64_t now = this->now_ms();
   run->succeed(gains, clamped, persisted, now);
   runtime.end_autotune(AutotuneEnd::NONE, now);
-  ESP_LOGI(TAG, "'%s': calibrated in %" PRIu32 " s: Ku %.5g, Pu %.0f s, rule %s: kp %.5g, ki %.5g, kd %.5g%s%s%s%s",
+  ESP_LOGI(TAG, "'%s': calibrated in %" PRIu64 " s: Ku %.5g, Pu %.0f s, rule %s: kp %.5g, ki %.5g, kd %.5g%s%s%s%s",
            config->id.c_str(), run->elapsed_ms(now) / 1000, run->tuner().ku(), run->tuner().pu(),
            enums::autotune_rule_to_string(run->rule()), gains.kp, gains.ki, gains.kd,
            run->asymmetric() ? ", asymmetric" : "", run->uneven() ? ", uneven" : "", clamped ? ", clamped" : "",
@@ -1117,12 +1117,12 @@ bool ClimateHub::acquire_claims_(const ClimateConfig &config, RelayClaim **heat,
 }
 
 void ClimateHub::release_claims_(const std::string &owner) {
-  const uint32_t now = this->now_ms();
+  const uint64_t now = this->now_ms();
   for (auto it = this->claims_.begin(); it != this->claims_.end();)
     it = it->second->owner() == owner ? this->let_go_(it, now) : std::next(it);
 }
 
-ClimateHub::ClaimMap::iterator ClimateHub::let_go_(ClaimMap::iterator it, uint32_t now_ms) {
+ClimateHub::ClaimMap::iterator ClimateHub::let_go_(ClaimMap::iterator it, uint64_t now_ms) {
   // Unpaced: once let go, nothing would put it back later.
   it->second->force_off(now_ms, false);
   it->second->last_switching(&this->relay_history_[it->first]);
@@ -1221,7 +1221,7 @@ bool ClimateHub::restart_(Slot *slot, const std::string &previous_name, std::str
     return false;
   }
   // A relay the document no longer names is opened and let go; the ones it keeps carry on.
-  const uint32_t now = this->now_ms();
+  const uint64_t now = this->now_ms();
   for (auto it = this->claims_.begin(); it != this->claims_.end();) {
     const RelayClaim *claim = it->second.get();
     it = claim->owner() == config->id && claim != heat && claim != cool ? this->let_go_(it, now) : std::next(it);
@@ -1273,7 +1273,7 @@ void ClimateHub::on_sample_(SensorSubscription *sub, float value) {
   // infinity latches the heater or winds the integral. Neither is a reading: the sensor goes stale.
   if (!std::isfinite(value))
     return;
-  const uint32_t now = this->now_ms();
+  const uint64_t now = this->now_ms();
   sub->last = Reading{value, now, true};
   for (Slot *slot : this->slots_) {
     if (!slot->runtime.running() || slot->runtime.sensor() != sub->sensor)

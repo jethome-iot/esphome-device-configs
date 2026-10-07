@@ -60,6 +60,27 @@ TEST_F(Editor, ARunShowsItsProgressInStatus) {
   EXPECT_EQ(status.json["controllers"][0]["action"], "heating") << "Home Assistant sees heating or idle";
 }
 
+// Started before a 32-bit millis() would wrap, a run times itself and its chart from its start
+// after the wrap too.
+TEST_F(Editor, ARunAcrossTheMillisWrapCountsFromItsStart) {
+  hub().ms = (1ull << 32) - 150000;
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  reading(22.f);
+  ASSERT_EQ(this->post("autotune?id=living-room&value=true").code, 200);
+  for (float value : {21.7f, 22.3f, 21.6f})
+    reading(value);
+  ASSERT_GT(hub().ms, 1ull << 32);
+
+  Reply status = this->get("status?id=living-room");
+  JsonVariant run = autotune_of(status);
+  ASSERT_EQ(run["state"], "running");
+  EXPECT_EQ(run["elapsed_s"], 180);
+  ASSERT_EQ(run["extremes"].size(), 3u);
+  EXPECT_EQ(run["extremes"][0]["at_s"], 0);
+  EXPECT_EQ(run["extremes"][1]["at_s"], 60) << "before the wrap";
+  EXPECT_EQ(run["extremes"][2]["at_s"], 120) << "after it";
+}
+
 TEST_F(Editor, AFinishedRunShowsWhatItFoundAndGetHasIt) {
   ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
   reading(22.f);

@@ -1027,6 +1027,22 @@ TEST_F(Editor, StatusReportsTheControlLoop) {
   EXPECT_TRUE(floor["pid"].isUnbound()) << "only a running PID has terms";
 }
 
+// A reading 49.7 days and ten seconds old is that old, not ten seconds: a 32-bit millis() count
+// wraps in between.
+TEST_F(Editor, StatusAgesAReadingPastTheMillisWrap) {
+  ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
+  entities().room.publish_state(18.f);
+  hub().ms += (1ull << 32) + 10000;
+  hub().loop();
+
+  Reply reply = this->get("status?id=living-room");
+  ASSERT_EQ(reply.code, 200) << reply.body;
+  JsonObject row = reply["controllers"][0];
+  EXPECT_NEAR(row["sensor_age_s"].as<double>(), 4294977.296, 1.0);
+  EXPECT_EQ(row["fault"].as<std::string>(), "sensor_stale");
+  EXPECT_FALSE(row["heat_relay_on"].as<bool>());
+}
+
 // Something else keeps moving the relay: the status says so, and that the thermostat goes on.
 TEST_F(Editor, StatusReportsAContestedRelay) {
   ASSERT_EQ(this->create(FLOOR), "floor");
