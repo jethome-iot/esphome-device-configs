@@ -137,7 +137,8 @@ enum class RecordCheck : uint8_t {
 struct Expectation {
   ChipType chip;
   std::string board_model;
-  // The serial in the metering board's own header: a record copied from another board fails here.
+  // The serial in the metering board's own header: a record copied from another board fails
+  // here, and so does every record under a header that names no board.
   std::string board_serial;
   uint8_t pga_code;
 };
@@ -147,6 +148,7 @@ enum class MatchCheck : uint8_t {
   WRONG_CHIP,
   WRONG_CHANNEL_COUNT,
   WRONG_BOARD_MODEL,
+  NO_BOARD_SERIAL,
   WRONG_BOARD_SERIAL,
   PGA_MISMATCH,
 };
@@ -244,6 +246,9 @@ inline MatchCheck match_record(const MeterCalRecord &rec, const Expectation &exp
     return MatchCheck::WRONG_CHANNEL_COUNT;
   if (jethome_board_info::field_to_string(rec.board_model, sizeof(rec.board_model)) != expect.board_model)
     return MatchCheck::WRONG_BOARD_MODEL;
+  // Two empty serials would agree, and say nothing about which board the record is for.
+  if (expect.board_serial.empty())
+    return MatchCheck::NO_BOARD_SERIAL;
   if (jethome_board_info::field_to_string(rec.board_serial, sizeof(rec.board_serial)) != expect.board_serial)
     return MatchCheck::WRONG_BOARD_SERIAL;
   if (rec.pga_code != expect.pga_code)
@@ -305,6 +310,7 @@ inline CalStatus status_of(MatchCheck check) {
     case MatchCheck::WRONG_CHIP:
     case MatchCheck::WRONG_CHANNEL_COUNT:
     case MatchCheck::WRONG_BOARD_MODEL:
+    case MatchCheck::NO_BOARD_SERIAL:
     case MatchCheck::WRONG_BOARD_SERIAL:
       return CalStatus::FOREIGN;
   }
@@ -408,6 +414,8 @@ inline const char *match_check_str(MatchCheck check) {
       return "written for another channel count";
     case MatchCheck::WRONG_BOARD_MODEL:
       return "written for another board model";
+    case MatchCheck::NO_BOARD_SERIAL:
+      return "board header has no serial";
     case MatchCheck::WRONG_BOARD_SERIAL:
       return "written for another board serial";
     case MatchCheck::PGA_MISMATCH:

@@ -95,6 +95,7 @@ std::string MeterCalibration::describe_(const MeterCalRecord &rec, const Expecta
     case MatchCheck::PGA_MISMATCH:
       snprintf(buf, sizeof(buf), "%s (record 0x%02X, firmware 0x%02X)", what, rec.pga_code, expect.pga_code);
       break;
+    case MatchCheck::NO_BOARD_SERIAL:
     case MatchCheck::OK:
     default:
       snprintf(buf, sizeof(buf), "%s", what);

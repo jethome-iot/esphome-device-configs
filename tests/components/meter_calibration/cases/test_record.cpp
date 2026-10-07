@@ -338,8 +338,39 @@ TEST(MeterMatch, ARecordCopiedFromAnotherBoardHasAnotherSerial) {
   Expectation other = pm380();
   other.board_serial = "PM33-2026-000999";
   EXPECT_EQ(match_record(as_record(make_meter_record()), other), MatchCheck::WRONG_BOARD_SERIAL);
+}
+
+MeterRecordBuf with_serial(const char *serial) {
+  MeterRecordBuf buf = make_meter_record();
+  memset(buf.data() + MC_OFF_BOARD_SERIAL, 0, 32);
+  put_field(buf.data(), MC_OFF_BOARD_SERIAL, 32, serial);
+  seal_meter_record(buf);
+  return buf;
+}
+
+// A header with no serial names no board, so no record can be shown to be this board's: not even
+// one that has no serial either.
+TEST(MeterMatch, AHeaderWithNoSerialMatchesNoRecord) {
+  Expectation unnamed = pm380();
+  unnamed.board_serial = "";
+  EXPECT_EQ(match_record(as_record(with_serial("")), unnamed), MatchCheck::NO_BOARD_SERIAL);
+  EXPECT_EQ(match_record(as_record(make_meter_record()), unnamed), MatchCheck::NO_BOARD_SERIAL);
+}
+
+TEST(MeterMatch, ARecordWithNoSerialIsAnotherBoardsUnderANamedHeader) {
+  EXPECT_EQ(match_record(as_record(with_serial("")), pm380()), MatchCheck::WRONG_BOARD_SERIAL);
+}
+
+// The model is checked before the serial, so a record for another model says so first.
+TEST(MeterMatch, TheSerialIsCheckedAfterTheModel) {
+  Expectation other = pm380();
+  other.board_model = "JXD-D3-PM3-4";
   other.board_serial = "";
-  EXPECT_EQ(match_record(as_record(make_meter_record()), other), MatchCheck::WRONG_BOARD_SERIAL);
+  EXPECT_EQ(match_record(as_record(make_meter_record()), other), MatchCheck::WRONG_BOARD_MODEL);
+  other = pm380();
+  other.board_serial = "";
+  other.pga_code = 0x2A;
+  EXPECT_EQ(match_record(as_record(make_meter_record()), other), MatchCheck::NO_BOARD_SERIAL);
 }
 
 TEST(MeterMatch, AnotherPgaPlanIsAMismatch) {
@@ -379,7 +410,7 @@ TEST(MeterStatus, EachRecordCheckComesToItsStatus) {
 TEST(MeterStatus, EachMatchOutcomeComesToItsStatus) {
   EXPECT_EQ(status_of(MatchCheck::PGA_MISMATCH), CalStatus::UNSUPPORTED);
   for (MatchCheck c : {MatchCheck::WRONG_CHIP, MatchCheck::WRONG_CHANNEL_COUNT, MatchCheck::WRONG_BOARD_MODEL,
-                       MatchCheck::WRONG_BOARD_SERIAL, static_cast<MatchCheck>(0xEE)}) {
+                       MatchCheck::NO_BOARD_SERIAL, MatchCheck::WRONG_BOARD_SERIAL, static_cast<MatchCheck>(0xEE)}) {
     EXPECT_EQ(status_of(c), CalStatus::FOREIGN);
   }
 }
@@ -442,6 +473,7 @@ TEST(MeterStatus, EveryValueHasAName) {
   EXPECT_EQ(::testing::PrintToString(CalStatus::FOREIGN), "foreign");
   EXPECT_EQ(::testing::PrintToString(RecordCheck::BAD_CRC), "record CRC32 mismatch");
   EXPECT_EQ(::testing::PrintToString(MatchCheck::PGA_MISMATCH), "taken at another PGA setting");
+  EXPECT_STREQ(match_check_str(MatchCheck::NO_BOARD_SERIAL), "board header has no serial");
   EXPECT_EQ(::testing::PrintToString(ReadStatus::NOT_FOUND), "NOT_FOUND");
 }
 

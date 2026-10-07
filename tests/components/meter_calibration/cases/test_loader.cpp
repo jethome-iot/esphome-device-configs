@@ -273,6 +273,43 @@ TEST(MeterLoader, AnUnknownFilesystemVersionIsOneWarningFromEach) {
   EXPECT_TRUE(board.log().has_warning("Factory calibration unsupported: "));
 }
 
+MeterRecordBuf record_with_serial(const char *serial) {
+  MeterRecordBuf rec = make_meter_record();
+  memset(rec.data() + MC_OFF_BOARD_SERIAL, 0, 32);
+  put_field(rec.data(), MC_OFF_BOARD_SERIAL, 32, serial);
+  seal_meter_record(rec);
+  return rec;
+}
+
+const BoardIdentity NO_SERIAL{"JXD-D3-PM3-3", "1.2", ""};
+
+// Serials are strict: a header that names no board vouches for no record, an empty one included.
+TEST(MeterLoader, EverySerialThatDoesNotNameThisBoardIsForeign) {
+  struct SerialCase {
+    const char *name;
+    std::vector<uint8_t> image;
+    const char *reason;
+  };
+  const std::vector<SerialCase> cases = {
+      {"header and record empty", meter_image(record_with_serial(""), NO_SERIAL), "board header has no serial"},
+      {"header empty", meter_image(make_meter_record(), NO_SERIAL), "board header has no serial"},
+      {"record empty", meter_image(record_with_serial("")),
+       "written for another board serial (record '', board header 'PM33-2026-000123')"},
+  };
+  for (const SerialCase &c : cases) {
+    SCOPED_TRACE(c.name);
+    MeterBoard board(c.image);
+    board.boot();
+
+    expect_nothing_failed(board);
+    EXPECT_EQ(board.cal.get_status(), CalStatus::FOREIGN);
+    EXPECT_EQ(board.cal.get_reason(), c.reason);
+    expect_no_record(board);
+    const std::string warning = std::string("Factory calibration foreign: ") + c.reason;
+    EXPECT_TRUE(board.log().has_warning(warning.c_str()));
+  }
+}
+
 TEST(MeterLoader, ATimestampPastTheCalendarStillDumps) {
   MeterRecordBuf rec = make_meter_record();
   put_i64(rec.data(), MC_OFF_TIMESTAMP, INT64_MAX);

@@ -44,7 +44,7 @@ None of them stops metering; they decide which coefficients a driver may take.
 | `unverified`  | The same, but bit 5 is clear: the station never finished. The record is still usable | warning |
 | `missing`     | The EEPROM has no board header (blank, erased) or no `meter.cal` | info |
 | `corrupt`     | A CRC fails (board header, file chain, file, record), the record is not 256 bytes, or a field holds a value the format does not allow | warning |
-| `foreign`     | The chip, channel count, board model or board serial differs from this board's, or the chip type is unknown | warning |
+| `foreign`     | The chip, channel count, board model or board serial differs from this board's, the board header has no serial, or the chip type is unknown | warning |
 | `unsupported` | An unknown record, signature, header or filesystem version; flag bits or reserved bytes version 1 leaves zero; a CT nominal ratio other than 2000; a PGA setting other than the firmware's; a file longer than 256 bytes | warning |
 | `no_eeprom`   | The metering board's EEPROM does not answer; its `i2c_eeprom` is marked failed | warning |
 
@@ -80,7 +80,7 @@ once per board; the firmware only reads it.
 
 The board header follows JEEFS header v4: magic `JETHOME\0`, `version` 4, `fs_version` 1,
 `boardname` the board model (`JXD-D3-PM3-3`, `JXD-D3-PM1-6`), `boardversion` its revision
-(`1.2`, `1.1.0`), `board_serial` the metering board's serial number, `usid`, `cpuid` and `mac`
+(`1.2`, `1.1.0`), `board_serial` the metering board's serial number, never empty, `usid`, `cpuid` and `mac`
 left empty, `timestamp` the time the header was written, and the CRC-32 over bytes 0–251. The
 signature fields are the factory's; the firmware does not read them. The file header follows JEEFS filesystem v1: name `meter.cal`,
 `data_size` 256, the CRC-32 of the 256 data bytes, `next` 0 when `meter.cal` is the last file,
@@ -100,7 +100,7 @@ field has no NUL. Every byte the record does not use is zero.
 | 11  | 1   | `channel_count` | current channels: `3` for ATM90E32AS, `6` for BL0906 |
 | 12  | 32  | `board_model` | text, e.g. `JXD-D3-PM3-3` |
 | 44  | 8   | `board_revision` | text, e.g. `1.2` |
-| 52  | 32  | `board_serial` | text; equal to `board_serial` in the board header |
+| 52  | 32  | `board_serial` | text; equal to `board_serial` in the board header, which is not empty |
 | 84  | 4   | `ref_voltage_mv` | u32, the calibration point's voltage, mV |
 | 88  | 4   | `ref_current_ua` | u32, the calibration point's secondary current, µA |
 | 92  | 2   | `ct_nominal_ratio` | u16, `2000`: coefficients refer to the primary current of a 2000:1 CT |
