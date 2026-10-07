@@ -946,8 +946,11 @@ esphome:
       then:
         - lambda: |-
             using namespace display_menu_base;
+            using namespace panel_text;
             static constexpr size_t ROW = 18;  // f7x14_mod2 glyphs across the panel
             auto *hub = id(climates);
+            auto *font = id(f7x14_mod2);
+            const HasGlyph has = [font](uint32_t code_point) { return font->find_glyph(code_point) != nullptr; };
             // Rows hold the thermostat's id, not a pointer: the store moves its documents. One
             // deleted since boot is not found, and its rows say --.
             auto reading = [hub](const std::string &thermostat_id) {
@@ -1077,6 +1080,57 @@ esphome:
                 *steps = 0;
               });
               menu->add_item(target);
+
+              // Steps from the active preset, through -- as well when none was active, so a row
+              // opened on none can close on none. A stepped row picks its preset even when it is the
+              // active one, to bring back values set by hand since; an untouched one writes nothing.
+              auto *seen = new optional<std::string>();  // the active key at open; none outside editing
+              auto *choice = new std::string();         // the key being picked, "" for --
+              auto *touched = new bool(false);
+              auto *preset = new MenuItemCustom();
+              preset->set_text(std::string("Preset"));
+              preset->set_value_lambda([=](const MenuItem *) {
+                const auto *config = hub->store().get(thermostat_id);
+                const auto *shown =
+                    config == nullptr ? nullptr : config->find_preset(seen->has_value() ? *choice : config->active_preset);
+                // "Preset (" and ")" take 9 of the row's glyphs.
+                return shown == nullptr ? std::string("--") : panel_fit(panel_safe(shown->name, 4 * ROW, has), ROW - 9);
+              });
+              // With no preset to pick, CENTER ends the edit it has just opened.
+              preset->add_on_enter_callback([=]() {
+                const auto *config = hub->store().get(thermostat_id);
+                if (config == nullptr || config->presets.empty()) {
+                  id(display_menu).back();
+                  return;
+                }
+                *seen = config->active_preset;
+                *choice = config->active_preset;
+                *touched = false;
+              });
+              auto step = [=](bool forward) {
+                const auto *config = hub->store().get(thermostat_id);
+                if (config == nullptr || !seen->has_value())
+                  return;
+                const auto *next = config->step_preset(*choice, forward, seen->value().empty());
+                *choice = next != nullptr ? next->key : "";
+                *touched = true;
+              };
+              preset->add_on_next_callback([=]() { step(true); });
+              preset->add_on_prev_callback([=]() { step(false); });
+              // A pick that fails leaves the row on the active preset, and the log says why.
+              preset->add_on_leave_callback([=]() {
+                if (seen->has_value() && *touched && !choice->empty()) {
+                  const auto result = hub->apply_preset(thermostat_id, *choice);
+                  if (!result.ok) {
+                    ESP_LOGW("menu", "Thermostat '%s' preset: %s", thermostat_id.c_str(), result.error.c_str());
+                  } else if (!result.persisted) {
+                    ESP_LOGW("menu", "Thermostat '%s' changed but not saved; a reboot undoes it",
+                             thermostat_id.c_str());
+                  }
+                }
+                seen->reset();
+              });
+              menu->add_item(preset);
 
               auto enabled_of = [=]() {
                 const auto *config = hub->store().get(thermostat_id);

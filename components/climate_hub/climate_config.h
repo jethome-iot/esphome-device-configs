@@ -157,6 +157,10 @@ struct ClimateConfig {
   /// The preset whose name is Home Assistant's built-in `preset`, or that is the custom `name`.
   const PresetConfig *find_preset(climate::ClimatePreset preset) const;
   const PresetConfig *find_custom_preset(const char *name) const;
+  /// The preset one place `forward` or back from the one with `key`, going round the list; from
+  /// none, or a key the list does not have, the first forward and the last back. `with_none`
+  /// makes none a stop of its own, between the last and the first. nullptr for none.
+  const PresetConfig *step_preset(const std::string &key, bool forward, bool with_none) const;
   /// Takes the preset's target, clamped, and its mode if it has one the relays serve, and
   /// labels it active. True when anything changed.
   bool pick_preset(const PresetConfig &preset);

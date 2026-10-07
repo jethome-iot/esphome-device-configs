@@ -17,9 +17,9 @@ at the next boot. The file format and the C++ API are in
   adds nothing to what it has learnt.
 - **Modes**: off, heat, cool, or heat and cool, as far as its relays allow.
 - **Presets**: up to eight per thermostat, each a name, a target and a mode or "keep the
-  current one". Picking one, from Home Assistant, the web server or the editor's API, sets its
-  target and its mode; a stopped thermostat keeps the pick and starts in it. A target or a mode
-  set by hand afterwards keeps it shown as the active preset.
+  current one". Picking one, from Home Assistant, the web server, the editor's API or the
+  panel, sets its target and its mode; a stopped thermostat keeps the pick and starts in it. A
+  target or a mode set by hand afterwards keeps it shown as the active preset.
   Editing the active preset's values applies them at once, and the active preset comes back
   after a reboot.
 - **Automation rules** can turn a thermostat off and back on, in the mode it was in before it
@@ -154,9 +154,14 @@ disabled and stops the one that runs; one whose sensor or relay is missing canno
 **Thermostats** in the display menu of `jxd-r6-e1eth-lcd` lists the thermostats the device
 booted with, each with what its sensor reads; one created later shows after a reboot. A row
 opens its name, the reading, what it is doing (Heating, Cooling, Idle, Off, Waiting, Disabled,
-or in a word the fault that keeps it from controlling), the target and Enabled. The target moves
-in the thermostat's own step inside its range; Enabled starts or stops it like the start over
-HTTP, never taking a relay over: an On that is refused stays Off, and the log says why.
+or in a word the fault that keeps it from controlling), the target, the preset and Enabled. The
+target moves in the thermostat's own step inside its range. Preset shows the active preset, `--`
+for none, and steps through the thermostat's presets in their order, through `--` too when none
+was active; closed after a step, it picks the preset shown, the active one included, which brings
+back its values after a target or mode set by hand. It does not open on a thermostat without
+presets, and a pick that fails leaves the active preset, the log saying why. Enabled starts or
+stops it like the start over HTTP, never taking a relay over: an On that is refused stays Off,
+and the log says why.
 
 ## Home Assistant
 

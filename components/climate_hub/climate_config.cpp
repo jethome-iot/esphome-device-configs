@@ -563,6 +563,21 @@ const PresetConfig *ClimateConfig::find_custom_preset(const char *name) const {
   return nullptr;
 }
 
+const PresetConfig *ClimateConfig::step_preset(const std::string &key, bool forward, bool with_none) const {
+  if (this->presets.empty())
+    return nullptr;
+  // Stops are indices into presets, none at -1, which the round skips without `with_none`.
+  const int last = static_cast<int>(this->presets.size()) - 1;
+  const int first = with_none ? -1 : 0;
+  const PresetConfig *from = this->find_preset(key);
+  int at = (from != nullptr ? static_cast<int>(from - this->presets.data()) : -1) + (forward ? 1 : -1);
+  if (at > last)
+    at = first;
+  if (at < first)
+    at = last;
+  return at < 0 ? nullptr : &this->presets[at];
+}
+
 bool ClimateConfig::pick_preset(const PresetConfig &preset) {
   const float target = this->clamp_target(preset.setpoint);
   bool changed = target != this->setpoint || this->active_preset != preset.key;

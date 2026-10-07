@@ -48,7 +48,7 @@ boundaries; everything else is local to its file.
   QEMU overlay `qemu/climate-plant.yaml` gives it a room to control. `web_climate_editor`
   (`features/climate-editor.yaml`) edits the thermostats under `/climate-editor/api`;
   `display/menu.yaml` reads `store()` and `sensor_reading()` for the Thermostats rows and calls
-  `set_setpoint` and `set_enabled` from them.
+  `set_setpoint`, `apply_preset` and `set_enabled` from them.
 - `climates` is also the firmware's `switch_hold` holder: `switch_hold::holder(id(relay_N))`
   names the running thermostat that drives a relay, `""` when none does. Everything that moves
   a relay on its own asks it first — the status page's CENTER (`display/buttons.yaml`), the

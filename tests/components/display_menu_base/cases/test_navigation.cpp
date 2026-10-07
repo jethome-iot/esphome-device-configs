@@ -105,6 +105,31 @@ TEST_F(Navigation, BackEndsAnEditBeforeItLeavesTheMenu) {
   EXPECT_TRUE(this->menu_.is_at_main());
 }
 
+// The panel's Preset row has nothing to pick without presets, and calls back() from its
+// on_enter: that has to end the edit CENTER has just opened, not leave the submenu.
+TEST_F(Navigation, AnEditTheRowEndsFromItsOwnEnterIsOver) {
+  int leaves = 0;
+  int steps = 0;
+  this->editable_.add_on_enter_callback([this]() { this->menu_.back(); });
+  this->editable_.add_on_leave_callback([&leaves]() { leaves++; });
+  this->editable_.add_on_next_callback([&steps]() { steps++; });
+
+  this->menu_.enter();  // into Sub
+  this->menu_.down();   // onto Editable
+  this->menu_.enter();  // which starts editing it, and the row ends that at once
+
+  EXPECT_FALSE(this->menu_.is_at_main());
+  EXPECT_EQ(this->menu_.rows, this->submenu_rows_);
+  EXPECT_EQ(this->menu_.selected_row, 1);
+  EXPECT_EQ(leaves, 1);
+
+  this->menu_.right();
+  EXPECT_EQ(steps, 0) << "not editing";
+
+  EXPECT_TRUE(this->menu_.back());
+  EXPECT_TRUE(this->menu_.is_at_main()) << "no edit was left for BACK to end";
+}
+
 TEST_F(Navigation, BackDoesNothingWhileTheMenuIsHidden) {
   this->menu_.enter();
   ASSERT_FALSE(this->menu_.is_at_main());

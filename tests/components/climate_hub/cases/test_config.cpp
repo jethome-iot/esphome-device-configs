@@ -447,6 +447,38 @@ TEST(PresetRules, APresetIsFoundTheWayHomeAssistantNamesIt) {
   EXPECT_EQ(nullptr, config.find_preset("Night"));
 }
 
+// How the panel's Preset row steps: round the list, and through none too when asked.
+TEST(PresetRules, AStepGoesRoundThePresets) {
+  ClimateConfig config = with_presets();
+  PresetConfig day;
+  day.key = "day";
+  day.name = "Day";
+  day.setpoint = 22.f;
+  config.presets.push_back(day);
+  auto key = [](const PresetConfig *preset) { return preset != nullptr ? preset->key : std::string("none"); };
+
+  EXPECT_EQ("night", key(config.step_preset("eco", true, false)));
+  EXPECT_EQ("eco", key(config.step_preset("day", true, false))) << "round past the last";
+  EXPECT_EQ("day", key(config.step_preset("eco", false, false))) << "round past the first";
+  EXPECT_EQ("eco", key(config.step_preset("", true, false))) << "from none, the first forward";
+  EXPECT_EQ("day", key(config.step_preset("", false, false))) << "and the last back";
+  EXPECT_EQ("eco", key(config.step_preset("gone", true, false))) << "an unknown key is none";
+  EXPECT_EQ("day", key(config.step_preset("gone", false, false)));
+
+  EXPECT_EQ("none", key(config.step_preset("day", true, true))) << "none sits after the last";
+  EXPECT_EQ("none", key(config.step_preset("eco", false, true))) << "and before the first";
+  EXPECT_EQ("eco", key(config.step_preset("", true, true)));
+  EXPECT_EQ("day", key(config.step_preset("", false, true)));
+  EXPECT_EQ("day", key(config.step_preset("night", true, true)));
+
+  config.presets.resize(1);
+  EXPECT_EQ("eco", key(config.step_preset("eco", true, false))) << "one preset steps onto itself";
+  EXPECT_EQ("none", key(config.step_preset("eco", true, true)));
+  config.presets.clear();
+  EXPECT_EQ("none", key(config.step_preset("", true, false)));
+  EXPECT_EQ("none", key(config.step_preset("", false, true)));
+}
+
 // A pick takes the target, clamped, the mode when the preset has one, and the label.
 TEST(PresetRules, APickTakesTheTargetTheModeAndTheLabel) {
   ClimateConfig config = with_presets();
