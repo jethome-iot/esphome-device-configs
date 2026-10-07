@@ -1239,7 +1239,8 @@ paths:
       summary: Follow Home Assistant's zone, or choose one.
       description: >-
         `follow_homeassistant: true` follows Home Assistant's zone, or the
-        compiled one until Home Assistant has sent one; the chosen zone is kept.
+        compiled one until Home Assistant first sets the clock, and asks Home
+        Assistant for its zone at once; the chosen zone is kept.
         `follow_homeassistant: false` applies the chosen zone — the one sent
         with it, or the one stored. A `posix` string, with the `zone` name it was
         picked as, becomes the chosen zone; while the device follows Home
@@ -2696,9 +2697,10 @@ components:
           type: string
           enum: [homeassistant, default, manual]
           description: >-
-            Where the zone in effect comes from: the zone Home Assistant sent,
-            the compiled `default_zone` while following Home Assistant before it
-            has sent one, or the chosen zone.
+            Where the zone in effect comes from: Home Assistant's, the compiled
+            `default_zone` while following Home Assistant until it first sets the
+            clock, or the chosen zone. A Home Assistant older than 2026.3 sends no
+            zone; the one in effect when it answers counts as its own.
         zone:
           type: [string, "null"]
           description: >-

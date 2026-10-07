@@ -62,7 +62,7 @@ class TimezoneSettings : public Component {
   void set_homeassistant_zone(time::ParsedTimezone *zone) { this->homeassistant_zone_ = zone; }
   void set_preference_hash(uint32_t hash) { this->preference_hash_ = hash; }
   /// Reports @p source as the clock's name when its sync callback fires; the Home Assistant
-  /// clock's also hands over the zone it may send.
+  /// clock's also hands over the zone it may send, and is asked for it when following resumes.
   void add_clock(time::RealTimeClock *clock, ClockSource source);
 
   bool follow_homeassistant() const { return this->follow_homeassistant_; }
@@ -80,7 +80,7 @@ class TimezoneSettings : public Component {
 
   /// Follows Home Assistant or the chosen zone; with @p zone, that becomes the chosen one,
   /// applied only when not following. Stored before applied: anything but NONE leaves the
-  /// device as it was.
+  /// device as it was. Call it on the loop task.
   SetError configure(bool follow_homeassistant, const Zone *zone = nullptr);
   SetError set_follow_homeassistant(bool follow) { return this->configure(follow); }
   SetError set_zone(const Zone &zone) { return this->configure(this->follow_homeassistant_, &zone); }
@@ -121,7 +121,9 @@ class TimezoneSettings : public Component {
   Zone chosen_;
   time::ParsedTimezone chosen_parsed_{};
   ClockSource clock_source_{ClockSource::NONE};
-  // The zone in force when Home Assistant's sync fired, to tell whether it sent one after it.
+  time::RealTimeClock *homeassistant_clock_{nullptr};
+  // The zone in force when Home Assistant's sync fired: not following, a different one after it
+  // is the zone it sent.
   time::ParsedTimezone before_sync_{};
   bool sync_pending_{false};
   ESPPreferenceObject pref_;

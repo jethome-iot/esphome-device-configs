@@ -262,11 +262,14 @@ server.
   `homeassistant` clock's sync callback fires, in a named `defer`: upstream's
   `APIConnection::on_get_time_response` runs the sync callbacks (through `set_epoch_time()`)
   before it calls `time::set_global_tz()` with the zone the answer carries, so the callback
-  itself still sees the old one. A change of that zone between the two reads is the only sign
-  that one arrived. The `stored_timezone` global is the raw `time::ParsedTimezone`, which a
-  restoring global stores by size: a change to the struct drops the stored zone once. The
-  parser in `posix_tz_parse.cpp` is a port of `aioesphomeapi.posix_tz`, which ESPHome runs at
-  build time; its suite fails when the pinned `aioesphomeapi` parses differently.
+  itself still sees the old one. While the device follows Home Assistant, the zone in force at
+  the second read is taken for its own; while it does not, a change between the two reads is the
+  only sign that one arrived. `configure()` makes a read still pending first, so its own change
+  is never taken for Home Assistant's zone. The `stored_timezone` global is the raw
+  `time::ParsedTimezone`, which a restoring global stores by size: a change to the struct drops
+  the stored zone once. The parser in `posix_tz_parse.cpp` is a port of
+  `aioesphomeapi.posix_tz`, which ESPHome runs at build time; its suite fails when the pinned
+  `aioesphomeapi` parses differently.
 - `components/automations` names entities by `fnv1_hash` of their object id and walks
   `App.get_binary_sensors()` / `get_sensors()` / `get_switches()` itself, so the hash and
   `EntityBase::get_object_id_to` are part of the on-disk rule format.

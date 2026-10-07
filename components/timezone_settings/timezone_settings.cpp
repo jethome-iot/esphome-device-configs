@@ -8,6 +8,7 @@
 namespace esphome::timezone_settings {
 
 static const char *const TAG = "timezone_settings";
+static const char *const HOMEASSISTANT_ZONE_READ = "homeassistant-zone";
 
 const char *clock_source_name(ClockSource source) {
   switch (source) {
@@ -91,6 +92,8 @@ std::string zone_city(const std::string &name) {
 }
 
 void TimezoneSettings::add_clock(time::RealTimeClock *clock, ClockSource source) {
+  if (source == ClockSource::HOMEASSISTANT)
+    this->homeassistant_clock_ = clock;
   clock->add_on_time_sync_callback([this, source]() {
     // The RTC is re-read every few minutes; it is the source only until the network has set the clock.
     if (source != ClockSource::RTC || this->clock_source_ == ClockSource::NONE)
@@ -185,6 +188,12 @@ SetError TimezoneSettings::check_zone(const Zone &zone, time::ParsedTimezone &pa
 }
 
 SetError TimezoneSettings::configure(bool follow_homeassistant, const Zone *zone) {
+  // An answer whose zone is not read yet is read in the mode it came in, before this changes
+  // the zone in force: read after, it would take this zone for Home Assistant's.
+  if (this->sync_pending_) {
+    this->cancel_defer(HOMEASSISTANT_ZONE_READ);
+    this->after_homeassistant_sync_();
+  }
   time::ParsedTimezone parsed = this->chosen_parsed_;
   if (zone != nullptr) {
     if (const SetError error = check_zone(*zone, parsed); error != SetError::NONE)
@@ -210,6 +219,7 @@ SetError TimezoneSettings::configure(bool follow_homeassistant, const Zone *zone
     ESP_LOGW(TAG, "Flushing flash failed for another record; the time settings are stored all the same");
   }
 
+  const bool resumes_following = follow_homeassistant && !this->follow_homeassistant_;
   this->follow_homeassistant_ = follow_homeassistant;
   if (zone != nullptr) {
     this->chosen_ = *zone;
@@ -218,6 +228,10 @@ SetError TimezoneSettings::configure(bool follow_homeassistant, const Zone *zone
   this->apply_();
   ESP_LOGI(TAG, "%s; in effect: %s", follow_homeassistant ? "Following Home Assistant" : "Following the chosen zone",
            zone_source_name(this->zone_source()));
+  // Home Assistant's zone may have changed meanwhile, even to the chosen one, which no answer
+  // could show; ask now rather than at the next poll.
+  if (resumes_following && this->homeassistant_clock_ != nullptr)
+    this->homeassistant_clock_->update();
   return SetError::NONE;
 }
 
@@ -242,17 +256,19 @@ void TimezoneSettings::on_homeassistant_sync_() {
     this->before_sync_ = time::get_global_tz();
     this->sync_pending_ = true;
   }
-  this->defer("homeassistant-zone", [this]() { this->after_homeassistant_sync_(); });
+  this->defer(HOMEASSISTANT_ZONE_READ, [this]() { this->after_homeassistant_sync_(); });
 }
 
 void TimezoneSettings::after_homeassistant_sync_() {
   this->sync_pending_ = false;
   const time::ParsedTimezone &now = time::get_global_tz();
-  // A zone equal to the one in effect cannot be told from none; nothing changes then either way.
-  if (!same_zone(now, this->before_sync_)) {
+  // Followed, what is in force after an answer is taken for Home Assistant's zone: one equal to
+  // it and none cannot be told apart. Not followed, the chosen one was in force, so only a
+  // change shows that a zone came.
+  if (this->follow_homeassistant_ || !same_zone(now, this->before_sync_)) {
     *this->homeassistant_zone_ = now;
     this->homeassistant_zone_received_ = true;
-    ESP_LOGD(TAG, "Home Assistant sent its zone");
+    ESP_LOGD(TAG, "Home Assistant's zone taken");
   }
   if (!this->follow_homeassistant_)
     this->apply_();

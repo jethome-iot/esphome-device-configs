@@ -339,7 +339,7 @@ export interface Capabilities {
 export type ClockSource = 'homeassistant' | 'sntp' | 'rtc'
 
 /** Where the timezone in effect came from: Home Assistant, the zone chosen with POST /time, or
- *  the one compiled in (`default_zone`), which runs while Home Assistant has sent none. */
+ *  the one compiled in (`default_zone`), which runs until Home Assistant first sets the clock. */
 export type ZoneSource = 'homeassistant' | 'manual' | 'default'
 
 /** GET /time, and what POST /time answers after its change. */

@@ -48,19 +48,23 @@ time:
 
 ## Which zone is in effect
 
-By default the device follows Home Assistant: the zone Home Assistant sent, once it has sent
-one, and the compiled zone until then. Home Assistant sends its zone each time it sets the
-clock, and the global keeps it, so a reboot comes back on it before Home Assistant has
-answered. A stored UTC reads as nothing stored, so a device whose Home Assistant runs on UTC
-comes back on the compiled zone after a reboot, until Home Assistant answers again.
+By default the device follows Home Assistant: the compiled zone until Home Assistant first
+sets the clock, and Home Assistant's zone from then on. Home Assistant sends its zone each
+time it sets the clock, and the global keeps it, so a reboot comes back on it before Home
+Assistant has answered. A Home Assistant older than 2026.3 sends no zone: the device stays on
+the zone it was on, and counts it as Home Assistant's. A stored UTC reads as nothing stored,
+so a device whose Home Assistant runs on UTC comes back on the compiled zone after a reboot,
+until Home Assistant answers again.
 
 A zone chosen by hand — a POSIX string, with the IANA name it was picked as — replaces that
 when the device is told to stop following Home Assistant, and applies at once. Home
-Assistant's zone is still taken and kept while it does not apply, so following it again
-needs no answer from Home Assistant. A zone chosen while the device follows Home Assistant
-is kept for later and not applied. The mode and the chosen zone are kept in flash and
-survive reboots and OTA updates; a factory reset clears them, and the device follows Home
-Assistant again.
+Assistant's zone is still taken and kept while it does not apply, unless it is the chosen
+zone itself, so following it again needs no answer from Home Assistant: the device goes back
+to the zone kept at once, and asks Home Assistant for its current one, which replaces it as
+soon as Home Assistant answers. A zone chosen while the device follows Home Assistant is
+kept for later and not applied. The mode and the chosen zone are kept in flash and survive
+reboots and OTA updates; a factory reset clears them, and the device follows Home Assistant
+again.
 
 The zone is applied as the component sets up, right after the globals are restored and
 before anything that reads the local time sets itself up.
@@ -79,5 +83,6 @@ the offset from UTC of the zone in effect otherwise.
 one over every zone in tzdata and a list of odd and malformed strings
 (`posix_tz_cases.tsv`, written by `generate_fixture.py`; `test_fixture.py` says when it is
 stale), and covers the mode and its storage, the upgrade from a firmware that kept only Home
-Assistant's zone, Home Assistant's zone arriving in either mode, the offset and DST it
-reports, the panel's text, and the configuration refusals.
+Assistant's zone, Home Assistant's zone arriving in either mode or as the mode changes, the
+question to Home Assistant when following resumes, the offset and DST it reports, the
+panel's text, and the configuration refusals.

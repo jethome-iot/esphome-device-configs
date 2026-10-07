@@ -1,6 +1,6 @@
 // The device clock and its timezone from the web_device_dashboard backend. Reuse via the @da
 // alias; inject base (`${basePath}/api/device`) and a fetch wrapper. Present when
-// `capabilities.time` is; both routes are `404` otherwise.
+// `capabilities.time` is; otherwise `/time` answers `404` to GET and POST alike.
 import { createHttp, type HttpOptions } from './http'
 import type { DeviceTime, DeviceTimeUpdate } from './types'
 

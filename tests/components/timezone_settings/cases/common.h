@@ -73,10 +73,11 @@ class LogCapture {
 };
 
 // A clock whose sync the case fires, as Home Assistant's answer, an SNTP reply or an RTC read
-// would.
+// would. update() is a request for the time, which Home Assistant answers later.
 class FakeClock : public time::RealTimeClock {
  public:
-  void update() override {}
+  int updates{0};
+  void update() override { this->updates++; }
   void sync() { this->time_sync_callback_.call(); }
 };
 
