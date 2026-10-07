@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: web_climate_editor HTTP API
-  version: 1.7.0
+  version: 1.7.1
   description: >-
     JSON/REST API of the `climate_hub` thermostats, served by the
     `web_climate_editor` component on the device's own web server (default
