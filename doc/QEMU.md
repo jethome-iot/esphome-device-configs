@@ -161,9 +161,10 @@ within a minute of a boot, which safe mode counts as a failed one: after several
 in a row the device comes up in safe mode, the check says so, and `--fresh` clears it.
 
 A start that nothing answers within `--boot-timeout` (180 s) is taken for a QEMU hang and made
-again, three starts in all; the log of each hung start is kept as `qemu.log.<n>` and the `PASS`
-line counts the retries. A device that answers but never lists its thermostats in that time
-fails without a retry.
+again, three starts in all; each hung start that is retried leaves its log as `qemu.log.<n>`, the
+last start's stays in `qemu.log`, and the `PASS` line counts the retries. A device that answers
+but never lists its thermostats in that time fails without a retry.
+
 The ports, the web credentials and the native API's encryption key are options (`--help`), the
 last two also `DEVICE_USER` and `DEVICE_API_KEY`; aioesphomeapi comes with ESPHome, so the repo
 venv runs it as is.

@@ -152,19 +152,22 @@ class Emulator:
 
     async def _qemu_sh(self, *argv: str) -> None:
         pipe = None if self.verbose else asyncio.subprocess.PIPE
+        # A session of its own: Ctrl-C at the terminal leaves the emulator it starts to the
+        # cleanup, and a cancel can reach a compile, not just the shell.
         proc = await asyncio.create_subprocess_exec(
             str(QEMU_SH),
             *argv,
             cwd=ROOT,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=pipe,
             stderr=None if self.verbose else asyncio.subprocess.STDOUT,
+            start_new_session=True,
         )
         try:
             output, _ = await proc.communicate()
         except asyncio.CancelledError:
-            # A SIGTERM reaches this process alone: take a compile or a start down with it.
             with contextlib.suppress(ProcessLookupError):
-                proc.terminate()
+                os.killpg(proc.pid, signal.SIGTERM)
             await proc.wait()
             raise
         if proc.returncode != 0:
