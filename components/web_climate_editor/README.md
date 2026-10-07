@@ -135,9 +135,10 @@ and a relay another thermostat holds (`not started: relay 'relay_1' is held by '
 which only files written by hand or a restore bring about.
 
 One that waits for a relay starts as soon as the relay is free, the first by id when several
-wait for it, and one that still cannot start gets the reason it has now. The answer to the
-`enable`, `delete` or `save` that freed the relay names who started, before any `warning` of
-its own: `Thermostat disabled; "Winter" started`.
+wait for it, and one that still cannot start gets the reason it has now. One that waits for a
+climate entity starts the same way when an `enable`, `delete`, `save` or `import` stops another
+thermostat, after the ones that wait for a relay that change freed. The answer to the change
+names who started, before any `warning` of its own: `Thermostat disabled; "Winter" started`.
 
 `enable` starts a thermostat as a Save of it would: `400` when its sensor does not report °C,
 then `409` when a running thermostat holds its relay or an enabled one that waits names it, and
@@ -146,11 +147,12 @@ one whose sensor or a relay is not on the device is stored enabled and waits, wi
 `take_over=true` each of those is stored as disabled first, the running one stopped, in the
 same step, and the answer names them, the running one first:
 `Thermostat enabled; "Living Room" and "Attic" stopped`. A relay the stopped one drove alone is
-then free for whoever waits for it, after this one has started. A take-over by one whose sensor
-or a relay is not on the device is `400` instead (`No sensor "attic" on this device`), and
-nothing changes; so is a `409` (`No free climate entity to run it in`) when only waiting
-thermostats name its relays and every climate entity is taken. With no other enabled thermostat
-on its relays, `take_over=true` changes nothing.
+then free for whoever waits for it, after this one has started, and so is a climate entity it
+does not run in. A take-over by one whose sensor or a relay is not on the device is `400`
+instead (`No sensor "attic" on this device`), and nothing changes; so is a `409`
+(`No free climate entity to run it in`) when only waiting thermostats name its relays and every
+climate entity is taken. With no other enabled thermostat on its relays, `take_over=true`
+changes nothing.
 
 An `id` is the thermostat's slug (`a-z`, `0-9`, single dashes, at most 48): a missing one is
 `Missing id parameter`, anything else `Invalid id parameter`. The `key` of `preset` is a slug as
@@ -220,7 +222,7 @@ id, one is created under it. Either way the thermostat comes back as the documen
 Keys left out take their defaults and every number is clamped, as on `save`, and a calibration the
 replaced thermostat runs ends as at a Save. The answer is a Save's, `"Thermostat created"` or
 `"Thermostat replaced"` with the `id`, a `warning` when it was stored enabled but does not run, and
-the thermostats that started on a relay it freed:
+the thermostats that started on a relay or a climate entity it freed:
 
 ```json
 {"success": true, "message": "Thermostat replaced", "id": "living-room"}

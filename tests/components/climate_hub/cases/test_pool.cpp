@@ -754,6 +754,206 @@ TEST(HubWithoutRoom, ThermostatsAreKeptButNotRun) {
   EXPECT_EQ(not_started, updated.warning);
 }
 
+// --- One that waits for a climate entity ---
+// The pool has an entity for every thermostat the device allows, so these are App having had
+// room for only part of it.
+
+const char *const NO_FREE_ENTITY = "not started: no free climate entity";
+
+// A stop frees an entity, and the one that waits for an entity starts in it at once.
+TEST_F(HubTest, AStopStartsTheThermostatThatWaitsForAnEntity) {
+  hub().shorten_pool(1);
+  this->create(draft("Boiler", "relay_1"));
+  ASSERT_EQ(NO_FREE_ENTITY, this->create(draft("Porch", "relay_2")).warning);
+  LogCapture::instance().clear();
+
+  Result result = hub().set_enabled("boiler", false);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(std::vector<std::string>{"porch"}, result.started);
+  EXPECT_TRUE(hub().is_running("porch"));
+  EXPECT_EQ("porch", hub().claimed_by("relay_2"));
+  EXPECT_EQ("", hub().waiting_reason("porch"));
+  EXPECT_EQ(0u, hub().reasons_kept());
+  EXPECT_TRUE(LogCapture::instance().has("'porch' started: a climate entity is free"));
+}
+
+TEST_F(HubTest, ARemovalStartsTheThermostatThatWaitsForAnEntity) {
+  hub().shorten_pool(1);
+  this->create(draft("Boiler", "relay_1"));
+  this->create(draft("Porch", "relay_2"));
+
+  Result result = hub().remove("boiler");
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(std::vector<std::string>{"porch"}, result.started);
+  EXPECT_TRUE(hub().is_running("porch"));
+  EXPECT_EQ("", hub().waiting_reason("porch"));
+}
+
+// A Save that switches a thermostat off frees its entity, and so does one that leaves it waiting
+// itself; that one is not tried again, its warning says why already.
+TEST_F(HubTest, ASaveThatStopsOneStartsTheThermostatThatWaitsForAnEntity) {
+  hub().shorten_pool(1);
+  this->create(draft("Boiler", "relay_1"));
+  this->create(draft("Porch", "relay_2"));
+  this->create(draft("Study", "relay_3"));
+
+  ClimateConfig off = draft("Boiler", "relay_1");
+  off.enabled = false;
+  Result result = hub().update("boiler", off);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(std::vector<std::string>{"porch"}, result.started);
+  EXPECT_TRUE(hub().is_running("porch"));
+  EXPECT_EQ(NO_FREE_ENTITY, hub().waiting_reason("study"));
+
+  LogCapture::instance().clear();
+  ClimateConfig gone = draft("Porch", "relay_2");
+  gone.sensor_id = "gone";
+  result = hub().update("porch", gone);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: sensor 'gone' not found", result.warning);
+  EXPECT_EQ(std::vector<std::string>{"study"}, result.started);
+  EXPECT_TRUE(hub().is_running("study"));
+  EXPECT_EQ(result.warning, hub().waiting_reason("porch"));
+  EXPECT_FALSE(LogCapture::instance().has("'porch' not started")) << "not retried";
+}
+
+// An import over a running thermostat is a Save of it.
+TEST_F(HubTest, AnImportThatStopsOneStartsTheThermostatThatWaitsForAnEntity) {
+  hub().shorten_pool(1);
+  this->create(draft("Boiler", "relay_1"));
+  this->create(draft("Porch", "relay_2"));
+
+  ClimateConfig backup = *hub().store().get("boiler");
+  backup.enabled = false;
+  Result result = hub().restore(backup);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(std::vector<std::string>{"porch"}, result.started);
+  EXPECT_TRUE(hub().is_running("porch"));
+  EXPECT_FALSE(hub().is_running("boiler"));
+}
+
+// A take-over that stops two holders frees two entities: one for the thermostat taking over, the
+// other for the one that waits for an entity.
+TEST_F(HubTest, ATakeOverHandsTheEntityItDoesNotNeedToTheThermostatThatWaitsForOne) {
+  hub().shorten_pool(2);
+  this->create(draft("Boiler", "relay_1"));
+  this->create(draft("Kettle", "relay_2"));
+  ASSERT_EQ(NO_FREE_ENTITY, this->create(draft("Porch", "relay_3")).warning);
+  ClimateConfig house = draft("House", "relay_1");
+  house.cool.relay_id = "relay_2";
+  house.mode = HubMode::HEAT_COOL;
+  house.enabled = false;
+  this->create(house);
+
+  Result result = hub().set_enabled("house", true, true);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("", result.warning);
+  EXPECT_EQ((std::vector<std::string>{"boiler", "kettle"}), result.stopped);
+  EXPECT_EQ(std::vector<std::string>{"porch"}, result.started);
+  EXPECT_TRUE(hub().is_running("house"));
+  EXPECT_TRUE(hub().is_running("porch"));
+  EXPECT_EQ(0u, hub().reasons_kept());
+}
+
+// One entity freed, two waiting for one: the first by id starts, and the other waits on, not
+// tried again with no entity left; the next stop is its turn.
+TEST_F(HubTest, AFreedEntityGoesToTheFirstByIdOfThoseThatWaitForOne) {
+  hub().shorten_pool(1);
+  this->create(draft("Boiler", "relay_1"));
+  this->create(draft("Study", "relay_3"));
+  this->create(draft("Porch", "relay_2"));
+  LogCapture::instance().clear();
+
+  Result result = hub().set_enabled("boiler", false);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(std::vector<std::string>{"porch"}, result.started) << "by id, not in the order they were made";
+  EXPECT_FALSE(hub().is_running("study"));
+  EXPECT_EQ(NO_FREE_ENTITY, hub().waiting_reason("study"));
+  EXPECT_FALSE(LogCapture::instance().has("'study' not started"));
+
+  result = hub().remove("porch");
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(std::vector<std::string>{"study"}, result.started);
+  EXPECT_TRUE(hub().is_running("study"));
+}
+
+// One that finds an entity but still cannot start waits on, for the reason it has now, and the
+// entity goes on to the next by id.
+TEST_F(HubTest, AWaiterForAnEntityThatStillCannotStartPassesItOn) {
+  hub().shorten_pool(1);
+  this->create(draft("Boiler", "relay_1"));
+  ASSERT_EQ(NO_FREE_ENTITY, this->create(draft("Attic", "relay_9")).warning);
+  this->create(draft("Porch", "relay_2"));
+  LogCapture::instance().clear();
+
+  Result result = hub().set_enabled("boiler", false);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(std::vector<std::string>{"porch"}, result.started);
+  EXPECT_FALSE(hub().is_running("attic"));
+  EXPECT_EQ("not started: relay 'relay_9' not found", hub().waiting_reason("attic"));
+  EXPECT_TRUE(LogCapture::instance().has("'attic' not started: relay 'relay_9' not found"));
+}
+
+// A freed entity is for the ones that wait for an entity: one that waits for its sensor is not
+// tried, its reason stands.
+TEST_F(HubTest, AFreedEntityIsNotTriedOnAThermostatThatWaitsForSomethingElse) {
+  hub().shorten_pool(1);
+  this->create(draft("Boiler", "relay_1"));
+  ClimateConfig porch = draft("Porch", "relay_2");
+  porch.sensor_id = "gone";
+  ASSERT_EQ("not started: sensor 'gone' not found", this->create(porch).warning);
+  LogCapture::instance().clear();
+
+  Result result = hub().set_enabled("boiler", false);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_TRUE(result.started.empty());
+  EXPECT_EQ("not started: sensor 'gone' not found", hub().waiting_reason("porch"));
+  EXPECT_EQ(1u, hub().free_count());
+  EXPECT_FALSE(LogCapture::instance().has("'porch' not started")) << "not tried";
+}
+
+// A stop that frees a relay and an entity hands both to the one that waits for the relay, as
+// it did before entities were waited for, even ahead of one earlier by id that waits only for
+// an entity. That one's turn is the next stop. At boot every start that finds no entity says
+// so, whatever holds its relay.
+TEST_F(HubTest, AFreedRelayAndItsEntityGoToTheThermostatThatWaitsForTheRelay) {
+  write_file(this->file_of("a"), file_doc("a", "A", "relay_1"));
+  write_file(this->file_of("b"), file_doc("b", "B", "relay_2"));
+  write_file(this->file_of("c"), file_doc("c", "C", "relay_1"));
+  hub().reset();
+  reset_entities();
+  hub().shorten_pool(1);
+  hub().setup();
+  ASSERT_TRUE(hub().is_running("a"));
+  ASSERT_EQ(NO_FREE_ENTITY, hub().waiting_reason("b"));
+  ASSERT_EQ(NO_FREE_ENTITY, hub().waiting_reason("c"));
+
+  Result result = hub().set_enabled("a", false);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(std::vector<std::string>{"c"}, result.started);
+  EXPECT_EQ("c", hub().claimed_by("relay_1"));
+  EXPECT_EQ(NO_FREE_ENTITY, hub().waiting_reason("b"));
+
+  result = hub().set_enabled("c", false);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(std::vector<std::string>{"b"}, result.started);
+  EXPECT_EQ("b", hub().claimed_by("relay_2"));
+  EXPECT_EQ("", hub().claimed_by("relay_1"));
+}
+
+// Stopping one that waits frees no entity, and starts nobody.
+TEST_F(HubTest, StoppingAThermostatThatWaitsStartsNobody) {
+  hub().shorten_pool(1);
+  this->create(draft("Boiler", "relay_1"));
+  this->create(draft("Porch", "relay_2"));
+  this->create(draft("Study", "relay_3"));
+
+  Result result = hub().set_enabled("study", false);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_TRUE(result.started.empty());
+  EXPECT_EQ(NO_FREE_ENTITY, hub().waiting_reason("porch"));
+}
+
 // The thermostats folder is a file, or cannot be listed: the hub fails rather than run half a set.
 TEST(HubFailure, AFolderThatIsNotOneFailsTheHub) {
   SecondHub second("notdir");

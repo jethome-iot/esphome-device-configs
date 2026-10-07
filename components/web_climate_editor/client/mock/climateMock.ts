@@ -22,7 +22,8 @@
 // /list and /status repeat as `waiting`. Taking another thermostat's relay over
 // for one is 400; with no other on its relays, take_over=true answers the same
 // 200. A relay a change frees starts the enabled thermostats that wait for it,
-// in id order, and the answer names them.
+// in id order, and the answer names them; so does a climate entity it frees, for
+// the ones that wait for an entity once those had their turn.
 // Presets follow the hub: the keys are the device's to give, a Save keeps the
 // active preset while its key is there and applies its new values at once, and a
 // target or a mode set by hand keeps the label; /preset picks one by its key,
@@ -92,6 +93,8 @@ import {
 } from '../naming'
 
 const MAX_CONTROLLERS = 8
+// ClimateHub::start_'s reason when every climate entity is in use.
+const NO_FREE_ENTITY = 'no free climate entity'
 const MODES = ['off', 'heat', 'cool', 'heat_cool'] as const
 const ON_MODES = ['heat', 'cool', 'heat_cool'] as const
 
@@ -859,6 +862,12 @@ export interface ClimateMockStoreOptions {
   /** The firmware's `max_controllers`. Default 8. */
   maxControllers?: number
   /**
+   * The climate entities the thermostats run in. Default maxControllers; fewer stands for
+   * a firmware whose entity table had no room for them all, where an enabled thermostat that
+   * finds every one in use waits: `not started: no free climate entity`.
+   */
+  climateEntities?: number
+  /**
    * The thermostats on the device at boot, in place of seedControllers. One whose
    * `version` is above CONFIG_VERSION stands for a file a newer firmware wrote.
    */
@@ -950,6 +959,7 @@ const NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/
 /** Fresh, isolated mock state (seed is deep-copied, so instances never share state). */
 export function createClimateMockStore(options: ClimateMockStoreOptions = {}): ClimateMockStore {
   const maxControllers = options.maxControllers ?? MAX_CONTROLLERS
+  const climateEntities = options.climateEntities ?? maxControllers
   const now = options.now ?? (() => Date.now())
   // Under ids no slug can be, so no thermostat is ever taken for one of them.
   const yamlClimates = (options.otherClimates ?? []).map((name, n) => ({ id: `yaml/${n}`, name }))
@@ -1001,24 +1011,36 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     return undefined
   }
 
-  // The relays the running thermostats hold: what a change frees is what was here before it.
+  // The relays the running thermostats hold.
   const heldRelays = () => new Set(docs.filter((d) => running.has(d.id)).flatMap(relaysOf))
+  const entityFree = () => running.size < climateEntities
+  // What a change frees is what was here before it: the relays held, and who ran.
+  const snapshot = () => ({ relays: heldRelays(), running: new Set(running.keys()) })
 
   const quoted = (names: string[]) => names.map((n) => `"${n}"`).join(' and ')
 
   // ClimateHub::start_waiters_: every enabled thermostat but `skip` that names a relay held
-  // before the change and free after it tries to start, in id order. The answer's note on who
-  // started, '' when nobody did. Only a boot leaves one waiting on a held relay; the API
-  // refuses that.
-  function startWaiters(before: Set<string>, skip: string): string {
+  // before the change and free after it tries to start, in id order; then, if one that ran
+  // before no longer does, the ones whose start found no free climate entity, while one is
+  // free. The answer's note on who started, '' when nobody did. Only a boot leaves one waiting
+  // on a held relay; the API refuses that.
+  function startWaiters(before: ReturnType<typeof snapshot>, skip: string): string {
     const after = heldRelays()
-    const freed = [...before].filter((r) => !after.has(r))
+    const freed = [...before.relays].filter((r) => !after.has(r))
     // ClimateHub::let_go_ first: a freed relay opens before a waiter takes it, so its min_off holds that start.
     for (const relay of freed) forceOff(relay, simulatedTo)
+    const waits = (doc: ControllerDocument) => doc.enabled && doc.id !== skip && !running.has(doc.id)
     const started: string[] = []
     for (const doc of docs) {
-      if (!doc.enabled || doc.id === skip || running.has(doc.id)) continue
-      if (relaysOf(doc).some((r) => freed.includes(r)) && !start(doc)) started.push(doc.name)
+      if (waits(doc) && relaysOf(doc).some((r) => freed.includes(r)) && !start(doc)) started.push(doc.name)
+    }
+    if ([...before.running].some((id) => !running.has(id))) {
+      for (const doc of docs) {
+        if (!entityFree()) break
+        if (waits(doc) && waitReasons.get(doc.id) === `not started: ${NO_FREE_ENTITY}` && !start(doc)) {
+          started.push(doc.name)
+        }
+      }
     }
     return started.length ? `; ${quoted(started)} started` : ''
   }
@@ -1197,6 +1219,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     if (sensor.unit !== CELSIUS) {
       return `sensor '${doc.sensor_id}' reports ${sensor.unit === '' ? 'no unit' : sensor.unit}, not ${CELSIUS}`
     }
+    if (!entityFree()) return NO_FREE_ENTITY
     for (const relay of relaysOf(doc)) {
       const holder = holderOf(relay, doc.id)
       if (holder) return `relay '${relay}' is held by '${holder.id}'`
@@ -1611,7 +1634,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
   // The change itself: `doc` takes `stored`'s place, or joins the list, and runs if it can.
   function store(doc: ControllerDocument, stored: ControllerDocument | undefined, message: string): MockResult {
     doc.version = CONFIG_VERSION
-    const held = heldRelays()
+    const before = snapshot()
     const rt = running.get(doc.id)
     if (stored) endRun(stored, rt, 'saved', simulatedTo)
     running.delete(doc.id)
@@ -1621,12 +1644,12 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     docs.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     if (!doc.enabled) {
       waitReasons.delete(doc.id)
-      return ok(message + startWaiters(held, doc.id), { id: doc.id })
+      return ok(message + startWaiters(before, doc.id), { id: doc.id })
     }
     // Stored all the same, and a running one stopped: it waits for what it names.
     const warning = start(doc, stored && rt ? { doc: stored, rt } : undefined)
     // Who started on a relay it let go, then its own warning, last.
-    const text = message + startWaiters(held, doc.id)
+    const text = message + startWaiters(before, doc.id)
     return warning ? ok(`${text}; ${warning}`, { id: doc.id, warning }) : ok(text, { id: doc.id })
   }
 
@@ -1691,7 +1714,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     const doc = find(id)
     if (!doc) return fail(404, 'Thermostat not found')
 
-    const held = heldRelays()
+    const before = snapshot()
     if (value === 'false') {
       // Written only when the flag changes, and never into a newer firmware's file.
       const persisted = !(doc.enabled && newer(doc))
@@ -1699,7 +1722,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       endRun(doc, running.get(id), 'stopped', simulatedTo)
       running.delete(id)
       waitReasons.delete(id)
-      return ok('Thermostat disabled' + startWaiters(held, id), { persisted })
+      return ok('Thermostat disabled' + startWaiters(before, id), { persisted })
     }
     if (running.has(id)) return ok('Thermostat enabled', { persisted: true })
     // Refused as a Save would be, but for a relay another thermostat holds or waits for the
@@ -1718,6 +1741,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     // A take-over stops the others, so only for a thermostat that runs in their place.
     const refusal = refused ? entityRefusal(doc) : undefined
     if (refusal) return refusal
+    // Waiters free no climate entity, a running holder does.
+    if (refused && !holders.length && !entityFree()) return fail(409, 'No free climate entity to run it in')
     let persisted = true
     for (const other of [...holders, ...waiters]) {
       // A newer firmware's file cannot record the take-over, so the others' files keep their flag too.
@@ -1734,7 +1759,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     let message = 'Thermostat enabled'
     if (holders.length || waiters.length) message += `; ${quoted([...holders, ...waiters].map((h) => h.name))} stopped`
     // After it: the relays the holders drove alone go to whoever waits for them.
-    message += startWaiters(held, id)
+    message += startWaiters(before, id)
     return warning ? ok(`${message}; ${warning}`, { persisted, warning }) : ok(message, { persisted })
   }
 
@@ -1841,12 +1866,12 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
         if (typeof id !== 'string') return id
         const i = docs.findIndex((d) => d.id === id)
         if (i < 0) return fail(404, 'Thermostat not found')
-        const held = heldRelays()
+        const before = snapshot()
         running.delete(id)
         waitReasons.delete(id)
         runs.delete(id)
         docs.splice(i, 1)
-        return ok('Thermostat deleted' + startWaiters(held, ''), { persisted: true })
+        return ok('Thermostat deleted' + startWaiters(before, ''), { persisted: true })
       }
 
       case 'enable':

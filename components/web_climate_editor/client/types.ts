@@ -437,8 +437,8 @@ export interface SuccessResponse {
 
 /**
  * POST /save and POST /import: the id of the controller created, updated or replaced. The
- * controllers that waited for a relay it let go start, and `message` names them before the
- * warning.
+ * controllers that waited for a relay or a climate entity it let go start, and `message` names
+ * them before the warning.
  */
 export interface SaveResponse extends SuccessResponse {
   id: string
@@ -452,7 +452,8 @@ export interface SaveResponse extends SuccessResponse {
 
 /**
  * POST /delete: `persisted` is false when it is gone but its file is not, so a reboot brings it
- * back. The controllers that waited for its relays start, and `message` names them.
+ * back. The controllers that waited for its relays or for a climate entity start, and `message`
+ * names them.
  */
 export interface DeleteResponse extends SuccessResponse {
   persisted: boolean
@@ -460,8 +461,8 @@ export interface DeleteResponse extends SuccessResponse {
 
 /**
  * POST /enable: `persisted` is false when the change is live but the flag did not reach flash.
- * `message` names who a take-over stopped and who started on a relay the change freed, before
- * the warning.
+ * `message` names who a take-over stopped and who started on a relay or a climate entity the
+ * change freed, before the warning.
  */
 export interface EnableResponse extends SuccessResponse {
   persisted: boolean
