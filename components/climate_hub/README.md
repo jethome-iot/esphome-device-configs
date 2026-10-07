@@ -320,6 +320,14 @@ One that waits for a relay another thermostat holds starts when the relay is fre
 [Relays](#relays)). A sensor or a relay never turns up while the device runs, so one that waits
 for it starts at the next boot that finds it, or at a Save or an enable once it is there.
 
+Every thermostat the device allows has a climate entity to run in, unless the entity table had
+no room for them all (`No room in the entity table for thermostat 5` at boot). Then an enabled
+thermostat that finds every entity in use waits, `not started: no free climate entity`, and
+starts as soon as a stop frees one: a running thermostat disabled, removed, saved or imported
+disabled or onto a sensor that is not there, or a take-over that stops two and runs in one of
+their entities. Of several waiting, the first by id starts, after the ones that wait for a relay
+the same change freed.
+
 A removal the partition refuses empties the file instead: the next boot refuses an empty file,
 so the thermostat does not come back. When the file cannot be emptied either, the thermostat is
 gone only until the next boot, which loads it from that file again; `remove()` then returns
@@ -337,9 +345,9 @@ got to it.
   states and which minimum holds each relay (`heat_relay_wait()`, `cool_relay_wait()`), PID
   terms and sample age, `nullptr` when it is not running
 - `waiting_reason(id)`: why an enabled thermostat does not run, the sentence its last failed
-  start gave as a `warning`, at boot, a Save, an enable or when a relay it names came free
-  (`not started: sensor 'temp_3' not found`, `not started: no free climate entity`); `""` once
-  it runs or is disabled
+  start gave as a `warning`, at boot, a Save, an enable or when a relay it names or a climate
+  entity came free (`not started: sensor 'temp_3' not found`,
+  `not started: no free climate entity`); `""` once it runs or is disabled
 - `claimed_by(relay_object_id)`: the id of the running thermostat holding it, or `""`;
   `holder_of(sw)`: its name, which `switch_hold::holder(sw)` answers with
 - `sensor_reading(sensor_object_id)`: what a sensor reads now, `NaN` without a finite reading
@@ -350,13 +358,13 @@ got to it.
   each returns a `Result` — `ok`, the HTTP `code` that fits (400, 404, 409, 413 for a file that
   would be over 8 KiB, 500, 507), an `error` sentence (the one the editor shows), the new `id`,
   the `holder` of a relay (running, or enabled and waiting), a `warning` when the thermostat was
-  saved enabled but does not run (its sensor or a relay is not on the device, or no climate
-  entity was free), `persisted`, false when the change is live but did not reach flash, the ids
-  a take-over `stopped`, and the ids of the waiting thermostats that `started` on a relay the
-  change freed. `restore()` brings a thermostat back under the id `doc` names, from a backup: it
-  replaces the thermostat with that id as `update()` does, or creates it under that id, and
-  refuses as those two do, besides a 400 for an id that is no slug or is `new` and a 409 for an
-  id a file the boot refused holds; the `revision` `doc` brings is ignored, a replaced
+  saved enabled but does not run (its sensor or a relay is not on the device, or no climate entity
+  was free), `persisted`, false when the change is live but did not reach flash, the ids a
+  take-over `stopped`, and the ids of the waiting thermostats that `started` on a relay or a
+  climate entity the change freed. `restore()` brings a thermostat back under the id `doc` names,
+  from a backup: it replaces the thermostat with that id as `update()` does, or creates it under
+  that id, and refuses as those two do, besides a 400 for an id that is no slug or is `new` and a
+  409 for an id a file the boot refused holds; the `revision` `doc` brings is ignored, a replaced
   thermostat's moves on by one and a new one's is 0. `apply_preset()` picks a preset by its key,
   running or not: 404 `Thermostat not found` or `Preset not found`. `turn_off()` sets mode `off`
   and `turn_on()` the `last_on_mode`, running or not, as Home Assistant would, with `persisted`
