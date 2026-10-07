@@ -313,7 +313,8 @@ inline WalkStatus walk_feed(JeefsWalk *w, const uint8_t *raw) {
   return w->status;
 }
 
-// The file CRC gates the payload; the record's own CRC is a deliberate second check.
+// The file CRC gates the payload. It covers the record's own trailing CRC too, so that one
+// catches only a record written with a wrong CRC, not damage in storage.
 inline RecordStatus validate_record(const uint8_t *raw, uint32_t file_data_crc) {
   const auto *rec = reinterpret_cast<const JetHomeDeviceIdentity *>(raw);
   if (compute_crc32(raw, DEVICE_ID_SIZE) != file_data_crc) {
