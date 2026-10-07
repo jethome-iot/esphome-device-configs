@@ -1172,8 +1172,9 @@ void ClimateHub::start_waiters_(const std::string &skip_id, Result *result) {
 }
 
 bool ClimateHub::waits_for_entity_(const std::string &id) const {
+  static const std::string WAITS_FOR_ENTITY = std::string(NOT_STARTED) + NO_FREE_ENTITY;
   auto it = this->waiting_.find(id);
-  return it != this->waiting_.end() && it->second == std::string(NOT_STARTED) + NO_FREE_ENTITY;
+  return it != this->waiting_.end() && it->second == WAITS_FOR_ENTITY;
 }
 
 // Only once the waiters had their turn, and only for a relay still free: a thermostat that
