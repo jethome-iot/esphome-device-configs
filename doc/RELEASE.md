@@ -10,6 +10,7 @@ How firmware gets built, versioned and published, and what runs where.
 | Release (`release.yml`) | a release is published (incl. prerelease), push to `dev` (nightly), manual dispatch | Compiles every firmware, uploads the `upload: true` ones to fw.jethome.com; GitHub releases are minted for published releases and dispatches only — dev pushes go to the nightly channel without a GitHub release |
 | ESPHome release check (`esphome-release-check.yml`) | weekly, manual | On a new upstream ESPHome release: compiles every firmware with it and opens an issue with the results — the go/no-go for the dependabot bump |
 | Draft release (`draft-release.yml`) | push to `master`, manual | Refreshes the rolling draft release tagged with the next version — publish it to build and ship |
+| Community issues (`community-issues.yml`) | an issue is opened | Labels it `community` when its author has less than triage access here — see [Labels](DEVELOPMENT.md#labels) |
 | Dependabot | weekly | PRs bumping workflow actions and the pinned files in `requirements.txt` / `requirements-dev.txt`; an esphome bump PR is build-tested by Build |
 
 ## The firmware list: `firmwares.yaml`
