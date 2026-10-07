@@ -155,7 +155,7 @@ static std::string names_of(const climate_hub::ClimateHub &hub, const std::vecto
 }
 
 // What a change did besides itself, for the end of its message: the waiting thermostats that
-// started on a relay it freed. The warning, when there is one, comes after it.
+// started on a relay or a climate entity it freed. The warning, when there is one, comes after it.
 static std::string started_note(const climate_hub::ClimateHub &hub, const Result &result) {
   return result.started.empty() ? "" : "; " + names_of(hub, result.started) + " started";
 }
@@ -681,7 +681,7 @@ void WebClimateEditor::handle_enable_(AsyncWebServerRequest *request) {
       return true;
     }
     std::string message = enabled ? "Thermostat enabled" : "Thermostat disabled";
-    // Who a take-over stored disabled, then who started on a relay it freed.
+    // Who a take-over stored disabled, then who started on a relay or an entity it freed.
     if (!result.stopped.empty())
       message += "; " + names_of(*this->hub_, result.stopped) + " stopped";
     message += started_note(*this->hub_, result);

@@ -52,6 +52,9 @@ static const char *const NEWER_FILE = "A newer firmware wrote this thermostat; u
 static const char *const STALE_DOCUMENT = "The device changed this thermostat since it was read; reload it";
 // The dashboard's editor opens a blank form at /climate/new.
 static const char *const RESERVED_ID = "new";
+// Why a start found every climate entity in use; a stop that frees one tries it again.
+static const char *const NO_FREE_ENTITY = "no free climate entity";
+static const char *const NOT_STARTED = "not started: ";
 
 // A create or update whose file was not written: nothing changed.
 static Result not_saved(bool too_large) {
@@ -1130,24 +1133,48 @@ ClimateHub::ClaimMap::iterator ClimateHub::let_go_(ClaimMap::iterator it, uint64
   return this->claims_.erase(it);
 }
 
-// So waiting means what it says: one whose relay comes free tries again at once, and one that
-// still cannot start gets a fresh reason. A waiter holds no claim, so its start frees nothing.
+// So waiting means what it says: one whose relay or a climate entity comes free tries again at
+// once, and one that still cannot start gets a fresh reason. A waiter holds no claim, so its
+// start frees nothing. The ones on a freed relay go first: the relay is theirs, and an entity
+// with it, whoever else waits for an entity.
 void ClimateHub::start_waiters_(const std::string &skip_id, Result *result) {
-  if (this->freed_.empty())
-    return;
-  for (const auto &config : this->store_.all()) {
-    if (!config->enabled || config->id == skip_id || this->is_running(config->id) ||
-        (this->freed_.count(config->heat.relay_id) == 0 && this->freed_.count(config->cool.relay_id) == 0))
-      continue;
+  const bool entity_freed = this->entity_freed_;
+  this->entity_freed_ = false;
+  auto try_start = [&](ClimateConfig *config, const char *what) {
     std::string error;
-    if (this->start_(config.get(), &error)) {
-      ESP_LOGI(TAG, "'%s' started: a relay it waited for is free", config->id.c_str());
+    if (this->start_(config, &error)) {
+      ESP_LOGI(TAG, "'%s' started: %s is free", config->id.c_str(), what);
       result->started.push_back(config->id);
       this->schedule_ha_resync_();
     } else {
       ESP_LOGW(TAG, "'%s' %s", config->id.c_str(), this->note_waiting_(config->id, error).c_str());
     }
+  };
+  auto waits = [&](const ClimateConfig &config) {
+    return config.enabled && config.id != skip_id && !this->is_running(config.id);
+  };
+  if (!this->freed_.empty()) {
+    for (const auto &config : this->store_.all()) {
+      if (waits(*config) &&
+          (this->freed_.count(config->heat.relay_id) != 0 || this->freed_.count(config->cool.relay_id) != 0))
+        try_start(config.get(), "a relay it waited for");
+    }
   }
+  if (!entity_freed)
+    return;
+  for (const auto &config : this->store_.all()) {
+    // With none left, the rest would only be told so again.
+    if (this->free_.empty())
+      break;
+    if (waits(*config) && this->waits_for_entity_(config->id))
+      try_start(config.get(), "a climate entity");
+  }
+}
+
+bool ClimateHub::waits_for_entity_(const std::string &id) const {
+  static const std::string WAITS_FOR_ENTITY = std::string(NOT_STARTED) + NO_FREE_ENTITY;
+  auto it = this->waiting_.find(id);
+  return it != this->waiting_.end() && it->second == WAITS_FOR_ENTITY;
 }
 
 // Only once the waiters had their turn, and only for a relay still free: a thermostat that
@@ -1184,7 +1211,7 @@ bool ClimateHub::start_(ClimateConfig *config, std::string *error) {
   // Before any claim, so a start that fails opens no relay but one a take-over handed it.
   if (this->free_.empty()) {
     this->release_claims_(config->id);
-    *error = "no free climate entity";
+    *error = NO_FREE_ENTITY;
     return false;
   }
   RelayClaim *heat = nullptr;
@@ -1204,7 +1231,7 @@ bool ClimateHub::start_(ClimateConfig *config, std::string *error) {
 }
 
 const std::string &ClimateHub::note_waiting_(const std::string &id, const std::string &error) {
-  return this->waiting_[id] = "not started: " + error;
+  return this->waiting_[id] = NOT_STARTED + error;
 }
 
 bool ClimateHub::restart_(Slot *slot, const std::string &previous_name, std::string *error) {
@@ -1247,6 +1274,7 @@ void ClimateHub::stop_(Slot *slot, AutotuneEnd why) {
   slot->entity.hide(this->entity_fields_);
   this->release_claims_(id);
   this->free_.push_back(slot);
+  this->entity_freed_ = true;
   ESP_LOGD(TAG, "'%s' stopped", id.c_str());
 }
 

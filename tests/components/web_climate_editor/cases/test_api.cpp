@@ -446,6 +446,29 @@ TEST_F(Editor, AThermostatWithNoFreeEntityIsStoredAndTheAnswerSaysSo) {
   EXPECT_EQ(this->get("status")["controllers"][0]["waiting"].as<std::string>(), "not started: no free climate entity");
 }
 
+// The entity a stop or a delete frees goes to the one that waits for an entity, and the answer
+// names it as it names one that waited for a relay.
+TEST_F(Editor, AStopOrADeleteThatFreesAnEntityNamesWhoStarted) {
+  ASSERT_EQ(this->post("save", LIVING_ROOM).code, 200);
+  hub().take_every_slot();
+  ASSERT_EQ(this->post("save", FLOOR)["warning"].as<std::string>(), "not started: no free climate entity");
+
+  Reply stopped = this->post("enable?id=living-room&value=false");
+  ASSERT_EQ(stopped.code, 200) << stopped.body;
+  EXPECT_EQ(stopped.body, R"({"success":true,"message":"Thermostat disabled; \"Floor\" started","persisted":true})");
+  Reply list = this->get("list");
+  EXPECT_TRUE(list["controllers"][0]["running"].as<bool>());
+  EXPECT_EQ(list["controllers"][0]["waiting"].as<std::string>(), "");
+
+  Reply enabled = this->post("enable?id=living-room&value=true");
+  ASSERT_EQ(enabled["warning"].as<std::string>(), "not started: no free climate entity");
+  Reply deleted = this->post("delete?id=floor");
+  ASSERT_EQ(deleted.code, 200) << deleted.body;
+  EXPECT_EQ(deleted.body,
+            R"({"success":true,"message":"Thermostat deleted; \"Living Room\" started","persisted":true})");
+  EXPECT_TRUE(hub().is_running("living-room"));
+}
+
 // --- delete ---
 
 TEST_F(Editor, DeleteRemovesTheThermostatAndItsFile) {

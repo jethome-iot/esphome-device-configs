@@ -44,7 +44,7 @@ struct Result {
   /// the running ones first.
   std::vector<std::string> stopped;
   /// The ids of the waiting thermostats that started because the change freed a relay they
-  /// name, in the order they started.
+  /// name or a climate entity, in the order they started.
   std::vector<std::string> started;
 };
 
@@ -85,8 +85,9 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// Whether the thermostat is running: enabled, and its sensor and relays were there.
   bool is_running(const std::string &id) const { return this->slot_for_(id) != nullptr; }
   /// Why an enabled thermostat is not running, worded as the `warning` that said so ("not
-  /// started: sensor 'temp_3' not found"): what its last start, at boot, a Save, an enable or
-  /// a relay it names coming free, failed on. "" when it runs, is disabled or is not there.
+  /// started: sensor 'temp_3' not found"): what its last start, at boot, a Save, an enable, a
+  /// relay it names or a climate entity coming free, failed on. "" when it runs, is disabled or
+  /// is not there.
   std::string waiting_reason(const std::string &id) const;
   /// The running thermostat's control state (action, fault, duties, PID terms, sample age),
   /// nullptr when it is not running.
@@ -113,7 +114,8 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// out is made again from the name, and the active preset stays while its key is there, the
   /// doc's active_preset ignored; new values for it apply at once. A relay it holds is never
   /// refused, whoever else names it. 404 for an unknown id, 409 for one a newer firmware wrote,
-  /// otherwise as create(). A relay the Save frees starts the thermostats that wait for it.
+  /// otherwise as create(). A relay or a climate entity the Save frees starts the thermostats
+  /// that wait for it.
   /// `revision`, when given, is the one the caller read: the device changed the document since
   /// if it is not the stored one, and the Save is refused with 409. It ends a calibration.
   Result update(const std::string &id, ClimateConfig doc, optional<uint32_t> revision = nullopt);
@@ -125,7 +127,8 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// 409 for an id a file the boot did not load holds. The doc's revision is ignored: a
   /// replacement moves the stored one on, a new one starts at 0. It ends a calibration.
   Result restore(ClimateConfig doc);
-  /// Stops and deletes a thermostat, and starts the thermostats that wait for its relays.
+  /// Stops and deletes a thermostat, and starts the thermostats that wait for its relays or for
+  /// a climate entity.
   Result remove(const std::string &id);
   /// Starts or stops a thermostat and stores the flag. Enabling is refused as a Save is: 400
   /// for a sensor that does not report °C, 409 naming the thermostat that holds a relay or,
@@ -134,7 +137,7 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// waiting ones name it and no climate entity is free, nothing touched.
   /// Otherwise one whose sensor or relay is not on the device is stored enabled and waits, with
   /// a `warning`. A stop or a take-over starts the thermostats that wait for a freed relay,
-  /// after the one taking over.
+  /// then those that wait for a freed climate entity, after the one taking over.
   Result set_enabled(const std::string &id, bool enabled, bool take_over = false);
   /// Moves the target, clamped into the visual range, running or not.
   Result set_setpoint(const std::string &id, float value);
@@ -243,8 +246,12 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// The 409 naming `holder`, which holds the relay or, `waits`, is enabled and waits for it.
   Result relay_held_(const std::string &relay_id, const std::string &holder, bool waits) const;
   /// Starts the enabled thermostats, `skip_id` aside, that name a relay let go since the last
-  /// announce_released_(), in id order, and adds the ones that started to `result`.
+  /// announce_released_(), then, if a stop freed a climate entity since the last call, the ones
+  /// that wait for an entity while one is free, each in id order, and adds the ones that
+  /// started to `result`.
   void start_waiters_(const std::string &skip_id, Result *result);
+  /// Whether `id`'s last start found no free climate entity.
+  bool waits_for_entity_(const std::string &id) const;
   Slot *slot_for_(const std::string &id) const;
   /// The hidden slot that carries `name`, else one with its object id; free_.end() for none.
   std::deque<Slot *>::iterator free_slot_like_(const std::string &name);
@@ -304,6 +311,8 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   std::map<std::string, std::string> waiting_;
   // Relays let go since the last announce_released_(), by object id.
   std::map<std::string, switch_::Switch *> freed_;
+  // A stop handed a climate entity back since the last start_waiters_().
+  bool entity_freed_{false};
   // Each thermostat's last calibration, by id, in RAM: a reboot forgets them.
   std::map<std::string, std::unique_ptr<AutotuneRun>> autotunes_;
   // One per sensor, kept for the life of the device: upstream has no callback removal.

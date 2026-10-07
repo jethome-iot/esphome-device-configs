@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: web_climate_editor HTTP API
-  version: 1.7.0
+  version: 1.7.1
   description: >-
     JSON/REST API of the `climate_hub` thermostats, served by the
     `web_climate_editor` component on the device's own web server (default
@@ -165,8 +165,9 @@ paths:
 
         A relay the Save frees, by moving the thermostat off it, switching it
         off or leaving it waiting, starts the enabled thermostats that wait
-        for it, the first by id; the message names them before its own
-        `warning`.
+        for it, the first by id; a climate entity it frees then starts the
+        first by id of those that wait for one. The message names them before
+        its own `warning`.
       requestBody:
         required: true
         content:
@@ -279,8 +280,8 @@ paths:
         thermostat holds already is never refused.
 
         An enabled thermostat whose sensor or a relay is not on the device is
-        stored and waits, with a `warning`, and a relay the import frees starts
-        the thermostats that wait for it, as on `/save`.
+        stored and waits, with a `warning`, and a relay or a climate entity the
+        import frees starts the thermostats that wait for it, as on `/save`.
       requestBody:
         required: true
         content:
@@ -360,7 +361,8 @@ paths:
       summary: Stop a thermostat and remove its file.
       description: >-
         The enabled thermostats that waited for one of its relays start, the
-        first by id, and the message names them.
+        first by id, then the first by id of those that waited for a climate
+        entity, and the message names them.
       parameters:
         - $ref: "#/components/parameters/IdQuery"
       responses:
@@ -427,7 +429,9 @@ paths:
 
         A relay a stop frees, or one a stopped holder drove alone, starts the
         enabled thermostats that wait for it, the first by id and after the
-        one taking over; the message names them before any `warning`.
+        one taking over; a climate entity a stop frees, or a take-over does
+        not run in, then starts the first by id of those that wait for one.
+        The message names them before any `warning`.
 
         A thermostat whose file a newer firmware wrote starts or stops all the
         same, but its file is never written: `persisted` is false when the flag
@@ -1636,10 +1640,11 @@ components:
       description: >-
         Why an enabled thermostat does not run, word for word the `warning`
         the Save or the `/enable` that left it waiting answered with, or what
-        the boot found, or the retry when a relay it names came free; `""`
-        when it runs or is disabled. One that waits for a relay another
-        thermostat holds starts as soon as the relay is free. A waiting
-        thermostat's `fault` is `none`: a fault is a running one's.
+        the boot found, or the retry when a relay it names or a climate
+        entity came free; `""` when it runs or is disabled. One that waits for
+        a relay another thermostat holds starts as soon as the relay is free,
+        and one that waits for a climate entity as soon as a stop frees one. A
+        waiting thermostat's `fault` is `none`: a fault is a running one's.
       examples:
         - ""
         - "not started: sensor 'temp_3' not found"

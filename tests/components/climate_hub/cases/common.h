@@ -130,10 +130,22 @@ class TestHub : public ClimateHub {
     return ClimateHub::run_on_loop(std::move(job));
   }
 
+  // As if App had room for only `count` of the pool's entities: the others are set aside, unused,
+  // until reset(). Only before any of them runs.
+  void shorten_pool(size_t count) {
+    while (this->slots_.size() > count) {
+      this->free_.erase(std::find(this->free_.begin(), this->free_.end(), this->slots_.back()));
+      this->set_aside_.push_back(this->slots_.back());
+      this->slots_.pop_back();
+    }
+  }
+
   // Back to a hub that has not loaded anything, its pool as setup() left it: every slot free,
   // hidden under the placeholder, in order. App keeps the entities, so they are reused rather
   // than registered again.
   void reset() {
+    this->slots_.insert(this->slots_.end(), this->set_aside_.rbegin(), this->set_aside_.rend());
+    this->set_aside_.clear();
     for (Slot *slot : this->slots_) {
       this->stop_(slot);
       slot->entity.park(this->entity_fields_);
@@ -148,8 +160,9 @@ class TestHub : public ClimateHub {
     this->dirty_.clear();
     this->waiting_.clear();
     this->autotunes_.clear();
-    // The stops above let go of relays no mutator will start anyone on or announce.
+    // The stops above let go of relays and entities no mutator will start anyone on or announce.
     this->freed_.clear();
+    this->entity_freed_ = false;
     this->cancel_timeout("ha_resync");
     this->ms = 100000;
     this->resyncs = 0;
@@ -182,6 +195,9 @@ class TestHub : public ClimateHub {
   size_t reasons_kept() const { return this->waiting_.size(); }
 
  protected:
+  // shorten_pool()'s, last slot first.
+  std::vector<Slot *> set_aside_;
+
   void resync_home_assistant_() override { this->resyncs++; }
   bool remove_file_(const std::string &path) override {
     for (const std::string &name : this->undeletable) {
