@@ -324,8 +324,8 @@ Every thermostat the device allows has a climate entity to run in, unless the en
 no room for them all (`No room in the entity table for thermostat 5` at boot). Then an enabled
 thermostat that finds every entity in use waits, `not started: no free climate entity`, and
 starts as soon as a stop frees one: a running thermostat disabled, removed, saved or imported
-disabled or onto a sensor that is not there, or a take-over that stops two and runs in one of
-their entities. Of several waiting, the first by id starts, after the ones that wait for a relay
+disabled or onto a sensor or a relay that is not there, or a take-over that stops two and runs in
+one of their entities. Of several waiting, the first by id starts, after the ones that wait for a relay
 the same change freed.
 
 A removal the partition refuses empties the file instead: the next boot refuses an empty file,
