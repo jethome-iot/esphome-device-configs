@@ -1,6 +1,8 @@
 // meter.cal on its own: the layout, every check the record goes through in its order, the
 // match against the board the firmware drives, and the status each outcome comes to.
 
+#include <initializer_list>
+
 #include "common.h"
 
 namespace esphome::meter_calibration::testing {
@@ -296,6 +298,61 @@ TEST(MeterRecord, ChecksRunInTheirOrder) {
   EXPECT_EQ(check(signed_foreign), RecordCheck::UNSUPPORTED_SIGNATURE);
 }
 
+// One fault each check catches; applied before the record is sealed again.
+struct Fault {
+  void (*apply)(uint8_t *raw);
+  RecordCheck check;
+};
+
+const Fault UNKNOWN_CHIP{[](uint8_t *raw) { raw[MC_OFF_CHIP_TYPE] = 7; }, RecordCheck::UNKNOWN_CHIP};
+const Fault UNKNOWN_FLAG{[](uint8_t *raw) { put_u16(raw, MC_OFF_FLAGS, 0x00BF); }, RecordCheck::UNKNOWN_FLAGS};
+const Fault CT_RATIO{[](uint8_t *raw) { put_u16(raw, MC_OFF_CT_RATIO, 1000); }, RecordCheck::UNSUPPORTED_CT_RATIO};
+const Fault LINE_FREQ{[](uint8_t *raw) { raw[MC_OFF_LINE_FREQ] = 55; }, RecordCheck::BAD_LINE_FREQUENCY};
+const Fault ATM_RESERVED{[](uint8_t *raw) { raw[ATM_OFF_RESERVED2] = 1; }, RecordCheck::RESERVED_NOT_ZERO};
+const Fault CURRENT_SCALE{[](uint8_t *raw) { raw[ATM_OFF_CURRENT_SCALE] = 3; }, RecordCheck::BAD_CURRENT_SCALE};
+const Fault PHI_A{[](uint8_t *raw) { put_u16(raw, ATM_OFF_PHASE + ATM_OFF_PHI, 0x0100); }, RecordCheck::BAD_PHI};
+const Fault UGAIN_A{[](uint8_t *raw) { put_u16(raw, ATM_OFF_PHASE + ATM_OFF_UGAIN, 0); }, RecordCheck::ZERO_GAIN};
+const Fault BL_RESERVED{[](uint8_t *raw) { raw[BL_OFF_RESERVED2] = 1; }, RecordCheck::RESERVED_NOT_ZERO};
+const Fault BL_KV{[](uint8_t *raw) { put_u32(raw, BL_OFF_KV, 0); }, RecordCheck::ZERO_GAIN};
+
+MeterRecordBuf faulty(ChipType chip, std::initializer_list<const Fault *> faults) {
+  MeterRecordBuf buf = make_meter_record(chip);
+  for (const Fault *fault : faults)
+    fault->apply(buf.data());
+  seal_meter_record(buf);
+  return buf;
+}
+
+// Past the CRC, a record with two faults is named by the check that comes first, and that picks
+// the status: foreign, unsupported and corrupt each win where their check runs earlier.
+TEST(MeterRecord, OfTwoFaultsTheEarlierCheckIsTheAnswer) {
+  struct Pair {
+    const char *name;
+    ChipType chip;
+    const Fault &first;
+    const Fault &second;
+    CalStatus status;
+  };
+  const Pair pairs[] = {
+      {"chip before flags", ChipType::ATM90E32, UNKNOWN_CHIP, UNKNOWN_FLAG, CalStatus::FOREIGN},
+      {"flags before CT ratio", ChipType::ATM90E32, UNKNOWN_FLAG, CT_RATIO, CalStatus::UNSUPPORTED},
+      {"CT ratio before line frequency", ChipType::ATM90E32, CT_RATIO, LINE_FREQ, CalStatus::UNSUPPORTED},
+      {"line frequency before reserved", ChipType::ATM90E32, LINE_FREQ, ATM_RESERVED, CalStatus::CORRUPT},
+      {"reserved before current scale", ChipType::ATM90E32, ATM_RESERVED, CURRENT_SCALE, CalStatus::UNSUPPORTED},
+      {"phi before a zero gain of its phase", ChipType::ATM90E32, PHI_A, UGAIN_A, CalStatus::CORRUPT},
+      {"BL0906 reserved before a zero gain", ChipType::BL0906, BL_RESERVED, BL_KV, CalStatus::UNSUPPORTED},
+  };
+  for (const Pair &p : pairs) {
+    SCOPED_TRACE(p.name);
+    // Each fault on its own is caught, so the pair really carries both.
+    EXPECT_EQ(check(faulty(p.chip, {&p.first})), p.first.check);
+    EXPECT_EQ(check(faulty(p.chip, {&p.second})), p.second.check);
+    const RecordCheck both = check(faulty(p.chip, {&p.first, &p.second}));
+    EXPECT_EQ(both, p.first.check);
+    EXPECT_EQ(status_of(both), p.status);
+  }
+}
+
 // --- Matching the board -------------------------------------------------------------------
 
 TEST(MeterMatch, ARecordForThisBoardMatches) {
@@ -309,8 +366,10 @@ TEST(MeterMatch, TheOtherMetersRecordIsForAnotherChip) {
 }
 
 TEST(MeterMatch, TheChannelCountFollowsTheChip) {
-  const MeterRecordBuf buf = with_byte(make_meter_record(), MC_OFF_CHANNEL_COUNT, 6);
-  EXPECT_EQ(match_record(as_record(buf), pm380()), MatchCheck::WRONG_CHANNEL_COUNT);
+  const MeterRecordBuf atm = with_byte(make_meter_record(), MC_OFF_CHANNEL_COUNT, 6);
+  EXPECT_EQ(match_record(as_record(atm), pm380()), MatchCheck::WRONG_CHANNEL_COUNT);
+  const MeterRecordBuf bl = with_byte(make_meter_record(ChipType::BL0906), MC_OFF_CHANNEL_COUNT, 3);
+  EXPECT_EQ(match_record(as_record(bl), pm220()), MatchCheck::WRONG_CHANNEL_COUNT);
 }
 
 TEST(MeterMatch, TheModelIsComparedExactly) {

@@ -347,6 +347,20 @@ TEST(MeterLoader, ATimestampPastTheCalendarStillDumps) {
   board.cal.dump_config();
 }
 
+TEST(MeterLoader, ABl0906RecordForAnotherChannelCountIsForeign) {
+  MeterRecordBuf rec = make_meter_record(ChipType::BL0906);
+  rec[MC_OFF_CHANNEL_COUNT] = 3;
+  seal_meter_record(rec);
+  MeterBoard board(meter_image(rec, PM16), ChipType::BL0906);
+  board.boot();
+
+  expect_nothing_failed(board);
+  EXPECT_EQ(board.cal.get_status(), CalStatus::FOREIGN);
+  EXPECT_EQ(board.cal.get_match_check(), MatchCheck::WRONG_CHANNEL_COUNT);
+  EXPECT_EQ(board.cal.get_reason(), "written for another channel count (record 3, firmware 6)");
+  expect_no_record(board);
+}
+
 TEST(MeterLoader, ARecordForAnotherModelIsForeign) {
   MeterBoard board(meter_image(make_meter_record()));
   board.cal.set_board_model("JXD-D3-PM3-4");
