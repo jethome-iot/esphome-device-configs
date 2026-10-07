@@ -156,7 +156,9 @@ when the device no longer answers, and stops the emulator; `--keep-running` leav
 up. A start replaces an instance of the same device that is already running, as `run` does.
 
 A compiling run boots blank flash, since every compile makes a new firmware image. `--no-build`
-boots the flash the last run left, and `--fresh` blanks it there.
+boots the flash the last run left, and `--fresh` blanks it there. Each run stops the emulator
+within a minute of a boot, which safe mode counts as a failed one: after several `--no-build` runs
+in a row the device comes up in safe mode, the check says so, and `--fresh` clears it.
 
 A start that nothing answers within `--boot-timeout` (180 s) is taken for a QEMU hang and made
 again, three starts in all; the log of each hung start is kept as `qemu.log.<n>` and the `PASS`

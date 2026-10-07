@@ -216,6 +216,16 @@ class Emulator:
         path = self.log_path()
         return str(path.relative_to(ROOT)) if path else "the emulator's qemu.log"
 
+    def in_safe_mode(self) -> bool:
+        """Whether this start came up in safe mode, which serves no web server."""
+        path = self.log_path()
+        try:
+            return path is not None and "SAFE MODE IS ACTIVE" in path.read_text(
+                errors="replace"
+            )
+        except OSError:
+            return False
+
     def keep_log(self, number: int) -> str | None:
         """Copies qemu.log aside as qemu.log.<number>: the next `run` truncates it."""
         path = self.log_path()
@@ -493,6 +503,12 @@ class Smoke:
             status = await self.editor.probe()
             if status == 200:
                 return status
+            # Each start this script kills short of a minute counts as a failed boot.
+            if self.qemu.in_safe_mode():
+                raise CheckFailed(
+                    "the device came up in safe mode, having counted too many short boots;"
+                    " run once with --fresh, or without --no-build, to start from a blank flash"
+                )
             last = status or last
             await asyncio.sleep(2)
         return last
