@@ -238,7 +238,11 @@ inline bool file_name_fits(const char *name) {
   if (name == nullptr) {
     return false;
   }
-  size_t len = strnlen(name, FILE_NAME_SIZE);
+  // Not strnlen: GCC flags its bound against a shorter literal although the scan stops at the NUL.
+  size_t len = 0;
+  while (len < FILE_NAME_SIZE && name[len] != '\0') {
+    len++;
+  }
   return len > 0 && len < FILE_NAME_SIZE;
 }
 
