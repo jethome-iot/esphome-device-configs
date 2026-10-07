@@ -379,6 +379,8 @@ got to it.
 - a document's `from_newer_firmware()`: its file came from a newer firmware, so `update()`
   refuses it; `update()` refuses a `revision`, when one is given, that is not the stored one, with
   409 `The device changed this thermostat since it was read; reload it`
+- a document's `step_preset(key, forward, with_none)`: the preset one place on or back from the
+  one with `key`, going round the list, and through none (`nullptr`) as well with `with_none`
 - `start_autotune()` with no direction takes the mode's, which `heat_cool` has none of; it is
   refused with 404, 409 (a bang-bang or stopped thermostat, a newer firmware's file, one
   calibrating already, mode off, a fault) or 400 (a direction the mode does not drive, or none in
