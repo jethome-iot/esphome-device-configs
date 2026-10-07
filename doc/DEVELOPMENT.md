@@ -145,17 +145,17 @@ targets `master` — #52 and #55 included.
 
 ## Issues and pull requests
 
-Every change starts as an issue — a feature, a bug, a refactor, a documentation fix, a chore.
-The issue is where the work is described and agreed; the pull request only carries it out. A
-review finding that is not fixed in the pull request it was raised on is filed as its own issue
-before that pull request is called done, so nothing real is left behind in a comment thread.
+An issue before the work is optional. Open one when the work needs describing and agreeing
+first; a pull request can describe a change on its own. A review finding that is not fixed in
+the pull request it was raised on is either filed as its own issue or dropped on purpose, not
+left behind in a comment thread.
 
 A milestone is an **epic issue**, labelled `type:epic` — not the GitHub Milestones feature. It
 carries the list of its children as a task list, and each child links back to it. The state of
 a milestone is then one page, and it is the same kind of object as everything else, so it takes
 discussion and links like everything else.
 
-Every pull request opens on an issue and says which one in its body:
+A pull request that is for an issue says which one in its body:
 
 | | |
 | --- | --- |
@@ -167,9 +167,8 @@ that targets `master` the line still records which issue the work belongs to, bu
 closes the issue: that is done by hand when the pull request merges, because the later merge
 into `dev` never reconsiders a pull request body it did not carry.
 
-A pull request with nothing behind it is one nobody agreed to. When something else turns out to
-need doing mid-change and does not belong in the change at hand, file it and link it instead of
-widening the pull request.
+When something else turns out to need doing mid-change and does not belong in the change at
+hand, file it or make it a change of its own instead of widening the pull request.
 
 The issue and pull request templates are in `.github/`. The bug report and the feature request
 are forms written for someone who owns a device rather than the code; the task and the epic are
