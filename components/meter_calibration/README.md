@@ -32,7 +32,9 @@ meter_calibration:
 | `board_model`   |         | The metering board the firmware is built for, as the record names it, e.g. `JXD-D3-PM3-3` |
 | `pga_code`      | per chip | The PGA setting the firmware runs the chip at: `0x15` (2X on every channel) for `atm90e32`, `0` (x1) for `bl0906`. A record taken at another setting is not used |
 
-It sets up after the board info and before any metering driver.
+It sets up at `setup_priority::DATA - 1.5` (598.5), after the board info (`DATA - 1`). A
+metering driver that takes the record must set up below that, so the record is read by the
+time the driver asks for it.
 
 ## Statuses
 

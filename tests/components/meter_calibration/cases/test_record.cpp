@@ -41,7 +41,7 @@ MeterRecordBuf from(const std::array<uint8_t, RECORD_SIZE> &vector) {
 
 // --- Layout -------------------------------------------------------------------------------
 
-TEST(MeterRecord, TheBuilderWritesTheBytesThePythonBuilderWrote) {
+TEST(MeterRecord, TheBuilderWritesThePinnedVectors) {
   EXPECT_EQ(make_meter_record(ChipType::ATM90E32), from(ATM_RECORD_V1));
   EXPECT_EQ(make_meter_record(ChipType::BL0906), from(BL0906_RECORD_V1));
   EXPECT_EQ(get_u32(ATM_RECORD_V1.data(), MC_OFF_CRC32), ATM_RECORD_V1_CRC);

@@ -1,7 +1,7 @@
 #pragma once
 // meter.cal laid out field by field from the record table in components/meter_calibration/README.md,
-// plus records and a board header written by a separate Python builder from the same table, so
-// the parser is checked against bytes it had no hand in making.
+// plus records and a board header pinned byte for byte, cross-checked with jxd-devices-utils'
+// meter-record.py, so the parser is checked against bytes it had no hand in making.
 
 #include <array>
 #include <cstddef>
@@ -147,7 +147,7 @@ constexpr BoardIdentity PM33{"JXD-D3-PM3-3", "1.2", "PM33-2026-000123"};
 constexpr BoardIdentity PM16{"JXD-D3-PM1-6", "1.1.0", "PM16-2026-000045"};
 constexpr int64_t CALIBRATED_AT = 1791288000;  // 2026-10-06 12:00:00 UTC
 
-// The same values the Python builder writes, so make_meter_record() of either chip equals its
+// The values the pinned vectors carry, so make_meter_record() of either chip equals its
 // vector byte for byte.
 inline MeterRecordBuf make_meter_record(ChipType chip = ChipType::ATM90E32) {
   const bool atm = chip == ChipType::ATM90E32;

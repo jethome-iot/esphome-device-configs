@@ -83,7 +83,7 @@ TEST(MeterLoader, ABl0906RecordOnAPm220IsFactory) {
   board.cal.dump_config();
 }
 
-// Every byte from the Python builder: the header, meter.cal's file header and the record.
+// Every byte from the pinned vectors: the header, meter.cal's file header and the record.
 TEST(MeterLoader, AnImageTheFactoryToolWouldWriteIsRead) {
   std::vector<uint8_t> image(8192, 0xFF);
   std::copy(PM33_HEADER_V4.begin(), PM33_HEADER_V4.end(), image.begin());

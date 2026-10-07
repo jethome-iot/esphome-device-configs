@@ -13,7 +13,8 @@ class MeterCalibration : public Component {
  public:
   void setup() override;
   void dump_config() override;
-  // After the metering board's jethome_board_info (DATA - 1), ahead of the metering drivers.
+  // After the metering board's jethome_board_info (DATA - 1). A driver that takes the record
+  // must set up below this priority; nothing here orders it.
   float get_setup_priority() const override { return setup_priority::DATA - 1.5f; }
 
   void set_board_info(jethome_board_info::JetHomeBoardInfo *board_info) { this->board_info_ = board_info; }
