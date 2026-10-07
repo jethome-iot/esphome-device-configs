@@ -121,8 +121,8 @@ void DallasScan::load_table_() {
     this->offsets_ = this->file_->offsets();
     this->labels_ = this->file_->labels();
     for (auto &address : this->slots_) {
-      if (address != 0 && !is_temperature_sensor(address)) {
-        ESP_LOGW(TAG, "Not a temperature sensor, dropping 0x%016" PRIx64 " from the table", address);
+      if (address != 0 && !valid_address(address)) {
+        ESP_LOGW(TAG, "Not a temperature sensor ROM, dropping 0x%016" PRIx64 " from the table", address);
         address = 0;
       }
     }
