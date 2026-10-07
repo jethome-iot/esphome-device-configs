@@ -92,7 +92,8 @@ The file is read at boot only. It can be edited or restored by hand, then the de
 a record puts that device in that slot. The address is a string, `0x` and up to 16 hex digits.
 A record with a slot past `max_sensors` is skipped and stays in the file until a write, so
 lowering `max_sensors` does not empty the table; of two records for the same slot or the same
-address, the later one wins; an address that is not a Dallas temperature sensor is dropped.
+address, the later one wins; an address that is not a Dallas temperature sensor ROM with a valid
+CRC is dropped.
 `offsets` lists only the slots with an offset, in °C, and may be left out; an entry with a slot
 past `max_sensors` or a value that is not a number within ±5.0 is skipped, of two entries for
 the same slot the later one wins, and a value is rounded to 0.1. An `offsets` that is not a list

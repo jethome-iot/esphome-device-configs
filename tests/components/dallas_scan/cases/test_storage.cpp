@@ -10,11 +10,11 @@ static const char *const HEX_A = "0xeb01227905460228";
 static const char *const HEX_B = "0x8a0122791699dd28";
 static const char *const HEX_C = "0x9b01b5566e8a1f28";
 
-// The other Dallas temperature families: DS18S20, DS1822, DS1825, DS28EA00.
-static const uint64_t ROM_DS18S20 = 0x1100000000000110ULL;
-static const uint64_t ROM_DS1822 = 0x2200000000000122ULL;
-static const uint64_t ROM_DS1825 = 0x330000000000013bULL;
-static const uint64_t ROM_DS28EA00 = 0x4400000000000142ULL;
+// The other Dallas temperature families, CRC included: DS18S20, DS1822, DS1825, DS28EA00.
+static const uint64_t ROM_DS18S20 = 0xcc00000000000110ULL;
+static const uint64_t ROM_DS1822 = 0xa200000000000122ULL;
+static const uint64_t ROM_DS1825 = 0x950000000000013bULL;
+static const uint64_t ROM_DS28EA00 = 0x8a00000000000142ULL;
 
 class FileStorage : public Boots {};
 class NvsStorage : public Boots {};
@@ -80,10 +80,10 @@ TEST_F(FileStorage, ABootThatChangesNothingDoesNotWrite) {
 TEST_F(FileStorage, OnlyDallasTemperatureFamiliesStayInTheTable) {
   this->write(slot_file({{1, "0x4e00001234567801"},
                          {2, HEX_A},
-                         {3, "0x1100000000000110"},
-                         {4, "0x2200000000000122"},
-                         {5, "0x330000000000013b"},
-                         {6, "0x4400000000000142"}}));
+                         {3, "0xcc00000000000110"},
+                         {4, "0xa200000000000122"},
+                         {5, "0x950000000000013b"},
+                         {6, "0x8a00000000000142"}}));
   TestScan &scan = this->boot({ROM_A, ROM_B}, 6);
   EXPECT_TRUE(this->log().has(this->log().warnings, "dropping 0x4e00001234567801 from the table"));
   // The serial number's slot was free, so the newcomer takes it, and the write leaves it out.
@@ -95,10 +95,19 @@ TEST_F(FileStorage, OnlyDallasTemperatureFamiliesStayInTheTable) {
   EXPECT_EQ(scan.address(5), ROM_DS28EA00);
   EXPECT_EQ(this->read(), slot_file({{1, HEX_B},
                                      {2, HEX_A},
-                                     {3, "0x1100000000000110"},
-                                     {4, "0x2200000000000122"},
-                                     {5, "0x330000000000013b"},
-                                     {6, "0x4400000000000142"}}));
+                                     {3, "0xcc00000000000110"},
+                                     {4, "0xa200000000000122"},
+                                     {5, "0x950000000000013b"},
+                                     {6, "0x8a00000000000142"}}));
+}
+
+TEST_F(FileStorage, AThermometerWhoseCrcDoesNotMatchIsDropped) {
+  // ROM_A with its CRC byte off by one: no bus would report it, and assign refuses it too.
+  this->write(slot_file({{1, "0xec01227905460228"}, {2, HEX_B}}));
+  TestScan &scan = this->boot({ROM_B});
+  EXPECT_TRUE(this->log().has(this->log().warnings, "dropping 0xec01227905460228 from the table"));
+  EXPECT_EQ(scan.address(0), 0u);
+  EXPECT_EQ(scan.address(1), ROM_B);
 }
 
 TEST_F(FileStorage, ADroppedAddressAloneDoesNotRewriteTheFile) {
