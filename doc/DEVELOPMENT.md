@@ -33,6 +33,7 @@ SKIP=build-dist pre-commit run --all-files # what the CI lint job runs
 
 ./scripts/qemu.sh run jxd-r6-e1eth-lcd --daemon --wait-http 240   # boot it in QEMU, see doc/QEMU.md
 ./scripts/qemu.sh stop                                            # and shut it down again
+.venv/bin/python scripts/qemu-climate-smoke.py                    # the thermostats in QEMU, before a thermostat PR
 
 .venv/bin/python scripts/modbus_probe.py --port /dev/ttyUSB2 probe   # walk the Modbus map over RS485
 ```

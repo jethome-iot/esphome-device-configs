@@ -117,6 +117,18 @@ the files on disk, the log, a job reaching the loop task, the relays' states.
 
 A key not listed here fails the suite, a misspelt one included.
 
+## Before a thermostat pull request
+
+The host suites never show what Home Assistant sees over the native API, nor what a thermostat
+keeps across a restart. Before a pull request that touches the thermostats, run the QEMU smoke
+check as well; CI does not:
+
+```bash
+.venv/bin/python scripts/qemu-climate-smoke.py
+```
+
+What it checks and its options are in [QEMU.md](QEMU.md#the-thermostat-smoke-check).
+
 ## Rules every suite lives by
 
 - Nothing declared in `test.yaml` is set up: the harness `main.cpp` runs the tests instead of

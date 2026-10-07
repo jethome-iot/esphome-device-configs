@@ -127,6 +127,35 @@ The `Drive input N` switches are deliberately `internal:`, so they are absent fr
 list and from the `/events` stream — but a command still reaches them, because the web server
 matches a request by name and the internal flag only gates listing and state pushes.
 
+## The thermostat smoke check
+
+Run it before a pull request that touches the thermostats. CI does not run it.
+
+```bash
+.venv/bin/python scripts/qemu-climate-smoke.py                  # compile, boot, check, stop
+.venv/bin/python scripts/qemu-climate-smoke.py --no-build       # boot what was built last
+.venv/bin/python scripts/qemu-climate-smoke.py jxd-r6-e1eth --fresh   # another device, blank flash
+```
+
+It boots `jxd-r6-e1eth-lcd` unless given another device, creates a thermostat named
+`QEMU Smoke` with presets over the [climate editor's API](../components/web_climate_editor/README.md),
+on the room of `climate-plant.yaml` and the first relay no other thermostat names, and checks
+from the native API, as Home Assistant sees it, that:
+
+- the built-in and custom presets are listed;
+- a pick, from the API or the editor, applies the preset's target and mode;
+- a values-only edit of the presets makes no client reconnect, and the active preset's new target
+  applies at once;
+- the active preset survives a restart of the emulator.
+
+It prints one line per check and stops at the first failure with exit status 1. Either way it
+deletes the thermostat and stops the emulator; `--keep-running` leaves the emulator up. A start
+replaces an instance of the same device that is already running, as `run` does, and keeps its
+flash state unless `--fresh`. A start that does not answer within `--boot-timeout` (180 s) is
+taken for hung and made again, up to three times. The ports, the web credentials and the
+native API's encryption key are options (`--help`); aioesphomeapi comes with ESPHome, so the
+repo venv runs it as is.
+
 ## The front panel
 
 The device serves its screen at `/panel`: the 128x64 canvas, with the joystick and FN as
