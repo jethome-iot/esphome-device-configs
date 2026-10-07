@@ -62,7 +62,10 @@ TEST(MeterLoader, AFactoryRecordForThisBoardIsFactory) {
   EXPECT_EQ(+atm->phase[0].ugain, 39470);
   EXPECT_EQ(+atm->phase[2].igain, 31511);
   EXPECT_EQ(+atm->current_scale, 2);
+  EXPECT_TRUE(board.log().has_info(
+      "Factory calibration of JXD-D3-PM3-3 1.2, serial 'PM33-2026-000123', from 2026-10-06 12:00:00 UTC"));
   board.cal.dump_config();
+  EXPECT_TRUE(board.log().has_config("Calibrated: 2026-10-06 12:00:00 UTC, station 'ST-01'"));
 }
 
 TEST(MeterLoader, ABl0906RecordOnAPm220IsFactory) {
@@ -336,6 +339,7 @@ TEST(MeterLoader, AV3BoardHeaderIsUnsupported) {
   }
 }
 
+// A date no calendar holds is said to be invalid, not formatted, and the record stays usable.
 TEST(MeterLoader, ATimestampPastTheCalendarStillDumps) {
   MeterRecordBuf rec = make_meter_record();
   put_i64(rec.data(), MC_OFF_TIMESTAMP, INT64_MAX);
@@ -344,7 +348,10 @@ TEST(MeterLoader, ATimestampPastTheCalendarStillDumps) {
   board.boot();
   EXPECT_EQ(board.cal.get_status(), CalStatus::FACTORY);
   EXPECT_EQ(board.cal.get_timestamp(), INT64_MAX);
+  EXPECT_TRUE(board.log().has_info("Factory calibration of JXD-D3-PM3-3 1.2, serial 'PM33-2026-000123', from invalid"));
   board.cal.dump_config();
+  EXPECT_TRUE(board.log().has_config("Calibrated: invalid, station 'ST-01'"));
+  EXPECT_FALSE(board.log().has_config("UTC"));
 }
 
 TEST(MeterLoader, ABl0906RecordForAnotherChannelCountIsForeign) {

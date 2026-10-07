@@ -2,6 +2,7 @@
 // is allowed to be blank reports a header it cannot use: a note when blank, a warning otherwise,
 // never a failed component.
 
+#include <cstdint>
 #include <utility>
 
 #include "common.h"
@@ -154,7 +155,10 @@ TEST(ReadFile, ATimestampPastTheCalendarStillDumps) {
   Board board(image);
   board.boot();
   EXPECT_TRUE(board.info.is_valid());
+  EXPECT_EQ(board.info.get_timestamp(), INT64_MAX);
   board.info.dump_config();
+  EXPECT_TRUE(board.log().has_config("Timestamp: invalid (9223372036854775807)"));
+  EXPECT_FALSE(board.log().has_config("UTC"));
 }
 
 // A part that may be blank: each header it cannot use leaves the component running, says why,
