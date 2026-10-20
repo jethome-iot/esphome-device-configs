@@ -1,6 +1,6 @@
 # Development tooling, not needed to build firmware.
 # scripts/setup.sh and scripts/setup.bat install this alongside requirements.txt.
-pre-commit==4.6.2
+pre-commit==4.7.0
 
 # scripts/firmware-matrix.py turns firmwares.yaml into the CI matrices; the
 # Build and Release workflows install this file to get it.
