@@ -1340,11 +1340,13 @@ void WebDeviceDashboard::handle_time_get_(AsyncWebServerRequest *request) {
   request->send(200, "application/json", body.c_str());
 }
 
-// POST /api/device/time: {"follow_homeassistant"}, {"posix", "zone"}, or both. A zone sent while
-// the device follows Home Assistant is kept for later, not applied. No confirmation: it is undone
-// the same way. The change and the answer go over to the loop task together.
+// POST /api/device/time: {"follow_homeassistant"}, {"posix", "zone"}, {"time"}, or any of them
+// together. A zone sent while the device follows Home Assistant is kept for later, not applied.
+// No confirmation: it is undone the same way. Everything is checked before anything changes; the
+// change and the answer go over to the loop task together.
 void WebDeviceDashboard::handle_time_set_(AsyncWebServerRequest *request) {
   using timezone_settings::SetError;
+  using timezone_settings::TimezoneSettings;
   auto *settings = this->timezone_settings_;
   if (settings == nullptr) {
     this->send_error_(request, 404, "No time settings");
@@ -1357,8 +1359,9 @@ void WebDeviceDashboard::handle_time_set_(AsyncWebServerRequest *request) {
   JsonVariant follow = doc["follow_homeassistant"];
   JsonVariant zone = doc["zone"];
   JsonVariant posix = doc["posix"];
-  if (follow.isUnbound() && zone.isUnbound() && posix.isUnbound()) {
-    this->send_error_(request, 400, "Expected 'follow_homeassistant', 'posix' or 'zone'");
+  JsonVariant epoch = doc["time"];
+  if (follow.isUnbound() && zone.isUnbound() && posix.isUnbound() && epoch.isUnbound()) {
+    this->send_error_(request, 400, "Expected 'follow_homeassistant', 'posix', 'zone' or 'time'");
     return;
   }
   if (!follow.isUnbound() && !follow.is<bool>()) {
@@ -1373,12 +1376,24 @@ void WebDeviceDashboard::handle_time_set_(AsyncWebServerRequest *request) {
     this->send_error_(request, 400, "'posix' must be a string");
     return;
   }
+  // ArduinoJson keeps 1.5 and 1e9 as floats; an integer past int64 is one past the range too.
+  if (!epoch.isUnbound() && !epoch.is<int64_t>() && !epoch.is<uint64_t>()) {
+    this->send_error_(request, 400, "'time' must be an integer");
+    return;
+  }
   // The name alone says nothing the device can run on.
   if (posix.isUnbound() && !zone.isUnbound()) {
     this->send_error_(request, 422, "'zone' needs 'posix'");
     return;
   }
+  const bool has_time = !epoch.isUnbound();
+  const int64_t seconds = epoch.is<int64_t>() ? epoch.as<int64_t>() : INT64_MAX;
+  if (has_time && TimezoneSettings::check_clock(seconds) != SetError::NONE) {
+    this->send_error_(request, 422, timezone_settings::set_error_text(SetError::TIME_OUT_OF_RANGE));
+    return;
+  }
   const bool has_zone = !posix.isUnbound();
+  const bool configures = has_zone || !follow.isUnbound();
   timezone_settings::Zone chosen;
   if (has_zone) {
     // Straight to std::string: a NUL decoded from "\u0000" is a character, not the end.
@@ -1389,10 +1404,18 @@ void WebDeviceDashboard::handle_time_set_(AsyncWebServerRequest *request) {
   SetError error = SetError::NONE;
   std::string body;
   const bool changed = this->run_on_loop_([&]() {
-    const bool following = follow.isUnbound() ? settings->follow_homeassistant() : follow.as<bool>();
-    error = settings->configure(following, has_zone ? &chosen : nullptr);
-    if (error != SetError::NONE)
-      return false;
+    if (configures) {
+      const bool following = follow.isUnbound() ? settings->follow_homeassistant() : follow.as<bool>();
+      error = settings->configure(following, has_zone ? &chosen : nullptr);
+      if (error != SetError::NONE)
+        return false;
+    }
+    // After the zone, which the device may still refuse; the clock cannot be put back.
+    if (has_time) {
+      error = settings->set_clock(seconds);
+      if (error != SetError::NONE)
+        return false;
+    }
     body = time_json_(*settings);
     return true;
   });
@@ -1401,7 +1424,8 @@ void WebDeviceDashboard::handle_time_set_(AsyncWebServerRequest *request) {
     if (error == SetError::NONE) {
       this->send_error_(request, 503, "Device busy");
     } else {
-      this->send_error_(request, error == SetError::NOT_STORED ? 500 : 422, timezone_settings::set_error_text(error));
+      const bool failed = error == SetError::NOT_STORED || error == SetError::CLOCK_NOT_SET;
+      this->send_error_(request, failed ? 500 : 422, timezone_settings::set_error_text(error));
     }
     return;
   }

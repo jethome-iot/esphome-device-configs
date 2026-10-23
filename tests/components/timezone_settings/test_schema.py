@@ -6,7 +6,7 @@ import unittest
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome import loader
+from esphome import automation, loader
 from esphome.const import (
     KEY_CORE,
     KEY_TARGET_PLATFORM,
@@ -156,6 +156,38 @@ class Wiring(unittest.TestCase):
         self.assertEqual(timezone_settings.DEPENDENCIES, ["time"])
 
 
+class OnClockSet(unittest.TestCase):
+    def test_it_takes_an_automation(self):
+        config = validate(on_clock_set={"then": [{"delay": "1s"}]})
+        automation_ = config["on_clock_set"]
+        self.assertIn("delay", automation_["then"][0])
+        self.assertEqual(automation_["trigger_id"].type, automation.Trigger)
+
+    def test_the_actions_alone_are_an_automation(self):
+        config = validate(on_clock_set=[{"delay": "1s"}])
+        self.assertIn("delay", config["on_clock_set"]["then"][0])
+
+    def test_it_is_optional(self):
+        self.assertNotIn("on_clock_set", validate())
+
+    def test_a_second_automation_is_refused(self):
+        # The component's trigger runs one.
+        with self.assertRaisesRegex(
+            cv.Invalid, "This trigger allows only a single automation"
+        ):
+            validate(
+                on_clock_set=[{"then": [{"delay": "1s"}]}, {"then": [{"delay": "2s"}]}]
+            )
+
+    def test_an_unknown_action_is_refused(self):
+        with self.assertRaisesRegex(cv.Invalid, "Unable to find action"):
+            validate(on_clock_set={"then": [{"rtc.write_now": {}}]})
+
+    def test_what_is_no_automation_is_refused(self):
+        with self.assertRaisesRegex(cv.Invalid, "expected a dictionary"):
+            validate(on_clock_set="pcf8563.write_time")
+
+
 class Platforms(unittest.TestCase):
     def tearDown(self):
         CORE.data[KEY_CORE][KEY_TARGET_PLATFORM] = PLATFORM_HOST
@@ -238,6 +270,20 @@ class FinalValidate(unittest.TestCase):
         self.check(validate(), {})
 
 
+def resolve_ids(value, taken):
+    """Name the ids the schema generated, as the config pass does before code generation."""
+    if isinstance(value, ID):
+        if value.id is None:
+            value.resolve(taken)
+            taken.append(value.id)
+    elif isinstance(value, dict):
+        for item in value.values():
+            resolve_ids(item, taken)
+    elif isinstance(value, list):
+        for item in value:
+            resolve_ids(item, taken)
+
+
 class Generated(unittest.TestCase):
     def tearDown(self):
         CORE.reset()
@@ -246,6 +292,7 @@ class Generated(unittest.TestCase):
     def generate(self, config):
         CORE.reset()
         setUpModule()
+        resolve_ids(config, [config["id"].id])
         declared = [config["id"]]
         if "homeassistant_zone" in config:
             declared.append(
@@ -299,6 +346,18 @@ class Generated(unittest.TestCase):
         hashes = [s for s in statements if "set_preference_hash" in s]
         self.assertEqual(len(hashes), 1)
 
+    def test_on_clock_set_is_built_on_the_components_trigger(self):
+        config = validate(id="tz", on_clock_set={"then": [{"delay": "1s"}]})
+        _, statements = self.generate(config)
+        automations = [s for s in statements if "get_clock_set_trigger()" in s]
+        self.assertEqual(len(automations), 1, statements)
+        self.assertIn("Automation<>(tz->get_clock_set_trigger())", automations[0])
+        self.assertTrue([s for s in statements if "add_actions(" in s], statements)
+
+    def test_no_on_clock_set_builds_no_automation(self):
+        _, statements = self.generate(validate(id="tz"))
+        self.assertFalse([s for s in statements if "Automation" in s])
+
     def test_a_posix_zone_is_its_own_posix_string(self):
         config = validate(id="tz", timezone="<+07>-7")
         _, statements = self.generate(config)
@@ -314,7 +373,8 @@ class Generated(unittest.TestCase):
             "void set_homeassistant_zone(time::ParsedTimezone *zone)",
             "void set_preference_hash(uint32_t hash)",
             "void add_clock(time::RealTimeClock *clock, ClockSource source)",
-            "enum class ClockSource : uint8_t { NONE, HOMEASSISTANT, SNTP, RTC }",
+            "enum class ClockSource : uint8_t { NONE, HOMEASSISTANT, SNTP, RTC, DASHBOARD }",
+            "Trigger<> *get_clock_set_trigger()",
         ):
             with self.subTest(setter=setter):
                 self.assertIn(setter, HEADER)

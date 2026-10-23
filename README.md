@@ -188,6 +188,11 @@ On the dashboard, **Settings → Date & Time** switches the device from Home Ass
 to one picked there, and back; the choice is kept across reboots. The display shows the zone
 in effect under **Info → Timezone**.
 
+A device with neither internet nor Home Assistant has nothing to set its clock from but the
+RTC; the same screen sets the date and time by hand, into the RTC as well, so they survive a
+reboot. NTP or Home Assistant, once either can reach the device, sets the time again as
+usual.
+
 The compiled zone is the one to set for a device that runs standalone from its first boot:
 
 ```bash

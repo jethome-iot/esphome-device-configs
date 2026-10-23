@@ -1236,7 +1236,7 @@ paths:
     post:
       tags: [write]
       operationId: setTime
-      summary: Follow Home Assistant's zone, or choose one.
+      summary: Follow Home Assistant's zone, or choose one; set the clock.
       description: >-
         `follow_homeassistant: true` follows Home Assistant's zone, or the
         compiled one until Home Assistant first sets the clock, and asks Home
@@ -1245,12 +1245,22 @@ paths:
         with it, or the one stored. A `posix` string, with the `zone` name it was
         picked as, becomes the chosen zone; while the device follows Home
         Assistant, whether the body says so or leaves the mode out, it is kept
-        for later and not applied. Keys other than these three are ignored, but
-        at least one of them must be there. The change is stored in flash before
+        for later and not applied. The change is stored in flash before
         it is applied and survives reboots; no confirmation is asked, since it
         is undone the same way. `posix` is what the device runs on, parsed the
         way ESPHome parses a `timezone:` at build time; `zone` is only a name to
         show, and may be `null` or empty.
+
+        `time` sets the device's clock to that UTC epoch at once, for a device
+        that has neither NTP nor Home Assistant; the configs in this repository
+        write the RTC with it too. `clock_source` is then `dashboard` until Home
+        Assistant or SNTP sets the time, which they do as usual whenever they
+        answer; after a reboot it is `rtc` again. A `time` within a second of
+        the clock leaves it as it is.
+
+        Keys other than these four are ignored, but at least one of them must
+        be there; they may come in any combination. Everything in the body is
+        checked before anything changes.
       requestBody:
         required: true
         content:
@@ -1273,9 +1283,22 @@ paths:
                 value:
                   zone: Asia/Tokyo
                   posix: JST-9
+              clock:
+                summary: Set the clock
+                value:
+                  time: 1791369125
+              clock_and_zone:
+                summary: Set the clock and choose a zone in one go
+                value:
+                  follow_homeassistant: false
+                  zone: Europe/Berlin
+                  posix: CET-1CEST,M3.5.0,M10.5.0/3
+                  time: 1791369125
       responses:
         "200":
-          description: Stored and in effect; the body is what `GET` answers now.
+          description: >-
+            Stored and in effect, the clock set; the body is what `GET` answers
+            now.
           content:
             application/json:
               schema:
@@ -1283,8 +1306,9 @@ paths:
         "400":
           description: >-
             A body that is empty, not JSON or not an object (`Invalid JSON`);
-            none of the three keys; `follow_homeassistant` not a boolean, `zone`
-            not a string or null, `posix` not a string. Nothing changed.
+            none of the four keys; `follow_homeassistant` not a boolean, `zone`
+            not a string or null, `posix` not a string, `time` not an integer.
+            Nothing changed.
           content:
             application/json:
               schema:
@@ -1293,7 +1317,7 @@ paths:
                 empty:
                   value:
                     success: false
-                    error: Expected 'follow_homeassistant', 'posix' or 'zone'
+                    error: Expected 'follow_homeassistant', 'posix', 'zone' or 'time'
                 mode:
                   value:
                     success: false
@@ -1306,6 +1330,10 @@ paths:
                   value:
                     success: false
                     error: "'posix' must be a string"
+                time:
+                  value:
+                    success: false
+                    error: "'time' must be an integer"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -1321,8 +1349,9 @@ paths:
             Well-formed, but not something the device can run on or store: a
             `posix` it cannot parse (empty, or with a byte outside printable
             ASCII, included), a `posix` or `zone` over 63 bytes, a `zone` with a
-            control character, a `zone` without `posix`, or not following Home
-            Assistant while no zone was ever chosen. Nothing changed.
+            control character, a `zone` without `posix`, not following Home
+            Assistant while no zone was ever chosen, or a `time` before 2019 or
+            from 2100 on. Nothing changed.
           content:
             application/json:
               schema:
@@ -1352,17 +1381,28 @@ paths:
                   value:
                     success: false
                     error: "No zone was chosen yet: send 'posix' with it"
+                time_range:
+                  value:
+                    success: false
+                    error: "'time' must be from 1546300800 (2019-01-01) to 4102444799 (2099-12-31)"
         "500":
           description: >-
             The settings did not reach flash, so the device keeps the zone it
-            had. The log says why.
+            had and the clock is not set; or the clock did not take the time, and
+            a zone sent with it is in effect all the same. The log says why.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-              example:
-                success: false
-                error: The time settings were not stored
+              examples:
+                not_stored:
+                  value:
+                    success: false
+                    error: The time settings were not stored
+                clock:
+                  value:
+                    success: false
+                    error: The clock could not be set
         "503":
           $ref: "#/components/responses/TimeBusy"
 
@@ -2685,11 +2725,12 @@ components:
           description: Whether `utc_offset` is summer time; `false` while `time` is `null`.
         clock_source:
           type: [string, "null"]
-          enum: [homeassistant, sntp, rtc, null]
+          enum: [homeassistant, sntp, rtc, dashboard, null]
           description: >-
-            The network clock whose sync came last, Home Assistant's or SNTP;
-            `rtc`, the battery-backed clock, until one of them has synced since
-            boot; `null` until any has.
+            The network clock whose sync came last, Home Assistant's or SNTP, or
+            `dashboard` when the time was set over `POST /time` since; `rtc`, the
+            battery-backed clock, until one of them has set the time since boot;
+            `null` until any has.
         follow_homeassistant:
           type: boolean
           description: The device follows Home Assistant's zone rather than the chosen one.
@@ -2730,12 +2771,13 @@ components:
     TimeUpdate:
       type: object
       description: >-
-        At least one of the three; other keys are ignored. A `zone` needs a
+        At least one of the four; other keys are ignored. A `zone` needs a
         `posix` (`422` without one).
       anyOf:
         - required: [follow_homeassistant]
         - required: [posix]
         - required: [zone]
+        - required: [time]
       dependentRequired:
         zone: [posix]
       properties:
@@ -2749,6 +2791,14 @@ components:
           type: string
           maxLength: 63
           description: A POSIX TZ string, at most 63 bytes of printable ASCII.
+        time:
+          type: integer
+          minimum: 1546300800
+          maximum: 4102444799
+          description: >-
+            What to set the device's clock to: UTC epoch seconds, from
+            2019-01-01 to the end of 2099.
+          example: 1791369125
 
     SuccessEnvelope:
       type: object

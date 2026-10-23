@@ -1698,6 +1698,9 @@ timezone_settings:
     homeassistant: homeassistant_time
     sntp: sntp_time
     rtc: pcf8563_time
+  on_clock_set:
+    then:
+      pcf8563.write_time: null
 time:
   - platform: homeassistant
     id: homeassistant_time

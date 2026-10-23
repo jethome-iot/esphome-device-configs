@@ -55,3 +55,7 @@ timezone_settings:
     homeassistant: ha_clock
     sntp: sntp_clock
     rtc: rtc_clock
+  # So the generated automation compiles; the cases attach their own.
+  on_clock_set:
+    then:
+      - logger.log: "Clock set"

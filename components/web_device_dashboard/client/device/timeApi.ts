@@ -7,8 +7,8 @@ import type { DeviceTime, DeviceTimeUpdate } from './types'
 export interface TimeApi {
   /** GET /time — the clock and the timezone in effect. */
   get(): Promise<DeviceTime>
-  /** POST /time — follow Home Assistant's timezone or a chosen one, in force at once; answers
-   *  what GET would after it. The refusals are on DeviceTimeUpdate. */
+  /** POST /time — follow Home Assistant's timezone or a chosen one, or set the clock, in force
+   *  at once; answers what GET would after it. The refusals are on DeviceTimeUpdate. */
   set(update: DeviceTimeUpdate): Promise<DeviceTime>
 }
 

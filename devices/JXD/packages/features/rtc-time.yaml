@@ -22,6 +22,10 @@ timezone_settings:
     homeassistant: homeassistant_time
     sntp: sntp_time
     rtc: pcf8563_time
+  # Set on the dashboard: into the RTC too, or its next read would put the old time back.
+  on_clock_set:
+    then:
+      pcf8563.write_time:
 
 time:
   # No timezone here: that is what makes Home Assistant send its own.

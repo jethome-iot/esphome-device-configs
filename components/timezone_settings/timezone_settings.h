@@ -7,6 +7,7 @@
 #include "esphome/core/defines.h"
 #include "esphome/components/time/posix_tz.h"
 #include "esphome/components/time/real_time_clock.h"
+#include "esphome/core/automation.h"
 #include "esphome/core/component.h"
 #include "esphome/core/optional.h"
 #include "esphome/core/preferences.h"
@@ -24,13 +25,28 @@ struct StoredSettings {
   char posix[POSIX_MAX + 1];
 };
 
-/// Which clock's sync callback fired last.
-enum class ClockSource : uint8_t { NONE, HOMEASSISTANT, SNTP, RTC };
+/// Which clock's sync callback fired last, or the clock set by hand over the dashboard.
+enum class ClockSource : uint8_t { NONE, HOMEASSISTANT, SNTP, RTC, DASHBOARD };
 /// Where the zone in effect comes from.
 enum class ZoneSource : uint8_t { HOMEASSISTANT, DEFAULT, MANUAL };
 
-/// Why a change was refused; NONE when it is stored and in effect.
-enum class SetError : uint8_t { NONE, NAME_TOO_LONG, BAD_NAME, POSIX_TOO_LONG, BAD_POSIX, NO_ZONE, NOT_STORED };
+/// Why a change was refused; NONE when it took effect.
+enum class SetError : uint8_t {
+  NONE,
+  NAME_TOO_LONG,
+  BAD_NAME,
+  POSIX_TOO_LONG,
+  BAD_POSIX,
+  NO_ZONE,
+  NOT_STORED,
+  TIME_OUT_OF_RANGE,
+  CLOCK_NOT_SET,
+};
+
+// What set_clock() takes: from where upstream counts a clock as set to the last year the
+// PCF8563 holds; both ends fit synchronize_epoch_'s 32 bits.
+static const int64_t CLOCK_MIN = 1546300800;  // 2019-01-01T00:00:00Z
+static const int64_t CLOCK_END = 4102444800;  // 2100-01-01T00:00:00Z, not taken
 
 const char *clock_source_name(ClockSource source);
 const char *zone_source_name(ZoneSource source);
@@ -41,6 +57,13 @@ const char *set_error_text(SetError error);
 struct Zone {
   std::string name;
   std::string posix;
+};
+
+/// Sets the system clock the way the time platforms do. Never registered, so never polled.
+class SystemClock : public time::RealTimeClock {
+ public:
+  void update() override {}
+  void set(uint32_t epoch) { this->synchronize_epoch_(epoch); }
 };
 
 /// The device's timezone: Home Assistant's, kept across reboots in a restoring global, the one
@@ -85,6 +108,13 @@ class TimezoneSettings : public Component {
   SetError set_follow_homeassistant(bool follow) { return this->configure(follow); }
   SetError set_zone(const Zone &zone) { return this->configure(this->follow_homeassistant_, &zone); }
 
+  /// Why the clock could not be set to @p epoch (UTC), or NONE.
+  static SetError check_clock(int64_t epoch);
+  /// Sets the system clock to @p epoch, reports the dashboard as its source until another clock
+  /// syncs, and fires on_clock_set. RAM only. Call it on the loop task.
+  SetError set_clock(int64_t epoch);
+  Trigger<> *get_clock_set_trigger() { return &this->clock_set_trigger_; }
+
   /// What the API answers, read at one instant.
   struct Status {
     optional<time_t> time;  // UTC; none while the clock is not set
@@ -103,6 +133,8 @@ class TimezoneSettings : public Component {
   virtual bool store_(const StoredSettings &stored);
   // Whether flash holds that record now, read back through the preference.
   bool flash_holds_(const StoredSettings &stored);
+  // False when the clock did not take @p epoch. Virtual so the host tests never set the host's.
+  virtual bool set_system_clock_(uint32_t epoch);
   bool homeassistant_zone_known_() const;
   void apply_();
   void on_homeassistant_sync_();
@@ -128,6 +160,8 @@ class TimezoneSettings : public Component {
   bool sync_pending_{false};
   ESPPreferenceObject pref_;
   uint32_t preference_hash_{0};
+  SystemClock system_clock_;
+  Trigger<> clock_set_trigger_;
 };
 
 /// Field by field: the struct has padding that a copy need not carry.

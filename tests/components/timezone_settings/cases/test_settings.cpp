@@ -297,6 +297,7 @@ TEST(Names, AreWhatTheApiSays) {
   EXPECT_STREQ(clock_source_name(ClockSource::HOMEASSISTANT), "homeassistant");
   EXPECT_STREQ(clock_source_name(ClockSource::SNTP), "sntp");
   EXPECT_STREQ(clock_source_name(ClockSource::RTC), "rtc");
+  EXPECT_STREQ(clock_source_name(ClockSource::DASHBOARD), "dashboard");
   EXPECT_EQ(clock_source_name(ClockSource::NONE), nullptr);
   EXPECT_STREQ(zone_source_name(ZoneSource::HOMEASSISTANT), "homeassistant");
   EXPECT_STREQ(zone_source_name(ZoneSource::DEFAULT), "default");
@@ -307,6 +308,9 @@ TEST(Names, AreWhatTheApiSays) {
   EXPECT_STREQ(set_error_text(SetError::BAD_POSIX), "'posix' is not a POSIX TZ string");
   EXPECT_STREQ(set_error_text(SetError::NO_ZONE), "No zone was chosen yet: send 'posix' with it");
   EXPECT_STREQ(set_error_text(SetError::NOT_STORED), "The time settings were not stored");
+  EXPECT_STREQ(set_error_text(SetError::TIME_OUT_OF_RANGE),
+               "'time' must be from 1546300800 (2019-01-01) to 4102444799 (2099-12-31)");
+  EXPECT_STREQ(set_error_text(SetError::CLOCK_NOT_SET), "The clock could not be set");
   EXPECT_STREQ(set_error_text(SetError::NONE), "");
 }
 

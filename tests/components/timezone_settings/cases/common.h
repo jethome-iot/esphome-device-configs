@@ -11,6 +11,8 @@
 #include "esphome/components/timezone_settings/posix_tz_parse.h"
 #include "esphome/components/timezone_settings/timezone_settings.h"
 #include "esphome/core/application.h"
+#include "esphome/core/automation.h"
+#include "esphome/core/base_automation.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/preferences.h"
 
@@ -90,9 +92,21 @@ class TestSettings : public TimezoneSettings {
   Flush flush{Flush::OK};
   int stores{0};
   time_t now{JULY};
+  // What the system clock was asked to read, and whether the next ask takes.
+  std::vector<uint32_t> clock_sets;
+  bool clock_takes{true};
+
+  // The real step, for an epoch that leaves the host's clock where it is.
+  bool set_host_clock(uint32_t epoch) { return TimezoneSettings::set_system_clock_(epoch); }
 
  protected:
   time_t now_() const override { return this->now; }
+  bool set_system_clock_(uint32_t epoch) override {
+    this->clock_sets.push_back(epoch);
+    if (this->clock_takes)
+      this->now = epoch;
+    return this->clock_takes;
+  }
   bool store_(const StoredSettings &stored) override {
     this->stores++;
     if (this->flush != Flush::FAILED_RECORD_LOST)
@@ -113,6 +127,18 @@ struct Device {
   FakeClock sntp;
   FakeClock rtc;
   TestSettings settings;
+
+  // An on_clock_set automation, as rtc-time.yaml's RTC write is: what it saw each time it ran.
+  struct Run {
+    time_t now;
+    ClockSource source;
+  };
+  std::vector<Run> clock_set_runs;
+  Automation<> on_clock_set{this->settings.get_clock_set_trigger()};
+  LambdaAction<> record{[this]() {
+    this->clock_set_runs.push_back({this->settings.now, this->settings.clock_source()});
+  }};
+  Device() { this->on_clock_set.add_actions({&this->record}); }
 };
 
 class Timezone : public ::testing::Test {

@@ -87,7 +87,9 @@ boundaries; everything else is local to its file.
 - `device_timezone` (`features/rtc-time.yaml`) is the `timezone_settings` component, which
   keeps Home Assistant's zone in the `stored_timezone` global and learns of it from
   `homeassistant_time`; `display/menu-timezone.yaml` reads `zone_label()` for the Info row, and
-  `web_device_dashboard` finds it in the config for `/api/device/time`.
+  `web_device_dashboard` finds it in the config for `/api/device/time`. Its `on_clock_set`
+  writes `pcf8563_time` after the dashboard set the clock, as the `on_time_sync` of
+  `homeassistant_time` and `sntp_time` do after theirs.
 - `run_factory_reset` (a script in `features/factory-reset.yaml`) is the reset the menu's
   Factory reset runs; the same file runs it when `fn_button` (`boards/jxd-cpu-e1eth.yaml`) is
   held for 10 s, after blinking `red_led`, the `status_indicator` on the CPU board's LED.
@@ -270,6 +272,11 @@ server.
   the stored zone once. The parser in `posix_tz_parse.cpp` is a port of
   `aioesphomeapi.posix_tz`, which ESPHome runs at build time; its suite fails when the pinned
   `aioesphomeapi` parses differently.
+- `components/timezone_settings` sets the clock through a `time::RealTimeClock` subclass of its
+  own that is never registered, calling the protected `synchronize_epoch_()`: that keeps the
+  platform's `settimeofday` call and its skip within a second upstream's. It returns nothing, so
+  the component reads the clock back to tell whether it took. The `uint32_t` it takes would
+  end the range in 2106; the PCF8563's two-digit year ends it in 2100.
 - `components/automations` names entities by `fnv1_hash` of their object id and walks
   `App.get_binary_sensors()` / `get_sensors()` / `get_switches()` itself, so the hash and
   `EntityBase::get_object_id_to` are part of the on-disk rule format.

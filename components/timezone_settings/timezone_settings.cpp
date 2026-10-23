@@ -1,4 +1,5 @@
 #include "timezone_settings.h"
+#include <cinttypes>
 #include <cstring>
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
@@ -18,6 +19,8 @@ const char *clock_source_name(ClockSource source) {
       return "sntp";
     case ClockSource::RTC:
       return "rtc";
+    case ClockSource::DASHBOARD:
+      return "dashboard";
     case ClockSource::NONE:
     default:
       return nullptr;
@@ -50,6 +53,10 @@ const char *set_error_text(SetError error) {
       return "No zone was chosen yet: send 'posix' with it";
     case SetError::NOT_STORED:
       return "The time settings were not stored";
+    case SetError::TIME_OUT_OF_RANGE:
+      return "'time' must be from 1546300800 (2019-01-01) to 4102444799 (2099-12-31)";
+    case SetError::CLOCK_NOT_SET:
+      return "The clock could not be set";
     case SetError::NONE:
     default:
       return "";
@@ -95,7 +102,8 @@ void TimezoneSettings::add_clock(time::RealTimeClock *clock, ClockSource source)
   if (source == ClockSource::HOMEASSISTANT)
     this->homeassistant_clock_ = clock;
   clock->add_on_time_sync_callback([this, source]() {
-    // The RTC is re-read every few minutes; it is the source only until the network has set the clock.
+    // The RTC is re-read every few minutes; it is the source only until the network or the dashboard
+    // has set the clock.
     if (source != ClockSource::RTC || this->clock_source_ == ClockSource::NONE)
       this->clock_source_ = source;
     if (source == ClockSource::HOMEASSISTANT)
@@ -246,6 +254,30 @@ bool TimezoneSettings::store_(const StoredSettings &stored) {
 bool TimezoneSettings::flash_holds_(const StoredSettings &stored) {
   StoredSettings readback{};
   return this->pref_.load(&readback) && std::memcmp(&readback, &stored, sizeof(StoredSettings)) == 0;
+}
+
+SetError TimezoneSettings::check_clock(int64_t epoch) {
+  return epoch >= CLOCK_MIN && epoch < CLOCK_END ? SetError::NONE : SetError::TIME_OUT_OF_RANGE;
+}
+
+SetError TimezoneSettings::set_clock(int64_t epoch) {
+  if (const SetError error = check_clock(epoch); error != SetError::NONE)
+    return error;
+  if (!this->set_system_clock_(static_cast<uint32_t>(epoch))) {
+    ESP_LOGE(TAG, "The system clock did not take %" PRId64, epoch);
+    return SetError::CLOCK_NOT_SET;
+  }
+  this->clock_source_ = ClockSource::DASHBOARD;
+  ESP_LOGI(TAG, "Clock set by hand");
+  this->clock_set_trigger_.trigger();
+  return SetError::NONE;
+}
+
+// synchronize_epoch_ only logs a failure: the clock read back says whether it took.
+bool TimezoneSettings::set_system_clock_(uint32_t epoch) {
+  this->system_clock_.set(epoch);
+  const int64_t drift = static_cast<int64_t>(this->system_clock_.timestamp_now()) - epoch;
+  return drift >= -2 && drift <= 2;
 }
 
 // Upstream fires this before it sets the zone the same message carries, so the zone is read

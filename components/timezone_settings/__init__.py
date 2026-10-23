@@ -2,9 +2,11 @@
 
 Home Assistant's zone is kept across reboots in a restoring global the configuration names; a
 zone chosen at run time (web_device_dashboard's /api/device/time) in the component's own
-preference. The clocks it is handed report which of them synced last.
+preference. The clocks it is handed report which of them synced last; the clock can also be set
+by hand, which fires on_clock_set.
 """
 
+from esphome import automation
 import esphome.codegen as cg
 from esphome.components import time as time_
 from esphome.components.globals import GlobalsComponent
@@ -29,6 +31,7 @@ CONF_CLOCKS = "clocks"
 CONF_HOMEASSISTANT = "homeassistant"
 CONF_SNTP = "sntp"
 CONF_RTC = "rtc"
+CONF_ON_CLOCK_SET = "on_clock_set"
 
 # What the global must be for the component to point into it.
 ZONE_TYPES = (
@@ -106,6 +109,8 @@ CONFIG_SCHEMA = cv.All(
                     for key in CLOCK_SOURCES
                 }
             ),
+            # One automation: the trigger holds one.
+            cv.Optional(CONF_ON_CLOCK_SET): automation.validate_automation(single=True),
         }
     ).extend(cv.COMPONENT_SCHEMA),
     cv.only_on([PLATFORM_ESP32, PLATFORM_HOST]),  # host: the test suite
@@ -163,3 +168,7 @@ async def to_code(config):
     for key, clock_id in config.get(CONF_CLOCKS, {}).items():
         clock = await cg.get_variable(clock_id)
         cg.add(var.add_clock(clock, CLOCK_SOURCES[key]))
+    if CONF_ON_CLOCK_SET in config:
+        await automation.build_automation(
+            var.get_clock_set_trigger(), [], config[CONF_ON_CLOCK_SET]
+        )

@@ -3,8 +3,9 @@
 Decides which timezone the device runs on: Home Assistant's, the one compiled into the
 firmware, or one chosen at run time — over
 [`web_device_dashboard`](../web_device_dashboard/README.md)'s `/api/device/time`, which the
-dashboard's **Settings → Date & Time** uses. It also tells which clock synced the time last.
-ESP-IDF only.
+dashboard's **Settings → Date & Time** uses. It also tells which clock synced the time last,
+and sets the clock by hand over the same route, for a device with neither NTP nor Home
+Assistant. ESP-IDF only.
 
 ```yaml
 external_components:
@@ -28,6 +29,9 @@ timezone_settings:
     homeassistant: homeassistant_time
     sntp: sntp_time
     rtc: pcf8563_time
+  on_clock_set:                      # the clock was set by hand: keep the RTC in step
+    then:
+      pcf8563.write_time:
 
 time:
   - platform: homeassistant          # no timezone: here, so Home Assistant sends its own
@@ -45,6 +49,7 @@ time:
 | `timezone` | required | the zone compiled in: an IANA name or a POSIX TZ string, as `time:` takes it |
 | `homeassistant_zone` | optional | a restoring global of type `esphome::time::ParsedTimezone` that keeps Home Assistant's zone across reboots; needs `clocks: homeassistant` |
 | `clocks` | optional | the `homeassistant`, `sntp` and `rtc` time components whose syncs are reported; the `homeassistant` one also hands over Home Assistant's zone, and must have no `timezone:` |
+| `on_clock_set` | optional | one automation, run each time the clock is set by hand, after it is set |
 
 ## Which zone is in effect
 
@@ -77,6 +82,15 @@ so one that does not reach flash leaves the device as it was and says so.
 The panel's **Info → Timezone** row shows the chosen zone's city while it is in effect, and
 the offset from UTC of the zone in effect otherwise.
 
+## Setting the clock by hand
+
+The clock can be set to a UTC instant from 2019-01-01 up to the end of 2099; it takes it at
+once, and `on_clock_set` runs right after. Write the RTC there: otherwise the RTC's next read
+puts its own time back, and so does a reboot. Until Home Assistant or SNTP sets the time
+again, the clock that set it last reads as `dashboard`; the RTC's periodic read does not
+change that. That report is kept in RAM only, so after a reboot it is `rtc` again. Home
+Assistant and SNTP set the time as usual whenever they answer.
+
 ## Tests
 
 `tests/components/timezone_settings/` holds the device's POSIX parser to ESPHome's own Python
@@ -85,4 +99,5 @@ one over every zone in tzdata and a list of odd and malformed strings
 stale), and covers the mode and its storage, the upgrade from a firmware that kept only Home
 Assistant's zone, Home Assistant's zone arriving in either mode or as the mode changes, the
 question to Home Assistant when following resumes, the offset and DST it reports, the
-panel's text, and the configuration refusals.
+panel's text, the clock set by hand — its range, which clock it reports afterwards and
+`on_clock_set` — and the configuration refusals. The host's own clock is never set.
