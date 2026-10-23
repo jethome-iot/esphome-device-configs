@@ -87,9 +87,13 @@ the offset from UTC of the zone in effect otherwise.
 The clock can be set to a UTC instant from 2019-01-01 up to the end of 2099; it takes it at
 once, and `on_clock_set` runs right after. Write the RTC there: otherwise the RTC's next read
 puts its own time back, and so does a reboot. Until Home Assistant or SNTP sets the time
-again, the clock that set it last reads as `dashboard`; the RTC's periodic read does not
-change that. That report is kept in RAM only, so after a reboot it is `rtc` again. Home
-Assistant and SNTP set the time as usual whenever they answer.
+again, the clock that set it last reads as `dashboard`. The RTC's periodic read leaves that
+alone while it reads back the time that was set, give or take two seconds. A read that puts
+another time back — the write did not reach the RTC — makes it `rtc`, as it does after Home
+Assistant or SNTP set the time. That report is kept in RAM only, so after a reboot it is
+`rtc` again. Home Assistant and SNTP set the time as usual whenever they answer. What a clock
+that jumps does to the rules' cron triggers is in
+[Runtime Automations](../../doc/AUTOMATIONS.md#what-a-rule-can-do).
 
 ## Tests
 
@@ -99,5 +103,6 @@ one over every zone in tzdata and a list of odd and malformed strings
 stale), and covers the mode and its storage, the upgrade from a firmware that kept only Home
 Assistant's zone, Home Assistant's zone arriving in either mode or as the mode changes, the
 question to Home Assistant when following resumes, the offset and DST it reports, the
-panel's text, the clock set by hand — its range, which clock it reports afterwards and
-`on_clock_set` — and the configuration refusals. The host's own clock is never set.
+panel's text, the clock set by hand — its range, which clock it reports afterwards, an RTC
+that puts its own time back, and `on_clock_set` — and the configuration refusals. The host's
+own clock is never set.

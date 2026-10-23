@@ -1255,8 +1255,8 @@ paths:
         that has neither NTP nor Home Assistant; the configs in this repository
         write the RTC with it too. `clock_source` is then `dashboard` until Home
         Assistant or SNTP sets the time, which they do as usual whenever they
-        answer; after a reboot it is `rtc` again. A `time` within a second of
-        the clock leaves it as it is.
+        answer, or the RTC reads back a time of its own; after a reboot it is
+        `rtc` again. A `time` within a second of the clock leaves it as it is.
 
         Keys other than these four are ignored, but at least one of them must
         be there; they may come in any combination. Everything in the body is
@@ -2729,8 +2729,9 @@ components:
           description: >-
             The network clock whose sync came last, Home Assistant's or SNTP, or
             `dashboard` when the time was set over `POST /time` since; `rtc`, the
-            battery-backed clock, until one of them has set the time since boot;
-            `null` until any has.
+            battery-backed clock, until one of them has set the time since boot,
+            or once it reads back another time than the one they set (writing it
+            failed); `null` until any has.
         follow_homeassistant:
           type: boolean
           description: The device follows Home Assistant's zone rather than the chosen one.

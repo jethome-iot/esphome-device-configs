@@ -4,6 +4,9 @@ namespace esphome::timezone_settings::testing {
 
 // 2026-07-15 13:00 UTC: an hour after the instant the fixture's clock reads.
 static const time_t JULY_LATER = JULY + 3600;
+// rtc-time.yaml's RTC update_interval, in milliseconds and in seconds.
+static const uint32_t RTC_INTERVAL_MS = 15 * 60 * 1000;
+static const time_t RTC_INTERVAL = RTC_INTERVAL_MS / 1000;
 
 TEST_F(Timezone, SettingTheClockPutsThatEpochOnIt) {
   TestSettings &settings = this->boot();
@@ -94,6 +97,101 @@ TEST_F(Timezone, TheDashboardIsTheSourceUntilANetworkClockSyncs) {
   this->device().homeassistant.sync();
   EXPECT_EQ(settings.clock_source(), ClockSource::HOMEASSISTANT);
   this->loop();
+}
+
+TEST_F(Timezone, AnRtcThatReadsBackTheSetTimeLeavesTheDashboard) {
+  TestSettings &settings = this->boot();
+  this->device().rtc.sync();
+  ASSERT_EQ(settings.set_clock(JULY_LATER), SetError::NONE);
+  settings.ms += RTC_INTERVAL_MS;
+  this->rtc_reads(JULY_LATER + RTC_INTERVAL);
+  EXPECT_EQ(settings.clock_source(), ClockSource::DASHBOARD);
+  // Two seconds either way are the same time: the chip and the clock both count whole seconds.
+  settings.ms += RTC_INTERVAL_MS;
+  this->rtc_reads(JULY_LATER + 2 * RTC_INTERVAL + 2);
+  EXPECT_EQ(settings.clock_source(), ClockSource::DASHBOARD);
+  settings.ms += RTC_INTERVAL_MS;
+  this->rtc_reads(JULY_LATER + 3 * RTC_INTERVAL);
+  EXPECT_EQ(settings.clock_source(), ClockSource::DASHBOARD);
+  EXPECT_FALSE(LogCapture::instance().has("The RTC reads"));
+}
+
+// The write on_clock_set made did not reach the RTC, so its next read puts the old time back.
+TEST_F(Timezone, AnRtcThatPutsItsOwnTimeBackIsTheSource) {
+  TestSettings &settings = this->boot();
+  this->device().rtc.sync();
+  ASSERT_EQ(settings.set_clock(JULY_LATER), SetError::NONE);
+  settings.ms += RTC_INTERVAL_MS;
+  this->rtc_reads(JULY + RTC_INTERVAL);
+  EXPECT_EQ(settings.clock_source(), ClockSource::RTC);
+  EXPECT_TRUE(LogCapture::instance().has("The RTC reads -3600 s off the time dashboard set"));
+  settings.ms += RTC_INTERVAL_MS;
+  this->rtc_reads(JULY + 2 * RTC_INTERVAL);
+  EXPECT_EQ(settings.clock_source(), ClockSource::RTC);
+  ASSERT_EQ(settings.set_clock(JULY_LATER), SetError::NONE);
+  EXPECT_EQ(settings.clock_source(), ClockSource::DASHBOARD);
+}
+
+TEST_F(Timezone, ThreeSecondsOffIsAnotherTime) {
+  for (const time_t off : {time_t{-3}, time_t{3}}) {
+    TestSettings &settings = this->boot();
+    ASSERT_EQ(settings.set_clock(JULY_LATER), SetError::NONE);
+    settings.ms += RTC_INTERVAL_MS;
+    this->rtc_reads(JULY_LATER + RTC_INTERVAL + off);
+    EXPECT_EQ(settings.clock_source(), ClockSource::RTC) << off;
+  }
+}
+
+// About 49.7 days up, millis() starts over from 0 between the set and the read.
+TEST_F(Timezone, AMillisWrapBetweenTheSetAndTheReadCountsRight) {
+  TestSettings &settings = this->boot();
+  settings.ms = UINT32_MAX - 1000;
+  ASSERT_EQ(settings.set_clock(JULY_LATER), SetError::NONE);
+  settings.ms += RTC_INTERVAL_MS;
+  ASSERT_LT(settings.ms, RTC_INTERVAL_MS);
+  this->rtc_reads(JULY_LATER + RTC_INTERVAL);
+  EXPECT_EQ(settings.clock_source(), ClockSource::DASHBOARD);
+
+  TestSettings &failed = this->boot();
+  failed.ms = UINT32_MAX - 1000;
+  ASSERT_EQ(failed.set_clock(JULY_LATER), SetError::NONE);
+  failed.ms += RTC_INTERVAL_MS;
+  this->rtc_reads(JULY + RTC_INTERVAL);
+  EXPECT_EQ(failed.clock_source(), ClockSource::RTC);
+}
+
+// The RTC's crystal and the one millis() counts drift apart; a second per read never adds up.
+TEST_F(Timezone, AnRtcDriftingASecondEachReadStaysTheSetTime) {
+  TestSettings &settings = this->boot();
+  ASSERT_EQ(settings.set_clock(JULY_LATER), SetError::NONE);
+  time_t rtc = JULY_LATER;
+  for (int read = 0; read < 10; read++) {
+    settings.ms += RTC_INTERVAL_MS;
+    rtc += RTC_INTERVAL + 1;
+    this->rtc_reads(rtc);
+    EXPECT_EQ(settings.clock_source(), ClockSource::DASHBOARD) << read;
+  }
+}
+
+// Home Assistant's and SNTP's syncs write the RTC too, and that write can fail the same way.
+TEST_F(Timezone, AnRtcThatPutsItsOwnTimeBackAfterTheNetworkIsTheSource) {
+  TestSettings &settings = this->boot();
+  for (const ClockSource source : {ClockSource::SNTP, ClockSource::HOMEASSISTANT}) {
+    FakeClock &clock = source == ClockSource::SNTP ? this->device().sntp : this->device().homeassistant;
+    settings.now = JULY;
+    clock.sync();
+    ASSERT_EQ(settings.clock_source(), source);
+    settings.ms += RTC_INTERVAL_MS;
+    this->rtc_reads(JULY + RTC_INTERVAL);
+    EXPECT_EQ(settings.clock_source(), source) << clock_source_name(source);
+    // That sync's write failed: the RTC goes on from the time it held before.
+    settings.now = JULY_LATER;
+    clock.sync();
+    settings.ms += RTC_INTERVAL_MS;
+    this->rtc_reads(JULY + 2 * RTC_INTERVAL);
+    EXPECT_EQ(settings.clock_source(), ClockSource::RTC) << clock_source_name(source);
+    this->loop();
+  }
 }
 
 TEST_F(Timezone, ASetClockIsForgottenAtTheReboot) {

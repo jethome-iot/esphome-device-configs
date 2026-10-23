@@ -10,6 +10,9 @@ namespace esphome::timezone_settings {
 
 static const char *const TAG = "timezone_settings";
 static const char *const HOMEASSISTANT_ZONE_READ = "homeassistant-zone";
+// How far apart, in seconds, two readings of the clock still count as the same time: each is
+// cut to whole seconds.
+static const int64_t CLOCK_SLACK = 2;
 
 const char *clock_source_name(ClockSource source) {
   switch (source) {
@@ -102,13 +105,39 @@ void TimezoneSettings::add_clock(time::RealTimeClock *clock, ClockSource source)
   if (source == ClockSource::HOMEASSISTANT)
     this->homeassistant_clock_ = clock;
   clock->add_on_time_sync_callback([this, source]() {
-    // The RTC is re-read every few minutes; it is the source only until the network or the dashboard
-    // has set the clock.
-    if (source != ClockSource::RTC || this->clock_source_ == ClockSource::NONE)
+    if (source == ClockSource::RTC) {
+      this->on_rtc_read_();
+    } else {
       this->clock_source_ = source;
+      this->mark_clock_set_(this->now_());
+    }
     if (source == ClockSource::HOMEASSISTANT)
       this->on_homeassistant_sync_();
   });
+}
+
+void TimezoneSettings::mark_clock_set_(int64_t epoch) {
+  this->set_epoch_ = epoch;
+  this->set_millis_ = this->millis_();
+}
+
+// The RTC is re-read every few minutes; it is the source only until the network or the dashboard
+// has set the clock, or once a read puts back a time other than theirs: its write failed.
+void TimezoneSettings::on_rtc_read_() {
+  if (this->clock_source_ != ClockSource::NONE && this->clock_source_ != ClockSource::RTC) {
+    const int64_t now = this->now_();
+    // Unsigned, so a millis() wrap in between counts right.
+    const uint32_t elapsed_ms = this->millis_() - this->set_millis_;
+    const int64_t off = now - (this->set_epoch_ + elapsed_ms / 1000);
+    if (off >= -CLOCK_SLACK && off <= CLOCK_SLACK) {
+      // Counted from here on, so the two crystals' drift never adds up past the slack.
+      this->mark_clock_set_(now);
+      return;
+    }
+    ESP_LOGW(TAG, "The RTC reads %+" PRId64 " s off the time %s set; it was not written", off,
+             clock_source_name(this->clock_source_));
+  }
+  this->clock_source_ = ClockSource::RTC;
 }
 
 void TimezoneSettings::setup() {
@@ -268,6 +297,7 @@ SetError TimezoneSettings::set_clock(int64_t epoch) {
     return SetError::CLOCK_NOT_SET;
   }
   this->clock_source_ = ClockSource::DASHBOARD;
+  this->mark_clock_set_(epoch);
   ESP_LOGI(TAG, "Clock set by hand");
   this->clock_set_trigger_.trigger();
   return SetError::NONE;
@@ -277,7 +307,7 @@ SetError TimezoneSettings::set_clock(int64_t epoch) {
 bool TimezoneSettings::set_system_clock_(uint32_t epoch) {
   this->system_clock_.set(epoch);
   const int64_t drift = static_cast<int64_t>(this->system_clock_.timestamp_now()) - epoch;
-  return drift >= -2 && drift <= 2;
+  return drift >= -CLOCK_SLACK && drift <= CLOCK_SLACK;
 }
 
 // Upstream fires this before it sets the zone the same message carries, so the zone is read

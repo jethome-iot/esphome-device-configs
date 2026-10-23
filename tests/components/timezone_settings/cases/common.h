@@ -92,6 +92,8 @@ class TestSettings : public TimezoneSettings {
   Flush flush{Flush::OK};
   int stores{0};
   time_t now{JULY};
+  // What millis() reads; moved by hand, apart from `now`.
+  uint32_t ms{0};
   // What the system clock was asked to read, and whether the next ask takes.
   std::vector<uint32_t> clock_sets;
   bool clock_takes{true};
@@ -101,6 +103,7 @@ class TestSettings : public TimezoneSettings {
 
  protected:
   time_t now_() const override { return this->now; }
+  uint32_t millis_() const override { return this->ms; }
   bool set_system_clock_(uint32_t epoch) override {
     this->clock_sets.push_back(epoch);
     if (this->clock_takes)
@@ -183,6 +186,12 @@ class Timezone : public ::testing::Test {
     this->device().homeassistant.sync();
     if (zone != nullptr)
       time::set_global_tz(*zone);
+  }
+
+  // A read of the RTC: like a PCF8563's, it puts the chip's time @p at on the clock, then syncs.
+  void rtc_reads(time_t at) {
+    this->device().settings.now = at;
+    this->device().rtc.sync();
   }
 
   static bool in_effect(const time::ParsedTimezone &zone) { return same_zone(time::get_global_tz(), zone); }

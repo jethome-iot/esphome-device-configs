@@ -9,6 +9,7 @@
 #include "esphome/components/time/real_time_clock.h"
 #include "esphome/core/automation.h"
 #include "esphome/core/component.h"
+#include "esphome/core/hal.h"
 #include "esphome/core/optional.h"
 #include "esphome/core/preferences.h"
 
@@ -111,7 +112,8 @@ class TimezoneSettings : public Component {
   /// Why the clock could not be set to @p epoch (UTC), or NONE.
   static SetError check_clock(int64_t epoch);
   /// Sets the system clock to @p epoch, reports the dashboard as its source until another clock
-  /// syncs, and fires on_clock_set. RAM only. Call it on the loop task.
+  /// syncs or the RTC reads back a time of its own, and fires on_clock_set. RAM only. Call it on
+  /// the loop task.
   SetError set_clock(int64_t epoch);
   Trigger<> *get_clock_set_trigger() { return &this->clock_set_trigger_; }
 
@@ -128,6 +130,8 @@ class TimezoneSettings : public Component {
  protected:
   /// The clock; virtual so the tests can set the instant.
   virtual time_t now_() const { return ::time(nullptr); }
+  /// millis(); virtual so the tests can move it, past its wrap too.
+  virtual uint32_t millis_() const { return millis(); }
   // Puts the record in flash and flushes it; false when the flush reported a failure. Virtual so
   // the host tests can watch a store fail: the backend takes every write.
   virtual bool store_(const StoredSettings &stored);
@@ -137,6 +141,8 @@ class TimezoneSettings : public Component {
   virtual bool set_system_clock_(uint32_t epoch);
   bool homeassistant_zone_known_() const;
   void apply_();
+  void mark_clock_set_(int64_t epoch);
+  void on_rtc_read_();
   void on_homeassistant_sync_();
   void after_homeassistant_sync_();
 
@@ -153,6 +159,10 @@ class TimezoneSettings : public Component {
   Zone chosen_;
   time::ParsedTimezone chosen_parsed_{};
   ClockSource clock_source_{ClockSource::NONE};
+  // What the network or the dashboard last put on the clock, and millis() then: the RTC reads
+  // back the same time unless writing it failed.
+  int64_t set_epoch_{0};
+  uint32_t set_millis_{0};
   time::RealTimeClock *homeassistant_clock_{nullptr};
   // The zone in force when Home Assistant's sync fired: not following, a different one after it
   // is the zone it sent.
