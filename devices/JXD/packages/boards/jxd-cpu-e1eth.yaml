@@ -8,6 +8,8 @@ esp32:
     sdkconfig_options:
       CONFIG_COMPILER_OPTIMIZATION_SPEED: y
       CONFIG_D0WD_PSRAM_CLK_IO: "6"
+      # ESP-IDF's default of one drops all but the first SNTP server rtc-time.yaml lists.
+      CONFIG_LWIP_SNTP_MAX_SERVERS: "3"
 
 psram:
   mode: quad
