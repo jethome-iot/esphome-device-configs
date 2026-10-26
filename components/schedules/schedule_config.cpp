@@ -119,19 +119,27 @@ bool check_value(const ScheduleConfig &config, const Point &point, std::string *
   return true;
 }
 
-// The point's clock and value, the value checked against the target read before.
-bool read_point(JsonVariantConst item, uint8_t day, ScheduleConfig *config, Point *out, std::string *error) {
+// The point's clock, then whether the day has it already, then its value, checked against the
+// target read before: the editor's order, so a form names the same fault the device does.
+bool read_point(JsonVariantConst item, uint8_t day, size_t day_start, ScheduleConfig *config, Point *out,
+                std::string *error) {
+  const std::string title = DAY_TITLES[day];
+  if (!item.is<JsonObjectConst>())
+    return fail(error, title + ": a switch point must be an object");
   uint16_t minute;
   if (!item["at"].is<const char *>() || !parse_hhmm(item["at"].as<const char *>(), &minute))
-    return fail(error, std::string(DAY_TITLES[day]) + ": at must be HH:MM from 00:00 to 23:59");
+    return fail(error, title + ": at must be HH:MM from 00:00 to 23:59");
   out->minute_of_week = static_cast<uint16_t>(day * MINUTES_PER_DAY + minute);
+  const auto &points = config->points;
+  if (std::any_of(points.begin() + day_start, points.end(),
+                  [out](const Point &p) { return p.minute_of_week == out->minute_of_week; }))
+    return fail(error, title + ": " + format_hhmm(minute) + " is there twice");
   const std::string at = point_at(out->minute_of_week);
   JsonObjectConst value = item["value"].as<JsonObjectConst>();
-  if (value.isNull())
-    return fail(error, at + "value is required");
   const std::string type = text_of(value["type"]);
+  // A value without a type says nothing more than none at all.
   if (type.empty())
-    return fail(error, at + "value.type is required");
+    return fail(error, at + "value is required");
   if (!value_type_from_string(type, &out->type))
     return fail(error, at + "unknown value type \"" + type + "\"");
   if (!check_fit(config->target_type, out->type, at, error))
@@ -363,23 +371,18 @@ bool ScheduleConfig::deserialize(JsonObjectConst root, bool require_id, std::str
       continue;
     const std::string title = DAY_TITLES[day];
     if (!list.is<JsonArrayConst>())
-      return fail(error, title + " must be a list");
+      return fail(error, title + ": switch points must be a list");
     JsonArrayConst items = list.as<JsonArrayConst>();
     if (items.size() > MAX_POINTS_PER_DAY)
       return fail(error, title + ": at most 12 switch points a day");
     const size_t first = this->points.size();
     for (JsonVariantConst item : items) {
       Point point;
-      if (!read_point(item, day, this, &point, error))
+      if (!read_point(item, day, first, this, &point, error))
         return false;
       this->points.push_back(point);
     }
     std::stable_sort(this->points.begin() + first, this->points.end(), by_minute);
-    for (size_t i = first + 1; i < this->points.size(); i++) {
-      if (this->points[i].minute_of_week == this->points[i - 1].minute_of_week)
-        return fail(error,
-                    title + ": " + format_hhmm(this->points[i].minute_of_week % MINUTES_PER_DAY) + " is there twice");
-    }
   }
   if (this->points.empty())
     return fail(error, "A schedule needs at least one switch point");

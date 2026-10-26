@@ -97,6 +97,34 @@ TEST_F(Targets, APresetThatGoesAndComesBack) {
   EXPECT_FLOAT_EQ(17.f, stored(id).setpoint);
 }
 
+// The editor names the first missing in the week, whatever order the body listed them in.
+TEST_F(Targets, TheFirstMissingPresetOfTheWeekIsNamed) {
+  const std::string id = this->add_thermostat(thermostat());
+  this->boot(at_local(0, 9, 0));
+  ScheduleConfig doc;
+  std::string error;
+  ASSERT_TRUE(from_json(R"({"name":"Heat","target":{"type":"thermostat","id":")" + id +
+                            R"("},"week":{"mon":[{"at":"08:00","value":{"type":"preset","preset":"night"}},)"
+                            R"({"at":"06:00","value":{"type":"preset","preset":"dawn"}}]}})",
+                        &doc, &error))
+      << error;
+  Result created = this->create(doc);
+  EXPECT_EQ("not running: thermostat \"Living room\" has no preset \"dawn\"", created.warning);
+  EXPECT_EQ(ScheduleState::MISSING_PRESET, this->state("heat"));
+}
+
+// Without a valid clock nothing runs, and that comes first: before a target that is missing.
+TEST_F(Targets, WaitingForTheClockComesBeforeAMissingTarget) {
+  this->boot();
+  this->create(daily("Attic", "relay_7"));
+  ScheduleStatus status = this->engine->status("attic");
+  EXPECT_EQ(ScheduleState::WAITING_FOR_CLOCK, status.state);
+  EXPECT_EQ("Waiting for the clock", status.reason);
+  this->engine->local = at_local(0, 9, 0);
+  this->engine->tick();
+  EXPECT_EQ(ScheduleState::MISSING_TARGET, this->state("attic"));
+}
+
 TEST_F(Targets, OneEnabledSchedulePerTarget) {
   this->boot(at_local(0, 9, 0));
   this->create(daily("Porch"));

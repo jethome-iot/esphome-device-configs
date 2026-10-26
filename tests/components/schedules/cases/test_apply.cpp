@@ -145,6 +145,18 @@ TEST_F(Apply, ARunningThermostatHasNoNote) {
   EXPECT_EQ("", this->engine->status("heat").note);
 }
 
+// Enabled but waiting for its sensor is not stopped: it runs, in the scheduled values, once the
+// sensor comes.
+TEST_F(Apply, AThermostatThatWaitsForItsSensorHasNoNote) {
+  climate_hub::ClimateConfig waiting = thermostat();
+  waiting.sensor_id = "nowhere";
+  const std::string id = this->add_thermostat(waiting);
+  ASSERT_FALSE(hub().is_running(id));
+  this->start(at_local(0, 9, 0), thermostat_doc("Heat", id.c_str(), {preset_at(wm(0, 6, 0), "eco")}));
+  EXPECT_EQ(ScheduleState::RUNNING, this->state("heat"));
+  EXPECT_EQ("", this->engine->status("heat").note);
+}
+
 TEST_F(Apply, AScheduledChangeEndsACalibration) {
   climate_hub::ClimateConfig pid = thermostat();
   pid.kind = climate_hub::ControlKind::PID;

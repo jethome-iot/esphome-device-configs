@@ -505,8 +505,10 @@ ScheduleState ScheduleEngine::check_target_(const ScheduleConfig &config, std::s
       *reason = "Thermostat \"" + config.target_id + "\" is not on this device";
       return ScheduleState::MISSING_TARGET;
     }
-    for (const std::string &key : config.preset_keys) {
-      if (thermostat->find_preset(key) == nullptr) {
+    // The first missing in the week, as the editor names it, whatever order the body listed them in.
+    for (const Point &point : config.points) {
+      const std::string &key = config.preset_of(point);
+      if (!key.empty() && thermostat->find_preset(key) == nullptr) {
         *reason = "Thermostat \"" + thermostat->name + "\" has no preset \"" + key + "\"";
         return ScheduleState::MISSING_PRESET;
       }
@@ -549,6 +551,12 @@ ScheduleStatus ScheduleEngine::status(const std::string &id) const {
   const Entry *entry = this->find_(id);
   if (entry == nullptr || !entry->config.enabled)
     return status;
+  // Before anything else: nothing runs without the clock, and the editor's order says so first.
+  if (!this->clock_valid_) {
+    status.state = ScheduleState::WAITING_FOR_CLOCK;
+    status.reason = "Waiting for the clock";
+    return status;
+  }
   if (entry->missing != ScheduleState::RUNNING) {
     status.state = entry->missing;
     // Worded now, with the thermostat's name as it is now.
@@ -563,11 +571,6 @@ ScheduleStatus ScheduleEngine::status(const std::string &id) const {
     status.reason = "Schedule \"" + winner->config.name + "\" drives this target";
     return status;
   }
-  if (!this->clock_valid_) {
-    status.state = ScheduleState::WAITING_FOR_CLOCK;
-    status.reason = "Waiting for the clock";
-    return status;
-  }
   status.state = ScheduleState::RUNNING;
 #ifdef USE_SWITCH
   if (entry->relay != nullptr) {
@@ -580,10 +583,12 @@ ScheduleStatus ScheduleEngine::status(const std::string &id) const {
   }
 #endif
 #ifdef USE_CLIMATE_HUB
-  if (entry->config.target_type == TargetType::THERMOSTAT && global_climate_hub != nullptr &&
-      !global_climate_hub->is_running(entry->config.target_id))
-    status.note =
-        "Thermostat \"" + this->target_name(entry->config) + "\" is stopped; it starts in the scheduled values";
+  // Switched off, not merely waiting for its sensor or a relay: that one runs once they come.
+  if (entry->config.target_type == TargetType::THERMOSTAT && global_climate_hub != nullptr) {
+    const climate_hub::ClimateConfig *thermostat = global_climate_hub->store().get(entry->config.target_id);
+    if (thermostat != nullptr && !thermostat->enabled)
+      status.note = "Thermostat \"" + thermostat->name + "\" is stopped; it starts in the scheduled values";
+  }
 #endif
   return status;
 }

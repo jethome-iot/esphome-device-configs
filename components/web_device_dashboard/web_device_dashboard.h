@@ -94,6 +94,7 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   void set_files_url_prefix(const char *prefix) { this->files_url_prefix_ = prefix; }
   void set_automations_url_prefix(const char *prefix) { this->automations_url_prefix_ = prefix; }
   void set_climates_url_prefix(const char *prefix) { this->climates_url_prefix_ = prefix; }
+  void set_schedules_url_prefix(const char *prefix) { this->schedules_url_prefix_ = prefix; }
 
   bool canHandle(AsyncWebServerRequest *request) const override;
   void handleRequest(AsyncWebServerRequest *request) override;
@@ -190,6 +191,7 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   const char *files_url_prefix_{nullptr};
   const char *automations_url_prefix_{nullptr};
   const char *climates_url_prefix_{nullptr};
+  const char *schedules_url_prefix_{nullptr};
   // How long the answer is given to leave the socket before the device stops serving it. A
   // member so the tests can drop it and run the deferred work in the same loop call.
   uint32_t action_delay_ms_{500};

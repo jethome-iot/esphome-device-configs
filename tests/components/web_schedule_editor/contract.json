@@ -3338,6 +3338,121 @@
       "error": "Name cannot contain control characters"
     },
     {
+      "name": "A name with a C1 control character is 400 too",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Porchlight",
+        "enabled": true,
+        "target": {
+          "type": "relay",
+          "id": "relay_3"
+        },
+        "week": {
+          "mon": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "tue": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "wed": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "thu": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "fri": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "sat": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "sun": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ]
+        }
+      },
+      "status": 400,
+      "error": "Name cannot contain control characters"
+    },
+    {
       "name": "A name with a slash is 400",
       "method": "POST",
       "path": "save",
@@ -4120,6 +4235,37 @@
       "error": "Mon: 06:30 is there twice"
     },
     {
+      "name": "A time a day has already is refused before the point's value is read",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Porch",
+        "enabled": true,
+        "target": {
+          "type": "relay",
+          "id": "relay_3"
+        },
+        "week": {
+          "mon": [
+            {
+              "at": "06:30",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "06:30",
+              "value": {
+                "type": "heat"
+              }
+            }
+          ]
+        }
+      },
+      "status": 400,
+      "error": "Mon: 06:30 is there twice"
+    },
+    {
       "name": "A week without a point is 400",
       "method": "POST",
       "path": "save",
@@ -4153,6 +4299,29 @@
           "mon": [
             {
               "at": "06:30"
+            }
+          ]
+        }
+      },
+      "status": 400,
+      "error": "Mon 06:30: value is required"
+    },
+    {
+      "name": "A value without a type is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Porch",
+        "enabled": true,
+        "target": {
+          "type": "relay",
+          "id": "relay_3"
+        },
+        "week": {
+          "mon": [
+            {
+              "at": "06:30",
+              "value": {}
             }
           ]
         }

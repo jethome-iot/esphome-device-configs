@@ -61,7 +61,11 @@ WEB_SERVER_PATHS = frozenset(
 DASHBOARD_API = ("api", "device")
 
 # The other handlers whose routes lie below a url_prefix of their own.
-PREFIXED_COMPONENTS = ("web_file_browser", "web_automation_editor")
+PREFIXED_COMPONENTS = (
+    "web_file_browser",
+    "web_automation_editor",
+    "web_schedule_editor",
+)
 
 
 def url_prefix(value):

@@ -56,6 +56,7 @@ import {
 } from '../types'
 import type { FetchImpl } from '../scheduleApi'
 import {
+  conflictError,
   decodeSchedule,
   formatHHMM,
   inForce,
@@ -462,9 +463,12 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
   const losers = () => new Set(entries.filter(isLoser).map((e) => e.doc.id))
 
   // The ones that waited behind another schedule before a change and drive their target
-  // after it, by id; `self` is the one the change was about.
+  // after it, by id; `self` is the one the change was about. One whose target or preset is
+  // not on the device drives nothing, so it is not named.
   function promoted(before: Set<string>, self?: Entry): string[] {
-    return entries.filter((e) => e !== self && before.has(e.doc.id) && !isLoser(e)).map((e) => e.doc.id)
+    return entries
+      .filter((e) => e !== self && before.has(e.doc.id) && !isLoser(e) && !missingOf(e.doc))
+      .map((e) => e.doc.id)
   }
 
   function startedNote(ids: string[]): string {
@@ -588,7 +592,7 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
   function conflictOf(doc: ScheduleDocument): MockResult | undefined {
     const driver = driverOf(keyOf(doc))
     if (!driver || driver.doc.id === doc.id) return undefined
-    return fail(409, `"${driver.doc.name}" already drives ${targetName(doc)}; switch it off first or take over`)
+    return fail(409, conflictError(driver.doc.name, targetName(doc)))
   }
 
   function readBody(body: string): { value: unknown } | MockResult {
@@ -717,7 +721,7 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
       return ok('Schedule enabled' + (warning ? `; ${warning}` : ''), { persisted: true, ...(warning ? { warning } : {}) })
     }
     if (driver && !takeOver) {
-      return fail(409, `"${driver.doc.name}" already drives ${targetName(e.doc)}; switch it off first or take over`)
+      return fail(409, conflictError(driver.doc.name, targetName(e.doc)))
     }
     // A take-over stores every other enabled one on the target disabled.
     const stopped = entries.filter((o) => o !== e && o.doc.enabled && keyOf(o.doc) === key)

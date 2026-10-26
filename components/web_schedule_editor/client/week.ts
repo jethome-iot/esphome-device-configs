@@ -181,7 +181,8 @@ export function uniqueId(base: string, taken: ReadonlyArray<string>): string {
 
 // A surrogate without its pair: what a string holds where its UTF-8 would be broken.
 const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/
-const CONTROL = /[\u0000-\u001f\u007f]/
+// C0, DEL and C1: none of them prints, on the display or in a list.
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/
 
 /**
  * Why the device would refuse `name` whatever other schedules are called, in its words, or ''.
@@ -208,7 +209,36 @@ export function nameError(name: string, id: string, existing: ReadonlyArray<{ id
   if (broken) return broken
   const key = nameKey(name)
   const clash = existing.some((other) => other.id !== id && nameKey(other.name) === key)
-  return clash ? `"${trimName(name)}" is already used by another schedule` : ''
+  return clash ? nameTakenError(trimName(name)) : ''
+}
+
+// --- The device's refusals a page acts on ---------------------------------------
+// Built here and matched here, so the mock, the page and the firmware's sentences cannot drift
+// apart: the contract checks the mock's answers, which come from these builders, against the
+// device's.
+
+/** The 409 of a Save, an import or an enable without take_over: `holder` drives `target` already. */
+export function conflictError(holder: string, target: string): string {
+  return `"${holder}" already drives ${target}; switch it off first or take over`
+}
+
+const CONFLICT = /^"(.*)" already drives .*; switch it off first or take over$/s
+
+/** The name of the schedule a conflictError() says drives the target, or null for any other message. */
+export function conflictHolder(message: string): string | null {
+  return CONFLICT.exec(message)?.[1] ?? null
+}
+
+/** The 409 of a name another schedule has, ignoring ASCII case and runs of spaces. */
+export function nameTakenError(name: string): string {
+  return `"${name}" is already used by another schedule`
+}
+
+const NAME_TAKEN = /^".*" is already used by another schedule$/s
+
+/** Whether `message` is a nameTakenError(). */
+export function isNameTaken(message: string): boolean {
+  return NAME_TAKEN.test(message)
 }
 
 // --- The document ------------------------------------------------------------

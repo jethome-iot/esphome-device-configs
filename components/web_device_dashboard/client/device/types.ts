@@ -319,6 +319,8 @@ export interface Capabilities {
   automations?: { url_prefix: string }
   /** Present when the firmware serves the thermostat API the Climate screens use. */
   climates?: { url_prefix: string }
+  /** Present when the firmware serves the schedule API the Schedules screens use. */
+  schedules?: { url_prefix: string }
   /** Present with a `config_json` store; `types` are the keys `/entity-settings` takes. */
   entity_settings?: { types: string[] }
   /** The CPU board's EEPROM identity is in `/info`. */

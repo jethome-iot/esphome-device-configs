@@ -1,6 +1,7 @@
 // A firmware without climate_hub: a relay schedule runs, a thermostat target is missing and
-// says why, and no thermostat is offered.
+// says why, and no thermostat is offered, by the engine or over HTTP.
 #include <gtest/gtest.h>
+#include <ArduinoJson.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -11,6 +12,7 @@
 #include "esphome/components/schedules/schedule_engine.h"
 #include "esphome/components/schedules/week_clock.h"
 #include "esphome/components/switch/switch.h"
+#include "esphome/components/web_schedule_editor/web_schedule_editor.h"
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
 
@@ -131,6 +133,75 @@ TEST_F(NoClimate, NoThermostatIsOffered) {
   const std::vector<RelayTarget> relays = this->engine_->relay_targets();
   ASSERT_EQ(1u, relays.size());
   EXPECT_EQ("relay_1", relays[0].object_id);
+}
+
+// --- over HTTP ---
+
+namespace {
+
+class NoClimateEditor : public NoClimate {
+ protected:
+  void SetUp() override {
+    NoClimate::SetUp();
+    this->editor_ = std::make_unique<web_schedule_editor::WebScheduleEditor>(&this->base_, this->engine_);
+    this->editor_->setup();
+  }
+  // @p route below the API, with its query; the answer's status into @p code.
+  JsonDocument call(http_method method, const std::string &route, const std::string &body, int *code) {
+    AsyncWebServerRequest request(method, "/schedule-editor/api/" + route, body, "application/json");
+    EXPECT_TRUE(this->base_.get_server()->dispatch(request)) << route;
+    *code = request.response_code;
+    JsonDocument doc;
+    EXPECT_EQ(deserializeJson(doc, request.response_body), DeserializationError::Ok) << request.response_body;
+    return doc;
+  }
+
+  web_server_base::WebServerBase base_;
+  std::unique_ptr<web_schedule_editor::WebScheduleEditor> editor_;
+};
+
+}  // namespace
+
+TEST_F(NoClimateEditor, TargetsOffersTheRelaysAndNoThermostat) {
+  int code = 0;
+  JsonDocument targets = this->call(HTTP_GET, "targets", "", &code);
+  EXPECT_EQ(200, code);
+  ASSERT_TRUE(targets["thermostats"].is<JsonArray>());
+  EXPECT_EQ(0u, targets["thermostats"].size());
+  ASSERT_EQ(1u, targets["relays"].size());
+  EXPECT_EQ("relay_1", targets["relays"][0]["object_id"].as<std::string>());
+}
+
+TEST_F(NoClimateEditor, AThermostatScheduleIsSavedAndSaysWhyItDoesNotRun) {
+  int code = 0;
+  JsonDocument saved = this->call(HTTP_POST, "save",
+                                  R"({"name":"Heat","target":{"type":"thermostat","id":"living-room"},)"
+                                  R"("week":{"mon":[{"at":"07:00","value":{"type":"target","target":21}}]}})",
+                                  &code);
+  EXPECT_EQ(200, code);
+  EXPECT_EQ("Schedule created; not running: this device has no thermostats", saved["message"].as<std::string>());
+  EXPECT_EQ("not running: this device has no thermostats", saved["warning"].as<std::string>());
+  this->engine_->local = monday_nine();
+  this->engine_->tick();
+  JsonDocument list = this->call(HTTP_GET, "list", "", &code);
+  EXPECT_EQ(200, code);
+  JsonObject row = list["schedules"][0];
+  EXPECT_EQ("missing_target", row["status"]["state"].as<std::string>());
+  EXPECT_EQ("This device has no thermostats", row["status"]["reason"].as<std::string>());
+  EXPECT_EQ("living-room", row["target"]["name"].as<std::string>());
+}
+
+TEST_F(NoClimateEditor, ARelayScheduleRunsOverHttp) {
+  this->engine_->local = monday_nine();
+  this->engine_->tick();
+  int code = 0;
+  JsonDocument saved = this->call(HTTP_POST, "save",
+                                  R"({"name":"Morning","target":{"type":"relay","id":"relay_1"},)"
+                                  R"("week":{"mon":[{"at":"08:00","value":{"type":"on"}}]}})",
+                                  &code);
+  EXPECT_EQ(200, code);
+  EXPECT_EQ("Schedule created", saved["message"].as<std::string>());
+  EXPECT_TRUE(relay1().state);
 }
 
 }  // namespace esphome::schedules::testing

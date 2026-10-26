@@ -136,12 +136,12 @@ not be read; every change is then refused with 500.
 
 - `schedules()`, `get(id)`: the documents, sorted by id; `document(id)`: one as its file holds
   it, which `deserialize()` and `restore()` take back; `max_schedules()`
-- `status(id)`: `state` (`disabled`, `waiting_for_clock`, `missing_target`, `missing_preset`,
-  `conflict`, `held`, `running`; `state_to_string()`), the `reason` it does not drive its target
-  (`Waiting for the clock`, `Relay "relay_7" is not on this device`, `Thermostat "attic" is not
+- `status(id)`: `state`, the first that holds of `disabled`, `waiting_for_clock`,
+  `missing_target`, `missing_preset`, `conflict`, `held` and `running` (`state_to_string()`),
+  the `reason` it does not drive its target (`Waiting for the clock`, `Relay "relay_7" is not on this device`, `Thermostat "attic" is not
   on this device`, `This device has no thermostats`, `Thermostat "Living Room" has no preset
   "eco"`, `Schedule "Winter" drives this target`, `Thermostat "Floor" drives Relay 3`), `held_by`,
-  and a `note` for a stopped thermostat
+  and a `note` for a thermostat that is switched off
 - `target_name(config)`: the relay's or the thermostat's name, its id when it is not there
 - `now_and_next(config, &now, &next)`: the point in force and the next one, as a day (0 is
   Monday), minutes since midnight and the `Point`, whose value `config.write_value(obj, point)`
