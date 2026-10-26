@@ -54,6 +54,9 @@ tests/
     modbus_map/               # test_schema.py alone: the class only holds what the build derived,
                               # and web_device_dashboard's suite reads one
     panel_text/
+    schedules/
+    schedules_no_climate/     # schedules on a firmware without climate_hub; its own suite
+                              # builds with it
     status_indicator/
     switch_hold/
     virtual_display/          # test_schema.py alone: the C++ includes <esp_http_server.h>,
@@ -65,6 +68,7 @@ tests/
     web_device_dashboard/
     web_file_browser/
     web_origin_guard/
+    web_schedule_editor/      # contract.json as the thermostat editor's, with a clock (see below)
 ```
 
 ## Adding a suite for a new component
@@ -116,6 +120,25 @@ the files on disk, the log, a job reaching the loop task, the relays' states.
     `name`, `setup` or `device_only`.
 
 A key not listed here fails the suite, a misspelt one included.
+
+## Schedule editor cases
+
+`web_schedule_editor` splits its cases the same way: a request whose answer the dashboard's
+client mock must give as well goes in `contract.json`, what only the device can show stays in
+`cases/`. The file has the thermostat editor's keys, with these differences:
+
+- `environment`: `max_schedules`; `now`, the device's local clock as
+  `{"day": "wed", "time": "10:15:42"}`; the `relays` (`object_id`, `name`) and `thermostats` a
+  case may name, each thermostat as `targets` answers it without `scheduled_by`; and the ids
+  neither side has (`missing`). The suite checks that its device is the one described.
+- `fixtures`: schedule documents by name, POSTed to `save` as a case's `setup` lists them.
+- `clock`, in a case: the device's clock for the whole case, its `setup` and `then` included, in
+  place of `now`; `null` is a device that has no valid time yet.
+- `device_only`: `loop_busy`, `storage_failed`, `storage_unwritable`, `file_cap` and
+  `newer_file` as above, and `relay_held`, where a running thermostat named `Floor` holds
+  `relay_3`.
+
+A key that neither section lists fails the suite.
 
 ## Before a thermostat pull request
 

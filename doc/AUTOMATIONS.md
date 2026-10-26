@@ -31,6 +31,9 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
 A sensor is any numeric one that is not internal, not only a temperature, and its thresholds
 are in its own unit.
 
+A timetable, a value by the time of day and the day of the week, is a
+[schedule](SCHEDULES.md) rather than a rule.
+
 ## Storage
 
 Rules are `/littlefs/automations/<name>.json` on the LittleFS partition from
