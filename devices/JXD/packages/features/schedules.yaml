@@ -1,0 +1,11 @@
+# Weekly schedules the user edits at run time, each driving a relay or a thermostat,
+# stored as JSON files on the LittleFS partition. Details: components/schedules/README.md
+external_components:
+  - source: ${components}
+    components: [schedules, loop_job, switch_hold]
+
+schedules:
+  # Not `schedules`: that is the component's C++ namespace.
+  id: schedules_engine
+  storage: user_storage
+  time_id: pcf8563_time
