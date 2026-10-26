@@ -364,18 +364,17 @@ export interface DeviceTime {
   default_zone: string
 }
 
-/** POST /time. `true` follows Home Assistant and keeps the chosen zone. `false` with `posix`
- *  (and the zone's name, for display) stores that zone and puts it in force; `false` alone puts
- *  the stored one in force. `time`, alone or with the rest, sets the clock to that UTC epoch in
- *  whole seconds and writes the RTC. `422` for `false` alone with no zone stored, a `zone`
- *  without `posix`, a POSIX string the device cannot parse, a string over 63 bytes or a `time`
- *  before CLOCK_TIME_MIN or from CLOCK_TIME_END on; `400` for a malformed body or a `time` that
- *  is no integer; `500` when the zone could not be stored, or the clock not set (a zone sent with
- *  it is in force all the same). */
+/** POST /time. `posix` (with the zone's name, for display, or `null`) replaces the chosen zone,
+ *  which is in force unless the device follows Home Assistant. `follow_homeassistant: true`
+ *  follows Home Assistant and keeps the chosen zone; `false` puts the chosen one in force. `time`,
+ *  alone or with the rest, sets the clock to that UTC epoch in whole seconds and writes the RTC.
+ *  `422` for `false` with no zone stored or sent, a `zone` without `posix`, a POSIX string the
+ *  device cannot parse, a string over 63 bytes or a `time` before CLOCK_TIME_MIN or from
+ *  CLOCK_TIME_END on; `400` for a malformed body or a `time` that is no integer; `500` when the
+ *  zone could not be stored, or the clock not set (a zone sent with it is in force all the same). */
 export type DeviceTimeUpdate =
-  | { follow_homeassistant: true; time?: number }
-  | { follow_homeassistant: false; posix: string; zone?: string; time?: number }
-  | { follow_homeassistant: false; posix?: never; zone?: never; time?: number }
+  | { posix: string; zone?: string | null; follow_homeassistant?: boolean; time?: number }
+  | { follow_homeassistant: boolean; posix?: never; zone?: never; time?: number }
   | { time: number; follow_homeassistant?: never; posix?: never; zone?: never }
 
 /** The earliest `time` POST /time takes: 2019-01-01T00:00:00Z. */
