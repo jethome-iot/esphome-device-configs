@@ -287,7 +287,7 @@ server.
   `SNTPComponent::setup()` fills one slot per configured server and starts it, and the
   component, setting up right after, clears every slot and restarts it on one server through
   `esp_sntp_stop()`, `esp_sntp_setserver()`, `esp_sntp_setservername()` and `esp_sntp_init()`.
-  lwIP keeps the name's pointer, so the component hands it a buffer of its own and rewrites it
+  lwIP keeps the name's pointer, so the component hands it a string of its own and rewrites it
   only once no slot points there. Left with several servers, lwIP stays on whichever answered
   last, never returns to the first, and cannot say which one answered; with one it can do
   neither wrong. The component replaces upstream's `esp_sntp_set_time_sync_notification_cb()`

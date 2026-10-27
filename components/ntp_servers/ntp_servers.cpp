@@ -1,6 +1,5 @@
 #include "ntp_servers.h"
 #include <algorithm>
-#include <cstdio>
 #include <cstring>
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
@@ -328,9 +327,9 @@ void NTPServers::use_server_(const char *server) {
     esp_sntp_setserver(i, nullptr);
   if (server == nullptr)
     return;
-  // No slot points into the buffer any more.
-  std::snprintf(this->asking_, sizeof(this->asking_), "%s", server);
-  esp_sntp_setservername(0, this->asking_);
+  // No slot points into the string any more.
+  this->asking_ = server;
+  esp_sntp_setservername(0, this->asking_.c_str());
   esp_sntp_init();
 #else
   (void) server;

@@ -117,8 +117,9 @@ class NTPServers : public Component {
   time::RealTimeClock *clock_{nullptr};
   ESPPreferenceObject pref_;
   uint32_t preference_hash_{0};
-  // The name lwIP is handed: it keeps the pointer, not the text.
-  char asking_[SERVER_NAME_MAX + 1]{};
+  // The name lwIP is handed: it keeps the pointer, not the text. Not held to SERVER_NAME_MAX: the
+  // clock's own servers may be any length its schema takes.
+  std::string asking_;
 #ifdef USE_ESP32
   static void on_reply_(struct timeval *tv);
   static NTPServers *instance_;
