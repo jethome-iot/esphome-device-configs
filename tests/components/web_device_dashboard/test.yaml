@@ -165,6 +165,9 @@ binary_sensor:
   - platform: template
     id: in_1_unused
     name: "In 1"
+  - platform: template
+    id: config_input_unused
+    name: "Config Input"
 
 switch:
   - platform: template
@@ -174,4 +177,8 @@ switch:
   - platform: template
     id: hidden_unused
     name: "Hidden"
+    optimistic: true
+  - platform: template
+    id: ota_allowed_unused
+    name: "Allow ESPHome updates"
     optimistic: true

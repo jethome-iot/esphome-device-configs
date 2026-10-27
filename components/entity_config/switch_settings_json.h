@@ -423,7 +423,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
       JsonArray input_options = input_field["options"].to<JsonArray>();
       add_option_(input_options, "", "None");
       for (auto *sensor : App.get_binary_sensors()) {
-        if (sensor == nullptr || sensor->is_internal())
+        if (sensor == nullptr || !is_settable(*sensor))
           continue;
         JsonObject opt = input_options.add<JsonObject>();
         opt["value"] = object_id_of(*sensor);
@@ -461,7 +461,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
   static std::vector<std::string> binding_inputs_() {
     std::vector<std::string> options{""};
     for (auto *sensor : App.get_binary_sensors()) {
-      if (sensor != nullptr && !sensor->is_internal())
+      if (sensor != nullptr && is_settable(*sensor))
         options.push_back(object_id_of(*sensor));
     }
     return options;
@@ -469,7 +469,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
 
   static bool has_bindable_input_() {
     for (auto *sensor : App.get_binary_sensors()) {
-      if (sensor != nullptr && !sensor->is_internal())
+      if (sensor != nullptr && is_settable(*sensor))
         return true;
     }
     return false;

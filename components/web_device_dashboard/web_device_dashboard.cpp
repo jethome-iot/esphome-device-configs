@@ -1438,7 +1438,8 @@ template<typename T>
 static void write_entity_index(JsonObject root, config_json::SettingsBaseJson *settings, const T &entities) {
   JsonArray list = root[settings->get_key()].to<JsonArray>();
   for (auto *obj : entities) {
-    if (obj->is_internal())
+    // entity_config does not take these: no record could reach them.
+    if (obj->is_internal() || obj->get_entity_category() == ENTITY_CATEGORY_CONFIG)
       continue;
     char buf[OBJECT_ID_MAX_LEN];
     const StringRef object_id = obj->get_object_id_to(buf);

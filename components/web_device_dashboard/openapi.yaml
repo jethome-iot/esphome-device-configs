@@ -1022,7 +1022,7 @@ paths:
         the object id, which keys the settings records, the display name, which
         `web_server`'s routes and `/events` address entities by, and the label
         the owner gave the entity, which the page shows in place of the name.
-        Internal entities are left out. The types are `entity_config`'s:
+        Internal and config entities are left out. The types are `entity_config`'s:
         `switch` and `binary_sensor`.
       responses:
         "200":
@@ -1134,8 +1134,9 @@ paths:
             is anything but the string `delete` (`'action' must be 'delete'`); a
             record the type
             refuses (`Failed to update settings record`: no `source_name`, one
-            naming no entity of that type, an `inverted` that is not a boolean, a
-            `restore_mode` or `binding_mode` outside its options, a
+            naming no entity of that type or an internal or config one, an
+            `inverted` that is not a boolean, a `restore_mode` or
+            `binding_mode` outside its options, a
             `binding_input` naming no input, a `label` that is not a string or
             breaks its rules); a delete on a type that keeps its
             records (`Cannot delete: record not found`).

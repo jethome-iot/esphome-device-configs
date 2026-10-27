@@ -90,6 +90,8 @@ boundaries; everything else is local to its file.
   `web_device_dashboard` finds it in the config for `/api/device/time`. Its `on_clock_set`
   writes `pcf8563_time` after the dashboard set the clock, as the `on_time_sync` of
   `homeassistant_time` and `sntp_time` do after theirs.
+- `esphome_ota_allowed` (`boards/jxd-cpu-e1eth.yaml`) is the switch that unlocks
+  `esphome_ota`, ESPHome's own OTA, for 30 minutes; `display/menu.yaml` puts it under Settings.
 - `run_factory_reset` (a script in `features/factory-reset.yaml`) is the reset the menu's
   Factory reset runs; the same file runs it when `fn_button` (`boards/jxd-cpu-e1eth.yaml`) is
   held for 10 s, after blinking `red_led`, the `status_indicator` on the CPU board's LED.

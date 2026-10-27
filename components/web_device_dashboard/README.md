@@ -172,7 +172,7 @@ settings too; without one these routes are `404`:
 
 | Method | Path | |
 |---|---|---|
-| GET | `/api/device/entities` | per settings type, `[{"source_name", "name", "label"}]`: object id, name and label of every entity of that type, the label empty when it has none. Read on the loop task, which owns the records — `503` when it does not get to it |
+| GET | `/api/device/entities` | per settings type, `[{"source_name", "name", "label"}]`: object id, name and label of every entity of that type that takes settings (an internal or a config one does not), the label empty when it has none. Read on the loop task, which owns the records — `503` when it does not get to it |
 | GET | `/api/device/entity-settings?type=switch[&source_name=relay_1]` | the stored records of a type, or one of them. Read on the loop task, which owns the records — `503` when it does not get to it |
 | POST | `/api/device/entity-settings` | `{"type", "source_name", "settings": {...}}` updates and applies a record; `{"type", "source_name", "action": "delete"}` removes it. A change of a relay's `inverted` while a running thermostat drives it is `409`, naming the thermostat. Needs `Content-Type: application/json`, as every route here that reads a body does |
 | GET | `/api/device/entity-settings-meta` | the form fields of every settings type |

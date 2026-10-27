@@ -111,6 +111,20 @@ TEST_F(BinarySensorSettings, ARestWriteRefusesAnInvertedThatIsNotABoolean) {
   EXPECT_TRUE(settings.is_inverted(&e.in1));
 }
 
+// A config entity is not the device's I/O: neither the file nor a REST write reaches it.
+TEST_F(BinarySensorSettings, AConfigInputIsNotSettable) {
+  auto *record = new BinarySensorSettingsRecord();  // NOLINT(cppcoreguidelines-owning-memory)
+  EXPECT_TRUE(load(R"({"source_name":"config_input","inverted":true})", *record));
+  settings.records().push_back(record);
+  settings.apply();
+  EXPECT_TRUE(LogCapture::instance().has("Binary sensor not found for source_name 'config_input'"));
+  e.config_input.publish_state(true);
+  EXPECT_TRUE(e.config_input.state);  // no inverting filter in its chain
+
+  JsonDocument refused = body(R"({"source_name":"config_input","settings":{"inverted":true}})");
+  EXPECT_EQ(settings.update_record(refused.as<JsonObject>()), nullptr);
+}
+
 // --- labels ---
 
 TEST_F(BinarySensorSettings, ALabelIsShownInPlaceOfTheName) {
