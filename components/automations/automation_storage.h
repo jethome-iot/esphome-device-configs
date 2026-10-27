@@ -26,7 +26,8 @@ enum class RunResult : uint8_t {
   NOT_BUILT,
   // Its mode refused: single with a run under way, parallel with every copy running.
   ALREADY_RUNNING,
-  // The loop task never took it, or it came from inside a rule's own action.
+  // The engine failed (its storage is not mounted), the loop task never took it, or it came
+  // from inside a rule's own action.
   REFUSED,
 };
 

@@ -6,7 +6,7 @@
 // no package.json / node_modules): seed data + a stateful dispatcher + a FetchImpl
 // adapter. The Vite dev-server glue is thin and env-specific, so it lives in each
 // consumer's vite.config.ts (which actually depends on vite) and just wraps
-// createAutomationMockStore() — see web/vite.config.ts.
+// createAutomationMockStore() — see the dashboard's vite.config.ts, at its root.
 //
 // Behaviour mirrors web_automation_editor.cpp (verified): save, delete, run and
 // reboot answer POST only and the rest GET only (405 otherwise); get/save/delete/run
@@ -312,7 +312,7 @@ export function createAutomationMockStore(options: AutomationMockStoreOptions = 
               built: buildError(a) === '',
               build_error: buildError(a),
               running: runsUnderWay(a.id).length > 0,
-              last_fired_s: secondsSinceRun(a.id)
+              last_run_s: secondsSinceRun(a.id)
             }))
           }
         }
@@ -339,6 +339,9 @@ export function createAutomationMockStore(options: AutomationMockStoreOptions = 
         return { status: 200, body: { status: 'ok' } }
 
       case '/reboot':
+        // The device keeps neither across a boot.
+        runs.clear()
+        lastRun.clear()
         return { status: 200, body: { success: true, message: 'Rebooting device...' } }
 
       case '/save': {
@@ -418,7 +421,8 @@ export function createAutomationMockStore(options: AutomationMockStoreOptions = 
         if (rule.mode === 'restart') underWay = []
         const t = now()
         runs.set(id, [...underWay, t + runLength(rule.actions)])
-        lastRun.set(id, t)
+        // A run with nothing to play has not run.
+        if (rule.actions.length > 0) lastRun.set(id, t)
         return { status: 200, body: { success: true, message: 'Automation started' } }
       }
 

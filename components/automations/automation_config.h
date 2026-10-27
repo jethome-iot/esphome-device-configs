@@ -134,8 +134,8 @@ struct AutomationConfig {
   std::vector<ActionConfig> else_actions;  // Actions to execute when condition is false
   std::string file;                        // the file the rule sits in, set by the storage; not part of the format
   std::string build_error;  // why the rule is not built, "" when it is; set by the storage, not part of the format
-  // When a run last started, on the storage's uptime_ms() clock; unset until one has since boot.
-  // Set by the storage, not part of the format.
+  // When a run that plays an action last started, on the storage's uptime_ms() clock; unset until
+  // one has since boot. Set by the storage, not part of the format.
   optional<uint64_t> last_run_ms;
 
   void serialize(JsonObject &obj) const;

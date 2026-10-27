@@ -181,8 +181,9 @@ paths:
       summary: Play a rule's actions now.
       description: >-
         Runs the rule's `actions` at once, skipping its triggers and its
-        condition, whether the rule is enabled or not. The run carries no
-        trigger state, so a `follow` action does nothing. The rule's mode
+        condition, whether the rule is enabled or not. The run starts with no
+        trigger state, so a `follow` action has none to copy unless a trigger
+        arrives while it plays. The rule's mode
         decides as it does for a trigger: `single` refuses while a run is under
         way, `restart` starts over, `parallel` adds a copy up to 8. The answer
         comes once the run has started; a delay in it plays on afterwards, and
@@ -422,7 +423,7 @@ components:
   schemas:
     AutomationSummary:
       type: object
-      required: [id, name, enabled, trigger_count, action_count, else_action_count, mode, built, build_error, running, last_fired_s]
+      required: [id, name, enabled, trigger_count, action_count, else_action_count, mode, built, build_error, running, last_run_s]
       properties:
         id:
           type: integer
@@ -451,13 +452,13 @@ components:
         running:
           type: boolean
           description: A run of the rule is under way, a delay in it still to play, say.
-        last_fired_s:
+        last_run_s:
           type: [integer, "null"]
           minimum: 0
           description: >-
             Seconds since a run last started, from a trigger (either branch) or
-            from `/run`; a trigger the mode ignored does not count. `null` when
-            none has since boot.
+            from `/run`. A trigger the mode ignored does not count, nor a run
+            with no action to play. `null` when none has since boot.
       example:
         id: 1
         name: Porch light
@@ -469,7 +470,7 @@ components:
         built: true
         build_error: ""
         running: false
-        last_fired_s: 42
+        last_run_s: 42
 
     Mode:
       type: string

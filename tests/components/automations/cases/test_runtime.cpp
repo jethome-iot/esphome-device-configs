@@ -356,6 +356,19 @@ TEST_F(Runtime, RunNowCarriesNoStateForAFollow) {
   EXPECT_TRUE(e.boiler.state);  // the rest of the run plays
 }
 
+// A trigger single ignores while a run now plays hands it its state, as it would to any run.
+TEST_F(Runtime, RunNowTakesTheStateOfATriggerThatArrivesWhileItPlays) {
+  auto rule =
+      build_rule(engine, R"({"name":"Late","triggers":[{"source":"input","type":"state_change","object_id":"in_1"}],
+      "actions":[{"source":"delay","delay_ms":500},{"source":"switch","type":"follow","object_id":"relay_2"}]})");
+  ASSERT_NE(rule, nullptr);
+  EXPECT_TRUE(rule->run_now());
+  rule->on_binary_sensor(&e.in1, true);
+  ASSERT_EQ(engine.delays.size(), 1u);
+  ASSERT_TRUE(engine.fire_next());
+  EXPECT_TRUE(e.relay2.state);
+}
+
 TEST_F(Runtime, RunNowInSingleModeIsRefusedWhileARunIsUnderWay) {
   auto rule = build_rule(engine, delayed("single").c_str());
   ASSERT_NE(rule, nullptr);

@@ -470,9 +470,12 @@ bool RuntimeAutomation::start_(bool has_state, bool state, bool forced) {
   if (!forced && this->condition_ != nullptr && !this->condition_->check())
     run->branch = &this->else_;
   const uint32_t token = run->token;
+  // Only a run that plays something has run. Before the first step: a run that ends inside it
+  // has started all the same.
+  const bool plays = !run->branch->empty();
   this->runs_.push_back(std::move(run));
-  // Before the first step: a run that ends inside it has started all the same.
-  this->engine_->note_run_(this->id_);
+  if (plays)
+    this->engine_->note_run_(this->id_);
   this->step_(token);
   return true;
 }

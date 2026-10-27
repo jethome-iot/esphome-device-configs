@@ -29,8 +29,8 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
   that has not played yet, so the target ends where the trigger is.
 - **Run now**: plays a rule's actions at once, skipping its triggers and its condition, even
   while the rule is disabled; the mode applies as for a trigger, so `single` refuses while a
-  run is under way. A follow has no trigger state to copy and does nothing. A rule that is not
-  built cannot run.
+  run is under way. A follow has no trigger state to copy unless a trigger arrives while the
+  run plays. A rule that is not built cannot run.
 
 A sensor is any numeric one that is not internal, not only a temperature, and its thresholds
 are in its own unit.
@@ -64,8 +64,8 @@ backup. The editor's rule list says which rules do not run and why.
 `/automation-editor/api`: the routes and their contract are in
 [components/web_automation_editor/openapi.yaml](../components/web_automation_editor/openapi.yaml),
 the usage in [its README](../components/web_automation_editor/README.md). The rule list says
-which rules are running and how long ago each last started a run, from a trigger or Run now;
-that is not kept across a reboot.
+which rules are running and how long ago each last ran, from a trigger or Run now; a run with no
+action to play does not count, and none of it is kept across a reboot.
 
 ## Testing without hardware
 

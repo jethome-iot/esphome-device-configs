@@ -726,7 +726,10 @@ TEST_F(Storage, TheStampOutlivesAnEditAndTheMillisWrap) {
   boot();
   engine->uptime = UINT32_MAX - 10;
   press(e.in1);
-  ASSERT_TRUE(engine->update_automation(20, rule(R"({"name":"Gated again","triggers":[{"source":"startup"}]})")));
+  ASSERT_TRUE(engine->update_automation(
+      20,
+      rule(
+          R"({"name":"Gated again","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"toggle","object_id":"relay_2"}]})")));
   EXPECT_EQ(config("Gated again")->last_run_ms, optional<uint64_t>(UINT32_MAX - 10));
 
   // Past 2^32 ms the stamp still reads as the moment it was.
@@ -742,6 +745,46 @@ TEST_F(Storage, TheStampOutlivesAnEditAndTheMillisWrap) {
   EXPECT_FALSE(config("Copy")->last_run_ms.has_value());
   reboot();
   EXPECT_FALSE(config("Gated again")->last_run_ms.has_value());
+}
+
+// A run that has nothing to play has not run: the stamp says when the rule last did something.
+TEST_F(Storage, ARunWithNothingToPlayIsNotStamped) {
+  write(
+      "no_else.json",
+      R"({"id":30,"name":"No else","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"condition":{"type":"input","object_id":"in_2","state":"true"},"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})");
+  write("empty.json", R"({"id":31,"name":"Empty","triggers":[{"source":"startup"}]})");
+  boot();
+  engine->uptime = 1000;
+  press(e.in1);  // the condition is false, and there is no else branch
+  EXPECT_EQ(e.relay1.writes, 0);
+  EXPECT_FALSE(config("No else")->last_run_ms.has_value());
+  EXPECT_EQ(engine->run_automation(31), RunResult::STARTED);
+  EXPECT_FALSE(engine->is_running(31));
+  EXPECT_FALSE(config("Empty")->last_run_ms.has_value());
+
+  // The same rules with something to play are stamped.
+  e.in2.publish_state(true);
+  press(e.in1);
+  EXPECT_EQ(config("No else")->last_run_ms, optional<uint64_t>(1000));
+}
+
+// An edit rebuilds the rule: the run it was playing stops, and when it last ran still holds.
+TEST_F(Storage, AnEditStopsARunNowAndKeepsTheStamp) {
+  write("gated.json", GATED);
+  boot();
+  engine->uptime = 4000;
+  ASSERT_EQ(engine->run_automation(20), RunResult::STARTED);
+  ASSERT_TRUE(engine->is_running(20));
+  ASSERT_EQ(engine->delays.size(), 1u);
+
+  engine->uptime = 6000;
+  AutomationConfig edited = rule(GATED);
+  edited.name = "Gated, edited";
+  ASSERT_TRUE(engine->update_automation(20, edited));
+  EXPECT_FALSE(engine->is_running(20));
+  EXPECT_TRUE(engine->delays.empty());
+  EXPECT_EQ(e.relay2.writes, 0);  // the step after the delay never plays
+  EXPECT_EQ(config("Gated, edited")->last_run_ms, optional<uint64_t>(4000));
 }
 
 // The clock the device stamps with: milliseconds since boot in 64 bits, where millis() wraps.

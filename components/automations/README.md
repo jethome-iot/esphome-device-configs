@@ -157,14 +157,16 @@ callback, say) they refuse and return false.
 - `set_enable_automation(id, enable, persisted = nullptr)`: `persisted` says whether it reached flash
 - `reset_all()`: remove every rule and its file
 - `run_automation(id)`: play the rule's actions now, skipping its triggers and its condition,
-  enabled or not; the mode applies as for a trigger and the run carries no state for a
-  `follow`. `RunResult::STARTED`, else `NOT_FOUND`, `NOT_BUILT`, `ALREADY_RUNNING` (single with
-  a run under way, parallel at 8 copies) or `REFUSED` (the loop never took it, or the call came
-  from inside a rule's own action)
+  enabled or not; the mode applies as for a trigger, and a `follow` has no state to copy unless
+  a trigger arrives while the run plays. `RunResult::STARTED`, else `NOT_FOUND`, `NOT_BUILT`,
+  `ALREADY_RUNNING` (single with a run under way, parallel at 8 copies) or `REFUSED` (the
+  engine failed at boot, the loop never took it, or the call came from inside a rule's own
+  action)
 - `is_name_taken(name, exclude_id = 0)`: names collide by file name
 - `configs()`: the loaded `AutomationConfig`s, including the ones that did not build, each with
-  its `build_error` and `last_run_ms`: the `uptime_ms()` at which a run last started, from a
-  trigger that the mode let through or from `run_automation`, unset until one has since boot
+  its `build_error` and `last_run_ms`: the `uptime_ms()` at which a run with an action to play
+  last started, from a trigger that the mode let through or from `run_automation`, unset until
+  one has since boot
 - `is_running(id)`: a run of the rule is under way
 - `run_on_loop(job)`: runs `job` on the loop task and blocks; `false` when the loop never got to it
 

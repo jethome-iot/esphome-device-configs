@@ -87,8 +87,9 @@ class RuntimeAutomation {
   bool is_running() const { return !this->runs_.empty(); }
   void stop();
   /// Plays the actions now, skipping the triggers and the condition, enabled or not. The run
-  /// carries no trigger state, so a follow does nothing. False when the mode refuses it: single
-  /// while a run is under way, parallel with every copy running.
+  /// starts with no trigger state: a follow has none to copy unless a trigger arrives while it
+  /// runs. False when the mode refuses it: single while a run is under way, parallel with every
+  /// copy running.
   bool run_now();
 
   void on_binary_sensor(binary_sensor::BinarySensor *entity, bool state, bool level = false);

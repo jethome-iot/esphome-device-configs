@@ -224,10 +224,12 @@ void WebAutomationEditor::handle_list_(AsyncWebServerRequest *request) {
       row["build_error"] = config.build_error;
       row["running"] = this->storage_->is_running(config.id);
       if (config.last_run_ms.has_value()) {
-        // Seconds in 32 bits last 136 years; ArduinoJson may not carry 64-bit integers.
-        row["last_fired_s"] = static_cast<uint32_t>((now - *config.last_run_ms) / 1000);
+        // A stamp ahead of the clock reads as just now. Seconds in 32 bits last 136 years, and
+        // ArduinoJson may not carry 64-bit integers.
+        const uint64_t since = now > *config.last_run_ms ? now - *config.last_run_ms : 0;
+        row["last_run_s"] = static_cast<uint32_t>(since / 1000);
       } else {
-        row["last_fired_s"] = nullptr;
+        row["last_run_s"] = nullptr;
       }
     }
     serializeJson(doc, json);

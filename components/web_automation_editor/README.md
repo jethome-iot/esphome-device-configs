@@ -55,7 +55,7 @@ simply be made again.
 
 | Method | Path | |
 |---|---|---|
-| GET | `list` | `{"automations": [{"id", "name", "enabled", "trigger_count", "action_count", "else_action_count", "mode", "built", "build_error", "running", "last_fired_s"}, ...]}`; `built` is false for a rule on the device that cannot be built, and `build_error` says why (`Action 1: thermostat "attic" not found`), `""` when it runs. `running` is true while a run is under way; `last_fired_s` is the seconds since a run last started, from a trigger or from `run`, `null` when none has since boot |
+| GET | `list` | `{"automations": [{"id", "name", "enabled", "trigger_count", "action_count", "else_action_count", "mode", "built", "build_error", "running", "last_run_s"}, ...]}`; `built` is false for a rule on the device that cannot be built, and `build_error` says why (`Action 1: thermostat "attic" not found`), `""` when it runs. `running` is true while a run is under way; `last_run_s` is the seconds since a run that played an action last started, from a trigger or from `run`, `null` when none has since boot |
 | GET | `get?id=` | One rule, in the file format of [automations](../automations/README.md#a-rule) |
 | POST | `save` | A rule as a JSON body; `id` absent or `0` creates, an existing `id` replaces that rule, renamed or not. Answers `{"success": true, "message", "id"}` on create, without `id` on update |
 | POST | `delete?id=` | Removes the rule and its file; `Failed to delete automation` when the engine refuses |
@@ -76,8 +76,9 @@ engine's other refusals (a rule limit reached, a file the loader had refused und
 call from inside a running rule) come back as `Failed to create automation` /
 `Failed to update automation`.
 
-`run` is the editor's Run now. The run carries no trigger state, so a `follow` does nothing, and
-the rule's mode decides as it does for a trigger: `restart` starts over, `parallel` adds a copy,
+`run` is the editor's Run now. The run starts with no trigger state, so a `follow` has none to
+copy unless a trigger arrives while it plays, and the rule's mode decides as it does for a
+trigger: `restart` starts over, `parallel` adds a copy,
 and `single` refuses while a run is under way — `409` with `Automation is already running`
 (`Automation is already running 8 copies` for a `parallel` rule at its limit). A rule that is
 not built cannot run: `409` with `Automation cannot run: ` and its `build_error`.

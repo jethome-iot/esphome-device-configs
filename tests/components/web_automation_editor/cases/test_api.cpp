@@ -69,8 +69,8 @@ TEST_F(Editor, SaveCreatesARuleTheOtherRoutesThenSee) {
   EXPECT_EQ(row["build_error"].as<std::string>(), "");
   EXPECT_FALSE(row["running"].as<bool>());
   // There, and null: it has not run since boot.
-  EXPECT_TRUE(row["last_fired_s"].isNull());
-  EXPECT_NE(list.body.find(R"("last_fired_s":null)"), std::string::npos) << list.body;
+  EXPECT_TRUE(row["last_run_s"].isNull());
+  EXPECT_NE(list.body.find(R"("last_run_s":null)"), std::string::npos) << list.body;
 
   Reply got = this->get("get?id=" + std::to_string(id));
   ASSERT_EQ(got.code, 200) << got.body;
@@ -422,13 +422,13 @@ TEST_F(Editor, RunPlaysTheActionsWhateverTheConditionAndTheListSaysSo) {
   Reply list = this->get("list");
   JsonObject row = list["automations"][0];
   EXPECT_TRUE(row["running"].as<bool>());
-  EXPECT_EQ(row["last_fired_s"].as<int>(), 65);
+  EXPECT_EQ(row["last_run_s"].as<int>(), 65);
 
   // Single mode: one run at a time, and the refusal says why.
   reply = this->post(run);
   EXPECT_EQ(reply.code, 409);
   EXPECT_EQ(reply.error(), "Automation is already running");
-  EXPECT_EQ(this->get("list")["automations"][0]["last_fired_s"].as<int>(), 65);
+  EXPECT_EQ(this->get("list")["automations"][0]["last_run_s"].as<int>(), 65);
 }
 
 TEST_F(Editor, ARunThatEndsAtOnceIsNotRunningButHasRun) {
@@ -441,7 +441,12 @@ TEST_F(Editor, ARunThatEndsAtOnceIsNotRunningButHasRun) {
   Reply list = this->get("list");
   JsonObject row = list["automations"][0];
   EXPECT_FALSE(row["running"].as<bool>());
-  EXPECT_EQ(row["last_fired_s"].as<int>(), 0);
+  EXPECT_EQ(row["last_run_s"].as<int>(), 0);
+
+  // A stamp ahead of the clock reads as just now, not as 136 years.
+  this->engine->uptime = 1000;
+  Reply behind = this->get("list");
+  EXPECT_EQ(behind["automations"][0]["last_run_s"].as<int>(), 0);
 }
 
 TEST_F(Editor, RunFollowsTheRulesMode) {
@@ -479,7 +484,7 @@ TEST_F(Editor, RunNeedsARuleThatIsThereAndBuilt) {
   Reply list = this->get("list");
   JsonObject row = list["automations"][0];
   EXPECT_FALSE(row["running"].as<bool>());
-  EXPECT_TRUE(row["last_fired_s"].isNull());
+  EXPECT_TRUE(row["last_run_s"].isNull());
 }
 
 // An engine that failed after boot refuses every change; a run is one.
