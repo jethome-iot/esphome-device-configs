@@ -53,6 +53,7 @@ packages:
   menu_firmware: !include ${display}/menu-firmware.yaml
   menu_items: !include ${display}/menu-items-network.yaml
   menu_serial: !include ${display}/menu-serial.yaml
+  menu_timezone: !include ${display}/menu-timezone.yaml
   status_page: !include ${display}/status-page.yaml
   time_page: !include ${display}/time-page.yaml
 
@@ -64,7 +65,7 @@ esphome:
     name: JetHome.JXD-R6-E1ETH-LCD
     version: ${version}
   on_boot:
-    # Restores the stored timezone and reads the RTC once I2C is up.
+    # Reads the RTC once I2C is up; timezone_settings has put the zone in effect by then.
     - priority: 600
       then:
         - delay: 200ms

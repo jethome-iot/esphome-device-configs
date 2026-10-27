@@ -250,6 +250,69 @@ class ModbusMapWiring(unittest.TestCase):
         self.assertNotIn(dashboard.CONF_MODBUS_MAP, dashboard.DEPENDENCIES)
 
 
+class TimezoneWiring(unittest.TestCase):
+    """/api/device/time and its capability come from a timezone_settings in the config."""
+
+    def tearDown(self):
+        CORE.reset()
+        setUpModule()
+
+    def generate(self, core_config):
+        CORE.reset()
+        setUpModule()
+        CORE.config = core_config
+        config = dashboard.CONFIG_SCHEMA({"id": "dash", "web_server_base_id": "web"})
+        CORE.component_ids.add("dash")
+        declared = [
+            ID("web", is_declaration=True, type=config["web_server_base_id"].type)
+        ]
+        if dashboard.CONF_TIMEZONE_SETTINGS in core_config:
+            declared.append(core_config[dashboard.CONF_TIMEZONE_SETTINGS]["id"])
+
+        async def declare():
+            for variable in declared:
+                cg.new_Pvariable(variable)
+
+        CORE.add_job(dashboard.to_code, config)
+        CORE.add_job(declare)
+        CORE.flush_tasks()
+        return {define.name for define in CORE.defines}, [
+            str(statement) for statement in CORE.main_statements
+        ]
+
+    def test_settings_in_the_config_are_wired_in(self):
+        module = importlib.import_module(
+            f"esphome.components.{dashboard.CONF_TIMEZONE_SETTINGS}"
+        )
+        settings = module.CONFIG_SCHEMA({"id": "device_timezone", "timezone": "UTC"})
+        defines, statements = self.generate(
+            {dashboard.CONF_TIMEZONE_SETTINGS: settings}
+        )
+        self.assertIn("USE_WEB_DEVICE_DASHBOARD_TIMEZONE", defines)
+        self.assertIn("dash->set_timezone_settings(device_timezone);", statements)
+
+    def test_without_them_nothing_is(self):
+        defines, statements = self.generate({})
+        self.assertNotIn("USE_WEB_DEVICE_DASHBOARD_TIMEZONE", defines)
+        self.assertFalse([s for s in statements if "set_timezone_settings" in s])
+
+    def test_the_setter_exists_under_that_define(self):
+        header = (
+            Path(__file__).resolve().parents[3]
+            / "components/web_device_dashboard/web_device_dashboard.h"
+        ).read_text()
+        setter = header.index(
+            "void set_timezone_settings(timezone_settings::TimezoneSettings *"
+        )
+        guard = header.rindex("#ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE", 0, setter)
+        self.assertNotIn("#endif", header[guard:setter])
+        self.assertNotIn("#else", header[guard:setter])
+
+    def test_the_settings_stay_optional(self):
+        self.assertNotIn(dashboard.CONF_TIMEZONE_SETTINGS, dashboard.AUTO_LOAD)
+        self.assertNotIn(dashboard.CONF_TIMEZONE_SETTINGS, dashboard.DEPENDENCIES)
+
+
 class UnknownKeys(unittest.TestCase):
     def test_a_misspelled_option_is_refused(self):
         for key in (
@@ -260,6 +323,8 @@ class UnknownKeys(unittest.TestCase):
             "dallas_scan",
             "modbus_map",
             "modbus_map_id",
+            "timezone_settings",
+            "timezone_settings_id",
         ):
             with (
                 self.subTest(key=key),

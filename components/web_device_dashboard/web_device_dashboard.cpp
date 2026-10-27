@@ -79,6 +79,9 @@ static const Route ROUTES[] = {
     {"entity-settings", RouteId::ENTITY_SETTINGS, true, true},
     {"entity-settings-meta", RouteId::ENTITY_SETTINGS_META, true, false},
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
+    {"time", RouteId::TIME, true, true},
+#endif
 };
 // clang-format on
 
@@ -214,6 +217,15 @@ void WebDeviceDashboard::handleRequest(AsyncWebServerRequest *request) {
         break;
       case RouteId::ENTITY_SETTINGS_META:
         this->handle_entity_settings_meta_(request);
+        break;
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
+      case RouteId::TIME:
+        if (request->method() == HTTP_POST) {
+          this->handle_time_set_(request);
+        } else {
+          this->handle_time_get_(request);
+        }
         break;
 #endif
     }
@@ -678,6 +690,10 @@ void WebDeviceDashboard::handle_capabilities_(AsyncWebServerRequest *request) {
 #ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
     if (this->modbus_map_ != nullptr)
       write_modbus_map_(root["modbus"].to<JsonObject>(), *this->modbus_map_);
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
+    if (this->timezone_settings_ != nullptr)
+      root["time"] = true;
 #endif
   });
   request->send(200, "application/json", body.c_str());
@@ -1278,6 +1294,148 @@ bool WebDeviceDashboard::read_slot_(AsyncWebServerRequest *request, JsonVariant 
   return true;
 }
 #endif  // USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
+
+#ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
+// What GET answers, and POST once it has changed something: the clock, the zone in effect and
+// where it comes from, the zone chosen by hand and the compiled one.
+std::string WebDeviceDashboard::time_json_(const timezone_settings::TimezoneSettings &settings) {
+  using namespace timezone_settings;
+  const TimezoneSettings::Status status = settings.status();
+  return json::build_json([&settings, &status](JsonObject root) {
+    root["time"] = nullptr;
+    if (status.time.has_value())
+      root["time"] = static_cast<int64_t>(status.time.value());
+    root["utc_offset"] = status.utc_offset;
+    root["dst"] = status.dst;
+    root["clock_source"] = nullptr;
+    if (const char *clock = clock_source_name(settings.clock_source()); clock != nullptr)
+      root["clock_source"] = clock;
+    root["follow_homeassistant"] = settings.follow_homeassistant();
+    root["zone_source"] = zone_source_name(settings.zone_source());
+    root["zone"] = nullptr;
+    root["posix"] = nullptr;
+    if (settings.has_chosen_zone()) {
+      const Zone &zone = settings.chosen_zone();
+      if (!zone.name.empty())
+        root["zone"] = zone.name;
+      root["posix"] = zone.posix;
+    }
+    root["default_zone"] = settings.default_zone();
+  });
+}
+
+// GET /api/device/time. Read on the loop task, which owns the zone: Home Assistant's arrives
+// there.
+void WebDeviceDashboard::handle_time_get_(AsyncWebServerRequest *request) {
+  auto *settings = this->timezone_settings_;
+  if (settings == nullptr) {
+    this->send_error_(request, 404, "No time settings");
+    return;
+  }
+  std::string body;
+  const bool read = this->run_on_loop_([&]() {
+    body = time_json_(*settings);
+    return true;
+  });
+  if (!read) {
+    this->send_error_(request, 503, "Device busy");
+    return;
+  }
+  request->send(200, "application/json", body.c_str());
+}
+
+// POST /api/device/time: {"follow_homeassistant"}, {"posix", "zone"}, {"time"}, or any of them
+// together. A zone sent while the device follows Home Assistant is kept for later, not applied.
+// No confirmation: it is undone the same way. Everything is checked before anything changes; the
+// change and the answer go over to the loop task together.
+void WebDeviceDashboard::handle_time_set_(AsyncWebServerRequest *request) {
+  using timezone_settings::SetError;
+  using timezone_settings::TimezoneSettings;
+  auto *settings = this->timezone_settings_;
+  if (settings == nullptr) {
+    this->send_error_(request, 404, "No time settings");
+    return;
+  }
+  JsonDocument doc;
+  if (!this->read_json_body_(request, doc))
+    return;
+  // isUnbound(), not isNull(): an explicit null is a key the caller wrote.
+  JsonVariant follow = doc["follow_homeassistant"];
+  JsonVariant zone = doc["zone"];
+  JsonVariant posix = doc["posix"];
+  JsonVariant epoch = doc["time"];
+  if (follow.isUnbound() && zone.isUnbound() && posix.isUnbound() && epoch.isUnbound()) {
+    this->send_error_(request, 400, "Expected 'follow_homeassistant', 'posix', 'zone' or 'time'");
+    return;
+  }
+  if (!follow.isUnbound() && !follow.is<bool>()) {
+    this->send_error_(request, 400, "'follow_homeassistant' must be true or false");
+    return;
+  }
+  if (!zone.isUnbound() && !zone.isNull() && !zone.is<const char *>()) {
+    this->send_error_(request, 400, "'zone' must be a string or null");
+    return;
+  }
+  if (!posix.isUnbound() && !posix.is<const char *>()) {
+    this->send_error_(request, 400, "'posix' must be a string");
+    return;
+  }
+  // ArduinoJson keeps 1.5 and 1e9 as floats; an integer past int64 is one past the range too.
+  if (!epoch.isUnbound() && !epoch.is<int64_t>() && !epoch.is<uint64_t>()) {
+    this->send_error_(request, 400, "'time' must be an integer");
+    return;
+  }
+  // The name alone says nothing the device can run on.
+  if (posix.isUnbound() && !zone.isUnbound()) {
+    this->send_error_(request, 422, "'zone' needs 'posix'");
+    return;
+  }
+  const bool has_time = !epoch.isUnbound();
+  const int64_t seconds = epoch.is<int64_t>() ? epoch.as<int64_t>() : INT64_MAX;
+  if (has_time && TimezoneSettings::check_clock(seconds) != SetError::NONE) {
+    this->send_error_(request, 422, timezone_settings::set_error_text(SetError::TIME_OUT_OF_RANGE));
+    return;
+  }
+  const bool has_zone = !posix.isUnbound();
+  const bool configures = has_zone || !follow.isUnbound();
+  timezone_settings::Zone chosen;
+  if (has_zone) {
+    // Straight to std::string: a NUL decoded from "\u0000" is a character, not the end.
+    chosen.posix = posix.as<std::string>();
+    if (zone.is<const char *>())
+      chosen.name = zone.as<std::string>();
+  }
+  SetError error = SetError::NONE;
+  std::string body;
+  const bool changed = this->run_on_loop_([&]() {
+    if (configures) {
+      const bool following = follow.isUnbound() ? settings->follow_homeassistant() : follow.as<bool>();
+      error = settings->configure(following, has_zone ? &chosen : nullptr);
+      if (error != SetError::NONE)
+        return false;
+    }
+    // After the zone, which the device may still refuse; the clock cannot be put back.
+    if (has_time) {
+      error = settings->set_clock(seconds);
+      if (error != SetError::NONE)
+        return false;
+    }
+    body = time_json_(*settings);
+    return true;
+  });
+  if (!changed) {
+    // No error means the loop task never took the job: nothing changed.
+    if (error == SetError::NONE) {
+      this->send_error_(request, 503, "Device busy");
+    } else {
+      const bool failed = error == SetError::NOT_STORED || error == SetError::CLOCK_NOT_SET;
+      this->send_error_(request, failed ? 500 : 422, timezone_settings::set_error_text(error));
+    }
+    return;
+  }
+  request->send(200, "application/json", body.c_str());
+}
+#endif  // USE_WEB_DEVICE_DASHBOARD_TIMEZONE
 
 #ifdef USE_CONFIG_JSON
 template<typename T>

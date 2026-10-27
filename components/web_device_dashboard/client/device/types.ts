@@ -331,7 +331,58 @@ export interface Capabilities {
   temperature_slots?: true
   /** The Modbus server's address map, as ranges; present when a `modbus_map` is wired in. */
   modbus?: ModbusMap
+  /** GET and POST /time answer: the device clock, and a timezone this page can choose. */
+  time?: true
 }
+
+// --- Time ---
+
+/** What last set the device clock; `dashboard` is a POST /time with `time`, until NTP or Home
+ *  Assistant sets it again. */
+export type ClockSource = 'homeassistant' | 'sntp' | 'rtc' | 'dashboard'
+
+/** Where the timezone in effect came from: Home Assistant, the zone chosen with POST /time, or
+ *  the one compiled in (`default_zone`), which runs until Home Assistant first sets the clock. */
+export type ZoneSource = 'homeassistant' | 'manual' | 'default'
+
+/** GET /time, and what POST /time answers after its change. */
+export interface DeviceTime {
+  /** UTC, seconds since the epoch; null while the clock is not set. */
+  time: number | null
+  /** Seconds east of UTC in effect now: the device's local time is `time + utc_offset`. */
+  utc_offset: number
+  /** Daylight saving time is in effect now. */
+  dst: boolean
+  /** What last set the clock; null when nothing has. */
+  clock_source: ClockSource | null
+  /** The timezone comes from Home Assistant, the default. */
+  follow_homeassistant: boolean
+  zone_source: ZoneSource
+  /** The zone chosen with POST /time, kept while following Home Assistant: its IANA name and its
+   *  POSIX TZ string. Both null when none was chosen; `zone` is null too when only `posix` was sent. */
+  zone: string | null
+  posix: string | null
+  /** The zone compiled into the firmware, as its config writes it, e.g. `"UTC"`. */
+  default_zone: string
+}
+
+/** POST /time. `posix` (with the zone's name, for display, or `null`) replaces the chosen zone,
+ *  which is in force unless the device follows Home Assistant. `follow_homeassistant: true`
+ *  follows Home Assistant and keeps the chosen zone; `false` puts the chosen one in force. `time`,
+ *  alone or with the rest, sets the clock to that UTC epoch in whole seconds and writes the RTC.
+ *  `422` for `false` with no zone stored or sent, a `zone` without `posix`, a POSIX string the
+ *  device cannot parse, a string over 63 bytes or a `time` before CLOCK_TIME_MIN or from
+ *  CLOCK_TIME_END on; `400` for a malformed body or a `time` that is no integer; `500` when the
+ *  zone could not be stored, or the clock not set (a zone sent with it is in force all the same). */
+export type DeviceTimeUpdate =
+  | { posix: string; zone?: string | null; follow_homeassistant?: boolean; time?: number }
+  | { follow_homeassistant: boolean; posix?: never; zone?: never; time?: number }
+  | { time: number; follow_homeassistant?: never; posix?: never; zone?: never }
+
+/** The earliest `time` POST /time takes: 2019-01-01T00:00:00Z. */
+export const CLOCK_TIME_MIN = 1546300800
+/** The first `time` POST /time refuses: 2100-01-01T00:00:00Z. */
+export const CLOCK_TIME_END = 4102444800
 
 // --- Modbus map ---
 

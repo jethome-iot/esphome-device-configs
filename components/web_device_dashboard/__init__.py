@@ -15,6 +15,7 @@ CONF_BOARD_INFO_ID = "board_info_id"
 CONF_DALLAS_SCAN_ID = "dallas_scan_id"
 CONF_MODBUS_MAP = "modbus_map"
 CONF_STORAGE_ID = "storage_id"
+CONF_TIMEZONE_SETTINGS = "timezone_settings"
 CONF_URL_PREFIX = "url_prefix"
 
 # The components whose screens the page draws, and the setter each one's prefix goes to.
@@ -80,4 +81,8 @@ async def to_code(config):
     if (modbus_map := CORE.config.get(CONF_MODBUS_MAP)) is not None:
         cg.add_define("USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP")
         cg.add(var.set_modbus_map(await cg.get_variable(modbus_map[CONF_ID])))
+    # The same for the zone: it sits in the time package, next to the clocks.
+    if (timezone := CORE.config.get(CONF_TIMEZONE_SETTINGS)) is not None:
+        cg.add_define("USE_WEB_DEVICE_DASHBOARD_TIMEZONE")
+        cg.add(var.set_timezone_settings(await cg.get_variable(timezone[CONF_ID])))
     await cg.register_component(var, config)

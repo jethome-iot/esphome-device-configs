@@ -63,6 +63,16 @@ repos:
         pass_filenames: false
         files: ^(devices/|scripts/build-dist\.py)
 
+      # Rewrites the dashboard's timezone table, so a stale copy fails the commit until it is
+      # staged. tzdata is pinned so the table changes only when the pin does.
+      - id: build-timezones
+        name: regenerate the dashboard's timezone table
+        entry: python scripts/build-timezones.py
+        language: python
+        additional_dependencies: [esphome==2026.9.1, tzdata==2026.4]
+        pass_filenames: false
+        files: ^(scripts/build-timezones\.py|components/web_device_dashboard/client/device/timezones\.ts)$
+
       # The components that shadow ESPHome's own are not reached by a version bump.
       # Every hunk against the installed copy has to carry a JetHome marker, so an
       # unmarked one means the copy is stale. Keep the pin in step with the others.

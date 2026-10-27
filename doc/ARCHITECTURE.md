@@ -28,9 +28,9 @@ boundaries; everything else is local to its file.
   `features/web-device-dashboard.yaml` for `/api/device/info`.
 - `display1` and `main_page` come from `display/display.yaml`; the other pages attach with
   `id: !extend display1`. `display_menu` (`display/menu.yaml`) exposes `info_submenu` and
-  `menu_settings_id` as extension points that `menu-items-network.yaml`, `menu-serial.yaml`
-  and `menu-firmware.yaml` fill via `!extend` (`firmware_rollback_id`, the instance the
-  Rollback row reads, is local to `menu-firmware.yaml`); their rows follow the device config's
+  `menu_settings_id` as extension points that `menu-items-network.yaml`, `menu-serial.yaml`,
+  `menu-timezone.yaml` and `menu-firmware.yaml` fill via `!extend` (`firmware_rollback_id`, the
+  instance the Rollback row reads, is local to `menu-firmware.yaml`); their rows follow the device config's
   package order unless a `weight` moves them, and rows added from C++ at boot come after all of
   them. A submenu may be empty, and `info_submenu`, `relays_menu` and `inputs_menu` declare no
   rows of their own: the last two are filled at boot from the `relays` / `inputs` vectors, so the
@@ -91,6 +91,12 @@ boundaries; everything else is local to its file.
   The `auth:` block in the same file is the factory pair; a pair set through the dashboard is
   kept in the device's flash preferences and replaces it from the next request on, so a factory
   reset brings `admin` / `admin` back.
+- `device_timezone` (`features/rtc-time.yaml`) is the `timezone_settings` component, which
+  keeps Home Assistant's zone in the `stored_timezone` global and learns of it from
+  `homeassistant_time`; `display/menu-timezone.yaml` reads `zone_label()` for the Info row, and
+  `web_device_dashboard` finds it in the config for `/api/device/time`. Its `on_clock_set`
+  writes `pcf8563_time` after the dashboard set the clock, as the `on_time_sync` of
+  `homeassistant_time` and `sntp_time` do after theirs.
 - `run_factory_reset` (a script in `features/factory-reset.yaml`) is the reset the menu's
   Factory reset runs; the same file runs it when `fn_button` (`boards/jxd-cpu-e1eth.yaml`) is
   held for 10 s, after blinking `red_led`, the `status_indicator` on the CPU board's LED.
@@ -111,7 +117,7 @@ boundaries; everything else is local to its file.
 | --- | --- |
 | 800 | fill the `relays` / `inputs` vectors |
 | 700 | `apply_modbus_bus` (the stored baud rate, parity and stop bits into `jxm_uart2`, and the Modbus frame timing re-derived from them), then `modbus_bus_applied = true`; the selects' `on_value` is a no-op before that flag. Build a submenu per entry of those vectors, named after the entity's label or name, with its settings rows |
-| 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); restore the timezone and read the RTC (`setup_time`, called from the device config). `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
+| 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); read the RTC (`setup_time`, called from the device config), into the zone `timezone_settings` put in effect at `HARDWARE - 1`. `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
 | 599.5 | `climate_hub` sets up: it registers its pool of climate entities, loads the thermostats and starts the enabled ones, so it sits below the `Temp N` sensors (600) and above `automations`, whose rules name thermostats |
 | 599.25 | `bindings` sets up and drives the `Follow` relays once, skipping those a thermostat claimed at 599.5 |
 | 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created, and every thermostat a rule names, so below the hub (`DATA - 1` against `DATA - 0.5`). The hub tells the engine of a thermostat only when one is created, restored or removed or a Save or a restore changes its presets, never at load: a rule built ahead of the hub would stay unbuilt until then. `board_info` reads the EEPROM here too, once `eeprom_cpu` (600) has answered |
@@ -136,6 +142,9 @@ themselves up. `bindings` sets up at `DATA - 0.75`, after every entity and after
 have claimed their relays, and drives the `Follow` relays they left free once there; until then
 input changes are ignored. A relay whose start mode closes it at boot stays closed until its
 thermostat's first loop pass. See [ENTITY_SETTINGS.md](ENTITY_SETTINGS.md).
+`timezone_settings` sets up at `HARDWARE - 1`, right after the globals have restored Home
+Assistant's zone at `HARDWARE`, and puts the zone in effect before anything that reads the local
+time sets up.
 
 ## Settings
 
@@ -197,7 +206,8 @@ server.
   asks its handlers in registration order. `web_server` therefore runs without `local: true`:
   the page it would embed is never served. Its `to_code` also reads the validated config of
   `web_file_browser`, `web_automation_editor`, `web_climate_editor` and `web_schedule_editor`
-  out of `CORE.config` to report their prefixes, and the id of a `modbus_map` to report the map.
+  out of `CORE.config` to report their prefixes, the id of a `modbus_map` to report the map,
+  and the id of a `timezone_settings` to serve `/api/device/time`.
 - `components/modbus_map` derives its ranges from the validated `modbus_server` config: each
   `bits:` and `registers:` entry's `address`, `value_type` and whether it has a `write_lambda`,
   `courtesy_response`, and a value's width from `TYPE_REGISTER_MAP` in `modbus/helpers.py`. Final
@@ -258,6 +268,25 @@ server.
   - `api::APIServer::active_clients()`, `APIConnection::send_message(DisconnectRequest)` and
     `on_fatal_error()`: after a structural change the component makes Home Assistant reconnect
     the way upstream does after a new API key, since a client lists entities only on connect.
+- `components/timezone_settings` reads the zone Home Assistant sent one loop pass after the
+  `homeassistant` clock's sync callback fires, in a named `defer`: upstream's
+  `APIConnection::on_get_time_response` runs the sync callbacks (through `set_epoch_time()`)
+  before it calls `time::set_global_tz()` with the zone the answer carries, so the callback
+  itself still sees the old one. While the device follows Home Assistant, the zone in force at
+  the second read is taken for its own; while it does not, a change between the two reads is the
+  only sign that one arrived. `configure()` makes a read still pending first, so its own change
+  is never taken for Home Assistant's zone. The `stored_timezone` global is the raw
+  `time::ParsedTimezone`, which a restoring global stores by size: a change to the struct drops
+  the stored zone once. The parser in `posix_tz_parse.cpp` is a port of
+  `aioesphomeapi.posix_tz`, which ESPHome runs at build time; its suite fails when the pinned
+  `aioesphomeapi` parses differently. It refuses an offset more than 24 hours from UTC, which
+  Python takes: `RealTimeClock::dump_config()` and `ESPTime::timezone_offset()` negate the
+  offset in 32 bits.
+- `components/timezone_settings` sets the clock through a `time::RealTimeClock` subclass of its
+  own that is never registered, calling the protected `synchronize_epoch_()`: that keeps the
+  platform's `settimeofday` call and its skip within a second upstream's. It returns nothing, so
+  the component reads the clock back to tell whether it took. The `uint32_t` it takes would
+  end the range in 2106; the PCF8563's two-digit year ends it in 2100.
 - `components/automations` names entities by `fnv1_hash` of their object id and walks
   `App.get_binary_sensors()` / `get_sensors()` / `get_switches()` itself, so the hash and
   `EntityBase::get_object_id_to` are part of the on-disk rule format.

@@ -24,6 +24,9 @@
 #ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
 #include "esphome/components/modbus_map/modbus_map.h"
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
+#include "esphome/components/timezone_settings/timezone_settings.h"
+#endif
 
 namespace esphome::web_device_dashboard {
 
@@ -50,12 +53,15 @@ enum class RouteId : uint8_t {
   ENTITY_SETTINGS,
   ENTITY_SETTINGS_META,
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
+  TIME,
+#endif
 };
 
 struct Route {
   const char *name;
   RouteId id;
-  /// Reads answer GET, writes POST; entity-settings reads on GET and writes on POST.
+  /// Reads answer GET, writes POST; entity-settings and time read on GET and write on POST.
   bool get;
   bool post;
 };
@@ -65,9 +71,9 @@ using firmware_rollback::RollbackTarget;
 // The dashboard page at / and the device API under /api/device/: info (with the board's
 // EEPROM identity when jethome_board_info is wired in), status, network, what the firmware
 // can do, the three system actions, with web_auth the HTTP credentials, with dallas_scan the
-// temperature slots, forgetting and assigning them, their offsets and labels, and with config_json the
-// entity index, the entity settings and their form fields. A modbus_map is reported in
-// /capabilities.
+// temperature slots, forgetting and assigning them, their offsets and labels, with config_json the
+// entity index, the entity settings and their form fields, and with timezone_settings the clock
+// and the zone. A modbus_map is reported in /capabilities.
 class WebDeviceDashboard : public AsyncWebHandler, public Component {
  public:
   explicit WebDeviceDashboard(web_server_base::WebServerBase *base) : base_(base) {}
@@ -88,6 +94,9 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
   void set_modbus_map(const modbus_map::ModbusMap *map) { this->modbus_map_ = map; }
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
+  void set_timezone_settings(timezone_settings::TimezoneSettings *settings) { this->timezone_settings_ = settings; }
 #endif
   // Where the other web components serve, as this firmware configured them; nullptr when it
   // has none. Only /capabilities reads them.
@@ -161,6 +170,11 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   /// The body's `slot`, 1 to max_sensors(), as an index; answers 400 itself when it is not one.
   bool read_slot_(AsyncWebServerRequest *request, JsonVariant value, size_t &slot);
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
+  void handle_time_get_(AsyncWebServerRequest *request);
+  void handle_time_set_(AsyncWebServerRequest *request);
+  static std::string time_json_(const timezone_settings::TimezoneSettings &settings);
+#endif
 #ifdef USE_CONFIG_JSON
   void handle_entities_(AsyncWebServerRequest *request);
   void handle_entity_settings_get_(AsyncWebServerRequest *request);
@@ -187,6 +201,9 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
   const modbus_map::ModbusMap *modbus_map_{nullptr};
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
+  timezone_settings::TimezoneSettings *timezone_settings_{nullptr};
 #endif
   const char *files_url_prefix_{nullptr};
   const char *automations_url_prefix_{nullptr};

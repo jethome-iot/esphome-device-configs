@@ -31,6 +31,11 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
 A sensor is any numeric one that is not internal, not only a temperature, and its thresholds
 are in its own unit.
 
+Cron follows the device's clock, wherever its time comes from. A jump forward of up to 15
+minutes fires every cron time it skipped at once, and a longer one skips them; a jump back of
+more than 15 minutes fires the times in between again as the clock passes them, and a shorter
+one fires nothing until the clock is back where it was.
+
 A timetable, a value by the time of day and the day of the week, is a
 [schedule](SCHEDULES.md) rather than a rule.
 
