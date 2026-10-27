@@ -357,12 +357,13 @@ esphome:
               }
               return text.substr(0, i);
             };
-            // A cut name is no longer known to be unique — two rules may start alike — so a row
-            // that had to cut one carries the rule's id, the one the editor and the log use.
+            // A cut name, or one with `?` for what the font lacks, is no longer known to be
+            // unique — two rules may start alike — so its row carries the rule's id, the one the
+            // editor and the log use.
             auto label = [&fit, &has](const automations::AutomationConfig &config) {
               const std::string name = panel_safe(config.name, 4 * ROW, has);
               const std::string cut = fit(name, 12);
-              if (cut.size() == name.size())
+              if (cut.size() == name.size() && name == config.name)
                 return cut;
               const std::string tag = " #" + std::to_string(config.id);
               return fit(name, 12 - tag.size()) + tag;
