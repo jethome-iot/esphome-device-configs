@@ -39,6 +39,9 @@ entity_config:
 | `switch`        | object_id  | `restore_mode`, `inverted`, `binding_input`, `binding_mode`, `label`; a field a record leaves out, or names wrongly, keeps the switch's compiled value | At `HARDWARE + 1`, before the switch's own setup. A `RESTORE_*` mode chosen at run time stores the current state at once, since the switch itself makes its preference only in setup. |
 | `binary_sensor` | object_id  | `inverted`, `label` | A filter appended to the end of the sensor's chain; a flip re-emits the last raw level, so it shows without waiting for an edge. |
 
+An internal entity and one with `entity_category: config` take no record: the settings are for
+the device's inputs and outputs, not for its own settings.
+
 `binding_input` and `binding_mode` round-trip as plain strings; they do nothing without the
 [`bindings`](../bindings/README.md) component, and the lambdas that edit them are compiled out
 with it.

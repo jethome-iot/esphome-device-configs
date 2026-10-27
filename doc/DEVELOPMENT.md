@@ -49,6 +49,10 @@ shell:
 curl --digest -u admin:admin -X POST -d '' 'http://<ip>/switch/Allow%20ESPHome%20updates/turn_on'
 ```
 
+A config without `password: ""` under `ota: - platform: esphome`, such as one imported into the
+Builder from an older `dist/`, stops at `ESP requests password, but no password given!`, switch
+or not: add the line.
+
 CI compiles with `TZ=Etc/UTC`: the `homeassistant` time platform bakes the build host's zone into
 the firmware.
 

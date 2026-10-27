@@ -58,8 +58,11 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
   dashboard and kept across reboots ([details](components/web_auth/README.md))
 - **Locked ESPHome OTA**: the ESPHome Builder and `esphome run --device` install only while
   **Allow ESPHome updates** is on — in Home Assistant, on the dashboard or **Settings → ESPHome
-  OTA** on the display. It turns itself off after 30 minutes and with every reboot; an upload
-  encrypted with the device's API key gets in regardless
+  OTA** on the display. It turns itself off 30 minutes after it was turned on, so on a slow
+  build turn it on while the build runs, and at every reboot, except into safe mode, where the
+  port stays open as the way back without USB. The lock holds once Home Assistant has set the
+  API key: until then anyone on the network can turn the switch on over the API. An upload
+  encrypted with that key, and one through the dashboard behind the web password, do not need it
 - **Factory reset**: **Settings → Factory reset** on the display, the dashboard, or the FN button
   on the CPU board held for 10 seconds on a running device — the LED then blinks fast, red and
   green, for 5 seconds before the device resets; the button works without the display and without the web

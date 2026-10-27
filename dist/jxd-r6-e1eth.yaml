@@ -29,6 +29,8 @@ switch:
     name: Allow ESPHome updates
     icon: mdi:upload-lock
     entity_category: config
+    web_server:
+      sorting_group_id: group_system
     optimistic: true
     restore_mode: ALWAYS_OFF
     turn_on_action:
