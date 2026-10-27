@@ -243,9 +243,18 @@ const MAX_BODY_BYTES = 16384
 // The copies a parallel rule runs at once on the device.
 const MAX_RUNS = 8
 
+// The device's longest delay: one below the scheduler's "never".
+const MAX_DELAY_MS = 0xffffffff - 1
+
+// One delay as the device reads it: delay_ms, else the older delay_s, clamped to its range.
+function delayMs(a: AutomationAction): number {
+  const ms = a.delay_ms !== undefined ? a.delay_ms : (a.delay_s ?? 0) * 1000
+  return ms > 0 ? Math.min(ms, MAX_DELAY_MS) : 0
+}
+
 // How long a run of the actions takes: their delays, the only steps that wait.
 function runLength(actions: AutomationAction[]): number {
-  return actions.reduce((total, a) => total + (a.source === 'delay' ? (a.delay_ms ?? 0) : 0), 0)
+  return actions.reduce((total, a) => total + (a.source === 'delay' ? delayMs(a) : 0), 0)
 }
 
 // --- Stateful core -----------------------------------------------------------
@@ -289,7 +298,8 @@ export function createAutomationMockStore(options: AutomationMockStoreOptions = 
 
   function secondsSinceRun(id: number): number | null {
     const started = lastRun.get(id)
-    return started === undefined ? null : Math.floor((now() - started) / 1000)
+    // A clock that stepped back reads 0, as on the device.
+    return started === undefined ? null : Math.max(0, Math.floor((now() - started) / 1000))
   }
 
   function handle(method: string, endpoint: string, search: URLSearchParams, body: string): MockResult {
