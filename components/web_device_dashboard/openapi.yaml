@@ -10,14 +10,15 @@ info:
     a `jethome_board_info` is wired in), the runtime status, the live network
     link, on a firmware with a `web_auth` the HTTP credentials, with a
     `dallas_scan` the temperature slots and their offsets, with a `modbus_map`
-    the Modbus server's address map, and — on a firmware with a `config_json`
-    store — the per-entity settings and their form fields.
+    the Modbus server's address map, with a `timezone_settings` the clock and
+    the timezone, and — on a firmware with a `config_json` store — the
+    per-entity settings and their form fields.
     ESP-IDF (ESP32) only.
 
     This document is the wire contract; the TypeScript client in `client/device`
     implements it and the dashboard repository's dev server mocks it. Reads
-    answer GET only and writes POST only, `entity-settings` both (a read on GET,
-    a write on POST); any other method is `405` with an `Allow` header. Route
+    answer GET only and writes POST only, `entity-settings` and `time` both (a
+    read on GET, a write on POST); any other method is `405` with an `Allow` header. Route
     names match the URL path exactly, so an unknown name under the prefix is
     `404`. A POST needs a `Content-Length`, even `0`: ESP-IDF's server answers
     `411` without one. Every failure is `{"success": false, "error"}`.
@@ -1206,6 +1207,205 @@ paths:
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
 
+  /time:
+    get:
+      tags: [read]
+      operationId: getTime
+      summary: The clock and the timezone in effect.
+      description: >-
+        The device's clock in UTC, the offset and DST of the zone in effect at
+        that instant, which clock set the time last, and where the zone comes
+        from: Home Assistant's, the compiled one, or one chosen here. Only on a
+        firmware with a `timezone_settings`; without one this route is the
+        prefix's plain 404. Read on the device's main loop.
+      responses:
+        "200":
+          description: The clock and the zone.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NoTimeSettings"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/TimeBusy"
+    post:
+      tags: [write]
+      operationId: setTime
+      summary: Follow Home Assistant's zone, or choose one; set the clock.
+      description: >-
+        `follow_homeassistant: true` follows Home Assistant's zone, or the
+        compiled one until Home Assistant first sets the clock, and asks Home
+        Assistant for its zone at once; the chosen zone is kept.
+        `follow_homeassistant: false` applies the chosen zone — the one sent
+        with it, or the one stored. A `posix` string, with the `zone` name it was
+        picked as, becomes the chosen zone; while the device follows Home
+        Assistant, whether the body says so or leaves the mode out, it is kept
+        for later and not applied. The change is stored in flash before
+        it is applied and survives reboots; no confirmation is asked, since it
+        is undone the same way. `posix` is what the device runs on, parsed the
+        way ESPHome parses a `timezone:` at build time; `zone` is only a name to
+        show, and may be `null` or empty.
+
+        `time` sets the device's clock to that UTC epoch at once, for a device
+        that has neither NTP nor Home Assistant; the configs in this repository
+        write the RTC with it too. `clock_source` is then `dashboard` until Home
+        Assistant or SNTP sets the time, which they do as usual whenever they
+        answer, or the RTC reads back a time of its own; after a reboot it is
+        `rtc` again. A `time` within a second of the clock leaves it as it is.
+
+        Keys other than these four are ignored, but at least one of them must
+        be there; they may come in any combination. Everything in the body is
+        checked before anything changes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TimeUpdate"
+            examples:
+              choose:
+                summary: Choose a zone and apply it
+                value:
+                  follow_homeassistant: false
+                  zone: Europe/Berlin
+                  posix: CET-1CEST,M3.5.0,M10.5.0/3
+              follow:
+                summary: Follow Home Assistant again, keeping the chosen zone
+                value:
+                  follow_homeassistant: true
+              keep:
+                summary: Store a zone for later while following Home Assistant
+                value:
+                  zone: Asia/Tokyo
+                  posix: JST-9
+              clock:
+                summary: Set the clock
+                value:
+                  time: 1791369125
+              clock_and_zone:
+                summary: Set the clock and choose a zone in one go
+                value:
+                  follow_homeassistant: false
+                  zone: Europe/Berlin
+                  posix: CET-1CEST,M3.5.0,M10.5.0/3
+                  time: 1791369125
+      responses:
+        "200":
+          description: >-
+            Stored and in effect, the clock set; the body is what `GET` answers
+            now.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeStatus"
+        "400":
+          description: >-
+            A body that is empty, not JSON or not an object (`Invalid JSON`);
+            none of the four keys; `follow_homeassistant` not a boolean, `zone`
+            not a string or null, `posix` not a string, `time` not an integer.
+            Nothing changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                empty:
+                  value:
+                    success: false
+                    error: Expected 'follow_homeassistant', 'posix', 'zone' or 'time'
+                mode:
+                  value:
+                    success: false
+                    error: "'follow_homeassistant' must be true or false"
+                zone:
+                  value:
+                    success: false
+                    error: "'zone' must be a string or null"
+                posix:
+                  value:
+                    success: false
+                    error: "'posix' must be a string"
+                time:
+                  value:
+                    success: false
+                    error: "'time' must be an integer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NoTimeSettings"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          description: >-
+            Well-formed, but not something the device can run on or store: a
+            `posix` it cannot parse (empty, or with a byte outside printable
+            ASCII, included), a `posix` or `zone` over 63 bytes, a `zone` with a
+            control character, a `zone` without `posix`, not following Home
+            Assistant while no zone was ever chosen, or a `time` before 2019 or
+            from 2100 on. Nothing changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                posix:
+                  value:
+                    success: false
+                    error: "'posix' is not a POSIX TZ string"
+                posix_length:
+                  value:
+                    success: false
+                    error: "'posix' is over 63 bytes"
+                zone_length:
+                  value:
+                    success: false
+                    error: "'zone' is over 63 bytes"
+                zone_text:
+                  value:
+                    success: false
+                    error: "'zone' cannot contain control characters"
+                zone_alone:
+                  value:
+                    success: false
+                    error: "'zone' needs 'posix'"
+                no_zone:
+                  value:
+                    success: false
+                    error: "No zone was chosen yet: send 'posix' with it"
+                time_range:
+                  value:
+                    success: false
+                    error: "'time' must be from 1546300800 (2019-01-01) to 4102444799 (2099-12-31)"
+        "500":
+          description: >-
+            The settings did not reach flash, so the device keeps the zone it
+            had and the clock is not set; or the clock did not take the time, and
+            a zone sent with it is in effect all the same. The log says why.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                not_stored:
+                  value:
+                    success: false
+                    error: The time settings were not stored
+                clock:
+                  value:
+                    success: false
+                    error: The clock could not be set
+        "503":
+          $ref: "#/components/responses/TimeBusy"
+
 components:
   securitySchemes:
     webServerAuth:
@@ -1341,6 +1541,27 @@ components:
               value:
                 success: false
                 error: Not found
+    NoTimeSettings:
+      description: >-
+        This firmware has no `timezone_settings`, so the time route does not
+        exist; `capabilities` carries no `time`, and the answer is the prefix's
+        plain 404.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Not found
+    TimeBusy:
+      description: The device's main loop did not take the request in time. Nothing changed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Device busy
     NoStore:
       description: >-
         This firmware has no `config_json` store, so the settings routes do not
@@ -2025,6 +2246,10 @@ components:
             `/temperature-slots/label` answer.
         modbus:
           $ref: "#/components/schemas/ModbusMap"
+        time:
+          type: boolean
+          enum: [true]
+          description: "A `timezone_settings` is in the firmware, so `/time` answers."
       example:
         reboot: true
         factory_reset:
@@ -2047,6 +2272,7 @@ components:
           types: [switch, binary_sensor]
         board_info: true
         temperature_slots: true
+        time: true
         modbus:
           bits:
             - address: 0
@@ -2476,6 +2702,104 @@ components:
           type: string
         label:
           type: string
+
+    TimeStatus:
+      type: object
+      required:
+        [time, utc_offset, dst, clock_source, follow_homeassistant, zone_source, zone, posix, default_zone]
+      properties:
+        time:
+          type: [integer, "null"]
+          description: >-
+            The device's clock, UTC epoch seconds; `null` until a clock has set
+            it (before 2019 counts as not set).
+          example: 1791369125
+        utc_offset:
+          type: integer
+          description: >-
+            Seconds east of UTC in effect at `time`, DST included: local time is
+            `time + utc_offset`. The standard offset while `time` is `null`.
+          example: 7200
+        dst:
+          type: boolean
+          description: Whether `utc_offset` is summer time; `false` while `time` is `null`.
+        clock_source:
+          type: [string, "null"]
+          enum: [homeassistant, sntp, rtc, dashboard, null]
+          description: >-
+            The network clock whose sync came last, Home Assistant's or SNTP, or
+            `dashboard` when the time was set over `POST /time` since; `rtc`, the
+            battery-backed clock, until one of them has set the time since boot,
+            or once it reads back another time than the one they set (writing it
+            failed); `null` until any has.
+        follow_homeassistant:
+          type: boolean
+          description: The device follows Home Assistant's zone rather than the chosen one.
+        zone_source:
+          type: string
+          enum: [homeassistant, default, manual]
+          description: >-
+            Where the zone in effect comes from: Home Assistant's, the compiled
+            `default_zone` while following Home Assistant until it first sets the
+            clock, or the chosen zone. A Home Assistant older than 2026.3 sends no
+            zone; the one in effect when it answers counts as its own.
+        zone:
+          type: [string, "null"]
+          description: >-
+            The chosen zone's name, as it was picked; `null` when none was ever
+            chosen or it came without one. Kept while the device follows Home
+            Assistant.
+          example: Europe/Berlin
+        posix:
+          type: [string, "null"]
+          description: The chosen zone's POSIX string; `null` when none was ever chosen.
+          example: CET-1CEST,M3.5.0,M10.5.0/3
+        default_zone:
+          type: string
+          description: The compiled zone, as the configuration writes it.
+          example: UTC
+      example:
+        time: 1791369125
+        utc_offset: 10800
+        dst: false
+        clock_source: sntp
+        follow_homeassistant: true
+        zone_source: homeassistant
+        zone: Europe/Berlin
+        posix: CET-1CEST,M3.5.0,M10.5.0/3
+        default_zone: UTC
+
+    TimeUpdate:
+      type: object
+      description: >-
+        At least one of the four; other keys are ignored. A `zone` needs a
+        `posix` (`422` without one).
+      anyOf:
+        - required: [follow_homeassistant]
+        - required: [posix]
+        - required: [zone]
+        - required: [time]
+      dependentRequired:
+        zone: [posix]
+      properties:
+        follow_homeassistant:
+          type: boolean
+        zone:
+          type: [string, "null"]
+          maxLength: 63
+          description: The name to show for `posix`, at most 63 bytes; needs `posix`.
+        posix:
+          type: string
+          maxLength: 63
+          description: A POSIX TZ string, at most 63 bytes of printable ASCII.
+        time:
+          type: integer
+          minimum: 1546300800
+          maximum: 4102444799
+          description: >-
+            What to set the device's clock to: UTC epoch seconds, from
+            2019-01-01 to the end of 2099.
+          example: 1791369125
 
     SuccessEnvelope:
       type: object

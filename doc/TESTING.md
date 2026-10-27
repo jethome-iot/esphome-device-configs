@@ -56,6 +56,9 @@ tests/
     panel_text/
     status_indicator/
     switch_hold/
+    timezone_settings/        # posix_tz_cases.tsv: what ESPHome's Python parser makes of every
+                              # zone in tzdata, which the device's parser is held to; written by
+                              # generate_fixture.py, rerun after a tzdata or aioesphomeapi bump
     virtual_display/          # test_schema.py alone: the C++ includes <esp_http_server.h>,
                               # which the host platform has no header for
     web_auth/

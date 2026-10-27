@@ -49,7 +49,7 @@ esphome:
     name: JetHome.JXD-R6-E1ETH
     version: ${version}
   on_boot:
-    # Restores the stored timezone and reads the RTC once I2C is up.
+    # Reads the RTC once I2C is up; timezone_settings has put the zone in effect by then.
     - priority: 600
       then:
         - delay: 200ms

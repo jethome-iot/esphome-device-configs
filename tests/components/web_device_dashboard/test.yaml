@@ -48,6 +48,7 @@ external_components:
       - dallas_scan
       - modbus_map
       - panel_text
+      - timezone_settings
   - source: ../../harness/components
     components: [dir_storage, web_server_base, web_server, one_wire_host]
   # web_device_dashboard depends on web_server for the entity REST API its page calls, and
@@ -138,6 +139,17 @@ modbus_map:
       scale: 0.1
       unit: "°C"
       no_value: 0x8000
+
+# A timezone_settings is what sets USE_WEB_DEVICE_DASHBOARD_TIMEZONE; the cases build their own,
+# on a clock they set.
+time:
+  - platform: host
+    id: host_time
+    timezone: UTC
+
+timezone_settings:
+  id: zone
+  timezone: Europe/Berlin
 
 # board_info_id sets USE_WEB_DEVICE_DASHBOARD_BOARD_INFO, so /api/device/info carries the board;
 # storage_id sets USE_WEB_DEVICE_DASHBOARD_STORAGE, so the factory reset has a mount to wipe;

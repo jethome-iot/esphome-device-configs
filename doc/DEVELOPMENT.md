@@ -70,6 +70,10 @@ requires.
   `npm run build` in [jethome-devices-web-dashboard](https://github.com/jethome-iot/jethome-devices-web-dashboard)
   writes `dist/dashboard_index.h`; copy it over this one, or merge the pull request that
   repository's Release workflow opens.
+- `components/web_device_dashboard/client/device/timezones.ts` — `scripts/build-timezones.py`,
+  every IANA name with the POSIX string ESPHome compiles for it. The `build-timezones` hook pins
+  ESPHome and tzdata, so the table changes only when those pins do; a new tzdata release reaches
+  it by moving the hook's `tzdata` pin and regenerating.
 
 `firmwares.yaml` must list every device config (`build-dist.py` refuses to run otherwise); it is
 the only input to the Build and Release matrices.
@@ -79,7 +83,8 @@ the only input to the Build and Release matrices.
 The pin appears in these files; Dependabot bumps only the first:
 
 - `requirements.txt` — the source of truth: firmware versions and CI cache keys derive from it
-- `.pre-commit-config.yaml` — `additional_dependencies` of the `build-dist` hook
+- `.pre-commit-config.yaml` — `additional_dependencies` of the `build-dist`, `build-timezones`
+  and `vendored-diff` hooks
 - `README.md` — badge and text
 - `scripts/setup.sh`, `scripts/setup.bat` — the Python-range messages
 - `doc/DEVELOPMENT.md` (Environment) and `CLAUDE.md` — the stated version
