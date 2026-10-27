@@ -1291,13 +1291,35 @@ bool WebDeviceDashboard::read_slot_(AsyncWebServerRequest *request, JsonVariant 
 }
 #endif  // USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
 
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+// The servers the device was given and its own, the one it asks, and the last answer.
+static void write_ntp(JsonObject ntp, const ntp_servers::NTPServers &servers) {
+  JsonArray set = ntp["servers"].to<JsonArray>();
+  for (const auto &server : servers.servers())
+    set.add(server);
+  ntp["fallback"] = servers.fallback();
+  JsonArray fallback = ntp["fallback_servers"].to<JsonArray>();
+  for (const char *server : servers.fallback_servers())
+    fallback.add(server);
+  ntp["current"] = nullptr;
+  if (const char *current = servers.current(); current != nullptr)
+    ntp["current"] = current;
+  ntp["last_sync"] = nullptr;
+  if (const auto &sync = servers.last_sync(); sync.has_value()) {
+    JsonObject last = ntp["last_sync"].to<JsonObject>();
+    last["time"] = static_cast<int64_t>(sync->time);
+    last["server"] = sync->server;
+  }
+}
+#endif
+
 #ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
 // What GET answers, and POST once it has changed something: the clock, the zone in effect and
-// where it comes from, the zone chosen by hand and the compiled one.
-std::string WebDeviceDashboard::time_json_(const timezone_settings::TimezoneSettings &settings) {
+// where it comes from, the zone chosen by hand and the compiled one, and the NTP servers.
+std::string WebDeviceDashboard::time_json_(const timezone_settings::TimezoneSettings &settings) const {
   using namespace timezone_settings;
   const TimezoneSettings::Status status = settings.status();
-  return json::build_json([&settings, &status](JsonObject root) {
+  return json::build_json([this, &settings, &status](JsonObject root) {
     root["time"] = nullptr;
     if (status.time.has_value())
       root["time"] = static_cast<int64_t>(status.time.value());
@@ -1317,6 +1339,10 @@ std::string WebDeviceDashboard::time_json_(const timezone_settings::TimezoneSett
       root["posix"] = zone.posix;
     }
     root["default_zone"] = settings.default_zone();
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+    if (this->ntp_servers_ != nullptr)
+      write_ntp(root["ntp"].to<JsonObject>(), *this->ntp_servers_);
+#endif
   });
 }
 
@@ -1340,10 +1366,10 @@ void WebDeviceDashboard::handle_time_get_(AsyncWebServerRequest *request) {
   request->send(200, "application/json", body.c_str());
 }
 
-// POST /api/device/time: {"follow_homeassistant"}, {"posix", "zone"}, {"time"}, or any of them
-// together. A zone sent while the device follows Home Assistant is kept for later, not applied.
-// No confirmation: it is undone the same way. Everything is checked before anything changes; the
-// change and the answer go over to the loop task together.
+// POST /api/device/time: {"follow_homeassistant"}, {"posix", "zone"}, {"time"}, {"ntp"}, or any
+// of them together. A zone sent while the device follows Home Assistant is kept for later, not
+// applied. No confirmation: it is undone the same way. Everything is checked before anything
+// changes; the change and the answer go over to the loop task together.
 void WebDeviceDashboard::handle_time_set_(AsyncWebServerRequest *request) {
   using timezone_settings::SetError;
   using timezone_settings::TimezoneSettings;
@@ -1360,8 +1386,17 @@ void WebDeviceDashboard::handle_time_set_(AsyncWebServerRequest *request) {
   JsonVariant zone = doc["zone"];
   JsonVariant posix = doc["posix"];
   JsonVariant epoch = doc["time"];
-  if (follow.isUnbound() && zone.isUnbound() && posix.isUnbound() && epoch.isUnbound()) {
-    this->send_error_(request, 400, "Expected 'follow_homeassistant', 'posix', 'zone' or 'time'");
+  const char *expected = "Expected 'follow_homeassistant', 'posix', 'zone' or 'time'";
+  JsonVariant ntp;
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+  // Without the servers it is a key like any other this route does not know.
+  if (this->ntp_servers_ != nullptr) {
+    ntp = doc["ntp"];
+    expected = "Expected 'follow_homeassistant', 'posix', 'zone', 'time' or 'ntp'";
+  }
+#endif
+  if (follow.isUnbound() && zone.isUnbound() && posix.isUnbound() && epoch.isUnbound() && ntp.isUnbound()) {
+    this->send_error_(request, 400, expected);
     return;
   }
   if (!follow.isUnbound() && !follow.is<bool>()) {
@@ -1392,6 +1427,16 @@ void WebDeviceDashboard::handle_time_set_(AsyncWebServerRequest *request) {
     this->send_error_(request, 422, timezone_settings::set_error_text(SetError::TIME_OUT_OF_RANGE));
     return;
   }
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+  const bool has_ntp = !ntp.isUnbound();
+  std::vector<std::string> ntp_list;
+  bool ntp_list_given = false;
+  bool ntp_fallback = false;
+  bool ntp_fallback_given = false;
+  if (has_ntp && !this->read_ntp_(request, ntp, ntp_list, ntp_list_given, ntp_fallback, ntp_fallback_given))
+    return;
+  ntp_servers::SetError ntp_error = ntp_servers::SetError::NONE;
+#endif
   const bool has_zone = !posix.isUnbound();
   const bool configures = has_zone || !follow.isUnbound();
   timezone_settings::Zone chosen;
@@ -1410,6 +1455,15 @@ void WebDeviceDashboard::handle_time_set_(AsyncWebServerRequest *request) {
       if (error != SetError::NONE)
         return false;
     }
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+    // Stored before used, like the zone, which stays in force if storing these fails.
+    if (has_ntp) {
+      ntp_error = this->ntp_servers_->configure(ntp_list_given ? ntp_list : this->ntp_servers_->servers(),
+                                                ntp_fallback_given ? ntp_fallback : this->ntp_servers_->fallback());
+      if (ntp_error != ntp_servers::SetError::NONE)
+        return false;
+    }
+#endif
     // After the zone, which the device may still refuse; the clock cannot be put back.
     if (has_time) {
       error = settings->set_clock(seconds);
@@ -1420,6 +1474,13 @@ void WebDeviceDashboard::handle_time_set_(AsyncWebServerRequest *request) {
     return true;
   });
   if (!changed) {
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+    if (ntp_error != ntp_servers::SetError::NONE) {
+      const bool failed = ntp_error == ntp_servers::SetError::NOT_STORED;
+      this->send_error_(request, failed ? 500 : 422, ntp_servers::set_error_text(ntp_error).c_str());
+      return;
+    }
+#endif
     // No error means the loop task never took the job: nothing changed.
     if (error == SetError::NONE) {
       this->send_error_(request, 503, "Device busy");
@@ -1431,6 +1492,52 @@ void WebDeviceDashboard::handle_time_set_(AsyncWebServerRequest *request) {
   }
   request->send(200, "application/json", body.c_str());
 }
+
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+// The body's `ntp`: which of its keys it has and what they hold. Answers 400 or 422 itself when
+// it is malformed or the servers are refused.
+bool WebDeviceDashboard::read_ntp_(AsyncWebServerRequest *request, JsonVariant ntp, std::vector<std::string> &list,
+                                   bool &list_given, bool &fallback, bool &fallback_given) {
+  if (!ntp.is<JsonObject>()) {
+    this->send_error_(request, 400, "'ntp' must be an object");
+    return false;
+  }
+  JsonVariant servers = ntp["servers"];
+  JsonVariant use_fallback = ntp["fallback"];
+  if (servers.isUnbound() && use_fallback.isUnbound()) {
+    this->send_error_(request, 400, "'ntp' needs 'servers' or 'fallback'");
+    return false;
+  }
+  list_given = !servers.isUnbound();
+  if (list_given) {
+    if (!servers.is<JsonArray>()) {
+      this->send_error_(request, 400, "'ntp.servers' must be a list of strings");
+      return false;
+    }
+    for (JsonVariant server : servers.as<JsonArray>()) {
+      if (!server.is<const char *>()) {
+        this->send_error_(request, 400, "'ntp.servers' must be a list of strings");
+        return false;
+      }
+      // Straight to std::string: a NUL decoded from "\u0000" is a character the check refuses.
+      list.push_back(server.as<std::string>());
+    }
+  }
+  fallback_given = !use_fallback.isUnbound();
+  if (fallback_given && !use_fallback.is<bool>()) {
+    this->send_error_(request, 400, "'ntp.fallback' must be true or false");
+    return false;
+  }
+  fallback = fallback_given && use_fallback.as<bool>();
+  size_t item, first;
+  if (const auto error = ntp_servers::NTPServers::check_servers(list, item, first);
+      error != ntp_servers::SetError::NONE) {
+    this->send_error_(request, 422, ntp_servers::set_error_text(error, item, first).c_str());
+    return false;
+  }
+  return true;
+}
+#endif
 #endif  // USE_WEB_DEVICE_DASHBOARD_TIMEZONE
 
 #ifdef USE_CONFIG_JSON

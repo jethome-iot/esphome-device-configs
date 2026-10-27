@@ -49,6 +49,7 @@ external_components:
       - modbus_map
       - panel_text
       - timezone_settings
+      - ntp_servers
   - source: ../../harness/components
     components: [dir_storage, web_server_base, web_server, one_wire_host]
   # web_device_dashboard depends on web_server for the entity REST API its page calls, and
@@ -150,6 +151,11 @@ time:
 timezone_settings:
   id: zone
   timezone: Europe/Berlin
+
+# The same for ntp_servers and USE_WEB_DEVICE_DASHBOARD_NTP.
+ntp_servers:
+  id: ntp
+  sntp_id: host_time
 
 # board_info_id sets USE_WEB_DEVICE_DASHBOARD_BOARD_INFO, so /api/device/info carries the board;
 # storage_id sets USE_WEB_DEVICE_DASHBOARD_STORAGE, so the factory reset has a mount to wipe;

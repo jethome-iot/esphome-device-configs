@@ -27,6 +27,9 @@
 #ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
 #include "esphome/components/timezone_settings/timezone_settings.h"
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+#include "esphome/components/ntp_servers/ntp_servers.h"
+#endif
 
 namespace esphome::web_device_dashboard {
 
@@ -97,6 +100,9 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
   void set_timezone_settings(timezone_settings::TimezoneSettings *settings) { this->timezone_settings_ = settings; }
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+  void set_ntp_servers(ntp_servers::NTPServers *servers) { this->ntp_servers_ = servers; }
 #endif
   // Where the other web components serve, as this firmware configured them; nullptr when it
   // has none. Only /capabilities reads them.
@@ -172,7 +178,11 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
   void handle_time_get_(AsyncWebServerRequest *request);
   void handle_time_set_(AsyncWebServerRequest *request);
-  static std::string time_json_(const timezone_settings::TimezoneSettings &settings);
+  std::string time_json_(const timezone_settings::TimezoneSettings &settings) const;
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+  bool read_ntp_(AsyncWebServerRequest *request, JsonVariant ntp, std::vector<std::string> &list, bool &list_given,
+                 bool &fallback, bool &fallback_given);
 #endif
 #ifdef USE_CONFIG_JSON
   void handle_entities_(AsyncWebServerRequest *request);
@@ -203,6 +213,9 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
   timezone_settings::TimezoneSettings *timezone_settings_{nullptr};
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+  ntp_servers::NTPServers *ntp_servers_{nullptr};
 #endif
   const char *files_url_prefix_{nullptr};
   const char *automations_url_prefix_{nullptr};

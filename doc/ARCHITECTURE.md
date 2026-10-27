@@ -90,6 +90,9 @@ boundaries; everything else is local to its file.
   `web_device_dashboard` finds it in the config for `/api/device/time`. Its `on_clock_set`
   writes `pcf8563_time` after the dashboard set the clock, as the `on_time_sync` of
   `homeassistant_time` and `sntp_time` do after theirs.
+- `device_ntp` (`features/rtc-time.yaml`) is the `ntp_servers` component, which hands
+  `sntp_time`'s lwIP client one server at a time and takes `sntp_time`'s own servers as its
+  fallback; `web_device_dashboard` finds it in the config and serves it on `/api/device/time`.
 - `run_factory_reset` (a script in `features/factory-reset.yaml`) is the reset the menu's
   Factory reset runs; the same file runs it when `fn_button` (`boards/jxd-cpu-e1eth.yaml`) is
   held for 10 s, after blinking `red_led`, the `status_indicator` on the CPU board's LED.
@@ -136,7 +139,8 @@ input changes are ignored. A relay whose start mode closes it at boot stays clos
 thermostat's first loop pass. See [ENTITY_SETTINGS.md](ENTITY_SETTINGS.md).
 `timezone_settings` sets up at `HARDWARE - 1`, right after the globals have restored Home
 Assistant's zone at `HARDWARE`, and puts the zone in effect before anything that reads the local
-time sets up.
+time sets up. `ntp_servers` sets up at `BEFORE_CONNECTION - 1`, right after `sntp_time` has
+started lwIP's client on its own servers, and restarts it on the first server to ask.
 
 ## Settings
 
@@ -199,7 +203,7 @@ server.
   the page it would embed is never served. Its `to_code` also reads the validated config of
   `web_file_browser`, `web_automation_editor` and `web_climate_editor` out of `CORE.config` to
   report their prefixes, the id of a `modbus_map` to report the map, and the id of a
-  `timezone_settings` to serve `/api/device/time`.
+  `timezone_settings` to serve `/api/device/time`, with an `ntp_servers` beside it.
 - `components/modbus_map` derives its ranges from the validated `modbus_server` config: each
   `bits:` and `registers:` entry's `address`, `value_type` and whether it has a `write_lambda`,
   `courtesy_response`, and a value's width from `TYPE_REGISTER_MAP` in `modbus/helpers.py`. Final
@@ -279,6 +283,24 @@ server.
   platform's `settimeofday` call and its skip within a second upstream's. It returns nothing, so
   the component reads the clock back to tell whether it took. The `uint32_t` it takes would
   end the range in 2106; the PCF8563's two-digit year ends it in 2100.
+- `components/ntp_servers` takes lwIP's SNTP client over from upstream's `sntp` platform:
+  `SNTPComponent::setup()` fills one slot per configured server and starts it, and the
+  component, setting up right after, clears every slot and restarts it on one server. It does so
+  with lwIP's own `sntp_stop()`, `sntp_setserver()`, `sntp_setservername()` and `sntp_init()`
+  in one `esp_netif_tcpip_exec()` call (`lwip_sntp.cpp`): `esp_sntp.h`'s wrappers queue the stop
+  and the start for lwIP's task but, with TCP/IP core locking, set the slots at once, so a reply
+  could be taken under the new name before the stop, and the header hides the plain names. lwIP
+  keeps the name's pointer, so the component hands it a string of its own and rewrites it only
+  once no slot points there. Left with several servers, lwIP stays on whichever answered
+  last, never returns to the first, and cannot say which one answered; with one it can do
+  neither wrong. The component replaces upstream's `esp_sntp_set_time_sync_notification_cb()`
+  callback with one that does what upstream's does, deferring the public
+  `SNTPComponent::time_synced()` to the loop task, and first reads slot 0's name on lwIP's task,
+  so the answer is credited to the server that sent it. A sync with no reply before it is
+  upstream's first loop pass reporting a clock that was already set, after a software restart,
+  and counts for nothing. lwIP times its next poll from the reply, ahead of the loop task, so
+  the component goes back to the first server 5 s before that poll. ESP-IDF polls no more often
+  than every 15 s whatever `update_interval` says.
 - `components/automations` names entities by `fnv1_hash` of their object id and walks
   `App.get_binary_sensors()` / `get_sensors()` / `get_switches()` itself, so the hash and
   `EntityBase::get_object_id_to` are part of the on-disk rule format.

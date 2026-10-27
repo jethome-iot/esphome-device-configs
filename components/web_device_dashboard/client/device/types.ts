@@ -362,20 +362,52 @@ export interface DeviceTime {
   posix: string | null
   /** The zone compiled into the firmware, as its config writes it, e.g. `"UTC"`. */
   default_zone: string
+  /** The NTP servers the device asks; present on a firmware with an `ntp_servers`. */
+  ntp?: DeviceNtp
 }
+
+/** The NTP servers, in the order the device asks them: `servers`, then `fallback_servers` when
+ *  `fallback` is on. One is asked at a time; the next when it gives no answer, and the first
+ *  again at the poll after an answer from another. */
+export interface DeviceNtp {
+  /** Set with POST /time, at most NTP_SERVERS_MAX; empty when none was. */
+  servers: string[]
+  /** The firmware's own servers are asked after `servers`. On until POST /time turns it off. */
+  fallback: boolean
+  /** The firmware's own servers, e.g. `0.pool.ntp.org`; empty when it has none. */
+  fallback_servers: string[]
+  /** The server being asked now, or the one that answered last; null when the list is empty. */
+  current: string | null
+  /** The last answer since boot: when, as the clock read once it was set, and which server gave it. */
+  last_sync: { time: number; server: string } | null
+}
+
+/** POST /time's `ntp`: the servers to ask ahead of the firmware's own, and whether to ask those
+ *  at all; whichever is left out stays. Each is a host name or an IPv4 address, at most
+ *  NTP_SERVER_NAME_MAX bytes, none twice (case aside). A change is in force at once: the device
+ *  asks the first server again; the same servers again change nothing. */
+export type NtpUpdate = { servers: string[]; fallback?: boolean } | { fallback: boolean; servers?: never }
 
 /** POST /time. `posix` (with the zone's name, for display, or `null`) replaces the chosen zone,
  *  which is in force unless the device follows Home Assistant. `follow_homeassistant: true`
  *  follows Home Assistant and keeps the chosen zone; `false` puts the chosen one in force. `time`,
  *  alone or with the rest, sets the clock to that UTC epoch in whole seconds and writes the RTC.
+ *  `ntp`, on a firmware whose GET has it, sets the NTP servers.
  *  `422` for `false` with no zone stored or sent, a `zone` without `posix`, a POSIX string the
- *  device cannot parse, a string over 63 bytes or a `time` before CLOCK_TIME_MIN or from
- *  CLOCK_TIME_END on; `400` for a malformed body or a `time` that is no integer; `500` when the
- *  zone could not be stored, or the clock not set (a zone sent with it is in force all the same). */
+ *  device cannot parse, a string over 63 bytes, a `time` before CLOCK_TIME_MIN or from
+ *  CLOCK_TIME_END on, or NTP servers it refuses; `400` for a malformed body or a `time` that is
+ *  no integer; `500` when the zone or the servers could not be stored, or the clock not set (a
+ *  zone sent with it is in force all the same). */
 export type DeviceTimeUpdate =
-  | { posix: string; zone?: string | null; follow_homeassistant?: boolean; time?: number }
-  | { follow_homeassistant: boolean; posix?: never; zone?: never; time?: number }
-  | { time: number; follow_homeassistant?: never; posix?: never; zone?: never }
+  | { posix: string; zone?: string | null; follow_homeassistant?: boolean; time?: number; ntp?: NtpUpdate }
+  | { follow_homeassistant: boolean; posix?: never; zone?: never; time?: number; ntp?: NtpUpdate }
+  | { time: number; follow_homeassistant?: never; posix?: never; zone?: never; ntp?: NtpUpdate }
+  | { ntp: NtpUpdate; follow_homeassistant?: never; posix?: never; zone?: never; time?: never }
+
+/** How many servers `ntp.servers` holds. */
+export const NTP_SERVERS_MAX = 3
+/** The longest server name `ntp.servers` takes, in bytes. */
+export const NTP_SERVER_NAME_MAX = 63
 
 /** The earliest `time` POST /time takes: 2019-01-01T00:00:00Z. */
 export const CLOCK_TIME_MIN = 1546300800

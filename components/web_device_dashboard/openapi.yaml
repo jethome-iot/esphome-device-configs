@@ -1215,9 +1215,10 @@ paths:
       description: >-
         The device's clock in UTC, the offset and DST of the zone in effect at
         that instant, which clock set the time last, and where the zone comes
-        from: Home Assistant's, the compiled one, or one chosen here. Only on a
-        firmware with a `timezone_settings`; without one this route is the
-        prefix's plain 404. Read on the device's main loop.
+        from: Home Assistant's, the compiled one, or one chosen here; with an
+        `ntp_servers`, the NTP servers too. Only on a firmware with a
+        `timezone_settings`; without one this route is the prefix's plain 404.
+        Read on the device's main loop.
       responses:
         "200":
           description: The clock and the zone.
@@ -1236,7 +1237,7 @@ paths:
     post:
       tags: [write]
       operationId: setTime
-      summary: Follow Home Assistant's zone, or choose one; set the clock.
+      summary: Follow Home Assistant's zone, or choose one; set the clock or the NTP servers.
       description: >-
         `follow_homeassistant: true` follows Home Assistant's zone, or the
         compiled one until Home Assistant first sets the clock, and asks Home
@@ -1258,9 +1259,15 @@ paths:
         answer, or the RTC reads back a time of its own; after a reboot it is
         `rtc` again. A `time` within a second of the clock leaves it as it is.
 
-        Keys other than these four are ignored, but at least one of them must
-        be there; they may come in any combination. Everything in the body is
-        checked before anything changes.
+        `ntp`, on a firmware whose `GET` answers it, sets the servers asked
+        ahead of the firmware's own and whether those are asked at all; a key
+        it leaves out stays. Stored before it takes effect, and the first
+        server is asked at once.
+
+        Keys other than these five are ignored, but at least one of them must
+        be there (`ntp` counts only where `GET` has it); they may come in any
+        combination. Everything in the body is checked before anything
+        changes.
       requestBody:
         required: true
         content:
@@ -1294,6 +1301,18 @@ paths:
                   zone: Europe/Berlin
                   posix: CET-1CEST,M3.5.0,M10.5.0/3
                   time: 1791369125
+              ntp:
+                summary: Ask the site's own servers first, the firmware's after them
+                value:
+                  ntp:
+                    servers: [ntp.example.com, 192.168.1.10]
+                    fallback: true
+              ntp_off:
+                summary: Ask no NTP server at all
+                value:
+                  ntp:
+                    servers: []
+                    fallback: false
       responses:
         "200":
           description: >-
@@ -1306,9 +1325,10 @@ paths:
         "400":
           description: >-
             A body that is empty, not JSON or not an object (`Invalid JSON`);
-            none of the four keys; `follow_homeassistant` not a boolean, `zone`
-            not a string or null, `posix` not a string, `time` not an integer.
-            Nothing changed.
+            none of the keys; `follow_homeassistant` not a boolean, `zone`
+            not a string or null, `posix` not a string, `time` not an integer;
+            `ntp` not an object or with neither of its keys, `ntp.servers` not a
+            list of strings, `ntp.fallback` not a boolean. Nothing changed.
           content:
             application/json:
               schema:
@@ -1334,6 +1354,27 @@ paths:
                   value:
                     success: false
                     error: "'time' must be an integer"
+                empty_with_ntp:
+                  summary: On a firmware with NTP servers
+                  value:
+                    success: false
+                    error: Expected 'follow_homeassistant', 'posix', 'zone', 'time' or 'ntp'
+                ntp:
+                  value:
+                    success: false
+                    error: "'ntp' must be an object"
+                ntp_keys:
+                  value:
+                    success: false
+                    error: "'ntp' needs 'servers' or 'fallback'"
+                ntp_servers:
+                  value:
+                    success: false
+                    error: "'ntp.servers' must be a list of strings"
+                ntp_fallback:
+                  value:
+                    success: false
+                    error: "'ntp.fallback' must be true or false"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -1350,8 +1391,10 @@ paths:
             `posix` it cannot parse (empty, or with a byte outside printable
             ASCII, included), a `posix` or `zone` over 63 bytes, a `zone` with a
             control character, a `zone` without `posix`, not following Home
-            Assistant while no zone was ever chosen, or a `time` before 2019 or
-            from 2100 on. Nothing changed.
+            Assistant while no zone was ever chosen, a `time` before 2019 or
+            from 2100 on; more than 3 NTP servers, or one that is no host name
+            or IPv4 address, is over 63 bytes or repeats an earlier one, case
+            aside (items count from 1). Nothing changed.
           content:
             application/json:
               schema:
@@ -1385,11 +1428,29 @@ paths:
                   value:
                     success: false
                     error: "'time' must be from 1546300800 (2019-01-01) to 4102444799 (2099-12-31)"
+                ntp_count:
+                  value:
+                    success: false
+                    error: "'ntp.servers' lists more than 3 servers"
+                ntp_length:
+                  value:
+                    success: false
+                    error: "'ntp.servers' item 2 is over 63 bytes"
+                ntp_name:
+                  value:
+                    success: false
+                    error: "'ntp.servers' item 1 is not a host name or an IPv4 address"
+                ntp_repeat:
+                  value:
+                    success: false
+                    error: "'ntp.servers' item 3 repeats item 1"
         "500":
           description: >-
             The settings did not reach flash, so the device keeps the zone it
-            had and the clock is not set; or the clock did not take the time, and
-            a zone sent with it is in effect all the same. The log says why.
+            had and the clock is not set; the NTP servers did not, so it keeps
+            asking the ones it had, and a zone sent with them is in effect all
+            the same; or the clock did not take the time, and a zone or servers
+            sent with it are in effect all the same. The log says why.
           content:
             application/json:
               schema:
@@ -1403,6 +1464,10 @@ paths:
                   value:
                     success: false
                     error: The clock could not be set
+                ntp_not_stored:
+                  value:
+                    success: false
+                    error: The NTP servers were not stored
         "503":
           $ref: "#/components/responses/TimeBusy"
 
@@ -2758,6 +2823,8 @@ components:
           type: string
           description: The compiled zone, as the configuration writes it.
           example: UTC
+        ntp:
+          $ref: "#/components/schemas/NtpStatus"
       example:
         time: 1791369125
         utc_offset: 10800
@@ -2772,13 +2839,14 @@ components:
     TimeUpdate:
       type: object
       description: >-
-        At least one of the four; other keys are ignored. A `zone` needs a
+        At least one of the five; other keys are ignored. A `zone` needs a
         `posix` (`422` without one).
       anyOf:
         - required: [follow_homeassistant]
         - required: [posix]
         - required: [zone]
         - required: [time]
+        - required: [ntp]
       dependentRequired:
         zone: [posix]
       properties:
@@ -2800,6 +2868,80 @@ components:
             What to set the device's clock to: UTC epoch seconds, from
             2019-01-01 to the end of 2099.
           example: 1791369125
+        ntp:
+          $ref: "#/components/schemas/NtpUpdate"
+
+    NtpStatus:
+      type: object
+      description: >-
+        The NTP servers, on a firmware with an `ntp_servers`. They are asked in
+        the order `servers`, then `fallback_servers` not among them (case
+        aside) while `fallback` is on. One is asked at a time: the next when it
+        gives no answer, and the first again at the poll after an answer from
+        another.
+      required: [servers, fallback, fallback_servers, current, last_sync]
+      properties:
+        servers:
+          type: array
+          maxItems: 3
+          items:
+            type: string
+          description: The servers set with `POST /time`; empty when none were.
+        fallback:
+          type: boolean
+          description: The firmware's own servers are asked after `servers`. On until turned off.
+        fallback_servers:
+          type: array
+          items:
+            type: string
+          description: The firmware's own servers, as the configuration lists them.
+        current:
+          type: [string, "null"]
+          description: >-
+            The server being asked, or the one that answered last; `null` when
+            there is none to ask.
+        last_sync:
+          type: [object, "null"]
+          description: The last answer since boot; `null` until one came.
+          required: [time, server]
+          properties:
+            time:
+              type: integer
+              description: UTC epoch seconds, as the clock read once the answer set it.
+            server:
+              type: string
+      example:
+        servers: [ntp.example.com]
+        fallback: true
+        fallback_servers: [0.pool.ntp.org, 1.pool.ntp.org, 2.pool.ntp.org]
+        current: ntp.example.com
+        last_sync:
+          time: 1791369125
+          server: ntp.example.com
+
+    NtpUpdate:
+      type: object
+      description: >-
+        The servers to ask ahead of the firmware's own, and whether to ask
+        those at all; at least one of the two, and the other stays.
+      anyOf:
+        - required: [servers]
+        - required: [fallback]
+      properties:
+        servers:
+          type: array
+          maxItems: 3
+          items:
+            type: string
+            minLength: 1
+            maxLength: 63
+            description: >-
+              A host name — letters, digits and hyphens in dot-separated
+              labels, none starting or ending with a hyphen — or an IPv4
+              address: four numbers up to 255, no leading zeros. None twice,
+              case aside.
+        fallback:
+          type: boolean
 
     SuccessEnvelope:
       type: object
