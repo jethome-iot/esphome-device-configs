@@ -1,7 +1,8 @@
 # display_menu_base
 
 Upstream's `display_menu_base` with a back action, a switch for what the "right" input does, a
-`weight` that orders the rows of a menu, and submenus that may be empty. Listing it in
+`weight` that orders the rows of a menu, submenus that may be empty, and select and number rows
+that apply their value when the edit ends. Listing it in
 `external_components` shadows the copy that ships with ESPHome; everything else about the
 component is upstream's.
 
@@ -57,6 +58,16 @@ A `type: menu` item may leave `items:` out or leave it empty; the top-level `ite
 at least one row. An empty submenu is drawn as an ordinary row, but "enter" (and "right") on it
 does nothing: it only opens once something has filled it — another package via `!extend`, or a
 lambda at boot.
+
+## Editing a value
+
+A `select` or `number` row opened with "enter" steps its value on the row only. The entity gets
+it when the edit ends: "enter" again, `display_menu.back`, "left" in the rotary mode, or the menu
+being hidden or sent to the main screen. An edit that ends on the value the entity already has
+writes nothing; the row's `on_value` fires once, when the value is written, and its `on_leave`
+runs after that. A row with `immediate_edit: true` has no edit to end and still applies every
+step. A `value_lambda` replaces the text the row draws, so it shows what it reads, not the value
+being picked.
 
 ## Actions
 
