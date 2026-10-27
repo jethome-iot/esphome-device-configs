@@ -413,10 +413,10 @@ bool AutomationStorage::update_automation_(uint32_t id, const AutomationConfig &
   const AutomationConfig &current = this->config_storage_.get_all_configs()[index];
   const std::string old_file = current.file;
   // A rule keeps its file unless its name maps to another: the file may not be the canonical
-  // one when that name was taken by a file the loader refused.
+  // one when that name was taken by a file the loader refused, or when boot could not move it.
   const std::string target = this->filename_for_(cfg.name, id);
-  const bool renaming = this->filename_for_(current.name, id) != target;
-  cfg.file = renaming ? target : old_file;
+  cfg.file = this->filename_for_(current.name, id) != target ? target : old_file;
+  const bool renaming = cfg.file != old_file;
   if (renaming && file_exists(this->get_folder_path_() + "/" + target)) {
     ESP_LOGE(TAG, "Refusing to rename automation id=%u to '%s': a file the loader refused has that name",
              static_cast<unsigned>(id), cfg.name.c_str());

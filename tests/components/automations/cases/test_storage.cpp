@@ -384,6 +384,21 @@ TEST_F(Storage, AnOldCutFileThatCannotMoveIsKept) {
   EXPECT_EQ(names(), (std::vector<std::string>{repeat("ф", 30), repeat("ф", 24)}));
 }
 
+// An orphan is never rewritten, so it stays in its old cut file; renamed to the name that file
+// spells whole, it is already where it belongs.
+TEST_F(Storage, AnOrphanInAnOldCutFileTakesTheNameItSpells) {
+  std::string orphan = ORPHAN;
+  orphan.replace(orphan.find("Orphan"), 6, repeat("ф", 30));
+  write(repeat("ф", 24) + ".json", orphan);
+  boot();
+  ASSERT_EQ(files(), std::vector<std::string>{repeat("ф", 24) + ".json"});
+
+  const uint32_t id = id_of(repeat("ф", 30));
+  ASSERT_TRUE(engine->update_automation(id, rule(startup_rule(repeat("ф", 24)).c_str())));
+  EXPECT_EQ(files(), std::vector<std::string>{repeat("ф", 24) + ".json"});
+  EXPECT_NE(read(repeat("ф", 24) + ".json").find("startup"), std::string::npos);
+}
+
 TEST_F(Storage, ALongNameRenamedKeepsOneFile) {
   boot();
   const uint32_t id = engine->add_automation(rule(startup_rule(repeat("ф", 30)).c_str()));
