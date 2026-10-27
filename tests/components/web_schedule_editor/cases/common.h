@@ -356,20 +356,23 @@ struct Reply {
 // On every evening at 19:00, off at 23:30: contract.json's porch.
 inline std::string porch(const char *name = "Porch", const char *relay = "relay_3", bool enabled = true) {
   std::string week;
-  for (const char *day : schedules::DAY_NAMES) {
+  for (const char *day : schedules::DAY_NAMES)
     week += std::string(week.empty() ? "" : ",") + "\"" + day +
-            R"(":[{"at":"19:00","value":{"type":"on"}},{"at":"23:30","value":{"type":"off"}}])";
-  }
+            R"(":[{"at":"19:00","mode":"on"},{"at":"23:30","mode":"off"}])";
+  const std::string relay_is = std::string(R"({"type":"relay","id":")") + relay + R"(","value":{"type":)";
   return std::string(R"({"name":")") + name + R"(","enabled":)" + (enabled ? "true" : "false") +
-         R"(,"target":{"type":"relay","id":")" + relay + R"("},"week":{)" + week + "}}";
+         R"(,"modes":[{"id":"on","name":"On","color":"green","actions":[)" + relay_is + R"("on"}}]},)" +
+         R"({"id":"off","name":"Off","color":"grey","actions":[)" + relay_is + R"("off"}}]}],"week":{)" + week + "}}";
 }
 
 // Living Room's eco from Wednesday 08:30, 21.5 from 17:00.
 inline std::string living_room_week(const char *name = "Living room week", bool enabled = true) {
   return std::string(R"({"name":")") + name + R"(","enabled":)" + (enabled ? "true" : "false") +
-         R"(,"target":{"type":"thermostat","id":"living-room"},)"
-         R"("week":{"wed":[{"at":"08:30","value":{"type":"preset","preset":"eco"}},)"
-         R"({"at":"17:00","value":{"type":"target","target":21.5}}]}})";
+         R"(,"modes":[{"id":"eco","name":"Eco","actions":[)"
+         R"({"type":"thermostat","id":"living-room","value":{"type":"preset","preset":"eco"}}]},)"
+         R"({"id":"warm","name":"Warm","actions":[)"
+         R"({"type":"thermostat","id":"living-room","value":{"type":"target","target":21.5}}]}],)"
+         R"("week":{"wed":[{"at":"08:30","mode":"eco"},{"at":"17:00","mode":"warm"}]}})";
 }
 
 // @p json with @p fields put first, e.g. with(porch(), R"("id":"porch")").

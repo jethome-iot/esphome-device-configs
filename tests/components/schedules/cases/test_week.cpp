@@ -81,7 +81,7 @@ TEST(WeekClock, DayNamesAreMondayFirst) {
 
 // --- Which point holds ---
 
-static ScheduleConfig week_of(std::initializer_list<P> points) { return relay_doc("Porch", "relay_1", points); }
+static ScheduleConfig week_of(const std::vector<P> &points) { return relay_doc("Porch", "relay_1", points); }
 
 TEST(InForce, BeforeMondaysFirstPointSundaysLastHolds) {
   const ScheduleConfig c = week_of({on_at(wm(0, 8, 0)), off_at(wm(4, 20, 0)), on_at(wm(6, 22, 0))});

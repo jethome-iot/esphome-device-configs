@@ -2,9 +2,9 @@
 
 The JSON/REST API of the [`schedules`](../schedules/README.md) engine, served on the device's own
 web server under `/schedule-editor/api/`. List, read, create, change, enable, disable and delete
-weekly schedules that drive a relay or a thermostat, bring one back from a backup under its own
-id, and list the relays and thermostats a schedule may drive — everything a browser editor does,
-and everything `curl` can do without one. ESP-IDF only.
+weekly schedules — modes of relay and thermostat actions, picked by switch points — bring one
+back from a backup under its own id, and list the relays and thermostats an action may drive —
+everything a browser editor does, and everything `curl` can do without one. ESP-IDF only.
 
 ```yaml
 external_components:
@@ -43,8 +43,8 @@ web_schedule_editor:
 The handler registers on the shared `web_server_base`, so it answers on the same port as
 `web_server` and behind its `auth:` credentials. Those credentials come from the `web_server:`
 block and from nowhere else: with no `web_server:`, or no `auth:` in it, anything that can reach
-the port can rewrite every schedule and, through them, switch the relays and thermostats they
-drive. The configs in this repository set them, and [`web_auth`](../web_auth/README.md) lets the
+the port can rewrite every schedule and, through them, switch the relays and thermostats their
+actions drive. The configs in this repository set them, and [`web_auth`](../web_auth/README.md) lets the
 device replace the pair. Every route is also behind
 [`web_origin_guard`](../web_origin_guard/README.md), which answers `403` to a request whose
 `Origin` is not the `Host` it was sent to. Clients that send no `Origin`, `curl` among them, are
@@ -62,21 +62,24 @@ or written then, and the call can simply be made again.
 
 | Method | Path | |
 |---|---|---|
-| GET | `list` | `{"success": true, "count", "max_schedules", "clock": {"day", "time"}, "schedules": [{"id", "revision", "name", "enabled", "target": {"type", "id", "name"}, "status": {"state", "reason", "held_by"?, "note"?}, "now", "next"}, ...]}`; `clock` is the device's local day and time and `now`/`next` are `{"day", "at", "value"}`, all three `null` until the device has a valid time |
-| GET | `get?id=` | One schedule, as its file holds it: `{"version", "revision", "id", "name", "enabled", "target": {"type", "id"}, "week": {"mon": [{"at", "value"}], ...}}` |
-| POST | `save` | A schedule as a JSON body. `id` absent or `""` creates one, an existing `id` replaces that one, renamed or not. `{"success": true, "message", "id"}`, a `warning` when it was saved enabled but does not run, `started` naming the schedules that took over a target it left |
+| GET | `list` | `{"success": true, "count", "max_schedules", "clock": {"day", "time"}, "schedules": [{"id", "revision", "name", "enabled", "targets": [{"type", "id", "name"}], "status": {"state", "reason", "note"?, "issues": [{"mode", "action", "kind", "text", "held_by"?}]}, "now", "next"}, ...]}`; `clock` is the device's local day and time and `now`/`next` are `{"day", "at", "mode"}`, all three `null` until the device has a valid time |
+| GET | `get?id=` | One schedule, as its file holds it: `{"version", "revision", "id", "name", "enabled", "modes": [{"id", "name", "color"?, "actions": [...]}], "week": {"mon": [{"at", "mode"}], ...}}` |
+| POST | `save` | A schedule as a JSON body. `id` absent or `""` creates one, an existing `id` replaces that one, renamed or not. `{"success": true, "message", "id"}`, a `warning` when it was saved enabled with an action the device skips, `started` naming the schedules that took over a target it left |
 | POST | `import` | A schedule as `get` answers it, `id` included: the schedule with that `id` is replaced, otherwise one is created under it, enabled or not as the document says; its `revision` is not read. Answers as `save` does |
-| POST | `delete?id=` | Removes the schedule and its file; its target stays as it is. `{"success": true, "message", "persisted"}`, and `started` |
+| POST | `delete?id=` | Removes the schedule and its file; its list stops and its targets stay as they are. `{"success": true, "message", "persisted"}`, and `started` |
 | POST | `enable?id=&value=true\|false[&take_over=true]` | Enables or disables it and stores the flag. `{"success": true, "message", "persisted"}`, a `warning` as from `save`, `stopped` for what a take-over disabled, `started` |
 | GET | `targets` | `{"success": true, "relays": [{"object_id", "name", "held_by", "scheduled_by"}], "thermostats": [{"id", "name", "enabled", "running", "mode", "min_temperature", "max_temperature", "step", "scheduled_by", "presets": [{"key", "name", "setpoint", "mode"}]}]}`; `thermostats` is `[]` without `climate_hub` |
-| GET | `schema` | `{"version", "max_schedules", "max_points_per_day", "name_max_length", "days", "values": {"relay": ["on", "off"], "thermostat": ["preset", "off", "target"]}}` |
+| GET | `schema` | `{"version", "max_schedules", "max_points_per_day", "name_max_length", "max_modes", "max_actions", "mode_name_max_length", "mode_id_max_length", "min_wait_seconds", "max_wait_seconds", "days", "colors", "values": {"relay": ["on", "off"], "thermostat": ["on", "off", "preset", "target"]}}` |
 | GET | `ping` | `{"status": "ok"}` |
 
-`status.state` is the first that holds of `disabled`, `waiting_for_clock`, `missing_target`,
-`missing_preset`, `conflict` (another enabled schedule drives the target), `held` (a running
-thermostat drives the relay; `held_by` names it) and `running`; `reason` says why in a sentence,
-`""` when it runs or is disabled. `note` is there while it runs on a thermostat that is switched
-off: the thermostat takes the values and starts in them.
+A schedule's targets are every relay and thermostat any of its modes names. `status.state` is
+the first that holds of `disabled`, `waiting_for_clock`, `conflict` (another enabled schedule
+drives one of its targets) and `running`; `reason` says why in a sentence, `""` when it runs or
+is disabled. `issues` lists, whatever the state, each action the device would skip now: its
+mode's id, its index in the mode's `actions`, the `kind` (`missing_relay`,
+`missing_thermostat`, `missing_preset`, `no_thermostats`, or `held` for a relay a running
+thermostat drives, which `held_by` names) and a sentence. `note` is there while it runs and names
+a thermostat that is switched off: the thermostat takes the values and starts in them.
 
 A schedule's `revision` is `0` when it is created and moves on by one at every change: a `save`,
 an `enable` that changes the flag or stops it in a take-over, an `import` over it, a rename at
@@ -89,9 +92,11 @@ and a create ignores it.
 over 16 KiB is `413`. The refusals, in order: `400` for a body that is empty or not JSON or a
 document that breaks a rule; `404` for an unknown `id` on `save`, `409` for a schedule whose file
 a newer firmware wrote, `409` for a stale `revision`, `507` past `max_schedules`; `409` for a name
-another schedule has; `409` for an enabled schedule on a target another enabled schedule drives
-(`"Winter" already drives Living Room; switch it off first or take over`). A target or a preset
-the device does not have is stored, with a `warning`.
+another schedule has; `409` for an enabled schedule that shares a target with another enabled
+schedule (`"Winter" already drives Living Room; switch it off first or take over`, the first
+shared target). A relay, a thermostat or a preset the device does not have is stored, with a
+`warning` naming the first action it skips (`skips mode "Day", action 2: relay "relay_7" is not
+on this device`).
 
 The full contract, with every message, is [openapi.yaml](openapi.yaml); the TypeScript client
 and mock are in [client/](client/).
@@ -108,25 +113,36 @@ curl -s $AUTH "$DEV/targets"
 # Porch light on at 19:00 and off at 23:30 on weekdays; the device makes the id from the name.
 curl -s $AUTH -X POST -H 'Content-Type: application/json' "$DEV/save" -d '{
   "name": "Porch light",
-  "target": {"type": "relay", "id": "relay_3"},
+  "modes": [
+    {"id": "on", "name": "On", "color": "green",
+     "actions": [{"type": "relay", "id": "relay_3", "value": {"type": "on"}}]},
+    {"id": "off", "name": "Off", "color": "grey",
+     "actions": [{"type": "relay", "id": "relay_3", "value": {"type": "off"}}]}
+  ],
   "week": {
-    "mon": [{"at": "19:00", "value": {"type": "on"}}, {"at": "23:30", "value": {"type": "off"}}],
-    "tue": [{"at": "19:00", "value": {"type": "on"}}, {"at": "23:30", "value": {"type": "off"}}],
-    "wed": [{"at": "19:00", "value": {"type": "on"}}, {"at": "23:30", "value": {"type": "off"}}],
-    "thu": [{"at": "19:00", "value": {"type": "on"}}, {"at": "23:30", "value": {"type": "off"}}],
-    "fri": [{"at": "19:00", "value": {"type": "on"}}, {"at": "23:30", "value": {"type": "off"}}]
+    "mon": [{"at": "19:00", "mode": "on"}, {"at": "23:30", "mode": "off"}],
+    "tue": [{"at": "19:00", "mode": "on"}, {"at": "23:30", "mode": "off"}],
+    "wed": [{"at": "19:00", "mode": "on"}, {"at": "23:30", "mode": "off"}],
+    "thu": [{"at": "19:00", "mode": "on"}, {"at": "23:30", "mode": "off"}],
+    "fri": [{"at": "19:00", "mode": "on"}, {"at": "23:30", "mode": "off"}]
   }
 }'
 
-# A thermostat: comfort in the morning, a target in the evening, off at night.
+# Comfort and the boiler pump in the morning, the valve two minutes later; eco and both off at night.
 curl -s $AUTH -X POST -H 'Content-Type: application/json' "$DEV/save" -d '{
-  "name": "Living room week",
-  "target": {"type": "thermostat", "id": "living-room"},
-  "week": {"mon": [
-    {"at": "06:30", "value": {"type": "preset", "preset": "comfort"}},
-    {"at": "17:00", "value": {"type": "target", "target": 21.5}},
-    {"at": "23:00", "value": {"type": "off"}}
-  ]}
+  "name": "Home weekdays",
+  "modes": [
+    {"id": "day", "name": "Day", "color": "amber", "actions": [
+      {"type": "thermostat", "id": "living-room", "value": {"type": "preset", "preset": "comfort"}},
+      {"type": "relay", "id": "relay_1", "value": {"type": "on"}},
+      {"type": "wait", "seconds": 120},
+      {"type": "relay", "id": "relay_5", "value": {"type": "on"}}]},
+    {"id": "night", "name": "Night", "color": "indigo", "actions": [
+      {"type": "thermostat", "id": "living-room", "value": {"type": "preset", "preset": "eco"}},
+      {"type": "relay", "id": "relay_5", "value": {"type": "off"}},
+      {"type": "relay", "id": "relay_1", "value": {"type": "off"}}]}
+  ],
+  "week": {"mon": [{"at": "06:30", "mode": "day"}, {"at": "23:00", "mode": "night"}]}
 }'
 
 curl -s $AUTH "$DEV/get?id=porch-light" > porch-light.json

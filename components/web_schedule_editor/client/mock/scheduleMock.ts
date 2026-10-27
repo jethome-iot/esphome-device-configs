@@ -6,7 +6,7 @@
 // no package.json / node_modules): seed data + a stateful dispatcher + a FetchImpl
 // adapter. The Vite dev-server glue lives in each consumer's vite.config.ts, which
 // hands createScheduleMockStore() the device's relays and thermostats (`targets`) and
-// what a switch point does to them (`apply`).
+// what an action does to them (`apply`).
 //
 // It answers the way the device does, in the device's order: an unknown route is
 // 404, the wrong method 405 (before any id is looked at), query parameters 400, and
@@ -16,23 +16,27 @@
 // is refused, in order, for the document, an unknown id (404), a newer firmware's
 // file (409), a Save's `revision` other than the stored one (409), the limit (507),
 // the name (409) and a target another enabled schedule drives (409); an enable for
-// the last unless it asks to take the target over. Every change of a document moves
-// its `revision` on, as the device moves it.
-// A target or a preset the device does not have is no refusal: the schedule is
-// stored, with a `warning`, and /list says why it does not run.
+// the last unless it asks to take the targets over. Every change of a document moves
+// its `revision` on, as the device moves it. A relay, a thermostat or a preset the
+// device does not have is no refusal: the schedule is stored, with a `warning`, the
+// action is skipped and /list names it among the `issues`.
 //
-// The clock is `now()`, read on every request and by tick(). A schedule that comes to
-// drive its target (the first valid clock, a Save or an enable, its target or preset
-// coming back, the schedule in front of it going) gets the value in force; one that
-// drives it gets each point the clock passes, only the latest of several. The clock
-// only moves forward here: a step back reads as most of a week ahead. A relay that
-// `targets()` says a thermostat holds is left alone, and gets the value in force once
-// it is let go. `apply()` is told each value, nothing else is.
+// The clock is `now()`, read on every request and by tick(); `millis()` times the
+// waits. A schedule that comes to drive its targets (the first valid clock, a Save or
+// an enable, the schedule in front of it going) runs the list of the mode in force;
+// one that drives them runs the list of each point the clock passes, only the latest
+// of several. A new point stops a list in a wait. The clock only moves forward here:
+// a step back reads as most of a week ahead, and no step is a jump. A relay that
+// `targets()` says a thermostat holds is skipped, and takes the last action on it the
+// list passed once it is let go; a thermostat or a preset that comes back takes the
+// actions on it the list passed. `apply()` is told each action, nothing else is.
 // tests/components/web_schedule_editor/contract.json lists the requests it must
 // answer as the device does.
 import type {
+  ActionIssue,
   Day,
-  PointRef,
+  ModeAction,
+  RelayAction,
   RelayTargetInfo,
   ScheduleDocument,
   ScheduleSchema,
@@ -42,12 +46,20 @@ import type {
   ScheduleTarget,
   ScheduleValue,
   TargetsResponse,
+  ThermostatAction,
   ThermostatTargetInfo
 } from '../types'
 import {
+  COLOR_KEYS,
   DAYS,
   DEFAULT_MAX_SCHEDULES,
+  MAX_ACTIONS,
+  MAX_MODES,
   MAX_POINTS_PER_DAY,
+  MAX_WAIT_SECONDS,
+  MIN_WAIT_SECONDS,
+  MODE_ID_MAX_LENGTH,
+  MODE_NAME_MAX_LENGTH,
   NAME_MAX_LENGTH,
   NEWER_FILE,
   RELAY_VALUES,
@@ -60,17 +72,20 @@ import {
 import type { FetchImpl } from '../scheduleApi'
 import {
   conflictError,
+  conflictReason,
   decodeSchedule,
   formatHHMM,
   inForce,
   MINUTES_PER_WEEK,
   nameError,
   nameKey,
+  namesTarget,
   nextAfter,
-  notRunningWarning,
   parseHHMM,
   readRevision,
   RESERVED_IDS,
+  scheduleTargets,
+  skippedWarning,
   slugify,
   uniqueId,
   weekMinute
@@ -148,23 +163,20 @@ export const seedTargets: DeviceTargets = {
   ]
 }
 
-const workday = (): ScheduleDocument['week']['mon'] => [
-  { at: '06:30', value: { type: 'preset', preset: 'comfort' } },
-  { at: '08:30', value: { type: 'preset', preset: 'eco' } },
-  { at: '17:00', value: { type: 'preset', preset: 'comfort' } },
-  { at: '23:00', value: { type: 'preset', preset: 'night' } }
-]
-const weekend = (): ScheduleDocument['week']['mon'] => [
-  { at: '08:00', value: { type: 'preset', preset: 'comfort' } },
-  { at: '23:30', value: { type: 'preset', preset: 'night' } }
-]
-const evenings = (): ScheduleDocument['week']['mon'] => [
-  { at: '19:00', value: { type: 'on' } },
-  { at: '23:30', value: { type: 'off' } }
-]
+const at = (time: string, mode: string) => ({ at: time, mode })
+const everyDay = (workday: () => ScheduleDocument['week']['mon'], weekend = workday): ScheduleDocument['week'] => ({
+  mon: workday(),
+  tue: workday(),
+  wed: workday(),
+  thu: workday(),
+  fri: workday(),
+  sat: weekend(),
+  sun: weekend()
+})
 
-// Living Room follows a working week; the porch light comes on every evening; Guest Room
-// warms up for the weekend, but is off.
+// Home warms Living Room for the day, starts the boiler pump (relay 1, which Living Room
+// holds) and two minutes on the valve (relay 5); the porch light comes on every evening;
+// Guest Room warms up for the weekend, but is off.
 export const seedSchedules: ScheduleDocument[] = [
   {
     version: SCHEDULE_VERSION,
@@ -172,33 +184,50 @@ export const seedSchedules: ScheduleDocument[] = [
     id: 'guest-room-weekends',
     name: 'Guest room weekends',
     enabled: false,
-    target: { type: 'thermostat', id: 'guest-room' },
-    week: {
-      mon: [],
-      tue: [],
-      wed: [],
-      thu: [],
-      fri: [{ at: '18:00', value: { type: 'target', target: 21 } }],
-      sat: [],
-      sun: [{ at: '18:00', value: { type: 'off' } }]
-    }
+    modes: [
+      {
+        id: 'warm',
+        name: 'Warm',
+        color: 'orange',
+        actions: [{ type: 'thermostat', id: 'guest-room', value: { type: 'target', target: 21 } }]
+      },
+      { id: 'off', name: 'Off', color: 'grey', actions: [{ type: 'thermostat', id: 'guest-room', value: { type: 'off' } }] }
+    ],
+    week: { mon: [], tue: [], wed: [], thu: [], fri: [at('18:00', 'warm')], sat: [], sun: [at('18:00', 'off')] }
   },
   {
     version: SCHEDULE_VERSION,
     revision: 0,
-    id: 'living-room-week',
-    name: 'Living room week',
+    id: 'home-weekdays',
+    name: 'Home weekdays',
     enabled: true,
-    target: { type: 'thermostat', id: 'living-room' },
-    week: {
-      mon: workday(),
-      tue: workday(),
-      wed: workday(),
-      thu: workday(),
-      fri: workday(),
-      sat: weekend(),
-      sun: weekend()
-    }
+    modes: [
+      {
+        id: 'day',
+        name: 'Day',
+        color: 'amber',
+        actions: [
+          { type: 'thermostat', id: 'living-room', value: { type: 'preset', preset: 'comfort' } },
+          { type: 'relay', id: 'relay_1', value: { type: 'on' } },
+          { type: 'wait', seconds: 120 },
+          { type: 'relay', id: 'relay_5', value: { type: 'on' } }
+        ]
+      },
+      {
+        id: 'night',
+        name: 'Night',
+        color: 'indigo',
+        actions: [
+          { type: 'thermostat', id: 'living-room', value: { type: 'preset', preset: 'eco' } },
+          { type: 'relay', id: 'relay_5', value: { type: 'off' } },
+          { type: 'relay', id: 'relay_1', value: { type: 'off' } }
+        ]
+      }
+    ],
+    week: everyDay(
+      () => [at('06:30', 'day'), at('23:00', 'night')],
+      () => [at('08:00', 'day'), at('23:30', 'night')]
+    )
   },
   {
     version: SCHEDULE_VERSION,
@@ -206,16 +235,11 @@ export const seedSchedules: ScheduleDocument[] = [
     id: 'porch-light',
     name: 'Porch light',
     enabled: true,
-    target: { type: 'relay', id: 'relay_3' },
-    week: {
-      mon: evenings(),
-      tue: evenings(),
-      wed: evenings(),
-      thu: evenings(),
-      fri: evenings(),
-      sat: evenings(),
-      sun: evenings()
-    }
+    modes: [
+      { id: 'on', name: 'On', color: 'green', actions: [{ type: 'relay', id: 'relay_3', value: { type: 'on' } }] },
+      { id: 'off', name: 'Off', color: 'grey', actions: [{ type: 'relay', id: 'relay_3', value: { type: 'off' } }] }
+    ],
+    week: everyDay(() => [at('19:00', 'on'), at('23:30', 'off')])
   }
 ]
 
@@ -225,7 +249,14 @@ export function schemaFor(maxSchedules: number): ScheduleSchema {
     max_schedules: maxSchedules,
     max_points_per_day: MAX_POINTS_PER_DAY,
     name_max_length: NAME_MAX_LENGTH,
+    max_modes: MAX_MODES,
+    max_actions: MAX_ACTIONS,
+    mode_name_max_length: MODE_NAME_MAX_LENGTH,
+    mode_id_max_length: MODE_ID_MAX_LENGTH,
+    min_wait_seconds: MIN_WAIT_SECONDS,
+    max_wait_seconds: MAX_WAIT_SECONDS,
     days: [...DAYS],
+    colors: [...COLOR_KEYS],
     values: { relay: [...RELAY_VALUES], thermostat: [...THERMOSTAT_VALUES] }
   }
 }
@@ -354,9 +385,10 @@ export interface ScheduleMockStore {
    */
   handle(method: string, endpoint: string, search: URLSearchParams, body: string): MockResult
   /**
-   * The device's one-second tick: reads the clock and the targets, applies the points the
-   * clock passed since the last look, starts what now drives its target, and gives a relay
-   * that was let go the value it waited with.
+   * The device's one-second tick: goes on with the lists whose wait is over, gives a relay
+   * that was let go and a thermostat or a preset that came back what the list passed, runs
+   * the lists the clock calls for: every schedule's at its first valid reading, each point's
+   * that it passed since the last look.
    */
   tick(): void
 }
@@ -366,20 +398,22 @@ export interface ScheduleMockStoreOptions {
   maxSchedules?: number
   /** The device's local time, null while it has none. Default: this machine's local time. */
   now?: () => MockClock | null
+  /** Milliseconds on a clock that only moves on, for the waits. Default Date.now. */
+  millis?: () => number
   /**
    * The relays and the thermostats on the device, read whenever the mock needs them, so one
    * that comes or goes, a preset added or removed, a relay held or let go, shows at once.
    * Default seedTargets.
    */
   targets?: () => DeviceTargets
-  /** What a schedule does to its target: called with each value it applies. */
+  /** What an action does to its relay or thermostat: called with each action it applies. */
   apply?: (target: ScheduleTarget, value: ScheduleValue) => void
   /** False for a firmware without climate_hub: no thermostat to drive, /targets lists none. Default true. */
   climateHub?: boolean
   /**
    * The schedules on the device at boot, in place of seedSchedules. One whose `version` is
-   * above SCHEDULE_VERSION stands for a file a newer firmware wrote; two enabled on one target
-   * stand for files written by hand, where the first by id drives it.
+   * above SCHEDULE_VERSION stands for a file a newer firmware wrote; two enabled sharing a
+   * target stand for files written by hand, where the first by id drives it.
    */
   seed?: ScheduleDocument[]
 }
@@ -397,13 +431,23 @@ const ROUTES = new Map<string, boolean>([
   ['enable', true]
 ])
 
+/** Where a schedule's list is: its mode (-1 for none), its next action, the end of its wait. */
+interface Run {
+  mode: number
+  next: number
+  waitUntil: number | null
+  /** Thermostats whose actions it passed did not reach them: they take them once back. */
+  lost: Set<string>
+}
+
 interface Entry {
   doc: ScheduleDocument
-  /** Its relay was held when a value came: the value in force goes there once it is let go. */
-  pending: boolean
-  /** It drove its target (running or held) at the last look. */
+  /** Enabled and the first enabled by id on every target its modes name. */
   driving: boolean
+  run: Run
 }
+
+const idle = (): Run => ({ mode: -1, next: 0, waitUntil: null, lost: new Set() })
 
 function fail(status: number, error: string): MockResult {
   return { status, body: { success: false, error } }
@@ -434,172 +478,263 @@ function localClock(): MockClock {
   return { day: DAYS[(d.getDay() + 6) % 7] ?? 'mon', minute: d.getHours() * 60 + d.getMinutes(), second: d.getSeconds() }
 }
 
-const drives = (state: ScheduleStatus['state']) => state === 'running' || state === 'held'
-const keyOf = (doc: ScheduleDocument) => `${doc.target.type}:${doc.target.id}`
 const newer = (doc: ScheduleDocument) => doc.version > SCHEDULE_VERSION
 const quoted = (names: string[]) => names.map((n) => `"${n}"`).join(' and ')
+const sameTarget = (a: ScheduleTarget, b: ScheduleTarget) => a.type === b.type && a.id === b.id
 
 /** Fresh, isolated mock state (seed is deep-copied, so instances never share state). */
 export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}): ScheduleMockStore {
   const maxSchedules = options.maxSchedules ?? DEFAULT_MAX_SCHEDULES
   const now = options.now ?? localClock
+  const millis = options.millis ?? (() => Date.now())
   const targetsOf = options.targets ?? (() => seedTargets)
   const climateHub = options.climateHub ?? true
   const entries: Entry[] = []
   // The week minute the clock was at when last looked at; null until it was valid once.
   let mark: number | null = null
+  // What the device's relays and thermostats were at the last look: who held each relay, and
+  // each thermostat's preset keys ('' for one not there).
+  const heldSeen = new Map<string, string>()
+  const presetsSeen = new Map<string, string>()
 
   const byId = (a: Entry, b: Entry) => (a.doc.id < b.doc.id ? -1 : a.doc.id > b.doc.id ? 1 : 0)
   const find = (id: string) => entries.find((e) => e.doc.id === id)
   const relayOf = (id: string) => targetsOf().relays.find((r) => r.object_id === id)
   const thermostatOf = (id: string) => (climateHub ? targetsOf().thermostats.find((t) => t.id === id) : undefined)
 
-  // How a message names the target: its name, or its id when the device does not have it.
-  function targetName(doc: ScheduleDocument): string {
-    const found = doc.target.type === 'relay' ? relayOf(doc.target.id) : thermostatOf(doc.target.id)
-    return found?.name ?? doc.target.id
+  // How a message names a target: its name, or its id when the device does not have it.
+  function targetName(target: ScheduleTarget): string {
+    const found = target.type === 'relay' ? relayOf(target.id) : thermostatOf(target.id)
+    return found?.name ?? target.id
   }
 
-  // The enabled schedule that drives the target `key` names: the first by id, whether the
-  // target is there or not.
-  function driverOf(key: string): Entry | undefined {
-    return entries.find((e) => e.doc.enabled && keyOf(e.doc) === key)
+  // The enabled schedule that drives `target`: the first by id that names it, there or not.
+  function holderOf(target: ScheduleTarget): Entry | undefined {
+    return entries.find((e) => e.doc.enabled && namesTarget(e.doc, target))
   }
 
-  const isLoser = (e: Entry) => e.doc.enabled && driverOf(keyOf(e.doc)) !== e
-  const losers = () => new Set(entries.filter(isLoser).map((e) => e.doc.id))
+  const drives = (e: Entry) => e.doc.enabled && scheduleTargets(e.doc).every((t) => holderOf(t) === e)
 
-  // The ones that waited behind another schedule before a change and drive their target
-  // after it, by id; `self` is the one the change was about. One whose target or preset is
-  // not on the device drives nothing, so it is not named.
-  function promoted(before: Set<string>, self?: Entry): string[] {
-    return entries
-      .filter((e) => e !== self && before.has(e.doc.id) && !isLoser(e) && !missingOf(e.doc))
-      .map((e) => e.doc.id)
-  }
-
-  function startedNote(ids: string[]): string {
-    return ids.length ? `; ${quoted(ids.map((id) => find(id)?.doc.name ?? id))} started` : ''
-  }
-
-  // Why the target or a preset of `doc` is not on the device, or null. The first preset
-  // missing in the week's order: Monday first, then by time.
-  function missingOf(doc: ScheduleDocument): { state: 'missing_target' | 'missing_preset'; reason: string } | null {
-    const id = doc.target.id
-    if (doc.target.type === 'relay') {
-      return relayOf(id) ? null : { state: 'missing_target', reason: `Relay "${id}" is not on this device` }
-    }
-    if (!climateHub) return { state: 'missing_target', reason: 'This device has no thermostats' }
-    const thermostat = thermostatOf(id)
-    if (!thermostat) return { state: 'missing_target', reason: `Thermostat "${id}" is not on this device` }
-    for (const day of DAYS) {
-      for (const point of doc.week[day]) {
-        const value = point.value
-        if (value.type === 'preset' && !thermostat.presets.some((p) => p.key === value.preset)) {
-          return { state: 'missing_preset', reason: `Thermostat "${thermostat.name}" has no preset "${value.preset}"` }
+  // Why the device would skip each action now, mode by mode.
+  function issuesOf(doc: ScheduleDocument): ActionIssue[] {
+    const issues: ActionIssue[] = []
+    for (const mode of doc.modes) {
+      for (const [index, action] of mode.actions.entries()) {
+        const issue = (kind: ActionIssue['kind'], text: string, holder?: string) =>
+          issues.push({ mode: mode.id, action: index, kind, text, ...(holder ? { held_by: holder } : {}) })
+        if (action.type === 'relay') {
+          const relay = relayOf(action.id)
+          if (!relay) issue('missing_relay', `Relay "${action.id}" is not on this device`)
+          else if (relay.held_by) issue('held', `Thermostat "${relay.held_by}" drives ${relay.name}`, relay.held_by)
+        } else if (action.type === 'thermostat') {
+          const thermostat = thermostatOf(action.id)
+          const value = action.value
+          if (!climateHub) issue('no_thermostats', 'This device has no thermostats')
+          else if (!thermostat) issue('missing_thermostat', `Thermostat "${action.id}" is not on this device`)
+          else if (value.type === 'preset' && !thermostat.presets.some((p) => p.key === value.preset)) {
+            issue('missing_preset', `Thermostat "${thermostat.name}" has no preset "${value.preset}"`)
+          }
         }
       }
     }
-    return null
+    return issues
   }
 
+  // The first action an enabled schedule skips for good; a held relay only waits.
   function warningOf(doc: ScheduleDocument): string | undefined {
-    const missing = doc.enabled ? missingOf(doc) : null
-    return missing ? notRunningWarning(missing.reason) : undefined
+    if (!doc.enabled) return undefined
+    const issue = issuesOf(doc).find((i) => i.kind !== 'held')
+    const mode = issue && doc.modes.find((m) => m.id === issue.mode)
+    return issue && mode ? skippedWarning(mode.name, issue.action, issue.text) : undefined
   }
 
   function statusOf(e: Entry, clock: MockClock | null): ScheduleStatus {
     const doc = e.doc
-    if (!doc.enabled) return { state: 'disabled', reason: '' }
-    if (!clock) return { state: 'waiting_for_clock', reason: 'Waiting for the clock' }
-    const missing = missingOf(doc)
-    if (missing) return missing
-    const driver = driverOf(keyOf(doc))
-    if (driver && driver !== e) return { state: 'conflict', reason: `Schedule "${driver.doc.name}" drives this target` }
-    if (doc.target.type === 'relay') {
-      const relay = relayOf(doc.target.id)
-      if (relay && relay.held_by) {
-        return { state: 'held', reason: `Thermostat "${relay.held_by}" drives ${relay.name}`, held_by: relay.held_by }
+    const issues = issuesOf(doc)
+    if (!doc.enabled) return { state: 'disabled', reason: '', issues }
+    if (!clock) return { state: 'waiting_for_clock', reason: 'Waiting for the clock', issues }
+    for (const target of scheduleTargets(doc)) {
+      const holder = holderOf(target)
+      if (holder && holder !== e) {
+        return { state: 'conflict', reason: conflictReason(holder.doc.name, targetName(target)), issues }
       }
-      return { state: 'running', reason: '' }
     }
-    const thermostat = thermostatOf(doc.target.id)
-    if (thermostat && !thermostat.enabled) {
+    const stopped = scheduleTargets(doc)
+      .map((t) => (t.type === 'thermostat' ? thermostatOf(t.id) : undefined))
+      .find((t) => t && !t.enabled)
+    if (stopped) {
       return {
         state: 'running',
         reason: '',
-        note: `Thermostat "${thermostat.name}" is stopped; it starts in the scheduled values`
+        note: `Thermostat "${stopped.name}" is stopped; it starts in the scheduled values`,
+        issues
       }
     }
-    return { state: 'running', reason: '' }
+    return { state: 'running', reason: '', issues }
   }
 
-  const pointAt = (doc: ScheduleDocument, clock: MockClock) => inForce(doc.week, clock.day, clock.minute)
+  // --- The lists ---
 
-  // The engine's apply_: a held relay is left alone and the value waits for it.
-  function apply(e: Entry, value: ScheduleValue, state: ScheduleStatus['state']) {
-    if (state === 'held') {
-      e.pending = true
-      return
+  // The engine's apply: a relay not there or held is left alone; a thermostat or a preset not
+  // there is remembered, to take the action once it is back.
+  function applyAction(e: Entry, action: RelayAction | ThermostatAction) {
+    if (action.type === 'relay') {
+      const relay = relayOf(action.id)
+      if (!relay || relay.held_by) return
+    } else {
+      const thermostat = thermostatOf(action.id)
+      const value = action.value
+      if (!thermostat || (value.type === 'preset' && !thermostat.presets.some((p) => p.key === value.preset))) {
+        e.run.lost.add(action.id)
+        return
+      }
     }
-    e.pending = false
-    options.apply?.({ ...e.doc.target }, structuredClone(value))
+    options.apply?.({ type: action.type, id: action.id }, structuredClone(action.value))
   }
 
-  // The engine's start_: the value in force, when it drives its target and the clock is valid.
-  function start(e: Entry, clock: MockClock | null) {
-    const state = statusOf(e, clock).state
-    e.driving = drives(state)
-    if (!e.driving || !clock) return
-    const point = pointAt(e.doc, clock)
-    if (point) apply(e, point.value, state)
+  // The actions up to the next wait, or to the end.
+  function advance(e: Entry) {
+    const run = e.run
+    while (e.run === run && run.mode >= 0 && e.driving) {
+      const action = e.doc.modes[run.mode]?.actions[run.next]
+      if (!action) return
+      run.next++
+      if (action.type === 'wait') {
+        run.waitUntil = millis() + action.seconds * 1000
+        return
+      }
+      applyAction(e, action)
+    }
   }
 
-  // What changed since the last look: one that drives its target now and did not starts, one
-  // whose relay was let go gets the value in force.
-  function settle(clock: MockClock | null) {
+  // A new list stops the one before, in a wait or not.
+  function runMode(e: Entry, mode: number) {
+    e.run = { mode, next: 0, waitUntil: null, lost: new Set() }
+    advance(e)
+  }
+
+  function startInForce(e: Entry, clock: MockClock | null) {
+    if (!clock || !e.driving) return
+    const point = inForce(e.doc.week, clock.day, clock.minute)
+    const mode = point ? e.doc.modes.findIndex((m) => m.id === point.mode) : -1
+    if (mode >= 0) runMode(e, mode)
+  }
+
+  // The actions the list has passed, in order.
+  function passed(e: Entry): ModeAction[] {
+    return e.run.mode < 0 ? [] : (e.doc.modes[e.run.mode]?.actions.slice(0, e.run.next) ?? [])
+  }
+
+  // Which schedules drive their targets now; one that no longer does stops where it is.
+  // Returns those that did not before.
+  function refresh(): Entry[] {
+    const started: Entry[] = []
     for (const e of entries) {
-      const state = statusOf(e, clock).state
-      if (drives(state) && !e.driving) {
-        start(e, clock)
-        continue
-      }
-      if (state === 'running' && e.pending && clock) {
-        const point = pointAt(e.doc, clock)
-        if (point) apply(e, point.value, state)
-      }
-      if (!drives(state)) e.pending = false
-      e.driving = drives(state)
+      const was = e.driving
+      e.driving = drives(e)
+      if (was && !e.driving) e.run = idle()
+      if (e.driving && !was) started.push(e)
     }
+    return started
   }
 
-  // The points the clock passed since the last look go to the schedules that drove their
-  // target then and still do: only the latest one each, as after a stalled loop.
-  function tick() {
-    const clock = now()
-    if (clock) {
-      const minute = weekMinute(clock.day, clock.minute)
-      if (mark !== null && minute !== mark) {
-        const span = (minute - mark + MINUTES_PER_WEEK) % MINUTES_PER_WEEK
-        for (const e of entries) {
-          if (!e.driving) continue
-          const state = statusOf(e, clock).state
-          const point = drives(state) ? pointAt(e.doc, clock) : null
-          if (!point) continue
-          const since = (minute - weekMinute(point.day, parseHHMM(point.at) ?? 0) + MINUTES_PER_WEEK) % MINUTES_PER_WEEK
-          if (since < span) apply(e, point.value, state)
+  // After a change, as the engine's settle_: `self` runs its mode's list when saved enabled or
+  // when it starts to drive, then every other schedule the change let drive. Their ids.
+  function settle(self: Entry | undefined, save: boolean, clock: MockClock | null): string[] {
+    const started = refresh()
+    if (self && ((save && self.doc.enabled) || started.includes(self))) startInForce(self, clock)
+    const others = started.filter((e) => e !== self)
+    for (const e of others) startInForce(e, clock)
+    return others.map((e) => e.doc.id)
+  }
+
+  // A relay let go takes the last action on it the list passed; one a thermostat or a preset
+  // came back for gets every action on it the list passed.
+  function watchDevice(first: boolean) {
+    const device = targetsOf()
+    for (const relay of device.relays) {
+      const before = heldSeen.get(relay.object_id) ?? ''
+      heldSeen.set(relay.object_id, relay.held_by)
+      if (first || !before || relay.held_by) continue
+      for (const e of entries) {
+        if (!e.driving) continue
+        const last = passed(e)
+          .filter((a): a is RelayAction => a.type === 'relay' && a.id === relay.object_id)
+          .pop()
+        if (last) applyAction(e, last)
+      }
+    }
+    if (!climateHub) return
+    const ids = new Set([...presetsSeen.keys(), ...device.thermostats.map((t) => t.id)])
+    for (const id of ids) {
+      const thermostat = device.thermostats.find((t) => t.id === id)
+      const presets = thermostat ? `[${thermostat.presets.map((p) => p.key).join(',')}]` : ''
+      const before = presetsSeen.get(id)
+      presetsSeen.set(id, presets)
+      if (first || before === presets) continue
+      for (const e of entries) {
+        if (!e.driving) continue
+        const actions = passed(e).filter((a): a is ThermostatAction => a.type === 'thermostat' && a.id === id)
+        if (!actions.length) continue
+        const ready =
+          !!thermostat &&
+          actions.every((a) => {
+            const value = a.value
+            return value.type !== 'preset' || thermostat.presets.some((p) => p.key === value.preset)
+          })
+        if (!ready) {
+          e.run.lost.add(id)
+        } else if (e.run.lost.delete(id)) {
+          for (const action of actions) applyAction(e, action)
         }
       }
-      mark = minute
     }
-    settle(clock)
   }
 
-  // A conflict on the target `doc` names: the enabled schedule that drives it, unless that is `doc`.
+  // The waits that are over, then what the device changed, then the clock: the first valid
+  // reading runs every list, a point passed since the last look runs its own, only the latest.
+  function tick() {
+    for (let more = true; more; ) {
+      more = false
+      for (const e of entries) {
+        if (e.run.waitUntil !== null && millis() >= e.run.waitUntil) {
+          e.run.waitUntil = null
+          advance(e)
+          more = true
+        }
+      }
+    }
+    watchDevice(false)
+    const clock = now()
+    if (!clock) return
+    const minute = weekMinute(clock.day, clock.minute)
+    if (mark === null) {
+      mark = minute
+      for (const e of entries) startInForce(e, clock)
+      return
+    }
+    if (minute === mark) return
+    const span = (minute - mark + MINUTES_PER_WEEK) % MINUTES_PER_WEEK
+    mark = minute
+    for (const e of entries) {
+      if (!e.driving) continue
+      const point = inForce(e.doc.week, clock.day, clock.minute)
+      if (!point) continue
+      const since = (minute - weekMinute(point.day, parseHHMM(point.at) ?? 0) + MINUTES_PER_WEEK) % MINUTES_PER_WEEK
+      const mode = e.doc.modes.findIndex((m) => m.id === point.mode)
+      if (since < span && mode >= 0) runMode(e, mode)
+    }
+  }
+
+  // --- The routes ---
+
+  // A conflict on a target `doc` names: the enabled schedule that drives the first one another drives.
   function conflictOf(doc: ScheduleDocument): MockResult | undefined {
-    const driver = driverOf(keyOf(doc))
-    if (!driver || driver.doc.id === doc.id) return undefined
-    return fail(409, conflictError(driver.doc.name, targetName(doc)))
+    for (const target of scheduleTargets(doc)) {
+      const holder = holderOf(target)
+      if (holder && holder.doc.id !== doc.id) return fail(409, conflictError(holder.doc.name, targetName(target)))
+    }
+    return undefined
   }
 
   function readBody(body: string): { value: unknown } | MockResult {
@@ -611,7 +746,7 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
   }
 
   // What /save and /import refuse once the document is sound and the id settled, in the
-  // device's order: the limit, the name, then the target of an enabled one.
+  // device's order: the limit, then the name.
   function refusalOf(doc: ScheduleDocument, stored: Entry | undefined): MockResult | undefined {
     if (!stored && entries.length >= maxSchedules) {
       return fail(507, `This device allows ${maxSchedules} schedules; delete one to add another`)
@@ -621,31 +756,32 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
     return undefined
   }
 
-  // The change itself: `doc` takes `stored`'s place, its revision moved on, or joins the list
-  // at revision 0, and an enabled one gets the value in force, every Save, a rename too.
+  // The change itself: `doc` takes `stored`'s place, its revision moved on and its list
+  // stopped, or joins the list at revision 0; an enabled one runs the list of the mode in
+  // force, every Save, a rename too.
   function store(doc: ScheduleDocument, stored: Entry | undefined, message: string, clock: MockClock | null): MockResult {
-    const before = losers()
     doc.version = SCHEDULE_VERSION
     doc.revision = stored ? stored.doc.revision + 1 : 0
     let entry = stored
     if (entry) {
       entry.doc = doc
-      entry.pending = false
+      entry.run = idle()
     } else {
-      entry = { doc, pending: false, driving: false }
+      entry = { doc, driving: false, run: idle() }
       entries.push(entry)
       entries.sort(byId)
     }
-    if (doc.enabled) start(entry, clock)
-    else entry.driving = false
-    const started = promoted(before, entry)
-    settle(clock)
+    const started = settle(entry, true, clock)
     const warning = warningOf(doc)
     return ok(message + startedNote(started) + (warning ? `; ${warning}` : ''), {
       id: doc.id,
       ...(warning ? { warning } : {}),
       ...(started.length ? { started } : {})
     })
+  }
+
+  function startedNote(ids: string[]): string {
+    return ids.length ? `; ${quoted(ids.map((id) => find(id)?.doc.name ?? id))} started` : ''
   }
 
   function save(body: string, clock: MockClock | null): MockResult {
@@ -695,11 +831,9 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
     if (typeof id !== 'string') return id
     const i = entries.findIndex((e) => e.doc.id === id)
     if (i < 0) return fail(404, SCHEDULE_NOT_FOUND)
-    const before = losers()
-    // The target stays as the schedule left it.
+    // Its list stops; the targets stay as it left them.
     entries.splice(i, 1)
-    const started = promoted(before)
-    settle(clock)
+    const started = settle(undefined, false, clock)
     return ok('Schedule deleted' + startedNote(started), { persisted: true, ...(started.length ? { started } : {}) })
   }
 
@@ -713,48 +847,36 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
     if (takeOver !== null && typeof takeOver !== 'boolean') return takeOver
     const e = find(id)
     if (!e) return fail(404, SCHEDULE_NOT_FOUND)
-    const before = losers()
 
     if (!value) {
       // Written only when the flag changes, and never into a newer firmware's file.
       const persisted = !(e.doc.enabled && newer(e.doc))
       if (e.doc.enabled) e.doc.revision++
       e.doc.enabled = false
-      e.pending = false
-      e.driving = false
-      const started = promoted(before, e)
-      settle(clock)
+      const started = settle(e, false, clock)
       return ok('Schedule disabled' + startedNote(started), { persisted, ...(started.length ? { started } : {}) })
     }
 
-    const key = keyOf(e.doc)
-    const driver = driverOf(key)
-    if (driver === e) {
-      const warning = warningOf(e.doc)
-      return ok('Schedule enabled' + (warning ? `; ${warning}` : ''), { persisted: true, ...(warning ? { warning } : {}) })
-    }
-    if (driver && !takeOver) {
-      return fail(409, conflictError(driver.doc.name, targetName(e.doc)))
-    }
-    // A take-over stores every other enabled one on the target disabled.
-    const stopped = entries.filter((o) => o !== e && o.doc.enabled && keyOf(o.doc) === key)
+    const conflict = conflictOf(e.doc)
+    if (conflict && !takeOver) return conflict
+    // A take-over stores every other enabled one that shares a target disabled.
+    const mine = scheduleTargets(e.doc)
+    const stopped = conflict
+      ? entries.filter((o) => o !== e && o.doc.enabled && mine.some((t) => scheduleTargets(o.doc).some((u) => sameTarget(t, u))))
+      : []
     let persisted = true
     for (const other of stopped) {
       // A newer firmware's file cannot record the take-over, so the others' files keep their flag too.
       persisted = persisted && !newer(other.doc) && !newer(e.doc)
       other.doc.enabled = false
       other.doc.revision++
-      other.pending = false
-      other.driving = false
     }
     if (!e.doc.enabled) {
       persisted = persisted && !newer(e.doc)
       e.doc.revision++
     }
     e.doc.enabled = true
-    start(e, clock)
-    const started = promoted(before, e)
-    settle(clock)
+    const started = settle(e, false, clock)
     const warning = warningOf(e.doc)
     let message = 'Schedule enabled'
     if (stopped.length) message += `; ${quoted(stopped.map((o) => o.doc.name))} stopped`
@@ -770,29 +892,28 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
 
   function summaryOf(e: Entry, clock: MockClock | null): ScheduleSummary {
     const doc = e.doc
-    const point = (ref: PointRef | null) => (ref ? structuredClone(ref) : null)
     return {
       id: doc.id,
       revision: doc.revision,
       name: doc.name,
       enabled: doc.enabled,
-      target: { type: doc.target.type, id: doc.target.id, name: targetName(doc) },
+      targets: scheduleTargets(doc).map((t) => ({ type: t.type, id: t.id, name: targetName(t) })),
       status: statusOf(e, clock),
-      now: clock ? point(pointAt(doc, clock)) : null,
-      next: clock ? point(nextAfter(doc.week, clock.day, clock.minute)) : null
+      now: clock ? inForce(doc.week, clock.day, clock.minute) : null,
+      next: clock ? nextAfter(doc.week, clock.day, clock.minute) : null
     }
   }
 
   function targets(): TargetsResponse {
     const device = targetsOf()
-    const scheduledBy = (key: string) => driverOf(key)?.doc.id ?? ''
+    const scheduledBy = (target: ScheduleTarget) => holderOf(target)?.doc.id ?? ''
     return {
       success: true,
       relays: device.relays.map((r) => ({
         object_id: r.object_id,
         name: r.name,
         held_by: r.held_by,
-        scheduled_by: scheduledBy(`relay:${r.object_id}`)
+        scheduled_by: scheduledBy({ type: 'relay', id: r.object_id })
       })),
       thermostats: climateHub
         ? device.thermostats.map((t) => ({
@@ -804,7 +925,7 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
             min_temperature: t.min_temperature,
             max_temperature: t.max_temperature,
             step: t.step,
-            scheduled_by: scheduledBy(`thermostat:${t.id}`),
+            scheduled_by: scheduledBy({ type: 'thermostat', id: t.id }),
             presets: t.presets.map((p) => ({ ...p }))
           }))
         : []
@@ -868,12 +989,12 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
     return route(name, search, body, now())
   }
 
-  // The boot: each file read as the device reads one, by id; nothing applied until the first tick.
+  // The boot: each file read as the device reads one, by id; nothing runs until the first tick.
   for (const raw of structuredClone(options.seed ?? seedSchedules)) {
     const decoded = decodeSchedule(raw, { requireId: true })
     if ('error' in decoded) throw new Error(`seed ${raw.id}: ${decoded.error}`)
     if (RESERVED_IDS.includes(decoded.doc.id) || find(decoded.doc.id)) continue
-    entries.push({ doc: decoded.doc, pending: false, driving: false })
+    entries.push({ doc: decoded.doc, driving: false, run: idle() })
   }
   entries.sort(byId)
   // A name an earlier id has already: the later one is renamed "<name> 2", as the device does.
@@ -885,6 +1006,8 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
     e.doc.name = `${e.doc.name} ${n}`
     e.doc.revision++
   }
+  refresh()
+  watchDevice(true)
 
   return { handle, tick }
 }

@@ -35,7 +35,7 @@ class Defaults(unittest.TestCase):
                 schedules.CONFIG_SCHEMA(config)
 
     def test_climate_hub_is_not_pulled_in(self):
-        # Without it a thermostat target is missing, which the engine reports.
+        # Without it an action on a thermostat is skipped, which the engine reports.
         self.assertEqual(schedules.AUTO_LOAD, ["json", "loop_job", "switch_hold"])
         self.assertEqual(
             schedules.DEPENDENCIES, ["filesystem_storage_abstract", "time"]

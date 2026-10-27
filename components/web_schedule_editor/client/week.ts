@@ -3,8 +3,32 @@
 // — the device is the authority, this is what lets a client say so before the round
 // trip, in the device's own words.
 
-import type { Day, PointRef, ScheduleDocument, ScheduleValue, SwitchPoint, TargetType, Week } from './types'
-import { DAYS, ID_MAX_LENGTH, MAX_POINTS_PER_DAY, NAME_MAX_LENGTH, SCHEDULE_VERSION } from './types'
+import type {
+  ColorKey,
+  Day,
+  Mode,
+  ModeAction,
+  PointRef,
+  ScheduleDocument,
+  ScheduleTarget,
+  ScheduleValue,
+  SwitchPoint,
+  Week
+} from './types'
+import {
+  COLOR_KEYS,
+  DAYS,
+  ID_MAX_LENGTH,
+  MAX_ACTIONS,
+  MAX_MODES,
+  MAX_POINTS_PER_DAY,
+  MAX_WAIT_SECONDS,
+  MIN_WAIT_SECONDS,
+  MODE_ID_MAX_LENGTH,
+  MODE_NAME_MAX_LENGTH,
+  NAME_MAX_LENGTH,
+  SCHEDULE_VERSION
+} from './types'
 
 export const MINUTES_PER_DAY = 24 * 60
 export const MINUTES_PER_WEEK = 7 * MINUTES_PER_DAY
@@ -80,7 +104,7 @@ function timeline(week: Partial<Week>): Array<{ minute: number; ref: PointRef }>
   for (const day of DAYS) {
     for (const point of week[day] ?? []) {
       const at = parseHHMM(point.at)
-      if (at !== null) points.push({ minute: weekMinute(day, at), ref: { day, at: point.at, value: point.value } })
+      if (at !== null) points.push({ minute: weekMinute(day, at), ref: { day, at: point.at, mode: point.mode } })
     }
   }
   // Stable: two points at one minute (a form mid-edit) keep their order.
@@ -88,9 +112,9 @@ function timeline(week: Partial<Week>): Array<{ minute: number; ref: PointRef }>
 }
 
 /**
- * The point in force on `day` at `minute`: the last one at or before it, from an earlier day
- * when that day has none yet, and from the end of the week before Monday's first. Null for a
- * week with no points.
+ * The point in force on `day` at `minute`, so the mode in force and since when: the last one at
+ * or before it, from an earlier day when that day has none yet, and from the end of the week
+ * before Monday's first. Null for a week with no points.
  */
 export function inForce(week: Partial<Week>, day: Day, minute: number): PointRef | null {
   const points = timeline(week)
@@ -105,7 +129,7 @@ export function inForce(week: Partial<Week>, day: Day, minute: number): PointRef
 
 /**
  * The first point after `minute` on `day`, wrapping from Sunday into Monday; the same point a
- * week on for a week with one. A point with the value already in force counts. Null for a week
+ * week on for a week with one. A point of the mode already in force counts. Null for a week
  * with no points.
  */
 export function nextAfter(week: Partial<Week>, day: Day, minute: number): PointRef | null {
@@ -126,7 +150,8 @@ export function trimName(name: string): string {
 
 /**
  * The name as a person reads it: trimmed, inner whitespace collapsed, ASCII lowercased.
- * Non-ASCII is left alone, exactly as the firmware leaves it. Two schedules may not share one.
+ * Non-ASCII is left alone, exactly as the firmware leaves it. Two schedules may not share one,
+ * nor two modes of one schedule.
  */
 export function nameKey(name: string): string {
   return trimName(name.replace(ASCII_SPACE, ' ')).replace(/[A-Z]/g, (c) => c.toLowerCase())
@@ -212,6 +237,49 @@ export function nameError(name: string, id: string, existing: ReadonlyArray<{ id
   return clash ? nameTakenError(trimName(name)) : ''
 }
 
+/**
+ * What the device says of a mode's `name` on its own, after `Mode 2: `, or '': required, at most
+ * 24 characters, valid, no control characters. A mode name may hold '/' and '\'.
+ */
+export function modeNameRuleError(name: string): string {
+  const trimmed = trimName(name)
+  if (trimmed === '') return 'name is required'
+  if (LONE_SURROGATE.test(trimmed)) return 'name is not valid UTF-8'
+  if ([...trimmed].length > MODE_NAME_MAX_LENGTH) return `name is longer than ${MODE_NAME_MAX_LENGTH} characters`
+  if (CONTROL.test(trimmed)) return 'name cannot contain control characters'
+  return ''
+}
+
+/** Whether the device takes `id` as a mode's: 1 to 24 of a-z, 0-9 and '-'. */
+export function isModeId(id: string): boolean {
+  return id.length >= 1 && id.length <= MODE_ID_MAX_LENGTH && /^[a-z0-9-]+$/.test(id)
+}
+
+/**
+ * The id the editor gives a new mode: from its name when that leaves a free one, else the first
+ * free `m1`, `m2`…. A rename keeps the id, since the week's points name it.
+ */
+export function newModeId(name: string, modes: ReadonlyArray<{ id: string }>): string {
+  const taken = (id: string) => modes.some((m) => m.id === id)
+  const fromName = slugify(name, '').slice(0, MODE_ID_MAX_LENGTH).replace(/-+$/, '')
+  if (fromName && !taken(fromName)) return fromName
+  for (let n = 1; ; n++) if (!taken(`m${n}`)) return `m${n}`
+}
+
+/**
+ * The colour each mode shows, by mode order: its own, or, for one without, the first palette
+ * key no other mode has, neither one of its own nor one shown already.
+ */
+export function modeColors(modes: ReadonlyArray<{ color?: ColorKey }>): ColorKey[] {
+  const used = new Set<ColorKey>(modes.flatMap((m) => (m.color ? [m.color] : [])))
+  return modes.map((m) => {
+    if (m.color) return m.color
+    const free = COLOR_KEYS.find((key) => !used.has(key)) ?? COLOR_KEYS[0]
+    used.add(free)
+    return free
+  })
+}
+
 // --- The device's refusals a page acts on ---------------------------------------
 // Built here and matched here, so the mock, the page and the firmware's sentences cannot drift
 // apart: the contract checks the mock's answers, which come from these builders, against the
@@ -229,6 +297,11 @@ export function conflictHolder(message: string): string | null {
   return CONFLICT.exec(message)?.[1] ?? null
 }
 
+/** A `conflict` status's reason: `holder`, first by id, drives `target`, the first the two share. */
+export function conflictReason(holder: string, target: string): string {
+  return `Schedule "${holder}" drives ${target}`
+}
+
 /** The 409 of a name another schedule has, ignoring ASCII case and runs of spaces. */
 export function nameTakenError(name: string): string {
   return `"${name}" is already used by another schedule`
@@ -241,10 +314,38 @@ export function isNameTaken(message: string): boolean {
   return NAME_TAKEN.test(message)
 }
 
+/**
+ * A save's or an enable's `warning`: the action at `index` (from 0) of the mode called `mode`
+ * is skipped, for the issue's `text`.
+ */
+export function skippedWarning(mode: string, index: number, text: string): string {
+  return `skips mode "${mode}", action ${index + 1}: ${text.charAt(0).toLowerCase()}${text.slice(1)}`
+}
+
+// --- What a schedule drives ------------------------------------------------------
+
+/** Every relay and thermostat the modes name, each once, in the order they first name them. */
+export function scheduleTargets(doc: { modes: ReadonlyArray<{ actions?: ReadonlyArray<ModeAction> }> }): ScheduleTarget[] {
+  const out: ScheduleTarget[] = []
+  for (const mode of doc.modes) {
+    for (const action of mode.actions ?? []) {
+      if (action.type === 'wait') continue
+      if (!out.some((t) => t.type === action.type && t.id === action.id)) out.push({ type: action.type, id: action.id })
+    }
+  }
+  return out
+}
+
+/** Whether any of the modes' actions drives `target`. */
+export function namesTarget(doc: { modes: ReadonlyArray<{ actions?: ReadonlyArray<ModeAction> }> }, target: ScheduleTarget): boolean {
+  return scheduleTargets(doc).some((t) => t.type === target.type && t.id === target.id)
+}
+
 // --- The document ------------------------------------------------------------
 // The schedules component's deserialize: the same refusals in the same order. The id
-// (an import's), the name, the target, the days the week names, then each day Monday
-// first and its points in the order the body lists them, and last the count.
+// (an import's), the name, the modes one at a time and each one's actions, the days the
+// week names, then each day Monday first and its points in the order the body lists them,
+// and last the count.
 
 type Json = Record<string, unknown>
 
@@ -253,20 +354,16 @@ function objectOf(value: unknown): Json | null {
 }
 
 const VALUE_TYPES: ReadonlyArray<string> = ['on', 'off', 'preset', 'target']
+const COLOR_RULE = `color must be one of ${COLOR_KEYS.slice(0, -1).join(', ')} or ${COLOR_KEYS[COLOR_KEYS.length - 1]}`
 
-/**
- * The value of the point at `where` ("Mon 06:30") for a target of `type`, as the device keeps
- * it (other keys dropped), or why it refuses it.
- */
-export function decodeValue(raw: unknown, type: TargetType, where: string): { value: ScheduleValue } | { error: string } {
-  const at = `${where}: `
+/** The value of a relay's or a thermostat's action, as the device keeps it, or why it refuses it. */
+function decodeValue(raw: unknown, type: 'relay' | 'thermostat', at: string): { value: ScheduleValue } | { error: string } {
   const obj = objectOf(raw)
   // A value whose type is "" says nothing more than none at all.
   if (!obj || typeof obj.type !== 'string' || obj.type === '') return { error: `${at}value is required` }
   const kind = obj.type
   if (!VALUE_TYPES.includes(kind)) return { error: `${at}unknown value type "${kind}"` }
   if (type === 'relay' && kind !== 'on' && kind !== 'off') return { error: `${at}a relay takes on or off` }
-  if (type === 'thermostat' && kind === 'on') return { error: `${at}a thermostat takes a preset, off or a target` }
   if (kind === 'on' || kind === 'off') return { value: { type: kind } }
   if (kind === 'preset') {
     if (typeof obj.preset !== 'string' || obj.preset === '') return { error: `${at}preset is required` }
@@ -278,6 +375,66 @@ export function decodeValue(raw: unknown, type: TargetType, where: string): { va
     return { error: `${at}target must be a number` }
   }
   return { value: { type: 'target', target: obj.target } }
+}
+
+/**
+ * An action as the device keeps it (other keys dropped), or why it refuses it; `where` heads
+ * the sentence: `Mode "Day", action 2`.
+ */
+export function decodeAction(raw: unknown, where: string): { action: ModeAction } | { error: string } {
+  const at = `${where}: `
+  const obj = objectOf(raw)
+  if (!obj) return { error: `${at}an action must be an object` }
+  if (typeof obj.type !== 'string' || obj.type === '') return { error: `${at}type is required` }
+  const type = obj.type
+  if (type === 'wait') {
+    const seconds = obj.seconds
+    if (typeof seconds !== 'number' || !Number.isInteger(seconds)) return { error: `${at}seconds must be a whole number` }
+    if (seconds < MIN_WAIT_SECONDS || seconds > MAX_WAIT_SECONDS) return { error: `${at}a wait is 1 s to 24 h` }
+    return { action: { type: 'wait', seconds } }
+  }
+  if (type !== 'relay' && type !== 'thermostat') return { error: `${at}unknown action type "${type}"` }
+  if (typeof obj.id !== 'string' || obj.id === '') return { error: `${at}id is required` }
+  const value = decodeValue(obj.value, type, at)
+  if ('error' in value) return value
+  if (type === 'relay') return { action: { type: 'relay', id: obj.id, value: value.value as RelayValue } }
+  return { action: { type: 'thermostat', id: obj.id, value: value.value } }
+}
+
+type RelayValue = { type: 'on' } | { type: 'off' }
+
+/** The mode numbered `number` from 1, read after `before`, as the device keeps it, or why it refuses it. */
+export function decodeMode(raw: unknown, number: number, before: ReadonlyArray<Mode>): { mode: Mode } | { error: string } {
+  const at = `Mode ${number}: `
+  const obj = objectOf(raw)
+  if (!obj) return { error: `${at}a mode must be an object` }
+  const name = typeof obj.name === 'string' ? trimName(obj.name) : ''
+  const badName = modeNameRuleError(name)
+  if (badName) return { error: at + badName }
+  if (before.some((m) => nameKey(m.name) === nameKey(name))) return { error: `Two modes are called "${name}"` }
+  const label = `Mode "${name}"`
+  if (typeof obj.id !== 'string' || obj.id === '') return { error: `${label}: id is required` }
+  if (!isModeId(obj.id)) return { error: `${label}: id must be at most 24 lowercase letters, digits and dashes` }
+  const id = obj.id
+  if (before.some((m) => m.id === id)) return { error: `Two modes have the id "${id}"` }
+  let color: ColorKey | undefined
+  if (obj.color !== undefined && obj.color !== null) {
+    if (typeof obj.color !== 'string' || !(COLOR_KEYS as ReadonlyArray<string>).includes(obj.color)) {
+      return { error: `${label}: ${COLOR_RULE}` }
+    }
+    color = obj.color as ColorKey
+  }
+  const list = obj.actions
+  if (list !== undefined && list !== null && !Array.isArray(list)) return { error: `${label}: actions must be a list` }
+  const items = (list ?? []) as unknown[]
+  if (items.length > MAX_ACTIONS) return { error: `${label}: at most ${MAX_ACTIONS} actions` }
+  const actions: ModeAction[] = []
+  for (const [i, item] of items.entries()) {
+    const decoded = decodeAction(item, `${label}, action ${i + 1}`)
+    if ('error' in decoded) return decoded
+    actions.push(decoded.action)
+  }
+  return { mode: color ? { id, name, color, actions } : { id, name, actions } }
 }
 
 /** A file older than this firmware reads as this version; a newer one keeps its number. */
@@ -296,11 +453,11 @@ export interface DecodeOptions {
 }
 
 /**
- * The document as the device keeps it: name trimmed, `enabled` true when left out, all seven
- * days, each sorted by time, values without stray keys; or the first rule it breaks, in the
- * device's words. A save body's `id` is kept as sent ('' when it is not a string); whether it
- * names a schedule is the store's question. `version` is the body's, for a store to tell a
- * newer file, and `revision` a file's (0 without one); a store writes its own.
+ * The document as the device keeps it: names trimmed, `enabled` true when left out, every
+ * mode's actions, all seven days, each sorted by time, no stray keys; or the first rule it
+ * breaks, in the device's words. A save body's `id` is kept as sent ('' when it is not a
+ * string); whether it names a schedule is the store's question. `version` is the body's, for a
+ * store to tell a newer file, and `revision` a file's (0 without one); a store writes its own.
  */
 export function decodeSchedule(raw: unknown, options: DecodeOptions = {}): { doc: ScheduleDocument } | { error: string } {
   const root = objectOf(raw)
@@ -319,13 +476,16 @@ export function decodeSchedule(raw: unknown, options: DecodeOptions = {}): { doc
   if (badName) return { error: badName }
   const enabled = typeof root.enabled === 'boolean' ? root.enabled : true
 
-  const target = objectOf(root.target)
-  if (!target) return { error: 'target is required' }
-  if (target.type !== 'relay' && target.type !== 'thermostat') {
-    return { error: 'target.type must be relay or thermostat' }
+  if (!Array.isArray(root.modes)) return { error: 'modes is required' }
+  const rawModes = root.modes as unknown[]
+  if (rawModes.length === 0) return { error: 'A schedule needs at least one mode' }
+  if (rawModes.length > MAX_MODES) return { error: `A schedule has at most ${MAX_MODES} modes` }
+  const modes: Mode[] = []
+  for (const [i, item] of rawModes.entries()) {
+    const decoded = decodeMode(item, i + 1, modes)
+    if ('error' in decoded) return decoded
+    modes.push(decoded.mode)
   }
-  if (typeof target.id !== 'string' || target.id === '') return { error: 'target.id is required' }
-  const type: TargetType = target.type
 
   const rawWeek = objectOf(root.week)
   if (!rawWeek) return { error: 'week is required' }
@@ -350,9 +510,10 @@ export function decodeSchedule(raw: unknown, options: DecodeOptions = {}): { doc
       const at = formatHHMM(minute)
       if (seen.has(minute)) return { error: `${label}: ${at} is there twice` }
       seen.add(minute)
-      const value = decodeValue(point.value, type, `${label} ${at}`)
-      if ('error' in value) return value
-      week[day].push({ at, value: value.value })
+      if (typeof point.mode !== 'string' || point.mode === '') return { error: `${label} ${at}: mode is required` }
+      const mode = point.mode
+      if (!modes.some((m) => m.id === mode)) return { error: `${label} ${at}: there is no mode "${mode}"` }
+      week[day].push({ at, mode })
     }
   }
   if (pointCount(week) === 0) return { error: 'A schedule needs at least one switch point' }
@@ -364,7 +525,7 @@ export function decodeSchedule(raw: unknown, options: DecodeOptions = {}): { doc
       id,
       name,
       enabled,
-      target: { type, id: target.id },
+      modes,
       week: sortedWeek(week)
     }
   }
@@ -376,29 +537,38 @@ export function scheduleError(raw: unknown, options: DecodeOptions = {}): string
   return 'error' in decoded ? decoded.error : ''
 }
 
-/** A save's or an enable's `warning` for a schedule that does not run for `reason`. */
-export function notRunningWarning(reason: string): string {
-  return `not running: ${reason.charAt(0).toLowerCase()}${reason.slice(1)}`
-}
-
-/** The keys in the order the device writes them, so two documents compare as JSON. */
-export function canonicalDocument(doc: ScheduleDocument): ScheduleDocument {
-  const value = (v: ScheduleValue): ScheduleValue =>
+/** An action with its keys in the order the device writes them. */
+export function canonicalAction(action: ModeAction): ModeAction {
+  if (action.type === 'wait') return { type: 'wait', seconds: action.seconds }
+  const v = action.value
+  const value: ScheduleValue =
     v.type === 'preset'
       ? { type: 'preset', preset: v.preset }
       : v.type === 'target'
         ? { type: 'target', target: v.target }
         : { type: v.type }
+  return action.type === 'relay'
+    ? { type: 'relay', id: action.id, value: value as RelayValue }
+    : { type: 'thermostat', id: action.id, value }
+}
+
+/** The keys in the order the device writes them, so two documents compare as JSON. */
+export function canonicalDocument(doc: ScheduleDocument): ScheduleDocument {
   const week = emptyWeek()
   const sorted = sortedWeek(doc.week)
-  for (const day of DAYS) week[day] = sorted[day].map((p) => ({ at: p.at, value: value(p.value) }))
+  for (const day of DAYS) week[day] = sorted[day].map((p) => ({ at: p.at, mode: p.mode }))
   return {
     version: doc.version,
     revision: doc.revision,
     id: doc.id,
     name: doc.name,
     enabled: doc.enabled,
-    target: { type: doc.target.type, id: doc.target.id },
+    modes: doc.modes.map((m) => ({
+      id: m.id,
+      name: m.name,
+      ...(m.color ? { color: m.color } : {}),
+      actions: m.actions.map(canonicalAction)
+    })),
     week
   }
 }

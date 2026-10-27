@@ -1,5 +1,6 @@
-// When a schedule applies: the first valid clock, each switch point once, a hand change kept
-// until the next point, and what a set clock, a new zone, DST or a stalled loop does.
+// When a mode's list runs: the first valid clock, each switch point once, a hand change kept
+// until the next point, and what a set clock, a new zone, DST or a stalled loop does. Every
+// mode here is one action; lists of several, with waits, are test_lists.cpp's.
 #include "common.h"
 
 namespace esphome::schedules::testing {
@@ -34,7 +35,7 @@ TEST_F(Tick, NothingMovesBeforeTheClockIsValid) {
 
   this->engine->local = at_local(0, 9, 0);
   this->engine->tick();
-  EXPECT_EQ(std::vector<bool>{true}, this->writes()) << "the first valid tick applies the value in force";
+  EXPECT_EQ(std::vector<bool>{true}, this->writes()) << "the first valid tick runs the mode in force";
   EXPECT_EQ(ScheduleState::RUNNING, this->state("porch"));
 }
 
@@ -75,14 +76,14 @@ TEST_F(Tick, AHandChangeHoldsUntilTheNextPoint) {
   EXPECT_EQ((std::vector<bool>{true, false, false}), this->writes()) << "20:00 applies, though the relay is off";
 }
 
-TEST_F(Tick, AJumpForwardAppliesTheValueInForce) {
+TEST_F(Tick, AJumpForwardRunsTheModeInForce) {
   this->start(at_local(0, 7, 0));
   this->engine->jump_to(at_local(0, 9, 0));
   EXPECT_EQ((std::vector<bool>{false, true}), this->writes());
   EXPECT_TRUE(LogCapture::instance().warned("Clock moved by +7199 s"));
 }
 
-TEST_F(Tick, AJumpBackAppliesTheValueInForceAndThePointsComeAgain) {
+TEST_F(Tick, AJumpBackRunsTheModeInForceAndThePointsComeAgain) {
   this->start(at_local(0, 9, 0));
   this->engine->jump_to(at_local(0, 7, 0));
   EXPECT_EQ((std::vector<bool>{true, false}), this->writes());
@@ -180,10 +181,10 @@ TEST_F(Tick, NowAndNextFollowTheClock) {
   ASSERT_TRUE(this->engine->now_and_next(config, &now, &next));
   EXPECT_EQ(0, now.day);
   EXPECT_EQ(8 * 60, now.minute);
-  EXPECT_EQ(ValueType::ON, now.point->type);
+  EXPECT_EQ("on", config.modes[now.point->mode].id);
   EXPECT_EQ(0, next.day);
   EXPECT_EQ(20 * 60, next.minute);
-  EXPECT_EQ(ValueType::OFF, next.point->type);
+  EXPECT_EQ("off", config.modes[next.point->mode].id);
 
   this->engine->jump_to(at_local(6, 21, 0));
   ASSERT_TRUE(this->engine->now_and_next(config, &now, &next));
@@ -211,7 +212,7 @@ TEST_F(Tick, TheClockTextIsTheDevicesLocalTime) {
   EXPECT_EQ("10:15:42", time);
 }
 
-TEST_F(Tick, EnablingAppliesTheValueInForceOnce) {
+TEST_F(Tick, EnablingRunsTheModeInForceOnce) {
   this->start(at_local(0, 9, 0), daily("Porch", "relay_1", false));
   Result enabled = this->engine->set_enabled("porch", true);
   ASSERT_TRUE(enabled.ok) << enabled.error;
@@ -220,8 +221,8 @@ TEST_F(Tick, EnablingAppliesTheValueInForceOnce) {
   EXPECT_EQ(std::vector<bool>{true}, this->writes()) << "on to on applies nothing";
 }
 
-// Decision 9: every Save of an enabled schedule applies the value in force, a rename too.
-TEST_F(Tick, ASaveOfAnEnabledScheduleAppliesTheValueInForce) {
+// Every Save of an enabled schedule runs the mode in force again, a rename too.
+TEST_F(Tick, ASaveOfAnEnabledScheduleRunsTheModeInForce) {
   this->start(at_local(0, 9, 0));
   this->e.relay1.turn_off();
   Result saved = this->engine->update("porch", daily("Porch light"));

@@ -13,8 +13,8 @@ class Api : public Editor {
   // A schedule as a file holds it, on at 08:00 on Monday, on `relay`.
   static std::string file_doc(const char *id, const char *name, const char *relay = "relay_3") {
     return std::string(R"({"version":1,"id":")") + id + R"(","name":")" + name +
-           R"(","enabled":true,"target":{"type":"relay","id":")" + relay +
-           R"("},"week":{"mon":[{"at":"08:00","value":{"type":"on"}}]}})";
+           R"(","enabled":true,"modes":[{"id":"on","name":"On","actions":[{"type":"relay","id":")" + relay +
+           R"(","value":{"type":"on"}}]}],"week":{"mon":[{"at":"08:00","mode":"on"}]}})";
   }
   void write(const std::string &name, const std::string &text) {
     mkdir(this->folder().c_str(), 0755);
@@ -42,7 +42,7 @@ TEST_F(Api, ASaveOfAnEnabledScheduleDrivesItsRelayAtOnce) {
   this->set_clock(at_local(2, 20, 0));
   ASSERT_EQ(this->create(porch()), "porch");
   EXPECT_EQ(this->e.relay3.writes, std::vector<bool>{true}) << "on since 19:00";
-  // A rename is a Save too: the value in force goes in again.
+  // A rename is a Save too: the list of the mode in force runs again.
   EXPECT_EQ(this->post("save", with(porch("Front porch"), R"("id":"porch")")).code, 200);
   EXPECT_EQ(this->e.relay3.writes, (std::vector<bool>{true, true}));
   // A disabled one leaves it as it is.
@@ -61,7 +61,7 @@ TEST_F(Api, DisablingTheScheduleThatDrivesATargetStartsTheNextAndNamesIt) {
   this->boot_with_conflict({"A", "B"});
   Reply list = this->get("list");
   ASSERT_EQ(list["schedules"][1]["status"]["state"].as<std::string>(), "conflict");
-  EXPECT_EQ(list["schedules"][1]["status"]["reason"].as<std::string>(), "Schedule \"A\" drives this target");
+  EXPECT_EQ(list["schedules"][1]["status"]["reason"].as<std::string>(), "Schedule \"A\" drives Relay 3");
 
   Reply reply = this->post("enable?id=a&value=false");
   EXPECT_EQ(reply.code, 200);
@@ -86,9 +86,10 @@ TEST_F(Api, ASaveThatLeavesATargetStartsTheNextBeforeItsOwnWarning) {
   this->boot_with_conflict({"A", "B"});
   Reply reply = this->post("save", with(porch("A", "relay_7"), R"("id":"a")"));
   EXPECT_EQ(reply.code, 200);
-  EXPECT_EQ(reply.message(), "Schedule updated; \"B\" started; not running: relay \"relay_7\" is not on this device");
+  EXPECT_EQ(reply.message(),
+            "Schedule updated; \"B\" started; skips mode \"On\", action 1: relay \"relay_7\" is not on this device");
   EXPECT_EQ(this->ids(reply["started"]), std::vector<std::string>{"b"});
-  EXPECT_EQ(reply["warning"].as<std::string>(), "not running: relay \"relay_7\" is not on this device");
+  EXPECT_EQ(reply["warning"].as<std::string>(), "skips mode \"On\", action 1: relay \"relay_7\" is not on this device");
 }
 
 TEST_F(Api, ATakeOverNamesEveryScheduleItStopped) {
@@ -111,9 +112,9 @@ TEST_F(Api, ATakeOverNamesEveryScheduleItStopped) {
   EXPECT_EQ(list["schedules"][2]["status"]["state"].as<std::string>(), "running");
 }
 
-// A relay a running thermostat drives: the list says who, /targets too, and the value in force
-// goes in once the thermostat lets go.
-TEST_F(Api, ARelayARunningThermostatDrivesHoldsTheScheduleBack) {
+// A relay a running thermostat drives: the list says who, for each action on it, /targets too,
+// and the relay takes the mode in force once the thermostat lets go.
+TEST_F(Api, ARelayARunningThermostatDrivesHoldsItsActionsBack) {
   climate_hub::ClimateConfig floor;
   floor.name = "Floor";
   floor.sensor_id = "room";
@@ -128,9 +129,17 @@ TEST_F(Api, ARelayARunningThermostatDrivesHoldsTheScheduleBack) {
 
   Reply list = this->get("list");
   JsonObject status = list["schedules"][0]["status"];
-  EXPECT_EQ(status["state"].as<std::string>(), "held");
-  EXPECT_EQ(status["held_by"].as<std::string>(), "Floor");
-  EXPECT_EQ(status["reason"].as<std::string>(), "Thermostat \"Floor\" drives Relay 2");
+  EXPECT_EQ(status["state"].as<std::string>(), "running");
+  EXPECT_EQ(status["reason"].as<std::string>(), "");
+  ASSERT_EQ(status["issues"].size(), 2u);
+  for (JsonObject issue : status["issues"].as<JsonArray>()) {
+    EXPECT_EQ(issue["kind"].as<std::string>(), "held");
+    EXPECT_EQ(issue["held_by"].as<std::string>(), "Floor");
+    EXPECT_EQ(issue["text"].as<std::string>(), "Thermostat \"Floor\" drives Relay 2");
+    EXPECT_EQ(issue["action"].as<int>(), 0);
+  }
+  EXPECT_EQ(status["issues"][0]["mode"].as<std::string>(), "on");
+  EXPECT_EQ(status["issues"][1]["mode"].as<std::string>(), "off");
   Reply targets = this->get("targets");
   for (JsonObject relay : targets["relays"].as<JsonArray>()) {
     if (relay["object_id"] == "relay_2") {
@@ -142,7 +151,7 @@ TEST_F(Api, ARelayARunningThermostatDrivesHoldsTheScheduleBack) {
   ASSERT_TRUE(hub().remove(made.id).ok);
   engine().run_later();
   EXPECT_TRUE(this->e.relay2.state) << "on since 19:00, once the thermostat let go";
-  EXPECT_EQ(this->get("list")["schedules"][0]["status"]["state"].as<std::string>(), "running");
+  EXPECT_EQ(this->get("list")["schedules"][0]["status"]["issues"].size(), 0u);
 }
 
 // The thermostats a schedule may drive, with the range a target is held in and their presets;
@@ -163,15 +172,28 @@ TEST_F(Api, TargetsListsWhatASchedulePicksFrom) {
   EXPECT_FLOAT_EQ(thermostats[1]["presets"][1]["setpoint"].as<float>(), 19.f);
 }
 
-TEST_F(Api, AThermostatValueGoesThroughTheHub) {
+TEST_F(Api, AThermostatActionGoesThroughTheHub) {
   this->set_clock(at_local(2, 18, 0));
   ASSERT_EQ(this->create(living_room_week()), "living-room-week");
   EXPECT_FLOAT_EQ(hub().store().get("living-room")->setpoint, 21.5f);
   Reply list = this->get("list");
-  EXPECT_EQ(list["schedules"][0]["now"]["value"]["type"].as<std::string>(), "target");
-  EXPECT_FLOAT_EQ(list["schedules"][0]["now"]["value"]["target"].as<float>(), 21.5f);
+  EXPECT_EQ(list["schedules"][0]["now"]["mode"].as<std::string>(), "warm");
+  EXPECT_EQ(list["schedules"][0]["now"]["at"].as<std::string>(), "17:00");
   EXPECT_EQ(list["schedules"][0]["next"]["day"].as<std::string>(), "wed");
   EXPECT_EQ(list["schedules"][0]["next"]["at"].as<std::string>(), "08:30");
+  EXPECT_EQ(list["schedules"][0]["next"]["mode"].as<std::string>(), "eco");
+}
+
+// A list with a wait goes on while the device answers: the next request finds it further on.
+TEST_F(Api, AListWithAWaitGoesOnAfterTheAnswer) {
+  this->set_clock(at_local(2, 20, 0));
+  ASSERT_EQ(this->create(R"({"name":"Pump","modes":[{"id":"run","name":"Run","actions":[)"
+                         R"({"type":"relay","id":"relay_1","value":{"type":"on"}},{"type":"wait","seconds":1},)"
+                         R"({"type":"relay","id":"relay_2","value":{"type":"on"}}]}],)"
+                         R"("week":{"wed":[{"at":"19:00","mode":"run"}]}})"),
+            "pump");
+  EXPECT_TRUE(this->e.relay1.state);
+  EXPECT_FALSE(this->e.relay2.state) << "the wait is the scheduler's";
 }
 
 TEST_F(Api, AFlagThatDidNotReachFlashSaysSo) {
@@ -220,8 +242,12 @@ TEST_F(Api, SchemaIsBuildTimeDataAndNeverWaitsForTheLoop) {
   Reply reply = this->get("schema");
   EXPECT_EQ(reply.code, 200);
   EXPECT_EQ(reply.body, R"({"version":1,"max_schedules":3,"max_points_per_day":12,"name_max_length":48,)"
+                        R"("max_modes":8,"max_actions":12,"mode_name_max_length":24,"mode_id_max_length":24,)"
+                        R"("min_wait_seconds":1,"max_wait_seconds":86400,)"
                         R"("days":["mon","tue","wed","thu","fri","sat","sun"],)"
-                        R"("values":{"relay":["on","off"],"thermostat":["preset","off","target"]}})");
+                        R"("colors":["red","orange","amber","yellow","lime","green","teal","cyan","blue","indigo",)"
+                        R"("violet","pink","grey"],)"
+                        R"("values":{"relay":["on","off"],"thermostat":["on","off","preset","target"]}})");
 }
 
 }  // namespace esphome::web_schedule_editor::testing

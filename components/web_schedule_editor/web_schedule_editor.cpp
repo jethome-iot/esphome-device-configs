@@ -55,7 +55,7 @@ static std::string names_of(const schedules::ScheduleEngine &engine, const std::
 }
 
 // What a change did besides itself, for the end of its message: the schedules that waited for
-// the target it let go and drive it now. The warning, when there is one, comes after it.
+// a target it let go and drive theirs now. The warning, when there is one, comes after it.
 static std::string started_note(const schedules::ScheduleEngine &engine, const Result &result) {
   return result.started.empty() ? "" : "; " + names_of(engine, result.started) + " started";
 }
@@ -68,7 +68,7 @@ static void add_ids(JsonObject obj, const char *key, const std::vector<std::stri
     list.add(id);
 }
 
-// {"day": "wed", "at": "08:30", "value": {...}}, or null while the clock is not valid.
+// {"day": "wed", "at": "08:30", "mode": "day"}, or null while the clock is not valid.
 static void set_point(JsonObject obj, const char *key, const ScheduleConfig &config, const PointRef *ref) {
   if (ref == nullptr) {
     obj[key] = nullptr;
@@ -77,7 +77,7 @@ static void set_point(JsonObject obj, const char *key, const ScheduleConfig &con
   JsonObject point = obj[key].to<JsonObject>();
   point["day"] = schedules::DAY_NAMES[ref->day];
   point["at"] = schedules::format_hhmm(ref->minute);
-  config.write_value(point["value"].to<JsonObject>(), *ref->point);
+  point["mode"] = config.modes[ref->point->mode].id;
 }
 
 // web_server_idf knows a handful of codes and turns every other one into a 500. A 405 is
@@ -260,18 +260,30 @@ void WebScheduleEditor::handle_list_(AsyncWebServerRequest *request) {
       row["revision"] = config->revision;
       row["name"] = config->name;
       row["enabled"] = config->enabled;
-      JsonObject target = row["target"].to<JsonObject>();
-      target["type"] = schedules::target_type_to_string(config->target_type);
-      target["id"] = config->target_id;
-      target["name"] = this->engine_->target_name(*config);
+      // Each relay and thermostat the modes name, once, by the name a person knows it by.
+      JsonArray targets = row["targets"].to<JsonArray>();
+      for (const schedules::Target &target : config->targets) {
+        JsonObject item = targets.add<JsonObject>();
+        item["type"] = schedules::target_type_to_string(target.type);
+        item["id"] = target.id;
+        item["name"] = this->engine_->target_name(target);
+      }
       const schedules::ScheduleStatus status = this->engine_->status(config->id);
       JsonObject state = row["status"].to<JsonObject>();
       state["state"] = schedules::state_to_string(status.state);
       state["reason"] = status.reason;
-      if (status.state == schedules::ScheduleState::HELD)
-        state["held_by"] = status.held_by;
       if (!status.note.empty())
         state["note"] = status.note;
+      JsonArray issues = state["issues"].to<JsonArray>();
+      for (const schedules::Issue &issue : status.issues) {
+        JsonObject item = issues.add<JsonObject>();
+        item["mode"] = config->modes[issue.mode].id;
+        item["action"] = issue.action;
+        item["kind"] = schedules::issue_kind_to_string(issue.kind);
+        item["text"] = issue.text;
+        if (issue.kind == schedules::IssueKind::HELD)
+          item["held_by"] = issue.held_by;
+      }
       // A disabled schedule too: the list previews what it would do.
       PointRef now;
       PointRef next;
@@ -352,15 +364,25 @@ void WebScheduleEditor::handle_schema_(AsyncWebServerRequest *request) {
   doc["max_schedules"] = this->engine_->max_schedules();
   doc["max_points_per_day"] = schedules::MAX_POINTS_PER_DAY;
   doc["name_max_length"] = schedules::NAME_MAX_LENGTH;
+  doc["max_modes"] = schedules::MAX_MODES;
+  doc["max_actions"] = schedules::MAX_ACTIONS;
+  doc["mode_name_max_length"] = schedules::MODE_NAME_MAX_LENGTH;
+  doc["mode_id_max_length"] = schedules::MODE_ID_MAX_LENGTH;
+  doc["min_wait_seconds"] = schedules::MIN_WAIT_SECONDS;
+  doc["max_wait_seconds"] = schedules::MAX_WAIT_SECONDS;
   JsonArray days = doc["days"].to<JsonArray>();
   for (const char *day : schedules::DAY_NAMES)
     days.add(day);
+  JsonArray colors = doc["colors"].to<JsonArray>();
+  for (const char *color : schedules::COLOR_KEYS)
+    colors.add(color);
   JsonObject values = doc["values"].to<JsonObject>();
   JsonArray relay = values["relay"].to<JsonArray>();
   for (auto type : {schedules::ValueType::ON, schedules::ValueType::OFF})
     relay.add(schedules::value_type_to_string(type));
   JsonArray thermostat = values["thermostat"].to<JsonArray>();
-  for (auto type : {schedules::ValueType::PRESET, schedules::ValueType::OFF, schedules::ValueType::TARGET})
+  for (auto type : {schedules::ValueType::ON, schedules::ValueType::OFF, schedules::ValueType::PRESET,
+                    schedules::ValueType::TARGET})
     thermostat.add(schedules::value_type_to_string(type));
   std::string json;
   serializeJson(doc, json);
@@ -425,7 +447,7 @@ void WebScheduleEditor::handle_document_(AsyncWebServerRequest *request, bool im
     answer["success"] = true;
     answer["message"] = message;
     answer["id"] = result.id;
-    // Saved enabled but not running: a client should not have to parse the message for that.
+    // Saved enabled with an action the device skips: a client should not have to parse the message for that.
     if (!result.warning.empty())
       answer["warning"] = result.warning;
     add_ids(answer.as<JsonObject>(), "started", result.started);
@@ -490,7 +512,7 @@ void WebScheduleEditor::handle_enable_(AsyncWebServerRequest *request) {
       return true;
     }
     std::string message = enabled ? "Schedule enabled" : "Schedule disabled";
-    // Who a take-over stored disabled, then who started on the target a disable let go.
+    // Who a take-over stored disabled, then who started on a target a disable let go.
     if (!result.stopped.empty())
       message += "; " + names_of(*this->engine_, result.stopped) + " stopped";
     message += started_note(*this->engine_, result);
@@ -500,7 +522,7 @@ void WebScheduleEditor::handle_enable_(AsyncWebServerRequest *request) {
     answer["success"] = true;
     answer["message"] = message;
     answer["persisted"] = result.persisted;
-    // Stored enabled but not running, as a Save answers it.
+    // Stored enabled with an action the device skips, as a Save answers it.
     if (!result.warning.empty())
       answer["warning"] = result.warning;
     add_ids(answer.as<JsonObject>(), "stopped", result.stopped);

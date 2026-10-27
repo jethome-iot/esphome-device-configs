@@ -10,7 +10,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
-#include <initializer_list>
 #include <memory>
 #include <string>
 #include <vector>
@@ -100,37 +99,61 @@ inline int64_t at_local(int day, int hour, int minute, int second = 0) {
 inline uint16_t wm(int day, int hour, int minute) { return static_cast<uint16_t>(day * 1440 + hour * 60 + minute); }
 
 // The engine with its seams taken: the local clock is `local` (0 for none valid yet), the
-// loop's count `mono`, a job for the loop waits in `jobs`, a file can be made undeletable, the
-// encoder given a smaller cap or a heap that runs out.
+// loop's own count `mono`, a job for the loop waits in `jobs`, a list's wait in `timers` until
+// `mono` reaches it, a file can be made undeletable, the encoder given a smaller cap or a heap
+// that runs out.
 class FakeEngine : public ScheduleEngine {
  public:
+  struct Timer {
+    uint32_t id;
+    uint64_t due;
+    std::function<void()> job;
+  };
   int64_t local{0};
   uint64_t mono{5000000};
   std::vector<std::function<void()>> jobs;
+  std::vector<Timer> timers;
   std::vector<std::string> undeletable;
   size_t max_file_bytes{MAX_FILE_BYTES};
   ArduinoJson::Allocator *json_allocator{nullptr};
 
   void tick() { this->tick_(); }
-  // Both clocks move on, a tick a second, as the loop runs.
+  // Both clocks move on, a tick a second, as the loop runs; a wait that ends goes first.
   void run(int seconds) {
     for (int i = 0; i < seconds; i++) {
       this->local++;
       this->mono += 1000;
+      this->fire();
       this->tick_();
     }
   }
-  // The loop stalls: both clocks move on by `seconds`, then one tick.
+  // The loop stalls: both clocks move on by `seconds`, then one loop.
   void stall(int seconds) {
     this->local += seconds;
     this->mono += static_cast<uint64_t>(seconds) * 1000;
+    this->fire();
     this->tick_();
   }
   // One second of loop, at whose end the local clock reads `when`: a set clock, a zone, DST.
   void jump_to(int64_t when) {
     this->local = when;
     this->mono += 1000;
+    this->fire();
     this->tick_();
+  }
+  // Runs the waits that are over, earliest first. The count it ran.
+  size_t fire() {
+    size_t ran = 0;
+    for (;;) {
+      auto due = std::min_element(this->timers.begin(), this->timers.end(),
+                                  [](const Timer &a, const Timer &b) { return a.due < b.due; });
+      if (due == this->timers.end() || due->due > this->mono)
+        return ran;
+      auto job = std::move(due->job);
+      this->timers.erase(due);
+      job();
+      ran++;
+    }
   }
   // Runs what waits for the loop, and what that queues. The count it ran.
   size_t run_later() {
@@ -150,16 +173,39 @@ class FakeEngine : public ScheduleEngine {
   void forget() {
     this->entries_.clear();
     this->jobs.clear();
+    this->timers.clear();
   }
   bool active(const std::string &id) const {
     const Entry *entry = this->find_(id);
     return entry != nullptr && entry->active;
+  }
+  // Where the list of `id` is: its mode's id ("" for none), the next action, and whether it waits.
+  std::string list_mode(const std::string &id) const {
+    const Entry *entry = this->find_(id);
+    return entry == nullptr || entry->mode < 0 ? "" : entry->config.modes[entry->mode].id;
+  }
+  int list_next(const std::string &id) const {
+    const Entry *entry = this->find_(id);
+    return entry == nullptr ? -1 : entry->next;
+  }
+  bool waiting(const std::string &id) const {
+    const Entry *entry = this->find_(id);
+    return entry != nullptr && entry->waiting;
   }
 
  protected:
   ESPTime clock_now_() override { return this->local == 0 ? ESPTime{} : ESPTime::from_epoch_utc(this->local); }
   uint64_t mono_ms_() override { return this->mono; }
   void later_(std::function<void()> &&job) override { this->jobs.push_back(std::move(job)); }
+  void wait_(uint32_t timer, uint32_t ms, std::function<void()> &&job) override {
+    this->cancel_wait_(timer);
+    this->timers.push_back(Timer{timer, this->mono + ms, std::move(job)});
+  }
+  void cancel_wait_(uint32_t timer) override {
+    this->timers.erase(
+        std::remove_if(this->timers.begin(), this->timers.end(), [timer](const Timer &t) { return t.id == timer; }),
+        this->timers.end());
+  }
   EncodeError encode_(const ScheduleConfig &config, std::string *json) const override {
     if (this->json_allocator == nullptr)
       return config.encode(json, this->max_file_bytes);
@@ -300,7 +346,7 @@ inline climate_hub::ClimateConfig thermostat(const char *name = "Living room", c
 
 inline const climate_hub::ClimateConfig &stored(const std::string &id) { return *hub().store().get(id); }
 
-// A switch point for a document built in C++.
+// A switch point of a schedule on one relay or one thermostat, for a document built in C++.
 struct P {
   uint16_t minute;
   ValueType type;
@@ -312,34 +358,83 @@ inline P off_at(uint16_t minute) { return {minute, ValueType::OFF, "", NAN}; }
 inline P preset_at(uint16_t minute, const char *key) { return {minute, ValueType::PRESET, key, NAN}; }
 inline P target_at(uint16_t minute, float target) { return {minute, ValueType::TARGET, "", target}; }
 
-inline ScheduleConfig make(const char *name, TargetType type, const char *target, std::initializer_list<P> points,
+// The mode of one action that sets `p`'s value on the target, added the first time it is named:
+// "on", "off", the preset's key, or "t21-5" for 21.5.
+inline uint8_t mode_for(ScheduleConfig &c, TargetType type, const char *target, const P &p) {
+  std::string id;
+  std::string name;
+  if (p.type == ValueType::PRESET) {
+    id = name = p.preset;
+  } else if (p.type == ValueType::TARGET) {
+    char text[32];
+    snprintf(text, sizeof(text), "%.1f", p.target);
+    name = text;
+    id = "t" + slugify_id(text, "nan");
+  } else {
+    id = value_type_to_string(p.type);
+    name = p.type == ValueType::ON ? "On" : "Off";
+  }
+  const int found = c.mode_index(id);
+  if (found >= 0)
+    return static_cast<uint8_t>(found);
+  c.add_mode(id, name);
+  if (type == TargetType::RELAY) {
+    c.add_relay(target, p.type == ValueType::ON);
+  } else {
+    c.add_thermostat(target, p.type, p.preset, p.target);
+  }
+  return static_cast<uint8_t>(c.modes.size() - 1);
+}
+
+// A schedule that drives one relay or one thermostat: a mode per value its points name.
+inline ScheduleConfig make(const char *name, TargetType type, const char *target, const std::vector<P> &points,
                            bool enabled = true) {
   ScheduleConfig c;
   c.name = name;
   c.enabled = enabled;
-  c.target_type = type;
-  c.target_id = target;
   for (const P &p : points)
-    c.add_point(p.minute, p.type, p.preset, p.target);
+    c.add_point(p.minute, mode_for(c, type, target, p));
   return c;
 }
 
-inline ScheduleConfig relay_doc(const char *name, const char *relay, std::initializer_list<P> points,
+inline ScheduleConfig relay_doc(const char *name, const char *relay, const std::vector<P> &points,
                                 bool enabled = true) {
   return make(name, TargetType::RELAY, relay, points, enabled);
 }
 
-inline ScheduleConfig thermostat_doc(const char *name, const char *id, std::initializer_list<P> points,
+inline ScheduleConfig thermostat_doc(const char *name, const char *id, const std::vector<P> &points,
                                      bool enabled = true) {
   return make(name, TargetType::THERMOSTAT, id, points, enabled);
 }
 
 // On at 08:00 and off at 20:00 every day.
 inline ScheduleConfig daily(const char *name = "Porch", const char *relay = "relay_1", bool enabled = true) {
-  ScheduleConfig c = relay_doc(name, relay, {}, enabled);
+  std::vector<P> points;
   for (int day = 0; day < 7; day++) {
-    c.add_point(wm(day, 8, 0), ValueType::ON);
-    c.add_point(wm(day, 20, 0), ValueType::OFF);
+    points.push_back(on_at(wm(day, 8, 0)));
+    points.push_back(off_at(wm(day, 20, 0)));
+  }
+  return relay_doc(name, relay, points, enabled);
+}
+
+// The spec's example, every day: Day from 06:30 sets the thermostat's comfort, relay_1 on, waits
+// two minutes, relay_2 on; Night from 23:00 sets eco, relay_2 off, relay_1 off.
+inline ScheduleConfig home(const char *name = "Home", const char *thermostat = "living-room", bool enabled = true) {
+  ScheduleConfig c;
+  c.name = name;
+  c.enabled = enabled;
+  c.add_mode("day", "Day", 3);
+  c.add_thermostat(thermostat, ValueType::PRESET, "comfort");
+  c.add_relay("relay_1", true);
+  c.add_wait(120);
+  c.add_relay("relay_2", true);
+  c.add_mode("night", "Night", 10);
+  c.add_thermostat(thermostat, ValueType::PRESET, "eco");
+  c.add_relay("relay_2", false);
+  c.add_relay("relay_1", false);
+  for (int day = 0; day < 7; day++) {
+    c.add_point(wm(day, 6, 30), 0);
+    c.add_point(wm(day, 23, 0), 1);
   }
   return c;
 }
@@ -389,11 +484,13 @@ inline bool file_exists(const std::string &path) {
 // A schedule as a file holds it, on `relay`, on at 08:00 and off at 20:00 on Monday.
 inline std::string file_doc(const char *id, const char *name, const char *relay = "relay_1", bool enabled = true,
                             int version = 1) {
-  char buf[512];
+  char buf[1024];
   snprintf(buf, sizeof(buf),
-           R"({"version":%d,"id":"%s","name":"%s","enabled":%s,"target":{"type":"relay","id":"%s"},)"
-           R"("week":{"mon":[{"at":"08:00","value":{"type":"on"}},{"at":"20:00","value":{"type":"off"}}]}})",
-           version, id, name, enabled ? "true" : "false", relay);
+           R"({"version":%d,"id":"%s","name":"%s","enabled":%s,)"
+           R"("modes":[{"id":"on","name":"On","actions":[{"type":"relay","id":"%s","value":{"type":"on"}}]},)"
+           R"({"id":"off","name":"Off","actions":[{"type":"relay","id":"%s","value":{"type":"off"}}]}],)"
+           R"("week":{"mon":[{"at":"08:00","mode":"on"},{"at":"20:00","mode":"off"}]}})",
+           version, id, name, enabled ? "true" : "false", relay, relay);
   return buf;
 }
 

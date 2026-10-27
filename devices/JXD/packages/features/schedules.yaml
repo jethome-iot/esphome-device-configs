@@ -1,5 +1,6 @@
-# Weekly schedules the user edits at run time, each driving a relay or a thermostat,
-# stored as JSON files on the LittleFS partition. Details: components/schedules/README.md
+# Weekly schedules the user edits at run time, each a set of modes of relay and
+# thermostat actions picked by switch points, stored as JSON files on the LittleFS
+# partition. Details: components/schedules/README.md
 external_components:
   - source: ${components}
     components: [schedules, loop_job, switch_hold]

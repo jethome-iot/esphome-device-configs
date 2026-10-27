@@ -11,7 +11,8 @@ JsonDocument load_contract() {
   const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   JsonDocument doc;
   EXPECT_FALSE(text.empty()) << "contract.json not found: run the suite from tests/components/web_schedule_editor";
-  EXPECT_EQ(deserializeJson(doc, text), DeserializationError::Ok);
+  // A case nests a step, its expectations and a document's modes, actions and values.
+  EXPECT_EQ(deserializeJson(doc, text, DeserializationOption::NestingLimit(16)), DeserializationError::Ok);
   return doc;
 }
 

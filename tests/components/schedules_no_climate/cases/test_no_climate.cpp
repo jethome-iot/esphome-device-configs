@@ -1,5 +1,5 @@
-// A firmware without climate_hub: a relay schedule runs, a thermostat target is missing and
-// says why, and no thermostat is offered, by the engine or over HTTP.
+// A firmware without climate_hub: a relay action runs, a thermostat action is skipped and says
+// why, and no thermostat is offered, by the engine or over HTTP.
 #include <gtest/gtest.h>
 #include <ArduinoJson.h>
 #include <sys/stat.h>
@@ -90,12 +90,17 @@ class NoClimate : public ::testing::Test {
     rmdir(folder.c_str());
     rmdir(this->storage_.path.c_str());
   }
+  // From Monday 08:00, one mode, "Morning": the relay on, or the thermostat off.
   static ScheduleConfig on_monday_morning(TargetType type, const char *target) {
     ScheduleConfig config;
     config.name = "Morning";
-    config.target_type = type;
-    config.target_id = target;
-    config.add_point(8 * 60, type == TargetType::RELAY ? ValueType::ON : ValueType::OFF);
+    config.add_mode("morning", "Morning");
+    if (type == TargetType::RELAY) {
+      config.add_relay(target, true);
+    } else {
+      config.add_thermostat(target, ValueType::OFF);
+    }
+    config.add_point(8 * 60, 0);
     return config;
   }
 
@@ -113,19 +118,31 @@ TEST_F(NoClimate, ARelayScheduleRuns) {
   this->engine_->tick();
   EXPECT_TRUE(relay1().state);
   EXPECT_EQ(ScheduleState::RUNNING, this->engine_->status("morning").state);
-  EXPECT_EQ("Relay 1", this->engine_->target_name(*this->engine_->get("morning")));
+  EXPECT_EQ("Relay 1", this->engine_->target_name(Target{TargetType::RELAY, "relay_1"}));
 }
 
-TEST_F(NoClimate, AThermostatTargetHasNothingToDrive) {
+TEST_F(NoClimate, AThermostatActionIsSkippedAndSaysWhy) {
   Result created = this->engine_->create(on_monday_morning(TargetType::THERMOSTAT, "living-room"));
   ASSERT_TRUE(created.ok) << created.error;
-  EXPECT_EQ("not running: this device has no thermostats", created.warning);
+  EXPECT_EQ("skips mode \"Morning\", action 1: this device has no thermostats", created.warning);
   this->engine_->local = monday_nine();
   this->engine_->tick();
   const ScheduleStatus status = this->engine_->status("morning");
-  EXPECT_EQ(ScheduleState::MISSING_TARGET, status.state);
-  EXPECT_EQ("This device has no thermostats", status.reason);
-  EXPECT_EQ("living-room", this->engine_->target_name(*this->engine_->get("morning")));
+  EXPECT_EQ(ScheduleState::RUNNING, status.state);
+  ASSERT_EQ(1u, status.issues.size());
+  EXPECT_EQ(IssueKind::NO_THERMOSTATS, status.issues[0].kind);
+  EXPECT_EQ("This device has no thermostats", status.issues[0].text);
+  EXPECT_EQ("living-room", this->engine_->target_name(Target{TargetType::THERMOSTAT, "living-room"}));
+}
+
+// The rest of the list runs.
+TEST_F(NoClimate, TheRestOfAListRunsWithoutTheThermostat) {
+  ScheduleConfig config = on_monday_morning(TargetType::THERMOSTAT, "living-room");
+  config.add_relay("relay_1", true);
+  ASSERT_TRUE(this->engine_->create(config).ok);
+  this->engine_->local = monday_nine();
+  this->engine_->tick();
+  EXPECT_TRUE(relay1().state);
 }
 
 TEST_F(NoClimate, NoThermostatIsOffered) {
@@ -172,23 +189,29 @@ TEST_F(NoClimateEditor, TargetsOffersTheRelaysAndNoThermostat) {
   EXPECT_EQ("relay_1", targets["relays"][0]["object_id"].as<std::string>());
 }
 
-TEST_F(NoClimateEditor, AThermostatScheduleIsSavedAndSaysWhyItDoesNotRun) {
+TEST_F(NoClimateEditor, AThermostatActionIsSavedAndListedAsAnIssue) {
   int code = 0;
-  JsonDocument saved = this->call(HTTP_POST, "save",
-                                  R"({"name":"Heat","target":{"type":"thermostat","id":"living-room"},)"
-                                  R"("week":{"mon":[{"at":"07:00","value":{"type":"target","target":21}}]}})",
-                                  &code);
+  JsonDocument saved =
+      this->call(HTTP_POST, "save",
+                 R"({"name":"Heat","modes":[{"id":"warm","name":"Warm","actions":[)"
+                 R"({"type":"thermostat","id":"living-room","value":{"type":"target","target":21}}]}],)"
+                 R"("week":{"mon":[{"at":"07:00","mode":"warm"}]}})",
+                 &code);
   EXPECT_EQ(200, code);
-  EXPECT_EQ("Schedule created; not running: this device has no thermostats", saved["message"].as<std::string>());
-  EXPECT_EQ("not running: this device has no thermostats", saved["warning"].as<std::string>());
+  EXPECT_EQ("Schedule created; skips mode \"Warm\", action 1: this device has no thermostats",
+            saved["message"].as<std::string>());
+  EXPECT_EQ("skips mode \"Warm\", action 1: this device has no thermostats", saved["warning"].as<std::string>());
   this->engine_->local = monday_nine();
   this->engine_->tick();
   JsonDocument list = this->call(HTTP_GET, "list", "", &code);
   EXPECT_EQ(200, code);
   JsonObject row = list["schedules"][0];
-  EXPECT_EQ("missing_target", row["status"]["state"].as<std::string>());
-  EXPECT_EQ("This device has no thermostats", row["status"]["reason"].as<std::string>());
-  EXPECT_EQ("living-room", row["target"]["name"].as<std::string>());
+  EXPECT_EQ("running", row["status"]["state"].as<std::string>());
+  EXPECT_EQ("no_thermostats", row["status"]["issues"][0]["kind"].as<std::string>());
+  EXPECT_EQ("warm", row["status"]["issues"][0]["mode"].as<std::string>());
+  EXPECT_EQ(0, row["status"]["issues"][0]["action"].as<int>());
+  EXPECT_EQ("This device has no thermostats", row["status"]["issues"][0]["text"].as<std::string>());
+  EXPECT_EQ("living-room", row["targets"][0]["name"].as<std::string>());
 }
 
 TEST_F(NoClimateEditor, ARelayScheduleRunsOverHttp) {
@@ -196,8 +219,9 @@ TEST_F(NoClimateEditor, ARelayScheduleRunsOverHttp) {
   this->engine_->tick();
   int code = 0;
   JsonDocument saved = this->call(HTTP_POST, "save",
-                                  R"({"name":"Morning","target":{"type":"relay","id":"relay_1"},)"
-                                  R"("week":{"mon":[{"at":"08:00","value":{"type":"on"}}]}})",
+                                  R"({"name":"Morning","modes":[{"id":"on","name":"On","actions":[)"
+                                  R"({"type":"relay","id":"relay_1","value":{"type":"on"}}]}],)"
+                                  R"("week":{"mon":[{"at":"08:00","mode":"on"}]}})",
                                   &code);
   EXPECT_EQ(200, code);
   EXPECT_EQ("Schedule created", saved["message"].as<std::string>());

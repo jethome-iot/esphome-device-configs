@@ -16,8 +16,9 @@
 //  - every change of a schedule moves its `revision` on, and a Save that carries
 //    one other than the device's is 409 (STALE_DOCUMENT): update() of a document
 //    from get() sends it; one without it is not checked;
-//  - one enabled schedule per target: a Save, an import or an enable that would make a
-//    second is 409, unless the enable asks to take the target over;
+//  - one enabled schedule per target, a target being any relay or thermostat a mode's
+//    action names: a Save, an import or an enable that would make a second is 409,
+//    unless the enable asks to take the targets over;
 //  - /ping returns {status:"ok"} (NOT the success envelope);
 //  - every route but /schema and /ping does its read or write on the device's main
 //    loop, so an answer describes what actually happened; 503 means the loop did not
@@ -48,12 +49,12 @@ export interface ScheduleApiOptions {
 }
 
 export interface EnableOptions {
-  /** Store as disabled every other enabled schedule on its target. */
+  /** Store as disabled every other enabled schedule that shares a target with it. */
   takeOver?: boolean
 }
 
 export interface ScheduleApi {
-  /** GET /list — every schedule's status and the point in force, the count, the limit and the device's clock. */
+  /** GET /list — every schedule's targets, status and issues, the mode in force and the next point, the count, the limit and the device's clock. */
   list(): Promise<SchedulesResponse>
   /** GET /get?id= — the bare document, for editing. */
   get(id: string): Promise<ScheduleDocument>
@@ -71,11 +72,11 @@ export interface ScheduleApi {
    * that id is replaced, otherwise it is created with it, enabled or not as the document says.
    */
   importSchedule(doc: ScheduleImportInput): Promise<SaveResponse>
-  /** POST /delete?id= — remove it (no body). The target stays as the schedule left it. */
+  /** POST /delete?id= — remove it (no body); its list stops and the targets stay as it left them. */
   remove(id: string): Promise<DeleteResponse>
-  /** POST /enable?id=&value=[&take_over=true] — start or stop without deleting (no body). */
+  /** POST /enable?id=&value=[&take_over=true] — start or stop without deleting (no body); starting runs the list of the mode in force. */
   setEnabled(id: string, value: boolean, options?: EnableOptions): Promise<EnableResponse>
-  /** GET /targets — the relays and the thermostats a schedule can drive, and who drives them. */
+  /** GET /targets — the relays and the thermostats an action can drive, and who drives them. */
   targets(): Promise<TargetsResponse>
   /** GET /schema — the limits and the words, from the firmware's build. */
   schema(): Promise<ScheduleSchema>

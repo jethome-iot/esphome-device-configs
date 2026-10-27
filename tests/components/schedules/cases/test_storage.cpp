@@ -22,15 +22,19 @@ TEST_F(Storage, ACreateWritesTheFileUnderAnIdFromTheName) {
   EXPECT_EQ(SCHEDULE_VERSION, this->engine->get("porch-light")->version);
 }
 
-// The plan's example, sent as a draft: the file is that document byte for byte.
+// The spec's example, sent as a draft: the file is that document byte for byte.
 TEST_F(Storage, TheFileIsTheDocumentByteForByte) {
-  const std::string golden = R"({"version":1,"revision":0,"id":"living-room-week","name":"Living room week",)"
-                             R"("enabled":true,)"
-                             R"("target":{"type":"thermostat","id":"living-room"},)"
-                             R"("week":{"mon":[{"at":"06:30","value":{"type":"preset","preset":"comfort"}},)"
-                             R"({"at":"08:30","value":{"type":"preset","preset":"eco"}},)"
-                             R"({"at":"17:00","value":{"type":"target","target":21.5}},)"
-                             R"({"at":"23:00","value":{"type":"off"}}],)"
+  const std::string golden = R"({"version":1,"revision":0,"id":"home-weekdays","name":"Home weekdays","enabled":true,)"
+                             R"("modes":[{"id":"day","name":"Day","color":"amber","actions":[)"
+                             R"({"type":"thermostat","id":"living-room","value":{"type":"preset","preset":"comfort"}},)"
+                             R"({"type":"relay","id":"boiler_pump","value":{"type":"on"}},)"
+                             R"({"type":"wait","seconds":120},)"
+                             R"({"type":"relay","id":"relay_5","value":{"type":"on"}}]},)"
+                             R"({"id":"night","name":"Night","color":"indigo","actions":[)"
+                             R"({"type":"thermostat","id":"living-room","value":{"type":"preset","preset":"eco"}},)"
+                             R"({"type":"relay","id":"relay_5","value":{"type":"off"}},)"
+                             R"({"type":"relay","id":"boiler_pump","value":{"type":"off"}}]}],)"
+                             R"("week":{"mon":[{"at":"06:30","mode":"day"},{"at":"23:00","mode":"night"}],)"
                              R"("tue":[],"wed":[],"thu":[],"fri":[],"sat":[],"sun":[]}})";
   this->boot();
   ScheduleConfig draft;
@@ -38,8 +42,8 @@ TEST_F(Storage, TheFileIsTheDocumentByteForByte) {
   ASSERT_TRUE(from_json(golden, &draft, &error)) << error;
   draft.id = "ignored";
   draft.revision = 9;
-  EXPECT_EQ("living-room-week", this->create(draft).id);
-  EXPECT_EQ(golden, read_file(this->file_of("living-room-week")));
+  EXPECT_EQ("home-weekdays", this->create(draft).id);
+  EXPECT_EQ(golden, read_file(this->file_of("home-weekdays")));
 }
 
 TEST_F(Storage, TheSchedulesComeBackAtTheNextBoot) {
@@ -101,7 +105,7 @@ TEST_F(Storage, EveryChangeMovesTheRevisionOn) {
   EXPECT_EQ(5u, revision()) << "the backup's is not read";
   back.id = "garden";
   back.name = "Garden";
-  back.target_id = "relay_2";
+  back.targets[0].id = "relay_2";
   ASSERT_TRUE(this->engine->restore(back).ok);
   EXPECT_EQ(0u, this->engine->get("garden")->revision);
 
@@ -185,7 +189,7 @@ TEST_F(Storage, ARefusedFileIsLeftExactlyAsItIs) {
       {"other.json", file_doc("elsewhere", "Other"), "its id 'elsewhere' is not its file name"},
       {"new.json", file_doc("new", "New"), "the editor cannot open the id 'new'"},
       {"Upper.json", file_doc("Upper", "Upper"), "id must be a slug"},
-      {"broken.json", R"({"id":"broken","name":"Broken","target":{"type":"relay","id":"relay_1"},"week":{"mon":[]}})",
+      {"broken.json", R"({"id":"broken","name":"Broken","modes":[{"id":"on","name":"On"}],"week":{"mon":[]}})",
        "/broken.json' refused: A schedule needs at least one switch point"},
   };
   for (const Case &c : cases)
@@ -447,13 +451,14 @@ TEST_F(Storage, ARestoreBringsAScheduleBackUnderItsId) {
 TEST_F(Storage, ABrokenRuleIsA400WhereverItComesIn) {
   this->boot();
   this->create(daily("Porch"));
-  ScheduleConfig broken = relay_doc("Porch", "relay_1", {preset_at(0, "eco")});
+  ScheduleConfig broken = daily("Porch");
+  broken.modes[1].name = " ";
   EXPECT_EQ(400, this->engine->create(broken).code);
   EXPECT_EQ(400, this->engine->update("porch", broken).code);
   broken.id = "porch";
   Result refused = this->engine->restore(broken);
   EXPECT_EQ(400, refused.code);
-  EXPECT_EQ("Mon 00:00: a relay takes on or off", refused.error);
+  EXPECT_EQ("Mode 2: name is required", refused.error) << "trimmed, as a file's";
   EXPECT_EQ(400, this->engine->create(relay_doc("  ", "relay_1", {on_at(0)})).code);
 }
 
@@ -513,10 +518,14 @@ TEST_F(Storage, TheConfigDumpSaysWhereEachOneStands) {
   LogCapture::instance().clear();
   this->engine->dump_config();
   EXPECT_TRUE(LogCapture::instance().has("Schedules: 3 of 4"));
-  EXPECT_TRUE(LogCapture::instance().has("'Porch' (porch): relay 'relay_1', running"));
-  EXPECT_TRUE(LogCapture::instance().has(
-      "'Attic' (attic): relay 'relay_7', missing_target: Relay \"relay_7\" is not on this device"));
-  EXPECT_TRUE(LogCapture::instance().has("'Old' (old): relay 'relay_2', running, file from a newer firmware"));
+  EXPECT_TRUE(LogCapture::instance().has("'Porch' (porch): 2 modes, 1 targets, running"));
+  EXPECT_TRUE(LogCapture::instance().has("'Old' (old): 2 modes, 1 targets, running, file from a newer firmware"));
+  EXPECT_TRUE(LogCapture::instance().has("'Attic' (attic): 2 modes, 1 targets, running"))
+      << "a relay it lacks is skipped";
+  ASSERT_TRUE(this->engine->set_enabled("attic", false).ok);
+  LogCapture::instance().clear();
+  this->engine->dump_config();
+  EXPECT_TRUE(LogCapture::instance().has("'Attic' (attic): 2 modes, 1 targets, disabled"));
 }
 
 }  // namespace esphome::schedules::testing

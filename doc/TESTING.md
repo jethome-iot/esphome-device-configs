@@ -141,6 +141,9 @@ client mock must give as well goes in `contract.json`, what only the device can 
   `newer_file` as above, and `relay_held`, where a running thermostat named `Floor` holds
   `relay_3`.
 
+No wait of a mode's list ends within a case, on either side: an answer is what the list did up
+to its first wait.
+
 A key that neither section lists fails the suite.
 
 ## Before a thermostat pull request

@@ -1,5 +1,5 @@
-// What a value does to its target: a relay switched, or left to the thermostat that holds it
-// until it lets go; a thermostat's preset, target or off, through the hub as a rule would.
+// What an action does to its target: a relay switched, or left to the thermostat that holds it
+// until it lets go; a thermostat on, off, a preset or a target, through the hub as a rule would.
 #include "common.h"
 
 namespace esphome::schedules::testing {
@@ -22,7 +22,8 @@ TEST_F(Apply, ARelayTakesOnAndOff) {
   EXPECT_FALSE(this->e.relay2.state);
   EXPECT_EQ((std::vector<bool>{true, false}), this->e.relay2.writes);
   EXPECT_TRUE(this->e.relay1.writes.empty());
-  EXPECT_TRUE(LogCapture::instance().has("Schedule 'Porch' (switch point): 'Relay 2' off"));
+  EXPECT_TRUE(LogCapture::instance().has("Schedule 'Porch' (switch point): mode 'Off'"));
+  EXPECT_TRUE(LogCapture::instance().has("Schedule 'Porch': 'Relay 2' off"));
 }
 
 TEST_F(Apply, AHeldRelayIsLeftAloneAndItsHolderNamed) {
@@ -32,13 +33,22 @@ TEST_F(Apply, AHeldRelayIsLeftAloneAndItsHolderNamed) {
   this->start(at_local(0, 9, 0), daily("Porch", "boiler"));
   EXPECT_EQ(before, this->e.boiler.writes.size());
   EXPECT_TRUE(LogCapture::instance().has("Schedule 'Porch' left 'Boiler' alone: thermostat 'Floor' drives it"));
+  // It runs: the hold is an issue of the actions on that relay, of every mode.
   const ScheduleStatus status = this->engine->status("porch");
-  EXPECT_EQ(ScheduleState::HELD, status.state);
-  EXPECT_EQ("Floor", status.held_by);
-  EXPECT_EQ("Thermostat \"Floor\" drives Boiler", status.reason);
+  EXPECT_EQ(ScheduleState::RUNNING, status.state);
+  EXPECT_EQ("", status.reason);
+  ASSERT_EQ(2u, status.issues.size());
+  for (const Issue &issue : status.issues) {
+    EXPECT_EQ(IssueKind::HELD, issue.kind);
+    EXPECT_EQ("Floor", issue.held_by);
+    EXPECT_EQ("Thermostat \"Floor\" drives Boiler", issue.text);
+    EXPECT_EQ(0, issue.action);
+  }
+  EXPECT_EQ(0, status.issues[0].mode);
+  EXPECT_EQ(1, status.issues[1].mode);
 }
 
-// Decision 1: as an input binding's Follow, the relay takes the value in force once it is free.
+// As an input binding's Follow, the relay takes the mode in force's value once it is free.
 TEST_F(Apply, AFreedRelayTakesTheValueInForce) {
   this->add_thermostat(thermostat("Floor", "boiler"));
   this->start(at_local(0, 9, 0), daily("Porch", "boiler"));
@@ -47,6 +57,7 @@ TEST_F(Apply, AFreedRelayTakesTheValueInForce) {
   EXPECT_EQ(1u, this->engine->run_later()) << "the value waits for the hub to finish";
   EXPECT_TRUE(this->e.boiler.state);
   EXPECT_EQ(ScheduleState::RUNNING, this->state("porch"));
+  EXPECT_TRUE(this->engine->status("porch").issues.empty());
 }
 
 TEST_F(Apply, AFreedRelayGoesBackToAnOffInForceToo) {
@@ -74,7 +85,8 @@ TEST_F(Apply, ARelayTakenBackBeforeTheLoopStaysTheThermostats) {
   const size_t before = this->e.boiler.writes.size();
   this->engine->run_later();
   EXPECT_EQ(before, this->e.boiler.writes.size());
-  EXPECT_EQ(ScheduleState::HELD, this->state("porch"));
+  ASSERT_FALSE(this->engine->status("porch").issues.empty());
+  EXPECT_EQ(IssueKind::HELD, this->engine->status("porch").issues[0].kind);
 }
 
 TEST_F(Apply, APresetThatKeepsTheModeTurnsAnOffThermostatOn) {
@@ -109,6 +121,22 @@ TEST_F(Apply, ATargetTurnsAnOffThermostatOn) {
   EXPECT_FLOAT_EQ(19.f, stored(id).setpoint);
 }
 
+// Back on in the mode it had before it went off; a thermostat that is on stays as it is.
+TEST_F(Apply, OnTurnsItBackOnInItsOwnMode) {
+  const std::string id = this->add_thermostat(thermostat());
+  ASSERT_TRUE(hub().turn_off(id).ok);
+  ScheduleConfig config;
+  config.name = "Warm";
+  config.add_mode("on", "On");
+  config.add_thermostat(id, ValueType::ON);
+  config.add_point(wm(0, 6, 0), 0);
+  this->start(at_local(0, 9, 0), config);
+  EXPECT_EQ(HubMode::HEAT, stored(id).mode);
+  EXPECT_TRUE(LogCapture::instance().has("Schedule 'Warm': thermostat 'living-room' on"));
+  this->engine->stall(7 * 24 * 3600);
+  EXPECT_EQ(HubMode::HEAT, stored(id).mode) << "on again, while on";
+}
+
 TEST_F(Apply, OffTurnsItOff) {
   const std::string id = this->add_thermostat(thermostat());
   this->start(at_local(0, 9, 0), thermostat_doc("Heat", id.c_str(), {off_at(wm(0, 6, 0))}));
@@ -121,7 +149,7 @@ TEST_F(Apply, ATargetOutsideTheRangeIsClampedByTheThermostat) {
   const std::string id = this->add_thermostat(thermostat());
   this->start(at_local(0, 9, 0), thermostat_doc("Heat", id.c_str(), {target_at(wm(0, 6, 0), 99.f)}));
   EXPECT_FLOAT_EQ(45.f, stored(id).setpoint);
-  EXPECT_FLOAT_EQ(99.f, this->engine->get("heat")->points[0].target);
+  EXPECT_FLOAT_EQ(99.f, this->engine->get("heat")->actions[0].number);
 }
 
 // Decision 7: a stopped thermostat takes the values into its document and stays stopped.
