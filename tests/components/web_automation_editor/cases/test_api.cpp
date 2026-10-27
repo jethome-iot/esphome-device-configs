@@ -107,6 +107,17 @@ TEST_F(Editor, SaveRefusesANameAnotherRuleOwns) {
   EXPECT_EQ(this->get("list")["automations"].size(), 1u);
 }
 
+// The two agree in their first 48 bytes, all a file name on the device holds.
+TEST_F(Editor, SaveTakesTwoLongNamesThatStartAlike) {
+  for (const char *name : {"Свет на кухне по вечерам в будни", "Свет на кухне по вечерам в выходные"}) {
+    std::string json = PORCH_LIGHT;
+    json.replace(json.find("Porch light"), 11, name);
+    EXPECT_GT(this->create(json.c_str()), 0u) << name;
+  }
+  EXPECT_EQ(this->get("list")["automations"].size(), 2u);
+  EXPECT_EQ(this->files().size(), 2u);
+}
+
 TEST_F(Editor, SaveRefusesWhatItCannotRead) {
   struct Case {
     const char *body;

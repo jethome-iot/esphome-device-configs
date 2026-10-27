@@ -108,8 +108,8 @@ rule with such an action is never built there.
 ## Storage
 
 One file per rule, `<base_path>/<folder_path>/<name>.json`, the name lower-cased with runs of
-spaces, dashes and underscores collapsed into one `_` and cut to 48 bytes. The name is the key
-on disk, so two rules cannot share one.
+spaces, dashes and underscores collapsed into one `_`. A file name longer than 48 bytes is cut
+and ends in `-<id>`. Two rules cannot have names that spell the same file name before that cut.
 
 The folder is meant to be writable by hand, so what it holds is repaired at boot: a rule in a
 file named after something else is moved to its own file, a missing or repeated `id` is
@@ -156,7 +156,7 @@ callback, say) they refuse and return false.
 - `update_automation(id, config, &error)`, `remove_automation(id)`
 - `set_enable_automation(id, enable, persisted = nullptr)`: `persisted` says whether it reached flash
 - `reset_all()`: remove every rule and its file
-- `is_name_taken(name, exclude_id = 0)`: names collide by file name
+- `is_name_taken(name, exclude_id = 0)`: names collide by the file name they spell before the cut
 - `configs()`: the loaded `AutomationConfig`s, including the ones that did not build, each with
   its `build_error`
 - `run_on_loop(job)`: runs `job` on the loop task and blocks; `false` when the loop never got to it

@@ -37,6 +37,19 @@ static const std::vector<std::pair<const char *, const char *>> REFUSED = {
      R"({"name":"Empty Cond","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"condition":{"type":"and","conditions":[]},"actions":[]})"},
 };
 
+// A Cyrillic letter is two bytes, so a few dozen of them pass the 48 a file name holds.
+static std::string repeat(const char *text, int count) {
+  std::string out;
+  for (int i = 0; i < count; i++)
+    out += text;
+  return out;
+}
+
+static std::string startup_rule(const std::string &name, uint32_t id = 0) {
+  return R"({)" + (id == 0 ? std::string() : R"("id":)" + std::to_string(id) + ",") + R"("name":")" + name +
+         R"(","triggers":[{"source":"startup"}]})";
+}
+
 class Storage : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -287,14 +300,120 @@ TEST_F(Storage, FilenamesAreSanitized) {
     ASSERT_NE(engine->add_automation(
                   rule((R"({"name":")" + std::string(name) + R"(","triggers":[{"source":"startup"}]})").c_str())),
               0u);
-  ASSERT_NE(engine->add_automation(rule((R"({"name":")" + thirty + R"(","triggers":[{"source":"startup"}]})").c_str())),
-            0u);
-  std::string twenty_four;
-  for (int i = 0; i < 24; i++)
-    twenty_four += "ф";  // 48 bytes: the limit, and no character cut in half
-  std::vector<std::string> expected = {"hello_world.json", "Кухня_свет.json", "automation.json", twenty_four + ".json"};
+  ASSERT_EQ(engine->add_automation(rule((R"({"name":")" + thirty + R"(","triggers":[{"source":"startup"}]})").c_str())),
+            4u);
+  std::string twenty_three;
+  for (int i = 0; i < 23; i++)
+    twenty_three += "ф";  // 46 bytes and the id's "-4": the 48, and no character cut in half
+  // Four bytes each: a twelfth would pass the 46 left beside "-5".
+  ASSERT_EQ(engine->add_automation(rule(startup_rule(repeat("🔥", 13)).c_str())), 5u);
+  std::vector<std::string> expected = {"hello_world.json", "Кухня_свет.json", "automation.json",
+                                       twenty_three + "-4.json", repeat("🔥", 11) + "-5.json"};
   std::sort(expected.begin(), expected.end());
   EXPECT_EQ(files(), expected);
+}
+
+// The two agree in their first 48 bytes, all a file name holds.
+TEST_F(Storage, LongNamesThatStartAlikeAreTwoRules) {
+  const std::string weekdays = "Свет на кухне по вечерам в будни";
+  const std::string weekends = "Свет на кухне по вечерам в выходные";
+  boot();
+  ASSERT_EQ(engine->add_automation(rule(startup_rule(weekdays).c_str())), 1u);
+  EXPECT_FALSE(engine->is_name_taken(weekends));
+  ASSERT_EQ(engine->add_automation(rule(startup_rule(weekends).c_str())), 2u);
+  const std::vector<std::string> expected = {"Свет_на_кухне_по_вечерам-1.json", "Свет_на_кухне_по_вечерам-2.json"};
+  EXPECT_EQ(files(), expected);
+  EXPECT_NE(read("Свет_на_кухне_по_вечерам-2.json").find(weekends), std::string::npos);
+
+  reboot();
+  EXPECT_EQ(names(), (std::vector<std::string>{weekdays, weekends}));
+  EXPECT_EQ(files(), expected);
+}
+
+// A name folds '-' to '_', so one spelling another rule's cut file name is a rule of its own.
+TEST_F(Storage, ANameSpellingACutFileNameIsAnotherRule) {
+  boot();
+  ASSERT_EQ(engine->add_automation(rule(startup_rule(repeat("ф", 30)).c_str())), 1u);
+  const std::string lookalike = repeat("ф", 23) + "-1";
+  EXPECT_FALSE(engine->is_name_taken(lookalike));
+  ASSERT_EQ(engine->add_automation(rule(startup_rule(lookalike).c_str())), 2u);
+  const std::vector<std::string> expected = {repeat("ф", 23) + "-1.json", repeat("ф", 23) + "_1.json"};
+  EXPECT_EQ(files(), expected);
+
+  reboot();
+  EXPECT_EQ(names(), (std::vector<std::string>{repeat("ф", 30), lookalike}));
+  EXPECT_EQ(files(), expected);
+}
+
+// Before the id went into it, a long name's file was its first 48 bytes alone.
+TEST_F(Storage, AFileCutTheOldWayMovesAtBoot) {
+  write(repeat("ф", 24) + ".json", startup_rule(repeat("ф", 30), 4));
+  boot();
+  EXPECT_EQ(files(), (std::vector<std::string>{repeat("ф", 23) + "-4.json"}));
+  EXPECT_NE(read(repeat("ф", 23) + "-4.json").find(R"("name":")" + repeat("ф", 30) + "\""), std::string::npos);
+
+  reboot();
+  EXPECT_EQ(names(), (std::vector<std::string>{repeat("ф", 30)}));
+  EXPECT_EQ(files(), (std::vector<std::string>{repeat("ф", 23) + "-4.json"}));
+}
+
+// The old file name is the whole of a shorter name's: the long rule moves out before that one
+// moves in.
+TEST_F(Storage, AnOldCutFileGoesToTheNameItSpellsWhole) {
+  write(repeat("ф", 24) + ".json", startup_rule(repeat("ф", 30), 4));
+  write("x.json", startup_rule(repeat("ф", 24), 5));
+  boot();
+  EXPECT_EQ(files(), (std::vector<std::string>{repeat("ф", 23) + "-4.json", repeat("ф", 24) + ".json"}));
+  EXPECT_NE(read(repeat("ф", 23) + "-4.json").find(R"("name":")" + repeat("ф", 30) + "\""), std::string::npos);
+  EXPECT_NE(read(repeat("ф", 24) + ".json").find(R"("name":")" + repeat("ф", 24) + "\""), std::string::npos);
+}
+
+TEST_F(Storage, ALongNameRenamedKeepsOneFile) {
+  boot();
+  const uint32_t id = engine->add_automation(rule(startup_rule(repeat("ф", 30)).c_str()));
+  ASSERT_EQ(id, 1u);
+  const std::string file = repeat("ф", 23) + "-1.json";
+
+  // The same first 46 bytes: the same file.
+  const std::string longer = repeat("ф", 23) + repeat("ж", 10);
+  ASSERT_TRUE(engine->update_automation(id, rule(startup_rule(longer).c_str())));
+  EXPECT_EQ(files(), std::vector<std::string>{file});
+  EXPECT_NE(read(file).find(longer), std::string::npos);
+  EXPECT_FALSE(engine->is_name_taken(repeat("ф", 30)));
+
+  ASSERT_TRUE(engine->update_automation(id, rule(startup_rule("Short").c_str())));
+  EXPECT_EQ(files(), std::vector<std::string>{"short.json"});
+  ASSERT_TRUE(engine->update_automation(id, rule(startup_rule(repeat("ж", 30)).c_str())));
+  EXPECT_EQ(files(), std::vector<std::string>{repeat("ж", 23) + "-1.json"});
+}
+
+TEST_F(Storage, ASecondLongNameKeepsItWholeAndTakesANumber) {
+  const std::string name = repeat("ф", 30);
+  write("a.json", startup_rule(name, 1));
+  write("b.json", startup_rule(name, 2));
+  boot();
+  std::vector<std::string> got = names();
+  std::sort(got.begin(), got.end());
+  EXPECT_EQ(got, (std::vector<std::string>{name, name + " 2"}));
+  EXPECT_EQ(files(), (std::vector<std::string>{repeat("ф", 23) + "-1.json", repeat("ф", 23) + "-2.json"}));
+  ASSERT_NE(config(name + " 2"), nullptr);
+  EXPECT_EQ(config(name + " 2")->file, repeat("ф", 23) + "-" + std::to_string(id_of(name + " 2")) + ".json");
+  EXPECT_TRUE(log().has(log().warnings, "Two automations named"));
+}
+
+TEST_F(Storage, CaseFoldsInALongNameToo) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(startup_rule("Pump").c_str())), 0u);
+  EXPECT_TRUE(engine->is_name_taken("pump"));
+  EXPECT_EQ(engine->add_automation(rule(startup_rule("pump").c_str())), 0u);
+
+  ASSERT_EQ(
+      engine->add_automation(rule(startup_rule("Pump the basement dry every evening after the rain stops").c_str())),
+      2u);
+  EXPECT_TRUE(engine->is_name_taken("PUMP THE BASEMENT DRY EVERY EVENING AFTER THE RAIN STOPS"));
+  // Past the 48 bytes a file name holds, the rest of the name still tells two apart.
+  EXPECT_FALSE(engine->is_name_taken("Pump the basement dry every evening after the rain starts"));
+  EXPECT_EQ(files(), (std::vector<std::string>{"pump.json", "pump_the_basement_dry_every_evening_after_the-2.json"}));
 }
 
 TEST_F(Storage, RulesRunThroughTheEntityCallback) {
