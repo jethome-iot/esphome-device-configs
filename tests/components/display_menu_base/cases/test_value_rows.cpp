@@ -417,6 +417,38 @@ TEST_F(ValueRows, ANumberPastItsLimitsStepsFromTheLimit) {
   EXPECT_EQ(this->number_.writes, 1);
 }
 
+// A step cut short at a limit: the way back is a whole step from the limit the row shows.
+TEST_F(ValueRows, ANumberStepsBackAWholeStepFromALimit) {
+  this->number_.traits.set_min_value(0);
+  this->number_.traits.set_max_value(10);
+  this->number_.traits.set_step(3);
+  this->number_.publish_state(9);
+
+  this->on_number_row();
+  this->menu_.enter();
+  this->menu_.right();
+
+  EXPECT_EQ(this->number_shown(), "10");
+
+  this->menu_.left();
+
+  EXPECT_EQ(this->number_shown(), "7");
+
+  this->menu_.enter();
+
+  EXPECT_EQ(this->number_.state, 7);
+
+  this->number_.publish_state(1);
+  this->menu_.enter();
+  this->menu_.left();
+
+  EXPECT_EQ(this->number_shown(), "0");
+
+  this->menu_.right();
+
+  EXPECT_EQ(this->number_shown(), "3");
+}
+
 // A float sum of 0.1 steps drifts: up three and down three must still land on the start.
 TEST_F(ValueRows, AFractionalStepBackToTheStartWritesNothing) {
   this->number_.traits.set_max_value(100);

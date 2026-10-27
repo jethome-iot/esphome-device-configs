@@ -229,10 +229,17 @@ bool MenuItemNumber::step_pending_(bool up) {
   // Counted steps, not a running sum, so stepping back lands on the origin exactly.
   const int steps = this->steps_ + (up ? 1 : -1);
   const float step = std::isnan(traits.get_step()) ? 1 : traits.get_step();
-  const float value = std::clamp(this->origin_ + steps * step, traits.get_min_value(), traits.get_max_value());
+  const float raw = this->origin_ + steps * step;
+  const float value = std::clamp(raw, traits.get_min_value(), traits.get_max_value());
   if (value == this->pending_.value_or(this->origin_))
     return false;
-  this->steps_ = steps;
+  // A step cut at a limit counts from that limit, so the way back is a whole step from it.
+  if (value != raw) {
+    this->origin_ = value;
+    this->steps_ = 0;
+  } else {
+    this->steps_ = steps;
+  }
   this->pending_ = value;
   return true;
 }
