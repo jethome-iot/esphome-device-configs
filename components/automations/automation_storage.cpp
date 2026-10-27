@@ -357,7 +357,7 @@ uint32_t AutomationStorage::add_automation_(const AutomationConfig &config, std:
              static_cast<unsigned>(MAX_AUTOMATIONS));
     return 0;
   }
-  // The name decides the file, so a name in use would replace that file.
+  // A name short enough is its own file, so a second rule by that name would replace it.
   if (this->is_name_taken(config.name)) {
     ESP_LOGE(TAG, "Refusing to add '%s': that name is already in use", config.name.c_str());
     return 0;
