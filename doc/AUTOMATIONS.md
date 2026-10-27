@@ -27,6 +27,10 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
 - **Mode**: `single` ignores a trigger while the rule is running, `restart` starts over,
   `parallel` runs up to 8 copies. A trigger `single` ignores still hands its state to a follow
   that has not played yet, so the target ends where the trigger is.
+- **Run now**: plays a rule's actions at once, skipping its triggers and its condition, even
+  while the rule is disabled; the mode applies as for a trigger, so `single` refuses while a
+  run is under way. A follow has no trigger state to copy and does nothing. A rule that is not
+  built cannot run.
 
 A sensor is any numeric one that is not internal, not only a temperature, and its thresholds
 are in its own unit.
@@ -59,7 +63,9 @@ backup. The editor's rule list says which rules do not run and why.
 `features/automation-editor.yaml` serves the rules on the web server port under
 `/automation-editor/api`: the routes and their contract are in
 [components/web_automation_editor/openapi.yaml](../components/web_automation_editor/openapi.yaml),
-the usage in [its README](../components/web_automation_editor/README.md).
+the usage in [its README](../components/web_automation_editor/README.md). The rule list says
+which rules are running and how long ago each last started a run, from a trigger or Run now;
+that is not kept across a reboot.
 
 ## Testing without hardware
 

@@ -8,10 +8,11 @@
 // consumer's vite.config.ts (which actually depends on vite) and just wraps
 // createAutomationMockStore() — see web/vite.config.ts.
 //
-// Behaviour mirrors web_automation_editor.cpp (verified): save, delete and reboot
-// answer POST only and the rest GET only (405 otherwise); get/save/delete return
-// 400/404 with a {success:false,error} body; /ping returns {status:"ok"} (not the
-// success envelope).
+// Behaviour mirrors web_automation_editor.cpp (verified): save, delete, run and
+// reboot answer POST only and the rest GET only (405 otherwise); get/save/delete/run
+// return 400/404 with a {success:false,error} body, a run the device would not start
+// 409; /ping returns {status:"ok"} (not the success envelope). Nothing fires a rule
+// here but /run: a run lasts as long as the delays of its actions, on `now`.
 import type {
   AutomationAction,
   AutomationCondition,
@@ -239,6 +240,13 @@ function idParam(search: URLSearchParams): number | MockResult {
 }
 
 const MAX_BODY_BYTES = 16384
+// The copies a parallel rule runs at once on the device.
+const MAX_RUNS = 8
+
+// How long a run of the actions takes: their delays, the only steps that wait.
+function runLength(actions: AutomationAction[]): number {
+  return actions.reduce((total, a) => total + (a.source === 'delay' ? (a.delay_ms ?? 0) : 0), 0)
+}
 
 // --- Stateful core -----------------------------------------------------------
 export interface MockResult {
@@ -255,12 +263,34 @@ export interface AutomationMockStore {
   handle(method: string, endpoint: string, search: URLSearchParams, body: string): MockResult
 }
 
+export interface AutomationMockStoreOptions {
+  /** Clock the runs are timed on, in ms. Default Date.now. */
+  now?: () => number
+}
+
 /** Fresh, isolated mock state (seed is deep-copied, so instances never share state). */
-export function createAutomationMockStore(): AutomationMockStore {
+export function createAutomationMockStore(options: AutomationMockStoreOptions = {}): AutomationMockStore {
+  const now = options.now ?? (() => Date.now())
   const automations: AutomationConfig[] = structuredClone(seedAutomations)
   let nextId = automations.reduce((max, a) => Math.max(max, a.id), 0) + 1
+  // By rule id: when each run under way ends, and when the last one started. Neither is kept
+  // in a file on the device, so a fresh store has run nothing.
+  const runs = new Map<number, number[]>()
+  const lastRun = new Map<number, number>()
 
-  const mutating = new Set(['/save', '/delete', '/reboot'])
+  const mutating = new Set(['/save', '/delete', '/run', '/reboot'])
+
+  function runsUnderWay(id: number): number[] {
+    const t = now()
+    const left = (runs.get(id) ?? []).filter((end) => end > t)
+    runs.set(id, left)
+    return left
+  }
+
+  function secondsSinceRun(id: number): number | null {
+    const started = lastRun.get(id)
+    return started === undefined ? null : Math.floor((now() - started) / 1000)
+  }
 
   function handle(method: string, endpoint: string, search: URLSearchParams, body: string): MockResult {
     if (method.toUpperCase() !== (mutating.has(endpoint) ? 'POST' : 'GET')) {
@@ -280,7 +310,9 @@ export function createAutomationMockStore(): AutomationMockStore {
               else_action_count: a.else_actions?.length ?? 0,
               mode: a.mode,
               built: buildError(a) === '',
-              build_error: buildError(a)
+              build_error: buildError(a),
+              running: runsUnderWay(a.id).length > 0,
+              last_fired_s: secondsSinceRun(a.id)
             }))
           }
         }
@@ -343,6 +375,8 @@ export function createAutomationMockStore(): AutomationMockStore {
         if (cfg.id > 0) {
           const i = automations.findIndex((a) => a.id === cfg.id)
           automations[i] = normalizeStoredCron({ ...cfg })
+          // The device rebuilds the rule: what it was running stops, when it last ran stays.
+          runs.delete(cfg.id)
           return { status: 200, body: { success: true, message: 'Automation updated' } }
         }
         const id = nextId++
@@ -358,7 +392,34 @@ export function createAutomationMockStore(): AutomationMockStore {
           return { status: 404, body: { success: false, error: 'Automation not found' } }
         }
         automations.splice(i, 1)
+        runs.delete(id)
+        lastRun.delete(id)
         return { status: 200, body: { success: true, message: 'Automation deleted' } }
+      }
+
+      case '/run': {
+        const id = idParam(search)
+        if (typeof id !== 'number') return id
+        const rule = automations.find((a) => a.id === id)
+        if (!rule) return { status: 404, body: { success: false, error: 'Automation not found' } }
+        const missing = buildError(rule)
+        if (missing) return { status: 409, body: { success: false, error: `Automation cannot run: ${missing}` } }
+        // Enabled or not, and whatever the condition says: the actions, as the mode allows.
+        let underWay = runsUnderWay(id)
+        if (underWay.length > 0 && rule.mode === 'single') {
+          return { status: 409, body: { success: false, error: 'Automation is already running' } }
+        }
+        if (underWay.length >= MAX_RUNS && rule.mode === 'parallel') {
+          return {
+            status: 409,
+            body: { success: false, error: `Automation is already running ${MAX_RUNS} copies` }
+          }
+        }
+        if (rule.mode === 'restart') underWay = []
+        const t = now()
+        runs.set(id, [...underWay, t + runLength(rule.actions)])
+        lastRun.set(id, t)
+        return { status: 200, body: { success: true, message: 'Automation started' } }
       }
 
       default:
@@ -369,7 +430,7 @@ export function createAutomationMockStore(): AutomationMockStore {
   return { handle }
 }
 
-export interface AutomationMockOptions {
+export interface AutomationMockOptions extends AutomationMockStoreOptions {
   /**
    * URL prefix the SDK calls, WITHOUT the trailing endpoint. Default '/api'.
    * - Standalone editor (app served at the url_prefix root): '/api'.
@@ -386,7 +447,7 @@ export interface AutomationMockOptions {
  */
 export function createMockFetch(options: AutomationMockOptions = {}): FetchImpl {
   const apiBase = options.apiBase ?? '/api'
-  const store = createAutomationMockStore()
+  const store = createAutomationMockStore(options)
   return async (url, init) => {
     const u = new URL(url, 'http://localhost')
     const endpoint = u.pathname.startsWith(apiBase) ? u.pathname.slice(apiBase.length) : u.pathname

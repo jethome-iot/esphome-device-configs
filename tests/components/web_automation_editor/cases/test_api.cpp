@@ -27,7 +27,7 @@ TEST_F(Editor, AnotherPrefixMovesTheRoutes) {
 }
 
 TEST_F(Editor, MutatingRoutesArePostOnlyAndTheRestGetOnly) {
-  for (const char *route : {"save", "delete?id=1", "reboot"}) {
+  for (const char *route : {"save", "delete?id=1", "run?id=1", "reboot"}) {
     Reply reply = this->get(route);
     EXPECT_TRUE(reply.claimed) << route;
     EXPECT_EQ(reply.code, 405) << route;
@@ -67,6 +67,10 @@ TEST_F(Editor, SaveCreatesARuleTheOtherRoutesThenSee) {
   EXPECT_EQ(row["mode"].as<std::string>(), "restart");
   EXPECT_TRUE(row["built"].as<bool>());
   EXPECT_EQ(row["build_error"].as<std::string>(), "");
+  EXPECT_FALSE(row["running"].as<bool>());
+  // There, and null: it has not run since boot.
+  EXPECT_TRUE(row["last_fired_s"].isNull());
+  EXPECT_NE(list.body.find(R"("last_fired_s":null)"), std::string::npos) << list.body;
 
   Reply got = this->get("get?id=" + std::to_string(id));
   ASSERT_EQ(got.code, 200) << got.body;
@@ -383,6 +387,113 @@ TEST_F(Editor, SchemaOffersOnlyWhatTheEngineParses) {
   EXPECT_EQ(words, 36);
 }
 
+// --- run now ---
+
+// Relay 1 on, five seconds, off again; behind a condition that is false while In 1 is off.
+static const char *const PULSE = R"({"name":"Pulse %s","enabled":%s,"mode":"%s",)"
+                                 R"("triggers":[{"source":"input","type":"press","object_id":"in_1"}],)"
+                                 R"("condition":{"type":"input","object_id":"in_1","state":"true"},)"
+                                 R"("actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"},)"
+                                 R"({"source":"delay","delay_ms":5000},)"
+                                 R"({"source":"switch","type":"turn_off","object_id":"relay_1"}]})";
+
+static std::string pulse(const char *mode, bool enabled = true) {
+  char buf[640];
+  snprintf(buf, sizeof(buf), PULSE, mode, enabled ? "true" : "false", mode);
+  return buf;
+}
+
+TEST_F(Editor, RunPlaysTheActionsWhateverTheConditionAndTheListSaysSo) {
+  entities().in1.publish_state(false);
+  entities().relay1.publish_state(false);
+  // Disabled as well: a run now is not a trigger.
+  const uint32_t id = this->create(pulse("single", false).c_str());
+  ASSERT_GT(id, 0u);
+  const std::string run = "run?id=" + std::to_string(id);
+
+  this->engine->uptime = 1000;
+  Reply reply = this->post(run);
+  ASSERT_EQ(reply.code, 200) << reply.body;
+  EXPECT_TRUE(reply["success"].as<bool>());
+  EXPECT_EQ(reply.message(), "Automation started");
+  EXPECT_TRUE(entities().relay1.state);
+
+  this->engine->uptime = 66999;
+  Reply list = this->get("list");
+  JsonObject row = list["automations"][0];
+  EXPECT_TRUE(row["running"].as<bool>());
+  EXPECT_EQ(row["last_fired_s"].as<int>(), 65);
+
+  // Single mode: one run at a time, and the refusal says why.
+  reply = this->post(run);
+  EXPECT_EQ(reply.code, 409);
+  EXPECT_EQ(reply.error(), "Automation is already running");
+  EXPECT_EQ(this->get("list")["automations"][0]["last_fired_s"].as<int>(), 65);
+}
+
+TEST_F(Editor, ARunThatEndsAtOnceIsNotRunningButHasRun) {
+  entities().relay1.publish_state(false);
+  const uint32_t id = this->create(PORCH_LIGHT);
+  ASSERT_GT(id, 0u);
+  this->engine->uptime = 2000;
+  EXPECT_EQ(this->post("run?id=" + std::to_string(id)).code, 200);
+  EXPECT_TRUE(entities().relay1.state);
+  Reply list = this->get("list");
+  JsonObject row = list["automations"][0];
+  EXPECT_FALSE(row["running"].as<bool>());
+  EXPECT_EQ(row["last_fired_s"].as<int>(), 0);
+}
+
+TEST_F(Editor, RunFollowsTheRulesMode) {
+  const std::string restart = "run?id=" + std::to_string(this->create(pulse("restart").c_str()));
+  EXPECT_EQ(this->post(restart).code, 200);
+  EXPECT_EQ(this->post(restart).code, 200);
+
+  const std::string parallel = "run?id=" + std::to_string(this->create(pulse("parallel").c_str()));
+  for (int i = 0; i < 8; i++)
+    EXPECT_EQ(this->post(parallel).code, 200) << i;
+  Reply reply = this->post(parallel);
+  EXPECT_EQ(reply.code, 409);
+  EXPECT_EQ(reply.error(), "Automation is already running 8 copies");
+}
+
+TEST_F(Editor, RunNeedsARuleThatIsThereAndBuilt) {
+  Reply reply = this->post("run?id=99");
+  EXPECT_EQ(reply.code, 404);
+  EXPECT_EQ(reply.error(), "Automation not found");
+  reply = this->post("run");
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "Missing id parameter");
+  reply = this->post("run?id=0");
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "Invalid id parameter");
+
+  // A rule whose thermostat went away is listed, and cannot run until it is back.
+  add_thermostat("Living room");
+  const uint32_t id = this->create(ECO_AT_STARTUP);
+  ASSERT_GT(id, 0u);
+  ASSERT_TRUE(hub().remove("living-room").ok);
+  reply = this->post("run?id=" + std::to_string(id));
+  EXPECT_EQ(reply.code, 409);
+  EXPECT_EQ(reply.error(), R"(Automation cannot run: Action 1: thermostat "living-room" not found)");
+  Reply list = this->get("list");
+  JsonObject row = list["automations"][0];
+  EXPECT_FALSE(row["running"].as<bool>());
+  EXPECT_TRUE(row["last_fired_s"].isNull());
+}
+
+// An engine that failed after boot refuses every change; a run is one.
+TEST_F(Editor, RunOnAFailedEngineSaysSo) {
+  entities().relay1.publish_state(false);
+  const uint32_t id = this->create(PORCH_LIGHT);
+  ASSERT_GT(id, 0u);
+  this->engine->mark_failed();
+  Reply reply = this->post("run?id=" + std::to_string(id));
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "Failed to run automation");
+  EXPECT_FALSE(entities().relay1.state);
+}
+
 TEST_F(Editor, RebootAnswersFirst) {
   Reply reply = this->post("reboot");
   EXPECT_EQ(reply.code, 200);
@@ -408,9 +519,14 @@ TEST_F(Editor, RefusesACrossSiteSaveAndKeepsTheRules) {
   EXPECT_EQ(list["automations"][0]["id"].as<uint32_t>(), id);
 }
 
-TEST_F(Editor, RefusesACrossSiteDeleteAndReboot) {
+TEST_F(Editor, RefusesACrossSiteDeleteRunAndReboot) {
   const uint32_t id = this->create(PORCH_LIGHT);
   ASSERT_NE(id, 0u);
+  entities().relay1.publish_state(false);
+
+  Reply run = this->call(HTTP_POST, "run?id=" + std::to_string(id), "", "application/json", "http://evil.example");
+  EXPECT_EQ(run.code, 403);
+  EXPECT_FALSE(entities().relay1.state);
 
   Reply removed =
       this->call(HTTP_POST, "delete?id=" + std::to_string(id), "", "application/json", "http://evil.example");

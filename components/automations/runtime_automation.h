@@ -86,6 +86,10 @@ class RuntimeAutomation {
   void set_enabled(bool enabled);
   bool is_running() const { return !this->runs_.empty(); }
   void stop();
+  /// Plays the actions now, skipping the triggers and the condition, enabled or not. The run
+  /// carries no trigger state, so a follow does nothing. False when the mode refuses it: single
+  /// while a run is under way, parallel with every copy running.
+  bool run_now();
 
   void on_binary_sensor(binary_sensor::BinarySensor *entity, bool state, bool level = false);
   void on_switch(switch_::Switch *entity, bool state);
@@ -108,6 +112,8 @@ class RuntimeAutomation {
   RuntimeAutomation(AutomationStorage *engine, const AutomationConfig &config);
 
   void fire_(bool has_state, bool state);
+  // Starts a run unless the mode refuses it; `forced`, a run now, skips the condition.
+  bool start_(bool has_state, bool state, bool forced);
   // `scheduled`: entered from the scheduler, a delay or a wait for the loop, rather than from the
   // callback that fired the rule.
   void step_(uint32_t token, bool scheduled = false);
@@ -133,5 +139,7 @@ class RuntimeAutomation {
 
 // Timer ids carry the run sequence in their low 4 bits, so a rule id has to fit the rest.
 static constexpr uint32_t MAX_RULE_ID = (1u << 28) - 1;
+// The copies a parallel rule runs at once; the run sequence has to fit those 4 bits.
+static constexpr uint8_t MAX_RUNS = 8;
 
 }  // namespace esphome::automations

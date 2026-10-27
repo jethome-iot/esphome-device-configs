@@ -1,9 +1,9 @@
 # web_automation_editor
 
 The JSON/REST API of the `automations` component, served on the device's own web server under
-`/automation-editor/api/`. List, read, create, update, delete and export the rules, discover the
-entities a rule may name, and read what the editor may offer — everything a browser editor does,
-and everything `curl` can do without one. ESP-IDF only.
+`/automation-editor/api/`. List, read, create, update, delete, run and export the rules, discover
+the entities a rule may name, and read what the editor may offer — everything a browser editor
+does, and everything `curl` can do without one. ESP-IDF only.
 
 ```yaml
 external_components:
@@ -55,10 +55,11 @@ simply be made again.
 
 | Method | Path | |
 |---|---|---|
-| GET | `list` | `{"automations": [{"id", "name", "enabled", "trigger_count", "action_count", "else_action_count", "mode", "built", "build_error"}, ...]}`; `built` is false for a rule on the device that cannot be built, and `build_error` says why (`Action 1: thermostat "attic" not found`), `""` when it runs |
+| GET | `list` | `{"automations": [{"id", "name", "enabled", "trigger_count", "action_count", "else_action_count", "mode", "built", "build_error", "running", "last_fired_s"}, ...]}`; `built` is false for a rule on the device that cannot be built, and `build_error` says why (`Action 1: thermostat "attic" not found`), `""` when it runs. `running` is true while a run is under way; `last_fired_s` is the seconds since a run last started, from a trigger or from `run`, `null` when none has since boot |
 | GET | `get?id=` | One rule, in the file format of [automations](../automations/README.md#a-rule) |
 | POST | `save` | A rule as a JSON body; `id` absent or `0` creates, an existing `id` replaces that rule, renamed or not. Answers `{"success": true, "message", "id"}` on create, without `id` on update |
 | POST | `delete?id=` | Removes the rule and its file; `Failed to delete automation` when the engine refuses |
+| POST | `run?id=` | Plays the rule's actions now, skipping its triggers and its condition, enabled or not. Answers `{"success": true, "message": "Automation started"}` once the run has started; `409` when it cannot |
 | GET | `export` | `{"version": 1, "automations": [...]}`, every rule as `get` returns it — the backup file a client re-imports rule by rule through `save`, with each `id` dropped so the rules are created |
 | GET | `entities` | `{"binary_sensors", "sensors", "switches"}`, each `[{"object_id", "name"}, ...]`, sensors with `"unit"`; internal entities are left out. `"climates"`: the thermostats, `[{"id", "name", "presets": [{"key", "name"}, ...]}, ...]`, by the id and keys a climate action names; empty on a firmware without them |
 | GET | `schema` | The trigger, condition and action types and subtypes and the cron presets the engine parses, for an editor's menus. The `climate` action only on a firmware with thermostats (`climate_hub`) |
@@ -75,10 +76,16 @@ engine's other refusals (a rule limit reached, a file the loader had refused und
 call from inside a running rule) come back as `Failed to create automation` /
 `Failed to update automation`.
 
+`run` is the editor's Run now. The run carries no trigger state, so a `follow` does nothing, and
+the rule's mode decides as it does for a trigger: `restart` starts over, `parallel` adds a copy,
+and `single` refuses while a run is under way — `409` with `Automation is already running`
+(`Automation is already running 8 copies` for a `parallel` rule at its limit). A rule that is
+not built cannot run: `409` with `Automation cannot run: ` and its `build_error`.
+
 Every failure is `{"success": false, "error"}`: `400` for a bad request (an `id` that is missing
 or not a plain non-zero number included), `404` for an `id` no
-rule has (`get`, `delete`, and a `save` carrying one), `405` for the wrong method, `413` for an
-oversized body. The same contract,
+rule has (`get`, `delete`, `run`, and a `save` carrying one), `405` for the wrong method, `409`
+for a `run` the rule cannot start, `413` for an oversized body. The same contract,
 machine-readable: [openapi.yaml](openapi.yaml) (OpenAPI 3.1).
 
 A firmware with an `auth:` block wants the credentials on every one of these; `--digest -u`
@@ -90,6 +97,7 @@ curl $A 'http://<device>/automation-editor/api/list'
 curl -X POST $A 'http://<device>/automation-editor/api/save' -H 'Content-Type: application/json' \
   --data-binary @porch-light.json
 curl -X POST $A 'http://<device>/automation-editor/api/delete?id=3' -d ''
+curl -X POST $A 'http://<device>/automation-editor/api/run?id=3' -d ''
 curl $A 'http://<device>/automation-editor/api/export' > automations.json
 ```
 

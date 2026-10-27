@@ -14,6 +14,10 @@ export interface AutomationSummary {
   built: boolean
   /** Why it is not built, in the device's words; "" when it is. */
   build_error: string
+  /** A run of it is under way: a delay still to play, say. */
+  running: boolean
+  /** Seconds since a run last started, by a trigger or by Run now; null when none has since boot. */
+  last_fired_s: number | null
 }
 
 export interface AutomationListResponse {

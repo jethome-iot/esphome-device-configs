@@ -156,15 +156,22 @@ callback, say) they refuse and return false.
 - `update_automation(id, config, &error)`, `remove_automation(id)`
 - `set_enable_automation(id, enable, persisted = nullptr)`: `persisted` says whether it reached flash
 - `reset_all()`: remove every rule and its file
+- `run_automation(id)`: play the rule's actions now, skipping its triggers and its condition,
+  enabled or not; the mode applies as for a trigger and the run carries no state for a
+  `follow`. `RunResult::STARTED`, else `NOT_FOUND`, `NOT_BUILT`, `ALREADY_RUNNING` (single with
+  a run under way, parallel at 8 copies) or `REFUSED` (the loop never took it, or the call came
+  from inside a rule's own action)
 - `is_name_taken(name, exclude_id = 0)`: names collide by file name
 - `configs()`: the loaded `AutomationConfig`s, including the ones that did not build, each with
-  its `build_error`
+  its `build_error` and `last_run_ms`: the `uptime_ms()` at which a run last started, from a
+  trigger that the mode let through or from `run_automation`, unset until one has since boot
+- `is_running(id)`: a run of the rule is under way
 - `run_on_loop(job)`: runs `job` on the loop task and blocks; `false` when the loop never got to it
 
-`configs()` and `is_name_taken()` read the list where it lives, so they are for the loop task —
-a mutator called from a lambda there reallocates it under a reader on any other. A caller that
-is not the loop task reads through `run_on_loop`, together with whatever it decides from the
-read, so that its answer describes one state of the list.
+`configs()`, `is_name_taken()` and `is_running()` read the list where it lives, so they are for
+the loop task — a mutator called from a lambda there reallocates it under a reader on any other.
+A caller that is not the loop task reads through `run_on_loop`, together with whatever it
+decides from the read, so that its answer describes one state of the list.
 
 ## Testing
 
