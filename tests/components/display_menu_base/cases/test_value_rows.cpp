@@ -190,6 +190,37 @@ TEST_F(ValueRows, OnLeaveSeesTheAppliedOption) {
   EXPECT_EQ(on_value_seen, 1);
 }
 
+// The write runs the entity's and the row's callbacks; one that hides the menu (a config
+// leaving the menu once a setting is made) must not end the same edit again.
+TEST_F(ValueRows, AnOnValueThatHidesTheMenuEndsTheEditOnce) {
+  int leaves = 0;
+  this->select_row_.add_on_value_callback([this]() { this->menu_.hide(); });
+  this->select_row_.add_on_leave_callback([&]() { leaves++; });
+
+  this->menu_.enter();
+  this->menu_.right();
+  this->menu_.enter();
+
+  EXPECT_EQ(this->option(), "WiFi");
+  EXPECT_EQ(this->select_.writes, 1);
+  EXPECT_EQ(leaves, 1);
+}
+
+TEST_F(ValueRows, AnOnValueThatShowsMainEndsANumberEditOnce) {
+  int leaves = 0;
+  this->number_row_.add_on_value_callback([this]() { this->menu_.show_main(); });
+  this->number_row_.add_on_leave_callback([&]() { leaves++; });
+
+  this->on_number_row();
+  this->menu_.enter();
+  this->menu_.right();
+  this->menu_.enter();
+
+  EXPECT_EQ(this->number_.state, 2);
+  EXPECT_EQ(this->number_.writes, 1);
+  EXPECT_EQ(leaves, 1);
+}
+
 // immediate_edit means "no edit to open": every step still goes straight to the select.
 TEST_F(ValueRows, AnImmediateSelectRowAppliesEveryStep) {
   this->select_row_.set_immediate_edit(true);

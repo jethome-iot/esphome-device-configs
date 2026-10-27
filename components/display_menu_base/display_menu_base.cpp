@@ -339,6 +339,10 @@ bool DisplayMenuComponent::leave_menu_() {
 }
 
 void DisplayMenuComponent::finish_editing_() {
+  // JetHome: apply on leave. Cleared first: on_leave() now writes the value, and a callback of
+  // that write which hides the menu must not end the same edit a second time.
+  this->editing_ = false;
+
   switch (this->get_selected_item_()->get_type()) {
     case MENU_ITEM_SELECT:
     case MENU_ITEM_NUMBER:
