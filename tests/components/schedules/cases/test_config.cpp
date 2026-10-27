@@ -6,7 +6,8 @@ namespace esphome::schedules::testing {
 
 namespace {
 
-const char *const GOLDEN = R"({"version":1,"id":"living-room-week","name":"Living room week","enabled":true,)"
+const char *const GOLDEN = R"({"version":1,"revision":3,"id":"living-room-week","name":"Living room week",)"
+                           R"("enabled":true,)"
                            R"("target":{"type":"thermostat","id":"living-room"},)"
                            R"("week":{"mon":[{"at":"06:30","value":{"type":"preset","preset":"comfort"}},)"
                            R"({"at":"08:30","value":{"type":"preset","preset":"eco"}},)"
@@ -36,6 +37,7 @@ TEST(ScheduleConfig, TheFileRoundTripsByteForByte) {
   std::string error;
   ASSERT_TRUE(from_json(GOLDEN, &config, &error, true)) << error;
   EXPECT_EQ(GOLDEN, to_json(config));
+  EXPECT_EQ(3u, config.revision);
   EXPECT_EQ(TargetType::THERMOSTAT, config.target_type);
   EXPECT_EQ("living-room", config.target_id);
   ASSERT_EQ(4u, config.points.size());
@@ -50,7 +52,8 @@ TEST(ScheduleConfig, TheFileRoundTripsByteForByte) {
 
 TEST(ScheduleConfig, ARelayWeekRoundTrips) {
   const std::string json =
-      R"({"version":1,"id":"porch","name":"Porch","enabled":false,"target":{"type":"relay","id":"relay_1"},)"
+      R"({"version":1,"revision":0,"id":"porch","name":"Porch","enabled":false,)"
+      R"("target":{"type":"relay","id":"relay_1"},)"
       R"("week":{"mon":[{"at":"00:00","value":{"type":"on"}}],"tue":[],"wed":[{"at":"12:15","value":{"type":"off"}}],)"
       R"("thu":[],"fri":[],"sat":[],"sun":[{"at":"23:59","value":{"type":"on"}}]}})";
   ScheduleConfig config;
@@ -153,6 +156,30 @@ TEST(ScheduleConfig, ANewerVersionIsKept) {
     EXPECT_EQ(c.read, config.version) << c.version;
     EXPECT_EQ(c.read > SCHEDULE_VERSION, config.from_newer_firmware()) << c.version;
   }
+}
+
+// A file from before the revision, or a hand-written one, reads as 0; so does anything that is not
+// a whole number fitting 32 bits.
+TEST(ScheduleConfig, ARevisionIsAWholeNumberAndZeroWithoutOne) {
+  struct Case {
+    const char *revision;
+    uint32_t read;
+  };
+  for (const Case &c : {Case{nullptr, 0}, Case{"7", 7}, Case{"4294967295", 4294967295u}, Case{"-1", 0}, Case{"1.5", 0},
+                        Case{"\"7\"", 0}, Case{"4294967296", 0}, Case{"null", 0}}) {
+    ScheduleConfig config;
+    std::string error;
+    const std::string json = std::string("{") +
+                             (c.revision != nullptr ? std::string(R"("revision":)") + c.revision + "," : "") +
+                             R"("name":"Porch","target":{"type":"relay","id":"relay_1"},)"
+                             R"("week":{"mon":[{"at":"06:00","value":{"type":"on"}}]}})";
+    ASSERT_TRUE(from_json(json, &config, &error)) << error;
+    EXPECT_EQ(c.read, config.revision) << (c.revision != nullptr ? c.revision : "none");
+  }
+  ScheduleConfig config;
+  config.revision = 12;
+  EXPECT_NE(std::string::npos, to_json(config).find(R"({"version":1,"revision":12,"id":)"))
+      << "written after the version";
 }
 
 TEST(ScheduleConfig, EveryBrokenRuleHasItsSentence) {

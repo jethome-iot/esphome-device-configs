@@ -130,13 +130,20 @@ paths:
         has no points, and `version` is not read. The body is read raw, so the
         request needs a `Content-Type` that is not a form: `application/json`.
 
+        `revision`, when the body has it as a whole number, must be the one
+        `/get` gives now: it moves on at every change of the schedule (a Save,
+        an enable or a disable that changes the flag, a take-over that stops
+        it, an `/import` over it), so a form read before one is refused rather
+        than undo it. One without it is not checked, and a create ignores it.
+
         The refusals come in this order, and the first one a document meets is
         the answer: `400` for an empty body, a body that is not JSON, or a
         document that breaks a rule (the name, the target, the days the week
         names, then each day Monday first and its points in the order the body
         lists them: the time, a time the day has already, the value; last, a
         week without a point); `404` for an unknown `id`, `409` for a schedule
-        whose file a newer firmware wrote, `507` for a create past
+        whose file a newer firmware wrote, `409` when the body's `revision` is
+        not the schedule's, `507` for a create past
         `max_schedules`; `409` for a name another schedule has, ignoring ASCII
         case and runs of spaces, or on a create for a name whose every id is
         taken by a file in the folder; `409` for an enabled schedule on a
@@ -210,7 +217,9 @@ paths:
         What a restore sends: a schedule's document as `/get` answers it, or as
         a backup's file holds it, `id` included. The schedule with that id is
         replaced, otherwise one is created under it; `enabled` is kept and
-        `version` is not read. The refusals are a Save's, in its order, with
+        `version` is not read. Nor is `revision`: a replaced schedule's moves
+        on by one, so a Save of a form read before the import is `409`, and a
+        new one starts at 0. The refusals are a Save's, in its order, with
         the id first (`id is required`, then `id must be a slug: lowercase
         letters, digits and single dashes`) and `id 'new' is reserved` once
         the rest of the document is sound; `409` too for an id a file in the
@@ -562,8 +571,8 @@ components:
       description: >-
         The name is one another schedule has, every id it gives is taken by a
         file in the folder (or, on `/import`, the id is), another enabled
-        schedule drives the target, or a newer firmware wrote the schedule's
-        file.
+        schedule drives the target, a newer firmware wrote the schedule's
+        file, or the Save's `revision` is not the device's.
       content:
         application/json:
           schema:
@@ -581,6 +590,10 @@ components:
               value:
                 success: false
                 error: A newer firmware wrote this schedule; update the firmware to change it
+            revision:
+              value:
+                success: false
+                error: The device changed this schedule since it was read; reload it
             importId:
               summary: "/import onto a file the device did not load"
               value:
@@ -762,13 +775,22 @@ components:
     ScheduleDocument:
       type: object
       description: The stored document, as `/get` answers it and the file holds it.
-      required: [version, id, name, enabled, target, week]
+      required: [version, revision, id, name, enabled, target, week]
       properties:
         version:
           type: integer
           description: >-
             1, or the higher number of a file a newer firmware wrote: that
             schedule runs, but a Save of it and an import over it are `409`.
+        revision:
+          type: integer
+          minimum: 0
+          description: >-
+            `0` for a new schedule; moves on by one at every change of the
+            document: a Save, an enable or a disable that changes the flag, a
+            take-over that stops it, an `/import` over it, a rename at boot. A
+            file without one reads as `0`. A Save that sends another one is
+            `409`.
         id:
           $ref: "#/components/schemas/Id"
         name:
@@ -781,6 +803,7 @@ components:
           $ref: "#/components/schemas/Week"
       example:
         version: 1
+        revision: 4
         id: living-room-week
         name: Living room week
         enabled: true
@@ -812,6 +835,13 @@ components:
           type: string
         version:
           type: integer
+        revision:
+          type: integer
+          minimum: 0
+          description: >-
+            The one `/get` gave. On an update, a whole number other than the
+            device's is `409`; left out, or not a whole number, it is not
+            checked. A create ignores it.
         name:
           $ref: "#/components/schemas/Name"
         enabled:
@@ -830,6 +860,12 @@ components:
           properties:
             id:
               $ref: "#/components/schemas/Id"
+            revision:
+              type: integer
+              minimum: 0
+              description: >-
+                Not read: a replaced schedule's revision moves on by one, a new
+                one's is `0`.
 
     State:
       type: string
@@ -881,10 +917,14 @@ components:
 
     ScheduleSummary:
       type: object
-      required: [id, name, enabled, target, status, now, next]
+      required: [id, revision, name, enabled, target, status, now, next]
       properties:
         id:
           $ref: "#/components/schemas/Id"
+        revision:
+          type: integer
+          minimum: 0
+          description: As the document's; one that moved on is a schedule another client changed.
         name:
           $ref: "#/components/schemas/Name"
         enabled:

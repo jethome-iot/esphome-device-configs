@@ -74,6 +74,12 @@ export interface ScheduleDocument {
    * but its Save and an import over it are 409, since they would drop what this firmware does not know.
    */
   version: number
+  /**
+   * 0 for a new schedule; moves on by one at every change of the document: a Save, an enable or
+   * a disable that changes the flag, a take-over that disables it, an /import over it, a rename
+   * at boot. A file without one reads as 0.
+   */
+  revision: number
   /** Immutable slug and the document's file name; a rename never changes it. */
   id: string
   /** 1 to 48 characters, unique among the schedules ignoring ASCII case and runs of spaces. */
@@ -88,9 +94,15 @@ export interface ScheduleDocument {
  * that schedule's document and keeps its id. `enabled` left out is true, a day left out has no
  * points. `version` is not read: the device writes its own.
  */
-export type ScheduleSaveInput = Omit<ScheduleDocument, 'id' | 'version' | 'enabled' | 'week'> & {
+export type ScheduleSaveInput = Omit<ScheduleDocument, 'id' | 'version' | 'revision' | 'enabled' | 'week'> & {
   id?: string
   version?: number
+  /**
+   * The one GET /get gave. On an update, a whole number other than the device's is 409
+   * (STALE_DOCUMENT): another client changed the schedule since, and the Save would undo that.
+   * Left out, or not a whole number, it is not checked; a create ignores it.
+   */
+  revision?: number
   enabled?: boolean
   week: Partial<Week>
 }
@@ -101,7 +113,8 @@ export type ScheduleDraft = Omit<ScheduleSaveInput, 'id'>
 /**
  * What POST /import takes: a document as GET /get answers it, or as a backup's file holds it,
  * under the slug `id` it is to have. A schedule with that id is replaced, otherwise one is
- * created with it; `enabled` is kept.
+ * created with it; `enabled` is kept. `revision` is not read: a replaced schedule's moves on by
+ * one, a new one's is 0.
  */
 export type ScheduleImportInput = ScheduleSaveInput & { id: string }
 
@@ -156,6 +169,8 @@ export interface DeviceClock {
 /** One row of GET /list. It carries no week: the page GETs the schedule for that. */
 export interface ScheduleSummary {
   id: string
+  /** As ScheduleDocument.revision: a row whose revision moved on is a schedule another client changed. */
+  revision: number
   name: string
   enabled: boolean
   /** `name` is the relay's or the thermostat's, or the id when the device does not have it. */
@@ -306,6 +321,12 @@ export const SCHEDULE_NOT_FOUND = 'Schedule not found'
 
 /** The 409 error of a Save or an import over a document whose `version` is above SCHEDULE_VERSION. */
 export const NEWER_FILE = 'A newer firmware wrote this schedule; update the firmware to change it'
+
+/**
+ * The 409 error of a Save whose `revision` is not the device's, in the device's words: the form
+ * was read before another Save, an enable or a disable, or an import changed the schedule.
+ */
+export const STALE_DOCUMENT = 'The device changed this schedule since it was read; reload it'
 
 /** The values each target takes, as /schema lists them. */
 export const RELAY_VALUES: ReadonlyArray<RelayValueType> = ['on', 'off']

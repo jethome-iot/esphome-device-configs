@@ -14,8 +14,10 @@
 // body, so only they can be 413; the body is read the way ArduinoJson reads it, and
 // the document as the schedules component reads it (../week.ts). A Save or an import
 // is refused, in order, for the document, an unknown id (404), a newer firmware's
-// file (409), the limit (507), the name (409) and a target another enabled schedule
-// drives (409); an enable for the last unless it asks to take the target over.
+// file (409), a Save's `revision` other than the stored one (409), the limit (507),
+// the name (409) and a target another enabled schedule drives (409); an enable for
+// the last unless it asks to take the target over. Every change of a document moves
+// its `revision` on, as the device moves it.
 // A target or a preset the device does not have is no refusal: the schedule is
 // stored, with a `warning`, and /list says why it does not run.
 //
@@ -52,6 +54,7 @@ import {
   SCHEDULE_MAX_BYTES,
   SCHEDULE_NOT_FOUND,
   SCHEDULE_VERSION,
+  STALE_DOCUMENT,
   THERMOSTAT_VALUES
 } from '../types'
 import type { FetchImpl } from '../scheduleApi'
@@ -66,6 +69,7 @@ import {
   nextAfter,
   notRunningWarning,
   parseHHMM,
+  readRevision,
   RESERVED_IDS,
   slugify,
   uniqueId,
@@ -164,6 +168,7 @@ const evenings = (): ScheduleDocument['week']['mon'] => [
 export const seedSchedules: ScheduleDocument[] = [
   {
     version: SCHEDULE_VERSION,
+    revision: 0,
     id: 'guest-room-weekends',
     name: 'Guest room weekends',
     enabled: false,
@@ -180,6 +185,7 @@ export const seedSchedules: ScheduleDocument[] = [
   },
   {
     version: SCHEDULE_VERSION,
+    revision: 0,
     id: 'living-room-week',
     name: 'Living room week',
     enabled: true,
@@ -196,6 +202,7 @@ export const seedSchedules: ScheduleDocument[] = [
   },
   {
     version: SCHEDULE_VERSION,
+    revision: 0,
     id: 'porch-light',
     name: 'Porch light',
     enabled: true,
@@ -614,11 +621,12 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
     return undefined
   }
 
-  // The change itself: `doc` takes `stored`'s place, or joins the list, and an enabled one
-  // gets the value in force, every Save, a rename too.
+  // The change itself: `doc` takes `stored`'s place, its revision moved on, or joins the list
+  // at revision 0, and an enabled one gets the value in force, every Save, a rename too.
   function store(doc: ScheduleDocument, stored: Entry | undefined, message: string, clock: MockClock | null): MockResult {
     const before = losers()
     doc.version = SCHEDULE_VERSION
+    doc.revision = stored ? stored.doc.revision + 1 : 0
     let entry = stored
     if (entry) {
       entry.doc = doc
@@ -651,6 +659,10 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
     const stored = updating ? find(doc.id) : undefined
     if (updating && !stored) return fail(404, SCHEDULE_NOT_FOUND)
     if (stored && newer(stored.doc)) return fail(409, NEWER_FILE)
+    // The revision the form was read at, when the body has one as a whole number; a body that
+    // decoded is an object.
+    const revision = readRevision((read.value as { revision?: unknown }).revision)
+    if (stored && revision !== null && revision !== stored.doc.revision) return fail(409, STALE_DOCUMENT)
     const refusal = refusalOf(doc, stored)
     if (refusal) return refusal
     // The id is the device's to give, from the name.
@@ -706,6 +718,7 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
     if (!value) {
       // Written only when the flag changes, and never into a newer firmware's file.
       const persisted = !(e.doc.enabled && newer(e.doc))
+      if (e.doc.enabled) e.doc.revision++
       e.doc.enabled = false
       e.pending = false
       e.driving = false
@@ -730,10 +743,14 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
       // A newer firmware's file cannot record the take-over, so the others' files keep their flag too.
       persisted = persisted && !newer(other.doc) && !newer(e.doc)
       other.doc.enabled = false
+      other.doc.revision++
       other.pending = false
       other.driving = false
     }
-    if (!e.doc.enabled) persisted = persisted && !newer(e.doc)
+    if (!e.doc.enabled) {
+      persisted = persisted && !newer(e.doc)
+      e.doc.revision++
+    }
     e.doc.enabled = true
     start(e, clock)
     const started = promoted(before, e)
@@ -756,6 +773,7 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
     const point = (ref: PointRef | null) => (ref ? structuredClone(ref) : null)
     return {
       id: doc.id,
+      revision: doc.revision,
       name: doc.name,
       enabled: doc.enabled,
       target: { type: doc.target.type, id: doc.target.id, name: targetName(doc) },
@@ -865,6 +883,7 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
     let n = 2
     while (taken.includes(nameKey(`${e.doc.name} ${n}`))) n++
     e.doc.name = `${e.doc.name} ${n}`
+    e.doc.revision++
   }
 
   return { handle, tick }

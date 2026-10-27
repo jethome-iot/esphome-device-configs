@@ -281,6 +281,7 @@ std::string cut_chars(const std::string &text, size_t chars) {
 
 void ScheduleConfig::serialize(JsonObject root) const {
   root["version"] = this->version;
+  root["revision"] = this->revision;
   root["id"] = this->id;
   root["name"] = this->name;
   root["enabled"] = this->enabled;
@@ -327,6 +328,7 @@ bool ScheduleConfig::deserialize(JsonObjectConst root, bool require_id, std::str
   if (root.isNull())
     return fail(error, "document is not an object");
   this->version = read_version(root["version"]);
+  this->revision = root["revision"] | 0u;
   if (require_id) {
     this->id = text_of(root["id"]);
     if (!validate_id(this->id, error))

@@ -34,6 +34,8 @@ static const unsigned MAX_ID_SUFFIX = 999;
 static const char *const NOT_FOUND = "Schedule not found";
 // Its fields this firmware does not know would be lost.
 static const char *const NEWER_FILE = "A newer firmware wrote this schedule; update the firmware to change it";
+// A form read before another change would undo it.
+static const char *const STALE_DOCUMENT = "The device changed this schedule since it was read; reload it";
 // The dashboard's editor opens a blank form at /schedules/new.
 static const char *const RESERVED_ID = "new";
 
@@ -426,6 +428,7 @@ void ScheduleEngine::resolve_name_(ScheduleConfig *config) {
     candidate = trim_name(cut_chars(original, NAME_MAX_LENGTH - tail.size())) + tail;
   }
   config->name = candidate;
+  config->revision++;
   ESP_LOGW(TAG, "'%s': the name '%s' is taken, renamed to '%s'", config->id.c_str(), original.c_str(),
            candidate.c_str());
   if (!this->save_(*config))
@@ -751,13 +754,14 @@ Result ScheduleEngine::create(ScheduleConfig draft) {
   if (draft.enabled && !this->check_target_free_(draft, draft.id, &result))
     return result;
   draft.version = SCHEDULE_VERSION;
+  draft.revision = 0;
   bool too_large = false;
   if (!this->save_(draft, &too_large))
     return not_saved(too_large);
   return this->add_(std::move(draft), "Created");
 }
 
-Result ScheduleEngine::update(const std::string &id, ScheduleConfig doc) {
+Result ScheduleEngine::update(const std::string &id, ScheduleConfig doc, optional<uint32_t> revision) {
   Result result;
   if (this->refuse_if_failed_(&result))
     return result;
@@ -766,6 +770,8 @@ Result ScheduleEngine::update(const std::string &id, ScheduleConfig doc) {
     return failure(404, NOT_FOUND);
   if (stored->config.from_newer_firmware())
     return failure(409, NEWER_FILE);
+  if (revision.has_value() && *revision != stored->config.revision)
+    return failure(409, STALE_DOCUMENT);
   std::string error;
   doc.name = trim_name(doc.name);
   doc.sort_points();
@@ -778,6 +784,7 @@ Result ScheduleEngine::update(const std::string &id, ScheduleConfig doc) {
   if (doc.enabled && !this->check_target_free_(doc, id, &result))
     return result;
   doc.version = SCHEDULE_VERSION;
+  doc.revision = stored->config.revision + 1;
   // Written beside the old file and renamed over it: a failure leaves everything as it was.
   bool too_large = false;
   if (!this->save_(doc, &too_large))
@@ -813,6 +820,8 @@ Result ScheduleEngine::restore(ScheduleConfig doc) {
   if (doc.enabled && !this->check_target_free_(doc, doc.id, &result))
     return result;
   doc.version = SCHEDULE_VERSION;
+  // Never the backup's: a form read before the import would otherwise Save over it.
+  doc.revision = stored != nullptr ? stored->config.revision + 1 : 0;
   bool too_large = false;
   if (!this->save_(doc, &too_large))
     return not_saved(too_large);
@@ -895,6 +904,7 @@ Result ScheduleEngine::set_enabled(const std::string &id, bool enabled, bool tak
   if (!enabled) {
     if (stored->config.enabled) {
       stored->config.enabled = false;
+      stored->config.revision++;
       result.persisted = this->save_(stored->config);
     }
     this->settle_(id, false, &result);
@@ -911,6 +921,7 @@ Result ScheduleEngine::set_enabled(const std::string &id, bool enabled, bool tak
       if (other.get() == stored || !other->config.enabled || !other->config.same_target(stored->config))
         continue;
       other->config.enabled = false;
+      other->config.revision++;
       result.persisted = !in_memory && this->save_(other->config) && result.persisted;
       ESP_LOGI(TAG, "'%s' took the target over from '%s'", id.c_str(), other->config.id.c_str());
       result.stopped.push_back(other->config.id);
@@ -918,6 +929,7 @@ Result ScheduleEngine::set_enabled(const std::string &id, bool enabled, bool tak
   }
   if (!stored->config.enabled) {
     stored->config.enabled = true;
+    stored->config.revision++;
     result.persisted = this->save_(stored->config) && result.persisted;
   }
   this->settle_(id, false, &result);

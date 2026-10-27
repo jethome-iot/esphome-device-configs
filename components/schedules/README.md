@@ -43,7 +43,7 @@ not run.
 ## A schedule
 
 ```json
-{"version": 1, "id": "living-room-week", "name": "Living room week", "enabled": true,
+{"version": 1, "revision": 4, "id": "living-room-week", "name": "Living room week", "enabled": true,
  "target": {"type": "thermostat", "id": "living-room"},
  "week": {
   "mon": [{"at": "06:30", "value": {"type": "preset", "preset": "comfort"}},
@@ -64,6 +64,9 @@ not run.
   on the device whatever the case and spacing.
 - `id`: made from the name at creation (`schedule`, `schedule-2` for a name with no Latin letters
   or digits), never `new`, kept through a rename.
+- `revision`: `0` when created, and one more at every change of the document: an `update()`, a
+  `set_enabled()` that changes the flag, a take-over that disables it, a `restore()` over it, a
+  rename at boot. A file without one reads as `0`.
 
 A document is refused with the first rule it breaks, in the editor's words: `Name is required`,
 `target.type must be relay or thermostat`, `Unknown day "mo": expected mon, tue, wed, thu, fri,
@@ -101,7 +104,7 @@ key`, `Mon 06:30: target must be a number` and the like.
   and waits until it is there.
 - One enabled schedule per target. Saving another one enabled on it is refused with 409, and so
   is switching one on, unless it takes over: the others are then stored disabled. Two enabled
-  ones on a target come only from files written by hand or a restore; then the first by id
+  ones on a target come only from files written by hand; then the first by id
   drives it and the other waits (`conflict`), and starts once the first is switched off, deleted
   or saved onto another target.
 
@@ -151,14 +154,16 @@ not be read; every change is then refused with 500.
   schedule that drives it (`scheduled_by`); `thermostat_targets()`: every thermostat with its
   name, enabled and running, mode, range, step, presets (key, name, setpoint, mode or `keep`) and
   `scheduled_by`, none without `climate_hub`
-- `create(draft)`, `update(id, doc)`, `restore(doc)`, `remove(id)`,
+- `create(draft)`, `update(id, doc, revision)`, `restore(doc)`, `remove(id)`,
   `set_enabled(id, enabled, take_over)`: each returns a `Result` — `ok`, the HTTP `code` that
   fits (400, 404, 409, 413, 500, 507), an `error` sentence, the new `id`, the `holder` of a 409
   over a target, a `warning` when it was saved enabled but does not run, `persisted`, the ids a
   take-over `stopped` and the ids that `started` because the change let them drive their target.
   `restore()` brings a schedule back under the id its document names, as a backup holds it,
   replacing or creating it, and refuses an id that is no slug or is `new` (400) or that a file the
-  boot refused holds (409)
+  boot refused holds (409). `update()` refuses a `revision`, when one is given, that is not the
+  stored one, with 409 `The device changed this schedule since it was read; reload it`; the
+  `revision` a document brings is ignored by all three
 - `ScheduleConfig::deserialize(json, require_id, &error)`, `validate(&error)`, `serialize(json)`
 
 ## Testing

@@ -261,7 +261,8 @@ const VALUE_TYPES: ReadonlyArray<string> = ['on', 'off', 'preset', 'target']
 export function decodeValue(raw: unknown, type: TargetType, where: string): { value: ScheduleValue } | { error: string } {
   const at = `${where}: `
   const obj = objectOf(raw)
-  if (!obj || typeof obj.type !== 'string') return { error: `${at}value is required` }
+  // A value whose type is "" says nothing more than none at all.
+  if (!obj || typeof obj.type !== 'string' || obj.type === '') return { error: `${at}value is required` }
   const kind = obj.type
   if (!VALUE_TYPES.includes(kind)) return { error: `${at}unknown value type "${kind}"` }
   if (type === 'relay' && kind !== 'on' && kind !== 'off') return { error: `${at}a relay takes on or off` }
@@ -272,13 +273,21 @@ export function decodeValue(raw: unknown, type: TargetType, where: string): { va
     if (!isSlug(obj.preset)) return { error: `${at}preset must be a preset's key` }
     return { value: { type: 'preset', preset: obj.preset } }
   }
-  if (typeof obj.target !== 'number' || !Number.isFinite(obj.target)) return { error: `${at}target must be a number` }
+  // The device keeps a float: a number past a float's range turns infinite, which is no target either.
+  if (typeof obj.target !== 'number' || !Number.isFinite(Math.fround(obj.target))) {
+    return { error: `${at}target must be a number` }
+  }
   return { value: { type: 'target', target: obj.target } }
 }
 
 /** A file older than this firmware reads as this version; a newer one keeps its number. */
 function readVersion(value: unknown): number {
   return typeof value === 'number' && value > SCHEDULE_VERSION ? Math.min(Math.ceil(value), 65535) : SCHEDULE_VERSION
+}
+
+/** A revision as the device reads one, a whole number that fits 32 bits; null for anything else. */
+export function readRevision(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 0xffffffff ? value : null
 }
 
 export interface DecodeOptions {
@@ -291,7 +300,7 @@ export interface DecodeOptions {
  * days, each sorted by time, values without stray keys; or the first rule it breaks, in the
  * device's words. A save body's `id` is kept as sent ('' when it is not a string); whether it
  * names a schedule is the store's question. `version` is the body's, for a store to tell a
- * newer file; a store writes its own.
+ * newer file, and `revision` a file's (0 without one); a store writes its own.
  */
 export function decodeSchedule(raw: unknown, options: DecodeOptions = {}): { doc: ScheduleDocument } | { error: string } {
   const root = objectOf(raw)
@@ -351,6 +360,7 @@ export function decodeSchedule(raw: unknown, options: DecodeOptions = {}): { doc
   return {
     doc: {
       version: readVersion(root.version),
+      revision: readRevision(root.revision) ?? 0,
       id,
       name,
       enabled,
@@ -384,6 +394,7 @@ export function canonicalDocument(doc: ScheduleDocument): ScheduleDocument {
   for (const day of DAYS) week[day] = sorted[day].map((p) => ({ at: p.at, value: value(p.value) }))
   return {
     version: doc.version,
+    revision: doc.revision,
     id: doc.id,
     name: doc.name,
     enabled: doc.enabled,

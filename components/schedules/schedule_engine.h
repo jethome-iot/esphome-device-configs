@@ -13,7 +13,7 @@
 //     clock_text(&day, &time)         the device's local "wed", "10:15:42", false while not valid
 //     relay_targets(), thermostat_targets()   what a schedule may drive, who holds and who schedules it
 //   Writes, each a Result:
-//     create(draft), update(id, doc), restore(doc), remove(id), set_enabled(id, enabled, take_over)
+//     create(draft), update(id, doc, revision), restore(doc), remove(id), set_enabled(id, enabled, take_over)
 
 #include <functional>
 #include <memory>
@@ -23,6 +23,7 @@
 #include "esphome/components/loop_job/loop_job.h"
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
+#include "esphome/core/optional.h"
 #include "esphome/core/time.h"
 #include "schedule_config.h"
 
@@ -171,18 +172,21 @@ class ScheduleEngine : public Component {
   Result create(ScheduleConfig draft);
   /// Replaces a schedule's document under its id: 404, 409 for a file a newer firmware wrote,
   /// otherwise as create(). Enabled, it applies the value in force again, a rename too; a target
-  /// it left is left as it is.
-  Result update(const std::string &id, ScheduleConfig doc);
+  /// it left is left as it is. `revision`, when given, is the one the caller read: one that is
+  /// not the stored one is 409, since the Save would undo a change made since.
+  Result update(const std::string &id, ScheduleConfig doc, optional<uint32_t> revision = nullopt);
   /// Brings a schedule back under the id the document names, enabled or not, as a backup holds
   /// it: one with that id is replaced as update() replaces it, otherwise one is created. Refused
   /// as those two refuse, and with 400 for an id that is no slug or is `new`, 409 for an id a
-  /// file the boot did not load holds.
+  /// file the boot did not load holds. The doc's revision is ignored: a replacement moves the
+  /// stored one on, a new one starts at 0.
   Result restore(ScheduleConfig doc);
   /// Deletes a schedule; its target stays as it is.
   Result remove(const std::string &id);
   /// Stores the flag. Enabling one whose target another enabled schedule drives is 409, unless
   /// `take_over`: the others are stored disabled and named in `stopped`. A schedule that starts
-  /// to drive its target applies the value in force; disabling leaves the target as it is.
+  /// to drive its target applies the value in force; disabling leaves the target as it is. Each
+  /// flag that changes moves its schedule's revision on.
   Result set_enabled(const std::string &id, bool enabled, bool take_over = false);
 
   /// Whether another schedule has this name, by name_key(); `exclude_id` never blocks itself.

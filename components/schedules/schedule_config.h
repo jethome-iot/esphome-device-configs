@@ -46,6 +46,9 @@ struct Point {
 struct ScheduleConfig {
   /// SCHEDULE_VERSION, or the higher one of a file a newer firmware wrote.
   uint16_t version{SCHEDULE_VERSION};
+  /// Moves on at every change of the document, so a Save of a form read before one is refused
+  /// rather than undo it. 0 in a new one and in a file without it.
+  uint32_t revision{0};
   std::string id;
   std::string name;
   bool enabled{true};

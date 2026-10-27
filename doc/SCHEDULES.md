@@ -124,6 +124,12 @@ the thermostats' presets. The routes and their contract are in
 [components/web_schedule_editor/openapi.yaml](../components/web_schedule_editor/openapi.yaml),
 the usage in [its README](../components/web_schedule_editor/README.md).
 
+Every change of a schedule moves its revision on: a Save, switching it on or off, a take-over
+that switches it off, bringing it back from a backup. An editor page opened before such a change
+can no longer save over it: its Save is refused with `The device changed this schedule since it
+was read; reload it` until it reloads, so it never undoes what another page, a phone or a
+restore did. A Save without a revision, from `curl` say, is not checked.
+
 ## Testing without hardware
 
 ```bash

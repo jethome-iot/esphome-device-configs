@@ -257,6 +257,7 @@ void WebScheduleEditor::handle_list_(AsyncWebServerRequest *request) {
     for (const ScheduleConfig *config : all) {
       JsonObject row = rows.add<JsonObject>();
       row["id"] = config->id;
+      row["revision"] = config->revision;
       row["name"] = config->name;
       row["enabled"] = config->enabled;
       JsonObject target = row["target"].to<JsonObject>();
@@ -403,9 +404,14 @@ void WebScheduleEditor::handle_document_(AsyncWebServerRequest *request, bool im
     // replaces one or creates it under that id.
     const std::string id = config.id;
     const bool replaces = !id.empty() && this->engine_->get(id) != nullptr;
+    // The revision the form was read at, when it sends one: another client's change since would
+    // be undone.
+    optional<uint32_t> revision;
+    if (doc["revision"].is<uint32_t>())
+      revision = doc["revision"].as<uint32_t>();
     const Result result = importing    ? this->engine_->restore(std::move(config))
                           : id.empty() ? this->engine_->create(std::move(config))
-                                       : this->engine_->update(id, std::move(config));
+                                       : this->engine_->update(id, std::move(config), revision);
     if (!result.ok) {
       code = result.code;
       error = result.error;

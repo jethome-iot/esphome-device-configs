@@ -806,6 +806,7 @@
       "status": 200,
       "expect": {
         "version": 1,
+        "revision": 0,
         "id": "living-room-week",
         "name": "Living room week",
         "enabled": true,
@@ -4330,6 +4331,31 @@
       "error": "Mon 06:30: value is required"
     },
     {
+      "name": "A value whose type is empty is 400 as one without a type",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Porch",
+        "enabled": true,
+        "target": {
+          "type": "relay",
+          "id": "relay_3"
+        },
+        "week": {
+          "mon": [
+            {
+              "at": "06:30",
+              "value": {
+                "type": ""
+              }
+            }
+          ]
+        }
+      },
+      "status": 400,
+      "error": "Mon 06:30: value is required"
+    },
+    {
       "name": "A value type the device does not know is 400",
       "method": "POST",
       "path": "save",
@@ -4474,6 +4500,32 @@
               "value": {
                 "type": "target",
                 "target": "21"
+              }
+            }
+          ]
+        }
+      },
+      "status": 400,
+      "error": "Mon 06:30: target must be a number"
+    },
+    {
+      "name": "A target past a float's range is no number",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living room week",
+        "enabled": true,
+        "target": {
+          "type": "thermostat",
+          "id": "living-room"
+        },
+        "week": {
+          "mon": [
+            {
+              "at": "06:30",
+              "value": {
+                "type": "target",
+                "target": 1e+39
               }
             }
           ]
@@ -6433,6 +6485,1695 @@
       ]
     },
     {
+      "name": "A new schedule is at revision 0, in get and in its list row",
+      "setup": [
+        "porch"
+      ],
+      "method": "GET",
+      "path": "get?id=porch",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "revision": 0
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "schedules.0.revision": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "A Save moves the revision on",
+      "setup": [
+        "porch"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Front porch",
+        "enabled": true,
+        "target": {
+          "type": "relay",
+          "id": "relay_3"
+        },
+        "week": {
+          "mon": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "tue": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "wed": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "thu": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "fri": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "sat": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "sun": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ]
+        },
+        "id": "porch"
+      },
+      "status": 200,
+      "expect": {
+        "message": "Schedule updated"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=porch",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 1
+          }
+        },
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "schedules.0.revision": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "A Save with the revision it read is taken",
+      "setup": [
+        "porch"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Front porch",
+        "enabled": true,
+        "target": {
+          "type": "relay",
+          "id": "relay_3"
+        },
+        "week": {
+          "mon": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "tue": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "wed": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "thu": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "fri": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "sat": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "sun": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ]
+        },
+        "id": "porch",
+        "revision": 0
+      },
+      "status": 200,
+      "expect": {
+        "message": "Schedule updated",
+        "id": "porch"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=porch",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 1,
+            "name": "Front porch"
+          }
+        }
+      ]
+    },
+    {
+      "name": "A Save with another revision is 409 and changes nothing",
+      "setup": [
+        "porch"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Front porch",
+        "enabled": true,
+        "target": {
+          "type": "relay",
+          "id": "relay_3"
+        },
+        "week": {
+          "mon": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "tue": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "wed": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "thu": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "fri": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "sat": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "sun": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ]
+        },
+        "id": "porch",
+        "revision": 3
+      },
+      "status": 409,
+      "error": "The device changed this schedule since it was read; reload it",
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=porch",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 0,
+            "name": "Porch"
+          }
+        }
+      ]
+    },
+    {
+      "name": "A form read before another Save is refused until it reloads",
+      "setup": [
+        "porch"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Front porch",
+        "enabled": true,
+        "target": {
+          "type": "relay",
+          "id": "relay_3"
+        },
+        "week": {
+          "mon": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "tue": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "wed": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "thu": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "fri": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "sat": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "sun": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ]
+        },
+        "id": "porch"
+      },
+      "status": 200,
+      "expect": {
+        "id": "porch"
+      },
+      "then": [
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Back porch",
+            "enabled": true,
+            "target": {
+              "type": "relay",
+              "id": "relay_3"
+            },
+            "week": {
+              "mon": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "tue": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "wed": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "thu": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "fri": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "sat": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "sun": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ]
+            },
+            "id": "porch",
+            "revision": 0
+          },
+          "status": 409,
+          "error": "The device changed this schedule since it was read; reload it"
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Back porch",
+            "enabled": true,
+            "target": {
+              "type": "relay",
+              "id": "relay_3"
+            },
+            "week": {
+              "mon": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "tue": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "wed": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "thu": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "fri": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "sat": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "sun": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ]
+            },
+            "id": "porch",
+            "revision": 1
+          },
+          "status": 200,
+          "expect": {
+            "id": "porch"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "get?id=porch",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 2,
+            "name": "Back porch"
+          }
+        }
+      ]
+    },
+    {
+      "name": "A stale revision is refused before the name and the target are looked at",
+      "setup": [
+        "porch",
+        "living-room-week"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living room week",
+        "enabled": true,
+        "target": {
+          "type": "relay",
+          "id": "relay_3"
+        },
+        "week": {
+          "mon": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "tue": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "wed": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "thu": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "fri": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "sat": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "sun": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ]
+        },
+        "id": "porch",
+        "revision": 3
+      },
+      "status": 409,
+      "error": "The device changed this schedule since it was read; reload it"
+    },
+    {
+      "name": "A revision that is not a whole number is not checked",
+      "setup": [
+        "sunday-lamp"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Sunday lamp",
+        "enabled": true,
+        "target": {
+          "type": "relay",
+          "id": "relay_1"
+        },
+        "week": {
+          "sun": [
+            {
+              "at": "22:00",
+              "value": {
+                "type": "on"
+              }
+            }
+          ]
+        },
+        "id": "sunday-lamp",
+        "revision": "5"
+      },
+      "status": 200,
+      "expect": {
+        "id": "sunday-lamp"
+      },
+      "then": [
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Sunday lamp",
+            "enabled": true,
+            "target": {
+              "type": "relay",
+              "id": "relay_1"
+            },
+            "week": {
+              "sun": [
+                {
+                  "at": "22:00",
+                  "value": {
+                    "type": "on"
+                  }
+                }
+              ]
+            },
+            "id": "sunday-lamp",
+            "revision": -1
+          },
+          "status": 200,
+          "expect": {
+            "id": "sunday-lamp"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Sunday lamp",
+            "enabled": true,
+            "target": {
+              "type": "relay",
+              "id": "relay_1"
+            },
+            "week": {
+              "sun": [
+                {
+                  "at": "22:00",
+                  "value": {
+                    "type": "on"
+                  }
+                }
+              ]
+            },
+            "id": "sunday-lamp",
+            "revision": 1.5
+          },
+          "status": 200,
+          "expect": {
+            "id": "sunday-lamp"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Sunday lamp",
+            "enabled": true,
+            "target": {
+              "type": "relay",
+              "id": "relay_1"
+            },
+            "week": {
+              "sun": [
+                {
+                  "at": "22:00",
+                  "value": {
+                    "type": "on"
+                  }
+                }
+              ]
+            },
+            "id": "sunday-lamp",
+            "revision": true
+          },
+          "status": 200,
+          "expect": {
+            "id": "sunday-lamp"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "get?id=sunday-lamp",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 4
+          }
+        }
+      ]
+    },
+    {
+      "name": "A create ignores the body's revision",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Porch",
+        "enabled": true,
+        "target": {
+          "type": "relay",
+          "id": "relay_3"
+        },
+        "week": {
+          "mon": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "tue": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "wed": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "thu": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "fri": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "sat": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "sun": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ]
+        },
+        "revision": 7
+      },
+      "status": 200,
+      "expect": {
+        "message": "Schedule created",
+        "id": "porch"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=porch",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "A disable and an enable each move the revision on, a flag that stays as it is does not",
+      "setup": [
+        "porch"
+      ],
+      "method": "POST",
+      "path": "enable?id=porch&value=false",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "message": "Schedule disabled"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=porch",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 1
+          }
+        },
+        {
+          "method": "POST",
+          "path": "enable?id=porch&value=false",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "message": "Schedule disabled"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "get?id=porch",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 1
+          }
+        },
+        {
+          "method": "POST",
+          "path": "enable?id=porch&value=true",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "message": "Schedule enabled"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "enable?id=porch&value=true",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "message": "Schedule enabled"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "schedules.0.revision": 2
+          }
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Porch",
+            "enabled": true,
+            "target": {
+              "type": "relay",
+              "id": "relay_3"
+            },
+            "week": {
+              "mon": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "tue": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "wed": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "thu": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "fri": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "sat": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "sun": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ]
+            },
+            "id": "porch",
+            "revision": 1
+          },
+          "status": 409,
+          "error": "The device changed this schedule since it was read; reload it"
+        }
+      ]
+    },
+    {
+      "name": "A take-over moves on the revision of each schedule it changes",
+      "setup": [
+        "living-room-week",
+        "winter"
+      ],
+      "method": "POST",
+      "path": "enable?id=winter&value=true&take_over=true",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "stopped": [
+          "living-room-week"
+        ]
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "schedules.id=living-room-week.revision": 1,
+            "schedules.id=winter.revision": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "An import over a schedule moves its revision on, whatever revision the body has",
+      "setup": [
+        "porch"
+      ],
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "name": "Porch lamp",
+        "enabled": true,
+        "target": {
+          "type": "relay",
+          "id": "relay_3"
+        },
+        "week": {
+          "mon": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "tue": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "wed": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "thu": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "fri": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "sat": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "sun": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ]
+        },
+        "id": "porch",
+        "revision": 7
+      },
+      "status": 200,
+      "expect": {
+        "message": "Schedule replaced"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=porch",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 1
+          }
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Porch",
+            "enabled": true,
+            "target": {
+              "type": "relay",
+              "id": "relay_3"
+            },
+            "week": {
+              "mon": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "tue": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "wed": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "thu": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "fri": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "sat": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ],
+              "sun": [
+                {
+                  "at": "19:00",
+                  "value": {
+                    "type": "on"
+                  }
+                },
+                {
+                  "at": "23:30",
+                  "value": {
+                    "type": "off"
+                  }
+                }
+              ]
+            },
+            "id": "porch",
+            "revision": 0
+          },
+          "status": 409,
+          "error": "The device changed this schedule since it was read; reload it"
+        }
+      ]
+    },
+    {
+      "name": "An import of a new schedule starts it at revision 0",
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "name": "Kitchen",
+        "enabled": false,
+        "target": {
+          "type": "thermostat",
+          "id": "living-room"
+        },
+        "week": {
+          "sat": [
+            {
+              "at": "07:00",
+              "value": {
+                "type": "preset",
+                "preset": "comfort"
+              }
+            }
+          ],
+          "sun": [
+            {
+              "at": "22:00",
+              "value": {
+                "type": "off"
+              }
+            }
+          ]
+        },
+        "id": "kitchen",
+        "revision": 9
+      },
+      "status": 200,
+      "expect": {
+        "message": "Schedule created",
+        "id": "kitchen"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=kitchen",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 0
+          }
+        }
+      ]
+    },
+    {
       "name": "Delete removes a schedule",
       "setup": [
         "porch"
@@ -7567,6 +9308,127 @@
           }
         }
       ]
+    },
+    {
+      "name": "A newer firmware's file is refused as such before the revision is looked at",
+      "setup": [
+        "porch"
+      ],
+      "device_only": "newer_file",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Porch",
+        "enabled": true,
+        "target": {
+          "type": "relay",
+          "id": "relay_3"
+        },
+        "week": {
+          "mon": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "tue": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "wed": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "thu": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "fri": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "sat": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ],
+          "sun": [
+            {
+              "at": "19:00",
+              "value": {
+                "type": "on"
+              }
+            },
+            {
+              "at": "23:30",
+              "value": {
+                "type": "off"
+              }
+            }
+          ]
+        },
+        "id": "porch",
+        "revision": 3
+      },
+      "status": 409,
+      "error": "A newer firmware wrote this schedule; update the firmware to change it"
     },
     {
       "name": "An import over a file a newer firmware wrote is 409",

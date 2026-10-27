@@ -24,7 +24,8 @@ TEST_F(Storage, ACreateWritesTheFileUnderAnIdFromTheName) {
 
 // The plan's example, sent as a draft: the file is that document byte for byte.
 TEST_F(Storage, TheFileIsTheDocumentByteForByte) {
-  const std::string golden = R"({"version":1,"id":"living-room-week","name":"Living room week","enabled":true,)"
+  const std::string golden = R"({"version":1,"revision":0,"id":"living-room-week","name":"Living room week",)"
+                             R"("enabled":true,)"
                              R"("target":{"type":"thermostat","id":"living-room"},)"
                              R"("week":{"mon":[{"at":"06:30","value":{"type":"preset","preset":"comfort"}},)"
                              R"({"at":"08:30","value":{"type":"preset","preset":"eco"}},)"
@@ -36,6 +37,7 @@ TEST_F(Storage, TheFileIsTheDocumentByteForByte) {
   std::string error;
   ASSERT_TRUE(from_json(golden, &draft, &error)) << error;
   draft.id = "ignored";
+  draft.revision = 9;
   EXPECT_EQ("living-room-week", this->create(draft).id);
   EXPECT_EQ(golden, read_file(this->file_of("living-room-week")));
 }
@@ -64,6 +66,71 @@ TEST_F(Storage, ARenameKeepsTheIdAndTheFile) {
   EXPECT_EQ("Front door", this->engine->get("porch")->name);
   EXPECT_EQ(std::vector<std::string>{"porch.json"}, list_dir(this->folder())) << "no .tmp left either";
   EXPECT_NE(std::string::npos, read_file(this->file_of("porch")).find(R"("id":"porch","name":"Front door")"));
+}
+
+// Every change of the document moves it on and the file keeps it; a Save that brings another one
+// is refused, since it would undo a change made since the form was read.
+TEST_F(Storage, EveryChangeMovesTheRevisionOn) {
+  this->boot();
+  this->create(daily("Porch"));
+  auto revision = [this]() { return this->engine->get("porch")->revision; };
+  EXPECT_EQ(0u, revision());
+
+  ASSERT_TRUE(this->engine->update("porch", daily("Front porch")).ok) << "none given, none checked";
+  EXPECT_EQ(1u, revision());
+  Result stale = this->engine->update("porch", daily("Back porch"), 0);
+  EXPECT_EQ(409, stale.code);
+  EXPECT_EQ("The device changed this schedule since it was read; reload it", stale.error);
+  EXPECT_EQ("Front porch", this->engine->get("porch")->name);
+  EXPECT_EQ(409, this->engine->update("porch", daily("Back porch"), 2).code) << "nor one from ahead";
+  ASSERT_TRUE(this->engine->update("porch", daily("Back porch"), 1).ok);
+  EXPECT_EQ(2u, revision());
+
+  ASSERT_TRUE(this->engine->set_enabled("porch", false).ok);
+  EXPECT_EQ(3u, revision());
+  ASSERT_TRUE(this->engine->set_enabled("porch", false).ok);
+  EXPECT_EQ(3u, revision()) << "a flag that stays is no change";
+  ASSERT_TRUE(this->engine->set_enabled("porch", true).ok);
+  ASSERT_TRUE(this->engine->set_enabled("porch", true).ok);
+  EXPECT_EQ(4u, revision());
+
+  ScheduleConfig back = daily("Porch");
+  back.id = "porch";
+  back.revision = 40;
+  ASSERT_TRUE(this->engine->restore(back).ok);
+  EXPECT_EQ(5u, revision()) << "the backup's is not read";
+  back.id = "garden";
+  back.name = "Garden";
+  back.target_id = "relay_2";
+  ASSERT_TRUE(this->engine->restore(back).ok);
+  EXPECT_EQ(0u, this->engine->get("garden")->revision);
+
+  this->reboot();
+  EXPECT_EQ(5u, revision()) << "the file keeps it";
+}
+
+// Unwritten, nothing changed, so the revision stays.
+TEST_F(Storage, AChangeThatIsNotWrittenKeepsTheRevision) {
+  this->boot();
+  this->create(daily("Porch"));
+  mkdir((this->file_of("porch") + ".tmp").c_str(), 0755);
+  EXPECT_EQ(500, this->engine->update("porch", daily("Front door")).code);
+  ScheduleConfig back = daily("Porch");
+  back.id = "porch";
+  EXPECT_EQ(500, this->engine->restore(back).code);
+  rmdir((this->file_of("porch") + ".tmp").c_str());
+  EXPECT_EQ(0u, this->engine->get("porch")->revision);
+}
+
+// A take-over changes the others' documents too.
+TEST_F(Storage, ATakeOverMovesOnTheRevisionOfEveryScheduleItChanges) {
+  this->boot();
+  this->create(daily("Porch"));
+  this->create(daily("Garden", "relay_1", false));
+  Result taken = this->engine->set_enabled("garden", true, true);
+  ASSERT_TRUE(taken.ok) << taken.error;
+  EXPECT_EQ(1u, this->engine->get("porch")->revision);
+  EXPECT_EQ(1u, this->engine->get("garden")->revision);
 }
 
 TEST_F(Storage, ADeleteRemovesTheFile) {
@@ -165,9 +232,10 @@ TEST_F(Storage, ANewerFirmwaresFileRunsButIsNeverWritten) {
   EXPECT_TRUE(this->e.relay1.state) << "it runs";
   EXPECT_TRUE(LogCapture::instance().warned("is version 2, from a newer firmware"));
 
-  Result refused = this->engine->update("porch", daily("Porch"));
+  Result refused = this->engine->update("porch", daily("Porch"), 5);
   EXPECT_EQ(409, refused.code);
-  EXPECT_EQ("A newer firmware wrote this schedule; update the firmware to change it", refused.error);
+  EXPECT_EQ("A newer firmware wrote this schedule; update the firmware to change it", refused.error)
+      << "before the revision is looked at";
   ScheduleConfig back = daily("Porch");
   back.id = "porch";
   EXPECT_EQ(409, this->engine->restore(back).code);
@@ -283,8 +351,11 @@ TEST_F(Storage, TwoFilesUnderOneNameAreToldApartAtBoot) {
   this->write("d.json", file_doc("d", long_name.c_str(), "relay_2", false));
   this->boot();
   EXPECT_EQ("Porch", this->engine->get("a")->name);
+  EXPECT_EQ(0u, this->engine->get("a")->revision);
   EXPECT_EQ("porch 3", this->engine->get("b")->name) << "\"porch 2\" is taken too";
   EXPECT_NE(std::string::npos, read_file(this->file_of("b")).find(R"("name":"porch 3")")) << "written back";
+  EXPECT_EQ(1u, this->engine->get("b")->revision) << "a rename is a change";
+  EXPECT_NE(std::string::npos, read_file(this->file_of("b")).find(R"("revision":1,)"));
   EXPECT_EQ(std::string(46, 'x') + " 2", this->engine->get("d")->name) << "cut to stay within 48 characters";
 }
 
