@@ -98,6 +98,7 @@ external_components:
       ref: master
       path: components
     components:
+      - ntp_servers
       - timezone_settings
   - source:
       type: git
@@ -1702,6 +1703,9 @@ timezone_settings:
   on_clock_set:
     then:
       pcf8563.write_time: null
+ntp_servers:
+  id: device_ntp
+  sntp_id: sntp_time
 time:
   - platform: homeassistant
     id: homeassistant_time

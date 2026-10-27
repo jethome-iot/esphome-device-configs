@@ -14,6 +14,7 @@ AUTO_LOAD = ["web_origin_guard", "loop_job", "firmware_rollback"]
 CONF_BOARD_INFO_ID = "board_info_id"
 CONF_DALLAS_SCAN_ID = "dallas_scan_id"
 CONF_MODBUS_MAP = "modbus_map"
+CONF_NTP_SERVERS = "ntp_servers"
 CONF_STORAGE_ID = "storage_id"
 CONF_TIMEZONE_SETTINGS = "timezone_settings"
 CONF_URL_PREFIX = "url_prefix"
@@ -84,4 +85,8 @@ async def to_code(config):
     if (timezone := CORE.config.get(CONF_TIMEZONE_SETTINGS)) is not None:
         cg.add_define("USE_WEB_DEVICE_DASHBOARD_TIMEZONE")
         cg.add(var.set_timezone_settings(await cg.get_variable(timezone[CONF_ID])))
+        # The servers ride on the same route, so only with a zone.
+        if (servers := CORE.config.get(CONF_NTP_SERVERS)) is not None:
+            cg.add_define("USE_WEB_DEVICE_DASHBOARD_NTP")
+            cg.add(var.set_ntp_servers(await cg.get_variable(servers[CONF_ID])))
     await cg.register_component(var, config)

@@ -1,0 +1,41 @@
+# Google Test binary for components/ntp_servers, built through esphome compile by tests/run.py.
+# The harness main.cpp replaces the generated one, so nothing declared here is ever set up: the
+# sections exist to get the sources and the generated wiring compiled. The cases build their own
+# instances over a clock whose syncs they fire.
+esphome:
+  name: ntp-servers-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+      # dump_config and the refusals say what they say only in the log, which a case reads
+      # through a listener.
+      - -DUSE_LOG_LISTENERS
+      - -DESPHOME_LOG_MAX_LISTENERS=1
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../../components
+    components: [ntp_servers]
+
+# The host stands in for sntp, which builds for no host.
+time:
+  - platform: host
+    id: sntp_clock
+    timezone: UTC
+
+ntp_servers:
+  id: servers
+  sntp_id: sntp_clock
