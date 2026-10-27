@@ -33,8 +33,6 @@ static const time_t MAX_TIMESTAMP_DRIFT = 900;
 
 // Cut to at most `limit` bytes without splitting a UTF-8 character.
 static std::string truncate_utf8(const std::string &text, size_t limit) {
-  if (text.size() <= limit)
-    return text;
   size_t cut = 0;
   for (size_t i = 0; i < text.size();) {
     auto lead = static_cast<unsigned char>(text[i]);
@@ -359,14 +357,9 @@ uint32_t AutomationStorage::add_automation_(const AutomationConfig &config, std:
              static_cast<unsigned>(MAX_AUTOMATIONS));
     return 0;
   }
-  // The name decides the file, so a name in use would replace that file. A file nothing loaded
-  // is one the loader refused, and it is kept for its author.
+  // A name short enough is its own file, so a second rule by that name would replace it.
   if (this->is_name_taken(config.name)) {
     ESP_LOGE(TAG, "Refusing to add '%s': that name is already in use", config.name.c_str());
-    return 0;
-  }
-  if (file_exists(this->get_filepath_for_name_(config.name))) {
-    ESP_LOGE(TAG, "Refusing to add '%s': a file the loader refused has that name", config.name.c_str());
     return 0;
   }
   if (!this->fits_a_file_(config)) {
@@ -377,8 +370,13 @@ uint32_t AutomationStorage::add_automation_(const AutomationConfig &config, std:
 
   AutomationConfig cfg = config;
   cfg.id = this->allocate_id_();
-  cfg.file = this->sanitize_filename_(cfg.name) + ".json";
+  cfg.file = this->filename_for_(cfg.name, cfg.id);
   cfg.build_error.clear();
+  // A file nothing loaded is one the loader refused, and it is kept for its author.
+  if (file_exists(this->get_folder_path_() + "/" + cfg.file)) {
+    ESP_LOGE(TAG, "Refusing to add '%s': a file the loader refused has that name", config.name.c_str());
+    return 0;
+  }
 
   auto automation = RuntimeAutomation::build(this, cfg, error);
   if (automation == nullptr) {
@@ -414,11 +412,12 @@ bool AutomationStorage::update_automation_(uint32_t id, const AutomationConfig &
   cfg.id = id;
   const AutomationConfig &current = this->config_storage_.get_all_configs()[index];
   const std::string old_file = current.file;
-  // A rule keeps its file unless its name changes: the file may not be the canonical one when
-  // that name was taken by a file the loader refused.
-  const bool renaming = this->sanitize_filename_(current.name) != this->sanitize_filename_(cfg.name);
-  cfg.file = renaming ? this->sanitize_filename_(cfg.name) + ".json" : old_file;
-  if (renaming && file_exists(this->get_filepath_for_name_(cfg.name))) {
+  // A rule keeps its file unless its name maps to another: the file may not be the canonical
+  // one when that name was taken by a file the loader refused, or when boot could not move it.
+  const std::string target = this->filename_for_(cfg.name, id);
+  cfg.file = this->filename_for_(current.name, id) != target ? target : old_file;
+  const bool renaming = cfg.file != old_file;
+  if (renaming && file_exists(this->get_folder_path_() + "/" + target)) {
     ESP_LOGE(TAG, "Refusing to rename automation id=%u to '%s': a file the loader refused has that name",
              static_cast<unsigned>(id), cfg.name.c_str());
     return false;
@@ -504,7 +503,7 @@ void AutomationStorage::reset_all_() {
 
 // --- Files ---
 
-std::string AutomationStorage::sanitize_filename_(const std::string &name) const {
+std::string AutomationStorage::name_key_(const std::string &name) const {
   std::string result;
   result.reserve(name.length());
   for (char c : name) {
@@ -537,27 +536,33 @@ std::string AutomationStorage::sanitize_filename_(const std::string &name) const
   size_t end = cleaned.find_last_not_of('_');
   if (start == std::string::npos)
     return "automation";
-
-  std::string trimmed = truncate_utf8(cleaned.substr(start, end - start + 1), MAX_FILENAME_BYTES);
-  while (!trimmed.empty() && trimmed.back() == '_')
-    trimmed.pop_back();
-  return trimmed.empty() ? "automation" : trimmed;
+  return cleaned.substr(start, end - start + 1);
 }
 
 std::string AutomationStorage::get_folder_path_() const {
   return this->storage_backend_->get_base_path() + "/" + this->folder_path_;
 }
 
-std::string AutomationStorage::get_filepath_for_name_(const std::string &name) const {
-  return this->get_folder_path_() + "/" + this->sanitize_filename_(name) + ".json";
+// A key too long for a file name is cut and ends in "-<id>": no key has a '-', and ids are
+// unique, so two keys never share a file.
+std::string AutomationStorage::filename_for_(const std::string &name, uint32_t id) const {
+  std::string stem = this->name_key_(name);
+  if (stem.size() > MAX_FILENAME_BYTES) {
+    const std::string tail = "-" + std::to_string(id);
+    stem = truncate_utf8(stem, MAX_FILENAME_BYTES - tail.size());
+    while (!stem.empty() && stem.back() == '_')
+      stem.pop_back();
+    stem += tail;
+  }
+  return stem + ".json";
 }
 
 bool AutomationStorage::is_name_taken(const std::string &name, uint32_t exclude_id) const {
-  std::string wanted = this->sanitize_filename_(name);
+  std::string wanted = this->name_key_(name);
   for (const auto &config : this->config_storage_.get_all_configs()) {
     if (config.id == exclude_id)
       continue;
-    if (this->sanitize_filename_(config.name) == wanted)
+    if (this->name_key_(config.name) == wanted)
       return true;
   }
   return false;
@@ -695,8 +700,7 @@ bool AutomationStorage::fits_a_file_(const AutomationConfig &config) const {
 }
 
 bool AutomationStorage::save_automation_to_file_(const AutomationConfig &config) {
-  const std::string filepath =
-      config.file.empty() ? this->get_filepath_for_name_(config.name) : this->get_folder_path_() + "/" + config.file;
+  const std::string filepath = this->get_folder_path_() + "/" + config.file;
 
   if (entity_missing(config)) {
     ESP_LOGW(TAG, "Not writing '%s': an entity it names is missing and the reference would be lost",
@@ -792,7 +796,7 @@ std::vector<bool> AutomationStorage::resolve_duplicates_() {
     std::string original = cfg->name;
     for (uint32_t suffix = 2; suffix <= MAX_AUTOMATIONS + 2; suffix++) {
       std::string tail = " " + std::to_string(suffix);
-      std::string candidate = truncate_utf8(original, MAX_FILENAME_BYTES - tail.size()) + tail;
+      std::string candidate = original + tail;
       if (!this->is_name_taken(candidate, cfg->id)) {
         cfg->name = candidate;
         break;
@@ -820,7 +824,7 @@ void AutomationStorage::normalize_filenames_(const std::vector<bool> &changed) {
   canonical.reserve(count);
   loaded.reserve(count);
   for (const auto &config : this->config_storage_.get_all_configs()) {
-    canonical.push_back(this->sanitize_filename_(config.name) + ".json");
+    canonical.push_back(this->filename_for_(config.name, config.id));
     loaded.push_back(config.file);
   }
 
@@ -843,8 +847,11 @@ void AutomationStorage::normalize_filenames_(const std::vector<bool> &changed) {
       if (vacating != (round == 0))
         continue;
 
+      // A rule that stays put holds `from`, so whoever that file is named after must not take it.
       if (std::find(occupied.begin(), occupied.end(), canonical[i]) != occupied.end()) {
         ESP_LOGW(TAG, "Not writing '%s': another automation is still stored there", canonical[i].c_str());
+        if (moved)
+          occupied.push_back(from);
         continue;
       }
       // A target nothing loaded from is a file the loader refused: it stays, the rule stays put.
@@ -852,6 +859,7 @@ void AutomationStorage::normalize_filenames_(const std::vector<bool> &changed) {
           file_exists(folder_path + "/" + canonical[i])) {
         ESP_LOGW(TAG, "Not writing '%s': a file the loader refused is there; leaving '%s' in place",
                  canonical[i].c_str(), from.c_str());
+        occupied.push_back(from);
         continue;
       }
 
