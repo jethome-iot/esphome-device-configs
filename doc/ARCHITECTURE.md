@@ -285,10 +285,13 @@ server.
   end the range in 2106; the PCF8563's two-digit year ends it in 2100.
 - `components/ntp_servers` takes lwIP's SNTP client over from upstream's `sntp` platform:
   `SNTPComponent::setup()` fills one slot per configured server and starts it, and the
-  component, setting up right after, clears every slot and restarts it on one server through
-  `esp_sntp_stop()`, `esp_sntp_setserver()`, `esp_sntp_setservername()` and `esp_sntp_init()`.
-  lwIP keeps the name's pointer, so the component hands it a string of its own and rewrites it
-  only once no slot points there. Left with several servers, lwIP stays on whichever answered
+  component, setting up right after, clears every slot and restarts it on one server. It does so
+  with lwIP's own `sntp_stop()`, `sntp_setserver()`, `sntp_setservername()` and `sntp_init()`
+  in one `esp_netif_tcpip_exec()` call (`lwip_sntp.cpp`): `esp_sntp.h`'s wrappers queue the stop
+  and the start for lwIP's task but, with TCP/IP core locking, set the slots at once, so a reply
+  could be taken under the new name before the stop, and the header hides the plain names. lwIP
+  keeps the name's pointer, so the component hands it a string of its own and rewrites it only
+  once no slot points there. Left with several servers, lwIP stays on whichever answered
   last, never returns to the first, and cannot say which one answered; with one it can do
   neither wrong. The component replaces upstream's `esp_sntp_set_time_sync_notification_cb()`
   callback with one that does what upstream's does, deferring the public

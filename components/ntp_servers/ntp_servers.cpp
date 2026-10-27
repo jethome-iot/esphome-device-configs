@@ -10,6 +10,7 @@
 #ifdef USE_ESP32
 #include "esp_sntp.h"
 #include "esphome/components/sntp/sntp_component.h"
+#include "lwip_sntp.h"
 #endif
 
 namespace esphome::ntp_servers {
@@ -319,18 +320,12 @@ bool NTPServers::connected_() const {
 
 void NTPServers::use_server_(const char *server) {
 #ifdef USE_ESP32
-  // Stop and init are queued for lwIP's task in this order; the slot calls between them take its
-  // lock, so the restart finds the slots set.
-  esp_sntp_stop();
-  // Every slot: the clock's setup filled one per compiled server, and lwIP moves on to any left.
-  for (uint8_t i = 0; i < CONFIG_LWIP_SNTP_MAX_SERVERS; i++)
-    esp_sntp_setserver(i, nullptr);
+  restart_sntp(nullptr);
   if (server == nullptr)
     return;
   // No slot points into the string any more.
   this->asking_ = server;
-  esp_sntp_setservername(0, this->asking_.c_str());
-  esp_sntp_init();
+  restart_sntp(this->asking_.c_str());
 #else
   (void) server;
 #endif
