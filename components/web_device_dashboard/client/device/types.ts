@@ -384,8 +384,8 @@ export interface DeviceNtp {
 
 /** POST /time's `ntp`: the servers to ask ahead of the firmware's own, and whether to ask those
  *  at all; whichever is left out stays. Each is a host name or an IPv4 address, at most
- *  NTP_SERVER_NAME_MAX bytes, none twice (case aside). In force at once: the device asks the
- *  first again. */
+ *  NTP_SERVER_NAME_MAX bytes, none twice (case aside). A change is in force at once: the device
+ *  asks the first server again; the same servers again change nothing. */
 export type NtpUpdate = { servers: string[]; fallback?: boolean } | { fallback: boolean; servers?: never }
 
 /** POST /time. `posix` (with the zone's name, for display, or `null`) replaces the chosen zone,

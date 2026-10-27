@@ -19,6 +19,8 @@ static const uint32_t PREF_HASH = 0x4E545053;
 static const uint32_t POLL_MS = 15 * 60 * 1000;
 // How long a server has to answer, as the component waits.
 static const uint32_t ANSWER_MS = 30000;
+// How far ahead of lwIP's own poll the component goes back to the first server.
+static const uint32_t RETURN_LEAD_MS = 5000;
 // 2026-07-15 12:00 UTC.
 static const time_t JULY = 1784116800;
 
@@ -85,6 +87,8 @@ class TestServers : public NTPServers {
   Names handed;
 
   const char *asked() const { return this->handed.empty() ? nullptr : this->handed.back().c_str(); }
+  // lwIP's reply from @p server, whose sync the case fires next.
+  void reply_from(const std::string &server) { this->answered_by_(server); }
 
  protected:
   void use_server_(const char *server) override { this->handed.emplace_back(server == nullptr ? "" : server); }
@@ -135,8 +139,11 @@ class Servers : public ::testing::Test {
   Device &device() { return *this->devices.back(); }
   TestServers &servers() { return this->device().servers; }
 
-  // The server being asked answers.
-  void answer() { this->device().clock.sync(); }
+  // The server being asked answers: lwIP's reply, then the clock's sync.
+  void answer() {
+    this->servers().reply_from(this->servers().asked());
+    this->device().clock.sync();
+  }
   // @p ms go by, and then the loop task runs.
   void pass(uint32_t ms) {
     this->servers().ms += ms;

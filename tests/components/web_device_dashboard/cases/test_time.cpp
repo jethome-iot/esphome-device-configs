@@ -477,6 +477,7 @@ class TestNtp : public ntp_servers::NTPServers {
  public:
   bool flush_fails{false};
   std::vector<std::string> handed;
+  void reply_from(const std::string &server) { this->answered_by_(server); }
 
  protected:
   void use_server_(const char *server) override { this->handed.emplace_back(server == nullptr ? "" : server); }
@@ -514,6 +515,7 @@ TEST_F(Ntp, GetAnswersTheServersAfterTheZone) {
 }
 
 TEST_F(Ntp, GetNamesTheServerThatAnswered) {
+  this->ntp.reply_from("0.pool.ntp.org");
   this->sntp.sync();
   Reply reply = this->get(TIME);
   EXPECT_EQ(reply["ntp"]["last_sync"]["time"].as<int64_t>(), JULY) << reply.body;

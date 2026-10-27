@@ -290,8 +290,14 @@ server.
   lwIP keeps the name's pointer, so the component hands it a buffer of its own and rewrites it
   only once no slot points there. Left with several servers, lwIP stays on whichever answered
   last, never returns to the first, and cannot say which one answered; with one it can do
-  neither wrong. An answer is the platform's `on_time_sync` callback, which upstream defers to
-  the loop task; ESP-IDF polls no more often than every 15 s whatever `update_interval` says.
+  neither wrong. The component replaces upstream's `esp_sntp_set_time_sync_notification_cb()`
+  callback with one that does what upstream's does, deferring the public
+  `SNTPComponent::time_synced()` to the loop task, and first reads slot 0's name on lwIP's task,
+  so the answer is credited to the server that sent it. A sync with no reply before it is
+  upstream's first loop pass reporting a clock that was already set, after a software restart,
+  and counts for nothing. lwIP times its next poll from the reply, ahead of the loop task, so
+  the component goes back to the first server 5 s before that poll. ESP-IDF polls no more often
+  than every 15 s whatever `update_interval` says.
 - `components/automations` names entities by `fnv1_hash` of their object id and walks
   `App.get_binary_sensors()` / `get_sensors()` / `get_switches()` itself, so the hash and
   `EntityBase::get_object_id_to` are part of the on-disk rule format.

@@ -68,7 +68,8 @@ TEST_F(Servers, AfterAnotherAnswersTheFirstIsAskedAtThePoll) {
   ASSERT_STREQ(servers.asked(), POOL_0);
   this->answer();
   EXPECT_EQ(servers.last_sync()->server, POOL_0);
-  this->pass(POLL_MS - 1);
+  // Ahead of lwIP's own poll, which would ask this one again first.
+  this->pass(POLL_MS - RETURN_LEAD_MS - 1);
   EXPECT_STREQ(servers.asked(), POOL_0);
   this->pass(1);
   EXPECT_STREQ(servers.asked(), "ntp.local");
@@ -152,6 +153,38 @@ TEST_F(Servers, AChangeStartsAFreshRoundFromTheFirst) {
   EXPECT_STREQ(servers.asked(), "ntp.local");
   this->pass(ANSWER_MS);
   EXPECT_STREQ(servers.asked(), POOL_0);
+}
+
+// Upstream's first loop pass reports a clock already set, as it is after a restart: no NTP
+// server answered.
+TEST_F(Servers, ASyncWithoutAReplyIsNoAnswer) {
+  TestServers &servers = this->boot();
+  this->device().clock.sync();
+  EXPECT_FALSE(servers.last_sync().has_value());
+  this->pass(ANSWER_MS);
+  EXPECT_STREQ(servers.asked(), POOL_1);
+}
+
+// A reply the loop task hears of only after the device moved on is the old server's.
+TEST_F(Servers, AReplyFromAServerNoLongerAskedMovesNothing) {
+  TestServers &servers = this->boot();
+  servers.reply_from(POOL_0);
+  ASSERT_EQ(servers.configure({"ntp.local"}, true), SetError::NONE);
+  this->device().clock.sync();
+  ASSERT_TRUE(servers.last_sync().has_value());
+  EXPECT_EQ(servers.last_sync()->server, POOL_0);
+  EXPECT_STREQ(servers.current(), "ntp.local");
+  // Still the first wait for the one asked now, not a poll.
+  this->pass(ANSWER_MS);
+  EXPECT_STREQ(servers.asked(), POOL_0);
+}
+
+TEST_F(Servers, AReplyIsCountedOnce) {
+  TestServers &servers = this->boot();
+  this->answer();
+  servers.now = JULY + 60;
+  this->device().clock.sync();
+  EXPECT_EQ(servers.last_sync()->time, JULY);
 }
 
 TEST_F(Servers, TheLastAnswerOutlivesAChange) {

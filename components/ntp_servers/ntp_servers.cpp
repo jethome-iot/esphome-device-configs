@@ -10,6 +10,7 @@
 #endif
 #ifdef USE_ESP32
 #include "esp_sntp.h"
+#include "esphome/components/sntp/sntp_component.h"
 #endif
 
 namespace esphome::ntp_servers {
@@ -20,6 +21,9 @@ static const char *const TAG = "ntp_servers";
 static const uint32_t ANSWER_MS = 30000;
 // ESP-IDF polls no more often than that.
 static const uint32_t MIN_POLL_MS = 15000;
+// How far ahead of lwIP's own poll the first server is asked again: lwIP times its poll from the
+// reply, which the loop task hears of later. Below MIN_POLL_MS.
+static const uint32_t RETURN_LEAD_MS = 5000;
 // Past a whole round with no answer, the wait doubles up to this many times, never past a poll.
 static const size_t MAX_BACKOFF = 5;
 
@@ -107,7 +111,26 @@ const char *NTPServers::current() const {
   return this->index_ < this->in_use_.size() ? this->in_use_[this->index_].c_str() : nullptr;
 }
 
+#ifdef USE_ESP32
+NTPServers *NTPServers::instance_ = nullptr;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
+// Upstream's own callback, plus the server: on lwIP's task, its lock held, slot 0 still names the
+// one whose reply this is.
+void NTPServers::on_reply_(struct timeval * /*tv*/) {
+  const char *name = esp_sntp_getservername(0);
+  std::string server = name != nullptr ? name : "";
+  instance_->defer([server]() {
+    instance_->answered_by_(server);
+    static_cast<sntp::SNTPComponent *>(instance_->clock_)->time_synced();
+  });
+}
+#endif
+
 void NTPServers::setup() {
+#ifdef USE_ESP32
+  instance_ = this;
+  esp_sntp_set_time_sync_notification_cb(&NTPServers::on_reply_);
+#endif
   this->pref_ = global_preferences->make_preference<StoredServers>(this->preference_hash_);
   StoredServers stored{};
   // Nothing stored: the clock's own servers, as before there was a choice.
@@ -220,10 +243,19 @@ void NTPServers::loop() {
 }
 
 void NTPServers::on_answer_() {
-  const char *server = this->current();
-  if (server == nullptr)
+  // Upstream's first loop pass reports a clock that was already set, after a restart.
+  if (!this->answer_.has_value())
+    return;
+  std::string server = std::move(*this->answer_);
+  this->answer_.reset();
+  // A reply lwIP processed as its slot was cleared has nobody to credit.
+  if (server.empty())
     return;
   this->last_sync_ = Sync{this->now_(), server};
+  // From a server asked before a change or a move on: it says nothing of the one asked now.
+  const char *current = this->current();
+  if (current == nullptr || server != current)
+    return;
   this->misses_ = 0;
   if (this->in_use_.size() < 2) {
     this->armed_ = false;
@@ -235,7 +267,7 @@ void NTPServers::on_answer_() {
     this->arm_(poll > UINT32_MAX - ANSWER_MS ? UINT32_MAX : poll + ANSWER_MS, false);
   } else {
     // Instead of this one's next poll: the first may be back.
-    this->arm_(poll, true);
+    this->arm_(poll - RETURN_LEAD_MS, true);
   }
 }
 

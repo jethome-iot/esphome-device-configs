@@ -1,5 +1,6 @@
 #pragma once
 
+#include <sys/time.h>
 #include <cstdint>
 #include <ctime>
 #include <string>
@@ -74,6 +75,9 @@ class NTPServers : public Component {
  protected:
   /// Hands lwIP @p server alone, or stops it on nullptr. Virtual so the host tests can watch it.
   virtual void use_server_(const char *server);
+  /// lwIP's reply came from @p server: the clock's sync that follows is that answer. A sync with
+  /// none before it set no time from NTP.
+  void answered_by_(std::string server) { this->answer_ = std::move(server); }
   /// Virtual so the host tests can cut the network.
   virtual bool connected_() const;
   /// millis(); virtual so the tests can move it, past its wrap too.
@@ -99,6 +103,7 @@ class NTPServers : public Component {
   std::vector<const char *> fallback_servers_;
   std::vector<std::string> in_use_;
   size_t index_{0};
+  optional<std::string> answer_;
   optional<Sync> last_sync_;
   // Servers asked in a row without an answer: past a whole round, each waits longer.
   size_t misses_{0};
@@ -114,6 +119,10 @@ class NTPServers : public Component {
   uint32_t preference_hash_{0};
   // The name lwIP is handed: it keeps the pointer, not the text.
   char asking_[SERVER_NAME_MAX + 1]{};
+#ifdef USE_ESP32
+  static void on_reply_(struct timeval *tv);
+  static NTPServers *instance_;
+#endif
 };
 
 }  // namespace esphome::ntp_servers
