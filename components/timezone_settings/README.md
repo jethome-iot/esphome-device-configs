@@ -76,8 +76,9 @@ before anything that reads the local time sets itself up.
 
 A chosen zone's name is at most 63 bytes with no control characters, and may be empty; its
 POSIX string at most 63 bytes, printable ASCII, parsed the way ESPHome parses one at build
-time. Anything else is refused and changes nothing. A change is stored before it is applied,
-so one that does not reach flash leaves the device as it was and says so.
+time, with its standard and DST offsets at most 24 hours from UTC. Anything else is refused
+and changes nothing; the compiled `timezone` is held to the same. A change is stored before
+it is applied, so one that does not reach flash leaves the device as it was and says so.
 
 The panel's **Info → Timezone** row shows the chosen zone's city while it is in effect, and
 the offset from UTC of the zone in effect otherwise.
@@ -98,7 +99,7 @@ that jumps does to the rules' cron triggers is in
 ## Tests
 
 `tests/components/timezone_settings/` holds the device's POSIX parser to ESPHome's own Python
-one over every zone in tzdata and a list of odd and malformed strings
+one over every zone in tzdata and a list of odd, malformed and out-of-range strings
 (`posix_tz_cases.tsv`, written by `generate_fixture.py`; `test_fixture.py` says when it is
 stale), and covers the mode and its storage, the upgrade from a firmware that kept only Home
 Assistant's zone, Home Assistant's zone arriving in either mode or as the mode changes, the

@@ -271,7 +271,9 @@ server.
   `time::ParsedTimezone`, which a restoring global stores by size: a change to the struct drops
   the stored zone once. The parser in `posix_tz_parse.cpp` is a port of
   `aioesphomeapi.posix_tz`, which ESPHome runs at build time; its suite fails when the pinned
-  `aioesphomeapi` parses differently.
+  `aioesphomeapi` parses differently. It refuses an offset more than 24 hours from UTC, which
+  Python takes: `RealTimeClock::dump_config()` and `ESPTime::timezone_offset()` negate the
+  offset in 32 bits.
 - `components/timezone_settings` sets the clock through a `time::RealTimeClock` subclass of its
   own that is never registered, calling the protected `synchronize_epoch_()`: that keeps the
   platform's `settimeofday` call and its skip within a second upstream's. It returns nothing, so

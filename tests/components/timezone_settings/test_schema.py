@@ -22,6 +22,7 @@ import esphome.final_validate as fv
 loader.install_meta_finder(Path(__file__).resolve().parents[3] / "components")
 
 from esphome.components import timezone_settings  # noqa: E402
+import generate_fixture  # noqa: E402
 
 HEADER = (
     Path(__file__).resolve().parents[3]
@@ -87,16 +88,52 @@ class CompiledZone(unittest.TestCase):
             ):
                 validate(timezone=zone)
 
-    def test_an_offset_past_32_bits_is_refused(self):
+    def test_an_offset_more_than_24_hours_from_utc_is_refused(self):
+        # The device's parser refuses it: ESPHome negates an offset in 32 bits.
         for zone in (
-            "EST596524",
-            "EST5EDT,M3.2.0/596524,M11.1.0",
-            "EST-596523:14:08EDT",
+            "EST-596523:14:08",
+            "EST24:00:01",
+            "EST-24:00:01",
+            "EST5EDT24:00:01,M3.2.0,M11.1.0",
+            "EST5EDT-24:00:01,M3.2.0,M11.1.0",
+            "EST-23:00:01EDT,M3.2.0,M11.1.0",
         ):
             with (
                 self.subTest(zone=zone),
-                self.assertRaisesRegex(cv.Invalid, "has an offset past 596523 hours"),
+                self.assertRaisesRegex(
+                    cv.Invalid, "has an offset more than 24 hours from UTC"
+                ),
             ):
+                validate(timezone=zone)
+
+    def test_a_rule_time_past_32_bits_is_refused(self):
+        for zone in (
+            "EST5EDT,M3.2.0/596523:14:08,M11.1.0",
+            "EST5EDT,M3.2.0,M11.1.0/-596523:14:08",
+        ):
+            with (
+                self.subTest(zone=zone),
+                self.assertRaisesRegex(
+                    cv.Invalid, "has a DST rule time past 596523 hours"
+                ),
+            ):
+                validate(timezone=zone)
+
+    def test_the_bounds_themselves_are_taken(self):
+        for zone in (
+            "EST24:00:00",
+            "EST-24:00:00",
+            "EST5EDT-24,M3.2.0,M11.1.0",
+            "EST-23EDT,M3.2.0,M11.1.0",
+            "EST5EDT,M3.2.0/596523:14:07,M11.1.0/-596523:14:07",
+        ):
+            with self.subTest(zone=zone):
+                self.assertEqual(validate(timezone=zone)["timezone"], zone)
+
+    def test_it_refuses_all_the_device_refuses_past_its_range(self):
+        # The C++ suite holds the device to the same list.
+        for zone in generate_fixture.STRICTER:
+            with self.subTest(zone=zone), self.assertRaises(cv.Invalid):
                 validate(timezone=zone)
 
     def test_not_a_string_is_refused(self):

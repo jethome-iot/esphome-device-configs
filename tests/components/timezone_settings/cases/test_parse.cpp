@@ -74,7 +74,7 @@ TEST(Parse, AgreesWithPythonOnTheOddAndTheMalformed) {
   size_t odd = 0;
   size_t malformed = 0;
   for (const Case &c : read_fixture()) {
-    if (c.kind == "zone")
+    if (c.kind == "zone" || c.kind == "stricter")
       continue;
     (c.kind == "odd" ? odd : malformed)++;
     time::ParsedTimezone tz{};
@@ -111,20 +111,50 @@ TEST(Parse, RefusesWhatIsNotPrintableAscii) {
   }
 }
 
-// Python's int has no ceiling; ESPHome's struct holds 32 bits.
-TEST(Parse, RefusesNumbersTheStructCannotHold) {
-  time::ParsedTimezone tz{};
-  EXPECT_FALSE(parse_posix_tz("EST4294967296", tz));        // past 32 bits as digits
-  EXPECT_FALSE(parse_posix_tz("EST596524", tz));            // hours past INT32_MAX seconds
-  EXPECT_FALSE(parse_posix_tz("EST596523:14:08", tz));      // INT32_MAX + 1
-  EXPECT_FALSE(parse_posix_tz("EST-596524", tz));           // past INT32_MIN
-  EXPECT_FALSE(parse_posix_tz("EST-596523:14:08EDT", tz));  // the default DST offset, an hour past it
-  EXPECT_FALSE(parse_posix_tz("EST5EDT,M3.2.0/596524,M11.1.0", tz));
+// generate_fixture.py's STRICTER: Python's int has no ceiling, and its parser no range.
+TEST(Parse, RefusesWhatPythonTakesPastTheDevicesRange) {
+  size_t stricter = 0;
+  for (const Case &c : read_fixture()) {
+    if (c.kind != "stricter")
+      continue;
+    stricter++;
+    time::ParsedTimezone tz{};
+    EXPECT_TRUE(c.ok) << c.posix;
+    EXPECT_FALSE(parse_posix_tz(c.posix, tz)) << c.posix;
+  }
+  EXPECT_GT(stricter, 10u);
+}
 
-  ASSERT_TRUE(parse_posix_tz("EST596523:14:07", tz));
-  EXPECT_EQ(tz.std_offset_seconds, INT32_MAX);
-  ASSERT_TRUE(parse_posix_tz("EST-596523:14:08", tz));
-  EXPECT_EQ(tz.std_offset_seconds, INT32_MIN);
+// Upstream negates an offset in 32 bits: EST-596523:14:08, INT32_MIN, made
+// RealTimeClock::dump_config() overflow on the next boot.
+TEST(Parse, KeepsOffsetsWithin24HoursOfUtc) {
+  time::ParsedTimezone tz{};
+  EXPECT_FALSE(parse_posix_tz("EST-596523:14:08", tz));
+  for (const char *posix : {"EST24:00:01", "EST-24:00:01", "EST5EDT24:00:01,M3.2.0,M11.1.0",
+                            "EST5EDT-24:00:01,M3.2.0,M11.1.0", "EST-23:00:01EDT,M3.2.0,M11.1.0"})
+    EXPECT_FALSE(parse_posix_tz(posix, tz)) << posix;
+
+  ASSERT_TRUE(parse_posix_tz("EST24:00:00", tz));
+  EXPECT_EQ(tz.std_offset_seconds, 86400);
+  ASSERT_TRUE(parse_posix_tz("EST-24:00:00", tz));
+  EXPECT_EQ(tz.std_offset_seconds, -86400);
+  ASSERT_TRUE(parse_posix_tz("EST5EDT24:00:00,M3.2.0,M11.1.0", tz));
+  EXPECT_EQ(tz.dst_offset_seconds, 86400);
+  ASSERT_TRUE(parse_posix_tz("EST5EDT-24:00:00,M3.2.0,M11.1.0", tz));
+  EXPECT_EQ(tz.dst_offset_seconds, -86400);
+  // The default DST offset, an hour ahead of standard time.
+  ASSERT_TRUE(parse_posix_tz("EST-23EDT,M3.2.0,M11.1.0", tz));
+  EXPECT_EQ(tz.dst_offset_seconds, -86400);
+}
+
+// A rule's time is only added, in 64 bits: anything the struct holds, either way.
+TEST(Parse, TakesARuleTimeThe32BitsHold) {
+  time::ParsedTimezone tz{};
+  ASSERT_TRUE(parse_posix_tz("EST5EDT,M3.2.0/596523:14:07,M11.1.0/-596523:14:07", tz));
+  EXPECT_EQ(tz.dst_start.time_seconds, INT32_MAX);
+  EXPECT_EQ(tz.dst_end.time_seconds, -INT32_MAX);
+  EXPECT_FALSE(parse_posix_tz("EST5EDT,M3.2.0/596523:14:08,M11.1.0", tz));
+  EXPECT_FALSE(parse_posix_tz("EST5EDT,M3.2.0,M11.1.0/-596523:14:08", tz));
 }
 
 TEST(Parse, TakesNothingEmpty) {

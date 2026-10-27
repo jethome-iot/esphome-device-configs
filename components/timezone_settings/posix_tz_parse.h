@@ -10,7 +10,8 @@ namespace esphome::timezone_settings {
 /// @p text as aioesphomeapi.posix_tz.parse_posix_tz reads it, into @p out; false where that
 /// raises, @p out then untouched. ESPHome parses only at build time, so a zone chosen at run
 /// time needs this. Stricter in two places: a byte outside printable ASCII, which Python would
-/// take for a letter or a digit or skip, and a number the struct cannot hold.
+/// take for a letter or a digit or skip, and a number past what upstream handles: an offset
+/// more than 24 hours from UTC, a rule's time past 32 bits.
 bool parse_posix_tz(const std::string &text, time::ParsedTimezone &out);
 
 }  // namespace esphome::timezone_settings

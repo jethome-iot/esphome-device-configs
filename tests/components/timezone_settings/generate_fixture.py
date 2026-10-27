@@ -1,5 +1,5 @@
-"""Writes posix_tz_cases.tsv: what Python's parser makes of every zone in tzdata, and of the odd
-and the malformed strings below. The suite holds the device's parser to it.
+"""Writes posix_tz_cases.tsv: what Python's parser makes of every zone in tzdata, and of the odd,
+the malformed and the out-of-range strings below. The suite holds the device's parser to it.
 
     python tests/components/timezone_settings/generate_fixture.py
 
@@ -30,7 +30,8 @@ ODD = [
     "EST005:00:00",
     "EST5:0:0",
     "EST24",
-    "EST167",
+    "EST24:00:00",
+    "EST-24:00:00",
     "EST5EDT",
     "EST5EDT4",
     "EST5<EDT>",
@@ -48,6 +49,10 @@ ODD = [
     "EST5EDT,M3.2.0/0,M11.1.0/0:0:0",
     "EST5EDT4:30,M3.5.0/1,M10.5.0",
     "EST5EDT-4,M3.5.0,M10.5.0",
+    "EST5EDT24,M3.2.0,M11.1.0",
+    "EST5EDT-24:00:00,M3.2.0,M11.1.0",
+    "EST-23EDT,M3.2.0,M11.1.0",
+    "EST5EDT,M3.2.0/596523:14:07,M11.1.0/-596523:14:07",
     "<+1030>-10:30<+11>-11,M10.1.0,M4.1.0",
     "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA5",
     "EST5 trailing",
@@ -90,6 +95,7 @@ MALFORMED = [
     "EST5EDT,M3.",
     "EST5EDT,M3.2",
     "EST5EDT,M3.2.",
+    "EST5EDT,M3x2.0,M11.1.0",
     "EST5EDT,M3.2.0",
     "EST5EDT,M3.2.0,",
     "EST5EDT,M3.2.0;M11.1.0",
@@ -112,6 +118,24 @@ MALFORMED = [
     "EST5EDT4:,M3.2.0,M11.1.0",
     "EST5<EDT,M3.2.0,M11.1.0",
     "EST5ED4,M3.2.0,M11.1.0",
+]
+
+# Taken by Python, refused by the device: an offset more than 24 hours from UTC, which ESPHome
+# negates in 32 bits, and a rule's time past 32 bits.
+STRICTER = [
+    "EST24:00:01",
+    "EST-24:00:01",
+    "EST25",
+    "EST167",
+    "EST-596523:14:08",
+    "EST596524",
+    "EST4294967296",
+    "EST5EDT24:00:01,M3.2.0,M11.1.0",
+    "EST5EDT-24:00:01,M3.2.0,M11.1.0",
+    "EST-23:00:01EDT,M3.2.0,M11.1.0",
+    "EST-23:00:01EDT",
+    "EST5EDT,M3.2.0/596523:14:08,M11.1.0",
+    "EST5EDT,M3.2.0,M11.1.0/-596523:14:08",
 ]
 
 RULE_FIELDS = ("type", "month", "week", "day_of_week", "day", "time_seconds")
@@ -141,7 +165,9 @@ def row(kind, label, posix):
 
 def zones():
     """Every zone tzdata lists, links included, and the POSIX string time's validator gives it."""
-    names = resources.files("tzdata").joinpath("zones").read_text().split()
+    names = (
+        resources.files("tzdata").joinpath("zones").read_text(encoding="utf-8").split()
+    )
     return [
         (name, time_._extract_tz_string(time_._load_tzdata(name))) for name in names
     ]
@@ -163,6 +189,7 @@ def rows():
     out = [row("zone", name, posix) for name, posix in zones()]
     out += [row("odd", "-", posix) for posix in ODD]
     out += [row("malformed", "-", posix) for posix in MALFORMED]
+    out += [row("stricter", "-", posix) for posix in STRICTER]
     return out
 
 
@@ -171,7 +198,7 @@ def render():
 
 
 def main():
-    FIXTURE.write_text(render())
+    FIXTURE.write_text(render(), encoding="utf-8")
     print(f"wrote {FIXTURE}")
 
 

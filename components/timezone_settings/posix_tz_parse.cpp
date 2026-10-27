@@ -16,9 +16,11 @@ static bool is_letter(char c) { return (c >= 'A' && c <= 'Z') || (c >= 'a' && c 
 static bool is_digit(char c) { return c >= '0' && c <= '9'; }
 static bool is_sign(char c) { return c == '+' || c == '-'; }
 
-static bool fits_int32(int64_t value) {
-  return value >= std::numeric_limits<int32_t>::min() && value <= std::numeric_limits<int32_t>::max();
-}
+// POSIX gives an offset 0 to 24 hours; upstream negates one in 32 bits (dump_config(),
+// timezone_offset()), which INT32_MIN would overflow.
+static const int64_t MAX_OFFSET = 24 * 3600;
+// Upstream adds a rule's time in 64 bits: all the struct holds will do.
+static const int64_t MAX_RULE_TIME = std::numeric_limits<int32_t>::max();
 
 // _skip_tz_name: <anything> or three letters or more.
 static bool skip_name(const std::string &s, size_t &pos) {
@@ -52,8 +54,8 @@ static bool parse_uint(const std::string &s, size_t &pos, uint32_t &value) {
   return true;
 }
 
-// _parse_offset: [+|-]hh[:mm[:ss]] in seconds.
-static bool parse_offset(const std::string &s, size_t &pos, int32_t &seconds) {
+// _parse_offset: [+|-]hh[:mm[:ss]] in seconds, at most @p limit either way.
+static bool parse_offset(const std::string &s, size_t &pos, int64_t limit, int32_t &seconds) {
   int64_t sign = 1;
   if (pos < s.size() && s[pos] == '-') {
     sign = -1;
@@ -76,10 +78,10 @@ static bool parse_offset(const std::string &s, size_t &pos, int32_t &seconds) {
         return false;
     }
   }
-  const int64_t total = sign * (static_cast<int64_t>(hours) * 3600 + static_cast<int64_t>(minutes) * 60 + secs);
-  if (!fits_int32(total))
+  const int64_t magnitude = static_cast<int64_t>(hours) * 3600 + static_cast<int64_t>(minutes) * 60 + secs;
+  if (magnitude > limit)
     return false;
-  seconds = static_cast<int32_t>(total);
+  seconds = static_cast<int32_t>(sign * magnitude);
   return true;
 }
 
@@ -126,7 +128,7 @@ static bool parse_rule(const std::string &s, size_t &pos, DSTRule &rule) {
   rule.time_seconds = 2 * 3600;
   if (pos < s.size() && s[pos] == '/') {
     pos++;
-    return parse_offset(s, pos, rule.time_seconds);
+    return parse_offset(s, pos, MAX_RULE_TIME, rule.time_seconds);
   }
   return true;
 }
@@ -138,7 +140,7 @@ static bool parse(const std::string &s, ParsedTimezone &tz) {
     return false;
   if (pos >= s.size() || (!is_digit(s[pos]) && !is_sign(s[pos])))
     return false;
-  if (!parse_offset(s, pos, tz.std_offset_seconds))
+  if (!parse_offset(s, pos, MAX_OFFSET, tz.std_offset_seconds))
     return false;
   if (pos >= s.size())
     return true;
@@ -149,13 +151,13 @@ static bool parse(const std::string &s, ParsedTimezone &tz) {
   if (!skip_name(s, pos))
     return false;
   if (pos < s.size() && (is_digit(s[pos]) || is_sign(s[pos]))) {
-    if (!parse_offset(s, pos, tz.dst_offset_seconds))
+    if (!parse_offset(s, pos, MAX_OFFSET, tz.dst_offset_seconds))
       return false;
   } else {
-    const int64_t dst = static_cast<int64_t>(tz.std_offset_seconds) - 3600;
-    if (!fits_int32(dst))
+    // An hour ahead of standard time, held to the same 24 hours.
+    tz.dst_offset_seconds = tz.std_offset_seconds - 3600;
+    if (tz.dst_offset_seconds < -MAX_OFFSET)
       return false;
-    tz.dst_offset_seconds = static_cast<int32_t>(dst);
   }
   // A DST name without rules is no DST, though the DST offset stays set.
   if (pos >= s.size() || s[pos] != ',')

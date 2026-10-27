@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "common.h"
 
 namespace esphome::timezone_settings::testing {
@@ -54,8 +55,14 @@ TEST_F(Timezone, TheOffsetFollowsTheZoneInEffect) {
   EXPECT_EQ(settings.status().utc_offset, 3600);
 }
 
-TEST_F(Timezone, TheOffsetOfTheWestmostZoneDoesNotOverflow) {
-  TestSettings &settings = this->boot("Test", "EST-596523:14:08");
+// The parser keeps a zone within 24 hours of UTC; Home Assistant's comes as upstream decoded it.
+TEST_F(Timezone, TheOffsetOfHomeAssistantsZoneDoesNotOverflow) {
+  TestSettings &settings = this->boot();
+  time::ParsedTimezone eastmost{};
+  eastmost.std_offset_seconds = INT32_MIN;
+  this->homeassistant_answers(&eastmost);
+  this->loop();
+  ASSERT_EQ(settings.zone_source(), ZoneSource::HOMEASSISTANT);
   settings.now = 0;
   EXPECT_EQ(settings.status().utc_offset, 2147483648LL);
 }

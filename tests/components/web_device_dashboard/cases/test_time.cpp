@@ -267,6 +267,8 @@ TEST_F(Time, WhatTheDeviceCannotTakeIsUnprocessable) {
            Case{R"({"posix":"Asia/Tokyo"})", "'posix' is not a POSIX TZ string"},
            Case{R"({"follow_homeassistant":false,"posix":""})", "'posix' is not a POSIX TZ string"},
            Case{R"({"posix":"JST-9\u0000x"})", "'posix' is not a POSIX TZ string"},
+           // INT32_MIN, which ESPHome's dump_config() would negate on the next boot.
+           Case{R"({"follow_homeassistant":false,"posix":"EST-596523:14:08"})", "'posix' is not a POSIX TZ string"},
            Case{R"({"posix":")" + long_posix + R"("})", "'posix' is over 63 bytes"},
            Case{R"({"zone":")" + long_zone + R"(","posix":"JST-9"})", "'zone' is over 63 bytes"},
            Case{R"({"zone":"Asia/\u0001Tokyo","posix":"JST-9"})", "'zone' cannot contain control characters"},

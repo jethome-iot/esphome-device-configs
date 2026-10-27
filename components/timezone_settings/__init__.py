@@ -50,7 +50,10 @@ CLOCK_SOURCES = {
     CONF_RTC: ClockSource.RTC,
 }
 
-INT32 = range(-(2**31), 2**31)
+# posix_tz_parse.cpp's bounds, either way of zero: POSIX's for an offset, and a rule's time as
+# the struct holds it.
+MAX_OFFSET = 24 * 3600
+MAX_RULE_TIME = 2**31 - 1
 
 
 def _posix(value):
@@ -72,15 +75,15 @@ def validate_zone(value):
     from aioesphomeapi.posix_tz import parse_posix_tz
 
     parsed = parse_posix_tz(posix)
-    numbers = (
-        parsed.std_offset_seconds,
-        parsed.dst_offset_seconds,
-        parsed.dst_start.time_seconds,
-        parsed.dst_end.time_seconds,
-    )
-    if any(number not in INT32 for number in numbers):
+    offsets = (parsed.std_offset_seconds, parsed.dst_offset_seconds)
+    if any(abs(offset) > MAX_OFFSET for offset in offsets):
         raise cv.Invalid(
-            f"POSIX timezone string '{posix}' has an offset past 596523 hours"
+            f"POSIX timezone string '{posix}' has an offset more than 24 hours from UTC"
+        )
+    times = (parsed.dst_start.time_seconds, parsed.dst_end.time_seconds)
+    if any(abs(seconds) > MAX_RULE_TIME for seconds in times):
+        raise cv.Invalid(
+            f"POSIX timezone string '{posix}' has a DST rule time past 596523 hours"
         )
     return value
 
