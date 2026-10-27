@@ -34,7 +34,7 @@ seconds later. On a relay a running thermostat drives, `State` does not toggle a
 A relay or an input with a label goes by it in the Relays and Inputs lists and in `Bind to`'s
 choices, as soon as it is set. A label too long for its row is cut, to 12 characters in the
 lists, where the state follows it, and to 8 in `Bind to`, the last of them `…`. A character the
-menu font cannot draw shows as `?`; the font has Latin and Cyrillic.
+menu font cannot draw shows as `?`; the font has Latin, accented letters included, and Cyrillic.
 
 ## Files
 
