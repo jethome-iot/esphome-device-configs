@@ -92,7 +92,10 @@ boundaries; everything else is local to its file.
   `homeassistant_time` and `sntp_time` do after theirs.
 - `run_factory_reset` (a script in `features/factory-reset.yaml`) is the reset the menu's
   Factory reset runs; the same file runs it when `fn_button` (`boards/jxd-cpu-e1eth.yaml`) is
-  held for 10 s, after blinking `red_led`, the `status_indicator` on the CPU board's LED.
+  held for 10 s, after the 5 s of `fn_factory_reset`.
+- `red_led` (`boards/jxd-cpu-e1eth.yaml`) is the `status_indicator` on the CPU board's LED;
+  `features/status-led.yaml` adds its signals, which read `fn_factory_reset`, `wifi_id`, `temps`,
+  `pcb_temp` and `climates`.
 - `web_device_dashboard` (`features/web-device-dashboard.yaml`) is the page at `/`, registered
   ahead of `web_server`'s own. Entity state and control go through `web_server`'s REST and
   `/events`, the Files screen through `web_file_browser` at `/files`, the Automations screen
