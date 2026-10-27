@@ -31,6 +31,7 @@ packages:
   i2c: !include ${features}/i2c.yaml
   modbus: !include ${features}/modbus-server.yaml
   network: !include ${features}/network.yaml
+  reboot_required: !include ${features}/reboot-required.yaml
   rtc_time: !include ${features}/rtc-time.yaml
   status_led: !include ${features}/status-led.yaml
   storage: !include ${features}/storage.yaml

@@ -95,7 +95,10 @@ boundaries; everything else is local to its file.
   held for 10 s, after the 5 s of `fn_factory_reset`.
 - `red_led` (`boards/jxd-cpu-e1eth.yaml`) is the `status_indicator` on the CPU board's LED;
   `features/status-led.yaml` adds its signals, which read `fn_factory_reset`, `wifi_id`, `temps`,
-  `pcb_temp` and `climates`.
+  `pcb_temp`, `climates` and `reboot_required`.
+- `reboot_required` (`features/reboot-required.yaml`) is the device's one internal flag for a saved change
+  that waits for a reboot; a feature with such a change adds its term to that lambda and its
+  name to `reboot_reasons` in `web_device_dashboard`'s `/api/device/status`.
 - `web_device_dashboard` (`features/web-device-dashboard.yaml`) is the page at `/`, registered
   ahead of `web_server`'s own. Entity state and control go through `web_server`'s REST and
   `/events`, the Files screen through `web_file_browser` at `/files`, the Automations screen

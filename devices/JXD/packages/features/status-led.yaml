@@ -54,9 +54,9 @@ status_indicator:
       off_time: 350ms
       pause_time: 2s
 
-    # 4: saved temperature slots wait for a reboot.
+    # 4: a saved change waits for a reboot.
     - condition:
-        lambda: return id(temps)->reboot_required();
+        binary_sensor.is_on: reboot_required
       count: 4
       on_time: 250ms
       off_time: 350ms

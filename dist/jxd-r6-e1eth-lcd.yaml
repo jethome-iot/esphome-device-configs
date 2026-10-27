@@ -347,6 +347,10 @@ binary_sensor:
       - delayed_on: 10s
     on_press:
       - script.execute: fn_factory_reset
+  - platform: template
+    id: reboot_required
+    internal: true
+    lambda: return id(temps)->reboot_required();
   - platform: gpio
     name: UP
     id: up_button_id
@@ -550,7 +554,7 @@ status_indicator:
       off_time: 350ms
       pause_time: 2s
     - condition:
-        lambda: return id(temps)->reboot_required();
+        binary_sensor.is_on: reboot_required
       count: 4
       on_time: 250ms
       off_time: 350ms
