@@ -43,7 +43,7 @@ def tab_rows(name: str) -> list[list[str]]:
 
 def link_targets() -> dict[str, str]:
     """Each link name's zone, from tzdata.zi's `L target link` lines."""
-    zi = (resources.files("tzdata.zoneinfo") / "tzdata.zi").read_text()
+    zi = (resources.files("tzdata.zoneinfo") / "tzdata.zi").read_text(encoding="utf-8")
     links = {}
     for line in zi.splitlines():
         if line.startswith("L "):
@@ -57,7 +57,9 @@ def ts_str(value: str) -> str:
 
 
 def build() -> str:
-    names = sorted((resources.files("tzdata") / "zones").read_text().split())
+    names = sorted(
+        (resources.files("tzdata") / "zones").read_text(encoding="utf-8").split()
+    )
     posix = {name: validate_tz(name) for name in names}
     for name, value in posix.items():
         if not value or max(len(name.encode()), len(value.encode())) > MAX_BYTES:
@@ -150,14 +152,15 @@ def main() -> int:
     contents = build()
     target = OUT.relative_to(REPO_ROOT)
     if args.check:
-        if (OUT.read_text() if OUT.is_file() else None) != contents:
+        current = OUT.read_text(encoding="utf-8") if OUT.is_file() else None
+        if current != contents:
             print(
                 f"out of date: {target}\nRun scripts/build-timezones.py and commit it."
             )
             return 1
         print(f"{target} is up to date")
         return 0
-    OUT.write_text(contents)
+    OUT.write_text(contents, encoding="utf-8")
     print(f"  wrote {target}")
     return 0
 
