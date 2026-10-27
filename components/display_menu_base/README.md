@@ -65,8 +65,8 @@ A `select` or `number` row opened with "enter" steps its value on the row only. 
 it when the edit ends: "enter" again, `display_menu.back`, "left" in the rotary mode, or the menu
 being hidden or sent to the main screen. An edit that ends on the value the entity already has
 writes nothing; the row's `on_value` fires once, when the value is written, and its `on_leave`
-runs after that. A row with `immediate_edit: true` has no edit to end and still applies every
-step. A `value_lambda` replaces the text the row draws, so it shows what it reads, not the value
+runs after that. A row with `immediate_edit: true` still applies every step, in the rotary mode
+too. A `value_lambda` replaces the text the row draws, so it shows what it reads, not the value
 being picked.
 
 ## Actions

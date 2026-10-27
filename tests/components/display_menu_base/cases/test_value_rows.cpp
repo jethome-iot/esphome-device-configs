@@ -176,13 +176,18 @@ TEST_F(ValueRows, ShowMainMidEditAppliesTheChoice) {
 // A row's own on_leave runs after the select has the choice, so it can act on it.
 TEST_F(ValueRows, OnLeaveSeesTheAppliedOption) {
   std::string seen;
-  this->select_row_.add_on_leave_callback([&]() { seen = this->option(); });
+  int on_value_seen = -1;
+  this->select_row_.add_on_leave_callback([&]() {
+    seen = this->option();
+    on_value_seen = this->select_on_value_;
+  });
 
   this->menu_.enter();
   this->menu_.right();
   this->menu_.enter();
 
   EXPECT_EQ(seen, "WiFi");
+  EXPECT_EQ(on_value_seen, 1);
 }
 
 // immediate_edit means "no edit to open": every step still goes straight to the select.
@@ -354,21 +359,64 @@ TEST_F(ValueRows, AnImmediateNumberRowAppliesEveryStep) {
 }
 
 // A state past the limits (a restored value from before the limits changed) reads as the
-// limit, and the first step is taken back inside them.
-TEST_F(ValueRows, ANumberPastItsLimitsStepsBackInside) {
+// limit, and steps start from what the row shows, so the first one is seen to move.
+TEST_F(ValueRows, ANumberPastItsLimitsStepsFromTheLimit) {
   this->number_.publish_state(300);
 
   EXPECT_EQ(this->number_shown(), "247");
 
   this->on_number_row();
   this->menu_.enter();
-  this->menu_.left();
+  this->menu_.right();
 
   EXPECT_EQ(this->number_shown(), "247");
 
   this->menu_.enter();
 
-  EXPECT_EQ(this->number_.state, 247);
+  EXPECT_EQ(this->number_.writes, 0);
+
+  this->menu_.enter();
+  this->menu_.left();
+
+  EXPECT_EQ(this->number_shown(), "246");
+
+  this->menu_.enter();
+
+  EXPECT_EQ(this->number_.state, 246);
+  EXPECT_EQ(this->number_.writes, 1);
+}
+
+// A float sum of 0.1 steps drifts: up three and down three must still land on the start.
+TEST_F(ValueRows, AFractionalStepBackToTheStartWritesNothing) {
+  this->number_.traits.set_max_value(100);
+  this->number_.traits.set_step(0.1f);
+  this->number_.publish_state(15.7f);
+
+  this->on_number_row();
+  this->menu_.enter();
+  for (int i = 0; i < 3; i++)
+    this->menu_.right();
+  for (int i = 0; i < 3; i++)
+    this->menu_.left();
+  this->menu_.enter();
+
+  EXPECT_EQ(this->number_.writes, 0);
+}
+
+// The rotary mode opens an edit on an immediate number all the same; it keeps every step.
+TEST_F(ValueRows, AnImmediateNumberRowAppliesEveryStepInTheRotaryMode) {
+  this->menu_.set_mode(MENU_MODE_ROTARY);
+  this->number_row_.set_immediate_edit(true);
+
+  this->on_number_row();
+  this->menu_.enter();
+  this->menu_.down();
+
+  EXPECT_EQ(this->number_.state, 2);
+  EXPECT_EQ(this->number_.writes, 1);
+
+  this->menu_.left();
+
   EXPECT_EQ(this->number_.writes, 1);
 }
 

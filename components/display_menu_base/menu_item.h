@@ -148,6 +148,8 @@ class MenuItemNumber final : public MenuItemEditable {
   std::string format_;
   bool editing_{false};
   optional<float> pending_{};
+  float origin_{0};
+  int steps_{0};
 };
 #endif
 

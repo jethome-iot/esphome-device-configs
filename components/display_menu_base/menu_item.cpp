@@ -197,7 +197,8 @@ float MenuItemNumber::get_number_value_() const {
 
 // JetHome: apply on leave
 void MenuItemNumber::on_enter() {
-  this->editing_ = true;
+  // The rotary mode opens an edit on an immediate_edit number too; it still applies every step.
+  this->editing_ = !this->immediate_edit_;
   this->pending_.reset();
   MenuItem::on_enter();
 }
@@ -214,16 +215,24 @@ void MenuItemNumber::on_leave() {
 }
 
 bool MenuItemNumber::step_pending_(bool up) {
-  // The first step starts from the number's state, as for a select; with none there is nothing
-  // to step from, and NumberCall refuses the same.
-  if (this->number_var_ == nullptr || (!this->pending_.has_value() && !this->number_var_->has_state()))
+  if (this->number_var_ == nullptr)
     return false;
   const auto &traits = this->number_var_->traits;
-  const float from = this->pending_.value_or(this->number_var_->state);
+  // The first step starts from the state the row shows, as for a select; with none there is
+  // nothing to step from, and NumberCall refuses the same.
+  if (!this->pending_.has_value()) {
+    if (!this->number_var_->has_state())
+      return false;
+    this->origin_ = std::clamp(this->number_var_->state, traits.get_min_value(), traits.get_max_value());
+    this->steps_ = 0;
+  }
+  // Counted steps, not a running sum, so stepping back lands on the origin exactly.
+  const int steps = this->steps_ + (up ? 1 : -1);
   const float step = std::isnan(traits.get_step()) ? 1 : traits.get_step();
-  const float value = std::clamp(from + (up ? step : -step), traits.get_min_value(), traits.get_max_value());
-  if (value == from)
+  const float value = std::clamp(this->origin_ + steps * step, traits.get_min_value(), traits.get_max_value());
+  if (value == this->pending_.value_or(this->origin_))
     return false;
+  this->steps_ = steps;
   this->pending_ = value;
   return true;
 }
