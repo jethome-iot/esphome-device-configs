@@ -368,6 +368,22 @@ TEST_F(Storage, AnOldCutFileGoesToTheNameItSpellsWhole) {
   EXPECT_NE(read(repeat("ф", 24) + ".json").find(R"("name":")" + repeat("ф", 24) + "\""), std::string::npos);
 }
 
+// A refused file holds the long rule's new name, so it stays in the old one, which the rule
+// named after that file must then leave alone.
+TEST_F(Storage, AnOldCutFileThatCannotMoveIsKept) {
+  const std::string refused = "{";
+  write(repeat("ф", 23) + "-4.json", refused);
+  write(repeat("ф", 24) + ".json", startup_rule(repeat("ф", 30), 4));
+  write("x.json", startup_rule(repeat("ф", 24), 5));
+  boot();
+  EXPECT_EQ(read(repeat("ф", 23) + "-4.json"), refused);
+  EXPECT_NE(read(repeat("ф", 24) + ".json").find(R"("name":")" + repeat("ф", 30) + "\""), std::string::npos);
+  EXPECT_NE(read("x.json").find(R"("name":")" + repeat("ф", 24) + "\""), std::string::npos);
+
+  reboot();
+  EXPECT_EQ(names(), (std::vector<std::string>{repeat("ф", 30), repeat("ф", 24)}));
+}
+
 TEST_F(Storage, ALongNameRenamedKeepsOneFile) {
   boot();
   const uint32_t id = engine->add_automation(rule(startup_rule(repeat("ф", 30)).c_str()));

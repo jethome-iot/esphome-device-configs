@@ -847,8 +847,11 @@ void AutomationStorage::normalize_filenames_(const std::vector<bool> &changed) {
       if (vacating != (round == 0))
         continue;
 
+      // A rule that stays put holds `from`, so whoever that file is named after must not take it.
       if (std::find(occupied.begin(), occupied.end(), canonical[i]) != occupied.end()) {
         ESP_LOGW(TAG, "Not writing '%s': another automation is still stored there", canonical[i].c_str());
+        if (moved)
+          occupied.push_back(from);
         continue;
       }
       // A target nothing loaded from is a file the loader refused: it stays, the rule stays put.
@@ -856,6 +859,7 @@ void AutomationStorage::normalize_filenames_(const std::vector<bool> &changed) {
           file_exists(folder_path + "/" + canonical[i])) {
         ESP_LOGW(TAG, "Not writing '%s': a file the loader refused is there; leaving '%s' in place",
                  canonical[i].c_str(), from.c_str());
+        occupied.push_back(from);
         continue;
       }
 
