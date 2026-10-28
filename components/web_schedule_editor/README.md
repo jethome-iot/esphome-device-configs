@@ -58,7 +58,8 @@ header naming the one it does. Any other path under the prefix is `404`.
 
 Every route but `schema` and `ping` runs its whole read or write on the loop task and answers
 `503 Service Unavailable` when the loop does not get to it within five seconds. Nothing was read
-or written then, and the call can simply be made again.
+or written then, and the call can simply be made again. A read whose answer does not fit the
+free memory is `503` too, `Device is low on memory; try again`.
 
 | Method | Path | |
 |---|---|---|
@@ -94,7 +95,9 @@ document that breaks a rule; `404` for an unknown `id` on `save`, `409` for a sc
 a newer firmware wrote, `409` for a stale `revision`, `507` past `max_schedules`; `409` for a name
 another schedule has; `409` for an enabled schedule that shares a target with another enabled
 schedule (`"Winter" already drives Living Room; switch it off first or take over`, the first
-shared target). A relay, a thermostat or a preset the device does not have is stored, with a
+shared target). `507`, `Not enough free memory on the device to save this schedule`, when the body
+or the schedule would leave the device too little memory; the file and the schedule stay as they
+were. A relay, a thermostat or a preset the device does not have is stored, with a
 `warning` naming the first action it skips (`skips mode "Day", action 2: relay "relay_7" is not
 on this device`).
 

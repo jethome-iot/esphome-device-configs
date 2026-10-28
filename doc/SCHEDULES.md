@@ -122,6 +122,11 @@ and since when, and its next switch point, for one switched off too.
 - A mode's name: 1 to 24 characters, in any language, unique in its schedule whatever the case
   and spacing.
 - A schedule's file: 16 KiB.
+- The device's free memory. A Save or an import that would leave too little is refused with
+  `Not enough free memory on the device to save this schedule`, and nothing changes. A boot
+  stops loading schedules before memory runs short and leaves the rest of the files as they are;
+  the log names each one. With eight thermostats that is about seven schedules of the largest
+  kind, while ordinary ones fit sixteen.
 
 The editor's `schema` route reports the limits of the firmware at hand and the colours a mode
 may have.
@@ -133,7 +138,8 @@ Schedules are `/littlefs/schedules/<id>.json` on the LittleFS partition from
 updates keep the files; a factory reset formats the partition, so the schedules go with it.
 Backup and Restore on the dashboard carry them. A file dropped into the folder, over the file
 API under `/files` for instance, is loaded at the next boot. One that breaks the format's rules
-is not loaded and is left as it is, and past the limit the files load in name order.
+is not loaded and is left as it is, and past the limit, or the memory, the files load in name
+order.
 
 A file written by a newer firmware, after a rollback say, loads and runs, but this firmware
 never writes it: a Save is refused with a sentence that says a newer firmware wrote it,

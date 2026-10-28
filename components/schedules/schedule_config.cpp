@@ -483,14 +483,41 @@ void ScheduleConfig::write_action(JsonObject obj, const Action &action) const {
   }
 }
 
-EncodeError ScheduleConfig::encode(std::string *out, size_t max_bytes, ArduinoJson::Allocator *allocator) const {
-  JsonDocument doc(allocator);
+// A string's own block, none while it fits inside the object; a block costs its header too.
+static size_t string_heap(const std::string &text) {
+  static const size_t INLINE = std::string().capacity();
+  return text.capacity() > INLINE ? text.capacity() + 1 + 2 * sizeof(void *) : 0;
+}
+
+size_t ScheduleConfig::heap_bytes() const {
+  size_t bytes = string_heap(this->id) + string_heap(this->name) + this->modes.capacity() * sizeof(Mode) +
+                 this->actions.capacity() * sizeof(Action) + this->targets.capacity() * sizeof(Target) +
+                 this->preset_keys.capacity() * sizeof(std::string) + this->points.capacity() * sizeof(Point);
+  for (const Mode &mode : this->modes)
+    bytes += string_heap(mode.id) + string_heap(mode.name);
+  for (const Target &target : this->targets)
+    bytes += string_heap(target.id);
+  for (const std::string &key : this->preset_keys)
+    bytes += string_heap(key);
+  return bytes;
+}
+
+EncodeError ScheduleConfig::encode(JsonDocument &doc, size_t max_bytes) const {
+  doc.clear();
   this->serialize(doc.to<JsonObject>());
   // A failed allocation drops members silently; what is left would still serialize.
   if (doc.overflowed())
     return EncodeError::NO_MEMORY;
   if (measureJson(doc) > max_bytes)
     return EncodeError::TOO_LARGE;
+  return EncodeError::NONE;
+}
+
+EncodeError ScheduleConfig::encode(std::string *out, size_t max_bytes, ArduinoJson::Allocator *allocator) const {
+  JsonDocument doc(allocator);
+  const EncodeError error = this->encode(doc, max_bytes);
+  if (error != EncodeError::NONE)
+    return error;
   std::string json;
   serializeJson(doc, json);
   *out = std::move(json);

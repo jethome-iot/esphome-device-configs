@@ -114,8 +114,11 @@ struct ScheduleConfig {
   /// `{"type":"relay","id":"relay_1","value":{"type":"on"}}` and the like: an action as the file
   /// holds it.
   void write_action(JsonObject obj, const Action &action) const;
-  /// The file's content. Refused, `out` untouched, when the next boot could not load it back:
-  /// over `max_bytes`, or cut short by an allocation that failed.
+  /// The file's content in `doc`, refused when the next boot could not load it back: over
+  /// `max_bytes`, or cut short by an allocation that failed.
+  EncodeError encode(JsonDocument &doc, size_t max_bytes = MAX_FILE_BYTES) const;
+  /// The same as text, `out` untouched on a refusal. The text is one block of the file's size:
+  /// the engine writes `doc` out a buffer at a time instead.
   EncodeError encode(std::string *out, size_t max_bytes = MAX_FILE_BYTES,
                      ArduinoJson::Allocator *allocator = ArduinoJson::detail::DefaultAllocator::instance()) const;
 
@@ -156,6 +159,9 @@ struct ScheduleConfig {
   const Point *in_force(uint16_t minute_of_week) const;
   /// The first point after `minute_of_week`, going round into next week. nullptr for no points.
   const Point *next_after(uint16_t minute_of_week) const;
+
+  /// About what the schedule holds on the heap, for the engine's room checks.
+  size_t heap_bytes() const;
 
   /// Written by a newer firmware: this one must not write it back.
   bool from_newer_firmware() const { return this->version > SCHEDULE_VERSION; }

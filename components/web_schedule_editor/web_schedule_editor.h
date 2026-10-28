@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ArduinoJson.h>
 #include <cstdint>
 #include <string>
 #include "esphome/components/schedules/schedule_engine.h"
@@ -59,26 +60,36 @@ class WebScheduleEditor : public AsyncWebHandler, public Component {
   void handle_delete_(AsyncWebServerRequest *request);
   void handle_enable_(AsyncWebServerRequest *request);
 
-  /// Answers what a job decided: `json` when it ran and succeeded, the error it set when it
+  /// Answers what a job decided: `doc` when it ran and succeeded, the error it set when it
   /// ran and refused, 503 when the loop task never took it.
-  void answer_(AsyncWebServerRequest *request, bool ran, int code, const std::string &error, const std::string &json);
+  void answer_(AsyncWebServerRequest *request, bool ran, int code, const std::string &error, const JsonDocument &doc);
+  /// 200 with `doc`, sent a chunk at a time; 503 when a failed allocation cut it short.
+  void send_doc_(AsyncWebServerRequest *request, const JsonDocument &doc);
   void send_json_(AsyncWebServerRequest *request, int code, const std::string &json);
   void send_error_(AsyncWebServerRequest *request, const std::string &message, int code = 400);
   // For the statuses AsyncWebServerRequest::send() does not know and would turn into a 500.
   void send_status_(AsyncWebServerRequest *request, const char *status, const char *allow, const char *body);
+
+  // Seam: what the body, a parsed body and every answer document draw on, so a test can run
+  // the heap out.
+  virtual ArduinoJson::Allocator *json_allocator_() const { return ArduinoJson::detail::DefaultAllocator::instance(); }
 
   web_server_base::WebServerBase *base_;
   schedules::ScheduleEngine *engine_;
   // What is registered on the server; this handler is only ever reached through it.
   web_origin_guard::WebOriginGuard guard_{this};
   std::string url_prefix_{"/schedule-editor"};
-  // The server handles one request at a time, so one body buffer is enough. body_total_ is
-  // the Content-Length the buffer belongs to: a receive that failed midway never reaches
-  // handleRequest, so the next request checks it against its own before trusting the buffer.
-  std::string body_;
+  // The server handles one request at a time, so one body buffer is enough, taken whole at its
+  // first chunk. body_total_ is the Content-Length the buffer belongs to: a receive that failed
+  // midway never reaches handleRequest, so the next request checks it against its own before
+  // trusting the buffer.
+  char *body_{nullptr};
   size_t body_total_{0};
   size_t body_received_{0};
   bool body_too_large_{false};
+  bool body_no_memory_{false};
+  // What an answer goes out through, a chunk at a time: one request at a time, as the body.
+  char out_[512];
 };
 
 }  // namespace esphome::web_schedule_editor

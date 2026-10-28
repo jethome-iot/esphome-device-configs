@@ -11,6 +11,8 @@
 #include <fstream>
 #include <functional>
 #include <iterator>
+#include <cstdint>
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <utility>
@@ -253,6 +255,8 @@ class TestEngine : public schedules::ScheduleEngine {
   bool loop_busy{false};
   bool refuse_remove{false};
   size_t max_file_bytes{schedules::MAX_FILE_BYTES};
+  // The heap's room as has_heap_room() reads it: free and the largest block alike.
+  size_t heap_free{SIZE_MAX};
   std::vector<std::function<void()>> later;
 
   bool run_on_loop(std::function<bool()> &&job) override {
@@ -303,14 +307,19 @@ class TestEngine : public schedules::ScheduleEngine {
     this->loop_busy = false;
     this->refuse_remove = false;
     this->max_file_bytes = schedules::MAX_FILE_BYTES;
+    this->heap_free = SIZE_MAX;
   }
 
  protected:
   ESPTime clock_now_() override { return this->local == 0 ? ESPTime{} : ESPTime::from_epoch_utc(this->local); }
   uint64_t mono_ms_() override { return this->mono; }
   void later_(std::function<void()> &&job) override { this->later.push_back(std::move(job)); }
-  schedules::EncodeError encode_(const schedules::ScheduleConfig &config, std::string *json) const override {
-    return config.encode(json, this->max_file_bytes);
+  size_t max_file_bytes_() const override { return this->max_file_bytes; }
+  schedules::HeapRoom heap_() const override {
+    schedules::HeapRoom heap;
+    heap.free = this->heap_free;
+    heap.largest_block = this->heap_free;
+    return heap;
   }
   bool remove_file_(const std::string &path) override {
     return !this->refuse_remove && schedules::ScheduleEngine::remove_file_(path);
@@ -336,6 +345,38 @@ inline TestEngine &engine() {
   }();
   return *instance;
 }
+
+// The editor with its heap seam taken: `allocator`, when set, is what the body, a parsed body
+// and the answers draw on.
+class TestEditor : public WebScheduleEditor {
+ public:
+  using WebScheduleEditor::WebScheduleEditor;
+  ArduinoJson::Allocator *allocator{nullptr};
+
+ protected:
+  ArduinoJson::Allocator *json_allocator_() const override {
+    return this->allocator != nullptr ? this->allocator : WebScheduleEditor::json_allocator_();
+  }
+};
+
+// A heap that hands out `left` bytes in all, then refuses.
+struct BudgetAllocator : ArduinoJson::Allocator {
+  explicit BudgetAllocator(size_t budget) : left(budget) {}
+  void *allocate(size_t size) override {
+    if (size > this->left)
+      return nullptr;
+    this->left -= size;
+    return malloc(size);
+  }
+  void deallocate(void *ptr) override { free(ptr); }
+  void *reallocate(void *ptr, size_t size) override {
+    if (size > this->left)
+      return nullptr;
+    this->left -= size;
+    return realloc(ptr, size);
+  }
+  size_t left;
+};
 
 // One answered request: whether a handler claimed it, and what it said.
 struct Reply {
@@ -400,7 +441,7 @@ class Editor : public ::testing::Test {
     ASSERT_NE(mkdtemp(folder), nullptr);
     this->base_path = folder;
     this->fresh();
-    this->editor = std::make_unique<WebScheduleEditor>(&this->base, &engine());
+    this->editor = std::make_unique<TestEditor>(&this->base, &engine());
     this->editor->setup();
   }
 
@@ -497,7 +538,7 @@ class Editor : public ::testing::Test {
 
   std::string base_path;
   web_server_base::WebServerBase base;
-  std::unique_ptr<WebScheduleEditor> editor;
+  std::unique_ptr<TestEditor> editor;
   Entities &e = entities();
 };
 

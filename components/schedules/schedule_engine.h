@@ -5,7 +5,8 @@
 //
 //   run_on_loop(job), is_failed(), max_schedules()
 //   Reads, for the list and the editor:
-//     schedules(), get(id)            the documents, sorted by id; document(id) as the JSON a Save takes
+//     schedules(), get(id)            the documents, sorted by id; document(id, doc) as the JSON a Save takes
+//     has_heap_room(more)             whether a change may take `more` and keep the reserve
 //     target_name(target)             a relay's or a thermostat's name, its id when it is not there
 //     status(id)                      ScheduleStatus: state, reason, note, and the issues of its actions
 //     now_and_next(config, &a, &b)    the points in force and next, false while the clock is not valid;
@@ -39,6 +40,31 @@ class Switch;
 }
 
 namespace schedules {
+
+/// Internal heap the boot keeps after each schedule it loads. The services that start after it
+/// take about 56 KiB for good, and the update check's TLS session about 50 KiB more for a while
+/// (QEMU, Ethernet): under this the device runs out during that check.
+static constexpr size_t BOOT_HEAP_FLOOR_BYTES = 160 * 1024;
+static constexpr size_t BOOT_HEAP_FLOOR_BLOCK = 40 * 1024;
+/// Internal heap a Save or an import leaves once done: a little over the 104 KiB a boot at its
+/// floor leaves once its services run, so what a Save keeps the next boot loads.
+static constexpr size_t HEAP_KEEP_BYTES = 106 * 1024;
+/// Internal heap a Save or an import leaves at its peak, so the network stack and the web
+/// server keep working through it.
+static constexpr size_t HEAP_RESERVE_BYTES = 40 * 1024;
+static constexpr size_t HEAP_RESERVE_BLOCK = 24 * 1024;
+/// A body's parsed document and the schedule it becomes take about this many times the body
+/// (QEMU: 29 KB for a 16 KB worst case), so the room is checked before a parse begins.
+static constexpr size_t PARSE_HEAP_FACTOR = 2;
+
+/// A Save or an import the heap cannot take: 507.
+extern const char *const NO_MEMORY_TO_SAVE;
+
+/// Internal heap: what is free, and the largest block of it.
+struct HeapRoom {
+  size_t free{0};
+  size_t largest_block{0};
+};
 
 /// What a mutator did, for a caller that answers over HTTP.
 struct Result {
@@ -161,8 +187,12 @@ class ScheduleEngine : public Component {
   /// The documents, sorted by id.
   std::vector<const ScheduleConfig *> schedules() const;
   const ScheduleConfig *get(const std::string &id) const;
-  /// The document as its file holds it, "" for an unknown id.
-  std::string document(const std::string &id) const;
+  /// The document as its file holds it, into `doc`; false for an unknown id. Whether it lost
+  /// members to a failed allocation is doc.overflowed().
+  bool document(const std::string &id, JsonDocument &doc) const;
+  /// Whether the heap keeps HEAP_RESERVE_* now with `more` bytes taken: a Save checks it before
+  /// its parse and at its peak.
+  bool has_heap_room(size_t more = 0) const;
   /// Where the schedule stands, checked now.
   ScheduleStatus status(const std::string &id) const;
   /// The relay's or the thermostat's name; its id when it is not on the device.
@@ -180,7 +210,8 @@ class ScheduleEngine : public Component {
   std::string scheduled_by(TargetType type, const std::string &id) const;
 
   /// Adds a schedule; its id is made from the name and the draft's ignored. Refused with 400 (a
-  /// rule broken), 507 (at max_schedules), 409 (name taken, every id the name gives taken by a
+  /// rule broken), 507 (at max_schedules, or the heap would keep less than HEAP_KEEP_BYTES or
+  /// drop under HEAP_RESERVE_* on the way), 409 (name taken, every id the name gives taken by a
   /// file, or enabled on a target another enabled schedule drives: `holder` names it), 413 or
   /// 500 (not written). One whose actions name what the device does not have is saved, with a
   /// `warning`. Enabled, it runs the list of the mode in force at once.
@@ -238,8 +269,10 @@ class ScheduleEngine : public Component {
     int64_t minute{0};
   };
 
+  enum class Load : uint8_t { LOADED, REFUSED, NO_MEMORY };
   bool load_();
-  bool load_file_(const std::string &folder, const std::string &filename);
+  /// NO_MEMORY, nothing kept, when the heap is or would be under BOOT_HEAP_FLOOR_*.
+  Load load_file_(const std::string &folder, const std::string &filename);
   void resolve_name_(ScheduleConfig *config);
 
   Result add_(ScheduleConfig doc, const char *verb);
@@ -261,6 +294,8 @@ class ScheduleEngine : public Component {
   std::vector<Issue> issues_(const ScheduleConfig &config, const std::vector<switch_::Switch *> &switches) const;
   Entry *find_(const std::string &id) const;
   bool refuse_if_failed_(Result *result) const;
+  /// Whether the heap keeps HEAP_KEEP_BYTES once `doc` is held and `replaced`, if any, is gone.
+  bool keeps_room_(const ScheduleConfig &doc, const ScheduleConfig *replaced) const;
 
   void tick_();
   void start_all_(const char *why);
@@ -301,11 +336,14 @@ class ScheduleEngine : public Component {
   std::string folder_() const;
   std::string file_path_(const std::string &id) const;
   bool ensure_folder_();
-  /// False, nothing written, when the write failed or a newer firmware wrote the file;
-  /// `too_large` then says whether it was the size.
-  bool save_(const ScheduleConfig &config, bool *too_large = nullptr);
-  // Seam: every valid document fits the cap, and no host fails one allocation.
-  virtual EncodeError encode_(const ScheduleConfig &config, std::string *json) const { return config.encode(json); }
+  /// False, nothing written, when the write failed or a newer firmware wrote the file; `why`
+  /// then says whether it was the size or the heap. `grows`: a change that keeps more in RAM,
+  /// refused as NO_MEMORY when its peak leaves the heap under HEAP_RESERVE_*.
+  bool save_(const ScheduleConfig &config, EncodeError *why = nullptr, bool grows = false);
+  // Seams: every valid document fits the cap, and no host heap runs out.
+  virtual size_t max_file_bytes_() const { return MAX_FILE_BYTES; }
+  virtual ArduinoJson::Allocator *json_allocator_() const { return ArduinoJson::detail::DefaultAllocator::instance(); }
+  virtual HeapRoom heap_() const;
   /// False when the file is still there to be loaded at the next boot.
   bool delete_file_(const std::string &id);
   // Seam: no host filesystem lets a test refuse one unlink.
@@ -315,6 +353,8 @@ class ScheduleEngine : public Component {
   time::RealTimeClock *rtc_{nullptr};
   std::string folder_path_{"schedules"};
   uint8_t max_schedules_{16};
+  // Files the boot left on flash for lack of heap.
+  uint8_t left_for_heap_{0};
 
   // Sorted by id; unique_ptr so a job that looked one up keeps it while others come and go.
   std::vector<std::unique_ptr<Entry>> entries_;

@@ -10,6 +10,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <cstdint>
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <vector>
@@ -101,7 +103,7 @@ inline uint16_t wm(int day, int hour, int minute) { return static_cast<uint16_t>
 // The engine with its seams taken: the local clock is `local` (0 for none valid yet), the
 // loop's own count `mono`, a job for the loop waits in `jobs`, a list's wait in `timers` until
 // `mono` reaches it, a file can be made undeletable, the encoder given a smaller cap or a heap
-// that runs out.
+// that runs out, and the heap's room set: `heap_free` less `entry_cost` per schedule held.
 class FakeEngine : public ScheduleEngine {
  public:
   struct Timer {
@@ -116,6 +118,9 @@ class FakeEngine : public ScheduleEngine {
   std::vector<std::string> undeletable;
   size_t max_file_bytes{MAX_FILE_BYTES};
   ArduinoJson::Allocator *json_allocator{nullptr};
+  size_t heap_free{SIZE_MAX};
+  size_t heap_block{SIZE_MAX};
+  size_t entry_cost{0};
 
   void tick() { this->tick_(); }
   // Both clocks move on, a tick a second, as the loop runs; a wait that ends goes first.
@@ -206,10 +211,16 @@ class FakeEngine : public ScheduleEngine {
         std::remove_if(this->timers.begin(), this->timers.end(), [timer](const Timer &t) { return t.id == timer; }),
         this->timers.end());
   }
-  EncodeError encode_(const ScheduleConfig &config, std::string *json) const override {
-    if (this->json_allocator == nullptr)
-      return config.encode(json, this->max_file_bytes);
-    return config.encode(json, this->max_file_bytes, this->json_allocator);
+  size_t max_file_bytes_() const override { return this->max_file_bytes; }
+  ArduinoJson::Allocator *json_allocator_() const override {
+    return this->json_allocator != nullptr ? this->json_allocator : ScheduleEngine::json_allocator_();
+  }
+  HeapRoom heap_() const override {
+    const size_t held = this->entries_.size() * this->entry_cost;
+    HeapRoom heap;
+    heap.free = this->heap_free == SIZE_MAX ? SIZE_MAX : (this->heap_free > held ? this->heap_free - held : 0);
+    heap.largest_block = this->heap_block;
+    return heap;
   }
   bool remove_file_(const std::string &path) override {
     for (const std::string &name : this->undeletable) {

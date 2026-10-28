@@ -27,7 +27,8 @@ info:
 
     Every route that reads or changes the schedules runs on the device's main
     loop, so an answer describes what actually happened; `503` means the loop
-    did not get to the request within five seconds and nothing changed.
+    did not get to the request within five seconds, or a read's answer did not
+    fit the free memory, and nothing changed.
     `/schema` and `/ping` never wait for the loop.
 
     One enabled schedule per target, the targets being every relay and
@@ -156,7 +157,10 @@ paths:
         taken by a file in the folder; `409` for an enabled schedule whose modes
         name a target another enabled schedule drives, naming the first such
         target; `413` when the file would be over 16 KiB. While the schedule
-        storage is not usable, a body is `500` before it is read.
+        storage is not usable, a body is `500` before it is read. A body the
+        free memory cannot take is `507` before it is read, and a schedule that
+        would leave the device too little memory is `507` before its file is
+        written: nothing changes.
 
         A Save stops the schedule's list where it is; an enabled schedule then
         runs the list of the mode in force at once, at every Save, a rename too.
@@ -670,16 +674,28 @@ components:
                 success: false
                 error: Schedule storage is not available
     Full:
-      description: A new schedule would pass the firmware's `max_schedules`.
+      description: >-
+        A new schedule would pass the firmware's `max_schedules`, or the body or
+        the schedule would leave the device too little free memory. Nothing
+        changed.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
-          example:
-            success: false
-            error: This device allows 16 schedules; delete one to add another
+          examples:
+            full:
+              value:
+                success: false
+                error: This device allows 16 schedules; delete one to add another
+            memory:
+              value:
+                success: false
+                error: Not enough free memory on the device to save this schedule
     Busy:
-      description: The main loop did not take the request in time. Nothing was read or written; ask again.
+      description: >-
+        The main loop did not take the request in time (`Device busy`), or the
+        answer did not fit the free memory (`Device is low on memory; try
+        again`). Nothing was read or written; ask again.
       content:
         application/json:
           schema:

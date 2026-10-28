@@ -2,8 +2,10 @@
 #include <ArduinoJson.h>
 #include <algorithm>
 #include <cinttypes>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <utility>
@@ -19,6 +21,9 @@
 #endif
 #ifdef USE_CLIMATE_HUB
 #include "esphome/components/climate_hub/climate_hub.h"
+#endif
+#ifdef USE_ESP32
+#include <esp_heap_caps.h>
 #endif
 
 namespace esphome::schedules {
@@ -39,6 +44,8 @@ static const char *const STALE_DOCUMENT = "The device changed this schedule sinc
 // The dashboard's editor opens a blank form at /schedules/new.
 static const char *const RESERVED_ID = "new";
 static const char *const NO_THERMOSTATS = "This device has no thermostats";
+
+const char *const NO_MEMORY_TO_SAVE = "Not enough free memory on the device to save this schedule";
 
 const char *state_to_string(ScheduleState state) {
   switch (state) {
@@ -90,15 +97,81 @@ static Result success() {
 }
 
 // A create or update whose file was not written: nothing changed.
-static Result not_saved(bool too_large) {
-  if (too_large)
+static Result not_saved(EncodeError why) {
+  if (why == EncodeError::TOO_LARGE)
     return failure(413, "The schedule's file would be over 16 KiB");
+  if (why == EncodeError::NO_MEMORY)
+    return failure(507, NO_MEMORY_TO_SAVE);
   Result result = failure(500, "The schedule's file could not be written");
   result.persisted = false;
   return result;
 }
 
 static_assert(MAX_FILE_BYTES == 16384, "the sentence above names the limit");
+
+// ArduinoJson's reader over a file through a small buffer: a file is parsed as it is read,
+// never held whole.
+class FileReader {
+ public:
+  explicit FileReader(FILE *file) : file_(file) {}
+  int read() {
+    if (this->next_ == this->end_ && !this->fill_())
+      return -1;
+    return static_cast<uint8_t>(this->buffer_[this->next_++]);
+  }
+  size_t readBytes(char *out, size_t length) {
+    size_t got = 0;
+    while (got < length && (this->next_ < this->end_ || this->fill_())) {
+      const size_t n = std::min(length - got, this->end_ - this->next_);
+      memcpy(out + got, this->buffer_ + this->next_, n);
+      this->next_ += n;
+      got += n;
+    }
+    return got;
+  }
+
+ protected:
+  bool fill_() {
+    this->next_ = 0;
+    this->end_ = fread(this->buffer_, 1, sizeof(this->buffer_), this->file_);
+    return this->end_ > 0;
+  }
+  FILE *file_;
+  char buffer_[256];
+  size_t next_{0};
+  size_t end_{0};
+};
+
+// ArduinoJson's writer into a file through a small buffer, so no file is ever one block of RAM.
+class FileWriter {
+ public:
+  explicit FileWriter(FILE *file) : file_(file) {}
+  size_t write(uint8_t c) { return this->write(&c, 1); }
+  size_t write(const uint8_t *data, size_t length) {
+    for (size_t done = 0; done < length;) {
+      const size_t n = std::min(length - done, sizeof(this->buffer_) - this->used_);
+      memcpy(this->buffer_ + this->used_, data + done, n);
+      this->used_ += n;
+      done += n;
+      if (this->used_ == sizeof(this->buffer_))
+        this->flush();
+    }
+    return length;
+  }
+  /// False once any write failed.
+  bool flush() {
+    if (this->used_ > 0 && fwrite(this->buffer_, 1, this->used_, this->file_) != this->used_)
+      this->failed_ = true;
+    this->used_ = 0;
+    return !this->failed_;
+  }
+
+ protected:
+  FILE *file_;
+  uint8_t buffer_[256];
+  size_t used_{0};
+  bool failed_{false};
+};
 
 static switch_::Switch *find_switch(const std::string &object_id) {
 #ifdef USE_SWITCH
@@ -493,31 +566,53 @@ bool ScheduleEngine::load_() {
   closedir(dir);
   // readdir order is the filesystem's; which files fit under the cap should not be.
   std::sort(names.begin(), names.end());
+  this->left_for_heap_ = 0;
   for (const std::string &name : names) {
     if (this->entries_.size() >= this->max_schedules_) {
       ESP_LOGW(TAG, "'%s' left alone: at most %u schedules", name.c_str(), static_cast<unsigned>(this->max_schedules_));
       continue;
     }
+    // Once the heap ran short the rest stay on flash too, so which ones run does not depend on size.
+    if (this->left_for_heap_ > 0) {
+      ESP_LOGW(TAG, "'%s' left alone: not enough free memory", name.c_str());
+      this->left_for_heap_++;
+      continue;
+    }
     // setup() runs before the loop feeds the watchdog.
     App.feed_wdt();
-    this->load_file_(folder, name);
+    if (this->load_file_(folder, name) == Load::NO_MEMORY) {
+      const HeapRoom heap = this->heap_();
+      ESP_LOGW(TAG, "'%s' left alone: not enough free memory (%u bytes free, %u in one block)", name.c_str(),
+               static_cast<unsigned>(heap.free), static_cast<unsigned>(heap.largest_block));
+      this->left_for_heap_ = 1;
+    }
   }
   for (auto &entry : this->entries_)
     this->resolve_(*entry);
   this->refresh_();
-  ESP_LOGD(TAG, "Loaded %u schedules from '%s'", static_cast<unsigned>(this->entries_.size()), folder.c_str());
+  const HeapRoom heap = this->heap_();
+  ESP_LOGD(TAG, "Loaded %u schedules from '%s'; heap %u bytes free, %u in one block",
+           static_cast<unsigned>(this->entries_.size()), folder.c_str(), static_cast<unsigned>(heap.free),
+           static_cast<unsigned>(heap.largest_block));
   return true;
+}
+
+// At boot nothing else allocates yet, so the heap shows what the schedules took.
+static bool boot_room(const HeapRoom &heap) {
+  return heap.free >= BOOT_HEAP_FLOOR_BYTES && heap.largest_block >= BOOT_HEAP_FLOOR_BLOCK;
 }
 
 // A file that is refused stays exactly as it is: the folder is writable by hand and over the
 // file API, and the file is the only record of what its author meant.
-bool ScheduleEngine::load_file_(const std::string &folder, const std::string &filename) {
+ScheduleEngine::Load ScheduleEngine::load_file_(const std::string &folder, const std::string &filename) {
+  if (!boot_room(this->heap_()))
+    return Load::NO_MEMORY;
   const std::string path = folder + "/" + filename;
   const std::string stem = filename.substr(0, filename.size() - 5);
   FILE *file = fopen(path.c_str(), "r");
   if (file == nullptr) {
     ESP_LOGW(TAG, "Cannot open '%s'", path.c_str());
-    return false;
+    return Load::REFUSED;
   }
   fseek(file, 0, SEEK_END);
   const long size = ftell(file);
@@ -525,34 +620,37 @@ bool ScheduleEngine::load_file_(const std::string &folder, const std::string &fi
   if (size <= 0 || static_cast<size_t>(size) > MAX_FILE_BYTES) {
     ESP_LOGW(TAG, "'%s' refused: %ld bytes", path.c_str(), size);
     fclose(file);
-    return false;
-  }
-  std::string data(static_cast<size_t>(size), '\0');
-  const size_t got = fread(&data[0], 1, data.size(), file);
-  fclose(file);
-  if (got != data.size()) {
-    ESP_LOGW(TAG, "'%s' refused: short read", path.c_str());
-    return false;
-  }
-  JsonDocument doc;
-  if (deserializeJson(doc, data)) {
-    ESP_LOGE(TAG, "'%s' refused: not valid JSON", path.c_str());
-    return false;
+    return Load::REFUSED;
   }
   auto entry = std::make_unique<Entry>();
   ScheduleConfig &config = entry->config;
-  std::string error;
-  if (!config.deserialize(doc.as<JsonObjectConst>(), true, &error)) {
-    ESP_LOGE(TAG, "'%s' refused: %s", path.c_str(), error.c_str());
-    return false;
+  {
+    JsonDocument doc(this->json_allocator_());
+    FileReader reader(file);
+    const DeserializationError parsed = deserializeJson(doc, reader);
+    fclose(file);
+    if (parsed == DeserializationError::NoMemory)
+      return Load::NO_MEMORY;
+    if (parsed) {
+      ESP_LOGE(TAG, "'%s' refused: not valid JSON", path.c_str());
+      return Load::REFUSED;
+    }
+    std::string error;
+    if (!config.deserialize(doc.as<JsonObjectConst>(), true, &error)) {
+      ESP_LOGE(TAG, "'%s' refused: %s", path.c_str(), error.c_str());
+      return Load::REFUSED;
+    }
   }
+  // What the schedule keeps, the parsed file gone.
+  if (!boot_room(this->heap_()))
+    return Load::NO_MEMORY;
   if (config.id != stem) {
     ESP_LOGE(TAG, "'%s' refused: its id '%s' is not its file name", path.c_str(), config.id.c_str());
-    return false;
+    return Load::REFUSED;
   }
   if (config.id == RESERVED_ID) {
     ESP_LOGE(TAG, "'%s' refused: the editor cannot open the id '%s'", path.c_str(), RESERVED_ID);
-    return false;
+    return Load::REFUSED;
   }
   if (config.from_newer_firmware()) {
     ESP_LOGW(TAG, "'%s' is version %u, from a newer firmware: it runs, but changes stay in memory", path.c_str(),
@@ -563,7 +661,7 @@ bool ScheduleEngine::load_file_(const std::string &folder, const std::string &fi
   entry->run = this->next_run_++;
   // Loaded in file name order, which is id order.
   this->entries_.push_back(std::move(entry));
-  return true;
+  return Load::LOADED;
 }
 
 // Two documents under one name: the later one by id becomes "<name> 2" and is written back, so
@@ -592,6 +690,8 @@ void ScheduleEngine::dump_config() {
     ESP_LOGCONFIG(TAG, "  Folder: %s", this->folder_().c_str());
   ESP_LOGCONFIG(TAG, "  Schedules: %u of %u", static_cast<unsigned>(this->entries_.size()),
                 static_cast<unsigned>(this->max_schedules_));
+  if (this->left_for_heap_ > 0)
+    ESP_LOGCONFIG(TAG, "  Left on flash for lack of memory: %u", static_cast<unsigned>(this->left_for_heap_));
   for (const auto &entry : this->entries_) {
     const ScheduleStatus status = this->status(entry->config.id);
     ESP_LOGCONFIG(TAG, "  '%s' (%s): %u modes, %u targets, %s%s%s%s", entry->config.name.c_str(),
@@ -632,15 +732,31 @@ const ScheduleConfig *ScheduleEngine::get(const std::string &id) const {
   return entry == nullptr ? nullptr : &entry->config;
 }
 
-std::string ScheduleEngine::document(const std::string &id) const {
+bool ScheduleEngine::document(const std::string &id, JsonDocument &doc) const {
   const Entry *entry = this->find_(id);
   if (entry == nullptr)
-    return "";
-  JsonDocument doc;
+    return false;
+  doc.clear();
   entry->config.serialize(doc.to<JsonObject>());
-  std::string json;
-  serializeJson(doc, json);
-  return json;
+  return true;
+}
+
+bool ScheduleEngine::has_heap_room(size_t more) const {
+  const HeapRoom heap = this->heap_();
+  return heap.free >= HEAP_RESERVE_BYTES + more && heap.largest_block >= HEAP_RESERVE_BLOCK;
+}
+
+HeapRoom ScheduleEngine::heap_() const {
+  HeapRoom heap;
+#ifdef USE_ESP32
+  // What the debug component reports, and what the network stack draws on.
+  heap.free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  heap.largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+#else
+  heap.free = SIZE_MAX;
+  heap.largest_block = SIZE_MAX;
+#endif
+  return heap;
 }
 
 void ScheduleEngine::resolve_(Entry &entry) {
@@ -903,6 +1019,17 @@ bool ScheduleEngine::refuse_if_failed_(Result *result) const {
   return true;
 }
 
+bool ScheduleEngine::keeps_room_(const ScheduleConfig &doc, const ScheduleConfig *replaced) const {
+  // `doc` is on the heap already; what it replaces goes once it is stored.
+  const size_t freed = replaced != nullptr ? replaced->heap_bytes() : 0;
+  const HeapRoom heap = this->heap_();
+  if (heap.free == SIZE_MAX || heap.free + freed >= HEAP_KEEP_BYTES)
+    return true;
+  ESP_LOGE(TAG, "'%s' not written: it would leave %u bytes free, under %u", doc.id.c_str(),
+           static_cast<unsigned>(heap.free + freed), static_cast<unsigned>(HEAP_KEEP_BYTES));
+  return false;
+}
+
 bool ScheduleEngine::check_target_free_(const ScheduleConfig &doc, const std::string &self_id, Result *result) const {
   for (const Target &target : doc.targets) {
     const Entry *holder = this->holder_(target);
@@ -938,9 +1065,11 @@ Result ScheduleEngine::create(ScheduleConfig draft) {
     return result;
   draft.version = SCHEDULE_VERSION;
   draft.revision = 0;
-  bool too_large = false;
-  if (!this->save_(draft, &too_large))
-    return not_saved(too_large);
+  if (!this->keeps_room_(draft, nullptr))
+    return not_saved(EncodeError::NO_MEMORY);
+  EncodeError why = EncodeError::NONE;
+  if (!this->save_(draft, &why, true))
+    return not_saved(why);
   return this->add_(std::move(draft), "Created");
 }
 
@@ -968,10 +1097,12 @@ Result ScheduleEngine::update(const std::string &id, ScheduleConfig doc, optiona
     return result;
   doc.version = SCHEDULE_VERSION;
   doc.revision = stored->config.revision + 1;
+  if (!this->keeps_room_(doc, &stored->config))
+    return not_saved(EncodeError::NO_MEMORY);
   // Written beside the old file and renamed over it: a failure leaves everything as it was.
-  bool too_large = false;
-  if (!this->save_(doc, &too_large))
-    return not_saved(too_large);
+  EncodeError why = EncodeError::NONE;
+  if (!this->save_(doc, &why, true))
+    return not_saved(why);
   return this->replace_(stored, std::move(doc), "Updated");
 }
 
@@ -1005,9 +1136,11 @@ Result ScheduleEngine::restore(ScheduleConfig doc) {
   doc.version = SCHEDULE_VERSION;
   // Never the backup's: a form read before the import would otherwise Save over it.
   doc.revision = stored != nullptr ? stored->config.revision + 1 : 0;
-  bool too_large = false;
-  if (!this->save_(doc, &too_large))
-    return not_saved(too_large);
+  if (!this->keeps_room_(doc, stored != nullptr ? &stored->config : nullptr))
+    return not_saved(EncodeError::NO_MEMORY);
+  EncodeError why = EncodeError::NONE;
+  if (!this->save_(doc, &why, true))
+    return not_saved(why);
   if (stored == nullptr)
     return this->add_(std::move(doc), "Restored");
   return this->replace_(stored, std::move(doc), "Restored");
@@ -1163,23 +1296,28 @@ std::string ScheduleEngine::next_id_(const std::string &name) const {
   return "";
 }
 
-bool ScheduleEngine::save_(const ScheduleConfig &config, bool *too_large) {
-  if (too_large != nullptr)
-    *too_large = false;
+bool ScheduleEngine::save_(const ScheduleConfig &config, EncodeError *why, bool grows) {
+  if (why != nullptr)
+    *why = EncodeError::NONE;
   if (config.from_newer_firmware()) {
     ESP_LOGW(TAG, "'%s' not written: a newer firmware wrote its file", config.id.c_str());
     return false;
   }
-  std::string json;
-  const EncodeError encoded = this->encode_(config, &json);
+  JsonDocument doc(this->json_allocator_());
+  EncodeError encoded = config.encode(doc, this->max_file_bytes_());
+  // The peak: the document beside the schedule it came from.
+  if (encoded == EncodeError::NONE && grows && !this->has_heap_room())
+    encoded = EncodeError::NO_MEMORY;
+  if (why != nullptr)
+    *why = encoded;
   if (encoded == EncodeError::TOO_LARGE) {
     ESP_LOGE(TAG, "'%s' not written: over %u bytes", config.id.c_str(), static_cast<unsigned>(MAX_FILE_BYTES));
-    if (too_large != nullptr)
-      *too_large = true;
     return false;
   }
   if (encoded == EncodeError::NO_MEMORY) {
-    ESP_LOGE(TAG, "'%s' not written: out of memory", config.id.c_str());
+    const HeapRoom heap = this->heap_();
+    ESP_LOGE(TAG, "'%s' not written: not enough free memory (%u bytes free, %u in one block)", config.id.c_str(),
+             static_cast<unsigned>(heap.free), static_cast<unsigned>(heap.largest_block));
     return false;
   }
   if (!this->ensure_folder_()) {
@@ -1195,9 +1333,11 @@ bool ScheduleEngine::save_(const ScheduleConfig &config, bool *too_large) {
     ESP_LOGE(TAG, "Cannot write '%s'", tmp.c_str());
     return false;
   }
-  const size_t written = fwrite(json.data(), 1, json.size(), file);
+  FileWriter writer(file);
+  serializeJson(doc, writer);
+  const bool written = writer.flush();
   const bool closed = fclose(file) == 0;
-  if (written != json.size() || !closed || rename(tmp.c_str(), path.c_str()) != 0) {
+  if (!written || !closed || rename(tmp.c_str(), path.c_str()) != 0) {
     ESP_LOGE(TAG, "Cannot write '%s'", path.c_str());
     ::remove(tmp.c_str());
     return false;

@@ -17,8 +17,12 @@ TEST_F(Storage, ACreateWritesTheFileUnderAnIdFromTheName) {
   Result created = this->create(daily("Porch light"));
   EXPECT_EQ("porch-light", created.id);
   EXPECT_EQ(std::vector<std::string>{"porch-light.json"}, list_dir(this->folder()));
-  EXPECT_EQ(this->engine->document("porch-light"), read_file(this->file_of("porch-light")));
-  EXPECT_EQ("", this->engine->document("nobody"));
+  JsonDocument doc;
+  ASSERT_TRUE(this->engine->document("porch-light", doc));
+  std::string json;
+  serializeJson(doc, json);
+  EXPECT_EQ(json, read_file(this->file_of("porch-light")));
+  EXPECT_FALSE(this->engine->document("nobody", doc));
   EXPECT_EQ(SCHEDULE_VERSION, this->engine->get("porch-light")->version);
 }
 
@@ -341,8 +345,127 @@ TEST_F(Storage, ADocumentCutShortByTheHeapIsNeverWritten) {
   this->boot();
   this->engine->json_allocator = &refusing;
   Result refused = this->engine->create(daily("Porch"));
-  EXPECT_EQ(500, refused.code);
+  EXPECT_EQ(507, refused.code);
+  EXPECT_EQ("Not enough free memory on the device to save this schedule", refused.error);
+  EXPECT_TRUE(refused.persisted) << "nothing changed, nothing lost";
   EXPECT_TRUE(list_dir(this->folder()).empty());
+  EXPECT_TRUE(this->engine->schedules().empty());
+}
+
+// --- The heap ---
+
+// Each change that keeps more in RAM is refused at its peak when the heap would drop under the
+// reserve, and leaves the file and the schedule in RAM as they were.
+TEST_F(Storage, AChangeTheHeapCannotHoldLeavesEverythingAsItWas) {
+  this->boot();
+  this->create(daily("Porch"));
+  const std::string before = read_file(this->file_of("porch"));
+  this->engine->heap_free = HEAP_RESERVE_BYTES - 1;
+
+  Result created = this->engine->create(daily("Garden", "relay_2"));
+  EXPECT_EQ(507, created.code);
+  EXPECT_EQ(NO_MEMORY_TO_SAVE, created.error);
+  ScheduleConfig renamed = daily("Porch light");
+  Result updated = this->engine->update("porch", renamed);
+  EXPECT_EQ(507, updated.code);
+  ScheduleConfig back = daily("Kitchen", "relay_2");
+  back.id = "kitchen";
+  EXPECT_EQ(507, this->engine->restore(back).code);
+  back.id = "porch";
+  EXPECT_EQ(507, this->engine->restore(back).code);
+
+  EXPECT_EQ(std::vector<std::string>{"porch.json"}, list_dir(this->folder()));
+  EXPECT_EQ(before, read_file(this->file_of("porch")));
+  ASSERT_EQ(1u, this->engine->schedules().size());
+  EXPECT_EQ("Porch", this->engine->get("porch")->name);
+  EXPECT_EQ(0u, this->engine->get("porch")->revision);
+  EXPECT_TRUE(LogCapture::instance().warned("'porch' not written: it would leave"));
+
+  // At its peak the largest block counts as well as what is free.
+  this->engine->heap_free = SIZE_MAX;
+  this->engine->heap_block = HEAP_RESERVE_BLOCK - 1;
+  EXPECT_EQ(507, this->engine->update("porch", renamed).code);
+  EXPECT_TRUE(LogCapture::instance().warned("'porch' not written: not enough free memory ("));
+  this->engine->heap_block = HEAP_RESERVE_BLOCK;
+  EXPECT_TRUE(this->engine->update("porch", renamed).ok);
+}
+
+// What a change keeps counts what it lets go: at the line a new schedule is refused, an edit of
+// one that is there is not.
+TEST_F(Storage, AnEditKeepsTheRoomOfWhatItReplaces) {
+  this->boot();
+  this->create(daily("Porch"));
+  EXPECT_GT(this->engine->get("porch")->heap_bytes(), 0u);
+  this->engine->heap_free = HEAP_KEEP_BYTES - 1;
+  EXPECT_EQ(507, this->engine->create(daily("Garden", "relay_2")).code);
+  EXPECT_TRUE(this->engine->update("porch", daily("Porch light")).ok);
+  this->engine->heap_free = HEAP_KEEP_BYTES;
+  EXPECT_TRUE(this->engine->create(daily("Garden", "relay_2")).ok);
+}
+
+// A flag takes no more RAM: it is stored however short the heap is.
+TEST_F(Storage, AFlagIsStoredWhateverTheHeap) {
+  this->boot();
+  this->create(daily("Porch"));
+  this->engine->heap_free = 0;
+  Result disabled = this->engine->set_enabled("porch", false);
+  EXPECT_TRUE(disabled.ok);
+  EXPECT_TRUE(disabled.persisted);
+  EXPECT_NE(std::string::npos, read_file(this->file_of("porch")).find(R"("enabled":false)"));
+}
+
+// The boot stops loading before the heap drops under its floor, and from there on leaves every
+// file on flash as it is, smaller ones too.
+TEST_F(Storage, TheBootStopsAtTheHeapFloor) {
+  const size_t cost = 8 * 1024;
+  this->engine->set_max_schedules(8);
+  for (const char *id : {"a", "b", "c", "d"})
+    this->write(std::string(id) + ".json", file_doc(id, id, "relay_1", false));
+  const std::string c_file = read_file(this->file_of("c"));
+  this->engine->heap_free = BOOT_HEAP_FLOOR_BYTES + cost + cost / 2;
+  this->engine->entry_cost = cost;
+  this->boot();
+  EXPECT_FALSE(this->engine->is_failed());
+  EXPECT_NE(nullptr, this->engine->get("a"));
+  EXPECT_NE(nullptr, this->engine->get("b"));
+  EXPECT_EQ(nullptr, this->engine->get("c"));
+  EXPECT_EQ(nullptr, this->engine->get("d"));
+  EXPECT_TRUE(LogCapture::instance().warned("'c.json' left alone: not enough free memory ("));
+  EXPECT_TRUE(LogCapture::instance().warned("'d.json' left alone: not enough free memory"));
+  EXPECT_EQ(c_file, read_file(this->file_of("c")));
+  EXPECT_EQ(4u, list_dir(this->folder()).size());
+  // A file left on flash still holds its id.
+  ScheduleConfig back = daily("C again");
+  back.id = "c";
+  EXPECT_EQ(409, this->engine->restore(back).code);
+}
+
+TEST_F(Storage, TheBootNeedsABlockAsWellAsFreeHeap) {
+  this->write("a.json", file_doc("a", "a"));
+  this->engine->heap_block = BOOT_HEAP_FLOOR_BLOCK - 1;
+  this->boot();
+  EXPECT_FALSE(this->engine->is_failed());
+  EXPECT_TRUE(this->engine->schedules().empty());
+  EXPECT_TRUE(LogCapture::instance().warned("'a.json' left alone: not enough free memory"));
+}
+
+// A file the parser runs out of heap on is no broken file: it stays, and so do the rest.
+TEST_F(Storage, AFileTheParserRunsOutOfHeapOnStopsTheBoot) {
+  struct Refusing : ArduinoJson::Allocator {
+    void *allocate(size_t) override { return nullptr; }
+    void deallocate(void *ptr) override { free(ptr); }
+    void *reallocate(void *, size_t) override { return nullptr; }
+  } refusing;
+  this->write("a.json", file_doc("a", "a"));
+  this->write("b.json", file_doc("b", "b", "relay_2"));
+  this->engine->json_allocator = &refusing;
+  this->boot();
+  this->engine->json_allocator = nullptr;
+  EXPECT_TRUE(this->engine->schedules().empty());
+  EXPECT_TRUE(LogCapture::instance().warned("'a.json' left alone: not enough free memory ("));
+  EXPECT_TRUE(LogCapture::instance().warned("'b.json' left alone: not enough free memory"));
+  EXPECT_FALSE(LogCapture::instance().warned("refused"));
+  EXPECT_EQ(file_doc("a", "a"), read_file(this->file_of("a")));
 }
 
 TEST_F(Storage, TwoFilesUnderOneNameAreToldApartAtBoot) {
