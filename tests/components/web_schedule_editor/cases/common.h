@@ -213,13 +213,18 @@ inline void reset_thermostats() {
   ASSERT_EQ(made.id, "hall");
 }
 
-// Holds one relay under one thermostat's name, in place of the hub, which holds only the relays
-// of the thermostats it runs.
+// Holds relays under thermostats' names, in place of the hub, which holds only the relays of
+// the thermostats it runs.
 class FakeHolder : public switch_hold::SwitchHolder {
  public:
-  const switch_::Switch *held{nullptr};
-  std::string name;
-  std::string holder_of(const switch_::Switch *sw) const override { return sw == this->held ? this->name : ""; }
+  std::vector<std::pair<const switch_::Switch *, std::string>> held;
+  std::string holder_of(const switch_::Switch *sw) const override {
+    for (const auto &[relay, name] : this->held) {
+      if (relay == sw)
+        return name;
+    }
+    return "";
+  }
 };
 
 inline FakeHolder &fake_holder() {

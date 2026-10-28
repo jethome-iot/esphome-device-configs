@@ -137,9 +137,12 @@ client mock must give as well goes in `contract.json`, what only the device can 
 - `fixtures`: schedule documents by name, POSTed to `save` as a case's `setup` lists them.
 - `clock`, in a case: the device's clock for the whole case, its `setup` and `then` included, in
   place of `now`; `null` is a device that has no valid time yet.
+- `held`, in a case: relays a running thermostat holds for the whole case, as
+  `{"<relay object_id>": "<thermostat name>"}`; each a relay of the environment.
+- `climate_hub`, in a case: `false` runs the whole case on a firmware without climate_hub: no
+  thermostats, and every thermostat action is skipped.
 - `device_only`: `loop_busy`, `storage_failed`, `storage_unwritable`, `file_cap` and
-  `newer_file` as above, and `relay_held`, where a running thermostat named `Floor` holds
-  `relay_3`.
+  `newer_file` as above.
 
 No wait of a mode's list ends within a case, on either side: an answer is what the list did up
 to its first wait.

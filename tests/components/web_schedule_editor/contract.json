@@ -1,5 +1,5 @@
 {
-  "$comment": "Requests to the web_schedule_editor API and the answers they get. The format is the thermostat editor's (doc/TESTING.md), with an environment of its own and a case's `clock`.",
+  "$comment": "Requests to the web_schedule_editor API and the answers they get. The format is the thermostat editor's (doc/TESTING.md), with an environment of its own and a case's `clock`, `held` and `climate_hub`.",
   "environment": {
     "max_schedules": 3,
     "now": {
@@ -11896,7 +11896,9 @@
       "setup": [
         "porch"
       ],
-      "device_only": "relay_held",
+      "held": {
+        "relay_3": "Floor"
+      },
       "method": "GET",
       "path": "list",
       "body": null,
@@ -11934,7 +11936,9 @@
       "setup": [
         "porch"
       ],
-      "device_only": "relay_held",
+      "held": {
+        "relay_3": "Floor"
+      },
       "method": "GET",
       "path": "targets",
       "body": null,
@@ -11943,6 +11947,164 @@
         "relays.object_id=relay_3.held_by": "Floor",
         "relays.object_id=relay_3.scheduled_by": "porch"
       }
+    },
+    {
+      "name": "A firmware without climate_hub saves a thermostat's actions, skips each, and lists no thermostat",
+      "climate_hub": false,
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living room week",
+        "enabled": true,
+        "modes": [
+          {
+            "id": "comfort",
+            "name": "Comfort",
+            "actions": [
+              {
+                "type": "thermostat",
+                "id": "living-room",
+                "value": {
+                  "type": "preset",
+                  "preset": "comfort"
+                }
+              }
+            ]
+          },
+          {
+            "id": "eco",
+            "name": "Eco",
+            "actions": [
+              {
+                "type": "thermostat",
+                "id": "living-room",
+                "value": {
+                  "type": "preset",
+                  "preset": "eco"
+                }
+              }
+            ]
+          },
+          {
+            "id": "t21-5",
+            "name": "21.5 °C",
+            "actions": [
+              {
+                "type": "thermostat",
+                "id": "living-room",
+                "value": {
+                  "type": "target",
+                  "target": 21.5
+                }
+              }
+            ]
+          },
+          {
+            "id": "off",
+            "name": "Off",
+            "actions": [
+              {
+                "type": "thermostat",
+                "id": "living-room",
+                "value": {
+                  "type": "off"
+                }
+              }
+            ]
+          }
+        ],
+        "week": {
+          "mon": [
+            {
+              "at": "06:30",
+              "mode": "comfort"
+            },
+            {
+              "at": "08:30",
+              "mode": "eco"
+            },
+            {
+              "at": "17:00",
+              "mode": "t21-5"
+            },
+            {
+              "at": "23:00",
+              "mode": "off"
+            }
+          ],
+          "wed": [
+            {
+              "at": "08:30",
+              "mode": "eco"
+            },
+            {
+              "at": "17:00",
+              "mode": "t21-5"
+            }
+          ]
+        }
+      },
+      "status": 200,
+      "expect": {
+        "message": "Schedule created; skips mode \"Comfort\", action 1: this device has no thermostats",
+        "warning": "skips mode \"Comfort\", action 1: this device has no thermostats"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "schedules.0.status": {
+              "state": "running",
+              "reason": "",
+              "issues": [
+                {
+                  "mode": "comfort",
+                  "action": 0,
+                  "kind": "no_thermostats",
+                  "text": "This device has no thermostats"
+                },
+                {
+                  "mode": "eco",
+                  "action": 0,
+                  "kind": "no_thermostats",
+                  "text": "This device has no thermostats"
+                },
+                {
+                  "mode": "t21-5",
+                  "action": 0,
+                  "kind": "no_thermostats",
+                  "text": "This device has no thermostats"
+                },
+                {
+                  "mode": "off",
+                  "action": 0,
+                  "kind": "no_thermostats",
+                  "text": "This device has no thermostats"
+                }
+              ]
+            },
+            "schedules.0.targets": [
+              {
+                "type": "thermostat",
+                "id": "living-room",
+                "name": "living-room"
+              }
+            ]
+          }
+        },
+        {
+          "method": "GET",
+          "path": "targets",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "thermostats": []
+          }
+        }
+      ]
     }
   ]
 }

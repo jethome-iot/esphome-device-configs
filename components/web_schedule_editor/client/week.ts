@@ -217,8 +217,8 @@ const CONTROL = /[\u0000-\u001f\u007f-\u009f]/
 export function nameRuleError(name: string): string {
   const trimmed = trimName(name)
   if (trimmed === '') return 'Name is required'
-  if ([...trimmed].length > NAME_MAX_LENGTH) return `Name is longer than ${NAME_MAX_LENGTH} characters`
   if (LONE_SURROGATE.test(trimmed)) return 'Name is not valid UTF-8'
+  if ([...trimmed].length > NAME_MAX_LENGTH) return `Name is longer than ${NAME_MAX_LENGTH} characters`
   if (CONTROL.test(trimmed)) return 'Name cannot contain control characters'
   if (trimmed.includes('/')) return "Name cannot contain '/'"
   if (trimmed.includes('\\')) return "Name cannot contain '\\'"
@@ -267,14 +267,48 @@ export function newModeId(name: string, modes: ReadonlyArray<{ id: string }>): s
 }
 
 /**
- * The colour each mode shows, by mode order: its own, or, for one without, the first palette
- * key no other mode has, neither one of its own nor one shown already.
+ * The order a mode without a colour takes keys in: each far in hue from the ones before it, so
+ * the first few modes never look alike; grey, Off's look, last.
+ */
+export const FALLBACK_COLORS: ReadonlyArray<ColorKey> = [
+  'amber',
+  'indigo',
+  'green',
+  'pink',
+  'lime',
+  'cyan',
+  'red',
+  'violet',
+  'teal',
+  'blue',
+  'orange',
+  'yellow',
+  'grey'
+]
+
+// The keys either side of `key` in COLOR_KEYS, which runs in hue order and round from pink to red.
+function hueNeighbours(key: ColorKey): ColorKey[] {
+  if (key === 'grey') return []
+  const hued = COLOR_KEYS.filter((c) => c !== 'grey')
+  const i = hued.indexOf(key)
+  return [hued[(i + hued.length - 1) % hued.length]!, hued[(i + 1) % hued.length]!]
+}
+
+/**
+ * The colour each mode shows, by mode order: its own, or, for one without, the first key of
+ * FALLBACK_COLORS no other mode has (its own or one shown already) and none has a hue next to;
+ * when every free hue has such a neighbour, the first free key.
  */
 export function modeColors(modes: ReadonlyArray<{ color?: ColorKey }>): ColorKey[] {
   const used = new Set<ColorKey>(modes.flatMap((m) => (m.color ? [m.color] : [])))
   return modes.map((m) => {
     if (m.color) return m.color
-    const free = COLOR_KEYS.find((key) => !used.has(key)) ?? COLOR_KEYS[0]
+    const near = new Set([...used].flatMap(hueNeighbours))
+    // Grey is Off's look: a mode without a colour takes it only when no hue is left free.
+    const free =
+      FALLBACK_COLORS.find((key) => key !== 'grey' && !used.has(key) && !near.has(key)) ??
+      FALLBACK_COLORS.find((key) => !used.has(key)) ??
+      FALLBACK_COLORS[0]!
     used.add(free)
     return free
   })

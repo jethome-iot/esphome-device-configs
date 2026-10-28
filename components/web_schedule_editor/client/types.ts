@@ -12,8 +12,8 @@ export type Day = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
 export const DAYS: ReadonlyArray<Day> = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
 
 /**
- * The palette a mode's colour is one of, in /schema's order. The firmware only checks the key;
- * the dashboard maps each to a colour that reads in both themes.
+ * The palette a mode's colour is one of, in /schema's order: hue order, grey last. The firmware
+ * only checks the key; the dashboard maps each to a colour that reads in both themes.
  */
 export const COLOR_KEYS = [
   'red',
@@ -100,7 +100,7 @@ export interface Mode {
   id: string
   /** 1 to 24 characters, unique in the schedule ignoring ASCII case and runs of spaces. */
   name: string
-  /** Absent: the editor shows the first palette colour no other mode has (modeColors()). */
+  /** Absent: the editor shows a palette colour no other mode has, far in hue from theirs (modeColors()). */
   color?: ColorKey
   /** 0 to 12; a mode with none does nothing. */
   actions: ModeAction[]

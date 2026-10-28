@@ -32,7 +32,7 @@ static_assert(schedules::SCHEDULE_VERSION < NEWER_VERSION, "newer_file must stay
 
 const std::set<std::string> CASE_KEYS = [] {
   std::set<std::string> keys = STEP_KEYS;
-  keys.insert({"name", "setup", "device_only", "clock", "then"});
+  keys.insert({"name", "setup", "device_only", "clock", "held", "climate_hub", "then"});
   return keys;
 }();
 
@@ -181,11 +181,6 @@ class Contract : public Editor {
       engine().max_file_bytes = 100;
     } else if (state == "newer_file") {
       this->reboot_with_version(NEWER_VERSION);
-    } else if (state == "relay_held") {
-      // contract.json's relays hold none of the thermostats', so one is held in their place.
-      fake_holder().held = &this->e.relay3;
-      fake_holder().name = "Floor";
-      switch_hold::set_holder(&fake_holder());
     } else {
       ADD_FAILURE() << "unknown device_only: " << state;
     }
@@ -196,9 +191,45 @@ class Contract : public Editor {
     engine().reset_to_construction_state();
     storage().path = this->base_path;
     engine().max_file_bytes = schedules::MAX_FILE_BYTES;
-    switch_hold::set_holder(&hub());
     // newer_file stays: the files are the newer firmware's, and what a case changed in memory
     // is what its `then` reads. The next case starts over from an empty folder.
+  }
+
+  // A case's `held` and `climate_hub`, for the whole case. The fake holder stands in for the
+  // hub: contract.json's relays carry none of the thermostats', and a firmware without
+  // climate_hub has nothing that holds a relay.
+  void build_device(JsonObjectConst c) {
+    fake_holder().held.clear();
+    for (JsonPairConst relay : c["held"].as<JsonObjectConst>()) {
+      switch_::Switch *sw = relay_named(relay.key().c_str());
+      ASSERT_NE(sw, nullptr) << "held: no relay " << relay.key().c_str();
+      fake_holder().held.emplace_back(sw, relay.value().as<std::string>());
+    }
+    const bool hub_there = c["climate_hub"] | true;
+    if (!fake_holder().held.empty() || !hub_there)
+      switch_hold::set_holder(&fake_holder());
+    if (!hub_there)
+      global_climate_hub = nullptr;
+  }
+
+  void restore_device() {
+    global_climate_hub = &hub();
+    switch_hold::set_holder(&hub());
+    fake_holder().held.clear();
+  }
+
+  void TearDown() override {
+    this->restore_device();
+    Editor::TearDown();
+  }
+
+  static switch_::Switch *relay_named(const std::string &object_id) {
+    for (switch_::Switch *sw : App.get_switches()) {
+      char buf[OBJECT_ID_MAX_LEN];
+      if (sw->get_object_id_to(buf).c_str() == object_id)
+        return sw;
+    }
+    return nullptr;
   }
 
   // Every file in the folder rewritten with this version, and read by a boot.
@@ -333,6 +364,17 @@ TEST_F(Contract, EveryKeyIsOneTheRunnersRead) {
     refuse_unknown_keys(c, CASE_KEYS, name);
     if (c["clock"].is<JsonObjectConst>())
       refuse_unknown_keys(c["clock"], CLOCK_KEYS, name + ", clock");
+    if (!c["held"].isUnbound()) {
+      EXPECT_TRUE(c["held"].is<JsonObjectConst>()) << name << ": held is relay ids to thermostat names";
+      for (JsonPairConst relay : c["held"].as<JsonObjectConst>()) {
+        EXPECT_TRUE(relay.value().is<const char *>()) << name << ": held." << relay.key().c_str();
+        bool listed = false;
+        find_path(environment, std::string("relays.object_id=") + relay.key().c_str(), &listed);
+        EXPECT_TRUE(listed) << name << ": held names " << relay.key().c_str() << ", not a relay of the environment";
+      }
+    }
+    if (!c["climate_hub"].isUnbound())
+      EXPECT_TRUE(c["climate_hub"].is<bool>()) << name << ": climate_hub is true or false";
     int index = 0;
     for (JsonObjectConst then : c["then"].as<JsonArrayConst>())
       refuse_unknown_keys(then, STEP_KEYS, name + ", then #" + std::to_string(++index));
@@ -347,8 +389,10 @@ TEST_F(Contract, EveryContractCaseGetsItsAnswer) {
   for (JsonObjectConst c : contract["cases"].as<JsonArrayConst>()) {
     SCOPED_TRACE(c["name"].as<std::string>());
     const std::string state = c["device_only"] | "";
-    // A case's clock holds for the whole case; null is a clock not valid yet.
+    // A case's clock, its held relays and its climate_hub hold for the whole case; a null clock
+    // is one not valid yet.
     this->fresh(clock_of(c["clock"].isUnbound() ? now : c["clock"]));
+    this->build_device(c);
     for (JsonVariantConst fixture : c["setup"].as<JsonArrayConst>()) {
       const std::string fixture_name = fixture.as<std::string>();
       ASSERT_TRUE(fixtures[fixture_name].is<JsonObjectConst>()) << "no fixture " << fixture_name;
@@ -366,6 +410,7 @@ TEST_F(Contract, EveryContractCaseGetsItsAnswer) {
       SCOPED_TRACE("then #" + std::to_string(++index));
       this->check(then);
     }
+    this->restore_device();
     ran++;
   }
   // A file that failed to load would otherwise pass, having checked nothing.
