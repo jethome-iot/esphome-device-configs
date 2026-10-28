@@ -69,8 +69,10 @@ label or name and its state, read only: one added later shows after a reboot, an
 shows `--` until then.
 
 They are kept in `/littlefs/config/virtual_inputs.json`, next to the files below, so an update
-keeps them, a factory reset clears them, and a backup of the partition carries them: restore,
-then reboot. The format is in [components/virtual_inputs](../components/virtual_inputs/README.md).
+keeps them, a factory reset clears them, and a backup of the partition carries them. The
+dashboard's Restore puts them back at once, before the rules that name them; their labels come
+back with the other input settings at the next boot. The format is in
+[components/virtual_inputs](../components/virtual_inputs/README.md).
 
 ## Files
 
