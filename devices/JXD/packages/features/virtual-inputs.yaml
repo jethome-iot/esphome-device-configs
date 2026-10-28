@@ -1,0 +1,13 @@
+# Inputs that follow a physical input through an on and an off delay, set up on the
+# dashboard and kept by the config_json store (storage.yaml). Details: doc/ENTITY_SETTINGS.md
+external_components:
+  - source: ${components}
+    components: [virtual_inputs]
+
+virtual_inputs:
+  id: virtual_input_pool
+  max_inputs: 16
+  # After the six physical inputs.
+  web_server:
+    sorting_group_id: group_inputs
+    sorting_weight: 7

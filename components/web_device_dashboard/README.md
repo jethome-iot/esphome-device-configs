@@ -36,8 +36,9 @@ block, and a factory reset clears only the stored settings. `dallas_scan_id` nam
 The Files, Automations and Climate screens need no option of their own: the component reads
 the `url_prefix` of a `web_file_browser`, a `web_automation_editor` and a `web_climate_editor`
 off the config and reports whichever of them this firmware has in `/api/device/capabilities`.
-A [`modbus_map`](../modbus_map/README.md) is picked up the same way, and so is a
-[`timezone_settings`](../timezone_settings/README.md), which brings `/api/device/time`.
+A [`modbus_map`](../modbus_map/README.md) is picked up the same way, and so are a
+[`timezone_settings`](../timezone_settings/README.md), which brings `/api/device/time`, and a
+[`virtual_inputs`](../virtual_inputs/README.md), which brings `/api/device/virtual-inputs`.
 
 The **Settings → Network** and **Settings → Modbus** tabs show the entities of the `web_server`
 sorting groups named `Network` and `Modbus`, and the Entities screen leaves those groups out. The
@@ -91,7 +92,7 @@ other slot is the *newer* firmware. It is there when
 [`firmware_rollback`](../firmware_rollback/README.md) finds a firmware to go back to, and absent
 after a serial flash, a failed or interrupted update, a rollback the bootloader did itself, or while
 a switch waits for its reboot. `storage`, `files`, `automations`, `climates`, `entity_settings`,
-`board_info`, `temperature_slots`, `modbus` and `time` follow the components the firmware was built with.
+`board_info`, `temperature_slots`, `modbus`, `time` and `virtual_inputs` follow the components the firmware was built with.
 `storage` says what the mount is, not how full it is: usage is live and this route is not polled,
 so the byte counts stay in the file API's own `info`. `modbus` is the Modbus server's address map
 as a `modbus_map` names it: the bit and register ranges, each with its first and last address, how
@@ -167,12 +168,23 @@ shows. The dashboard sends both from its own table of zones.
 `time` is for a device that has neither NTP nor Home Assistant to set its clock; either of them
 sets it again when it answers.
 
+With a [`virtual_inputs`](../virtual_inputs/README.md), the virtual inputs; without one these
+routes are `404`:
+
+| Method | Path | |
+|---|---|---|
+| GET | `/api/device/virtual-inputs` | `{"max_inputs", "max_delay", "can_save", "inputs": [{"slot", "object_id", "name", "label", "source", "on_delay", "off_delay", "state", "problem"}], "sources": [{"object_id", "name", "label"}]}`: the slots in use, in slot order, and the physical inputs a slot may follow. `object_id` (`virtual_input_N`) and `name` (`Virtual input N`) stay whatever the label; `label` is the `binary_sensor` entity settings' record, set through `/api/device/entity-settings`. Delays are whole seconds up to `max_delay` (86400). `state` is the one it had when read, `null` until its source reported; `problem` says why one is off whatever its source does, `""` while it follows it. `can_save` is false when a write would be `503`. Read on the loop task: `503` when it does not get to it |
+| POST | `/api/device/virtual-inputs/save` | `{"slot": N, "source": "input_3", "on_delay": s, "off_delay": s}` sets up slot N or changes it, in force at once with its delays counted from the save; without `slot` it takes the lowest free one. A delay left out is `0` on a new slot and kept on one in use. Answers `{"success", "message", "input"}`, the slot as it now stands. No confirmation. A slot out of range, a `source` that is not a physical input (a virtual input, a relay, nothing) or a delay that is not a whole number of seconds up to 86400 is `400`, no free slot `409`, a partition that did not mount or a file that did not load at boot `503`, a write that fails `500`, a loop task that does not take it `503` |
+| POST | `/api/device/virtual-inputs/delete` | `{"slot": N}` frees slot N: its binary sensor is hidden and its label dropped; a rule or a binding that names it finds no input from then on. No confirmation. A slot out of range is `400`, a free one `409`, `503` and `500` as for a save |
+
+A new slot and a deleted one make Home Assistant reconnect a moment later, to list it or drop it.
+
 With a `config_json` store (`entity_config`'s `switch` and `binary_sensor` types), the entity
 settings too; without one these routes are `404`:
 
 | Method | Path | |
 |---|---|---|
-| GET | `/api/device/entities` | per settings type, `[{"source_name", "name", "label"}]`: object id, name and label of every entity of that type, the label empty when it has none. Read on the loop task, which owns the records — `503` when it does not get to it |
+| GET | `/api/device/entities` | per settings type, `[{"source_name", "name", "label"}]`: object id, name and label of every entity of that type, the label empty when it has none; a virtual input's entry also carries `"virtual": true`, since it takes a label and no `inverted`. Read on the loop task, which owns the records — `503` when it does not get to it |
 | GET | `/api/device/entity-settings?type=switch[&source_name=relay_1]` | the stored records of a type, or one of them. Read on the loop task, which owns the records — `503` when it does not get to it |
 | POST | `/api/device/entity-settings` | `{"type", "source_name", "settings": {...}}` updates and applies a record; `{"type", "source_name", "action": "delete"}` removes it. A change of a relay's `inverted` while a running thermostat drives it is `409`, naming the thermostat. Needs `Content-Type: application/json`, as every route here that reads a body does |
 | GET | `/api/device/entity-settings-meta` | the form fields of every settings type |
@@ -190,7 +202,10 @@ leaves it out keeps it. The name, the object id and `web_server`'s routes do not
 repository builds against them through its `firmware` link, so they change with the C++ they
 mirror. Nothing in this repository builds or type-checks them. `client/device/timezones.ts`, the
 zones the Date & Time screen offers with the POSIX string each is sent as, is generated by
-`scripts/build-timezones.py`.
+`scripts/build-timezones.py`. `client/mock/virtualInputsMock.ts` answers the virtual input routes
+for the dashboard's dev server, with the firmware's refusals and messages; it boots with slot 1
+following `motion` with a 10 min off delay, the input the automation mock's "Comfort while someone
+is home" rule follows.
 
 ## Tests
 
@@ -200,8 +215,9 @@ accumulation and its 4 KiB cap, the JSON every route answers with, the confirmat
 actions take, a factory reset wiping a stand-in storage and the preferences before it restarts,
 and the temperature slots listed, forgotten and assigned and their offsets and labels set on a real
 `dallas_scan` over the harness's 1-Wire bus, with `/status` reporting what waits, booted again to
-see what the table kept, and the time route over a real `timezone_settings` on a clock the cases
-set, every body it takes and refuses. Out of reach there is the ESP-IDF half — the `Allow` header, URL
+see what the table kept, the time route over a real `timezone_settings` on a clock the cases
+set, every body it takes and refuses, and the virtual input routes over a real `virtual_inputs`
+whose file sits in a directory, every body they take and refuse. Out of reach there is the ESP-IDF half — the `Allow` header, URL
 decoding, the reset reason and the IP lookups, the eFuse block, a live WiFi or Ethernet link, the
 real reboot, the LittleFS format, and the rollback's reads and switch, which the tests stand in
 for; the rule that decides is covered by [`firmware_rollback`](../firmware_rollback/README.md)'s

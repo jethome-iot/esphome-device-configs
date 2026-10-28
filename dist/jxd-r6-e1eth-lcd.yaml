@@ -123,6 +123,13 @@ external_components:
       ref: master
       path: components
     components:
+      - virtual_inputs
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
       - web_auth
   - source:
       type: git
@@ -801,6 +808,22 @@ esphome:
                       [bss, input]() { return bss->is_inverted(input) ? 1 : 0; },
                       [bss, input](size_t index) { bss->set_inverted(input, index == 1); });
               id(inputs_menu)->add_item(menu);
+            }
+
+            // The virtual inputs set up at boot, after the physical ones: a row each, read only.
+            // One deleted since boot keeps its row until the reboot and says --.
+            auto *vis = id(virtual_input_pool);
+            for (size_t slot = 0; slot < vis->max_inputs(); slot++) {
+              if (!vis->configured(slot))
+                continue;
+              auto *input = vis->sensor(slot);
+              auto *row = new MenuItem(MENU_ITEM_LABEL);
+              row->set_text([bss, vis, slot, input, has, with_state](const MenuItem *) {
+                if (vis->configured(slot))
+                  return with_state(bss->display_name(input), input->state);
+                return panel_fit(panel_safe(bss->display_name(input), 4 * ROW, has), ROW - 6) + " (--)";
+              });
+              id(inputs_menu)->add_item(row);
             }
     - priority: 500
       then:
@@ -1751,6 +1774,12 @@ uart:
     rx_pin: GPIO39
     baud_rate: 9600
     stop_bits: 1
+virtual_inputs:
+  id: virtual_input_pool
+  max_inputs: 16
+  web_server:
+    sorting_group_id: group_inputs
+    sorting_weight: 7
 web_auth:
   id: web_auth_credentials
 web_device_dashboard:

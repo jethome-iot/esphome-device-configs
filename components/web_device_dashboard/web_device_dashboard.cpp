@@ -82,6 +82,11 @@ static const Route ROUTES[] = {
 #ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
     {"time", RouteId::TIME, true, true},
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
+    {"virtual-inputs", RouteId::VIRTUAL_INPUTS, true, false},
+    {"virtual-inputs/save", RouteId::VIRTUAL_INPUTS_SAVE, false, true},
+    {"virtual-inputs/delete", RouteId::VIRTUAL_INPUTS_DELETE, false, true},
+#endif
 };
 // clang-format on
 
@@ -226,6 +231,17 @@ void WebDeviceDashboard::handleRequest(AsyncWebServerRequest *request) {
         } else {
           this->handle_time_get_(request);
         }
+        break;
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
+      case RouteId::VIRTUAL_INPUTS:
+        this->handle_virtual_inputs_(request);
+        break;
+      case RouteId::VIRTUAL_INPUTS_SAVE:
+        this->handle_virtual_inputs_save_(request);
+        break;
+      case RouteId::VIRTUAL_INPUTS_DELETE:
+        this->handle_virtual_inputs_delete_(request);
         break;
 #endif
     }
@@ -690,6 +706,10 @@ void WebDeviceDashboard::handle_capabilities_(AsyncWebServerRequest *request) {
 #ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
     if (this->timezone_settings_ != nullptr)
       root["time"] = true;
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
+    if (this->virtual_inputs_ != nullptr)
+      root["virtual_inputs"] = true;
 #endif
   });
   request->send(200, "application/json", body.c_str());
@@ -1433,9 +1453,239 @@ void WebDeviceDashboard::handle_time_set_(AsyncWebServerRequest *request) {
 }
 #endif  // USE_WEB_DEVICE_DASHBOARD_TIMEZONE
 
+#ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
+// What entity_config's record gives the entity to show in place of its name, "" without one. Loop
+// task: the records are its.
+static std::string input_label(const binary_sensor::BinarySensor &sensor) {
+  auto *keeper = config_json::global_config_json_keeper;
+  auto *settings = keeper != nullptr ? keeper->get_settings("binary_sensor") : nullptr;
+  if (settings == nullptr)
+    return "";
+  char buf[OBJECT_ID_MAX_LEN];
+  return settings->get_label(sensor.get_object_id_to(buf).c_str());
+}
+
+// One configured slot as GET lists it and a save answers it.
+void WebDeviceDashboard::write_virtual_input_(JsonObject entry, virtual_inputs::VirtualInputs *inputs, size_t slot) {
+  const binary_sensor::BinarySensor *sensor = inputs->sensor(slot);
+  const virtual_inputs::InputConfig &config = inputs->config(slot);
+  char buf[OBJECT_ID_MAX_LEN];
+  entry["slot"] = slot + 1;
+  entry["object_id"] = sensor->get_object_id_to(buf).str();
+  entry["name"] = sensor->get_name().str();
+  entry["label"] = input_label(*sensor);
+  entry["source"] = config.source;
+  entry["on_delay"] = config.on_delay;
+  entry["off_delay"] = config.off_delay;
+  if (sensor->has_state()) {
+    entry["state"] = sensor->state;
+  } else {
+    entry["state"] = nullptr;
+  }
+  entry["problem"] = inputs->problem(slot);
+}
+
+// GET /api/device/virtual-inputs: the configured slots, numbered from 1 as their names are, and the
+// inputs a slot may follow. Built on the loop task, which owns the slots and the labels.
+void WebDeviceDashboard::handle_virtual_inputs_(AsyncWebServerRequest *request) {
+  auto *inputs = this->virtual_inputs_;
+  if (inputs == nullptr) {
+    this->send_error_(request, 404, "No virtual inputs");
+    return;
+  }
+  std::string body;
+  const bool read = this->run_on_loop_([&]() {
+    body = json::build_json([inputs](JsonObject root) {
+      root["max_inputs"] = inputs->max_inputs();
+      root["max_delay"] = virtual_inputs::MAX_DELAY_S;
+      root["can_save"] = inputs->can_save() && inputs->file_loaded();
+      JsonArray rows = root["inputs"].to<JsonArray>();
+      for (size_t slot = 0; slot < inputs->max_inputs(); slot++) {
+        if (inputs->configured(slot))
+          write_virtual_input_(rows.add<JsonObject>(), inputs, slot);
+      }
+      JsonArray sources = root["sources"].to<JsonArray>();
+      for (const auto *sensor : inputs->sources()) {
+        JsonObject entry = sources.add<JsonObject>();
+        char buf[OBJECT_ID_MAX_LEN];
+        entry["object_id"] = sensor->get_object_id_to(buf).str();
+        entry["name"] = sensor->get_name().str();
+        entry["label"] = input_label(*sensor);
+      }
+    });
+    return true;
+  });
+  if (!read) {
+    this->send_error_(request, 503, "Device busy");
+    return;
+  }
+  request->send(200, "application/json", body.c_str());
+}
+
+// POST /api/device/virtual-inputs/save: {"slot": N, "source": "input_1", "on_delay": s, "off_delay": s}.
+// Without `slot` it takes the lowest free one; a delay left out is 0 on a new slot and kept on one
+// in use. No confirmation: it is undone the same way. The source check and the write go over to the
+// loop task together, and the answer is the slot as it now stands.
+void WebDeviceDashboard::handle_virtual_inputs_save_(AsyncWebServerRequest *request) {
+  auto *inputs = this->virtual_inputs_;
+  if (inputs == nullptr) {
+    this->send_error_(request, 404, "No virtual inputs");
+    return;
+  }
+  JsonDocument doc;
+  if (!this->read_json_body_(request, doc))
+    return;
+  if (!this->check_virtual_inputs_writable_(request))
+    return;
+  // isUnbound(), not isNull(): an explicit null is a key the caller wrote, and a bad one.
+  const bool has_slot = !doc["slot"].isUnbound();
+  size_t slot = 0;
+  if (has_slot && !this->read_virtual_slot_(request, doc["slot"], slot))
+    return;
+  JsonVariant source_value = doc["source"];
+  if (!source_value.is<const char *>() || source_value.as<JsonString>().size() == 0) {
+    this->send_error_(request, 400, "'source' must be the object id of an input");
+    return;
+  }
+  const std::string source = source_value.as<std::string>();
+  uint32_t delays[2] = {0, 0};
+  bool has_delay[2] = {false, false};
+  static const char *const DELAY_KEYS[2] = {"on_delay", "off_delay"};
+  for (size_t i = 0; i < 2; i++) {
+    has_delay[i] = !doc[DELAY_KEYS[i]].isUnbound();
+    if (has_delay[i] && !virtual_inputs::parse_delay(doc[DELAY_KEYS[i]], delays[i])) {
+      this->send_error_(request, 400,
+                        str_sprintf("'%s' must be a whole number of seconds from 0 to %u", DELAY_KEYS[i],
+                                    static_cast<unsigned>(virtual_inputs::MAX_DELAY_S))
+                            .c_str());
+      return;
+    }
+  }
+  int code = 0;
+  std::string why;
+  std::string body;
+  size_t index = slot;
+  const bool stored = this->run_on_loop_([&]() {
+    // The request first: one naming no input is a 400 whatever room is left.
+    switch (inputs->check_source(source)) {
+      case virtual_inputs::SourceCheck::OK:
+        break;
+      case virtual_inputs::SourceCheck::MISSING:
+        code = 400;
+        why = str_sprintf("'%s' is not an input", source.c_str());
+        return false;
+      case virtual_inputs::SourceCheck::VIRTUAL:
+        code = 400;
+        why = str_sprintf("'%s' is a virtual input; the source must be a physical one", source.c_str());
+        return false;
+    }
+    if (!has_slot) {
+      const int free = inputs->first_free();
+      if (free < 0) {
+        code = 409;
+        why = str_sprintf("All %u virtual inputs are in use", static_cast<unsigned>(inputs->max_inputs()));
+        return false;
+      }
+      index = static_cast<size_t>(free);
+    }
+    const bool created = !inputs->configured(index);
+    virtual_inputs::InputConfig config = inputs->config(index);
+    config.source = source;
+    if (has_delay[0])
+      config.on_delay = delays[0];
+    if (has_delay[1])
+      config.off_delay = delays[1];
+    if (!inputs->save(index, config)) {
+      code = 500;
+      why = "The virtual inputs were not written";
+      return false;
+    }
+    const std::string message =
+        str_sprintf("Virtual input %u %s", static_cast<unsigned>(index) + 1, created ? "created" : "saved");
+    body = json::build_json([&](JsonObject root) {
+      root["success"] = true;
+      root["message"] = message;
+      write_virtual_input_(root["input"].to<JsonObject>(), inputs, index);
+    });
+    return true;
+  });
+  if (!stored) {
+    // No code means the loop task never took the job: nothing was saved.
+    this->send_error_(request, code == 0 ? 503 : code, code == 0 ? "Device busy" : why.c_str());
+    return;
+  }
+  ESP_LOGI(TAG, "Saved virtual input %u over the API", static_cast<unsigned>(index) + 1);
+  request->send(200, "application/json", body.c_str());
+}
+
+// POST /api/device/virtual-inputs/delete: {"slot": N}. The slot goes back to the pool, hidden, and its
+// label with it; a rule or a binding that names it finds no input from then on.
+void WebDeviceDashboard::handle_virtual_inputs_delete_(AsyncWebServerRequest *request) {
+  auto *inputs = this->virtual_inputs_;
+  if (inputs == nullptr) {
+    this->send_error_(request, 404, "No virtual inputs");
+    return;
+  }
+  JsonDocument doc;
+  if (!this->read_json_body_(request, doc))
+    return;
+  if (!this->check_virtual_inputs_writable_(request))
+    return;
+  size_t slot;
+  if (!this->read_virtual_slot_(request, doc["slot"], slot))
+    return;
+  int code = 0;
+  std::string why;
+  const bool removed = this->run_on_loop_([&]() {
+    if (!inputs->configured(slot)) {
+      code = 409;
+      why = str_sprintf("Virtual input %u is free", static_cast<unsigned>(slot) + 1);
+      return false;
+    }
+    if (!inputs->remove(slot)) {
+      code = 500;
+      why = "The virtual inputs were not written";
+      return false;
+    }
+    return true;
+  });
+  if (!removed) {
+    this->send_error_(request, code == 0 ? 503 : code, code == 0 ? "Device busy" : why.c_str());
+    return;
+  }
+  ESP_LOGI(TAG, "Deleted virtual input %u over the API", static_cast<unsigned>(slot) + 1);
+  this->send_success_(request, str_sprintf("Virtual input %u deleted", static_cast<unsigned>(slot) + 1).c_str());
+}
+
+// A partition that did not mount or a file that did not load: a save or a delete would keep
+// nothing, or write over what a person has to fix, so it is refused up front.
+bool WebDeviceDashboard::check_virtual_inputs_writable_(AsyncWebServerRequest *request) {
+  if (!this->virtual_inputs_->can_save()) {
+    this->send_error_(request, 503, "Virtual input storage unavailable");
+    return false;
+  }
+  if (!this->virtual_inputs_->file_loaded()) {
+    this->send_error_(request, 503, "The virtual inputs file did not load; fix it and reboot");
+    return false;
+  }
+  return true;
+}
+
+bool WebDeviceDashboard::read_virtual_slot_(AsyncWebServerRequest *request, JsonVariant value, size_t &slot) {
+  const int max = static_cast<int>(this->virtual_inputs_->max_inputs());
+  if (!value.is<int>() || value.as<int>() < 1 || value.as<int>() > max) {
+    this->send_error_(request, 400, str_sprintf("'slot' must be a number from 1 to %d", max).c_str());
+    return false;
+  }
+  slot = static_cast<size_t>(value.as<int>() - 1);
+  return true;
+}
+#endif  // USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
+
 #ifdef USE_CONFIG_JSON
-template<typename T>
-static void write_entity_index(JsonObject root, config_json::SettingsBaseJson *settings, const T &entities) {
+// @p extra adds what one kind of entity has besides, given the entry and the entity.
+template<typename T, typename F>
+static void write_entity_index(JsonObject root, config_json::SettingsBaseJson *settings, const T &entities, F &&extra) {
   JsonArray list = root[settings->get_key()].to<JsonArray>();
   for (auto *obj : entities) {
     if (obj->is_internal())
@@ -1446,6 +1696,7 @@ static void write_entity_index(JsonObject root, config_json::SettingsBaseJson *s
     entry["source_name"] = object_id.str();
     entry["name"] = obj->get_name().str();
     entry["label"] = settings->get_label(object_id.c_str());
+    extra(entry, obj);
   }
 }
 
@@ -1464,11 +1715,22 @@ void WebDeviceDashboard::handle_entities_(AsyncWebServerRequest *request) {
         const char *key = settings->get_key();
 #ifdef USE_SWITCH
         if (strcmp(key, "switch") == 0)
-          write_entity_index(root, settings, App.get_switches());
+          write_entity_index(root, settings, App.get_switches(), [](JsonObject, const switch_::Switch *) {});
 #endif
 #ifdef USE_BINARY_SENSOR
-        if (strcmp(key, "binary_sensor") == 0)
-          write_entity_index(root, settings, App.get_binary_sensors());
+        if (strcmp(key, "binary_sensor") == 0) {
+#ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
+          // A virtual input takes a label and no inversion.
+          write_entity_index(root, settings, App.get_binary_sensors(),
+                             [this](JsonObject entry, const binary_sensor::BinarySensor *sensor) {
+                               if (this->virtual_inputs_ != nullptr && this->virtual_inputs_->is_virtual_input(sensor))
+                                 entry["virtual"] = true;
+                             });
+#else
+          write_entity_index(root, settings, App.get_binary_sensors(),
+                             [](JsonObject, const binary_sensor::BinarySensor *) {});
+#endif
+        }
 #endif
       }
     }

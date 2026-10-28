@@ -73,12 +73,16 @@ export const seedAutomations: AutomationConfig[] = [
       { source: 'switch', type: 'follow', object_id: 'relay_3', invert: true }
     ]
   },
+  // Follows a virtual input rather than the motion sensor itself: someone is home until 10 min
+  // after the last motion, so a pause does not flip the thermostat to Eco. The device mock's
+  // virtual inputs (web_device_dashboard/client/mock/virtualInputsMock.ts, SOMEONE_HOME) set it up
+  // in slot 1 on `motion`.
   {
     id: 4,
     name: 'Comfort while someone is home',
     enabled: true,
     mode: 'single',
-    triggers: [{ source: 'input', type: 'state_change', object_id: 'motion' }],
+    triggers: [{ source: 'input', type: 'state_change', object_id: 'virtual_input_1' }],
     actions: [
       {
         source: 'climate',
@@ -94,7 +98,9 @@ export const seedAutomations: AutomationConfig[] = [
 export const seedEntities: AutomationEntitiesResponse = {
   binary_sensors: [
     { object_id: 'front_door', name: 'Front Door' },
-    { object_id: 'motion', name: 'Motion Sensor' }
+    { object_id: 'motion', name: 'Motion Sensor' },
+    // Slot 1 of the device mock's virtual inputs, which follows `motion` with a 10 min off delay.
+    { object_id: 'virtual_input_1', name: 'Virtual input 1' }
   ],
   sensors: [
     { object_id: 'room_temp', name: 'Room Temperature', unit: '°C' },

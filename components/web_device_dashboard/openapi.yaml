@@ -11,8 +11,9 @@ info:
     link, on a firmware with a `web_auth` the HTTP credentials, with a
     `dallas_scan` the temperature slots and their offsets, with a `modbus_map`
     the Modbus server's address map, with a `timezone_settings` the clock and
-    the timezone, and — on a firmware with a `config_json` store — the
-    per-entity settings and their form fields.
+    the timezone, with a `virtual_inputs` the virtual inputs, and — on a
+    firmware with a `config_json` store — the per-entity settings and their
+    form fields.
     ESP-IDF (ESP32) only.
 
     This document is the wire contract; the TypeScript client in `client/device`
@@ -1406,6 +1407,231 @@ paths:
         "503":
           $ref: "#/components/responses/TimeBusy"
 
+  /virtual-inputs:
+    get:
+      tags: [read]
+      operationId: getVirtualInputs
+      summary: The virtual inputs in use, and the inputs they may follow.
+      description: >-
+        Every slot of the firmware's `virtual_inputs` that follows a source, in
+        slot order, numbered from 1 as the `Virtual input N` binary sensors are,
+        and the physical inputs a slot may follow. A slot's `state` is the one
+        it had when read; live, it is the binary sensor's state on
+        `web_server`'s `/events`, matched by `name`. Its label is the entity
+        settings' (type `binary_sensor`, keyed by `object_id`), set through
+        `/entity-settings` like a physical input's. Read on the loop task,
+        which owns the slots and the labels.
+      responses:
+        "200":
+          description: The slots in use.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VirtualInputs"
+        "404":
+          $ref: "#/components/responses/NoVirtualInputs"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          description: The loop task did not take the request in time (`Device busy`). Nothing was read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Device busy
+
+  /virtual-inputs/save:
+    post:
+      tags: [write]
+      operationId: saveVirtualInput
+      summary: Set up a virtual input, or change one in use.
+      description: >-
+        A virtual input follows one physical input: it turns on once the source
+        has stayed on for `on_delay` seconds, and off once `off_delay` seconds
+        have passed since the source last went off, every new pulse starting
+        that count again. Without `slot` it takes the lowest free one. A delay
+        left out is `0` on a new slot and kept on one in use. Written before the
+        answer and in force at once, with no confirmation and no reboot: the
+        delays count from the save, and a new slot takes its source's state at
+        once. A new slot is a new binary sensor, so Home Assistant is asked to
+        reconnect a moment later. Saving what a slot holds already is a success
+        with nothing written. The label is not here: it goes through
+        `/entity-settings`. Refused before anything happens: a slot out of
+        range, a `source` that is not a physical input's object id, or a delay
+        that is not a whole number of seconds from 0 to `max_delay` (`400`);
+        no free slot (`409`); storage that cannot keep it (`503`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VirtualInputSaveRequest"
+            examples:
+              create:
+                value:
+                  source: input_3
+                  off_delay: 600
+              edit:
+                value:
+                  slot: 1
+                  source: input_3
+                  on_delay: 2
+      responses:
+        "200":
+          description: Saved and in force.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VirtualInputSaveResult"
+              example:
+                success: true
+                message: Virtual input 1 created
+                input:
+                  slot: 1
+                  object_id: virtual_input_1
+                  name: Virtual input 1
+                  label: ""
+                  source: input_3
+                  on_delay: 0
+                  off_delay: 600
+                  state: false
+                  problem: ""
+        "400":
+          description: >-
+            A body that is empty, not JSON or not an object (`Invalid JSON`), a
+            `slot` that is not a number from 1 to `max_inputs` (`null`
+            included), a `source` that is missing, empty or not a string, a
+            delay that is not a whole number of seconds from 0 to `max_delay`
+            (`null` included), or a `source` that names no visible input, a
+            relay, or a virtual input. Nothing happened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                slot:
+                  value:
+                    success: false
+                    error: "'slot' must be a number from 1 to 16"
+                source:
+                  value:
+                    success: false
+                    error: "'source' must be the object id of an input"
+                delay:
+                  value:
+                    success: false
+                    error: "'off_delay' must be a whole number of seconds from 0 to 86400"
+                missing:
+                  value:
+                    success: false
+                    error: "'input_9' is not an input"
+                virtual:
+                  value:
+                    success: false
+                    error: "'virtual_input_2' is a virtual input; the source must be a physical one"
+        "404":
+          $ref: "#/components/responses/NoVirtualInputs"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          description: No `slot` was given and every one is in use. Nothing happened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: All 16 virtual inputs are in use
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          description: >-
+            The file could not be written, so the slot is as it was. The log
+            says why.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: The virtual inputs were not written
+        "503":
+          $ref: "#/components/responses/VirtualInputsUnwritable"
+
+  /virtual-inputs/delete:
+    post:
+      tags: [write]
+      operationId: deleteVirtualInput
+      summary: Free a slot.
+      description: >-
+        The slot goes back to the pool: its binary sensor is hidden, with no
+        state, and its label goes with it, so the next virtual input in that
+        slot starts without one. A rule or a binding that names it finds no
+        input from then on, as for any input the firmware lacks: a relay it
+        drove stays where it is. Home Assistant is asked to reconnect a moment
+        later. Written before the answer, with no confirmation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VirtualInputDeleteRequest"
+            example:
+              slot: 1
+      responses:
+        "200":
+          description: Freed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+              example:
+                success: true
+                message: Virtual input 1 deleted
+        "400":
+          description: >-
+            A body that is not a JSON object (`Invalid JSON`), or a `slot` that
+            is missing or not a number from 1 to `max_inputs`. Nothing happened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: "'slot' must be a number from 1 to 16"
+        "404":
+          $ref: "#/components/responses/NoVirtualInputs"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          description: The slot is free already. Nothing happened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Virtual input 3 is free
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          description: The file could not be written, so the slot is still in use. The log says why.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: The virtual inputs were not written
+        "503":
+          $ref: "#/components/responses/VirtualInputsUnwritable"
+
 components:
   securitySchemes:
     webServerAuth:
@@ -1541,6 +1767,49 @@ components:
               value:
                 success: false
                 error: Not found
+    NoVirtualInputs:
+      description: >-
+        This firmware has no `virtual_inputs`: `capabilities` carries no
+        `virtual_inputs`. On a firmware built without one at all the routes do
+        not exist, and the answer is the prefix's plain `Not found`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            unwired:
+              value:
+                success: false
+                error: No virtual inputs
+            absent:
+              value:
+                success: false
+                error: Not found
+    VirtualInputsUnwritable:
+      description: >-
+        The user partition did not mount (`Virtual input storage
+        unavailable`); the file is there but did not load at boot, so it waits
+        for a person to fix it and a reboot (`The virtual inputs file did not
+        load; fix it and reboot`) — `can_save` is false in both cases; or the
+        loop task did not take the request in time (`Device busy`). Nothing
+        happened.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            unavailable:
+              value:
+                success: false
+                error: Virtual input storage unavailable
+            unloaded:
+              value:
+                success: false
+                error: The virtual inputs file did not load; fix it and reboot
+            busy:
+              value:
+                success: false
+                error: Device busy
     NoTimeSettings:
       description: >-
         This firmware has no `timezone_settings`, so the time route does not
@@ -2250,6 +2519,12 @@ components:
           type: boolean
           enum: [true]
           description: "A `timezone_settings` is in the firmware, so `/time` answers."
+        virtual_inputs:
+          type: boolean
+          enum: [true]
+          description: >-
+            A `virtual_inputs` is in the firmware, so `/virtual-inputs`,
+            `/virtual-inputs/save` and `/virtual-inputs/delete` answer.
       example:
         reboot: true
         factory_reset:
@@ -2273,6 +2548,7 @@ components:
         board_info: true
         temperature_slots: true
         time: true
+        virtual_inputs: true
         modbus:
           bits:
             - address: 0
@@ -2451,6 +2727,13 @@ components:
             What the panel and the page show in place of `name`; empty when the
             entity has none, and then they show `name`. Changes with the record:
             read again after a write.
+        virtual:
+          type: boolean
+          enum: [true]
+          description: >-
+            A virtual input (`binary_sensor` only): it takes a `label` and no
+            `inverted`, which a write refuses with `400`. Absent on every other
+            entity.
 
     SettingsRecords:
       type: object
@@ -2800,6 +3083,138 @@ components:
             What to set the device's clock to: UTC epoch seconds, from
             2019-01-01 to the end of 2099.
           example: 1791369125
+
+    VirtualInputs:
+      type: object
+      required: [max_inputs, max_delay, can_save, inputs, sources]
+      properties:
+        max_inputs:
+          type: integer
+          minimum: 1
+          maximum: 32
+          description: The pool, `virtual_inputs`' `max_inputs`; slots run from 1 to it.
+        max_delay:
+          type: integer
+          description: The longest on or off delay, in seconds (86400, a day).
+        can_save:
+          type: boolean
+          description: >-
+            A save or a delete can be kept. False when the user partition did
+            not mount, or the file is there but did not load at boot; both
+            routes are `503` then.
+        inputs:
+          type: array
+          description: The slots in use, in slot order.
+          items:
+            $ref: "#/components/schemas/VirtualInput"
+        sources:
+          type: array
+          description: >-
+            What a slot may follow: every visible `binary_sensor` that is not a
+            virtual input, in the firmware's order.
+          items:
+            $ref: "#/components/schemas/VirtualInputSource"
+
+    VirtualInput:
+      type: object
+      required: [slot, object_id, name, label, source, on_delay, off_delay, state, problem]
+      properties:
+        slot:
+          type: integer
+          minimum: 1
+        object_id:
+          type: string
+          description: >-
+            `virtual_input_<slot>`, whatever the label: what rules, bindings,
+            Home Assistant and the entity settings know it by.
+          example: virtual_input_1
+        name:
+          type: string
+          description: "`Virtual input <slot>`: the key of `web_server`'s routes and `/events`."
+          example: Virtual input 1
+        label:
+          type: string
+          description: The entity settings' label, `""` for none.
+        source:
+          type: string
+          description: The object id of the physical input it follows.
+        on_delay:
+          type: integer
+          minimum: 0
+          maximum: 86400
+          description: Seconds the source has to stay on before it turns on.
+        off_delay:
+          type: integer
+          minimum: 0
+          maximum: 86400
+          description: >-
+            Seconds it stays on after the source last went off; a new pulse
+            starts them again.
+        state:
+          type: [boolean, "null"]
+          description: Its state when read; `null` until its source has reported.
+        problem:
+          type: string
+          description: >-
+            Why it is off whatever its source does, or has no state yet; `""`
+            while it follows its source. A source the firmware does not have,
+            from a file edited by hand or a build without that input, is
+            `Source 'input_9' not found`.
+          example: ""
+
+    VirtualInputSource:
+      type: object
+      required: [object_id, name, label]
+      properties:
+        object_id:
+          type: string
+        name:
+          type: string
+        label:
+          type: string
+          description: The entity settings' label, `""` for none.
+
+    VirtualInputSaveRequest:
+      type: object
+      required: [source]
+      properties:
+        slot:
+          type: integer
+          minimum: 1
+          description: The slot, from 1 up to `max_inputs`; without it, the lowest free one.
+        source:
+          type: string
+          minLength: 1
+          description: The object id of a physical input, one of the list's `sources`.
+        on_delay:
+          type: integer
+          minimum: 0
+          maximum: 86400
+          description: Seconds; `0` on a new slot and kept on one in use when left out.
+        off_delay:
+          type: integer
+          minimum: 0
+          maximum: 86400
+          description: Seconds; `0` on a new slot and kept on one in use when left out.
+
+    VirtualInputSaveResult:
+      description: What a save answers once it is written and in force. Never `reboot_required`.
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          required: [input]
+          properties:
+            input:
+              $ref: "#/components/schemas/VirtualInput"
+
+    VirtualInputDeleteRequest:
+      type: object
+      required: [slot]
+      properties:
+        slot:
+          type: integer
+          minimum: 1
+          description: The slot, from 1 up to `max_inputs`.
 
     SuccessEnvelope:
       type: object

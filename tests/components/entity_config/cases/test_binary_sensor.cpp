@@ -171,6 +171,58 @@ TEST_F(BinarySensorSettings, ABadLabelRefusesTheWholeWrite) {
   EXPECT_FALSE(settings.is_inverted(&e.in1));
 }
 
+// --- label-only inputs (virtual_inputs) and removed records ---
+
+TEST_F(BinarySensorSettings, ALabelOnlyInputTakesALabelAndNoInversion) {
+  settings.set_label_only(&e.in2);
+  EXPECT_TRUE(settings.is_label_only(&e.in2));
+  EXPECT_FALSE(settings.is_label_only(&e.in1));
+
+  JsonDocument inverted = body(R"({"source_name":"input_2","settings":{"inverted":true,"label":"Someone home"}})");
+  EXPECT_EQ(settings.update_record(inverted.as<JsonObject>()), nullptr);
+  EXPECT_EQ(settings.get_label("input_2"), "");
+  JsonDocument labelled = body(R"({"source_name":"input_2","settings":{"inverted":false,"label":"Someone home"}})");
+  ASSERT_NE(settings.update_record(labelled.as<JsonObject>()), nullptr);
+  EXPECT_EQ(settings.display_name(&e.in2), "Someone home");
+
+  // The menu's call changes nothing either.
+  settings.set_inverted(&e.in2, true);
+  EXPECT_FALSE(settings.is_inverted(&e.in2));
+  e.in2.publish_state(true);
+  EXPECT_TRUE(e.in2.state);
+
+  // A record that says otherwise, from a hand-edited file, is applied without its inversion.
+  auto *record = new BinarySensorSettingsRecord();  // NOLINT(cppcoreguidelines-owning-memory)
+  EXPECT_TRUE(load(R"({"source_name":"input_2","inverted":true,"label":"Hall"})", *record));
+  settings.reset();
+  settings.records().push_back(record);
+  EXPECT_FALSE(settings.is_inverted(&e.in2));
+  settings.apply();
+  EXPECT_TRUE(LogCapture::instance().has("'input_2' takes no inversion, ignoring it"));
+  EXPECT_FALSE(record->inverted);
+  EXPECT_TRUE(e.in2.state);
+  e.in2.publish_state(false);
+  EXPECT_FALSE(e.in2.state);
+  EXPECT_EQ(settings.display_name(&e.in2), "Hall");
+}
+
+TEST_F(BinarySensorSettings, ARemovedRecordTakesItsLabelWithIt) {
+  JsonDocument labelled = body(R"({"source_name":"input_1","settings":{"label":"Door"}})");
+  ASSERT_NE(settings.update_record(labelled.as<JsonObject>()), nullptr);
+  JsonDocument other = body(R"({"source_name":"input_2","settings":{"label":"Gate"}})");
+  ASSERT_NE(settings.update_record(other.as<JsonObject>()), nullptr);
+  settings.clear_dirty();
+  EXPECT_TRUE(settings.remove_record("input_1"));
+  EXPECT_TRUE(settings.is_dirty());
+  EXPECT_EQ(settings.get_label("input_1"), "");
+  EXPECT_EQ(settings.display_name(&e.in1), "Input 1");
+  EXPECT_EQ(settings.get_label("input_2"), "Gate");
+  EXPECT_EQ(settings.size(), 1u);
+  settings.clear_dirty();
+  EXPECT_FALSE(settings.remove_record("input_1"));
+  EXPECT_FALSE(settings.is_dirty());
+}
+
 TEST_F(BinarySensorSettings, TheMetaOffersALabelFirst) {
   JsonDocument doc;
   JsonObject obj = doc.to<JsonObject>();
