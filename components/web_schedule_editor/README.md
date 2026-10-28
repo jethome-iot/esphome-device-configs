@@ -73,7 +73,7 @@ or written then, and the call can simply be made again.
 | GET | `ping` | `{"status": "ok"}` |
 
 A schedule's targets are every relay and thermostat any of its modes names. `status.state` is
-the first that holds of `disabled`, `waiting_for_clock`, `conflict` (another enabled schedule
+the first that holds of `disabled`, `waiting_for_clock`, `conflict` (a schedule before it by id
 drives one of its targets) and `running`; `reason` says why in a sentence, `""` when it runs or
 is disabled. `issues` lists, whatever the state, each action the device would skip now: its
 mode's id, its index in the mode's `actions`, the `kind` (`missing_relay`,

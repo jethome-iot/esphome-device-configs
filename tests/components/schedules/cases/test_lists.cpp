@@ -248,6 +248,66 @@ TEST_F(Lists, AnActionThatStopsItsScheduleStopsTheRest) {
   EXPECT_TRUE(this->e.relay2.writes.empty());
 }
 
+// Order: relay_1 on, a wait of `wait` seconds where it is not 0, relay_2 on, the boiler on.
+static ScheduleConfig three(uint32_t wait = 0) {
+  ScheduleConfig c;
+  c.name = "Order";
+  c.add_mode("go", "Go");
+  c.add_relay("relay_1", true);
+  if (wait != 0)
+    c.add_wait(wait);
+  c.add_relay("relay_2", true);
+  c.add_relay("boiler", true);
+  c.add_point(0, 0);
+  return c;
+}
+
+TEST_F(Lists, AnActionThatDeletesItsScheduleStopsTheRest) {
+  this->boot();
+  this->create(three());
+  auto before = this->e.relay1.on_write;
+  this->e.relay1.on_write = [this, before]() {
+    before();
+    EXPECT_TRUE(this->engine->remove("order").ok);
+  };
+  this->engine->local = at_local(0, 9, 0);
+  this->engine->tick();
+  EXPECT_EQ(std::vector<std::string>{"r1 on"}, this->order);
+  EXPECT_EQ(nullptr, this->engine->get("order"));
+}
+
+// Saved from its own action onto other targets: the new list runs, nothing more of the old one.
+TEST_F(Lists, AnActionThatSavesItsScheduleRunsOnlyTheNewList) {
+  this->boot();
+  this->create(three());
+  auto before = this->e.relay1.on_write;
+  this->e.relay1.on_write = [this, before, saved = false]() mutable {
+    before();
+    if (saved)
+      return;
+    saved = true;
+    EXPECT_TRUE(this->engine->update("order", relay_doc("Order", "boiler", {off_at(0)})).ok);
+  };
+  this->engine->local = at_local(0, 9, 0);
+  this->engine->tick();
+  EXPECT_EQ((std::vector<std::string>{"r1 on", "boiler off"}), this->order);
+}
+
+TEST_F(Lists, AnActionAfterAWaitThatDeletesItsScheduleStopsTheRest) {
+  this->boot();
+  this->create(three(5));
+  auto before = this->e.relay2.on_write;
+  this->e.relay2.on_write = [this, before]() {
+    before();
+    EXPECT_TRUE(this->engine->remove("order").ok);
+  };
+  this->engine->local = at_local(0, 9, 0);
+  this->engine->tick();
+  this->engine->run(5);
+  EXPECT_EQ((std::vector<std::string>{"r1 on", "r2 on"}), this->order);
+  EXPECT_TRUE(this->engine->timers.empty());
+}
+
 // --- A relay a running thermostat holds ---
 
 class Held : public Lists {
@@ -330,6 +390,24 @@ TEST_F(Held, ARelayLetGoBeforeANewListIsTheNewListsToSet) {
   EXPECT_TRUE(this->order.empty()) << "the first list's on is not set";
   this->engine->run(60);
   EXPECT_EQ(std::vector<std::string>{"boiler off"}, this->order);
+}
+
+// Deleted and made again under its id before the loop got to a relay let go: the follow queued
+// for the first one's list sets nothing of the new one's.
+TEST_F(Held, AFollowQueuedForADeletedScheduleIsNotItsSuccessors) {
+  this->start(at_local(0, 9, 0), list({1}));
+  this->let_go();
+  ASSERT_TRUE(this->engine->remove("pump").ok);
+  ScheduleConfig again;
+  again.name = "Pump";
+  again.add_mode("day", "Day");
+  again.add_relay("relay_1", true);
+  again.add_point(wm(0, 8, 0), 0);
+  ASSERT_EQ("pump", this->create(again).id);
+  EXPECT_EQ(std::vector<std::string>{"r1 on"}, this->order);
+  EXPECT_EQ(1u, this->engine->run_later());
+  EXPECT_EQ(std::vector<std::string>{"r1 on"}, this->order)
+      << "relay_1 is the new list's first target, as the boiler was";
 }
 
 }  // namespace esphome::schedules::testing

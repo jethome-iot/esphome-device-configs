@@ -408,8 +408,8 @@ paths:
         Every switch that is not internal, and every thermostat with its range
         and presets; `thermostats` is empty on a firmware without
         `climate_hub`. `held_by` names the running thermostat that drives a
-        relay, `scheduled_by` the enabled schedule that drives a target: the
-        first by id whose modes name it.
+        relay, `scheduled_by` the schedule that drives a target: the one that
+        runs and whose modes name it.
       responses:
         "200":
           description: The targets.
@@ -503,7 +503,8 @@ components:
         number until its name is read, then its name (`Mode 2: …`, `Mode
         "Day": …`), and one about an action its place in the list too (`Mode
         "Day", action 2: …`). A sentence about a point names its day and, once
-        its time is read, the time: `Mon 06:30: …`.
+        its time is read, the time (`Mon 06:30: …`); one about two points at
+        one time names the day and the time (`Mon: 06:30 is there twice`).
       content:
         application/json:
           schema:
@@ -814,6 +815,16 @@ components:
       pattern: "^[a-z0-9-]{1,24}$"
       example: day
 
+    ModeName:
+      type: string
+      description: >-
+        1 to 24 characters, no control characters, surrounding blanks
+        trimmed; unique in the schedule, ignoring ASCII case and runs of
+        spaces.
+      minLength: 1
+      maxLength: 24
+      example: Day
+
     Mode:
       type: object
       description: >-
@@ -825,19 +836,30 @@ components:
         id:
           $ref: "#/components/schemas/ModeId"
         name:
-          type: string
-          description: >-
-            1 to 24 characters, no control characters, surrounding blanks
-            trimmed; unique in the schedule, ignoring ASCII case and runs of
-            spaces.
-          minLength: 1
-          maxLength: 24
-          example: Day
+          $ref: "#/components/schemas/ModeName"
         color:
           $ref: "#/components/schemas/Color"
         actions:
           type: array
-          description: In order; none is a mode that does nothing. A body may leave it out.
+          description: In order; none is a mode that does nothing.
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/Action"
+
+    ModeInput:
+      type: object
+      description: A mode as `/save` and `/import` take it.
+      required: [id, name]
+      properties:
+        id:
+          $ref: "#/components/schemas/ModeId"
+        name:
+          $ref: "#/components/schemas/ModeName"
+        color:
+          $ref: "#/components/schemas/Color"
+        actions:
+          type: array
+          description: In order; left out, the mode has none and does nothing.
           maxItems: 12
           items:
             $ref: "#/components/schemas/Action"
@@ -990,7 +1012,7 @@ components:
           minItems: 1
           maxItems: 8
           items:
-            $ref: "#/components/schemas/Mode"
+            $ref: "#/components/schemas/ModeInput"
         week:
           $ref: "#/components/schemas/Week"
       example:
@@ -1026,8 +1048,8 @@ components:
       type: string
       description: >-
         The first that holds of: `disabled`; `waiting_for_clock` (the device
-        has no valid time yet); `conflict` (another enabled schedule, first by
-        id, drives a target its modes name, and it waits whole); `running`.
+        has no valid time yet); `conflict` (a schedule before it by id that
+        runs drives a target its modes name, and it waits whole); `running`.
       enum: [disabled, waiting_for_clock, conflict, running]
 
     Issue:
@@ -1216,7 +1238,7 @@ components:
                 description: The running thermostat that drives it, "" for none.
               scheduled_by:
                 type: string
-                description: The id of the enabled schedule that drives it, "" for none.
+                description: The id of the schedule that runs and names it, "" for none.
         thermostats:
           type: array
           items:

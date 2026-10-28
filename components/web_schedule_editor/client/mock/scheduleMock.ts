@@ -29,7 +29,8 @@
 // a step back reads as most of a week ahead, and no step is a jump. A relay that
 // `targets()` says a thermostat holds is skipped, and takes the last action on it the
 // list passed once it is let go; a thermostat or a preset that comes back takes the
-// actions on it the list passed. `apply()` is told each action, nothing else is.
+// actions on it the list passed that it can, and the rest once their preset is there too.
+// `apply()` is told each action, nothing else is.
 // tests/components/web_schedule_editor/contract.json lists the requests it must
 // answer as the device does.
 import type {
@@ -413,7 +414,7 @@ export interface ScheduleMockStoreOptions {
   /**
    * The schedules on the device at boot, in place of seedSchedules. One whose `version` is
    * above SCHEDULE_VERSION stands for a file a newer firmware wrote; two enabled sharing a
-   * target stand for files written by hand, where the first by id drives it.
+   * target stand for files written by hand, taken by id as the device takes them.
    */
   seed?: ScheduleDocument[]
 }
@@ -436,13 +437,13 @@ interface Run {
   mode: number
   next: number
   waitUntil: number | null
-  /** Thermostats whose actions it passed did not reach them: they take them once back. */
-  lost: Set<string>
+  /** The thermostat actions it passed, by index, that did not reach their thermostat: once one can, the actions on that thermostat apply again. */
+  lost: Set<number>
 }
 
 interface Entry {
   doc: ScheduleDocument
-  /** Enabled and the first enabled by id on every target its modes name. */
+  /** Enabled, and no target its modes name is driven by one before it by id: it drives them all. */
   driving: boolean
   run: Run
 }
@@ -508,12 +509,10 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
     return found?.name ?? target.id
   }
 
-  // The enabled schedule that drives `target`: the first by id that names it, there or not.
+  // The schedule that drives `target`, there or not: the one that runs and names it.
   function holderOf(target: ScheduleTarget): Entry | undefined {
-    return entries.find((e) => e.doc.enabled && namesTarget(e.doc, target))
+    return entries.find((e) => e.driving && namesTarget(e.doc, target))
   }
-
-  const drives = (e: Entry) => e.doc.enabled && scheduleTargets(e.doc).every((t) => holderOf(t) === e)
 
   // Why the device would skip each action now, mode by mode.
   function issuesOf(doc: ScheduleDocument): ActionIssue[] {
@@ -553,11 +552,16 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
     const issues = issuesOf(doc)
     if (!doc.enabled) return { state: 'disabled', reason: '', issues }
     if (!clock) return { state: 'waiting_for_clock', reason: 'Waiting for the clock', issues }
-    for (const target of scheduleTargets(doc)) {
-      const holder = holderOf(target)
-      if (holder && holder !== e) {
-        return { state: 'conflict', reason: conflictReason(holder.doc.name, targetName(target)), issues }
+    if (!e.driving) {
+      // The one in its way is before it by id; one after it drives a shared target only because
+      // this one waits.
+      for (const target of scheduleTargets(doc)) {
+        const holder = holderOf(target)
+        if (holder && holder.doc.id < doc.id) {
+          return { state: 'conflict', reason: conflictReason(holder.doc.name, targetName(target)), issues }
+        }
       }
+      return { state: 'conflict', reason: '', issues }
     }
     const stopped = scheduleTargets(doc)
       .map((t) => (t.type === 'thermostat' ? thermostatOf(t.id) : undefined))
@@ -575,9 +579,9 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
 
   // --- The lists ---
 
-  // The engine's apply: a relay not there or held is left alone; a thermostat or a preset not
-  // there is remembered, to take the action once it is back.
-  function applyAction(e: Entry, action: RelayAction | ThermostatAction) {
+  // The engine's apply of the list's action at `index`: a relay not there or held is left alone;
+  // a thermostat or a preset not there is remembered, to take the action once it is back.
+  function applyAction(e: Entry, action: RelayAction | ThermostatAction, index: number) {
     if (action.type === 'relay') {
       const relay = relayOf(action.id)
       if (!relay || relay.held_by) return
@@ -585,7 +589,7 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
       const thermostat = thermostatOf(action.id)
       const value = action.value
       if (!thermostat || (value.type === 'preset' && !thermostat.presets.some((p) => p.key === value.preset))) {
-        e.run.lost.add(action.id)
+        e.run.lost.add(index)
         return
       }
     }
@@ -598,12 +602,12 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
     while (e.run === run && run.mode >= 0 && e.driving) {
       const action = e.doc.modes[run.mode]?.actions[run.next]
       if (!action) return
-      run.next++
+      const index = run.next++
       if (action.type === 'wait') {
         run.waitUntil = millis() + action.seconds * 1000
         return
       }
-      applyAction(e, action)
+      applyAction(e, action, index)
     }
   }
 
@@ -625,13 +629,17 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
     return e.run.mode < 0 ? [] : (e.doc.modes[e.run.mode]?.actions.slice(0, e.run.next) ?? [])
   }
 
-  // Which schedules drive their targets now; one that no longer does stops where it is.
-  // Returns those that did not before.
+  // Which schedules drive their targets now, by id: each enabled one unless one before it that
+  // runs drives a target of it; one that waits drives none. One that no longer drives stops
+  // where it is. Returns those that did not before.
   function refresh(): Entry[] {
     const started: Entry[] = []
+    const driven: ScheduleTarget[] = []
     for (const e of entries) {
       const was = e.driving
-      e.driving = drives(e)
+      const mine = scheduleTargets(e.doc)
+      e.driving = e.doc.enabled && !mine.some((t) => driven.some((d) => sameTarget(d, t)))
+      if (e.driving) driven.push(...mine)
       if (was && !e.driving) e.run = idle()
       if (e.driving && !was) started.push(e)
     }
@@ -648,8 +656,9 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
     return others.map((e) => e.doc.id)
   }
 
-  // A relay let go takes the last action on it the list passed; one a thermostat or a preset
-  // came back for gets every action on it the list passed.
+  // A relay let go takes the last action on it the list passed. When an action the list passed
+  // can reach its thermostat again, a thermostat or a preset back, every action on that
+  // thermostat the list passed applies again, in order; one that still cannot waits on.
   function watchDevice(first: boolean) {
     const device = targetsOf()
     for (const relay of device.relays) {
@@ -658,10 +667,13 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
       if (first || !before || relay.held_by) continue
       for (const e of entries) {
         if (!e.driving) continue
-        const last = passed(e)
-          .filter((a): a is RelayAction => a.type === 'relay' && a.id === relay.object_id)
-          .pop()
-        if (last) applyAction(e, last)
+        const actions = passed(e)
+        for (let index = actions.length - 1; index >= 0; index--) {
+          const action = actions[index]
+          if (action?.type !== 'relay' || action.id !== relay.object_id) continue
+          applyAction(e, action, index)
+          break
+        }
       }
     }
     if (!climateHub) return
@@ -674,18 +686,18 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
       if (first || before === presets) continue
       for (const e of entries) {
         if (!e.driving) continue
-        const actions = passed(e).filter((a): a is ThermostatAction => a.type === 'thermostat' && a.id === id)
-        if (!actions.length) continue
-        const ready =
-          !!thermostat &&
-          actions.every((a) => {
-            const value = a.value
-            return value.type !== 'preset' || thermostat.presets.some((p) => p.key === value.preset)
-          })
-        if (!ready) {
-          e.run.lost.add(id)
-        } else if (e.run.lost.delete(id)) {
-          for (const action of actions) applyAction(e, action)
+        const actions = passed(e)
+        let back = false
+        for (const [index, action] of actions.entries()) {
+          if (action.type !== 'thermostat' || action.id !== id) continue
+          const value = action.value
+          const ready = !!thermostat && (value.type !== 'preset' || thermostat.presets.some((p) => p.key === value.preset))
+          if (!ready) e.run.lost.add(index)
+          else if (e.run.lost.delete(index)) back = true
+        }
+        if (!back) continue
+        for (const [index, action] of actions.entries()) {
+          if (action.type === 'thermostat' && action.id === id) applyAction(e, action, index)
         }
       }
     }
@@ -728,7 +740,7 @@ export function createScheduleMockStore(options: ScheduleMockStoreOptions = {}):
 
   // --- The routes ---
 
-  // A conflict on a target `doc` names: the enabled schedule that drives the first one another drives.
+  // A conflict on a target `doc` names: the schedule that drives the first one another drives.
   function conflictOf(doc: ScheduleDocument): MockResult | undefined {
     for (const target of scheduleTargets(doc)) {
       const holder = holderOf(target)

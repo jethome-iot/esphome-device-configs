@@ -92,8 +92,10 @@ one switch point` and the like.
 
 ## When a list runs
 
-- At every switch point, from its first action, even when the targets already are that way; a
-  hand change in between holds until the next point.
+- At every switch point, from its first action, even when the targets already are that way. A
+  hand change holds until the schedule acts on that target again: at a switch point, at a later
+  action of a list still running, when the list runs again (below) or when the thermostat comes
+  back.
 - The list of the mode in force runs again, waits included: once the clock is first valid after
   a boot, when the schedule is saved enabled (a rename too), when it is switched on, and when
   the schedule that drove one of its targets is switched off, deleted or moved elsewhere.
@@ -118,13 +120,16 @@ one switch point` and the like.
   and stays stopped. A scheduled change ends a calibration.
 - A relay, a thermostat or a preset not on the device is no error: the schedule is saved, with a
   `warning`, the action is skipped and the rest of the list runs. When a thermostat or a preset
-  comes back, the actions on it the list has passed apply again, in order, without the waits.
+  comes back, the actions on it the list has passed apply again, in order, without the waits;
+  one whose preset is still missing is skipped, and once that preset is back they all apply
+  again.
 - One enabled schedule per target. Saving another one enabled that shares a target is refused
   with 409 naming the first shared target, and so is switching one on, unless it takes over:
   every other one that shares a target is then stored disabled. Two enabled ones that share a
-  target come only from files written by hand; then the first by id drives it, the other waits
-  whole (`conflict`) and starts once the first is switched off, deleted or saved onto other
-  targets.
+  target come only from files written by hand; then they are taken by id: each runs unless one
+  before it that runs drives one of its targets, and one that waits (`conflict`) drives none of
+  them. It starts once the one in its way is switched off, deleted or saved onto other targets,
+  and a later one that shares a target with it then waits.
 
 ## Storage
 

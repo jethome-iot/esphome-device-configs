@@ -233,7 +233,7 @@ void ScheduleEngine::cancel_(Entry &entry) {
   entry.mode = -1;
   entry.next = 0;
   entry.lost.clear();
-  entry.run++;
+  entry.run = this->next_run_++;
 }
 
 void ScheduleEngine::run_(const std::string &id, uint8_t mode, const char *why) {
@@ -261,7 +261,8 @@ void ScheduleEngine::advance_(std::string id) {
     const Mode &mode = entry->config.modes[entry->mode];
     if (entry->next >= mode.count)
       return;
-    const Action action = entry->config.action(mode, entry->next++);
+    const auto index = entry->next++;
+    const Action action = entry->config.action(mode, index);
     if (action.type == ActionType::WAIT) {
       entry->waiting = true;
       const auto ms = static_cast<uint32_t>(action.number) * 1000u;
@@ -277,17 +278,17 @@ void ScheduleEngine::advance_(std::string id) {
     if (action.type == ActionType::RELAY) {
       this->apply_relay_(*entry, action);
     } else {
-      this->apply_thermostat_(*entry, action);
+      this->apply_thermostat_(*entry, action, index);
     }
   }
 }
 
-void ScheduleEngine::mark_lost_(const std::string &id, uint32_t run, uint8_t target) {
+void ScheduleEngine::mark_lost_(const std::string &id, uint32_t run, uint8_t index) {
   Entry *entry = this->find_(id);
   if (entry == nullptr || entry->run != run)
     return;
-  if (std::find(entry->lost.begin(), entry->lost.end(), target) == entry->lost.end())
-    entry->lost.push_back(target);
+  if (std::find(entry->lost.begin(), entry->lost.end(), index) == entry->lost.end())
+    entry->lost.push_back(index);
 }
 
 void ScheduleEngine::apply_relay_(Entry &entry, const Action &action) {
@@ -330,7 +331,7 @@ bool ScheduleEngine::thermostat_ready_(const std::string &thermostat, const std:
 
 // The calls an automation rule makes, so the hub treats it the same: a stopped thermostat's
 // document takes the values and stays stopped, a relay it holds and a calibration as for a rule.
-void ScheduleEngine::apply_thermostat_(Entry &entry, const Action &action) {
+void ScheduleEngine::apply_thermostat_(Entry &entry, const Action &action, uint8_t index) {
   // Copies: the hub's calls below may change the entry.
   const std::string id = entry.config.id;
   const std::string name = entry.config.name;
@@ -343,7 +344,7 @@ void ScheduleEngine::apply_thermostat_(Entry &entry, const Action &action) {
     const bool there = hub != nullptr && hub->store().get(target) != nullptr;
     ESP_LOGW(TAG, "Schedule '%s': thermostat '%s' %s; skipped", name.c_str(), target.c_str(),
              there ? ("has no preset '" + key + "'").c_str() : "is not on this device");
-    this->mark_lost_(id, run, action.target);
+    this->mark_lost_(id, run, index);
     return;
   }
   const climate_hub::ClimateConfig *thermostat = hub->store().get(target);
@@ -373,11 +374,11 @@ void ScheduleEngine::apply_thermostat_(Entry &entry, const Action &action) {
   if (result.ok)
     return;
   // The hub dropped the thermostat or the preset without saying so: it applies again once back.
-  ESP_LOGW(TAG, "Schedule '%s': thermostat '%s': %s", id.c_str(), target.c_str(), result.error.c_str());
-  this->mark_lost_(id, run, action.target);
+  ESP_LOGW(TAG, "Schedule '%s': thermostat '%s': %s", name.c_str(), target.c_str(), result.error.c_str());
+  this->mark_lost_(id, run, index);
 #else
   ESP_LOGW(TAG, "Schedule '%s': thermostat '%s' skipped: %s", name.c_str(), target.c_str(), NO_THERMOSTATS);
-  this->mark_lost_(id, run, action.target);
+  this->mark_lost_(id, run, index);
 #endif
 }
 
@@ -391,28 +392,30 @@ void ScheduleEngine::on_climate_change_(const std::string &climate_id) {
     if (found == targets.end())
       continue;
     const auto target = static_cast<uint8_t>(found - targets.begin());
-    // What the list has passed on it, and whether all of that could go in now.
+    // The actions on it the list passed: whether one it lost can go in now, and which cannot.
     const Mode &mode = entry->config.modes[entry->mode];
-    bool passed = false;
-    bool ready = true;
+    bool back = false;
+    std::vector<uint8_t> lost;
+    for (const uint8_t index : entry->lost) {
+      const Action &action = entry->config.action(mode, index);
+      if (action.target != target)
+        lost.push_back(index);
+    }
     for (size_t i = 0; i < entry->next && i < mode.count; i++) {
       const Action &action = entry->config.action(mode, i);
       if (action.type != ActionType::THERMOSTAT || action.target != target)
         continue;
-      passed = true;
-      ready = ready && this->thermostat_ready_(climate_id, entry->config.preset_of(action));
+      const auto index = static_cast<uint8_t>(i);
+      const bool was_lost = std::find(entry->lost.begin(), entry->lost.end(), index) != entry->lost.end();
+      if (!this->thermostat_ready_(climate_id, entry->config.preset_of(action))) {
+        lost.push_back(index);
+      } else if (was_lost) {
+        back = true;
+      }
     }
-    if (!passed)
+    entry->lost = std::move(lost);
+    if (!back)
       continue;
-    auto lost = std::find(entry->lost.begin(), entry->lost.end(), target);
-    if (!ready) {
-      if (lost == entry->lost.end())
-        entry->lost.push_back(target);
-      continue;
-    }
-    if (lost == entry->lost.end())
-      continue;
-    entry->lost.erase(lost);
     // From inside the hub's own change: the values go in once the loop calls the hub again.
     const std::string id = entry->config.id;
     const uint32_t run = entry->run;
@@ -430,7 +433,7 @@ void ScheduleEngine::reapply_(const std::string &id, uint32_t run, uint8_t targe
       return;
     const Action action = entry->config.action(mode, i);
     if (action.type == ActionType::THERMOSTAT && action.target == target)
-      this->apply_thermostat_(*entry, action);
+      this->apply_thermostat_(*entry, action, static_cast<uint8_t>(i));
   }
 }
 
@@ -557,6 +560,7 @@ bool ScheduleEngine::load_file_(const std::string &folder, const std::string &fi
   }
   this->resolve_name_(&config);
   entry->timer = this->next_timer_++;
+  entry->run = this->next_run_++;
   // Loaded in file name order, which is id order.
   this->entries_.push_back(std::move(entry));
   return true;
@@ -647,7 +651,7 @@ void ScheduleEngine::resolve_(Entry &entry) {
 
 const ScheduleEngine::Entry *ScheduleEngine::holder_(const Target &target) const {
   for (const auto &entry : this->entries_) {
-    if (entry->config.enabled && entry->config.names_target(target))
+    if (entry->active && entry->config.names_target(target))
       return entry.get();
   }
   return nullptr;
@@ -655,12 +659,20 @@ const ScheduleEngine::Entry *ScheduleEngine::holder_(const Target &target) const
 
 std::vector<std::string> ScheduleEngine::refresh_() {
   std::vector<std::string> started;
+  // By id: each enabled one runs unless one before it that runs drives a target of it. One that
+  // waits drives nothing, so the next can have its other targets.
+  std::vector<const Target *> driven;
   for (const auto &entry : this->entries_) {
     const bool was = entry->active;
+    const auto &targets = entry->config.targets;
+    entry->active = entry->config.enabled && std::none_of(targets.begin(), targets.end(), [&driven](const Target &t) {
+                      return std::any_of(driven.begin(), driven.end(), [&t](const Target *d) { return *d == t; });
+                    });
     // A target that is not there still keeps the others off it: it is the one meant to drive it.
-    entry->active = entry->config.enabled &&
-                    std::all_of(entry->config.targets.begin(), entry->config.targets.end(),
-                                [this, &entry](const Target &target) { return this->holder_(target) == entry.get(); });
+    if (entry->active) {
+      for (const Target &target : targets)
+        driven.push_back(&target);
+    }
     if (was && !entry->active)
       this->cancel_(*entry);
     if (entry->active && !was)
@@ -737,13 +749,18 @@ ScheduleStatus ScheduleEngine::status(const std::string &id) const {
     status.reason = "Waiting for the clock";
     return status;
   }
-  for (const Target &target : entry->config.targets) {
-    const Entry *holder = this->holder_(target);
-    if (holder != entry) {
-      status.state = ScheduleState::CONFLICT;
-      status.reason = "Schedule \"" + holder->config.name + "\" drives " + this->target_name(target);
-      return status;
+  if (!entry->active) {
+    status.state = ScheduleState::CONFLICT;
+    // The one in its way is before it by id; one after it drives a shared target only because
+    // this one waits.
+    for (const Target &target : entry->config.targets) {
+      const Entry *holder = this->holder_(target);
+      if (holder != nullptr && holder->config.id < entry->config.id) {
+        status.reason = "Schedule \"" + holder->config.name + "\" drives " + this->target_name(target);
+        break;
+      }
     }
+    return status;
   }
   status.state = ScheduleState::RUNNING;
 #ifdef USE_CLIMATE_HUB
@@ -1000,6 +1017,7 @@ Result ScheduleEngine::add_(ScheduleConfig doc, const char *verb) {
   auto entry = std::make_unique<Entry>();
   entry->config = std::move(doc);
   entry->timer = this->next_timer_++;
+  entry->run = this->next_run_++;
   const std::string id = entry->config.id;
   ESP_LOGD(TAG, "%s '%s' (%s)", verb, entry->config.name.c_str(), id.c_str());
   this->resolve_(*entry);

@@ -297,7 +297,7 @@ export function conflictHolder(message: string): string | null {
   return CONFLICT.exec(message)?.[1] ?? null
 }
 
-/** A `conflict` status's reason: `holder`, first by id, drives `target`, the first the two share. */
+/** A `conflict` status's reason: `holder`, before it by id and running, drives `target`, the first such. */
 export function conflictReason(holder: string, target: string): string {
   return `Schedule "${holder}" drives ${target}`
 }

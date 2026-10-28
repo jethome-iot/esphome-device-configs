@@ -65,7 +65,7 @@ struct Result {
 enum class ScheduleState : uint8_t {
   DISABLED,
   WAITING_FOR_CLOCK,
-  /// Enabled, but another enabled schedule, the first by id, drives one of its targets.
+  /// Enabled, but a schedule before it by id that runs drives one of its targets.
   CONFLICT,
   RUNNING,
 };
@@ -176,8 +176,7 @@ class ScheduleEngine : public Component {
   std::vector<RelayTarget> relay_targets() const;
   /// Every thermostat, none without climate_hub.
   std::vector<ThermostatTarget> thermostat_targets() const;
-  /// The id of the enabled schedule that drives the target, the first by id that names it; ""
-  /// for none.
+  /// The id of the schedule that runs and names the target; "" for none.
   std::string scheduled_by(TargetType type, const std::string &id) const;
 
   /// Adds a schedule; its id is made from the name and the draft's ignored. Refused with 400 (a
@@ -216,7 +215,8 @@ class ScheduleEngine : public Component {
     /// Per target, the switch a relay target names; nullptr for a thermostat or a relay not on
     /// the device. Relays never come or go after the boot.
     std::vector<switch_::Switch *> switches;
-    /// Enabled, and the first enabled by id on every target it names: it drives them.
+    /// Enabled, and no target of it is driven by one before it by id: it drives them all, the
+    /// ones not on the device too. One that waits drives none of its targets.
     bool active{false};
     /// Its scheduler id, for the wait of its list.
     uint32_t timer{0};
@@ -224,10 +224,11 @@ class ScheduleEngine : public Component {
     int8_t mode{-1};
     uint8_t next{0};
     bool waiting{false};
-    /// Moves on whenever a list starts or stops, so a step of an older one goes no further.
+    /// A new value from next_run_ whenever a list starts or stops, so a step of an older one, or
+    /// of a schedule deleted under the same id, goes no further.
     uint32_t run{0};
-    /// Targets the list skipped, or that went after it passed them: their actions apply again
-    /// once they are back.
+    /// The thermostat actions the list passed, by index, that did not reach their thermostat:
+    /// once one of them can, the actions on that thermostat apply again.
     std::vector<uint8_t> lost;
   };
   // The last tick's clock: local seconds, the loop's own count, and the minute seen last.
@@ -252,9 +253,9 @@ class ScheduleEngine : public Component {
   std::vector<std::string> refresh_();
   /// The switches the entry's relay targets name.
   void resolve_(Entry &entry);
-  /// The first enabled entry by id that names `target`, nullptr for none.
+  /// The running entry that names `target`, nullptr for none.
   const Entry *holder_(const Target &target) const;
-  /// 409 for `doc`, enabled, on a target another enabled schedule drives: the first such target.
+  /// 409 for `doc`, enabled, on a target another running schedule drives: the first such target.
   bool check_target_free_(const ScheduleConfig &doc, const std::string &self_id, Result *result) const;
   /// The actions of `config` the device would skip now; `switches` as Entry's.
   std::vector<Issue> issues_(const ScheduleConfig &config, const std::vector<switch_::Switch *> &switches) const;
@@ -271,16 +272,17 @@ class ScheduleEngine : public Component {
   void advance_(std::string id);
   /// Stops the entry's list where it is.
   void cancel_(Entry &entry);
-  /// Applies a RELAY or THERMOSTAT action; one whose target is not there is skipped. A switch's
-  /// callbacks run last and may change anything, `entry` included.
+  /// Applies a RELAY or THERMOSTAT action, `index` in the list; one whose target is not there is
+  /// skipped. A switch's callbacks run last and may change anything, `entry` included.
   void apply_relay_(Entry &entry, const Action &action);
-  void apply_thermostat_(Entry &entry, const Action &action);
-  /// Remembers that the list's actions on `target` did not reach it.
-  void mark_lost_(const std::string &id, uint32_t run, uint8_t target);
+  void apply_thermostat_(Entry &entry, const Action &action, uint8_t index);
+  /// Remembers that the list's action at `index` did not reach its thermostat.
+  void mark_lost_(const std::string &id, uint32_t run, uint8_t index);
   /// Whether the hub has the thermostat, and the preset when `key` names one.
   bool thermostat_ready_(const std::string &thermostat, const std::string &key) const;
   void on_climate_change_(const std::string &climate_id);
-  /// The thermostat `target` names is back: the actions on it the list passed apply again.
+  /// The thermostat `target` names took back what it lost: the actions on it the list passed
+  /// apply again, in order; one that still cannot is skipped and stays lost.
   void reapply_(const std::string &id, uint32_t run, uint8_t target);
   void on_released_(switch_::Switch *sw);
   /// The relay `target` names is free: it takes the last action on it the list passed.
@@ -318,6 +320,8 @@ class ScheduleEngine : public Component {
   std::vector<std::unique_ptr<Entry>> entries_;
   // Never reused, so a wait never answers to another schedule's id.
   uint32_t next_timer_{1};
+  // Never reused either: a job queued for a list goes no further once another list started.
+  uint32_t next_run_{1};
   bool clock_valid_{false};
   ClockMark mark_;
   loop_job::LoopDispatcher dispatcher_;

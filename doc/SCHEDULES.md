@@ -52,8 +52,9 @@ Until the device has a valid time, nothing runs, and each schedule that is switc
 waits for the clock.
 
 A change by hand — from Home Assistant, the display, the dashboard, a rule or an input binding —
-is not refused and holds until the next switch point. A reboot, a Save of the schedule while it
-is switched on, or switching it off and on again runs the mode in force again.
+is not refused and holds until the schedule acts on that relay or thermostat again: at a switch
+point, at a later action of a list still running, when the list runs again as above, or when
+the thermostat comes back.
 
 ## A relay a running thermostat drives
 
@@ -70,7 +71,8 @@ the device is saved all the same, with a warning that names the first such actio
 (`skips mode "Day", action 2: relay "relay_7" is not on this device`), and keeps its file. The
 action is skipped and the rest of the list runs; the schedule's status lists every such action.
 When a thermostat or a preset comes back, created or restored from a backup, the actions on it
-the list has passed apply again, in order, without the waits. A relay comes back at the next
+the list has passed apply again, in order, without the waits; one whose preset is still missing
+is skipped, and once that preset is back they all apply again. A relay comes back at the next
 boot that finds it. On a firmware without thermostats, an action on one says
 `This device has no thermostats`.
 
@@ -85,9 +87,11 @@ in their files too. A relay or a thermostat that is not on the device still keep
 off it.
 
 Two enabled schedules that share one come only from files written into the folder by hand.
-Then the first by id drives it and the other waits whole, all its other relays and thermostats
-too; it starts as soon as the first is switched off, deleted or saved onto others, and the
-answer to that change names it.
+Then they are taken by id: each runs unless one before it that runs already drives a relay or a
+thermostat it names. One that waits, waits whole and drives none of its relays and thermostats,
+so a later schedule may drive them. It starts once the one in its way is switched off, deleted
+or saved onto others, and the answer to that change names it; a later one that shares a relay
+or a thermostat with it then waits in turn.
 
 ## Status
 
@@ -98,7 +102,7 @@ when it does not run:
 | --- | --- |
 | `disabled` | switched off |
 | `waiting_for_clock` | the device has no valid time yet |
-| `conflict` | another enabled schedule drives a relay or a thermostat it names |
+| `conflict` | a schedule before it by id drives a relay or a thermostat it names |
 | `running` | it runs |
 
 Beside the status, its issues list each action the device would skip now: a relay, a thermostat

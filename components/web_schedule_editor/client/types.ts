@@ -186,7 +186,7 @@ export type ScheduleImportInput = ScheduleSaveInput & { id: string }
 
 /**
  * Where a schedule is, the first that holds of: `disabled`; `waiting_for_clock` (the device has
- * no valid time yet); `conflict` (another enabled schedule, first by id, drives one of the
+ * no valid time yet); `conflict` (a schedule before it by id that runs drives one of the
  * relays or thermostats its modes name, and it waits whole); `running`.
  */
 export type ScheduleState = 'disabled' | 'waiting_for_clock' | 'conflict' | 'running'
@@ -297,7 +297,7 @@ export interface RelayTargetInfo {
   name: string
   /** The name of the running thermostat that drives this relay, "" when none does. */
   held_by: string
-  /** The id of the enabled schedule whose modes name it, the first by id; "" when none does. */
+  /** The id of the schedule that runs and whose modes name it; "" when none does. */
   scheduled_by: string
 }
 

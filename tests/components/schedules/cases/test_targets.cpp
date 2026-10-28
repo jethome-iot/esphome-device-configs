@@ -184,6 +184,75 @@ TEST_F(Targets, AThermostatChangeThatLostNothingAppliesNothing) {
   EXPECT_EQ("boost", stored(id).active_preset) << "a hand change holds";
 }
 
+// The thermostat is back without a preset the list named: what can go in goes in, and the rest
+// waits for the preset. A change that brings nothing back gives nothing; the preset does, and
+// then every action on it the list passed applies again, in order.
+TEST_F(Targets, AThermostatBackWithoutAPresetTakesWhatItCanAndTheRestOnceThePresetIs) {
+  this->boot(at_local(0, 9, 0));
+  ScheduleConfig config;
+  config.name = "Heat";
+  config.add_mode("day", "Day");
+  config.add_thermostat("living-room", ValueType::TARGET, "", 23.f);
+  config.add_thermostat("living-room", ValueType::PRESET, "night");
+  config.add_point(0, 0);
+  this->create(config);
+  const std::string id = this->add_thermostat(thermostat());
+  EXPECT_EQ(1u, this->engine->run_later());
+  EXPECT_FLOAT_EQ(23.f, stored(id).setpoint) << "the target, which could go in";
+  ASSERT_EQ(1u, this->kinds("heat").size());
+  EXPECT_EQ(IssueKind::MISSING_PRESET, this->kinds("heat")[0]);
+
+  ASSERT_TRUE(hub().set_setpoint(id, 19.f).ok);
+  climate_hub::ClimateConfig dawn = stored(id);
+  dawn.presets.push_back(preset("Dawn", 15.f));
+  ASSERT_TRUE(hub().update(id, dawn).ok);
+  EXPECT_EQ(0u, this->engine->run_later()) << "still no night";
+  EXPECT_FLOAT_EQ(19.f, stored(id).setpoint) << "a hand change holds";
+
+  LogCapture::instance().clear();
+  climate_hub::ClimateConfig night = stored(id);
+  night.presets.push_back(preset("Night", 16.f));
+  ASSERT_TRUE(hub().update(id, night).ok);
+  EXPECT_EQ(1u, this->engine->run_later());
+  const auto &lines = LogCapture::instance().lines;
+  auto line = [&lines](const char *needle) {
+    return std::find_if(lines.begin(), lines.end(),
+                        [needle](const std::string &l) { return l.find(needle) != std::string::npos; });
+  };
+  const auto target = line("Schedule 'Heat': thermostat 'living-room' target 23.0");
+  const auto preset = line("Schedule 'Heat': thermostat 'living-room' preset 'night'");
+  ASSERT_NE(lines.end(), target);
+  ASSERT_NE(lines.end(), preset);
+  EXPECT_LT(target, preset) << "in the list's order";
+  EXPECT_EQ("night", stored(id).active_preset);
+  EXPECT_FLOAT_EQ(16.f, stored(id).setpoint);
+  EXPECT_TRUE(this->engine->status("heat").issues.empty());
+  EXPECT_EQ(0u, this->engine->run_later());
+}
+
+// Actions on one thermostat on both sides of a wait, none of which reached it: once it is there,
+// they apply in the list's order, at once, and nothing else of the list again.
+TEST_F(Targets, ActionsOnAThermostatAcrossAWaitComeBackInOrder) {
+  this->boot(at_local(0, 9, 0));
+  ScheduleConfig config;
+  config.name = "Heat";
+  config.add_mode("day", "Day");
+  config.add_thermostat("living-room", ValueType::TARGET, "", 20.f);
+  config.add_wait(60);
+  config.add_thermostat("living-room", ValueType::PRESET, "eco");
+  config.add_relay("relay_1", true);
+  config.add_point(0, 0);
+  this->create(config);
+  this->engine->run(60);
+  ASSERT_EQ(std::vector<bool>{true}, this->e.relay1.writes);
+  const std::string id = this->add_thermostat(thermostat());
+  EXPECT_EQ(1u, this->engine->run_later());
+  EXPECT_FLOAT_EQ(18.f, stored(id).setpoint) << "eco after the target, as the list has them";
+  EXPECT_EQ("eco", stored(id).active_preset);
+  EXPECT_EQ(std::vector<bool>{true}, this->e.relay1.writes);
+  EXPECT_TRUE(this->engine->timers.empty()) << "no wait again";
+}
+
 // Every action that would be skipped, in every mode, mode by mode, and the warning names the first.
 TEST_F(Targets, TheIssuesAreEveryActionOfEveryModeInOrder) {
   const std::string id = this->add_thermostat(thermostat());
@@ -342,24 +411,38 @@ TEST_F(Targets, TwoEnabledFromFilesTheFirstByIdDrives) {
   EXPECT_EQ(ScheduleState::RUNNING, this->state("b"));
 }
 
-// One that waits keeps the next off the targets it names, as the first by id on each: it is the
-// one meant to drive them. The whole schedule waits, the targets no one else names too.
-TEST_F(Targets, OneThatWaitsStillHoldsItsOtherTargets) {
+// Taken by id: one that waits drives none of its targets, so a later one has the others. Once
+// the one in its way goes it runs, and the later one that shares a target with it waits.
+TEST_F(Targets, OneThatWaitsLeavesItsOtherTargetsToTheNext) {
   this->write("a", file_doc("a", "A"));
   this->write("b", off_file("b", "B", true, 1,
-                            R"({"type":"relay","id":"relay_1","value":{"type":"off"}},)"
-                            R"({"type":"relay","id":"relay_2","value":{"type":"on"}})"));
+                            R"({"type":"relay","id":"relay_2","value":{"type":"on"}},)"
+                            R"({"type":"relay","id":"relay_1","value":{"type":"off"}})"));
   this->write("c", off_file("c", "C", true, 1, R"({"type":"relay","id":"relay_2","value":{"type":"off"}})"));
   this->boot(at_local(0, 9, 0));
   EXPECT_EQ(ScheduleState::RUNNING, this->state("a"));
-  EXPECT_EQ("Schedule \"A\" drives Relay 1", this->engine->status("b").reason);
-  EXPECT_EQ("Schedule \"B\" drives Relay 2", this->engine->status("c").reason);
-  EXPECT_TRUE(this->e.relay2.writes.empty());
+  EXPECT_EQ(ScheduleState::CONFLICT, this->state("b"));
+  EXPECT_EQ("Schedule \"A\" drives Relay 1", this->engine->status("b").reason) << "the one in its way, not C";
+  EXPECT_EQ(ScheduleState::RUNNING, this->state("c"));
+  EXPECT_EQ("c", this->engine->scheduled_by(TargetType::RELAY, "relay_2"));
+  EXPECT_EQ(std::vector<bool>{false}, this->e.relay2.writes) << "c's list";
 
+  // Each one that runs keeps the others off its targets; the 409 names the first shared.
+  Result refused = this->engine->set_enabled("b", true);
+  EXPECT_EQ(409, refused.code);
+  EXPECT_EQ("\"C\" already drives Relay 2; switch it off first or take over", refused.error);
+  EXPECT_EQ("c", refused.holder);
+  refused = this->engine->create(relay_doc("D", "relay_1", {on_at(0)}));
+  EXPECT_EQ("a", refused.holder);
+
+  this->e.relay2.writes.clear();
   Result stopped = this->engine->set_enabled("a", false);
   EXPECT_EQ(std::vector<std::string>{"b"}, stopped.started);
+  EXPECT_EQ(ScheduleState::RUNNING, this->state("b"));
   EXPECT_EQ(ScheduleState::CONFLICT, this->state("c"));
-  EXPECT_EQ(std::vector<bool>{true}, this->e.relay2.writes) << "b's list ran whole";
+  EXPECT_EQ("Schedule \"B\" drives Relay 2", this->engine->status("c").reason);
+  EXPECT_EQ("b", this->engine->scheduled_by(TargetType::RELAY, "relay_2"));
+  EXPECT_EQ(std::vector<bool>{true}, this->e.relay2.writes) << "b's list ran whole, nothing more from c";
 }
 
 TEST_F(Targets, RemovingTheOneThatDrivesStartsTheNext) {
@@ -469,6 +552,24 @@ TEST_F(Targets, AThermostatGoneWithoutAWordTakesItsActionAtTheHubsNextWord) {
       LogCapture::instance().warned("Schedule 'Heat': thermostat 'living-room' is not on this device; skipped"));
   EXPECT_NE("eco", stored(id).active_preset);
   // Nothing told the engine it is back, until the hub's next change of it.
+  climate_hub::ClimateConfig more = stored(id);
+  more.presets.push_back(preset("Night", 16.f));
+  ASSERT_TRUE(hub().update(id, more).ok);
+  EXPECT_EQ(1u, this->engine->run_later());
+  EXPECT_EQ("eco", stored(id).active_preset);
+}
+
+// The hub refused the action: the log names the schedule, and the action applies at the hub's
+// next word about the thermostat.
+TEST_F(Targets, AnActionTheHubRefusesIsLoggedAndAppliesAtItsNextWord) {
+  const std::string id = this->add_thermostat(thermostat());
+  this->boot(at_local(0, 9, 0));
+  hub().mark_failed();
+  this->create(thermostat_doc("Heat plan", id.c_str(), {preset_at(wm(0, 6, 0), "eco")}));
+  hub().reset_to_construction_state();
+  EXPECT_TRUE(LogCapture::instance().warned(
+      "Schedule 'Heat plan': thermostat 'living-room': Thermostat storage is not available"));
+  EXPECT_NE("eco", stored(id).active_preset);
   climate_hub::ClimateConfig more = stored(id);
   more.presets.push_back(preset("Night", 16.f));
   ASSERT_TRUE(hub().update(id, more).ok);
