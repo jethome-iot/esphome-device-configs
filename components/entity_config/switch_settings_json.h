@@ -359,7 +359,11 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
         return index < 0 ? restore_mode_to_string(record.restore_mode) : START_MODE_OPTIONS[index].label;
 #ifdef ENTITY_CONFIG_BINDINGS
       case Field::BINDING_INPUT: {
-        const std::string input = index < 0 ? record.binding_input : binding_inputs_()[index];
+        // A virtual input deleted while the panel edits this row shortens the list under it:
+        // an index past the end shows the stored value.
+        const auto options = binding_inputs_();
+        const bool listed = index >= 0 && static_cast<size_t>(index) < options.size();
+        const std::string input = listed ? options[index] : record.binding_input;
         if (input.empty())
           return "None";
         auto *sensor = find_binary_sensor(fnv1_hash(input));

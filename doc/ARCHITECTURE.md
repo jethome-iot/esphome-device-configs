@@ -116,7 +116,7 @@ boundaries; everything else is local to its file.
 | Priority | What runs |
 | --- | --- |
 | 800 | fill the `relays` / `inputs` vectors |
-| 700 | `apply_modbus_bus` (the stored baud rate, parity and stop bits into `jxm_uart2`, and the Modbus frame timing re-derived from them), then `modbus_bus_applied = true`; the selects' `on_value` is a no-op before that flag. Build a submenu per entry of those vectors, named after the entity's label or name, with its settings rows |
+| 700 | `apply_modbus_bus` (the stored baud rate, parity and stop bits into `jxm_uart2`, and the Modbus frame timing re-derived from them), then `modbus_bus_applied = true`; the selects' `on_value` is a no-op before that flag. Build a submenu per entry of those vectors, named after the entity's label or name, with its settings rows, then a read-only row per virtual input in use |
 | 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); read the RTC (`setup_time`, called from the device config), into the zone `timezone_settings` put in effect at `HARDWARE - 1`. `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
 | 599.5 | `climate_hub` sets up: it registers its pool of climate entities, loads the thermostats and starts the enabled ones, so it sits below the `Temp N` sensors (600) and above `automations`, whose rules name thermostats |
 | 599.25 | `bindings` sets up and drives the `Follow` relays once, skipping those a thermostat claimed at 599.5 |
@@ -142,8 +142,8 @@ folder by then, and the slots in use are named and visible before the `switch` s
 stored bindings to `bindings`, which looks an input up as it takes a binding, and before the
 `binary_sensor` settings apply the labels. `bindings` sets up at `DATA - 0.75`, after every entity
 and after the thermostats have claimed their relays, and drives the `Follow` relays they left free
-once there; until then input changes are ignored. A relay whose start mode closes it at boot stays closed until its
-thermostat's first loop pass. See [ENTITY_SETTINGS.md](ENTITY_SETTINGS.md).
+once there; until then input changes are ignored. A relay whose start mode closes it at boot
+stays closed until its thermostat's first loop pass. See [ENTITY_SETTINGS.md](ENTITY_SETTINGS.md).
 `timezone_settings` sets up at `HARDWARE - 1`, right after the globals have restored Home
 Assistant's zone at `HARDWARE`, and puts the zone in effect before anything that reads the local
 time sets up.
