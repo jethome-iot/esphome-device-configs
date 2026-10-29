@@ -63,6 +63,8 @@ AutomationStorage::AutomationStorage() { global_automation_storage = this; }
 
 uint32_t AutomationStorage::now_ms() const { return millis(); }
 
+uint64_t AutomationStorage::uptime_ms() const { return millis_64(); }
+
 ESPTime AutomationStorage::clock_now_() { return this->rtc_->now(); }
 
 // --- Setup and runtime ---
@@ -354,6 +356,16 @@ void AutomationStorage::reset_all() {
   });
 }
 
+RunResult AutomationStorage::run_automation(uint32_t id) {
+  // Shared: a job the caller gave up on never runs, but outlives this call.
+  auto result = std::make_shared<RunResult>(RunResult::REFUSED);
+  this->run_on_loop_([this, id, result]() {
+    *result = this->run_automation_(id);
+    return *result == RunResult::STARTED;
+  });
+  return *result;
+}
+
 uint32_t AutomationStorage::add_automation_(const AutomationConfig &config, std::string *error) {
   if (this->config_storage_.size() >= MAX_AUTOMATIONS) {
     ESP_LOGE(TAG, "Refusing to add '%s': already at the %u automation limit", config.name.c_str(),
@@ -380,6 +392,7 @@ uint32_t AutomationStorage::add_automation_(const AutomationConfig &config, std:
   cfg.id = this->allocate_id_();
   cfg.file = this->sanitize_filename_(cfg.name) + ".json";
   cfg.build_error.clear();
+  cfg.last_run_ms.reset();
 
   auto automation = RuntimeAutomation::build(this, cfg, error);
   if (automation == nullptr) {
@@ -419,6 +432,8 @@ bool AutomationStorage::update_automation_(uint32_t id, const AutomationConfig &
   // that name was taken by a file the loader refused.
   const bool renaming = this->sanitize_filename_(current.name) != this->sanitize_filename_(cfg.name);
   cfg.file = renaming ? this->sanitize_filename_(cfg.name) + ".json" : old_file;
+  // An edit is the same rule: when it last ran still holds.
+  cfg.last_run_ms = current.last_run_ms;
   if (renaming && file_exists(this->get_filepath_for_name_(cfg.name))) {
     ESP_LOGE(TAG, "Refusing to rename automation id=%u to '%s': a file the loader refused has that name",
              static_cast<unsigned>(id), cfg.name.c_str());
@@ -492,6 +507,39 @@ bool AutomationStorage::set_enable_automation_(uint32_t id, bool enable, bool *p
     ESP_LOGW(TAG, "Automation id=%u %s, but the change was not saved", static_cast<unsigned>(id),
              enable ? "enabled" : "disabled");
   return true;
+}
+
+RunResult AutomationStorage::run_automation_(uint32_t id) {
+  const int found = this->find_automation_index_by_id_(id);
+  if (found < 0) {
+    ESP_LOGW(TAG, "Automation id=%u not found", static_cast<unsigned>(id));
+    return RunResult::NOT_FOUND;
+  }
+  RuntimeAutomation *rule = this->automations_[static_cast<size_t>(found)].get();
+  if (rule == nullptr) {
+    ESP_LOGW(TAG, "Automation id=%u cannot run: it is not built", static_cast<unsigned>(id));
+    return RunResult::NOT_BUILT;
+  }
+  // As a trigger would: an edit from inside its actions is refused, not run under it.
+  bool started = false;
+  this->drive([&]() { started = rule->run_now(); });
+  if (!started)
+    ESP_LOGI(TAG, "Automation '%s' is already running", rule->get_name().c_str());
+  return started ? RunResult::STARTED : RunResult::ALREADY_RUNNING;
+}
+
+bool AutomationStorage::is_running(uint32_t id) const {
+  const int found = this->find_automation_index_by_id_(id);
+  if (found < 0)
+    return false;
+  const RuntimeAutomation *rule = this->automations_[static_cast<size_t>(found)].get();
+  return rule != nullptr && rule->is_running();
+}
+
+void AutomationStorage::note_run_(uint32_t id) {
+  const int found = this->find_automation_index_by_id_(id);
+  if (found >= 0)
+    this->config_storage_.get_config(static_cast<uint8_t>(found))->last_run_ms = this->uptime_ms();
 }
 
 void AutomationStorage::reset_all_() {
@@ -905,7 +953,7 @@ void AutomationStorage::normalize_filenames_(const std::vector<bool> &changed) {
   }
 }
 
-int AutomationStorage::find_automation_index_by_id_(uint32_t id) {
+int AutomationStorage::find_automation_index_by_id_(uint32_t id) const {
   const auto &configs = this->config_storage_.get_all_configs();
   for (size_t i = 0; i < configs.size(); i++) {
     if (configs[i].id == id)
