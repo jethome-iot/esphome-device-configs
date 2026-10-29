@@ -28,7 +28,10 @@ info:
     Every route that reads or changes the schedules runs on the device's main
     loop, so an answer describes what actually happened; `503` means the loop
     did not get to the request within five seconds, or a read's answer did not
-    fit the free memory, and nothing changed.
+    fit the free memory, and nothing changed. A change the device made is
+    never `503`: when its whole answer does not fit the free memory, it is
+    `200` with `success`, the `message` without what follows its first part,
+    and `id` or `persisted`.
     `/schema` and `/ping` never wait for the loop.
 
     One enabled schedule per target, the targets being every relay and
@@ -84,7 +87,10 @@ paths:
         the device would skip now. `now` is the point in force at the device's
         clock, so the mode in force and since when, and `next` the one after
         it, for a disabled schedule too; both are `null` while the clock is not
-        valid.
+        valid. `not_loaded` counts the schedules whose files the device left on
+        flash at boot for lack of memory: they do not run and are not listed,
+        `/delete` removes one by its id, and no schedule under a new id can be
+        added while there are any.
       responses:
         "200":
           description: The schedules, the firmware's limit and the device's local time.
@@ -152,15 +158,19 @@ paths:
         a week without a point); `404` for an unknown `id`, `409` for a schedule
         whose file a newer firmware wrote, `409` when the body's `revision` is
         not the schedule's, `507` for a create past
-        `max_schedules`; `409` for a name another schedule has, ignoring ASCII
+        `max_schedules` or while `/list` counts schedules `not_loaded`; `409`
+        for a name another schedule has, ignoring ASCII
         case and runs of spaces, or on a create for a name whose every id is
         taken by a file in the folder; `409` for an enabled schedule whose modes
         name a target another enabled schedule drives, naming the first such
         target; `413` when the file would be over 16 KiB. While the schedule
         storage is not usable, a body is `500` before it is read. A body the
-        free memory cannot take is `507` before it is read, and a schedule that
-        would leave the device too little memory is `507` before its file is
-        written: nothing changes.
+        free memory cannot hold is `507`: it is received but neither kept nor
+        parsed. So is one whose parse would take more memory than a schedule of
+        its size needs, and a schedule that would leave the device too little
+        memory is `507` before its file is written; one that holds no more than
+        the schedule it replaces is never refused for memory. Nothing changes
+        on a `507`.
 
         A Save stops the schedule's list where it is; an enabled schedule then
         runs the list of the mode in force at once, at every Save, a rename too.
@@ -235,7 +245,8 @@ paths:
         the id first (`id is required`, then `id must be a slug: lowercase
         letters, digits and single dashes`) and `id 'new' is reserved` once
         the rest of the document is sound; `409` too for an id a file in the
-        schedule folder holds that the device did not load at boot.
+        schedule folder holds that the device did not load at boot, and `507`
+        for any new id while `/list` counts schedules `not_loaded`.
       requestBody:
         required: true
         content:
@@ -284,7 +295,9 @@ paths:
       summary: Remove a schedule and its file.
       description: >-
         Its list stops and its targets stay as it left them. A schedule that
-        waited for one of them starts, and the message names it.
+        waited for one of them starts, and the message names it. An id `/list`
+        does not show because the device left its file on flash for lack of
+        memory (`not_loaded`) has its file deleted, and the message says so.
       parameters:
         - $ref: "#/components/parameters/IdQuery"
       responses:
@@ -309,6 +322,12 @@ paths:
                     success: true
                     message: Schedule deleted; its file could not be removed, so it comes back at the next boot
                     persisted: false
+                notLoaded:
+                  summary: A file the device left on flash for lack of memory
+                  value:
+                    success: true
+                    message: Schedule deleted; it was not loaded for lack of memory
+                    persisted: true
                 handedOn:
                   summary: Another schedule waited for one of its targets
                   value:
@@ -657,9 +676,10 @@ components:
                 error: The schedule's file would be over 16 KiB
     NotWritten:
       description: >-
-        Nothing changed: the schedule's file could not be written, or the
-        storage the schedules live on was not usable at boot, and every write
-        is refused until a restart finds it usable.
+        Nothing changed: the schedule's file could not be written, or, for one
+        the device did not load, deleted; or the storage the schedules live on
+        was not usable at boot, and every write is refused until a restart
+        finds it usable.
       content:
         application/json:
           schema:
@@ -669,13 +689,19 @@ components:
               value:
                 success: false
                 error: The schedule's file could not be written
+            notDeleted:
+              value:
+                success: false
+                error: The schedule's file could not be deleted
             storage:
               value:
                 success: false
                 error: Schedule storage is not available
     Full:
       description: >-
-        A new schedule would pass the firmware's `max_schedules`, or the body or
+        A new schedule would pass the firmware's `max_schedules`, or join
+        schedules the device left on flash for lack of memory (`not_loaded`):
+        the next boot might load it in their place. Or the body, its parse or
         the schedule would leave the device too little free memory. Nothing
         changed.
       content:
@@ -691,11 +717,15 @@ components:
               value:
                 success: false
                 error: Not enough free memory on the device to save this schedule
+            notLoaded:
+              value:
+                success: false
+                error: 2 saved schedules were not loaded for lack of memory; delete them, or make room and restart, before adding another
     Busy:
       description: >-
-        The main loop did not take the request in time (`Device busy`), or the
-        answer did not fit the free memory (`Device is low on memory; try
-        again`). Nothing was read or written; ask again.
+        The main loop did not take the request in time (`Device busy`), or a
+        read's answer did not fit the free memory (`Device is low on memory;
+        try again`). Nothing was read or written; ask again.
       content:
         application/json:
           schema:
@@ -1214,6 +1244,11 @@ components:
           type: integer
         max_schedules:
           type: integer
+        not_loaded:
+          type: integer
+          description: >-
+            Schedules whose files the device left on flash at boot for lack of
+            memory; 0 when it loaded them all.
         clock:
           description: The device's local day and time; null until it has a valid time.
           oneOf:

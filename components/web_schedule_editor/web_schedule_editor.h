@@ -60,11 +60,27 @@ class WebScheduleEditor : public AsyncWebHandler, public Component {
   void handle_delete_(AsyncWebServerRequest *request);
   void handle_enable_(AsyncWebServerRequest *request);
 
+  /// What a change's answer cannot do without, set once the engine made the change: when `doc`
+  /// did not fit the heap, the answer is these alone, written without it.
+  struct Committed {
+    /// A literal; nullptr while nothing changed.
+    const char *message{nullptr};
+    char id[schedules::ID_MAX_LENGTH + 1]{};
+    /// Whether the route's answer has `persisted`.
+    bool answers_persisted{false};
+    bool persisted{true};
+
+    void set_id(const std::string &value);
+  };
+
   /// Answers what a job decided: `doc` when it ran and succeeded, the error it set when it
   /// ran and refused, 503 when the loop task never took it.
-  void answer_(AsyncWebServerRequest *request, bool ran, int code, const std::string &error, const JsonDocument &doc);
-  /// 200 with `doc`, sent a chunk at a time; 503 when a failed allocation cut it short.
-  void send_doc_(AsyncWebServerRequest *request, const JsonDocument &doc);
+  void answer_(AsyncWebServerRequest *request, bool ran, int code, const std::string &error, const JsonDocument &doc,
+               const Committed *committed = nullptr);
+  /// 200 with `doc`, sent a chunk at a time. When a failed allocation cut it short: 200 with
+  /// `committed` for a change that was made, 503 for a read.
+  void send_doc_(AsyncWebServerRequest *request, const JsonDocument &doc, const Committed *committed);
+  void send_committed_(AsyncWebServerRequest *request, const Committed &committed);
   void send_json_(AsyncWebServerRequest *request, int code, const std::string &json);
   void send_error_(AsyncWebServerRequest *request, const std::string &message, int code = 400);
   // For the statuses AsyncWebServerRequest::send() does not know and would turn into a 500.

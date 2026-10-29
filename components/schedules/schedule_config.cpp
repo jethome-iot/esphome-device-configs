@@ -25,10 +25,26 @@ bool fail(std::string *error, const std::string &message) {
   return false;
 }
 
-// as<std::string>() would read a number or an object as its JSON text.
-std::string text_of(JsonVariantConst value) { return value.is<const char *>() ? value.as<std::string>() : ""; }
+// A string's text in the document, "" for anything else (as<std::string>() would read a number or
+// an object as its JSON text). A view, so a long one is refused before anything copies it.
+std::string_view text_of(JsonVariantConst value) {
+  if (!value.is<const char *>())
+    return {};
+  const JsonString text = value.as<JsonString>();
+  return {text.c_str(), text.size()};
+}
 
 bool is_ascii_space(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v'; }
+
+std::string_view trimmed(std::string_view name) {
+  size_t begin = 0;
+  size_t end = name.size();
+  while (begin < end && is_ascii_space(name[begin]))
+    begin++;
+  while (end > begin && is_ascii_space(name[end - 1]))
+    end--;
+  return name.substr(begin, end - begin);
+}
 
 // Older files read as this version; a newer one keeps its number, rounded up so 1.5 stays newer.
 uint16_t read_version(JsonVariantConst value) {
@@ -41,7 +57,7 @@ uint16_t read_version(JsonVariantConst value) {
 // Indexed by ValueType.
 const char *const VALUE_WORDS[] = {"off", "on", "preset", "target"};
 
-bool value_type_from_string(const std::string &word, ValueType *out) {
+bool value_type_from_string(std::string_view word, ValueType *out) {
   for (uint8_t i = 0; i < 4; i++) {
     if (word == VALUE_WORDS[i]) {
       *out = static_cast<ValueType>(i);
@@ -51,7 +67,7 @@ bool value_type_from_string(const std::string &word, ValueType *out) {
   return false;
 }
 
-uint8_t color_from_string(const std::string &key) {
+uint8_t color_from_string(std::string_view key) {
   for (size_t i = 0; i < COLOR_COUNT; i++) {
     if (key == COLOR_KEYS[i])
       return static_cast<uint8_t>(i + 1);
@@ -65,6 +81,13 @@ std::string color_rule() {
   for (size_t i = 0; i < COLOR_COUNT; i++)
     out += std::string(i == 0 ? "" : i + 1 == COLOR_COUNT ? " or " : ", ") + COLOR_KEYS[i];
   return out;
+}
+
+// What a sentence quotes of the document: no more than a name may be, so a long word is not
+// copied whole into it.
+std::string quoted(std::string_view text) {
+  const std::string cut = cut_chars(text, NAME_MAX_LENGTH);
+  return "\"" + cut + (cut.size() < text.size() ? "…\"" : "\"");
 }
 
 // "Mon 06:30: ", which heads whatever a point broke.
@@ -180,7 +203,7 @@ bool by_minute(const Point &a, const Point &b) { return a.minute_of_week < b.min
 bool read_action(JsonVariantConst item, const std::string &at, ScheduleConfig *config, std::string *error) {
   if (!item.is<JsonObjectConst>())
     return fail(error, at + "an action must be an object");
-  const std::string type = text_of(item["type"]);
+  const std::string_view type = text_of(item["type"]);
   if (type.empty())
     return fail(error, at + "type is required");
   if (type == "wait") {
@@ -193,25 +216,25 @@ bool read_action(JsonVariantConst item, const std::string &at, ScheduleConfig *c
     return true;
   }
   if (type != "relay" && type != "thermostat")
-    return fail(error, at + "unknown action type \"" + type + "\"");
-  const std::string id = text_of(item["id"]);
+    return fail(error, at + "unknown action type " + quoted(type));
+  const std::string_view id = text_of(item["id"]);
   if (id.empty())
     return fail(error, at + "id is required");
   JsonObjectConst value = item["value"].as<JsonObjectConst>();
-  const std::string word = text_of(value["type"]);
+  const std::string_view word = text_of(value["type"]);
   // A value without a type says nothing more than none at all.
   if (word.empty())
     return fail(error, at + "value is required");
   ValueType kind;
   if (!value_type_from_string(word, &kind))
-    return fail(error, at + "unknown value type \"" + word + "\"");
+    return fail(error, at + "unknown value type " + quoted(word));
   if (type == "relay") {
     if (kind != ValueType::ON && kind != ValueType::OFF)
       return fail(error, at + "a relay takes on or off");
     config->add_relay(id, kind == ValueType::ON);
     return true;
   }
-  std::string key;
+  std::string_view key;
   float target = NAN;
   if (kind == ValueType::PRESET) {
     key = text_of(value["preset"]);
@@ -233,21 +256,21 @@ bool read_mode(JsonVariantConst item, size_t number, ScheduleConfig *config, std
   const std::string at = "Mode " + std::to_string(number) + ": ";
   if (!item.is<JsonObjectConst>())
     return fail(error, at + "a mode must be an object");
-  const std::string name = trim_name(text_of(item["name"]));
+  const std::string_view name = trimmed(text_of(item["name"]));
   if (!check_mode_name(name, at, error))
     return false;
   const std::string key = name_key(name);
   if (std::any_of(config->modes.begin(), config->modes.end(),
                   [&key](const Mode &other) { return name_key(other.name) == key; }))
-    return fail(error, "Two modes are called \"" + name + "\"");
+    return fail(error, "Two modes are called \"" + std::string(name) + "\"");
   const std::string label = mode_label(name);
-  const std::string id = text_of(item["id"]);
+  const std::string_view id = text_of(item["id"]);
   if (id.empty())
     return fail(error, label + ": id is required");
   if (!is_mode_id(id))
     return fail(error, label + ": id must be at most 24 lowercase letters, digits and dashes");
   if (config->mode_index(id) >= 0)
-    return fail(error, "Two modes have the id \"" + id + "\"");
+    return fail(error, "Two modes have the id \"" + std::string(id) + "\"");
   uint8_t color = 0;
   if (!item["color"].isNull()) {
     color = color_from_string(text_of(item["color"]));
@@ -285,12 +308,12 @@ bool read_point(JsonVariantConst item, uint8_t day, size_t day_start, const Sche
                   [out](const Point &p) { return p.minute_of_week == out->minute_of_week; }))
     return fail(error, title + ": " + format_hhmm(minute) + " is there twice");
   const std::string at = point_at(out->minute_of_week);
-  const std::string mode = text_of(item["mode"]);
+  const std::string_view mode = text_of(item["mode"]);
   if (mode.empty())
     return fail(error, at + "mode is required");
   const int index = config.mode_index(mode);
   if (index < 0)
-    return fail(error, at + "there is no mode \"" + mode + "\"");
+    return fail(error, at + "there is no mode " + quoted(mode));
   out->mode = static_cast<uint8_t>(index);
   return true;
 }
@@ -373,21 +396,13 @@ bool validate_id(std::string_view id, std::string *error) {
   if (id.empty())
     return fail(error, "id is required");
   // The id becomes a path component: a hand-edited file could otherwise send the next save
-  // anywhere on the filesystem.
-  if (slugify_id(id, "") != id)
+  // anywhere on the filesystem. A long one is no slug either, and is not copied to tell.
+  if (id.size() > ID_MAX_LENGTH || slugify_id(id, "") != id)
     return fail(error, "id must be a slug: lowercase letters, digits and single dashes");
   return true;
 }
 
-std::string trim_name(std::string_view name) {
-  size_t begin = 0;
-  size_t end = name.size();
-  while (begin < end && is_ascii_space(name[begin]))
-    begin++;
-  while (end > begin && is_ascii_space(name[end - 1]))
-    end--;
-  return std::string(name.substr(begin, end - begin));
-}
+std::string trim_name(std::string_view name) { return std::string(trimmed(name)); }
 
 bool validate_name(std::string_view name, std::string *error) {
   if (name.empty())
@@ -530,15 +545,18 @@ bool ScheduleConfig::deserialize(JsonObjectConst root, bool require_id, std::str
   this->version = read_version(root["version"]);
   this->revision = root["revision"] | 0u;
   if (require_id) {
-    this->id = text_of(root["id"]);
-    if (!validate_id(this->id, error))
+    const std::string_view id = text_of(root["id"]);
+    if (!validate_id(id, error))
       return false;
+    this->id = id;
   } else if (!root["id"].isNull()) {
-    this->id = text_of(root["id"]);
+    // Only looked up: one longer than any id stays one no schedule has, without its tail.
+    this->id = text_of(root["id"]).substr(0, ID_MAX_LENGTH + 1);
   }
-  this->name = trim_name(text_of(root["name"]));
-  if (!validate_name(this->name, error))
+  const std::string_view name = trimmed(text_of(root["name"]));
+  if (!validate_name(name, error))
     return false;
+  this->name = name;
   this->enabled = root["enabled"] | this->enabled;
 
   this->modes.clear();
@@ -567,7 +585,7 @@ bool ScheduleConfig::deserialize(JsonObjectConst root, bool require_id, std::str
     const char *key = day.key().c_str();
     if (std::none_of(std::begin(DAY_NAMES), std::end(DAY_NAMES),
                      [key](const char *day_name) { return strcmp(day_name, key) == 0; }))
-      return fail(error, std::string("Unknown day \"") + key + "\": expected mon, tue, wed, thu, fri, sat or sun");
+      return fail(error, "Unknown day " + quoted(key) + ": expected mon, tue, wed, thu, fri, sat or sun");
   }
   for (uint8_t day = 0; day < 7; day++) {
     JsonVariantConst days = week[DAY_NAMES[day]];
@@ -652,9 +670,9 @@ bool ScheduleConfig::validate(std::string *error) const {
 }
 
 void ScheduleConfig::trim_names() {
-  this->name = trim_name(this->name);
+  this->name = PsramString(trimmed(this->name));
   for (Mode &mode : this->modes)
-    mode.name = trim_name(mode.name);
+    mode.name = PsramString(trimmed(mode.name));
 }
 
 void ScheduleConfig::sort_points() { std::stable_sort(this->points.begin(), this->points.end(), by_minute); }

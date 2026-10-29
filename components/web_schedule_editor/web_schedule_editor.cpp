@@ -1,6 +1,7 @@
 #include "web_schedule_editor.h"
 #include <ArduinoJson.h>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <algorithm>
 #include <cstring>
@@ -21,6 +22,10 @@ static const char *const NOT_FOUND = "Schedule not found";
 static const char *const STORAGE_UNAVAILABLE = "Schedule storage is not available";
 // A read whose answer the heap could not hold: nothing changed, and the heap moves.
 static const char *const LOW_MEMORY = "Device is low on memory; try again";
+static const char *const DELETED = "Schedule deleted";
+static const char *const DELETED_NOT_PERSISTED =
+    "Schedule deleted; its file could not be removed, so it comes back at the next boot";
+static const char *const DELETED_NOT_LOADED = "Schedule deleted; it was not loaded for lack of memory";
 
 static_assert(schedules::MAX_FILE_BYTES == 16384, "the body's 413 names the limit");
 
@@ -307,6 +312,7 @@ void WebScheduleEditor::handle_list_(AsyncWebServerRequest *request) {
     doc["success"] = true;
     doc["count"] = all.size();
     doc["max_schedules"] = this->engine_->max_schedules();
+    doc["not_loaded"] = this->engine_->not_loaded();
     // The device's own day and time: the page draws "now" from it, not from the browser's zone.
     std::string day;
     std::string time;
@@ -475,10 +481,13 @@ void WebScheduleEditor::handle_document_(AsyncWebServerRequest *request, bool im
   JsonDocument answer(this->json_allocator_());
   std::string error;
   int code = 400;
+  Committed committed;
   // Parsed on the loop task too: its stack has the room, the server task's has little.
   const bool ran = this->engine_->run_on_loop([&]() {
-    // Before the parse: a small allocation inside it that fails aborts rather than refuses.
-    if (!this->engine_->has_heap_room(schedules::PARSE_HEAP_FACTOR * this->body_received_)) {
+    // Before the parse: the schedule it becomes aborts where the heap runs out, and the document
+    // never takes more than this room.
+    const size_t room = schedules::parse_room(this->body_received_);
+    if (!this->engine_->has_heap_room(room)) {
       code = 507;
       error = schedules::NO_MEMORY_TO_SAVE;
       return true;
@@ -486,7 +495,8 @@ void WebScheduleEditor::handle_document_(AsyncWebServerRequest *request, bool im
     ScheduleConfig config;
     optional<uint32_t> revision;
     {
-      JsonDocument doc(this->json_allocator_());
+      schedules::BoundedAllocator bounded(this->json_allocator_(), room);
+      JsonDocument doc(&bounded);
       const DeserializationError parsed =
           deserializeJson(doc, static_cast<const char *>(this->body_), this->body_received_);
       if (parsed == DeserializationError::NoMemory) {
@@ -520,7 +530,9 @@ void WebScheduleEditor::handle_document_(AsyncWebServerRequest *request, bool im
       error = result.error;
       return true;
     }
-    std::string message = !replaces ? "Schedule created" : importing ? "Schedule replaced" : "Schedule updated";
+    committed.message = !replaces ? "Schedule created" : importing ? "Schedule replaced" : "Schedule updated";
+    committed.set_id(result.id);
+    std::string message = committed.message;
     message += started_note(*this->engine_, result);
     if (!result.warning.empty())
       message += "; " + result.warning;
@@ -535,7 +547,7 @@ void WebScheduleEditor::handle_document_(AsyncWebServerRequest *request, bool im
   });
   if (!error.empty() && code == 507)
     ESP_LOGW(TAG, "%s refused: %s", importing ? "Import" : "Save", error.c_str());
-  this->answer_(request, ran, code, error, answer);
+  this->answer_(request, ran, code, error, answer, &committed);
 }
 
 void WebScheduleEditor::handle_delete_(AsyncWebServerRequest *request) {
@@ -545,6 +557,7 @@ void WebScheduleEditor::handle_delete_(AsyncWebServerRequest *request) {
   JsonDocument answer(this->json_allocator_());
   std::string error;
   int code = 400;
+  Committed committed;
   const bool ran = this->engine_->run_on_loop([&]() {
     const Result result = this->engine_->remove(id);
     if (!result.ok) {
@@ -552,18 +565,18 @@ void WebScheduleEditor::handle_delete_(AsyncWebServerRequest *request) {
       error = result.error;
       return true;
     }
-    answer["success"] = true;
     // The engine blanks a file it cannot unlink; this is the rarer case where that failed too.
-    answer["message"] = std::string(result.persisted ? "Schedule deleted"
-                                                     : "Schedule deleted; its file could not be removed, so it "
-                                                       "comes back at the next boot") +
-                        started_note(*this->engine_, result);
+    committed.message = result.was_not_loaded ? DELETED_NOT_LOADED : result.persisted ? DELETED : DELETED_NOT_PERSISTED;
+    committed.answers_persisted = true;
+    committed.persisted = result.persisted;
+    answer["success"] = true;
+    answer["message"] = committed.message + started_note(*this->engine_, result);
     // As on /enable, so a client need not parse the message for it.
     answer["persisted"] = result.persisted;
     add_ids(answer.as<JsonObject>(), "started", result.started);
     return true;
   });
-  this->answer_(request, ran, code, error, answer);
+  this->answer_(request, ran, code, error, answer, &committed);
 }
 
 void WebScheduleEditor::handle_enable_(AsyncWebServerRequest *request) {
@@ -583,6 +596,7 @@ void WebScheduleEditor::handle_enable_(AsyncWebServerRequest *request) {
   JsonDocument answer(this->json_allocator_());
   std::string error;
   int code = 400;
+  Committed committed;
   const bool ran = this->engine_->run_on_loop([&]() {
     const Result result = this->engine_->set_enabled(id, enabled, take_over);
     if (!result.ok) {
@@ -590,7 +604,10 @@ void WebScheduleEditor::handle_enable_(AsyncWebServerRequest *request) {
       error = result.error;
       return true;
     }
-    std::string message = enabled ? "Schedule enabled" : "Schedule disabled";
+    committed.message = enabled ? "Schedule enabled" : "Schedule disabled";
+    committed.answers_persisted = true;
+    committed.persisted = result.persisted;
+    std::string message = committed.message;
     // Who a take-over stored disabled, then who started on a target a disable let go.
     if (!result.stopped.empty())
       message += "; " + names_of(*this->engine_, result.stopped) + " stopped";
@@ -607,33 +624,54 @@ void WebScheduleEditor::handle_enable_(AsyncWebServerRequest *request) {
     add_ids(answer.as<JsonObject>(), "started", result.started);
     return true;
   });
-  this->answer_(request, ran, code, error, answer);
+  this->answer_(request, ran, code, error, answer, &committed);
 }
 
 // --- Answers ---
 
 void WebScheduleEditor::answer_(AsyncWebServerRequest *request, bool ran, int code, const std::string &error,
-                                const JsonDocument &doc) {
+                                const JsonDocument &doc, const Committed *committed) {
   if (!ran) {
     // Nothing was read or written, so the same call can simply be made again.
     this->send_error_(request, "Device busy", 503);
   } else if (!error.empty()) {
     this->send_error_(request, error, code);
   } else {
-    this->send_doc_(request, doc);
+    this->send_doc_(request, doc, committed);
   }
 }
 
-void WebScheduleEditor::send_doc_(AsyncWebServerRequest *request, const JsonDocument &doc) {
+void WebScheduleEditor::send_doc_(AsyncWebServerRequest *request, const JsonDocument &doc, const Committed *committed) {
   // A failed allocation drops members silently; what is left would still serialize.
   if (doc.overflowed()) {
     ESP_LOGW(TAG, "An answer did not fit the heap");
-    this->send_error_(request, LOW_MEMORY, 503);
+    // A change that is made must not be told to try again: a retry would meet it.
+    if (committed != nullptr && committed->message != nullptr) {
+      this->send_committed_(request, *committed);
+    } else {
+      this->send_error_(request, LOW_MEMORY, 503);
+    }
     return;
   }
   ChunkWriter writer(request, this->out_, sizeof(this->out_));
   serializeJson(doc, writer);
   writer.finish();
+}
+
+void WebScheduleEditor::Committed::set_id(const std::string &value) {
+  // An engine id is a slug of at most ID_MAX_LENGTH: nothing in it needs escaping.
+  snprintf(this->id, sizeof(this->id), "%s", value.c_str());
+}
+
+// Into the answer buffer, not the heap; the message is a literal and the id a slug, so the
+// whole fits and needs no escaping.
+void WebScheduleEditor::send_committed_(AsyncWebServerRequest *request, const Committed &committed) {
+  snprintf(this->out_, sizeof(this->out_), R"({"success":true,"message":"%s"%s%s%s%s})", committed.message,
+           committed.id[0] != '\0' ? R"(,"id":")" : "", committed.id, committed.id[0] != '\0' ? "\"" : "",
+           !committed.answers_persisted ? ""
+           : committed.persisted        ? R"(,"persisted":true)"
+                                        : R"(,"persisted":false)");
+  request->send(200, "application/json", this->out_);
 }
 
 void WebScheduleEditor::send_json_(AsyncWebServerRequest *request, int code, const std::string &json) {

@@ -569,23 +569,23 @@ bool ScheduleEngine::load_() {
   closedir(dir);
   // readdir order is the filesystem's; which files fit under the cap should not be.
   std::sort(names.begin(), names.end());
-  this->left_for_heap_ = 0;
-  for (const std::string &name : names) {
+  this->left_for_heap_.clear();
+  for (std::string &name : names) {
     if (this->entries_.size() >= this->max_schedules_) {
       ESP_LOGW(TAG, "'%s' left alone: at most %u schedules", name.c_str(), static_cast<unsigned>(this->max_schedules_));
       continue;
     }
     // Once the heap ran short the rest stay on flash too, so which ones run does not depend on size.
-    if (this->left_for_heap_ > 0) {
+    if (!this->left_for_heap_.empty()) {
       ESP_LOGW(TAG, "'%s' left alone: not enough free memory", name.c_str());
-      this->left_for_heap_++;
+      this->left_for_heap_.push_back(std::move(name));
       continue;
     }
     // setup() runs before the loop feeds the watchdog.
     App.feed_wdt();
     if (this->load_file_(folder, name) == Load::NO_MEMORY) {
       ESP_LOGW(TAG, "'%s' left alone: not enough free memory (%s)", name.c_str(), this->room_text_().c_str());
-      this->left_for_heap_ = 1;
+      this->left_for_heap_.push_back(std::move(name));
     }
   }
   for (auto &entry : this->entries_)
@@ -599,10 +599,11 @@ bool ScheduleEngine::load_() {
 // At boot nothing else allocates yet, so the heaps show what the schedules took.
 bool ScheduleEngine::boot_room_() const {
   const HeapRoom heap = this->heap_();
-  if (heap.free < BOOT_HEAP_FLOOR_BYTES || heap.largest_block < BOOT_HEAP_FLOOR_BLOCK)
-    return false;
   const optional<HeapRoom> psram = this->psram_();
-  return !psram.has_value() || (psram->free >= PSRAM_RESERVE_BYTES && psram->largest_block >= PSRAM_RESERVE_BLOCK);
+  if (!psram.has_value())
+    return heap.free >= BOOT_HEAP_FLOOR_BYTES && heap.largest_block >= BOOT_HEAP_FLOOR_BLOCK;
+  return heap.free >= PSRAM_HEAP_KEEP_BYTES && heap.largest_block >= PSRAM_HEAP_KEEP_BLOCK &&
+         psram->free >= PSRAM_RESERVE_BYTES && psram->largest_block >= PSRAM_RESERVE_BLOCK;
 }
 
 // A file that is refused stays exactly as it is: the folder is writable by hand and over the
@@ -693,8 +694,8 @@ void ScheduleEngine::dump_config() {
     ESP_LOGCONFIG(TAG, "  Folder: %s", this->folder_().c_str());
   ESP_LOGCONFIG(TAG, "  Schedules: %u of %u", static_cast<unsigned>(this->entries_.size()),
                 static_cast<unsigned>(this->max_schedules_));
-  if (this->left_for_heap_ > 0)
-    ESP_LOGCONFIG(TAG, "  Left on flash for lack of memory: %u", static_cast<unsigned>(this->left_for_heap_));
+  if (!this->left_for_heap_.empty())
+    ESP_LOGCONFIG(TAG, "  Left on flash for lack of memory: %u", static_cast<unsigned>(this->left_for_heap_.size()));
   for (const auto &entry : this->entries_) {
     const ScheduleStatus status = this->status(entry->config.id);
     ESP_LOGCONFIG(TAG, "  '%s' (%s): %u modes, %u targets, %s%s%s%s", entry->config.name.c_str(),
@@ -748,19 +749,19 @@ bool ScheduleEngine::document(const std::string &id, JsonDocument &doc) const {
 bool ScheduleEngine::has_heap_room(size_t more) const {
   const HeapRoom heap = this->heap_();
   const optional<HeapRoom> psram = this->psram_();
-  const size_t internal_more = psram.has_value() ? 0 : more;
-  if (heap.free < HEAP_RESERVE_BYTES + internal_more || heap.largest_block < HEAP_RESERVE_BLOCK)
-    return false;
-  return !psram.has_value() ||
-         (psram->free >= PSRAM_RESERVE_BYTES + more && psram->largest_block >= PSRAM_RESERVE_BLOCK);
+  if (!psram.has_value())
+    return heap.free >= saturating_add(HEAP_RESERVE_BYTES, more) && heap.largest_block >= HEAP_RESERVE_BLOCK;
+  return heap.free >= PSRAM_HEAP_KEEP_BYTES && heap.largest_block >= PSRAM_HEAP_KEEP_BLOCK &&
+         psram->free >= saturating_add(PSRAM_RESERVE_BYTES, more) && psram->largest_block >= PSRAM_RESERVE_BLOCK;
 }
 
 HeapRoom ScheduleEngine::heap_() const {
   HeapRoom heap;
 #ifdef USE_ESP32
-  // What the debug component reports, and what the network stack draws on.
-  heap.free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-  heap.largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+  // What the network stack and RAMAllocator's fallback draw on; MALLOC_CAP_INTERNAL alone, the
+  // debug component's figure, also counts IRAM that only 32-bit loads can use.
+  heap.free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  heap.largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 #else
   heap.free = SIZE_MAX;
   heap.largest_block = SIZE_MAX;
@@ -1057,15 +1058,34 @@ bool ScheduleEngine::refuse_if_failed_(Result *result) const {
 }
 
 bool ScheduleEngine::keeps_room_(const ScheduleConfig &doc, const ScheduleConfig *replaced) const {
-  // `doc` is held already; what it replaces goes once it is stored, back to the internal heap
-  // only without PSRAM. PSRAM's reserve is kept at the peak, in save_().
-  const size_t freed = replaced != nullptr && !this->psram_().has_value() ? replaced->heap_bytes() : 0;
-  const size_t internal = saturating_add(this->heap_().free, freed);
-  if (internal >= HEAP_KEEP_BYTES)
+  // `doc` is held already; what it replaces goes once it is stored, back to where both live.
+  const size_t freed = replaced != nullptr ? replaced->heap_bytes() : 0;
+  const optional<HeapRoom> psram = this->psram_();
+  const size_t internal = psram.has_value() ? this->heap_().free : saturating_add(this->heap_().free, freed);
+  const size_t internal_keep = psram.has_value() ? PSRAM_HEAP_KEEP_BYTES : HEAP_KEEP_BYTES;
+  if (internal < internal_keep) {
+    ESP_LOGE(TAG, "'%s' not written: it would leave %u bytes free, under %u", doc.id.c_str(),
+             static_cast<unsigned>(internal), static_cast<unsigned>(internal_keep));
+    return false;
+  }
+  const size_t external = psram.has_value() ? saturating_add(psram->free, freed) : SIZE_MAX;
+  if (external >= PSRAM_RESERVE_BYTES)
     return true;
-  ESP_LOGE(TAG, "'%s' not written: it would leave %u bytes free, under %u", doc.id.c_str(),
-           static_cast<unsigned>(internal), static_cast<unsigned>(HEAP_KEEP_BYTES));
+  ESP_LOGE(TAG, "'%s' not written: it would leave %u bytes of PSRAM free, under %u", doc.id.c_str(),
+           static_cast<unsigned>(external), static_cast<unsigned>(PSRAM_RESERVE_BYTES));
   return false;
+}
+
+bool ScheduleEngine::refuse_if_files_wait_(Result *result) const {
+  const size_t waiting = this->left_for_heap_.size();
+  if (waiting == 0)
+    return false;
+  *result = failure(507, waiting == 1 ? std::string("1 saved schedule was not loaded for lack of memory; delete it, "
+                                                    "or make room and restart, before adding another")
+                                      : std::to_string(waiting) +
+                                            " saved schedules were not loaded for lack of memory; delete them, "
+                                            "or make room and restart, before adding another");
+  return true;
 }
 
 bool ScheduleEngine::check_target_free_(const ScheduleConfig &doc, std::string_view self_id, Result *result) const {
@@ -1093,6 +1113,8 @@ Result ScheduleEngine::create(ScheduleConfig draft) {
   if (this->entries_.size() >= this->max_schedules_)
     return failure(
         507, "This device allows " + std::to_string(this->max_schedules_) + " schedules; delete one to add another");
+  if (this->refuse_if_files_wait_(&result))
+    return result;
   if (this->is_name_taken(draft.name, "", &error))
     return failure(409, error);
   draft.id = this->next_id_(draft.name);
@@ -1135,11 +1157,13 @@ Result ScheduleEngine::update(const std::string &id, ScheduleConfig doc, optiona
     return result;
   doc.version = SCHEDULE_VERSION;
   doc.revision = stored->config.revision + 1;
-  if (!this->keeps_room_(doc, &stored->config))
+  // One that holds no more than the stored one takes no room, as a flag does not.
+  const bool grows = doc.heap_bytes() > stored->config.heap_bytes();
+  if (grows && !this->keeps_room_(doc, &stored->config))
     return not_saved(EncodeError::NO_MEMORY);
   // Written beside the old file and renamed over it: a failure leaves everything as it was.
   EncodeError why = EncodeError::NONE;
-  if (!this->save_(doc, &why, true))
+  if (!this->save_(doc, &why, grows))
     return not_saved(why);
   return this->replace_(stored, std::move(doc), "Updated");
 }
@@ -1164,6 +1188,8 @@ Result ScheduleEngine::restore(ScheduleConfig doc) {
   if (stored == nullptr && this->entries_.size() >= this->max_schedules_)
     return failure(
         507, "This device allows " + std::to_string(this->max_schedules_) + " schedules; delete one to add another");
+  if (stored == nullptr && this->refuse_if_files_wait_(&result))
+    return result;
   if (this->is_name_taken(doc.name, doc.id, &error))
     return failure(409, error);
   // As at create: a file the loader refused is the only record of what its author meant.
@@ -1175,10 +1201,11 @@ Result ScheduleEngine::restore(ScheduleConfig doc) {
   doc.version = SCHEDULE_VERSION;
   // Never the backup's: a form read before the import would otherwise Save over it.
   doc.revision = stored != nullptr ? stored->config.revision + 1 : 0;
-  if (!this->keeps_room_(doc, stored != nullptr ? &stored->config : nullptr))
+  const bool grows = stored == nullptr || doc.heap_bytes() > stored->config.heap_bytes();
+  if (grows && !this->keeps_room_(doc, stored != nullptr ? &stored->config : nullptr))
     return not_saved(EncodeError::NO_MEMORY);
   EncodeError why = EncodeError::NONE;
-  if (!this->save_(doc, &why, true))
+  if (!this->save_(doc, &why, grows))
     return not_saved(why);
   if (stored == nullptr)
     return this->add_(std::move(doc), "Restored");
@@ -1248,7 +1275,7 @@ Result ScheduleEngine::remove(const std::string &id) {
     return result;
   Entry *stored = this->find_(id);
   if (stored == nullptr)
-    return failure(404, NOT_FOUND);
+    return this->remove_not_loaded_(id);
   // `id` may be the document's own string, which the removal frees.
   const std::string removed = id;
   this->cancel_(*stored);
@@ -1258,6 +1285,23 @@ Result ScheduleEngine::remove(const std::string &id) {
                                     [&removed](const std::unique_ptr<Entry> &e) { return e->config.id == removed; }));
   ESP_LOGD(TAG, "Removed '%s'", removed.c_str());
   this->settle_(removed, false, &result);
+  return result;
+}
+
+// One the boot left on flash for lack of memory never ran: its file is all there is to delete.
+Result ScheduleEngine::remove_not_loaded_(const std::string &id) {
+  const auto left = std::find(this->left_for_heap_.begin(), this->left_for_heap_.end(), id + ".json");
+  if (left == this->left_for_heap_.end())
+    return failure(404, NOT_FOUND);
+  if (!this->delete_file_(id)) {
+    Result result = failure(500, "The schedule's file could not be deleted");
+    result.persisted = false;
+    return result;
+  }
+  this->left_for_heap_.erase(left);
+  ESP_LOGD(TAG, "Removed '%s', which was not loaded", id.c_str());
+  Result result = success();
+  result.was_not_loaded = true;
   return result;
 }
 

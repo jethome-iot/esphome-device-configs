@@ -6,6 +6,7 @@
 //   run_on_loop(job), is_failed(), max_schedules()
 //   Reads, for the list and the editor:
 //     schedules(), get(id)            the documents, sorted by id; document(id, doc) as the JSON a Save takes
+//     not_loaded()                    how many files the boot left on flash for lack of memory
 //     has_heap_room(more)             whether a change may take `more` PSRAM first and keep the reserves
 //     target_name(target)             a relay's or a thermostat's name, its id when it is not there
 //     status(id)                      ScheduleStatus: state, reason, note, and the issues of its actions
@@ -43,29 +44,45 @@ class Switch;
 
 namespace schedules {
 
-// The schedules and their documents are PSRAM first (schedule_memory.h). The HEAP_* limits guard
-// the internal heap, which also holds them on a board without PSRAM; PSRAM_RESERVE_* guards
-// PSRAM where there is some.
+// The schedules and their documents are PSRAM first (schedule_memory.h). Without PSRAM the
+// HEAP_* limits guard the internal heap, which holds them; with it they live in PSRAM, which
+// PSRAM_RESERVE_* guards, and the internal heap keeps PSRAM_HEAP_KEEP_* only. The internal heap
+// is the part malloc can use: QEMU's debug sensor, which the figures below come from, also
+// counts about 30 KiB of IRAM only 32-bit loads can use, so its numbers are that much higher.
 
-/// Internal heap the boot keeps after each schedule it loads. The services that start after it
-/// take about 56 KiB for good, and the update check's TLS session about 50 KiB more for a while
-/// (QEMU, Ethernet): under this the device runs out during that check.
-static constexpr size_t BOOT_HEAP_FLOOR_BYTES = 160 * 1024;
+/// Internal heap the boot keeps after each schedule it loads, without PSRAM. The services that
+/// start after it take about 56 KiB for good, and the update check's TLS session about 50 KiB
+/// more for a while (QEMU, Ethernet): under this the device runs out during that check.
+static constexpr size_t BOOT_HEAP_FLOOR_BYTES = 130 * 1024;
 static constexpr size_t BOOT_HEAP_FLOOR_BLOCK = 40 * 1024;
-/// Internal heap a Save or an import leaves once done: a little over the 104 KiB a boot at its
-/// floor leaves once its services run, so what a Save keeps the next boot loads.
-static constexpr size_t HEAP_KEEP_BYTES = 106 * 1024;
-/// Internal heap a Save or an import leaves at its peak, so the network stack and the web
-/// server keep working through it.
-static constexpr size_t HEAP_RESERVE_BYTES = 40 * 1024;
+/// Internal heap a Save or an import leaves once done, without PSRAM: a little over the 74 KiB a
+/// boot at its floor leaves once its services run, so what a Save keeps the next boot loads.
+static constexpr size_t HEAP_KEEP_BYTES = 76 * 1024;
+/// Internal heap a Save or an import leaves at its peak, without PSRAM, so the network stack and
+/// the web server keep working through it.
+static constexpr size_t HEAP_RESERVE_BYTES = 10 * 1024;
 static constexpr size_t HEAP_RESERVE_BLOCK = 24 * 1024;
+/// Internal heap a boot, a change and its peak leave with PSRAM. A schedule keeps about 90 B
+/// there and a request works with about 6 KB (QEMU): room for 32 schedules and a request, so
+/// their share never takes what the network stack runs on.
+static constexpr size_t PSRAM_HEAP_KEEP_BYTES = 16 * 1024;
+static constexpr size_t PSRAM_HEAP_KEEP_BLOCK = 4 * 1024;
 /// PSRAM a boot, a Save or an import leaves to the rest of the firmware, which holds about 10 KB
 /// of it for good (QEMU) and at times one block of up to 16 KiB, the update check's manifest.
 static constexpr size_t PSRAM_RESERVE_BYTES = 64 * 1024;
 static constexpr size_t PSRAM_RESERVE_BLOCK = 16 * 1024;
-/// A body's parsed document and the schedule it becomes take about this many times the body
-/// (QEMU: 27 KB beside a 16 KB worst-case body), so the room is checked before a parse begins.
+/// A body's parsed document takes up to about twice the body (the 16 KB worst case about its
+/// size; host: 2.2 times, its slots twice as large), and a small one, a dense week of switch
+/// points the densest, ArduinoJson's first pools and its strings.
 static constexpr size_t PARSE_HEAP_FACTOR = 2;
+static constexpr size_t PARSE_HEAP_MIN_BYTES = 8 * 1024;
+
+/// What a body of `bytes` may take as a document, and the room checked for before its parse.
+constexpr size_t parse_room(size_t bytes) {
+  // ArduinoJson's slots hold a pointer: twice the size on a 64-bit host.
+  return (PARSE_HEAP_FACTOR * bytes > PARSE_HEAP_MIN_BYTES ? PARSE_HEAP_FACTOR * bytes : PARSE_HEAP_MIN_BYTES) *
+         (sizeof(void *) / 4);
+}
 
 /// A Save or an import the heap cannot take: 507.
 extern const char *const NO_MEMORY_TO_SAVE;
@@ -92,6 +109,8 @@ struct Result {
   std::string warning;
   /// False when the change is live but did not reach flash, so a reboot undoes it.
   bool persisted{true};
+  /// remove(): the schedule was a file the boot left on flash for lack of memory, never loaded.
+  bool was_not_loaded{false};
   /// set_enabled() with take_over: the ids of the schedules it stored disabled, by id.
   std::vector<std::string> stopped;
   /// The ids of the schedules that started driving their targets because the change let them.
@@ -194,6 +213,8 @@ class ScheduleEngine : public Component {
   virtual bool run_on_loop(std::function<bool()> &&job);
 
   uint8_t max_schedules() const { return this->max_schedules_; }
+  /// The files the boot left on flash for lack of memory and remove() has not deleted since.
+  size_t not_loaded() const { return this->left_for_heap_.size(); }
   /// The documents, sorted by id.
   std::vector<const ScheduleConfig *> schedules() const;
   const ScheduleConfig *get(std::string_view id) const;
@@ -220,17 +241,18 @@ class ScheduleEngine : public Component {
   std::string scheduled_by(TargetType type, const std::string &id) const;
 
   /// Adds a schedule; its id is made from the name and the draft's ignored. Refused with 400 (a
-  /// rule broken), 507 (at max_schedules, or the internal heap would keep less than
-  /// HEAP_KEEP_BYTES, or a heap would drop under its reserve on the way), 409 (name taken, every
-  /// id the name gives taken by a file, or enabled on a target another enabled schedule drives:
-  /// `holder` names it), 413 or 500 (not written). One whose actions name what the device does
-  /// not have is saved, with a `warning`. Enabled, it runs the list of the mode in force at once.
+  /// rule broken), 507 (at max_schedules, files the boot left on flash for lack of memory, or
+  /// the heaps would keep less than they must once it is held or on the way), 409 (name taken,
+  /// every id the name gives taken by a file, or enabled on a target another enabled schedule
+  /// drives: `holder` names it), 413 or 500 (not written). One whose actions name what the
+  /// device does not have is saved, with a `warning`. Enabled, it runs the list of the mode in
+  /// force at once.
   Result create(ScheduleConfig draft);
   /// Replaces a schedule's document under its id: 404, 409 for a file a newer firmware wrote,
-  /// otherwise as create(). Its list stops; enabled, the list of the mode in force runs again,
-  /// a rename too. A target it left is left as it is. `revision`, when given, is the one the
-  /// caller read: one that is not the stored one is 409, since the Save would undo a change
-  /// made since.
+  /// otherwise as create(), but one that holds no more than the stored one is never refused for
+  /// room. Its list stops; enabled, the list of the mode in force runs again, a rename too. A
+  /// target it left is left as it is. `revision`, when given, is the one the caller read: one
+  /// that is not the stored one is 409, since the Save would undo a change made since.
   Result update(const std::string &id, ScheduleConfig doc, optional<uint32_t> revision = nullopt);
   /// Brings a schedule back under the id the document names, enabled or not, as a backup holds
   /// it: one with that id is replaced as update() replaces it, otherwise one is created. Refused
@@ -238,7 +260,8 @@ class ScheduleEngine : public Component {
   /// file the boot did not load holds. The doc's revision is ignored: a replacement moves the
   /// stored one on, a new one starts at 0.
   Result restore(ScheduleConfig doc);
-  /// Deletes a schedule; its list stops and its targets stay as they are.
+  /// Deletes a schedule; its list stops and its targets stay as they are. A file the boot left
+  /// on flash for lack of memory is deleted too, `was_not_loaded`, or 500 when it stays.
   Result remove(const std::string &id);
   /// Stores the flag. Enabling one that shares a target with another enabled schedule is 409,
   /// unless `take_over`: every other enabled one sharing a target is stored disabled and named
@@ -294,6 +317,8 @@ class ScheduleEngine : public Component {
   void resolve_name_(ScheduleConfig *config);
 
   Result add_(ScheduleConfig doc, const char *verb);
+  /// remove() of an id no schedule has: 404, unless the boot left its file on flash.
+  Result remove_not_loaded_(const std::string &id);
   Result replace_(Entry *stored, ScheduleConfig doc, const char *verb);
   /// After a change: who drives what is worked out again. `id` runs its mode's list when `save`
   /// (a Save of it, enabled) or when it starts to drive its targets; every other schedule the
@@ -312,8 +337,11 @@ class ScheduleEngine : public Component {
   std::vector<Issue> issues_(const ScheduleConfig &config, const PsramVector<switch_::Switch *> &switches) const;
   Entry *find_(std::string_view id) const;
   bool refuse_if_failed_(Result *result) const;
-  /// Whether the internal heap keeps HEAP_KEEP_BYTES once `doc` is held and `replaced`, if any,
-  /// is gone.
+  /// 507 for a schedule under a new id while files wait on flash: the next boot could load it
+  /// in place of one of them, which the list never showed.
+  bool refuse_if_files_wait_(Result *result) const;
+  /// Whether the heaps keep what they must once `doc` is held and `replaced`, if any, is gone:
+  /// HEAP_KEEP_BYTES without PSRAM, PSRAM_HEAP_KEEP_BYTES and PSRAM_RESERVE_BYTES with it.
   bool keeps_room_(const ScheduleConfig &doc, const ScheduleConfig *replaced) const;
   /// "160000 bytes free, 90000 in one block", and PSRAM's after it, for the log.
   std::string room_text_() const;
@@ -364,7 +392,7 @@ class ScheduleEngine : public Component {
   // Seams: every valid document fits the cap, no host heap runs out, and a host has no PSRAM.
   virtual size_t max_file_bytes_() const { return MAX_FILE_BYTES; }
   virtual ArduinoJson::Allocator *json_allocator_() const { return json_allocator(); }
-  /// The internal heap.
+  /// The internal heap malloc can use.
   virtual HeapRoom heap_() const;
   /// PSRAM; none on a board without it.
   virtual optional<HeapRoom> psram_() const;
@@ -377,8 +405,8 @@ class ScheduleEngine : public Component {
   time::RealTimeClock *rtc_{nullptr};
   std::string folder_path_{"schedules"};
   uint8_t max_schedules_{16};
-  // Files the boot left on flash for lack of heap.
-  uint8_t left_for_heap_{0};
+  // The names of the files the boot left on flash for lack of heap, sorted.
+  std::vector<std::string> left_for_heap_;
 
   // Sorted by id; unique_ptr so a job that looked one up keeps it while others come and go.
   std::vector<std::unique_ptr<Entry>> entries_;

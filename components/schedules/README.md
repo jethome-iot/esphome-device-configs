@@ -141,7 +141,9 @@ The folder is writable by hand, so what it holds is checked at boot:
 
 - at most `max_schedules` files are loaded, in file name order; the rest are left alone;
 - loading stops once free memory would drop under what the services that start later need, and
-  every file from there on is left alone, each named in a warning;
+  every file from there on is left alone, each named in a warning. `not_loaded()` counts them;
+  `remove()` deletes one by its id, and while there are any, a schedule under a new id is
+  refused with 507, since the next boot could load it in place of one of them;
 - a file whose `id` is not its file name or is `new`, that is not valid JSON, over 16 KiB, or
   that breaks a rule above is refused and left exactly as it is, and its id is not given to a
   new schedule nor taken by a restore;
@@ -164,8 +166,9 @@ not be read; every change is then refused with 500.
 
 - `schedules()`, `get(id)`: the documents, sorted by id; `document(id, doc)`: one as its file
   holds it, which `deserialize()` and `restore()` take back, false for an unknown id;
-  `max_schedules()`; `has_heap_room(bytes)`: whether taking that much more leaves the memory a
-  change must keep free on the way
+  `max_schedules()`; `not_loaded()`; `has_heap_room(bytes)`: whether taking that much more
+  leaves the memory a change must keep free on the way, and `parse_room(bytes)` how much a body
+  of that size may take parsed
 - `status(id)`: `state`, the first that holds of `disabled`, `waiting_for_clock`, `conflict` and
   `running` (`state_to_string()`); the `reason` it does not run (`Waiting for the clock`,
   `Schedule "Winter" drives Living Room`); a `note` for a thermostat that is switched off; and
@@ -184,8 +187,9 @@ not be read; every change is then refused with 500.
   `scheduled_by`, none without `climate_hub`; `scheduled_by(type, id)`
 - `create(draft)`, `update(id, doc, revision)`, `restore(doc)`, `remove(id)`,
   `set_enabled(id, enabled, take_over)`: each returns a `Result` — `ok`, the HTTP `code` that
-  fits (400, 404, 409, 413, 500, 507: past `max_schedules`, or `Not enough free memory on the
-  device to save this schedule` when what it keeps would leave the device too little memory),
+  fits (400, 404, 409, 413, 500, 507: past `max_schedules`, while files are not loaded for lack
+  of memory, or `Not enough free memory on the device to save this schedule` when what it keeps
+  would leave the device too little memory; an edit that holds no more than before never is),
   an `error` sentence, the new `id`, the `holder` of a 409
   over a target, a `warning` when it was saved enabled with an action the device skips
   (`skips mode "Day", action 2: relay "relay_7" is not on this device`), `persisted`, the ids a

@@ -1,5 +1,7 @@
 // The files: one per schedule under its id, what a boot loads and what it leaves alone, the
 // cap, a newer firmware's file, writes and deletes that fail, names and ids.
+#include <signal.h>
+#include <sys/resource.h>
 #include "common.h"
 
 namespace esphome::schedules::testing {
@@ -354,6 +356,12 @@ TEST_F(Storage, ADocumentCutShortByTheHeapIsNeverWritten) {
 
 // --- The heap ---
 
+// `config` with one more action, so it holds more than it did.
+inline ScheduleConfig grown(ScheduleConfig config) {
+  config.add_wait(60);
+  return config;
+}
+
 // Each change that keeps more in RAM is refused at its peak when the heap would drop under the
 // reserve, and leaves the file and the schedule in RAM as they were.
 TEST_F(Storage, AChangeTheHeapCannotHoldLeavesEverythingAsItWas) {
@@ -365,12 +373,13 @@ TEST_F(Storage, AChangeTheHeapCannotHoldLeavesEverythingAsItWas) {
   Result created = this->engine->create(daily("Garden", "relay_2"));
   EXPECT_EQ(507, created.code);
   EXPECT_EQ(NO_MEMORY_TO_SAVE, created.error);
-  ScheduleConfig renamed = daily("Porch light");
+  ScheduleConfig renamed = grown(daily("Porch light"));
   Result updated = this->engine->update("porch", renamed);
   EXPECT_EQ(507, updated.code);
   ScheduleConfig back = daily("Kitchen", "relay_2");
   back.id = "kitchen";
   EXPECT_EQ(507, this->engine->restore(back).code);
+  back = grown(daily("Kitchen", "relay_2"));
   back.id = "porch";
   EXPECT_EQ(507, this->engine->restore(back).code);
 
@@ -398,9 +407,38 @@ TEST_F(Storage, AnEditKeepsTheRoomOfWhatItReplaces) {
   EXPECT_GT(this->engine->get("porch")->heap_bytes(), 0u);
   this->engine->heap_free = HEAP_KEEP_BYTES - 1;
   EXPECT_EQ(507, this->engine->create(daily("Garden", "relay_2")).code);
-  EXPECT_TRUE(this->engine->update("porch", daily("Porch light")).ok);
+  EXPECT_TRUE(this->engine->update("porch", grown(daily("Porch light"))).ok);
   this->engine->heap_free = HEAP_KEEP_BYTES;
   EXPECT_TRUE(this->engine->create(daily("Garden", "relay_2")).ok);
+}
+
+// An edit or a restore that holds no more than what it replaces takes no room, as a flag does
+// not: it goes through however short the heap, with PSRAM or without. One that holds more does not.
+TEST_F(Storage, AnEditThatDoesNotGrowIsNeverRefusedForRoom) {
+  for (const bool psram : {false, true}) {
+    this->engine = &this->new_engine();
+    this->engine->has_psram = psram;
+    this->boot();
+    // Moved in, as a parsed document is: a copy would hold less than one built the same way.
+    ASSERT_TRUE(this->engine->create(daily("Porch")).ok);
+    this->engine->heap_free = 0;
+    this->engine->heap_block = 0;
+    this->engine->psram_free = 0;
+    this->engine->psram_block = 0;
+    ScheduleConfig same = daily("Porch light");
+    ASSERT_LE(same.heap_bytes(), this->engine->get("porch")->heap_bytes());
+    Result updated = this->engine->update("porch", same);
+    EXPECT_TRUE(updated.ok) << updated.error << " psram " << psram;
+    EXPECT_NE(std::string::npos, read_file(this->file_of("porch")).find(R"("name":"Porch light")"));
+    ScheduleConfig back = daily("Porch again");
+    back.id = "porch";
+    EXPECT_TRUE(this->engine->restore(back).ok) << "psram " << psram;
+    EXPECT_EQ("Porch again", this->engine->get("porch")->name);
+    EXPECT_EQ(507, this->engine->update("porch", grown(daily("Porch"))).code) << "psram " << psram;
+    EXPECT_EQ("Porch again", this->engine->get("porch")->name);
+    this->engine->forget();
+    remove_tree(this->folder());
+  }
 }
 
 // A flag takes no more RAM: it is stored however short the heap is.
@@ -412,6 +450,30 @@ TEST_F(Storage, AFlagIsStoredWhateverTheHeap) {
   EXPECT_TRUE(disabled.ok);
   EXPECT_TRUE(disabled.persisted);
   EXPECT_NE(std::string::npos, read_file(this->file_of("porch")).find(R"("enabled":false)"));
+}
+
+// A write that fails part way, as a full partition does: the old file stays whole, no .tmp is
+// left, and the schedule in RAM is the old one.
+TEST_F(Storage, AWriteThatFailsPartWayLeavesTheOldFileWhole) {
+  this->boot();
+  ASSERT_TRUE(this->create(daily("Porch")).ok);
+  const std::string before = read_file(this->file_of("porch"));
+  ASSERT_GT(before.size(), 300u);
+  // A process over its file size limit gets EFBIG instead of the signal.
+  signal(SIGXFSZ, SIG_IGN);
+  struct rlimit old;
+  ASSERT_EQ(0, getrlimit(RLIMIT_FSIZE, &old));
+  struct rlimit low = old;
+  low.rlim_cur = 300;
+  ASSERT_EQ(0, setrlimit(RLIMIT_FSIZE, &low));
+  Result refused = this->engine->update("porch", daily("Porch light"));
+  setrlimit(RLIMIT_FSIZE, &old);
+  signal(SIGXFSZ, SIG_DFL);
+  EXPECT_EQ(500, refused.code);
+  EXPECT_FALSE(refused.persisted);
+  EXPECT_EQ(before, read_file(this->file_of("porch")));
+  EXPECT_EQ(std::vector<std::string>{"porch.json"}, list_dir(this->folder()));
+  EXPECT_EQ("Porch", this->engine->get("porch")->name);
 }
 
 // The boot stops loading before the heap drops under its floor, and from there on leaves every
@@ -430,14 +492,88 @@ TEST_F(Storage, TheBootStopsAtTheHeapFloor) {
   EXPECT_NE(nullptr, this->engine->get("b"));
   EXPECT_EQ(nullptr, this->engine->get("c"));
   EXPECT_EQ(nullptr, this->engine->get("d"));
+  EXPECT_EQ(2u, this->engine->not_loaded());
   EXPECT_TRUE(LogCapture::instance().warned("'c.json' left alone: not enough free memory ("));
   EXPECT_TRUE(LogCapture::instance().warned("'d.json' left alone: not enough free memory"));
   EXPECT_EQ(c_file, read_file(this->file_of("c")));
   EXPECT_EQ(4u, list_dir(this->folder()).size());
-  // A file left on flash still holds its id.
-  ScheduleConfig back = daily("C again");
+  LogCapture::instance().clear();
+  this->engine->dump_config();
+  EXPECT_TRUE(LogCapture::instance().has("Left on flash for lack of memory: 2"));
+}
+
+// While files wait on flash a schedule under a new id is refused, so the next boot never runs it
+// in place of one the list did not show. Deleting them lets it in, and the boot after runs it.
+TEST_F(Storage, FilesLeftOnFlashHoldBackANewScheduleUntilDeleted) {
+  const size_t cost = 8 * 1024;
+  this->engine->set_max_schedules(8);
+  for (const char *id : {"a", "b", "c", "d"})
+    this->write(std::string(id) + ".json", file_doc(id, id, "relay_1", false));
+  this->engine->heap_free = BOOT_HEAP_FLOOR_BYTES + cost + cost / 2;
+  this->engine->entry_cost = cost;
+  this->boot();
+  ASSERT_EQ(2u, this->engine->not_loaded());
+  this->engine->heap_free = SIZE_MAX;
+  this->engine->entry_cost = 0;
+
+  const std::string waiting =
+      "2 saved schedules were not loaded for lack of memory; delete them, or make room and restart, before adding "
+      "another";
+  Result created = this->engine->create(daily("Zed", "relay_2"));
+  EXPECT_EQ(507, created.code);
+  EXPECT_EQ(waiting, created.error);
+  ScheduleConfig back = daily("Zed", "relay_2");
+  back.id = "zed";
+  EXPECT_EQ(waiting, this->engine->restore(back).error);
   back.id = "c";
-  EXPECT_EQ(409, this->engine->restore(back).code);
+  EXPECT_EQ(waiting, this->engine->restore(back).error) << "one of the files themselves";
+  // Deleting a loaded one changes nothing for them; an edit of one is no new id.
+  ASSERT_TRUE(this->engine->remove("b").ok);
+  EXPECT_EQ(507, this->engine->create(daily("Zed", "relay_2")).code);
+  ScheduleConfig a = daily("A", "relay_1", false);
+  EXPECT_TRUE(this->engine->update("a", a).ok);
+
+  Result removed = this->engine->remove("c");
+  EXPECT_TRUE(removed.ok);
+  EXPECT_TRUE(removed.was_not_loaded);
+  EXPECT_TRUE(removed.persisted);
+  EXPECT_FALSE(file_exists(this->file_of("c")));
+  EXPECT_EQ(1u, this->engine->not_loaded());
+  EXPECT_EQ("1 saved schedule was not loaded for lack of memory; delete it, or make room and restart, before adding "
+            "another",
+            this->engine->create(daily("Zed", "relay_2")).error);
+  EXPECT_EQ(404, this->engine->remove("c").code) << "gone now";
+  ASSERT_TRUE(this->engine->remove("d").ok);
+  EXPECT_EQ(0u, this->engine->not_loaded());
+  ASSERT_TRUE(this->create(daily("Zed", "relay_2")).ok);
+
+  this->reboot();
+  EXPECT_NE(nullptr, this->engine->get("a"));
+  EXPECT_NE(nullptr, this->engine->get("zed"));
+  EXPECT_EQ(std::vector<std::string>({"a.json", "zed.json"}), list_dir(this->folder()));
+}
+
+// A file left on flash that can be neither deleted nor blanked stays counted: the next boot
+// would find it.
+TEST_F(Storage, AFileLeftOnFlashThatCannotBeDeletedStays) {
+  if (geteuid() == 0)
+    GTEST_SKIP() << "root writes anywhere";
+  this->write("a.json", file_doc("a", "a"));
+  this->engine->heap_block = BOOT_HEAP_FLOOR_BLOCK - 1;
+  this->boot();
+  ASSERT_EQ(1u, this->engine->not_loaded());
+  this->engine->undeletable = {"a.json"};
+  chmod(this->file_of("a").c_str(), 0444);
+  Result refused = this->engine->remove("a");
+  chmod(this->file_of("a").c_str(), 0644);
+  EXPECT_EQ(500, refused.code);
+  EXPECT_EQ("The schedule's file could not be deleted", refused.error);
+  EXPECT_FALSE(refused.persisted);
+  EXPECT_EQ(1u, this->engine->not_loaded());
+  EXPECT_EQ(file_doc("a", "a"), read_file(this->file_of("a")));
+  this->engine->undeletable.clear();
+  EXPECT_TRUE(this->engine->remove("a").ok);
+  EXPECT_EQ(0u, this->engine->not_loaded());
 }
 
 TEST_F(Storage, TheBootNeedsABlockAsWellAsFreeHeap) {
@@ -499,20 +635,24 @@ TEST_F(Storage, WithPsramTheBootStopsAtItsReserve) {
   EXPECT_NE(nullptr, this->engine->get("b"));
   EXPECT_EQ(nullptr, this->engine->get("c"));
   EXPECT_EQ(nullptr, this->engine->get("d"));
+  EXPECT_EQ(2u, this->engine->not_loaded());
   EXPECT_TRUE(LogCapture::instance().warned("'c.json' left alone: not enough free memory ("));
   EXPECT_TRUE(LogCapture::instance().warned("; PSRAM "));
 }
 
-// What still lands on the internal heap keeps its floor, and each heap needs its block.
-TEST_F(Storage, WithPsramTheBootStillKeepsBothFloors) {
+// With PSRAM the internal heap keeps a small reserve only, far under the floor a board without
+// it keeps: the boot loads above it and stops under it, and each heap needs its block.
+TEST_F(Storage, WithPsramTheBootKeepsASmallInternalReserve) {
   struct Case {
     size_t heap_free;
     size_t heap_block;
     size_t psram_block;
+    bool loads;
   };
-  for (const Case &c :
-       {Case{BOOT_HEAP_FLOOR_BYTES - 1, SIZE_MAX, SIZE_MAX}, Case{SIZE_MAX, BOOT_HEAP_FLOOR_BLOCK - 1, SIZE_MAX},
-        Case{SIZE_MAX, SIZE_MAX, PSRAM_RESERVE_BLOCK - 1}}) {
+  for (const Case &c : {Case{PSRAM_HEAP_KEEP_BYTES, PSRAM_HEAP_KEEP_BLOCK, PSRAM_RESERVE_BLOCK, true},
+                        Case{PSRAM_HEAP_KEEP_BYTES - 1, SIZE_MAX, SIZE_MAX, false},
+                        Case{SIZE_MAX, PSRAM_HEAP_KEEP_BLOCK - 1, SIZE_MAX, false},
+                        Case{SIZE_MAX, SIZE_MAX, PSRAM_RESERVE_BLOCK - 1, false}}) {
     this->engine = &this->new_engine();
     this->write("a.json", file_doc("a", "a"));
     this->engine->has_psram = true;
@@ -520,14 +660,17 @@ TEST_F(Storage, WithPsramTheBootStillKeepsBothFloors) {
     this->engine->heap_block = c.heap_block;
     this->engine->psram_block = c.psram_block;
     this->boot();
-    EXPECT_TRUE(this->engine->schedules().empty()) << c.heap_free << " " << c.heap_block << " " << c.psram_block;
+    EXPECT_EQ(c.loads ? 1u : 0u, this->engine->schedules().size())
+        << c.heap_free << " " << c.heap_block << " " << c.psram_block;
     this->engine->forget();
   }
+  static_assert(PSRAM_HEAP_KEEP_BYTES < BOOT_HEAP_FLOOR_BYTES && PSRAM_HEAP_KEEP_BLOCK < BOOT_HEAP_FLOOR_BLOCK,
+                "the first case is under the floor without PSRAM");
   EXPECT_TRUE(LogCapture::instance().warned("'a.json' left alone: not enough free memory"));
 }
 
-// With PSRAM a change keeps its reserve there, and an edit frees PSRAM, not the internal heap,
-// which keeps HEAP_KEEP_BYTES all the same.
+// With PSRAM a change keeps the reserve there, once held and at its peak, and the internal heap
+// keeps its small one, not what a board without PSRAM keeps.
 TEST_F(Storage, WithPsramAChangeKeepsBothReserves) {
   this->engine->has_psram = true;
   this->boot();
@@ -536,23 +679,26 @@ TEST_F(Storage, WithPsramAChangeKeepsBothReserves) {
 
   this->engine->psram_free = PSRAM_RESERVE_BYTES - 1;
   EXPECT_EQ(507, this->engine->create(daily("Garden", "relay_2")).code);
-  EXPECT_EQ(507, this->engine->update("porch", daily("Porch light")).code);
-  EXPECT_TRUE(LogCapture::instance().warned("'garden' not written: not enough free memory ("));
-  EXPECT_TRUE(LogCapture::instance().warned("; PSRAM "));
+  EXPECT_EQ(507, this->engine->update("porch", grown(daily("Porch light"))).code);
+  EXPECT_TRUE(LogCapture::instance().warned("'garden' not written: it would leave 65535 bytes of PSRAM free, under "));
   this->engine->psram_free = PSRAM_RESERVE_BYTES;
   this->engine->psram_block = PSRAM_RESERVE_BLOCK - 1;
-  EXPECT_EQ(507, this->engine->create(daily("Garden", "relay_2")).code) << "its largest block counts as well";
+  EXPECT_EQ(507, this->engine->create(daily("Garden", "relay_2")).code) << "its largest block counts at the peak";
+  EXPECT_TRUE(LogCapture::instance().warned("'garden' not written: not enough free memory ("));
+  EXPECT_TRUE(LogCapture::instance().warned("; PSRAM "));
   this->engine->psram_block = SIZE_MAX;
 
-  this->engine->heap_free = HEAP_KEEP_BYTES - 1;
-  EXPECT_EQ(507, this->engine->update("porch", daily("Porch light")).code);
+  this->engine->heap_free = PSRAM_HEAP_KEEP_BYTES - 1;
+  EXPECT_EQ(507, this->engine->update("porch", grown(daily("Porch light"))).code);
   EXPECT_EQ(507, this->engine->create(daily("Garden", "relay_2")).code);
   EXPECT_TRUE(LogCapture::instance().warned("'porch' not written: it would leave"));
   EXPECT_EQ(before, read_file(this->file_of("porch")));
   EXPECT_EQ("Porch", this->engine->get("porch")->name);
 
-  this->engine->heap_free = HEAP_KEEP_BYTES;
-  EXPECT_TRUE(this->engine->update("porch", daily("Porch light")).ok);
+  this->engine->heap_free = PSRAM_HEAP_KEEP_BYTES;
+  this->engine->heap_block = PSRAM_HEAP_KEEP_BLOCK;
+  static_assert(PSRAM_HEAP_KEEP_BYTES < HEAP_KEEP_BYTES, "under what a board without PSRAM keeps");
+  EXPECT_TRUE(this->engine->update("porch", grown(daily("Porch light"))).ok);
   EXPECT_TRUE(this->engine->create(daily("Garden", "relay_2")).ok);
 }
 
@@ -567,19 +713,66 @@ TEST_F(Storage, TheParseRoomIsCheckedWhereTheDocumentGoes) {
   EXPECT_FALSE(this->engine->has_heap_room());
 
   this->engine->has_psram = true;
-  this->engine->heap_free = HEAP_RESERVE_BYTES;
-  this->engine->heap_block = HEAP_RESERVE_BLOCK;
+  this->engine->heap_free = PSRAM_HEAP_KEEP_BYTES;
+  this->engine->heap_block = PSRAM_HEAP_KEEP_BLOCK;
   this->engine->psram_free = PSRAM_RESERVE_BYTES + more;
   EXPECT_TRUE(this->engine->has_heap_room(more)) << "the parse is not the internal heap's";
   EXPECT_FALSE(this->engine->has_heap_room(more + 1));
-  this->engine->heap_free = HEAP_RESERVE_BYTES - 1;
+  this->engine->heap_free = PSRAM_HEAP_KEEP_BYTES - 1;
   EXPECT_FALSE(this->engine->has_heap_room());
-  this->engine->heap_free = HEAP_RESERVE_BYTES;
-  this->engine->heap_block = HEAP_RESERVE_BLOCK - 1;
+  this->engine->heap_free = PSRAM_HEAP_KEEP_BYTES;
+  this->engine->heap_block = PSRAM_HEAP_KEEP_BLOCK - 1;
   EXPECT_FALSE(this->engine->has_heap_room());
-  this->engine->heap_block = HEAP_RESERVE_BLOCK;
+  this->engine->heap_block = PSRAM_HEAP_KEEP_BLOCK;
   this->engine->psram_block = PSRAM_RESERVE_BLOCK - 1;
   EXPECT_FALSE(this->engine->has_heap_room());
+}
+
+// Holds what it hands out, headers included, to its budget; gives back what is freed or shrunk;
+// and a refusal, its own or the heap's, leaves the block as it was.
+TEST_F(Storage, TheBoundedAllocatorKeepsToItsBudget) {
+  struct Heap : ArduinoJson::Allocator {
+    bool out{false};
+    void *allocate(size_t size) override { return this->out ? nullptr : malloc(size); }
+    void deallocate(void *ptr) override { free(ptr); }
+    void *reallocate(void *ptr, size_t size) override { return this->out ? nullptr : realloc(ptr, size); }
+  } heap;
+  const size_t header = alignof(std::max_align_t);
+  BoundedAllocator bounded(&heap, 2 * header + 300);
+  void *a = bounded.allocate(100);
+  ASSERT_NE(nullptr, a);
+  memset(a, 'a', 100);
+  EXPECT_EQ(nullptr, bounded.allocate(201)) << "past the budget with a's header";
+  void *b = bounded.allocate(200);
+  ASSERT_NE(nullptr, b);
+  EXPECT_EQ(nullptr, bounded.reallocate(a, 101));
+  a = bounded.reallocate(a, 50);
+  ASSERT_NE(nullptr, a);
+  EXPECT_EQ(std::string(50, 'a'), std::string(static_cast<char *>(a), 50));
+  heap.out = true;
+  EXPECT_EQ(nullptr, bounded.reallocate(a, 100)) << "the heap's own refusal";
+  EXPECT_EQ(nullptr, bounded.allocate(10));
+  heap.out = false;
+  a = bounded.reallocate(a, 100);
+  ASSERT_NE(nullptr, a) << "neither refusal kept what it asked for";
+  EXPECT_EQ(std::string(50, 'a'), std::string(static_cast<char *>(a), 50));
+  bounded.deallocate(b);
+  bounded.deallocate(nullptr);
+  void *c = bounded.reallocate(nullptr, 200);
+  EXPECT_NE(nullptr, c);
+  bounded.deallocate(c);
+  bounded.deallocate(a);
+  void *all = bounded.allocate(header + 300);
+  EXPECT_NE(nullptr, all) << "everything given back";
+  bounded.deallocate(all);
+}
+
+// A parse may take a few times its body, and a small one ArduinoJson's first pools.
+TEST_F(Storage, TheParseRoomGrowsWithTheBody) {
+  const size_t scale = sizeof(void *) / 4;
+  EXPECT_EQ(PARSE_HEAP_MIN_BYTES * scale, parse_room(0));
+  EXPECT_EQ(PARSE_HEAP_MIN_BYTES * scale, parse_room(100));
+  EXPECT_EQ(PARSE_HEAP_FACTOR * MAX_FILE_BYTES * scale, parse_room(MAX_FILE_BYTES));
 }
 
 TEST_F(Storage, TwoFilesUnderOneNameAreToldApartAtBoot) {

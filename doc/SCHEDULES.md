@@ -123,9 +123,12 @@ and since when, and its next switch point, for one switched off too.
   and spacing.
 - A schedule's file: 16 KiB.
 - The device's free memory. A Save or an import that would leave too little is refused with
-  `Not enough free memory on the device to save this schedule`, and nothing changes. A boot
-  stops loading schedules before memory runs short and leaves the rest of the files as they are;
-  the log names each one. The schedules live in the board's PSRAM, so sixteen of the largest
+  `Not enough free memory on the device to save this schedule`, and nothing changes; an edit
+  that makes a schedule no larger always goes through. A boot stops loading schedules before
+  memory runs short and leaves the rest of the files as they are; the log names each one, and
+  the editor's list says how many there are. Until they are deleted, or a restart with room
+  loads them, no new schedule can be added, so a reboot never runs a new one in place of one
+  the list did not show. The schedules live in the board's PSRAM, so sixteen of the largest
   kind fit beside eight thermostats; a board whose PSRAM does not come up holds about six of
   them, while ordinary ones still fit sixteen.
 

@@ -273,6 +273,12 @@ export interface SchedulesResponse {
   success: true
   count: number
   max_schedules: number
+  /**
+   * Schedules whose files the device left on flash at boot for lack of memory: not listed, not
+   * running, deletable by id; no new schedule is taken while there are any. 0 when it loaded
+   * them all; absent from older firmware.
+   */
+  not_loaded?: number
   /** Null until the device has a valid time. */
   clock: DeviceClock | null
   /** By id. */

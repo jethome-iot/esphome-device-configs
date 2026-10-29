@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -51,5 +52,72 @@ inline ArduinoJson::Allocator *json_allocator() {
   return ArduinoJson::detail::DefaultAllocator::instance();
 #endif
 }
+
+/// `base`, but never more than `budget` bytes held at once: a parse past it ends in NoMemory,
+/// where a body that expands in its document would otherwise take whatever the heap has.
+/// Each block carries its size in front, which the budget counts too.
+class BoundedAllocator : public ArduinoJson::Allocator {
+ public:
+  BoundedAllocator(ArduinoJson::Allocator *base, size_t budget) : base_(base), budget_(budget) {}
+
+  void *allocate(size_t size) override {
+    if (!this->take_(HEADER + size))
+      return nullptr;
+    auto *block = static_cast<uint8_t *>(this->base_->allocate(HEADER + size));
+    if (block == nullptr) {
+      this->used_ -= HEADER + size;
+      return nullptr;
+    }
+    memcpy(block, &size, sizeof(size));
+    return block + HEADER;
+  }
+  void deallocate(void *ptr) override {
+    if (ptr == nullptr)
+      return;
+    uint8_t *block = static_cast<uint8_t *>(ptr) - HEADER;
+    this->used_ -= HEADER + size_of_(block);
+    this->base_->deallocate(block);
+  }
+  // A refusal leaves the old block as it was, as realloc does.
+  void *reallocate(void *ptr, size_t size) override {
+    if (ptr == nullptr)
+      return this->allocate(size);
+    uint8_t *block = static_cast<uint8_t *>(ptr) - HEADER;
+    const size_t old = size_of_(block);
+    if (size > old && !this->take_(size - old))
+      return nullptr;
+    auto *moved = static_cast<uint8_t *>(this->base_->reallocate(block, HEADER + size));
+    if (moved == nullptr) {
+      if (size > old)
+        this->used_ -= size - old;
+      return nullptr;
+    }
+    if (size < old)
+      this->used_ -= old - size;
+    memcpy(moved, &size, sizeof(size));
+    return moved + HEADER;
+  }
+
+ protected:
+  // Keeps whatever alignment `base` gives.
+  static constexpr size_t HEADER = alignof(std::max_align_t);
+  static_assert(sizeof(size_t) <= HEADER, "the size fits in front of the block");
+
+  static size_t size_of_(const uint8_t *block) {
+    size_t size;
+    memcpy(&size, block, sizeof(size));
+    return size;
+  }
+  bool take_(size_t more) {
+    if (more > this->budget_ - this->used_)
+      return false;
+    this->used_ += more;
+    return true;
+  }
+
+  ArduinoJson::Allocator *base_;
+  size_t budget_;
+  size_t used_{0};
+};
 
 }  // namespace esphome::schedules

@@ -209,6 +209,32 @@ TEST(ScheduleConfig, AnIdIsReadWhenThereAndRequiredWhenAsked) {
             refusal(R"({"id":"Porch Light",)" + with_week(ON_AT_SIX).substr(1), true));
 }
 
+// A long string is refused, or quoted cut short, without being read whole: a name or an id from
+// the view it is in the document, a word the sentence quotes at a name's length.
+TEST(ScheduleConfig, ALongStringIsRefusedOrQuotedShort) {
+  const std::string long_text(16 * 1024, 'x');
+  EXPECT_EQ("Name is longer than 48 characters",
+            refusal(doc_of(std::string("[") + ON_MODE + "]", ON_AT_SIX, "\"" + long_text + "\"")));
+  EXPECT_EQ("id must be a slug: lowercase letters, digits and single dashes",
+            refusal(R"({"id":")" + long_text + R"(",)" + with_week(ON_AT_SIX).substr(1), true));
+  EXPECT_EQ(
+      "id must be a slug: lowercase letters, digits and single dashes",
+      refusal(R"({"id":")" + std::string(ID_MAX_LENGTH + 1, 'a') + R"(",)" + with_week(ON_AT_SIX).substr(1), true));
+  const std::string shown = "\"" + std::string(NAME_MAX_LENGTH, 'x') + "…\"";
+  EXPECT_EQ("Mode \"Day\", action 1: unknown action type " + shown,
+            refusal(with_actions(R"({"type":")" + long_text + R"("})")));
+  EXPECT_EQ(
+      "Mon 06:00: there is no mode " + shown,
+      refusal(doc_of(std::string("[") + ON_MODE + "]", R"({"mon":[{"at":"06:00","mode":")" + long_text + R"("}]})")));
+  EXPECT_EQ("Unknown day " + shown + ": expected mon, tue, wed, thu, fri, sat or sun",
+            refusal(with_week(R"({")" + long_text + R"(":[]})")));
+  // A Save's id is only looked up: a long one names no schedule and is not kept whole.
+  ScheduleConfig config;
+  std::string error;
+  ASSERT_TRUE(from_json(R"({"id":")" + long_text + R"(",)" + with_week(ON_AT_SIX).substr(1), &config, &error)) << error;
+  EXPECT_EQ(ID_MAX_LENGTH + 1, config.id.size());
+}
+
 // Older files read as this version; a newer one keeps its number so the engine never writes it.
 TEST(ScheduleConfig, ANewerVersionIsKept) {
   struct Case {
