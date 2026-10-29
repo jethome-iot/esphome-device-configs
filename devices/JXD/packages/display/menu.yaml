@@ -148,8 +148,8 @@ esphome:
             auto add_row = [](MenuItemMenu *menu, const char *text, std::function<size_t()> count,
                               std::function<std::string(int)> label, std::function<int()> index,
                               std::function<void(size_t)> set) {
-              auto *pending = new int(-1);  // the choice being edited; -1 outside editing
-              auto *entered = new int(-1);  // the value the edit began on
+              // The choice being stepped to, an index into the live list; -1 until the first step.
+              auto *pending = new int(-1);
               // The row reads "text (value)" or "text >value<": a value too long for the rest
               // of it is cut, so the closing mark stays on the panel.
               const size_t taken = panel_glyphs(text) + 3;
@@ -158,16 +158,20 @@ esphome:
               row->set_text(std::string(text));
               row->set_value_lambda(
                   [=](const MenuItem *) { return panel_fit(label(*pending >= 0 ? *pending : index()), room); });
-              row->add_on_enter_callback([=]() { *pending = *entered = index(); });
-              row->add_on_next_callback([=]() { *pending = (*pending + 1) % static_cast<int>(count()); });
+              row->add_on_enter_callback([=]() { *pending = -1; });
+              // From the stored value until the first step: a virtual input made or deleted
+              // meanwhile shifts the list, and the row keeps showing what is stored.
+              row->add_on_next_callback([=]() {
+                const int from = *pending >= 0 ? *pending : index();
+                *pending = (from + 1) % static_cast<int>(count());
+              });
               row->add_on_prev_callback([=]() {
                 const int n = count();
-                *pending = *pending < 0 ? n - 1 : (*pending + n - 1) % n;
+                const int from = *pending >= 0 ? *pending : index();
+                *pending = from < 0 ? n - 1 : (from + n - 1) % n;
               });
               row->add_on_leave_callback([=]() {
-                // Against where the edit began: a virtual input made or deleted meanwhile moves
-                // index() with nobody choosing anything.
-                if (*pending >= 0 && *pending != *entered)
+                if (*pending >= 0 && *pending != index())
                   set(*pending);
                 *pending = -1;
               });
