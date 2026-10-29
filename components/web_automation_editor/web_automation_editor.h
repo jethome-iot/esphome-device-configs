@@ -9,7 +9,7 @@
 
 namespace esphome::web_automation_editor {
 
-enum class RouteId : uint8_t { LIST, GET, SAVE, DELETE, EXPORT, ENTITIES, SCHEMA, REBOOT, PING };
+enum class RouteId : uint8_t { LIST, GET, SAVE, DELETE, RUN, EXPORT, ENTITIES, SCHEMA, REBOOT, PING };
 
 struct Route {
   const char *name;
@@ -58,6 +58,7 @@ class WebAutomationEditor : public AsyncWebHandler, public Component {
   void handle_get_(AsyncWebServerRequest *request);
   void handle_save_(AsyncWebServerRequest *request);
   void handle_delete_(AsyncWebServerRequest *request);
+  void handle_run_(AsyncWebServerRequest *request);
   void handle_export_(AsyncWebServerRequest *request);
   void handle_entities_(AsyncWebServerRequest *request);
   void handle_schema_(AsyncWebServerRequest *request);

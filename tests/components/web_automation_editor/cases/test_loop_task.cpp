@@ -22,6 +22,7 @@ TEST_F(Editor, EveryRuleRouteGoesOverToTheLoopTask) {
       {"list", [&] { return this->get("list"); }},
       {"get", [&] { return this->get(one); }},
       {"export", [&] { return this->get("export"); }},
+      {"run", [&] { return this->post("run?id=" + std::to_string(id)); }},
       {"save", [&] { return this->post("save", FAN); }},
       {"delete", [&] { return this->post(gone); }},
   };
@@ -61,6 +62,7 @@ TEST_F(Editor, ALoopThatNeverTakesTheJobAnswersBusyAndChangesNothing) {
   const uint32_t id = this->create(PORCH_LIGHT);
   ASSERT_NE(id, 0u);
   const size_t files_before = this->files().size();
+  entities().relay1.publish_state(false);
 
   this->engine->loop_busy = true;
   // clang-format off
@@ -68,6 +70,7 @@ TEST_F(Editor, ALoopThatNeverTakesTheJobAnswersBusyAndChangesNothing) {
       {"list", [&] { return this->get("list"); }},
       {"get", [&] { return this->get("get?id=" + std::to_string(id)); }},
       {"export", [&] { return this->get("export"); }},
+      {"run", [&] { return this->post("run?id=" + std::to_string(id)); }},
       {"save", [&] { return this->post("save", FAN); }},
       {"delete", [&] { return this->post("delete?id=" + std::to_string(id)); }},
   };
@@ -79,8 +82,10 @@ TEST_F(Editor, ALoopThatNeverTakesTheJobAnswersBusyAndChangesNothing) {
   }
   this->engine->loop_busy = false;
 
-  // Refused, not half done: the rule, its file and the rest of the list are as they were.
+  // Refused, not half done: the rule, its file and the rest of the list are as they were, and
+  // the rule did not run.
   EXPECT_EQ(this->engine->configs().size(), 1u);
+  EXPECT_FALSE(entities().relay1.state);
   EXPECT_EQ(this->files().size(), files_before);
   EXPECT_EQ(this->get("get?id=" + std::to_string(id)).code, 200);
 }
@@ -91,6 +96,9 @@ TEST_F(Editor, AMissingRuleFoundOnTheLoopTaskKeepsItsOwnStatus) {
   EXPECT_EQ(reply.code, 404);
   EXPECT_EQ(reply.error(), "Automation not found");
   reply = this->post("delete?id=404");
+  EXPECT_EQ(reply.code, 404);
+  EXPECT_EQ(reply.error(), "Automation not found");
+  reply = this->post("run?id=404");
   EXPECT_EQ(reply.code, 404);
   EXPECT_EQ(reply.error(), "Automation not found");
 }
