@@ -33,7 +33,8 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
   run plays. A rule that is not built cannot run.
 
 A sensor is any numeric one that is not internal, not only a temperature, and its thresholds
-are in its own unit.
+are in its own unit. A switch is any but the device's own settings, such as **Allow ESPHome
+updates**: a rule naming one is not built.
 
 Cron follows the device's clock, wherever its time comes from. A jump forward of up to 15
 minutes fires every cron time it skipped at once, and a longer one skips them; a jump back of

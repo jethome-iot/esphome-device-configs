@@ -471,7 +471,7 @@ TEST_F(HubTest, AConfigSwitchIsNoRelay) {
   EXPECT_FALSE(hub().is_running("unlock"));
 
   this->reboot();
-  entities().room.publish_state(15.f);
+  entities().room.publish_state(30.f);  // warm enough that a running cooler would close it
   EXPECT_FALSE(hub().is_running("unlock"));
   EXPECT_EQ(0, entities().ota_allowed.writes);
 

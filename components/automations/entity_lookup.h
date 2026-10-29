@@ -63,11 +63,12 @@ inline sensor::Sensor *find_sensor(uint32_t key) {
 
 inline switch_::Switch *find_switch(uint32_t key) {
 #ifdef USE_SWITCH
-  auto *entity = find_entity_by_key<switch_::Switch>(App.get_switches(), key);
-  return entity != nullptr && is_output_switch(*entity) ? entity : nullptr;
-#else
-  return nullptr;
+  for (auto *entity : App.get_switches()) {
+    if (entity->get_object_id_hash() == key && is_output_switch(*entity))
+      return entity;
+  }
 #endif
+  return nullptr;
 }
 
 inline std::string binary_sensor_object_id(uint32_t key) {

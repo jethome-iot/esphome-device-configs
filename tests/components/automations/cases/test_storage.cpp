@@ -591,7 +591,7 @@ TEST_F(Storage, StartupRulesFireOnceTheEngineIsUp) {
 }
 
 // The board's "Allow ESPHome updates" is a config switch: a rule on it, from a file or the API,
-// fares as one on a switch the device does not have, so nothing reopens the OTA at boot.
+// fares as one on a switch the device does not have: it is not built.
 TEST_F(Storage, ARuleOnAConfigSwitchIsAnOrphan) {
   static const char *const UNLOCK =
       R"({"id":1,"name":"Unlock","enabled":true,"mode":"single","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"allow_esphome_updates"}]})";

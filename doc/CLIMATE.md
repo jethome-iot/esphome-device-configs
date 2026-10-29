@@ -126,7 +126,8 @@ what is missing. It starts at the next boot that finds what it names, or at a Sa
 switch-on that finds it there. Until then, or until it is switched off, the device's log says
 why it waits: when the start fails, and again in the configuration it prints whenever a log
 viewer connects. Over HTTP, the list and the status say it in their `waiting` field, in the
-words of the warning.
+words of the warning. The device's own settings, such as **Allow ESPHome updates**, are never
+a relay and count as missing.
 
 Two thermostats switched on for one relay come only from files written by hand or a restore.
 The boot runs the first by id, and the other waits for the relay: it starts as soon as the

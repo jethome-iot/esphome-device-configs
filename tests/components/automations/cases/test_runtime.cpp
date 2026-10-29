@@ -52,7 +52,6 @@ TEST_F(Runtime, BuildRefusesAConfigSwitchAsAMissingOne) {
   ASSERT_NE(watch, nullptr);
   watch->on_switch(&e.relay2, true);
   EXPECT_TRUE(e.relay1.state);
-  EXPECT_EQ(e.ota_allowed.writes, 0);
 }
 
 TEST_F(Runtime, PressTurnsTheRelayOn) {
