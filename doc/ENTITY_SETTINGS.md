@@ -59,11 +59,10 @@ bindings keep pointing at it. It has no `Inverted` and no Modbus register. The f
 
 A change is in force at once, its delays counted from the save; at boot a virtual input takes its
 source's state as soon as the source reports, the on delay counting from then. Changing the
-source's `Inverted` flips the source, and a virtual input on it takes that as a real change,
-through its delays: a rule on its press or release runs, and a relay bound to it with `Toggle`
-toggles. One whose source
-this firmware does not have stays off, and the dashboard says why. A new one or a deleted one
-makes Home Assistant reconnect to list it or drop it. A deleted one takes its label with it, and
+source's `Inverted` flips the source, and a virtual input on it takes that, through its delays, as
+a real press or release, which its rules and a `Toggle` binding act on. One whose source this
+firmware does not have stays off, and the dashboard says why. A new one or a deleted one makes
+Home Assistant reconnect to list it or drop it. A deleted one takes its label with it, and
 every relay bound to it goes to `Bind to: None`, staying where it is; a rule that names it finds no
 input, as for any input this firmware lacks. The dashboard's Delete names those rules and relays
 first. A new one takes the lowest free slot that no rule and no binding names, so nothing set up

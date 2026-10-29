@@ -51,8 +51,8 @@ internal, so nothing outside the firmware sees it. A slot in use follows one sou
 
 The source is a physical input: a visible `binary_sensor` that is not a virtual input, so a
 virtual input never follows another and nothing loops through one. It follows the source as
-the source reports, its `Inverted` included: flipping that is a real change here, which a press or
-release rule and a `toggle` binding on the slot act on. At boot a slot has no state until its source
+the source reports, its `Inverted` included: flipping that is a real press or release here, which
+the slot's rules and a `Toggle` binding act on. At boot a slot has no state until its source
 reports, then takes that level, the on delay counting from then. A save puts the slot in force
 at once, its delays counted again from the save. A slot whose source this firmware does not
 have — the file edited by hand, a build without that input — stays off, and `problem()` says
