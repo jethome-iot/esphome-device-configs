@@ -20,6 +20,17 @@ class RealTimeClock;
 
 namespace automations {
 
+enum class RunResult : uint8_t {
+  STARTED,
+  NOT_FOUND,
+  NOT_BUILT,
+  // Its mode refused: single with a run under way, parallel with every copy running.
+  ALREADY_RUNNING,
+  // The engine failed (its storage is not mounted), the loop task never took it, or it came
+  // from inside a rule's own action.
+  REFUSED,
+};
+
 // Loads the rules from <storage>/<folder>/*.json, runs them, and edits them at run time.
 // The mutators may be called from any task: they execute on the loop task and block the caller.
 // From inside a rule's own action they refuse, the rule being driven would go away under it.
@@ -40,8 +51,25 @@ class AutomationStorage : public Component {
   /// flash: it can fail on its own, leaving the rule live but back as it was after a reboot.
   bool set_enable_automation(uint32_t id, bool enable, bool *persisted = nullptr);
   void reset_all();
+  /// Plays the rule's actions now, skipping its triggers and its condition, enabled or not, as
+  /// its mode allows.
+  RunResult run_automation(uint32_t id);
   /// Names collide by sanitized filename; `exclude_id` never blocks itself.
   bool is_name_taken(const std::string &name, uint32_t exclude_id = 0) const;
+  /// The names of the rules whose trigger or condition names the binary sensor `key` (its object
+  /// id's fnv1 hash), built or not: one that found no such input still names it. Loop task, as
+  /// configs().
+  std::vector<std::string> rules_naming_binary_sensor(uint32_t key) const;
+  /// The binary sensor `key` came or went, as a virtual input does: the rules that name it are
+  /// built or dropped to match, as a thermostat's are. Loop task.
+  void rebuild_rules_naming_binary_sensor(uint32_t key);
+  /// Whether a run of that rule is under way. For the loop task, as configs() is.
+  bool is_running(uint32_t id) const;
+  /// The clock of AutomationConfig::last_run_ms: milliseconds since boot, never wrapping.
+  /// Virtual so the unit tests can move it.
+  virtual uint64_t uptime_ms() const;
+  // A run of rule `id` has started: RuntimeAutomation stamps its config.
+  void note_run_(uint32_t id);
 
   /// The loaded configs. They belong to the loop task, which the mutators above and a rule's
   /// own dispatch run on: a caller on another task reads them through run_on_loop().
@@ -93,13 +121,15 @@ class AutomationStorage : public Component {
   bool remove_automation_(uint32_t id);
   bool set_enable_automation_(uint32_t id, bool enable, bool *persisted);
   void reset_all_();
+  RunResult run_automation_(uint32_t id);
   bool run_on_loop_(std::function<bool()> &&job);
 
   void subscribe_(const RuntimeAutomation &automation);
   /// climate_hub created, removed or re-keyed the presets of a thermostat: the rules that name
   /// it are built or dropped to match.
   void on_climate_change_(const std::string &climate_id);
-  void rebuild_for_climate_(const std::string &climate_id);
+  /// Builds or drops, to match, each rule `names` picks; `what` is what came back, for the log.
+  void rebuild_rules_(std::function<bool(const AutomationConfig &)> names, std::string what);
   void check_time_();
   virtual ESPTime clock_now_();
 
@@ -116,7 +146,7 @@ class AutomationStorage : public Component {
   virtual bool remove_file_(const std::string &filepath);
   std::vector<bool> resolve_duplicates_();
   void normalize_filenames_(const std::vector<bool> &changed);
-  int find_automation_index_by_id_(uint32_t id);
+  int find_automation_index_by_id_(uint32_t id) const;
 
   void print_trigger_info_(const TriggerConfig &trigger, int indent);
   void print_condition_info_(const ConditionConfig &condition, int indent);

@@ -63,6 +63,8 @@ AutomationStorage::AutomationStorage() { global_automation_storage = this; }
 
 uint32_t AutomationStorage::now_ms() const { return millis(); }
 
+uint64_t AutomationStorage::uptime_ms() const { return millis_64(); }
+
 ESPTime AutomationStorage::clock_now_() { return this->rtc_->now(); }
 
 // --- Setup and runtime ---
@@ -196,20 +198,21 @@ void AutomationStorage::subscribe_(const RuntimeAutomation &automation) {
 }
 
 void AutomationStorage::on_climate_change_(const std::string &climate_id) {
-  // A lambda behind a rule's own switch action may have changed the hub: rebuilding now would
-  // pull that rule from under its run.
-  if (this->dispatching_ > 0) {
-    this->defer([this, climate_id]() { this->rebuild_for_climate_(climate_id); });
-    return;
-  }
-  this->rebuild_for_climate_(climate_id);
+  this->rebuild_rules_([climate_id](const AutomationConfig &config) { return names_climate(config, climate_id); },
+                       "thermostat '" + climate_id + "'");
 }
 
 // A built rule that still builds is left running; only the ones whose state changes move.
-void AutomationStorage::rebuild_for_climate_(const std::string &climate_id) {
+void AutomationStorage::rebuild_rules_(std::function<bool(const AutomationConfig &)> names, std::string what) {
+  // A lambda behind a rule's own switch action may have made the change: rebuilding now would
+  // pull that rule from under its run.
+  if (this->dispatching_ > 0) {
+    this->defer([this, names = std::move(names), what = std::move(what)]() { this->rebuild_rules_(names, what); });
+    return;
+  }
   for (size_t i = 0; i < this->config_storage_.size(); i++) {
     AutomationConfig *config = this->config_storage_.get_config(static_cast<uint8_t>(i));
-    if (!names_climate(*config, climate_id))
+    if (!names(*config))
       continue;
     std::string error;
     auto rebuilt = RuntimeAutomation::build(this, *config, &error);
@@ -221,7 +224,7 @@ void AutomationStorage::rebuild_for_climate_(const std::string &climate_id) {
         this->automations_[i].reset();
       }
     } else if (!built) {
-      ESP_LOGI(TAG, "Automation '%s' is built: thermostat '%s' is there", config->name.c_str(), climate_id.c_str());
+      ESP_LOGI(TAG, "Automation '%s' is built: %s is there", config->name.c_str(), what.c_str());
       config->build_error.clear();
       this->subscribe_(*rebuilt);
       this->automations_[i] = std::move(rebuilt);
@@ -353,6 +356,16 @@ void AutomationStorage::reset_all() {
   });
 }
 
+RunResult AutomationStorage::run_automation(uint32_t id) {
+  // Shared: a job the caller gave up on never runs, but outlives this call.
+  auto result = std::make_shared<RunResult>(RunResult::REFUSED);
+  this->run_on_loop_([this, id, result]() {
+    *result = this->run_automation_(id);
+    return *result == RunResult::STARTED;
+  });
+  return *result;
+}
+
 uint32_t AutomationStorage::add_automation_(const AutomationConfig &config, std::string *error) {
   if (this->config_storage_.size() >= MAX_AUTOMATIONS) {
     ESP_LOGE(TAG, "Refusing to add '%s': already at the %u automation limit", config.name.c_str(),
@@ -379,6 +392,7 @@ uint32_t AutomationStorage::add_automation_(const AutomationConfig &config, std:
   cfg.id = this->allocate_id_();
   cfg.file = this->sanitize_filename_(cfg.name) + ".json";
   cfg.build_error.clear();
+  cfg.last_run_ms.reset();
 
   auto automation = RuntimeAutomation::build(this, cfg, error);
   if (automation == nullptr) {
@@ -418,6 +432,8 @@ bool AutomationStorage::update_automation_(uint32_t id, const AutomationConfig &
   // that name was taken by a file the loader refused.
   const bool renaming = this->sanitize_filename_(current.name) != this->sanitize_filename_(cfg.name);
   cfg.file = renaming ? this->sanitize_filename_(cfg.name) + ".json" : old_file;
+  // An edit is the same rule: when it last ran still holds.
+  cfg.last_run_ms = current.last_run_ms;
   if (renaming && file_exists(this->get_filepath_for_name_(cfg.name))) {
     ESP_LOGE(TAG, "Refusing to rename automation id=%u to '%s': a file the loader refused has that name",
              static_cast<unsigned>(id), cfg.name.c_str());
@@ -493,6 +509,39 @@ bool AutomationStorage::set_enable_automation_(uint32_t id, bool enable, bool *p
   return true;
 }
 
+RunResult AutomationStorage::run_automation_(uint32_t id) {
+  const int found = this->find_automation_index_by_id_(id);
+  if (found < 0) {
+    ESP_LOGW(TAG, "Automation id=%u not found", static_cast<unsigned>(id));
+    return RunResult::NOT_FOUND;
+  }
+  RuntimeAutomation *rule = this->automations_[static_cast<size_t>(found)].get();
+  if (rule == nullptr) {
+    ESP_LOGW(TAG, "Automation id=%u cannot run: it is not built", static_cast<unsigned>(id));
+    return RunResult::NOT_BUILT;
+  }
+  // As a trigger would: an edit from inside its actions is refused, not run under it.
+  bool started = false;
+  this->drive([&]() { started = rule->run_now(); });
+  if (!started)
+    ESP_LOGI(TAG, "Automation '%s' is already running", rule->get_name().c_str());
+  return started ? RunResult::STARTED : RunResult::ALREADY_RUNNING;
+}
+
+bool AutomationStorage::is_running(uint32_t id) const {
+  const int found = this->find_automation_index_by_id_(id);
+  if (found < 0)
+    return false;
+  const RuntimeAutomation *rule = this->automations_[static_cast<size_t>(found)].get();
+  return rule != nullptr && rule->is_running();
+}
+
+void AutomationStorage::note_run_(uint32_t id) {
+  const int found = this->find_automation_index_by_id_(id);
+  if (found >= 0)
+    this->config_storage_.get_config(static_cast<uint8_t>(found))->last_run_ms = this->uptime_ms();
+}
+
 void AutomationStorage::reset_all_() {
   this->automations_.clear();
   for (const auto &config : this->config_storage_.get_all_configs())
@@ -561,6 +610,34 @@ bool AutomationStorage::is_name_taken(const std::string &name, uint32_t exclude_
       return true;
   }
   return false;
+}
+
+static bool condition_names(const ConditionConfig &condition, uint32_t key) {
+  if (condition.type == ConditionType::INPUT && condition.sensor_id == key)
+    return true;
+  return std::any_of(condition.sub_conditions.begin(), condition.sub_conditions.end(),
+                     [key](const ConditionConfig &sub) { return condition_names(sub, key); });
+}
+
+static bool names_binary_sensor(const AutomationConfig &config, uint32_t key) {
+  const bool triggered = std::any_of(config.triggers.begin(), config.triggers.end(), [key](const TriggerConfig &t) {
+    return t.source == SourceTrigger::INPUT && t.params.input.input_id == key;
+  });
+  return triggered || condition_names(config.condition, key);
+}
+
+std::vector<std::string> AutomationStorage::rules_naming_binary_sensor(uint32_t key) const {
+  std::vector<std::string> names;
+  for (const auto &config : this->config_storage_.get_all_configs()) {
+    if (names_binary_sensor(config, key))
+      names.push_back(config.name);
+  }
+  return names;
+}
+
+void AutomationStorage::rebuild_rules_naming_binary_sensor(uint32_t key) {
+  this->rebuild_rules_([key](const AutomationConfig &config) { return names_binary_sensor(config, key); },
+                       "input '" + binary_sensor_object_id(key) + "'");
 }
 
 uint32_t AutomationStorage::allocate_id_() {
@@ -876,7 +953,7 @@ void AutomationStorage::normalize_filenames_(const std::vector<bool> &changed) {
   }
 }
 
-int AutomationStorage::find_automation_index_by_id_(uint32_t id) {
+int AutomationStorage::find_automation_index_by_id_(uint32_t id) const {
   const auto &configs = this->config_storage_.get_all_configs();
   for (size_t i = 0; i < configs.size(); i++) {
     if (configs[i].id == id)

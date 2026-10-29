@@ -27,6 +27,10 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
 - **Mode**: `single` ignores a trigger while the rule is running, `restart` starts over,
   `parallel` runs up to 8 copies. A trigger `single` ignores still hands its state to a follow
   that has not played yet, so the target ends where the trigger is.
+- **Run now**: plays a rule's actions at once, skipping its triggers and its condition, even
+  while the rule is disabled; the mode applies as for a trigger, so `single` refuses while a
+  run is under way. A follow has no trigger state to copy unless a trigger arrives while the
+  run plays. A rule that is not built cannot run.
 
 A sensor is any numeric one that is not internal, not only a temperature, and its thresholds
 are in its own unit.
@@ -49,7 +53,9 @@ formats the partition, so the rules go with it.
 
 Entities are named by object id, so renaming a relay, an input or a sensor leaves
 the rules that used it unbuilt — the boot log says which, and their files are kept exactly as
-written until the entity is back.
+written until the entity is back. A [virtual input](ENTITY_SETTINGS.md#virtual-inputs) comes and
+goes while the device runs, and the rules that name it follow: a delete stops them, files kept,
+and a virtual input set up in that slot starts them again.
 
 A thermostat is named by its id, which a rename leaves as it is, and a preset by its key. A
 rule naming a thermostat or a preset that is not there cannot be saved. One that loses it —
@@ -62,7 +68,9 @@ backup. The editor's rule list says which rules do not run and why.
 `features/automation-editor.yaml` serves the rules on the web server port under
 `/automation-editor/api`: the routes and their contract are in
 [components/web_automation_editor/openapi.yaml](../components/web_automation_editor/openapi.yaml),
-the usage in [its README](../components/web_automation_editor/README.md).
+the usage in [its README](../components/web_automation_editor/README.md). The rule list says
+which rules are running and how long ago each last ran, from a trigger or Run now; a run with no
+action to play does not count, and none of it is kept across a reboot.
 
 ## Testing without hardware
 

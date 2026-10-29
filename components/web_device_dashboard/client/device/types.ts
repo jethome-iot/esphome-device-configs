@@ -333,6 +333,9 @@ export interface Capabilities {
   modbus?: ModbusMap
   /** GET and POST /time answer: the device clock, and a timezone this page can choose. */
   time?: true
+  /** A `virtual_inputs` is wired in: GET /virtual-inputs and POST /virtual-inputs/save and /delete
+   *  answer. Without it all three are `404`. */
+  virtual_inputs?: true
 }
 
 // --- Time ---
@@ -534,6 +537,94 @@ export interface TemperatureSlotLabelResult extends Omit<MutationResponse, 'rebo
   label: string
 }
 
+// --- Virtual inputs ---
+
+/** One virtual input in use: a `binary_sensor` that follows a physical input through an on and an
+ *  off delay. `slot` numbers from 1, as its name does. */
+export interface VirtualInput {
+  slot: number
+  /** `virtual_input_<slot>`, whatever the label: what rules, bindings and the entity settings name
+   *  it by, and the key of its label in POST /entity-settings (type `binary_sensor`). */
+  object_id: string
+  /** `Virtual input <slot>`: the entity web_server serves, and so the key to its state on `/events`. */
+  name: string
+  /** What the panel and the page show in place of `name`, `''` for none: the entity settings'. */
+  label: string
+  /** The physical input it follows, by object id. */
+  source: string
+  /** Seconds the source has to stay on before it turns on. */
+  on_delay: number
+  /** Seconds it stays on after the source last went off; every new pulse starts them again. */
+  off_delay: number
+  /** Its state when read; `null` until its source has reported. Live, it is on `/events`. */
+  state: boolean | null
+  /** Why it is off whatever its source does (`Source 'input_9' not found`), or why it has no
+   *  state yet; `''` while it follows its source. */
+  problem: string
+  /** What a delete stops. */
+  used_by: VirtualInputUsers
+}
+
+/** What names a virtual input, by what the page shows. */
+export interface VirtualInputUsers {
+  /** The rules whose trigger or condition names it, one the firmware could not build included:
+   *  from a delete on they find no input. */
+  rules: string[]
+  /** The relays bound to it, by label or else by name, in the firmware's order: a delete drops
+   *  their binding. */
+  relays: string[]
+}
+
+/** An input a virtual input may follow: a visible `binary_sensor` that is not a virtual input. */
+export interface VirtualInputSource {
+  object_id: string
+  name: string
+  /** The entity settings' label, `''` for none. */
+  label: string
+}
+
+/** GET /virtual-inputs — the slots in use, slot order, and what they may follow. */
+export interface VirtualInputs {
+  /** The pool, `virtual_inputs`' `max_inputs`: slots run from 1 to it. */
+  max_inputs: number
+  /** The longest on or off delay, in seconds. */
+  max_delay: number
+  /** A save or a delete can be kept: false when the user partition did not mount or the file is
+   *  there but did not load at boot, and then both are `503`. */
+  can_save: boolean
+  inputs: VirtualInput[]
+  sources: VirtualInputSource[]
+}
+
+/** POST /virtual-inputs/save — set up a slot, or change one in use. Without `slot` it takes the
+ *  lowest free one nothing names (no rule, no relay's binding), else the lowest free one, and
+ *  `409` when none is free. A delay left out is `0` on a new slot and kept on one in
+ *  use. Written and in force at once, no confirmation: the delays count from the save. `400` for a
+ *  slot out of range, a `source` that is not a physical input's object id (a virtual input, a
+ *  relay or nothing at all), or a delay that is not a whole number of seconds up to `max_delay`;
+ *  `503` when `can_save` is false or the loop task is busy, `500` when the write fails. */
+export interface VirtualInputSavePayload {
+  slot?: number
+  source: string
+  on_delay?: number
+  off_delay?: number
+}
+
+/** What POST /virtual-inputs/save answers. */
+// Never reboot_required: a virtual input is in force at once.
+export interface VirtualInputSaveResult extends Omit<MutationResponse, 'reboot_required'> {
+  /** The slot as it stands after the save. */
+  input: VirtualInput
+}
+
+/** POST /virtual-inputs/delete — free a slot: its entity is hidden, its label dropped and every
+ *  relay bound to it unbound, the relay left as it is; a rule that names it stops until a virtual
+ *  input is set up in that slot again. `used_by` names both beforehand. `400` for a slot out of
+ *  range, `409` for a free one, `503` and `500` as for a save. */
+export interface VirtualInputDeletePayload {
+  slot: number
+}
+
 // --- Network (live status + saved config) ---
 
 export interface NetworkLiveStatus {
@@ -700,6 +791,8 @@ export interface EntityIndexEntry {
   source_name: string
   name: string
   label: string
+  /** A virtual input (`binary_sensor` only): it takes a label and no `inverted`. */
+  virtual?: true
 }
 
 /** GET /entities — settable entities per settings type (`switch`, `binary_sensor`, ...). */

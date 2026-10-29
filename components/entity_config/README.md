@@ -60,6 +60,13 @@ refused, and a label in the file that breaks the rules is dropped with a warning
 `web_device_dashboard`; a write that leaves it out, or sends `null`, keeps it, on both types. It
 applies at once.
 
+## Inputs that take a label only
+
+A [virtual input](../virtual_inputs/README.md) shows its source as it is, so its record keeps a
+`label` and nothing else: a write with `inverted: true` is refused, the menu's `set_inverted` does
+nothing, and an `inverted` stored for it is ignored with a warning and read back as `false`.
+`virtual_inputs` registers its slots so at setup.
+
 ## Naming the settings objects
 
 A `<type>_settings_id` that is left out is generated, and a generated id cannot be named from a
@@ -82,7 +89,9 @@ with the `bindings` component `BINDING_INPUT`, `BINDING_MODE`), each field is a 
   names it by `display_name()`
 
 `binary_sensor` settings, given a `binary_sensor::BinarySensor *`: `is_inverted(sensor)`,
-`set_inverted(sensor, inverted)`.
+`set_inverted(sensor, inverted)`; `set_label_only(sensor)` and `is_label_only(sensor)` for the
+inputs above, registered before the boot's apply; `remove_record(object_id)` drops an entity's
+record, its label with it, and leaves the save to the caller.
 
 A set applies at once and schedules the debounced save.
 

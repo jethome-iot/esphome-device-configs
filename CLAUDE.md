@@ -25,6 +25,7 @@ generated files and runs the pre-commit hooks.
 | touch the `schedules` engine, its file format or its HTTP API | [doc/SCHEDULES.md](doc/SCHEDULES.md), [components/schedules/README.md](components/schedules/README.md), [components/web_schedule_editor/README.md](components/web_schedule_editor/README.md) |
 | add a test, or wonder which suite a case belongs in | [doc/TESTING.md](doc/TESTING.md) |
 | change what a relay or an input remembers across reboots | [doc/ENTITY_SETTINGS.md](doc/ENTITY_SETTINGS.md) |
+| touch the virtual inputs: their delays, their file or their HTTP API | [doc/ENTITY_SETTINGS.md](doc/ENTITY_SETTINGS.md#virtual-inputs), [components/virtual_inputs/README.md](components/virtual_inputs/README.md) |
 | change WiFi provisioning | [doc/WIFI_SETUP.md](doc/WIFI_SETUP.md) |
 
 The tree itself is in the README, "Repository Layout".

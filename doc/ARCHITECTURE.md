@@ -34,7 +34,8 @@ boundaries; everything else is local to its file.
   package order unless a `weight` moves them, and rows added from C++ at boot come after all of
   them. A submenu may be empty, and `info_submenu`, `relays_menu` and `inputs_menu` declare no
   rows of their own: the last two are filled at boot from the `relays` / `inputs` vectors, so the
-  menu follows whatever the board package put there. `temperatures_menu` gets a `Temp N` submenu per
+  menu follows whatever the board package put there, and `inputs_menu` gets a row after them per
+  virtual input set up at boot. `temperatures_menu` gets a `Temp N` submenu per
   slot up to the last bound one at boot, named after the slot's label or name; a freed slot's
   submenu only names the slot and says `Free slot`.
   `automations_menu` is filled at boot with a row per loaded rule, or one `No automations` row.
@@ -83,6 +84,14 @@ boundaries; everything else is local to its file.
   `crash_report` (`features/crash-report.yaml`) writes the last panic's record to `crash/` there.
 - `config_json_keeper` (`features/storage.yaml`) owns the JSON settings files on that partition
   for any component that registers a settings type with it.
+- `virtual_input_pool` (`features/virtual-inputs.yaml`) is the `virtual_inputs` component: a pool
+  of `binary_sensor`s, `Virtual input N`, each following a physical input through an on and an off
+  delay, kept as `virtual_inputs.json` in `config_json_keeper`'s folder. Their labels are
+  `binary_sensor_settings`' records, which take no inversion for them. A delete also drops
+  `switch_settings`' bindings to the slot, and codegen hands the pool two lambdas over the rule
+  engine: one names the rules naming a slot, the other builds or drops them when the slot is set
+  up or deleted. `display/menu.yaml` reads `configured()` and `sensor()` for the Inputs rows, and
+  `web_device_dashboard` finds the pool in the config for `/api/device/virtual-inputs`.
 - `switch_settings` and `binary_sensor_settings` (`features/entity-settings.yaml`) are the
   settings objects the menu's Relay N and Input N rows call, and whose `display_name()` names
   each relay and input there. Those two ids are set explicitly: a generated id cannot be named
@@ -116,7 +125,7 @@ boundaries; everything else is local to its file.
 | Priority | What runs |
 | --- | --- |
 | 800 | fill the `relays` / `inputs` vectors |
-| 700 | `apply_modbus_bus` (the stored baud rate, parity and stop bits into `jxm_uart2`, and the Modbus frame timing re-derived from them), then `modbus_bus_applied = true`; the selects' `on_value` is a no-op before that flag. Build a submenu per entry of those vectors, named after the entity's label or name, with its settings rows |
+| 700 | `apply_modbus_bus` (the stored baud rate, parity and stop bits into `jxm_uart2`, and the Modbus frame timing re-derived from them), then `modbus_bus_applied = true`; the selects' `on_value` is a no-op before that flag. Build a submenu per entry of those vectors, named after the entity's label or name, with its settings rows, then a read-only row per virtual input in use |
 | 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); read the RTC (`setup_time`, called from the device config), into the zone `timezone_settings` put in effect at `HARDWARE - 1`. `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
 | 599.5 | `climate_hub` sets up: it registers its pool of climate entities, loads the thermostats and starts the enabled ones, so it sits below the `Temp N` sensors (600) and above `automations`, whose rules name thermostats |
 | 599.25 | `bindings` sets up and drives the `Follow` relays once, skipping those a thermostat claimed at 599.5 |
@@ -138,10 +147,13 @@ the next, saying nothing either time.
 Entity settings ride on `setup_priority` instead, ahead of every `on_boot` block: the
 `config_json` keeper loads the files at `HARDWARE + 5`, and one apply component per settings type
 pushes the values into the entities at `HARDWARE + 1`, before the switches and binary sensors set
-themselves up. `bindings` sets up at `DATA - 0.75`, after every entity and after the thermostats
-have claimed their relays, and drives the `Follow` relays they left free once there; until then
-input changes are ignored. A relay whose start mode closes it at boot stays closed until its
-thermostat's first loop pass. See [ENTITY_SETTINGS.md](ENTITY_SETTINGS.md).
+themselves up. `virtual_inputs` sets up between the two, at `HARDWARE + 2`: the keeper has its
+folder by then, and the slots in use are named and visible before the `switch` settings hand the
+stored bindings to `bindings`, which looks an input up as it takes a binding, and before the
+`binary_sensor` settings apply the labels. `bindings` sets up at `DATA - 0.75`, after every entity
+and after the thermostats have claimed their relays, and drives the `Follow` relays they left free
+once there; until then input changes are ignored. A relay whose start mode closes it at boot
+stays closed until its thermostat's first loop pass. See [ENTITY_SETTINGS.md](ENTITY_SETTINGS.md).
 `timezone_settings` sets up at `HARDWARE - 1`, right after the globals have restored Home
 Assistant's zone at `HARDWARE`, and puts the zone in effect before anything that reads the local
 time sets up.
@@ -268,6 +280,15 @@ server.
   - `api::APIServer::active_clients()`, `APIConnection::send_message(DisconnectRequest)` and
     `on_fatal_error()`: after a structural change the component makes Home Assistant reconnect
     the way upstream does after a new API key, since a client lists entities only on connect.
+- `components/virtual_inputs` registers its pool the way `climate_hub` does: codegen reserves
+  `max_inputs` places (`CORE.register_platform_component`, before any `await` in `to_code`), and
+  `setup()` registers every slot through the four-argument `App.register_binary_sensor`,
+  internal, under its fixed name. Showing and hiding a slot calls the protected
+  `EntityBase::configure_entity_` again with the same name and hash 0, so it leans on
+  `is_internal()` being read when the API and the web server list and push, as `climate_hub`
+  does, and on the same reconnect to make Home Assistant list the change. `web_server`'s REST
+  matches a binary sensor by name, hidden or not, so a free slot still answers a read: `OFF`,
+  or no state.
 - `components/timezone_settings` reads the zone Home Assistant sent one loop pass after the
   `homeassistant` clock's sync callback fires, in a named `defer`: upstream's
   `APIConnection::on_get_time_response` runs the sync callbacks (through `set_epoch_time()`)

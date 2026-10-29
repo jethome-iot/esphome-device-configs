@@ -17,6 +17,7 @@ CONF_MODBUS_MAP = "modbus_map"
 CONF_STORAGE_ID = "storage_id"
 CONF_TIMEZONE_SETTINGS = "timezone_settings"
 CONF_URL_PREFIX = "url_prefix"
+CONF_VIRTUAL_INPUTS = "virtual_inputs"
 
 # The components whose screens the page draws, and the setter each one's prefix goes to.
 # Read off the config rather than wired in by hand: they are configured in packages of their
@@ -85,4 +86,8 @@ async def to_code(config):
     if (timezone := CORE.config.get(CONF_TIMEZONE_SETTINGS)) is not None:
         cg.add_define("USE_WEB_DEVICE_DASHBOARD_TIMEZONE")
         cg.add(var.set_timezone_settings(await cg.get_variable(timezone[CONF_ID])))
+    # And for the virtual inputs, which sit in a package of their own.
+    if (virtual_inputs := CORE.config.get(CONF_VIRTUAL_INPUTS)) is not None:
+        cg.add_define("USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS")
+        cg.add(var.set_virtual_inputs(await cg.get_variable(virtual_inputs[CONF_ID])))
     await cg.register_component(var, config)
