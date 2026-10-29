@@ -52,6 +52,9 @@ binary_sensor:
   - platform: template
     id: in_2_unused
     name: "Input 2"
+  - platform: template
+    id: config_input_unused
+    name: "Config Input"
 
 switch:
   - platform: template
@@ -61,4 +64,8 @@ switch:
   - platform: template
     id: relay_2_unused
     name: "Relay 2"
+    optimistic: true
+  - platform: template
+    id: ota_allowed_unused
+    name: "Allow ESPHome updates"
     optimistic: true

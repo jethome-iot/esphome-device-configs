@@ -52,6 +52,9 @@ class LogCapture {
   }
 };
 
+// entity_fields for an entity declared with `entity_category: config`.
+inline constexpr uint32_t CONFIG_CATEGORY = uint32_t{ENTITY_CATEGORY_CONFIG} << ENTITY_FIELD_ENTITY_CATEGORY_SHIFT;
+
 // Registered once: App keeps the pointers for the life of the process and the settings find
 // them by the hash of their object id.
 struct Entities {
@@ -59,6 +62,9 @@ struct Entities {
   binary_sensor::BinarySensor in2;
   FakeSwitch relay1;
   FakeSwitch relay2;
+  // entity_category: config, as the board's ESPHome OTA switch: not the device's I/O.
+  binary_sensor::BinarySensor config_input;
+  FakeSwitch ota_allowed;
 };
 
 inline Entities &entities() {
@@ -68,6 +74,8 @@ inline Entities &entities() {
     App.register_binary_sensor(&e->in2, "Input 2", fnv1_hash("input_2"), 0);
     App.register_switch(&e->relay1, "Relay 1", fnv1_hash("relay_1"), 0);
     App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
+    App.register_binary_sensor(&e->config_input, "Config Input", fnv1_hash("config_input"), CONFIG_CATEGORY);
+    App.register_switch(&e->ota_allowed, "Allow ESPHome updates", fnv1_hash("allow_esphome_updates"), CONFIG_CATEGORY);
     return e;
   }();
   return *instance;
@@ -79,12 +87,14 @@ inline void reset_entities() {
   Entities &e = entities();
   e.in1.publish_state(false);
   e.in2.publish_state(false);
-  for (FakeSwitch *sw : {&e.relay1, &e.relay2}) {
+  e.config_input.publish_state(false);
+  for (FakeSwitch *sw : {&e.relay1, &e.relay2, &e.ota_allowed}) {
     sw->set_inverted(false);
     sw->restore_mode = switch_::SWITCH_RESTORE_DEFAULT_OFF;
     sw->publish_state(false);
     sw->writes = 0;
   }
+  e.ota_allowed.restore_mode = switch_::SWITCH_ALWAYS_OFF;  // as the board compiles it
 }
 
 // One manager for the process: the component is a singleton behind global_bindings_manager

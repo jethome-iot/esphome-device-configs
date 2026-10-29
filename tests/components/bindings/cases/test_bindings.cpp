@@ -231,6 +231,37 @@ TEST_F(Bindings, AMissingOutputIsLoggedWhenDriven) {
   EXPECT_TRUE(manager->remove_binding(NO_SUCH));
 }
 
+// A config entity is not the device's I/O: a binding is kept, as for a missing one, and never
+// drives the board's "Allow ESPHome updates" nor listens to a config input.
+TEST_F(Bindings, AConfigOutputIsNeverDriven) {
+  manager->setup();
+  manager->set_binding(OTA_ALLOWED, IN_1, BindingMode::FOLLOW);
+  manager->set_binding(RELAY_1, IN_1, BindingMode::FOLLOW);
+  e.in1.publish_state(true);
+  EXPECT_TRUE(e.relay1.state);  // the same input still drives a relay
+  EXPECT_EQ(e.ota_allowed.writes, 0);
+  EXPECT_FALSE(e.ota_allowed.state);
+  EXPECT_TRUE(log().has("Output 0x"));
+
+  manager->set_binding(OTA_ALLOWED, IN_2, BindingMode::TOGGLE);
+  press(e.in2);
+  EXPECT_EQ(e.ota_allowed.writes, 0);
+}
+
+TEST_F(Bindings, AConfigInputDrivesNothing) {
+  manager->setup();
+  e.config_input.publish_state(true);
+  manager->set_binding(RELAY_1, CONFIG_INPUT, BindingMode::FOLLOW);
+  EXPECT_TRUE(log().has("not found for output"));
+  e.config_input.publish_state(false);
+  e.config_input.publish_state(true);
+  EXPECT_EQ(e.relay1.writes, 0);
+
+  manager->set_binding(RELAY_2, CONFIG_INPUT, BindingMode::TOGGLE);
+  press(e.config_input);
+  EXPECT_EQ(e.relay2.writes, 0);
+}
+
 // After the thermostats have claimed their relays (climate_hub, DATA - 0.5), before the rules
 // (automations, DATA - 1).
 TEST_F(Bindings, SetsUpBetweenTheThermostatsAndTheRules) {

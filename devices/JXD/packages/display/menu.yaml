@@ -67,6 +67,12 @@ graphical_display_menu:
           text: "Display off"
           select: display_off_timer_select
 
+        # Opens ESPHome's own OTA for half an hour, for an install from the ESPHome Builder.
+        - type: switch
+          text: "ESPHome OTA"
+          switch: esphome_ota_allowed
+          weight: 10
+
         - type: menu
           text: "Modbus"
           weight: 10

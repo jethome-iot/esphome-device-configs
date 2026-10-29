@@ -20,7 +20,96 @@ api:
   reboot_timeout: 0s
 ota:
   - platform: esphome
+    id: esphome_ota
+    password: ''
   - platform: web_server
+switch:
+  - platform: template
+    id: esphome_ota_allowed
+    name: Allow ESPHome updates
+    icon: mdi:upload-lock
+    entity_category: config
+    web_server:
+      sorting_group_id: group_system
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: id(esphome_ota).set_auth_password("");
+      - delay: 30min
+      - switch.turn_off: esphome_ota_allowed
+    turn_off_action:
+      - lambda: |-
+          uint8_t lock[16];
+          random_bytes(lock, sizeof(lock));
+          char hex[sizeof(lock) * 2 + 1];
+          format_hex_to(hex, lock, sizeof(lock));
+          id(esphome_ota).set_auth_password(hex);
+  - platform: gpio
+    name: Relay 1
+    id: relay_1
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 1
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 0
+      mode:
+        output: true
+  - platform: gpio
+    name: Relay 2
+    id: relay_2
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 2
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 1
+      mode:
+        output: true
+  - platform: gpio
+    name: Relay 3
+    id: relay_3
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 3
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 2
+      mode:
+        output: true
+  - platform: gpio
+    name: Relay 4
+    id: relay_4
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 4
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 3
+      mode:
+        output: true
+  - platform: gpio
+    name: Relay 5
+    id: relay_5
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 5
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 4
+      mode:
+        output: true
+  - platform: gpio
+    name: Relay 6
+    id: relay_6
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 6
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 5
+      mode:
+        output: true
 preferences:
   flash_write_interval: 5s
 external_components:
@@ -404,73 +493,6 @@ one_wire:
     id: one_wire_bus
     address: 24
     active_pullup: true
-switch:
-  - platform: gpio
-    name: Relay 1
-    id: relay_1
-    web_server:
-      sorting_group_id: group_relays
-      sorting_weight: 1
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 0
-      mode:
-        output: true
-  - platform: gpio
-    name: Relay 2
-    id: relay_2
-    web_server:
-      sorting_group_id: group_relays
-      sorting_weight: 2
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 1
-      mode:
-        output: true
-  - platform: gpio
-    name: Relay 3
-    id: relay_3
-    web_server:
-      sorting_group_id: group_relays
-      sorting_weight: 3
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 2
-      mode:
-        output: true
-  - platform: gpio
-    name: Relay 4
-    id: relay_4
-    web_server:
-      sorting_group_id: group_relays
-      sorting_weight: 4
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 3
-      mode:
-        output: true
-  - platform: gpio
-    name: Relay 5
-    id: relay_5
-    web_server:
-      sorting_group_id: group_relays
-      sorting_weight: 5
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 4
-      mode:
-        output: true
-  - platform: gpio
-    name: Relay 6
-    id: relay_6
-    web_server:
-      sorting_group_id: group_relays
-      sorting_weight: 6
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 5
-      mode:
-        output: true
 globals:
   - id: relays
     type: std::vector<switch_::Switch *>

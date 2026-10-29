@@ -21,8 +21,37 @@ api:
   reboot_timeout: 0s
 
 ota:
+  # Takes plaintext uploads from anyone even once Home Assistant has set the API key, so it
+  # stays locked unless esphome_ota_allowed is on.
   - platform: esphome
+    id: esphome_ota
+    # Builds the password check in, for the switch to set at run time.
+    password: ""
   - platform: web_server
+
+switch:
+  - platform: template
+    id: esphome_ota_allowed
+    name: Allow ESPHome updates
+    icon: mdi:upload-lock
+    entity_category: config
+    web_server:
+      sorting_group_id: group_system
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: id(esphome_ota).set_auth_password("");
+      # Another turn-on restarts the delay, a turn-off cancels it.
+      - delay: 30min
+      - switch.turn_off: esphome_ota_allowed
+    turn_off_action:
+      # A password nobody knows. An upload encrypted with the API key never asks for it.
+      - lambda: |-
+          uint8_t lock[16];
+          random_bytes(lock, sizeof(lock));
+          char hex[sizeof(lock) * 2 + 1];
+          format_hex_to(hex, lock, sizeof(lock));
+          id(esphome_ota).set_auth_password(hex);
 
 preferences:
   flash_write_interval: 5s

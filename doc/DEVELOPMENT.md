@@ -41,6 +41,18 @@ SKIP=build-dist pre-commit run --all-files # what the CI lint job runs
 Build output lands next to the config:
 `devices/JXD/.esphome/build/<name>/build/firmware.{factory,ota}.bin`.
 
+`esphome run --device` needs **Allow ESPHome updates** on, or the upload stops at
+`Authentication invalid`. It turns itself off after 30 minutes and at every reboot; from the
+shell:
+
+```bash
+curl --digest -u admin:admin -X POST -d '' 'http://<ip>/switch/Allow%20ESPHome%20updates/turn_on'
+```
+
+A config without `password: ""` under `ota: - platform: esphome`, such as one imported into the
+Builder from an older `dist/`, stops at `ESP requests password, but no password given!`, switch
+or not: add the line.
+
 CI compiles with `TZ=Etc/UTC`: the `homeassistant` time platform bakes the build host's zone into
 the firmware.
 

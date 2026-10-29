@@ -1214,6 +1214,23 @@ TEST_F(Editor, EntitiesListsThermostatInputsAndWhoHoldsEachRelay) {
                         R"({"object_id":"relay_2","name":"Relay 2","claimed_by":""}]})");
 }
 
+// A config switch is the device's own setting, not a relay: the editor does not offer it, and a
+// thermostat saved on it waits as on a relay the device does not have.
+TEST_F(Editor, AConfigSwitchIsNeitherListedNorTaken) {
+  Reply reply = this->get("entities");
+  ASSERT_EQ(reply.code, 200);
+  std::vector<std::string> switches;
+  for (JsonObject row : reply["switches"].as<JsonArray>())
+    switches.push_back(row["object_id"].as<std::string>());
+  EXPECT_EQ(switches, (std::vector<std::string>{"relay_1", "relay_2"}));
+
+  reply = this->post(
+      "save",
+      R"({"name":"Unlock","kind":"bang_bang","sensor_id":"room","heat":{"relay_id":"allow_esphome_updates"},"mode":"heat","setpoint":22})");
+  EXPECT_EQ(reply.code, 200);
+  EXPECT_EQ(reply["warning"].as<std::string>(), "not started: relay 'allow_esphome_updates' not found");
+}
+
 // Straight from the table the codec clamps against, so the form cannot offer what the device
 // would then change.
 TEST_F(Editor, SchemaIsTheParameterTable) {

@@ -23,6 +23,37 @@ TEST_F(Runtime, BuildRefusesWhatItCannotResolve) {
   EXPECT_EQ(build_rule(engine, R"({"name":"No clock","triggers":[{"source":"cron","cron":"* * * * * *"}]})"), nullptr);
 }
 
+// A config switch is the device's own setting: a rule naming it, as its action or its trigger,
+// is refused as one naming a switch that is not there, and the same rule on a relay builds.
+TEST_F(Runtime, BuildRefusesAConfigSwitchAsAMissingOne) {
+  static const char *const UNLOCK =
+      R"({"name":"Unlock","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"%s"}]})";
+  static const char *const WATCH =
+      R"({"name":"Watch","triggers":[{"source":"switch","type":"turn_on","object_id":"%s"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})";
+  auto naming = [](std::string json, const char *object_id) {
+    json.replace(json.find("%s"), 2, object_id);
+    AutomationConfig config;
+    EXPECT_TRUE(load(json.c_str(), config));
+    return config;
+  };
+  for (const char *object_id : {"allow_esphome_updates", "no_such"}) {
+    std::string error;
+    EXPECT_EQ(RuntimeAutomation::build(&engine, naming(UNLOCK, object_id), &error), nullptr) << object_id;
+    EXPECT_EQ(error, "Action 1: switch not found") << object_id;
+    EXPECT_EQ(RuntimeAutomation::build(&engine, naming(WATCH, object_id), &error), nullptr) << object_id;
+    EXPECT_EQ(error, "Trigger 1: switch not found") << object_id;
+  }
+
+  auto unlock = RuntimeAutomation::build(&engine, naming(UNLOCK, "relay_2"));
+  ASSERT_NE(unlock, nullptr);
+  unlock->on_startup();
+  EXPECT_TRUE(e.relay2.state);
+  auto watch = RuntimeAutomation::build(&engine, naming(WATCH, "relay_2"));
+  ASSERT_NE(watch, nullptr);
+  watch->on_switch(&e.relay2, true);
+  EXPECT_TRUE(e.relay1.state);
+}
+
 TEST_F(Runtime, PressTurnsTheRelayOn) {
   auto rule = build_rule(engine, R"({"name":"Press","triggers":[{"source":"input","type":"press","object_id":"in_1"}],
       "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})");

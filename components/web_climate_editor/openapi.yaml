@@ -777,9 +777,9 @@ paths:
       operationId: listEntities
       summary: The sensors and relays a thermostat may name.
       description: >-
-        Internal entities are left out, and so is a sensor that does not report
-        °C, which no thermostat runs on. Each switch says which running
-        thermostat holds it.
+        Internal entities and config switches are left out, and so is a sensor
+        that does not report °C, which no thermostat runs on. Each switch says
+        which running thermostat holds it.
       responses:
         "200":
           description: Entities by domain.

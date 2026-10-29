@@ -82,3 +82,7 @@ switch:
     id: boiler_unused
     name: "Boiler"
     optimistic: true
+  - platform: template
+    id: ota_allowed_unused
+    name: "Allow ESPHome updates"
+    optimistic: true

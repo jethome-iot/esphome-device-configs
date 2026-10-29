@@ -16,6 +16,9 @@ loaded at boot and applied before the entities set themselves up.
 | Input | `Inverted` | `No`, `Yes` | A closed contact is reported as Off. Flipping it re-reports the input at once; bindings and automations take that as a level, not as a press or release |
 | Relay, Input | `Label` | Text, up to 24 characters; empty for none | Shown on the panel and the dashboard in place of the name. Set from the dashboard only; it changes nothing else, so Home Assistant, the REST routes, Modbus, automations and thermostats still see the name. A temperature slot's [label](ONEWIRE_WORKFLOW.md#label) takes the same text |
 
+The device's own settings, such as **Allow ESPHome updates**, take none of these: they start
+the way the firmware says and bind to nothing.
+
 The binding rules are in [components/bindings](../components/bindings/README.md). A binding
 does not move a relay a running thermostat drives; once the thermostat frees it, a `Follow`
 relay takes its input's state at once. What else such a relay does and does not do is in

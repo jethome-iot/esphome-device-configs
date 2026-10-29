@@ -56,6 +56,13 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
   ([details](doc/ENTITY_SETTINGS.md))
 - **Password-protected web server**: `admin` / `admin` out of the factory, changed from the
   dashboard and kept across reboots ([details](components/web_auth/README.md))
+- **Locked ESPHome OTA**: the ESPHome Builder and `esphome run --device` install only while
+  **Allow ESPHome updates** is on — in Home Assistant, on the dashboard or **Settings → ESPHome
+  OTA** on the display. It turns itself off 30 minutes after it was turned on, so on a slow
+  build turn it on while the build runs, and at every reboot, except into safe mode, where the
+  port stays open as the way back without USB. The lock holds once Home Assistant has set the
+  API key: until then anyone on the network can turn the switch on over the API. An upload
+  encrypted with that key, and one through the dashboard behind the web password, do not need it
 - **Factory reset**: **Settings → Factory reset** on the display, the dashboard, or the FN button
   on the CPU board held for 10 seconds on a running device — the LED then blinks fast, red and
   green, for 5 seconds before the device resets; the button works without the display and without the web
@@ -218,8 +225,9 @@ For the first flash, connect via USB:
 esphome run devices/JXD/jxd-r6-e1eth-lcd.yaml
 ```
 
-Subsequent updates can be done over-the-air (OTA). A change to the partition table (for
-example, the size of the storage partition) needs a USB flash: OTA keeps the table it finds.
+Subsequent updates can be done over-the-air (OTA), once **Allow ESPHome updates** is on. A
+change to the partition table (for example, the size of the storage partition) needs a USB
+flash: OTA keeps the table it finds.
 
 ```bash
 esphome run devices/JXD/jxd-r6-e1eth-lcd.yaml --device <IP_ADDRESS>
@@ -285,7 +293,7 @@ untouched; any button then takes the page away, and it leaves on its own after h
 - **Thermostats** - a row per thermostat with what its sensor reads; it opens the thermostat's name, the reading, what it is doing (heating, idle, waiting, a fault), the target, the preset and Enabled. The list is the one the device booted with: a thermostat created later shows after a reboot
 - **Automations** - a row per rule that switches it on or off; the list is the one the device booted with
 - **Info** - network information (Ethernet and WiFi IP and MAC addresses, access point password), the timezone in effect (the city of a zone chosen on the dashboard, else its offset from UTC, as `UTC+3`), then the serial number from the CPU board's EEPROM (`--` when it holds none)
-- **Settings** - display auto-off timer, Modbus settings, firmware updates (the running and the offered version, the release channel, a check, an install, and a rollback row that says whether there is a firmware to go back to; after a rollback the same row goes forward again), temperature slots, network mode, WiFi credential reset, reboot; a factory reset clears the stored preferences (WiFi credentials, settings) and formats the user partition, taking the temperature slot table, the automation rules and uploaded files with it
+- **Settings** - display auto-off timer, ESPHome OTA (the **Allow ESPHome updates** switch), Modbus settings, firmware updates (the running and the offered version, the release channel, a check, an install, and a rollback row that says whether there is a firmware to go back to; after a rollback the same row goes forward again), temperature slots, network mode, WiFi credential reset, reboot; a factory reset clears the stored preferences (WiFi credentials, settings) and formats the user partition, taking the temperature slot table, the automation rules and uploaded files with it
 
 CENTER opens a setting, LEFT and RIGHT pick its value, and the device applies it when CENTER or
 BACK closes the row; leaving the menu while a row is open applies it as well.
