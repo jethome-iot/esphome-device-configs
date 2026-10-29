@@ -50,9 +50,15 @@ inline sensor::Sensor *find_sensor(const std::string &object_id) {
 inline bool reports_celsius(const sensor::Sensor &sensor) { return sensor.get_unit_of_measurement_ref() == "°C"; }
 #endif
 
+// A config switch is the device's own setting, not a relay: no thermostat takes it.
+inline bool is_output_switch(const EntityBase &entity) {
+  return !entity.is_internal() && entity.get_entity_category() != ENTITY_CATEGORY_CONFIG;
+}
+
 inline switch_::Switch *find_switch(const std::string &object_id) {
 #ifdef USE_SWITCH
-  return find_entity<switch_::Switch>(App.get_switches(), object_id);
+  auto *entity = find_entity<switch_::Switch>(App.get_switches(), object_id);
+  return entity != nullptr && is_output_switch(*entity) ? entity : nullptr;
 #else
   return nullptr;
 #endif

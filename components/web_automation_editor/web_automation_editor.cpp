@@ -496,7 +496,7 @@ void WebAutomationEditor::handle_entities_(AsyncWebServerRequest *request) {
 #endif
 #ifdef USE_SWITCH
   for (auto *entity : App.get_switches()) {
-    if (entity->is_internal())
+    if (!automations::is_output_switch(*entity))
       continue;
     JsonObject row = switches.add<JsonObject>();
     row["object_id"] = automations::object_id_of(*entity);

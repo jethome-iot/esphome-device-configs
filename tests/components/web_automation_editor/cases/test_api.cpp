@@ -229,6 +229,24 @@ TEST_F(Editor, EntitiesListsWhatIsNotInternal) {
                         R"("switches":[{"object_id":"relay_1","name":"Relay 1"}],"climates":[]})");
 }
 
+// A config switch is the device's own setting, not an output: the editor does not offer it, and a
+// rule naming it is refused as one on a switch the device does not have.
+TEST_F(Editor, AConfigSwitchIsNeitherListedNorTaken) {
+  Reply reply = this->get("entities");
+  ASSERT_EQ(reply.code, 200);
+  std::vector<std::string> switches;
+  for (JsonObject row : reply["switches"].as<JsonArray>())
+    switches.push_back(row["object_id"].as<std::string>());
+  EXPECT_EQ(switches, std::vector<std::string>{"relay_1"});
+
+  reply = this->post(
+      "save",
+      R"({"name":"Unlock","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"allow_esphome_updates"}]})");
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "Action 1: switch not found");
+  EXPECT_TRUE(this->files().empty());
+}
+
 // By the hub's id, which a rule names, running or not; the presets by the key a rule names.
 TEST_F(Editor, EntitiesListsTheThermostatsAndTheirPresets) {
   ASSERT_EQ(add_thermostat("Living room"), "living-room");

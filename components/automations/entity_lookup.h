@@ -40,6 +40,11 @@ template<typename T, typename V> T *find_entity_by_key(const V &entities, uint32
   return nullptr;
 }
 
+// A config switch is the device's own setting, not an output: no rule drives or watches it.
+inline bool is_output_switch(const EntityBase &entity) {
+  return !entity.is_internal() && entity.get_entity_category() != ENTITY_CATEGORY_CONFIG;
+}
+
 inline binary_sensor::BinarySensor *find_binary_sensor(uint32_t key) {
 #ifdef USE_BINARY_SENSOR
   return find_entity_by_key<binary_sensor::BinarySensor>(App.get_binary_sensors(), key);
@@ -58,7 +63,8 @@ inline sensor::Sensor *find_sensor(uint32_t key) {
 
 inline switch_::Switch *find_switch(uint32_t key) {
 #ifdef USE_SWITCH
-  return find_entity_by_key<switch_::Switch>(App.get_switches(), key);
+  auto *entity = find_entity_by_key<switch_::Switch>(App.get_switches(), key);
+  return entity != nullptr && is_output_switch(*entity) ? entity : nullptr;
 #else
   return nullptr;
 #endif

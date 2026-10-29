@@ -113,7 +113,8 @@ only when its sensor, if it is on the device, reports °C, and no other enabled 
 its relays: neither a running one, which holds them, nor one that waits, which reserves them. A
 relay it holds already is never refused. One whose sensor or a relay is not on the device is
 saved or enabled all the same, and waits as it would at boot, with a `warning` that names what
-is missing. A disabled one may name what is not there yet.
+is missing; a config switch (`entity_category: config`) is no relay and counts as missing. A
+disabled one may name what is not there yet.
 
 ## Presets
 

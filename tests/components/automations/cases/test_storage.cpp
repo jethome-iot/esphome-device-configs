@@ -590,6 +590,31 @@ TEST_F(Storage, StartupRulesFireOnceTheEngineIsUp) {
   EXPECT_TRUE(e.relay1.state);
 }
 
+// The board's "Allow ESPHome updates" is a config switch: a rule on it, from a file or the API,
+// fares as one on a switch the device does not have, so nothing reopens the OTA at boot.
+TEST_F(Storage, ARuleOnAConfigSwitchIsAnOrphan) {
+  static const char *const UNLOCK =
+      R"({"id":1,"name":"Unlock","enabled":true,"mode":"single","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"allow_esphome_updates"}]})";
+  static const char *const UNLOCK_AGAIN =
+      R"({"name":"Unlock again","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"allow_esphome_updates"}]})";
+  static const char *const WATCH =
+      R"({"name":"Watch","triggers":[{"source":"switch","type":"turn_on","object_id":"allow_esphome_updates"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})";
+  write("unlock.json", UNLOCK);
+  boot();
+  EXPECT_FALSE(built("Unlock"));
+  EXPECT_EQ(read("unlock.json"), UNLOCK);
+  EXPECT_TRUE(log().has(log().errors, "Automation 'Unlock': action cannot be built"));
+
+  for (const char *json : {UNLOCK_AGAIN, WATCH})
+    EXPECT_EQ(engine->add_automation(rule(json)), 0u) << json;
+  EXPECT_EQ(files(), (std::vector<std::string>{"unlock.json"}));
+
+  std::string on_relay = UNLOCK_AGAIN;
+  const std::string config_switch = "allow_esphome_updates";
+  on_relay.replace(on_relay.find(config_switch), config_switch.size(), "relay_1");
+  EXPECT_NE(engine->add_automation(rule(on_relay.c_str())), 0u);
+}
+
 TEST_F(Storage, RulesCannotBeEditedFromInsideTheirOwnAction) {
   write("input_press.json", PRESS_RELAY_1);
   boot();
