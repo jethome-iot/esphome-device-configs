@@ -79,7 +79,7 @@ TEST(ScheduleConfig, TheFileRoundTripsByteForByte) {
   EXPECT_EQ((Target{TargetType::THERMOSTAT, "living-room"}), config.targets[0]);
   EXPECT_EQ((Target{TargetType::RELAY, "boiler_pump"}), config.targets[1]);
   EXPECT_EQ((Target{TargetType::RELAY, "relay_5"}), config.targets[2]);
-  EXPECT_EQ((std::vector<std::string>{"comfort", "eco"}), config.preset_keys);
+  EXPECT_EQ((std::vector<std::string>{"comfort", "eco"}), strings(config.preset_keys));
   ASSERT_EQ(7u, config.actions.size());
   EXPECT_EQ(ActionType::WAIT, config.actions[2].type);
   EXPECT_FLOAT_EQ(120.f, config.actions[2].number);
@@ -156,7 +156,7 @@ TEST(ScheduleConfig, ATargetAndAPresetKeyAreKeptOnceAcrossModes) {
                         &config, &error))
       << error;
   EXPECT_EQ(3u, config.targets.size());
-  EXPECT_EQ((std::vector<std::string>{"eco"}), config.preset_keys);
+  EXPECT_EQ((std::vector<std::string>{"eco"}), strings(config.preset_keys));
   EXPECT_TRUE(config.names_target(Target{TargetType::RELAY, "relay_2"}));
   EXPECT_FALSE(config.names_target(Target{TargetType::THERMOSTAT, "relay_2"})) << "a type and an id";
   EXPECT_EQ("", config.preset_of(config.actions[1])) << "a relay action names no preset";

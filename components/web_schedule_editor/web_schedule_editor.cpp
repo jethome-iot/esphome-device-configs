@@ -52,7 +52,8 @@ static std::string names_of(const schedules::ScheduleEngine &engine, const std::
   std::string names;
   for (size_t i = 0; i < ids.size(); i++) {
     const ScheduleConfig *config = engine.get(ids[i]);
-    names += std::string(i == 0 ? "" : " and ") + "\"" + (config != nullptr ? config->name : ids[i]) + "\"";
+    names +=
+        std::string(i == 0 ? "" : " and ") + "\"" + (config != nullptr ? std::string(config->name) : ids[i]) + "\"";
   }
   return names;
 }
@@ -471,7 +472,7 @@ void WebScheduleEditor::handle_document_(AsyncWebServerRequest *request, bool im
     this->send_error_(request, STORAGE_UNAVAILABLE, 500);
     return;
   }
-  JsonDocument answer;
+  JsonDocument answer(this->json_allocator_());
   std::string error;
   int code = 400;
   // Parsed on the loop task too: its stack has the room, the server task's has little.
@@ -509,7 +510,7 @@ void WebScheduleEditor::handle_document_(AsyncWebServerRequest *request, bool im
     this->reset_body_();
     // A save's id picks the schedule to replace, none or "" creates one; an import's
     // replaces one or creates it under that id.
-    const std::string id = config.id;
+    const std::string id(config.id);
     const bool replaces = !id.empty() && this->engine_->get(id) != nullptr;
     const Result result = importing    ? this->engine_->restore(std::move(config))
                           : id.empty() ? this->engine_->create(std::move(config))
@@ -541,7 +542,7 @@ void WebScheduleEditor::handle_delete_(AsyncWebServerRequest *request) {
   std::string id;
   if (!this->read_id_(request, id))
     return;
-  JsonDocument answer;
+  JsonDocument answer(this->json_allocator_());
   std::string error;
   int code = 400;
   const bool ran = this->engine_->run_on_loop([&]() {
@@ -579,7 +580,7 @@ void WebScheduleEditor::handle_enable_(AsyncWebServerRequest *request) {
     return;
   if (request->hasParam("take_over") && !this->read_bool_(request, "take_over", take_over))
     return;
-  JsonDocument answer;
+  JsonDocument answer(this->json_allocator_());
   std::string error;
   int code = 400;
   const bool ran = this->engine_->run_on_loop([&]() {

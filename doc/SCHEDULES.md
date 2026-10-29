@@ -125,8 +125,9 @@ and since when, and its next switch point, for one switched off too.
 - The device's free memory. A Save or an import that would leave too little is refused with
   `Not enough free memory on the device to save this schedule`, and nothing changes. A boot
   stops loading schedules before memory runs short and leaves the rest of the files as they are;
-  the log names each one. With eight thermostats that is about seven schedules of the largest
-  kind, while ordinary ones fit sixteen.
+  the log names each one. The schedules live in the board's PSRAM, so sixteen of the largest
+  kind fit beside eight thermostats; a board whose PSRAM does not come up holds about six of
+  them, while ordinary ones still fit sixteen.
 
 The editor's `schema` route reports the limits of the firmware at hand and the colours a mode
 may have.

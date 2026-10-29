@@ -5,7 +5,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
+#include "schedule_memory.h"
 
 namespace esphome::schedules {
 
@@ -49,7 +51,9 @@ const char *color_to_string(uint8_t color);
 /// A relay or a thermostat the schedule's actions name, kept once per schedule.
 struct Target {
   TargetType type{TargetType::RELAY};
-  std::string id;
+  PsramString id;
+  Target() = default;
+  Target(TargetType type, std::string_view id) : type(type), id(id) {}
   bool operator==(const Target &other) const { return this->type == other.type && this->id == other.id; }
 };
 
@@ -72,8 +76,8 @@ struct Action {
 /// ScheduleConfig::actions.
 struct Mode {
   /// [a-z0-9-], unique in the schedule; points name the mode by it, so a rename keeps it.
-  std::string id;
-  std::string name;
+  PsramString id;
+  PsramString name;
   /// 0 for none, else one more than its index in COLOR_KEYS.
   uint8_t color{0};
   uint8_t first{0};
@@ -90,24 +94,25 @@ struct Point {
 
 /// The stored document of one schedule, without the JSON: the modes' actions in one list,
 /// what they drive and the preset keys they name each kept once, the week one sorted list.
+/// Its strings and lists are PSRAM first, as they grow with the document.
 struct ScheduleConfig {
   /// SCHEDULE_VERSION, or the higher one of a file a newer firmware wrote.
   uint16_t version{SCHEDULE_VERSION};
   /// Moves on at every change of the document, so a Save of a form read before one is refused
   /// rather than undo it. 0 in a new one and in a file without it.
   uint32_t revision{0};
-  std::string id;
-  std::string name;
+  PsramString id;
+  PsramString name;
   bool enabled{true};
-  std::vector<Mode> modes;
+  PsramVector<Mode> modes;
   /// Every mode's actions, mode by mode.
-  std::vector<Action> actions;
+  PsramVector<Action> actions;
   /// What the actions drive, each once, in the order the modes first name them.
-  std::vector<Target> targets;
+  PsramVector<Target> targets;
   /// The preset keys the actions name, each once.
-  std::vector<std::string> preset_keys;
+  PsramVector<PsramString> preset_keys;
   /// Sorted by minute_of_week.
-  std::vector<Point> points;
+  PsramVector<Point> points;
 
   /// Key order is fixed and all seven days are written, so a golden test can compare byte for byte.
   void serialize(JsonObject root) const;
@@ -137,21 +142,20 @@ struct ScheduleConfig {
 
   void sort_points();
   /// Builders for C++: a mode, then its actions, which go to the mode added last.
-  void add_mode(const std::string &id, const std::string &name, uint8_t color = 0);
-  void add_relay(const std::string &relay, bool on);
-  void add_thermostat(const std::string &thermostat, ValueType value, const std::string &preset = "",
-                      float target = NAN);
+  void add_mode(std::string_view id, std::string_view name, uint8_t color = 0);
+  void add_relay(std::string_view relay, bool on);
+  void add_thermostat(std::string_view thermostat, ValueType value, std::string_view preset = "", float target = NAN);
   void add_wait(uint32_t seconds);
   /// Appends a point after any at the same minute, which validate() refuses.
   void add_point(uint16_t minute_of_week, uint8_t mode);
 
   const Action &action(const Mode &mode, size_t index) const { return this->actions[mode.first + index]; }
   /// A PRESET action's key, "" for any other.
-  const std::string &preset_of(const Action &action) const;
+  const PsramString &preset_of(const Action &action) const;
   /// What a RELAY or THERMOSTAT action drives.
   const Target &target_of(const Action &action) const { return this->targets[action.target]; }
   /// The index of the mode with this id, -1 for none.
-  int mode_index(const std::string &id) const;
+  int mode_index(std::string_view id) const;
   bool names_target(const Target &target) const;
 
   /// The point whose mode holds at `minute_of_week`: the last one at or before it, or, before
@@ -160,7 +164,7 @@ struct ScheduleConfig {
   /// The first point after `minute_of_week`, going round into next week. nullptr for no points.
   const Point *next_after(uint16_t minute_of_week) const;
 
-  /// About what the schedule holds on the heap, for the engine's room checks.
+  /// About what the schedule holds in PSRAM, or on the heap without it, for the room checks.
   size_t heap_bytes() const;
 
   /// Written by a newer firmware: this one must not write it back.
@@ -168,26 +172,26 @@ struct ScheduleConfig {
 
  protected:
   Action &append_(ActionType type);
-  uint8_t target_index_(TargetType type, const std::string &id);
-  uint8_t preset_index_(const std::string &key);
+  uint8_t target_index_(TargetType type, std::string_view id);
+  uint8_t preset_index_(std::string_view key);
 };
 
 /// Reduces a name to [a-z0-9-], collapsed and trimmed, at most ID_MAX_LENGTH characters;
 /// `fallback` when nothing survives, as of a Cyrillic name.
-std::string slugify_id(const std::string &name, const char *fallback = "schedule");
+std::string slugify_id(std::string_view name, const char *fallback = "schedule");
 /// `base` with "-<n>" appended, cut so the whole stays within ID_MAX_LENGTH; n < 2 is `base`.
 std::string id_with_suffix(const std::string &base, unsigned n);
 /// The rules an id read from outside meets: present, and a slug.
-bool validate_id(const std::string &id, std::string *error);
+bool validate_id(std::string_view id, std::string *error);
 
 /// The name with surrounding ASCII whitespace removed.
-std::string trim_name(const std::string &name);
+std::string trim_name(std::string_view name);
 /// The name rules on a trimmed name: 1..NAME_MAX_LENGTH characters of valid UTF-8, no control
 /// characters, neither '/' nor '\'.
-bool validate_name(const std::string &name, std::string *error);
+bool validate_name(std::string_view name, std::string *error);
 /// The name as a person reads it: inner whitespace collapsed, ASCII lowercased.
-std::string name_key(const std::string &name);
+std::string name_key(std::string_view name);
 /// At most `chars` characters of valid UTF-8 `text`, never half of one.
-std::string cut_chars(const std::string &text, size_t chars);
+std::string cut_chars(std::string_view text, size_t chars);
 
 }  // namespace esphome::schedules

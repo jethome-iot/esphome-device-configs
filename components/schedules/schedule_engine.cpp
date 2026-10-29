@@ -90,6 +90,9 @@ static Result failure(uint16_t code, std::string error) {
   return result;
 }
 
+// A fake heap may say SIZE_MAX.
+static size_t saturating_add(size_t a, size_t b) { return a > SIZE_MAX - b ? SIZE_MAX : a + b; }
+
 static Result success() {
   Result result;
   result.ok = true;
@@ -199,7 +202,7 @@ static std::string lower_first(std::string text) {
 static std::string describe(const ScheduleConfig &config, const Action &action) {
   switch (action.value) {
     case ValueType::PRESET:
-      return "preset '" + config.preset_of(action) + "'";
+      return "preset '" + std::string(config.preset_of(action)) + "'";
     case ValueType::TARGET: {
       char text[64];
       snprintf(text, sizeof(text), "target %.1f", action.number);
@@ -283,7 +286,7 @@ void ScheduleEngine::tick_() {
 void ScheduleEngine::start_all_(const char *why) {
   std::vector<std::string> ids;
   for (const auto &entry : this->entries_)
-    ids.push_back(entry->config.id);
+    ids.emplace_back(entry->config.id);
   for (const std::string &id : ids)
     this->start_(id, why);
 }
@@ -318,7 +321,7 @@ void ScheduleEngine::run_(const std::string &id, uint8_t mode, const char *why) 
   entry->mode = static_cast<int8_t>(mode);
   ESP_LOGI(TAG, "Schedule '%s' (%s): mode '%s'", entry->config.name.c_str(), why,
            entry->config.modes[mode].name.c_str());
-  this->advance_(entry->config.id);
+  this->advance_(std::string(entry->config.id));
 }
 
 void ScheduleEngine::advance_(std::string id) {
@@ -406,10 +409,10 @@ bool ScheduleEngine::thermostat_ready_(const std::string &thermostat, const std:
 // document takes the values and stays stopped, a relay it holds and a calibration as for a rule.
 void ScheduleEngine::apply_thermostat_(Entry &entry, const Action &action, uint8_t index) {
   // Copies: the hub's calls below may change the entry.
-  const std::string id = entry.config.id;
-  const std::string name = entry.config.name;
-  const std::string target = entry.config.target_of(action).id;
-  const std::string key = entry.config.preset_of(action);
+  const std::string id(entry.config.id);
+  const std::string name(entry.config.name);
+  const std::string target(entry.config.target_of(action).id);
+  const std::string key(entry.config.preset_of(action));
   const uint32_t run = entry.run;
 #ifdef USE_CLIMATE_HUB
   climate_hub::ClimateHub *hub = global_climate_hub;
@@ -468,7 +471,7 @@ void ScheduleEngine::on_climate_change_(const std::string &climate_id) {
     // The actions on it the list passed: whether one it lost can go in now, and which cannot.
     const Mode &mode = entry->config.modes[entry->mode];
     bool back = false;
-    std::vector<uint8_t> lost;
+    PsramVector<uint8_t> lost;
     for (const uint8_t index : entry->lost) {
       const Action &action = entry->config.action(mode, index);
       if (action.target != target)
@@ -480,7 +483,7 @@ void ScheduleEngine::on_climate_change_(const std::string &climate_id) {
         continue;
       const auto index = static_cast<uint8_t>(i);
       const bool was_lost = std::find(entry->lost.begin(), entry->lost.end(), index) != entry->lost.end();
-      if (!this->thermostat_ready_(climate_id, entry->config.preset_of(action))) {
+      if (!this->thermostat_ready_(climate_id, std::string(entry->config.preset_of(action)))) {
         lost.push_back(index);
       } else if (was_lost) {
         back = true;
@@ -490,7 +493,7 @@ void ScheduleEngine::on_climate_change_(const std::string &climate_id) {
     if (!back)
       continue;
     // From inside the hub's own change: the values go in once the loop calls the hub again.
-    const std::string id = entry->config.id;
+    const std::string id(entry->config.id);
     const uint32_t run = entry->run;
     this->later_([this, id, run, target]() { this->reapply_(id, run, target); });
   }
@@ -517,7 +520,7 @@ void ScheduleEngine::on_released_(switch_::Switch *sw) {
     for (size_t t = 0; t < entry->switches.size(); t++) {
       if (entry->switches[t] != sw)
         continue;
-      const std::string id = entry->config.id;
+      const std::string id(entry->config.id);
       const uint32_t run = entry->run;
       const auto target = static_cast<uint8_t>(t);
       // Inside the holder's own change: the relay moves once that is done.
@@ -581,31 +584,31 @@ bool ScheduleEngine::load_() {
     // setup() runs before the loop feeds the watchdog.
     App.feed_wdt();
     if (this->load_file_(folder, name) == Load::NO_MEMORY) {
-      const HeapRoom heap = this->heap_();
-      ESP_LOGW(TAG, "'%s' left alone: not enough free memory (%u bytes free, %u in one block)", name.c_str(),
-               static_cast<unsigned>(heap.free), static_cast<unsigned>(heap.largest_block));
+      ESP_LOGW(TAG, "'%s' left alone: not enough free memory (%s)", name.c_str(), this->room_text_().c_str());
       this->left_for_heap_ = 1;
     }
   }
   for (auto &entry : this->entries_)
     this->resolve_(*entry);
   this->refresh_();
-  const HeapRoom heap = this->heap_();
-  ESP_LOGD(TAG, "Loaded %u schedules from '%s'; heap %u bytes free, %u in one block",
-           static_cast<unsigned>(this->entries_.size()), folder.c_str(), static_cast<unsigned>(heap.free),
-           static_cast<unsigned>(heap.largest_block));
+  ESP_LOGD(TAG, "Loaded %u schedules from '%s'; heap %s", static_cast<unsigned>(this->entries_.size()), folder.c_str(),
+           this->room_text_().c_str());
   return true;
 }
 
-// At boot nothing else allocates yet, so the heap shows what the schedules took.
-static bool boot_room(const HeapRoom &heap) {
-  return heap.free >= BOOT_HEAP_FLOOR_BYTES && heap.largest_block >= BOOT_HEAP_FLOOR_BLOCK;
+// At boot nothing else allocates yet, so the heaps show what the schedules took.
+bool ScheduleEngine::boot_room_() const {
+  const HeapRoom heap = this->heap_();
+  if (heap.free < BOOT_HEAP_FLOOR_BYTES || heap.largest_block < BOOT_HEAP_FLOOR_BLOCK)
+    return false;
+  const optional<HeapRoom> psram = this->psram_();
+  return !psram.has_value() || (psram->free >= PSRAM_RESERVE_BYTES && psram->largest_block >= PSRAM_RESERVE_BLOCK);
 }
 
 // A file that is refused stays exactly as it is: the folder is writable by hand and over the
 // file API, and the file is the only record of what its author meant.
 ScheduleEngine::Load ScheduleEngine::load_file_(const std::string &folder, const std::string &filename) {
-  if (!boot_room(this->heap_()))
+  if (!this->boot_room_())
     return Load::NO_MEMORY;
   const std::string path = folder + "/" + filename;
   const std::string stem = filename.substr(0, filename.size() - 5);
@@ -642,7 +645,7 @@ ScheduleEngine::Load ScheduleEngine::load_file_(const std::string &folder, const
     }
   }
   // What the schedule keeps, the parsed file gone.
-  if (!boot_room(this->heap_()))
+  if (!this->boot_room_())
     return Load::NO_MEMORY;
   if (config.id != stem) {
     ESP_LOGE(TAG, "'%s' refused: its id '%s' is not its file name", path.c_str(), config.id.c_str());
@@ -669,7 +672,7 @@ ScheduleEngine::Load ScheduleEngine::load_file_(const std::string &folder, const
 void ScheduleEngine::resolve_name_(ScheduleConfig *config) {
   if (!this->is_name_taken(config->name, config->id, nullptr))
     return;
-  const std::string original = config->name;
+  const std::string original(config->name);
   // One of max_schedules + 1 candidates is free whatever the others are called.
   std::string candidate;
   for (unsigned n = 2; candidate.empty() || this->is_name_taken(candidate, config->id, nullptr); n++) {
@@ -712,7 +715,7 @@ bool ScheduleEngine::run_on_loop(std::function<bool()> &&job) {
   return this->dispatcher_.run_on_loop(this, std::move(job));
 }
 
-ScheduleEngine::Entry *ScheduleEngine::find_(const std::string &id) const {
+ScheduleEngine::Entry *ScheduleEngine::find_(std::string_view id) const {
   for (const auto &entry : this->entries_) {
     if (entry->config.id == id)
       return entry.get();
@@ -727,7 +730,7 @@ std::vector<const ScheduleConfig *> ScheduleEngine::schedules() const {
   return out;
 }
 
-const ScheduleConfig *ScheduleEngine::get(const std::string &id) const {
+const ScheduleConfig *ScheduleEngine::get(std::string_view id) const {
   const Entry *entry = this->find_(id);
   return entry == nullptr ? nullptr : &entry->config;
 }
@@ -741,9 +744,15 @@ bool ScheduleEngine::document(const std::string &id, JsonDocument &doc) const {
   return true;
 }
 
+// `more` lands where a document does: in PSRAM, or on the internal heap without it.
 bool ScheduleEngine::has_heap_room(size_t more) const {
   const HeapRoom heap = this->heap_();
-  return heap.free >= HEAP_RESERVE_BYTES + more && heap.largest_block >= HEAP_RESERVE_BLOCK;
+  const optional<HeapRoom> psram = this->psram_();
+  const size_t internal_more = psram.has_value() ? 0 : more;
+  if (heap.free < HEAP_RESERVE_BYTES + internal_more || heap.largest_block < HEAP_RESERVE_BLOCK)
+    return false;
+  return !psram.has_value() ||
+         (psram->free >= PSRAM_RESERVE_BYTES + more && psram->largest_block >= PSRAM_RESERVE_BLOCK);
 }
 
 HeapRoom ScheduleEngine::heap_() const {
@@ -759,10 +768,36 @@ HeapRoom ScheduleEngine::heap_() const {
   return heap;
 }
 
+optional<HeapRoom> ScheduleEngine::psram_() const {
+#ifdef USE_ESP32
+  // Where RAMAllocator puts what it can; a board whose PSRAM did not come up has none.
+  if (heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0) {
+    HeapRoom psram;
+    psram.free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    psram.largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+    return psram;
+  }
+#endif
+  return nullopt;
+}
+
+std::string ScheduleEngine::room_text_() const {
+  const HeapRoom heap = this->heap_();
+  char text[112];
+  int n = snprintf(text, sizeof(text), "%u bytes free, %u in one block", static_cast<unsigned>(heap.free),
+                   static_cast<unsigned>(heap.largest_block));
+  const optional<HeapRoom> psram = this->psram_();
+  if (psram.has_value() && n > 0 && static_cast<size_t>(n) < sizeof(text)) {
+    snprintf(text + n, sizeof(text) - n, "; PSRAM %u free, %u in one block", static_cast<unsigned>(psram->free),
+             static_cast<unsigned>(psram->largest_block));
+  }
+  return text;
+}
+
 void ScheduleEngine::resolve_(Entry &entry) {
   entry.switches.clear();
   for (const Target &target : entry.config.targets)
-    entry.switches.push_back(target.type == TargetType::RELAY ? find_switch(target.id) : nullptr);
+    entry.switches.push_back(target.type == TargetType::RELAY ? find_switch(std::string(target.id)) : nullptr);
 }
 
 const ScheduleEngine::Entry *ScheduleEngine::holder_(const Target &target) const {
@@ -792,13 +827,13 @@ std::vector<std::string> ScheduleEngine::refresh_() {
     if (was && !entry->active)
       this->cancel_(*entry);
     if (entry->active && !was)
-      started.push_back(entry->config.id);
+      started.emplace_back(entry->config.id);
   }
   return started;
 }
 
 std::vector<Issue> ScheduleEngine::issues_(const ScheduleConfig &config,
-                                           const std::vector<switch_::Switch *> &switches) const {
+                                           const PsramVector<switch_::Switch *> &switches) const {
   std::vector<Issue> issues;
   for (size_t m = 0; m < config.modes.size(); m++) {
     const Mode &mode = config.modes[m];
@@ -809,7 +844,7 @@ std::vector<Issue> ScheduleEngine::issues_(const ScheduleConfig &config,
       Issue issue;
       issue.mode = static_cast<uint8_t>(m);
       issue.action = static_cast<uint8_t>(i);
-      const std::string &id = config.target_of(action).id;
+      const std::string id(config.target_of(action).id);
       if (action.type == ActionType::RELAY) {
         switch_::Switch *sw = action.target < switches.size() ? switches[action.target] : nullptr;
         if (sw == nullptr) {
@@ -835,9 +870,11 @@ std::vector<Issue> ScheduleEngine::issues_(const ScheduleConfig &config,
           issue.kind = IssueKind::MISSING_THERMOSTAT;
           issue.text = "Thermostat \"" + id + "\" is not on this device";
           issues.push_back(std::move(issue));
-        } else if (action.value == ValueType::PRESET && thermostat->find_preset(config.preset_of(action)) == nullptr) {
+        } else if (action.value == ValueType::PRESET &&
+                   thermostat->find_preset(std::string(config.preset_of(action))) == nullptr) {
           issue.kind = IssueKind::MISSING_PRESET;
-          issue.text = "Thermostat \"" + thermostat->name + "\" has no preset \"" + config.preset_of(action) + "\"";
+          issue.text =
+              "Thermostat \"" + thermostat->name + "\" has no preset \"" + std::string(config.preset_of(action)) + "\"";
           issues.push_back(std::move(issue));
         }
         continue;
@@ -851,7 +888,7 @@ std::vector<Issue> ScheduleEngine::issues_(const ScheduleConfig &config,
   return issues;
 }
 
-ScheduleStatus ScheduleEngine::status(const std::string &id) const {
+ScheduleStatus ScheduleEngine::status(std::string_view id) const {
   ScheduleStatus status;
   const Entry *entry = this->find_(id);
   if (entry == nullptr)
@@ -872,7 +909,7 @@ ScheduleStatus ScheduleEngine::status(const std::string &id) const {
     for (const Target &target : entry->config.targets) {
       const Entry *holder = this->holder_(target);
       if (holder != nullptr && holder->config.id < entry->config.id) {
-        status.reason = "Schedule \"" + holder->config.name + "\" drives " + this->target_name(target);
+        status.reason = "Schedule \"" + std::string(holder->config.name) + "\" drives " + this->target_name(target);
         break;
       }
     }
@@ -884,7 +921,7 @@ ScheduleStatus ScheduleEngine::status(const std::string &id) const {
   for (const Target &target : entry->config.targets) {
     const climate_hub::ClimateConfig *thermostat =
         target.type == TargetType::THERMOSTAT && global_climate_hub != nullptr
-            ? global_climate_hub->store().get(target.id)
+            ? global_climate_hub->store().get(std::string(target.id))
             : nullptr;
     if (thermostat != nullptr && !thermostat->enabled) {
       status.note = "Thermostat \"" + thermostat->name + "\" is stopped; it starts in the scheduled values";
@@ -898,19 +935,19 @@ ScheduleStatus ScheduleEngine::status(const std::string &id) const {
 std::string ScheduleEngine::target_name(const Target &target) const {
   if (target.type == TargetType::RELAY) {
 #ifdef USE_SWITCH
-    const switch_::Switch *sw = find_switch(target.id);
+    const switch_::Switch *sw = find_switch(std::string(target.id));
     if (sw != nullptr)
       return sw->get_name().c_str();
 #endif
-    return target.id;
+    return std::string(target.id);
   }
 #ifdef USE_CLIMATE_HUB
   const climate_hub::ClimateConfig *thermostat =
-      global_climate_hub != nullptr ? global_climate_hub->store().get(target.id) : nullptr;
+      global_climate_hub != nullptr ? global_climate_hub->store().get(std::string(target.id)) : nullptr;
   if (thermostat != nullptr)
     return thermostat->name;
 #endif
-  return target.id;
+  return std::string(target.id);
 }
 
 bool ScheduleEngine::now_and_next(const ScheduleConfig &config, PointRef *now, PointRef *next) const {
@@ -946,7 +983,7 @@ bool ScheduleEngine::clock_text(std::string *day, std::string *time) {
 
 std::string ScheduleEngine::scheduled_by(TargetType type, const std::string &id) const {
   const Entry *holder = this->holder_(Target{type, id});
-  return holder == nullptr ? "" : holder->config.id;
+  return holder == nullptr ? std::string() : std::string(holder->config.id);
 }
 
 std::vector<RelayTarget> ScheduleEngine::relay_targets() const {
@@ -998,12 +1035,12 @@ std::vector<ThermostatTarget> ScheduleEngine::thermostat_targets() const {
   return out;
 }
 
-bool ScheduleEngine::is_name_taken(const std::string &name, const std::string &exclude_id, std::string *error) const {
+bool ScheduleEngine::is_name_taken(std::string_view name, std::string_view exclude_id, std::string *error) const {
   const std::string key = name_key(name);
   for (const auto &entry : this->entries_) {
     if (entry->config.id != exclude_id && name_key(entry->config.name) == key) {
       if (error != nullptr)
-        *error = "\"" + name + "\" is already used by another schedule";
+        *error = "\"" + std::string(name) + "\" is already used by another schedule";
       return true;
     }
   }
@@ -1020,22 +1057,23 @@ bool ScheduleEngine::refuse_if_failed_(Result *result) const {
 }
 
 bool ScheduleEngine::keeps_room_(const ScheduleConfig &doc, const ScheduleConfig *replaced) const {
-  // `doc` is on the heap already; what it replaces goes once it is stored.
-  const size_t freed = replaced != nullptr ? replaced->heap_bytes() : 0;
-  const HeapRoom heap = this->heap_();
-  if (heap.free == SIZE_MAX || heap.free + freed >= HEAP_KEEP_BYTES)
+  // `doc` is held already; what it replaces goes once it is stored, back to the internal heap
+  // only without PSRAM. PSRAM's reserve is kept at the peak, in save_().
+  const size_t freed = replaced != nullptr && !this->psram_().has_value() ? replaced->heap_bytes() : 0;
+  const size_t internal = saturating_add(this->heap_().free, freed);
+  if (internal >= HEAP_KEEP_BYTES)
     return true;
   ESP_LOGE(TAG, "'%s' not written: it would leave %u bytes free, under %u", doc.id.c_str(),
-           static_cast<unsigned>(heap.free + freed), static_cast<unsigned>(HEAP_KEEP_BYTES));
+           static_cast<unsigned>(internal), static_cast<unsigned>(HEAP_KEEP_BYTES));
   return false;
 }
 
-bool ScheduleEngine::check_target_free_(const ScheduleConfig &doc, const std::string &self_id, Result *result) const {
+bool ScheduleEngine::check_target_free_(const ScheduleConfig &doc, std::string_view self_id, Result *result) const {
   for (const Target &target : doc.targets) {
     const Entry *holder = this->holder_(target);
     if (holder == nullptr || holder->config.id == self_id)
       continue;
-    *result = failure(409, "\"" + holder->config.name + "\" already drives " + this->target_name(target) +
+    *result = failure(409, "\"" + std::string(holder->config.name) + "\" already drives " + this->target_name(target) +
                                "; switch it off first or take over");
     result->holder = holder->config.id;
     return false;
@@ -1059,7 +1097,7 @@ Result ScheduleEngine::create(ScheduleConfig draft) {
     return failure(409, error);
   draft.id = this->next_id_(draft.name);
   if (draft.id.empty())
-    return failure(409, "Every id made from \"" + draft.name +
+    return failure(409, "Every id made from \"" + std::string(draft.name) +
                             "\" is taken by a file in the schedule folder; choose another name");
   if (draft.enabled && !this->check_target_free_(draft, draft.id, &result))
     return result;
@@ -1130,7 +1168,8 @@ Result ScheduleEngine::restore(ScheduleConfig doc) {
     return failure(409, error);
   // As at create: a file the loader refused is the only record of what its author meant.
   if (stored == nullptr && file_exists(this->file_path_(doc.id)))
-    return failure(409, "The id \"" + doc.id + "\" is taken by a file in the schedule folder that was not loaded");
+    return failure(
+        409, "The id \"" + std::string(doc.id) + "\" is taken by a file in the schedule folder that was not loaded");
   if (doc.enabled && !this->check_target_free_(doc, doc.id, &result))
     return result;
   doc.version = SCHEDULE_VERSION;
@@ -1151,12 +1190,12 @@ Result ScheduleEngine::add_(ScheduleConfig doc, const char *verb) {
   entry->config = std::move(doc);
   entry->timer = this->next_timer_++;
   entry->run = this->next_run_++;
-  const std::string id = entry->config.id;
+  const std::string id(entry->config.id);
   ESP_LOGD(TAG, "%s '%s' (%s)", verb, entry->config.name.c_str(), id.c_str());
   this->resolve_(*entry);
-  auto at =
-      std::upper_bound(this->entries_.begin(), this->entries_.end(), id,
-                       [](const std::string &key, const std::unique_ptr<Entry> &e) { return key < e->config.id; });
+  auto at = std::upper_bound(
+      this->entries_.begin(), this->entries_.end(), id,
+      [](const std::string &key, const std::unique_ptr<Entry> &e) { return key < std::string_view(e->config.id); });
   this->entries_.insert(at, std::move(entry));
   Result result = success();
   result.id = id;
@@ -1169,7 +1208,7 @@ Result ScheduleEngine::replace_(Entry *stored, ScheduleConfig doc, const char *v
   this->cancel_(*stored);
   stored->config = std::move(doc);
   this->resolve_(*stored);
-  const std::string id = stored->config.id;
+  const std::string id(stored->config.id);
   ESP_LOGD(TAG, "%s '%s' (%s)", verb, stored->config.name.c_str(), id.c_str());
   Result result = success();
   result.id = id;
@@ -1185,7 +1224,7 @@ void ScheduleEngine::settle_(const std::string &id, bool save, Result *result) {
     for (const Issue &issue : this->issues_(own->config, own->switches)) {
       if (issue.kind == IssueKind::HELD)
         continue;
-      result->warning = "skips mode \"" + own->config.modes[issue.mode].name + "\", action " +
+      result->warning = "skips mode \"" + std::string(own->config.modes[issue.mode].name) + "\", action " +
                         std::to_string(issue.action + 1) + ": " + lower_first(issue.text);
       ESP_LOGW(TAG, "'%s' saved but %s", id.c_str(), result->warning.c_str());
       break;
@@ -1257,7 +1296,7 @@ Result ScheduleEngine::set_enabled(const std::string &id, bool enabled, bool tak
       other->config.revision++;
       result.persisted = !in_memory && this->save_(other->config) && result.persisted;
       ESP_LOGI(TAG, "'%s' took over from '%s'", id.c_str(), other->config.id.c_str());
-      result.stopped.push_back(other->config.id);
+      result.stopped.emplace_back(other->config.id);
     }
   }
   if (!stored->config.enabled) {
@@ -1273,7 +1312,9 @@ Result ScheduleEngine::set_enabled(const std::string &id, bool enabled, bool tak
 
 std::string ScheduleEngine::folder_() const { return this->storage_->get_base_path() + "/" + this->folder_path_; }
 
-std::string ScheduleEngine::file_path_(const std::string &id) const { return this->folder_() + "/" + id + ".json"; }
+std::string ScheduleEngine::file_path_(std::string_view id) const {
+  return this->folder_() + "/" + std::string(id) + ".json";
+}
 
 bool ScheduleEngine::ensure_folder_() {
   const std::string path = this->folder_();
@@ -1284,7 +1325,7 @@ bool ScheduleEngine::ensure_folder_() {
 }
 
 // A file the loader refused still holds its id: a new schedule never writes over it.
-std::string ScheduleEngine::next_id_(const std::string &name) const {
+std::string ScheduleEngine::next_id_(std::string_view name) const {
   const std::string base = slugify_id(name);
   for (unsigned n = 1; n <= MAX_ID_SUFFIX; n++) {
     const std::string candidate = id_with_suffix(base, n);
@@ -1315,9 +1356,7 @@ bool ScheduleEngine::save_(const ScheduleConfig &config, EncodeError *why, bool 
     return false;
   }
   if (encoded == EncodeError::NO_MEMORY) {
-    const HeapRoom heap = this->heap_();
-    ESP_LOGE(TAG, "'%s' not written: not enough free memory (%u bytes free, %u in one block)", config.id.c_str(),
-             static_cast<unsigned>(heap.free), static_cast<unsigned>(heap.largest_block));
+    ESP_LOGE(TAG, "'%s' not written: not enough free memory (%s)", config.id.c_str(), this->room_text_().c_str());
     return false;
   }
   if (!this->ensure_folder_()) {

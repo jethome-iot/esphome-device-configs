@@ -6,7 +6,7 @@
 //   run_on_loop(job), is_failed(), max_schedules()
 //   Reads, for the list and the editor:
 //     schedules(), get(id)            the documents, sorted by id; document(id, doc) as the JSON a Save takes
-//     has_heap_room(more)             whether a change may take `more` and keep the reserve
+//     has_heap_room(more)             whether a change may take `more` PSRAM first and keep the reserves
 //     target_name(target)             a relay's or a thermostat's name, its id when it is not there
 //     status(id)                      ScheduleStatus: state, reason, note, and the issues of its actions
 //     now_and_next(config, &a, &b)    the points in force and next, false while the clock is not valid;
@@ -20,6 +20,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 #include "esphome/components/filesystem_storage_abstract/filesystem_storage_abstract.h"
 #include "esphome/components/loop_job/loop_job.h"
@@ -28,6 +29,7 @@
 #include "esphome/core/optional.h"
 #include "esphome/core/time.h"
 #include "schedule_config.h"
+#include "schedule_memory.h"
 
 namespace esphome {
 
@@ -41,6 +43,10 @@ class Switch;
 
 namespace schedules {
 
+// The schedules and their documents are PSRAM first (schedule_memory.h). The HEAP_* limits guard
+// the internal heap, which also holds them on a board without PSRAM; PSRAM_RESERVE_* guards
+// PSRAM where there is some.
+
 /// Internal heap the boot keeps after each schedule it loads. The services that start after it
 /// take about 56 KiB for good, and the update check's TLS session about 50 KiB more for a while
 /// (QEMU, Ethernet): under this the device runs out during that check.
@@ -53,14 +59,18 @@ static constexpr size_t HEAP_KEEP_BYTES = 106 * 1024;
 /// server keep working through it.
 static constexpr size_t HEAP_RESERVE_BYTES = 40 * 1024;
 static constexpr size_t HEAP_RESERVE_BLOCK = 24 * 1024;
+/// PSRAM a boot, a Save or an import leaves to the rest of the firmware, which holds about 10 KB
+/// of it for good (QEMU) and at times one block of up to 16 KiB, the update check's manifest.
+static constexpr size_t PSRAM_RESERVE_BYTES = 64 * 1024;
+static constexpr size_t PSRAM_RESERVE_BLOCK = 16 * 1024;
 /// A body's parsed document and the schedule it becomes take about this many times the body
-/// (QEMU: 29 KB for a 16 KB worst case), so the room is checked before a parse begins.
+/// (QEMU: 27 KB beside a 16 KB worst-case body), so the room is checked before a parse begins.
 static constexpr size_t PARSE_HEAP_FACTOR = 2;
 
 /// A Save or an import the heap cannot take: 507.
 extern const char *const NO_MEMORY_TO_SAVE;
 
-/// Internal heap: what is free, and the largest block of it.
+/// One heap: what is free, and the largest block of it.
 struct HeapRoom {
   size_t free{0};
   size_t largest_block{0};
@@ -186,15 +196,15 @@ class ScheduleEngine : public Component {
   uint8_t max_schedules() const { return this->max_schedules_; }
   /// The documents, sorted by id.
   std::vector<const ScheduleConfig *> schedules() const;
-  const ScheduleConfig *get(const std::string &id) const;
+  const ScheduleConfig *get(std::string_view id) const;
   /// The document as its file holds it, into `doc`; false for an unknown id. Whether it lost
   /// members to a failed allocation is doc.overflowed().
   bool document(const std::string &id, JsonDocument &doc) const;
-  /// Whether the heap keeps HEAP_RESERVE_* now with `more` bytes taken: a Save checks it before
-  /// its parse and at its peak.
+  /// Whether the heaps keep their reserves now with `more` bytes taken PSRAM first, as a
+  /// document takes them: a Save checks it before its parse and at its peak.
   bool has_heap_room(size_t more = 0) const;
   /// Where the schedule stands, checked now.
-  ScheduleStatus status(const std::string &id) const;
+  ScheduleStatus status(std::string_view id) const;
   /// The relay's or the thermostat's name; its id when it is not on the device.
   std::string target_name(const Target &target) const;
   /// The point in force and the next one, the next even with the same mode. False while the
@@ -210,11 +220,11 @@ class ScheduleEngine : public Component {
   std::string scheduled_by(TargetType type, const std::string &id) const;
 
   /// Adds a schedule; its id is made from the name and the draft's ignored. Refused with 400 (a
-  /// rule broken), 507 (at max_schedules, or the heap would keep less than HEAP_KEEP_BYTES or
-  /// drop under HEAP_RESERVE_* on the way), 409 (name taken, every id the name gives taken by a
-  /// file, or enabled on a target another enabled schedule drives: `holder` names it), 413 or
-  /// 500 (not written). One whose actions name what the device does not have is saved, with a
-  /// `warning`. Enabled, it runs the list of the mode in force at once.
+  /// rule broken), 507 (at max_schedules, or the internal heap would keep less than
+  /// HEAP_KEEP_BYTES, or a heap would drop under its reserve on the way), 409 (name taken, every
+  /// id the name gives taken by a file, or enabled on a target another enabled schedule drives:
+  /// `holder` names it), 413 or 500 (not written). One whose actions name what the device does
+  /// not have is saved, with a `warning`. Enabled, it runs the list of the mode in force at once.
   Result create(ScheduleConfig draft);
   /// Replaces a schedule's document under its id: 404, 409 for a file a newer firmware wrote,
   /// otherwise as create(). Its list stops; enabled, the list of the mode in force runs again,
@@ -238,14 +248,20 @@ class ScheduleEngine : public Component {
   Result set_enabled(const std::string &id, bool enabled, bool take_over = false);
 
   /// Whether another schedule has this name, by name_key(); `exclude_id` never blocks itself.
-  bool is_name_taken(const std::string &name, const std::string &exclude_id, std::string *error) const;
+  bool is_name_taken(std::string_view name, std::string_view exclude_id, std::string *error) const;
 
  protected:
   struct Entry {
+    // PSRAM first, as the tables it holds.
+    static void *operator new(size_t size) { return PsramAllocator<uint8_t>().allocate(size); }
+    static void operator delete(void *ptr, size_t size) {
+      PsramAllocator<uint8_t>().deallocate(static_cast<uint8_t *>(ptr), size);
+    }
+
     ScheduleConfig config;
     /// Per target, the switch a relay target names; nullptr for a thermostat or a relay not on
     /// the device. Relays never come or go after the boot.
-    std::vector<switch_::Switch *> switches;
+    PsramVector<switch_::Switch *> switches;
     /// Enabled, and no target of it is driven by one before it by id: it drives them all, the
     /// ones not on the device too. One that waits drives none of its targets.
     bool active{false};
@@ -260,7 +276,7 @@ class ScheduleEngine : public Component {
     uint32_t run{0};
     /// The thermostat actions the list passed, by index, that did not reach their thermostat:
     /// once one of them can, the actions on that thermostat apply again.
-    std::vector<uint8_t> lost;
+    PsramVector<uint8_t> lost;
   };
   // The last tick's clock: local seconds, the loop's own count, and the minute seen last.
   struct ClockMark {
@@ -271,8 +287,10 @@ class ScheduleEngine : public Component {
 
   enum class Load : uint8_t { LOADED, REFUSED, NO_MEMORY };
   bool load_();
-  /// NO_MEMORY, nothing kept, when the heap is or would be under BOOT_HEAP_FLOOR_*.
+  /// NO_MEMORY, nothing kept, when the heaps are or would be under BOOT_HEAP_FLOOR_* or
+  /// PSRAM_RESERVE_*.
   Load load_file_(const std::string &folder, const std::string &filename);
+  bool boot_room_() const;
   void resolve_name_(ScheduleConfig *config);
 
   Result add_(ScheduleConfig doc, const char *verb);
@@ -289,13 +307,16 @@ class ScheduleEngine : public Component {
   /// The running entry that names `target`, nullptr for none.
   const Entry *holder_(const Target &target) const;
   /// 409 for `doc`, enabled, on a target another running schedule drives: the first such target.
-  bool check_target_free_(const ScheduleConfig &doc, const std::string &self_id, Result *result) const;
+  bool check_target_free_(const ScheduleConfig &doc, std::string_view self_id, Result *result) const;
   /// The actions of `config` the device would skip now; `switches` as Entry's.
-  std::vector<Issue> issues_(const ScheduleConfig &config, const std::vector<switch_::Switch *> &switches) const;
-  Entry *find_(const std::string &id) const;
+  std::vector<Issue> issues_(const ScheduleConfig &config, const PsramVector<switch_::Switch *> &switches) const;
+  Entry *find_(std::string_view id) const;
   bool refuse_if_failed_(Result *result) const;
-  /// Whether the heap keeps HEAP_KEEP_BYTES once `doc` is held and `replaced`, if any, is gone.
+  /// Whether the internal heap keeps HEAP_KEEP_BYTES once `doc` is held and `replaced`, if any,
+  /// is gone.
   bool keeps_room_(const ScheduleConfig &doc, const ScheduleConfig *replaced) const;
+  /// "160000 bytes free, 90000 in one block", and PSRAM's after it, for the log.
+  std::string room_text_() const;
 
   void tick_();
   void start_all_(const char *why);
@@ -332,18 +353,21 @@ class ScheduleEngine : public Component {
   }
   virtual void cancel_wait_(uint32_t timer) { this->cancel_timeout(timer); }
 
-  std::string next_id_(const std::string &name) const;
+  std::string next_id_(std::string_view name) const;
   std::string folder_() const;
-  std::string file_path_(const std::string &id) const;
+  std::string file_path_(std::string_view id) const;
   bool ensure_folder_();
   /// False, nothing written, when the write failed or a newer firmware wrote the file; `why`
   /// then says whether it was the size or the heap. `grows`: a change that keeps more in RAM,
-  /// refused as NO_MEMORY when its peak leaves the heap under HEAP_RESERVE_*.
+  /// refused as NO_MEMORY when its peak leaves a heap under its reserve.
   bool save_(const ScheduleConfig &config, EncodeError *why = nullptr, bool grows = false);
-  // Seams: every valid document fits the cap, and no host heap runs out.
+  // Seams: every valid document fits the cap, no host heap runs out, and a host has no PSRAM.
   virtual size_t max_file_bytes_() const { return MAX_FILE_BYTES; }
-  virtual ArduinoJson::Allocator *json_allocator_() const { return ArduinoJson::detail::DefaultAllocator::instance(); }
+  virtual ArduinoJson::Allocator *json_allocator_() const { return json_allocator(); }
+  /// The internal heap.
   virtual HeapRoom heap_() const;
+  /// PSRAM; none on a board without it.
+  virtual optional<HeapRoom> psram_() const;
   /// False when the file is still there to be loaded at the next boot.
   bool delete_file_(const std::string &id);
   // Seam: no host filesystem lets a test refuse one unlink.

@@ -71,6 +71,18 @@ TEST_F(Editor, ASaveNeedsRoomForItsParseOnTopOfTheReserve) {
   EXPECT_EQ(this->post("save", body).code, 200);
 }
 
+// With PSRAM the parse's room is PSRAM's, on top of its reserve.
+TEST_F(Editor, WithPsramASaveNeedsRoomForItsParseThere) {
+  const std::string body = porch();
+  engine().psram_free = schedules::PSRAM_RESERVE_BYTES + schedules::PARSE_HEAP_FACTOR * body.size() - 1;
+  Reply reply = this->post("save", body);
+  EXPECT_EQ(reply.code, 507);
+  EXPECT_EQ(reply.error(), NO_ROOM);
+  EXPECT_TRUE(this->files().empty());
+  engine().psram_free = schedules::PSRAM_RESERVE_BYTES + schedules::PARSE_HEAP_FACTOR * body.size();
+  EXPECT_EQ(this->post("save", body).code, 200);
+}
+
 TEST_F(Editor, AReadTheHeapCannotHoldIsBusyNotACrash) {
   this->create(porch());
   BudgetAllocator none(0);

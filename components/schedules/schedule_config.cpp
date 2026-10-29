@@ -75,7 +75,7 @@ std::string point_at(uint16_t minute_of_week) {
 
 // Decodes the character at `*i` and moves past it; false on anything that is not UTF-8,
 // overlong forms and surrogates included.
-bool next_char(const std::string &text, size_t *i, uint32_t *out) {
+bool next_char(std::string_view text, size_t *i, uint32_t *out) {
   const auto lead = static_cast<unsigned char>(text[*i]);
   size_t width;
   uint32_t value;
@@ -117,7 +117,7 @@ bool next_char(const std::string &text, size_t *i, uint32_t *out) {
 
 // The characters of `text`; false for one that is not UTF-8. `control` says whether a C0, DEL
 // or C1 character is among them.
-bool count_chars(const std::string &text, size_t *chars, bool *control) {
+bool count_chars(std::string_view text, size_t *chars, bool *control) {
   *chars = 0;
   *control = false;
   for (size_t i = 0; i < text.size(); (*chars)++) {
@@ -130,7 +130,7 @@ bool count_chars(const std::string &text, size_t *chars, bool *control) {
 }
 
 // The name rules of a mode, on a trimmed name, as the end of a sentence about it.
-bool check_mode_name(const std::string &name, const std::string &at, std::string *error) {
+bool check_mode_name(std::string_view name, const std::string &at, std::string *error) {
   if (name.empty())
     return fail(error, at + "name is required");
   size_t chars;
@@ -144,13 +144,13 @@ bool check_mode_name(const std::string &name, const std::string &at, std::string
   return true;
 }
 
-bool is_mode_id(const std::string &id) {
+bool is_mode_id(std::string_view id) {
   return !id.empty() && id.size() <= MODE_ID_MAX_LENGTH && std::all_of(id.begin(), id.end(), [](char c) {
     return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
   });
 }
 
-bool is_preset_key(const std::string &key) { return key.size() <= ID_MAX_LENGTH && slugify_id(key, "") == key; }
+bool is_preset_key(std::string_view key) { return key.size() <= ID_MAX_LENGTH && slugify_id(key, "") == key; }
 
 // A wait's seconds: whole, then in range.
 bool check_wait(double seconds, const std::string &at, std::string *error) {
@@ -162,7 +162,7 @@ bool check_wait(double seconds, const std::string &at, std::string *error) {
 }
 
 // A preset value's key, before it joins the table.
-bool check_preset(const std::string &key, const std::string &at, std::string *error) {
+bool check_preset(std::string_view key, const std::string &at, std::string *error) {
   if (key.empty())
     return fail(error, at + "preset is required");
   if (!is_preset_key(key))
@@ -171,7 +171,7 @@ bool check_preset(const std::string &key, const std::string &at, std::string *er
 }
 
 // The mode's sentences start with its name once it has one that holds.
-std::string mode_label(const std::string &name) { return "Mode \"" + name + "\""; }
+std::string mode_label(std::string_view name) { return "Mode \"" + std::string(name) + "\""; }
 
 bool by_minute(const Point &a, const Point &b) { return a.minute_of_week < b.minute_of_week; }
 
@@ -335,7 +335,7 @@ const char *value_type_to_string(ValueType type) { return VALUE_WORDS[static_cas
 
 const char *color_to_string(uint8_t color) { return color == 0 || color > COLOR_COUNT ? "" : COLOR_KEYS[color - 1]; }
 
-std::string slugify_id(const std::string &name, const char *fallback) {
+std::string slugify_id(std::string_view name, const char *fallback) {
   std::string out;
   out.reserve(name.size());
   bool prev_dash = false;
@@ -369,7 +369,7 @@ std::string id_with_suffix(const std::string &base, unsigned n) {
   return (head.empty() ? std::string("schedule") : head) + tail;
 }
 
-bool validate_id(const std::string &id, std::string *error) {
+bool validate_id(std::string_view id, std::string *error) {
   if (id.empty())
     return fail(error, "id is required");
   // The id becomes a path component: a hand-edited file could otherwise send the next save
@@ -379,17 +379,17 @@ bool validate_id(const std::string &id, std::string *error) {
   return true;
 }
 
-std::string trim_name(const std::string &name) {
+std::string trim_name(std::string_view name) {
   size_t begin = 0;
   size_t end = name.size();
   while (begin < end && is_ascii_space(name[begin]))
     begin++;
   while (end > begin && is_ascii_space(name[end - 1]))
     end--;
-  return name.substr(begin, end - begin);
+  return std::string(name.substr(begin, end - begin));
 }
 
-bool validate_name(const std::string &name, std::string *error) {
+bool validate_name(std::string_view name, std::string *error) {
   if (name.empty())
     return fail(error, "Name is required");
   size_t chars;
@@ -401,14 +401,14 @@ bool validate_name(const std::string &name, std::string *error) {
   if (control)
     return fail(error, "Name cannot contain control characters");
   // A URL segment cannot carry '/', and a browser turns '\' into one.
-  if (name.find('/') != std::string::npos)
+  if (name.find('/') != std::string_view::npos)
     return fail(error, "Name cannot contain '/'");
-  if (name.find('\\') != std::string::npos)
+  if (name.find('\\') != std::string_view::npos)
     return fail(error, "Name cannot contain '\\'");
   return true;
 }
 
-std::string name_key(const std::string &name) {
+std::string name_key(std::string_view name) {
   std::string out;
   out.reserve(name.size());
   bool pending_space = false;
@@ -427,14 +427,14 @@ std::string name_key(const std::string &name) {
   return out;
 }
 
-std::string cut_chars(const std::string &text, size_t chars) {
+std::string cut_chars(std::string_view text, size_t chars) {
   size_t i = 0;
   for (size_t n = 0; n < chars && i < text.size(); n++) {
     uint32_t c;
     if (!next_char(text, &i, &c))
       break;
   }
-  return text.substr(0, i);
+  return std::string(text.substr(0, i));
 }
 
 void ScheduleConfig::serialize(JsonObject root) const {
@@ -484,20 +484,20 @@ void ScheduleConfig::write_action(JsonObject obj, const Action &action) const {
 }
 
 // A string's own block, none while it fits inside the object; a block costs its header too.
-static size_t string_heap(const std::string &text) {
-  static const size_t INLINE = std::string().capacity();
+static size_t string_heap(const PsramString &text) {
+  static const size_t INLINE = PsramString().capacity();
   return text.capacity() > INLINE ? text.capacity() + 1 + 2 * sizeof(void *) : 0;
 }
 
 size_t ScheduleConfig::heap_bytes() const {
   size_t bytes = string_heap(this->id) + string_heap(this->name) + this->modes.capacity() * sizeof(Mode) +
                  this->actions.capacity() * sizeof(Action) + this->targets.capacity() * sizeof(Target) +
-                 this->preset_keys.capacity() * sizeof(std::string) + this->points.capacity() * sizeof(Point);
+                 this->preset_keys.capacity() * sizeof(PsramString) + this->points.capacity() * sizeof(Point);
   for (const Mode &mode : this->modes)
     bytes += string_heap(mode.id) + string_heap(mode.name);
   for (const Target &target : this->targets)
     bytes += string_heap(target.id);
-  for (const std::string &key : this->preset_keys)
+  for (const PsramString &key : this->preset_keys)
     bytes += string_heap(key);
   return bytes;
 }
@@ -606,7 +606,7 @@ bool ScheduleConfig::validate(std::string *error) const {
       return false;
     for (size_t other = 0; other < m; other++) {
       if (name_key(this->modes[other].name) == name_key(mode.name))
-        return fail(error, "Two modes are called \"" + mode.name + "\"");
+        return fail(error, "Two modes are called \"" + std::string(mode.name) + "\"");
     }
     const std::string label = mode_label(mode.name);
     if (mode.id.empty())
@@ -615,7 +615,7 @@ bool ScheduleConfig::validate(std::string *error) const {
       return fail(error, label + ": id must be at most 24 lowercase letters, digits and dashes");
     for (size_t other = 0; other < m; other++) {
       if (this->modes[other].id == mode.id)
-        return fail(error, "Two modes have the id \"" + mode.id + "\"");
+        return fail(error, "Two modes have the id \"" + std::string(mode.id) + "\"");
     }
     if (mode.color > COLOR_COUNT)
       return fail(error, label + ": " + color_rule());
@@ -659,7 +659,7 @@ void ScheduleConfig::trim_names() {
 
 void ScheduleConfig::sort_points() { std::stable_sort(this->points.begin(), this->points.end(), by_minute); }
 
-void ScheduleConfig::add_mode(const std::string &id, const std::string &name, uint8_t color) {
+void ScheduleConfig::add_mode(std::string_view id, std::string_view name, uint8_t color) {
   Mode mode;
   mode.id = id;
   mode.name = name;
@@ -677,7 +677,7 @@ Action &ScheduleConfig::append_(ActionType type) {
   return action;
 }
 
-uint8_t ScheduleConfig::target_index_(TargetType type, const std::string &id) {
+uint8_t ScheduleConfig::target_index_(TargetType type, std::string_view id) {
   Target target{type, id};
   auto it = std::find(this->targets.begin(), this->targets.end(), target);
   if (it == this->targets.end())
@@ -685,21 +685,21 @@ uint8_t ScheduleConfig::target_index_(TargetType type, const std::string &id) {
   return static_cast<uint8_t>(it - this->targets.begin());
 }
 
-uint8_t ScheduleConfig::preset_index_(const std::string &key) {
+uint8_t ScheduleConfig::preset_index_(std::string_view key) {
   auto it = std::find(this->preset_keys.begin(), this->preset_keys.end(), key);
   if (it == this->preset_keys.end())
-    it = this->preset_keys.insert(it, key);
+    it = this->preset_keys.insert(it, PsramString(key));
   return static_cast<uint8_t>(it - this->preset_keys.begin());
 }
 
-void ScheduleConfig::add_relay(const std::string &relay, bool on) {
+void ScheduleConfig::add_relay(std::string_view relay, bool on) {
   const uint8_t target = this->target_index_(TargetType::RELAY, relay);
   Action &action = this->append_(ActionType::RELAY);
   action.target = target;
   action.value = on ? ValueType::ON : ValueType::OFF;
 }
 
-void ScheduleConfig::add_thermostat(const std::string &thermostat, ValueType value, const std::string &preset,
+void ScheduleConfig::add_thermostat(std::string_view thermostat, ValueType value, std::string_view preset,
                                     float target) {
   const uint8_t index = this->target_index_(TargetType::THERMOSTAT, thermostat);
   const uint8_t key = value == ValueType::PRESET ? this->preset_index_(preset) : 0;
@@ -722,15 +722,15 @@ void ScheduleConfig::add_point(uint16_t minute_of_week, uint8_t mode) {
   this->points.insert(at, point);
 }
 
-const std::string &ScheduleConfig::preset_of(const Action &action) const {
-  static const std::string NONE;
+const PsramString &ScheduleConfig::preset_of(const Action &action) const {
+  static const PsramString NONE;
   if (action.type != ActionType::THERMOSTAT || action.value != ValueType::PRESET ||
       action.preset >= this->preset_keys.size())
     return NONE;
   return this->preset_keys[action.preset];
 }
 
-int ScheduleConfig::mode_index(const std::string &id) const {
+int ScheduleConfig::mode_index(std::string_view id) const {
   for (size_t i = 0; i < this->modes.size(); i++) {
     if (this->modes[i].id == id)
       return static_cast<int>(i);

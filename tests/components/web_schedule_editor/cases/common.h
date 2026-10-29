@@ -255,8 +255,10 @@ class TestEngine : public schedules::ScheduleEngine {
   bool loop_busy{false};
   bool refuse_remove{false};
   size_t max_file_bytes{schedules::MAX_FILE_BYTES};
-  // The heap's room as has_heap_room() reads it: free and the largest block alike.
+  // The heap's room as has_heap_room() reads it: free and the largest block alike. PSRAM's the
+  // same way, none until set.
   size_t heap_free{SIZE_MAX};
+  optional<size_t> psram_free;
   std::vector<std::function<void()>> later;
 
   bool run_on_loop(std::function<bool()> &&job) override {
@@ -308,6 +310,7 @@ class TestEngine : public schedules::ScheduleEngine {
     this->refuse_remove = false;
     this->max_file_bytes = schedules::MAX_FILE_BYTES;
     this->heap_free = SIZE_MAX;
+    this->psram_free.reset();
   }
 
  protected:
@@ -320,6 +323,14 @@ class TestEngine : public schedules::ScheduleEngine {
     heap.free = this->heap_free;
     heap.largest_block = this->heap_free;
     return heap;
+  }
+  optional<schedules::HeapRoom> psram_() const override {
+    if (!this->psram_free.has_value())
+      return schedules::ScheduleEngine::psram_();
+    schedules::HeapRoom psram;
+    psram.free = *this->psram_free;
+    psram.largest_block = *this->psram_free;
+    return psram;
   }
   bool remove_file_(const std::string &path) override {
     return !this->refuse_remove && schedules::ScheduleEngine::remove_file_(path);

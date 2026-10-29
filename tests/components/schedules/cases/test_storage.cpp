@@ -468,6 +468,120 @@ TEST_F(Storage, AFileTheParserRunsOutOfHeapOnStopsTheBoot) {
   EXPECT_EQ(file_doc("a", "a"), read_file(this->file_of("a")));
 }
 
+// --- PSRAM ---
+
+// A board with PSRAM keeps the schedules there: the boot that stops at the heap floor without
+// it loads them all, the internal heap untouched.
+TEST_F(Storage, WithPsramTheBootChargesTheSchedulesToIt) {
+  const size_t cost = 8 * 1024;
+  this->engine->set_max_schedules(8);
+  for (const char *id : {"a", "b", "c", "d"})
+    this->write(std::string(id) + ".json", file_doc(id, id, "relay_1", false));
+  this->engine->heap_free = BOOT_HEAP_FLOOR_BYTES + cost + cost / 2;
+  this->engine->entry_cost = cost;
+  this->engine->has_psram = true;
+  this->boot();
+  EXPECT_EQ(4u, this->engine->schedules().size());
+  EXPECT_FALSE(LogCapture::instance().warned("left alone"));
+  EXPECT_TRUE(LogCapture::instance().has("; PSRAM ")) << "the boot's line names both heaps";
+}
+
+TEST_F(Storage, WithPsramTheBootStopsAtItsReserve) {
+  const size_t cost = 8 * 1024;
+  this->engine->set_max_schedules(8);
+  for (const char *id : {"a", "b", "c", "d"})
+    this->write(std::string(id) + ".json", file_doc(id, id, "relay_1", false));
+  this->engine->has_psram = true;
+  this->engine->psram_free = PSRAM_RESERVE_BYTES + cost + cost / 2;
+  this->engine->entry_cost = cost;
+  this->boot();
+  EXPECT_NE(nullptr, this->engine->get("a"));
+  EXPECT_NE(nullptr, this->engine->get("b"));
+  EXPECT_EQ(nullptr, this->engine->get("c"));
+  EXPECT_EQ(nullptr, this->engine->get("d"));
+  EXPECT_TRUE(LogCapture::instance().warned("'c.json' left alone: not enough free memory ("));
+  EXPECT_TRUE(LogCapture::instance().warned("; PSRAM "));
+}
+
+// What still lands on the internal heap keeps its floor, and each heap needs its block.
+TEST_F(Storage, WithPsramTheBootStillKeepsBothFloors) {
+  struct Case {
+    size_t heap_free;
+    size_t heap_block;
+    size_t psram_block;
+  };
+  for (const Case &c :
+       {Case{BOOT_HEAP_FLOOR_BYTES - 1, SIZE_MAX, SIZE_MAX}, Case{SIZE_MAX, BOOT_HEAP_FLOOR_BLOCK - 1, SIZE_MAX},
+        Case{SIZE_MAX, SIZE_MAX, PSRAM_RESERVE_BLOCK - 1}}) {
+    this->engine = &this->new_engine();
+    this->write("a.json", file_doc("a", "a"));
+    this->engine->has_psram = true;
+    this->engine->heap_free = c.heap_free;
+    this->engine->heap_block = c.heap_block;
+    this->engine->psram_block = c.psram_block;
+    this->boot();
+    EXPECT_TRUE(this->engine->schedules().empty()) << c.heap_free << " " << c.heap_block << " " << c.psram_block;
+    this->engine->forget();
+  }
+  EXPECT_TRUE(LogCapture::instance().warned("'a.json' left alone: not enough free memory"));
+}
+
+// With PSRAM a change keeps its reserve there, and an edit frees PSRAM, not the internal heap,
+// which keeps HEAP_KEEP_BYTES all the same.
+TEST_F(Storage, WithPsramAChangeKeepsBothReserves) {
+  this->engine->has_psram = true;
+  this->boot();
+  this->create(daily("Porch"));
+  const std::string before = read_file(this->file_of("porch"));
+
+  this->engine->psram_free = PSRAM_RESERVE_BYTES - 1;
+  EXPECT_EQ(507, this->engine->create(daily("Garden", "relay_2")).code);
+  EXPECT_EQ(507, this->engine->update("porch", daily("Porch light")).code);
+  EXPECT_TRUE(LogCapture::instance().warned("'garden' not written: not enough free memory ("));
+  EXPECT_TRUE(LogCapture::instance().warned("; PSRAM "));
+  this->engine->psram_free = PSRAM_RESERVE_BYTES;
+  this->engine->psram_block = PSRAM_RESERVE_BLOCK - 1;
+  EXPECT_EQ(507, this->engine->create(daily("Garden", "relay_2")).code) << "its largest block counts as well";
+  this->engine->psram_block = SIZE_MAX;
+
+  this->engine->heap_free = HEAP_KEEP_BYTES - 1;
+  EXPECT_EQ(507, this->engine->update("porch", daily("Porch light")).code);
+  EXPECT_EQ(507, this->engine->create(daily("Garden", "relay_2")).code);
+  EXPECT_TRUE(LogCapture::instance().warned("'porch' not written: it would leave"));
+  EXPECT_EQ(before, read_file(this->file_of("porch")));
+  EXPECT_EQ("Porch", this->engine->get("porch")->name);
+
+  this->engine->heap_free = HEAP_KEEP_BYTES;
+  EXPECT_TRUE(this->engine->update("porch", daily("Porch light")).ok);
+  EXPECT_TRUE(this->engine->create(daily("Garden", "relay_2")).ok);
+}
+
+// What a parse takes comes out of PSRAM where there is some; the internal heap keeps its
+// reserve whatever the parse.
+TEST_F(Storage, TheParseRoomIsCheckedWhereTheDocumentGoes) {
+  const size_t more = 1000;
+  this->engine->heap_free = HEAP_RESERVE_BYTES + more;
+  EXPECT_TRUE(this->engine->has_heap_room(more));
+  EXPECT_FALSE(this->engine->has_heap_room(more + 1));
+  this->engine->heap_block = HEAP_RESERVE_BLOCK - 1;
+  EXPECT_FALSE(this->engine->has_heap_room());
+
+  this->engine->has_psram = true;
+  this->engine->heap_free = HEAP_RESERVE_BYTES;
+  this->engine->heap_block = HEAP_RESERVE_BLOCK;
+  this->engine->psram_free = PSRAM_RESERVE_BYTES + more;
+  EXPECT_TRUE(this->engine->has_heap_room(more)) << "the parse is not the internal heap's";
+  EXPECT_FALSE(this->engine->has_heap_room(more + 1));
+  this->engine->heap_free = HEAP_RESERVE_BYTES - 1;
+  EXPECT_FALSE(this->engine->has_heap_room());
+  this->engine->heap_free = HEAP_RESERVE_BYTES;
+  this->engine->heap_block = HEAP_RESERVE_BLOCK - 1;
+  EXPECT_FALSE(this->engine->has_heap_room());
+  this->engine->heap_block = HEAP_RESERVE_BLOCK;
+  this->engine->psram_block = PSRAM_RESERVE_BLOCK - 1;
+  EXPECT_FALSE(this->engine->has_heap_room());
+}
+
 TEST_F(Storage, TwoFilesUnderOneNameAreToldApartAtBoot) {
   this->engine->set_max_schedules(8);
   this->write("a.json", file_doc("a", "Porch", "relay_1", false));

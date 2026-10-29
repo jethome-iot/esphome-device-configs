@@ -70,9 +70,9 @@ class WebScheduleEditor : public AsyncWebHandler, public Component {
   // For the statuses AsyncWebServerRequest::send() does not know and would turn into a 500.
   void send_status_(AsyncWebServerRequest *request, const char *status, const char *allow, const char *body);
 
-  // Seam: what the body, a parsed body and every answer document draw on, so a test can run
-  // the heap out.
-  virtual ArduinoJson::Allocator *json_allocator_() const { return ArduinoJson::detail::DefaultAllocator::instance(); }
+  // Seam: what the body, a parsed body and every answer document draw on, PSRAM first, so a
+  // test can run the heap out. An error's few bytes stay off it, so a refusal still goes out.
+  virtual ArduinoJson::Allocator *json_allocator_() const { return schedules::json_allocator(); }
 
   web_server_base::WebServerBase *base_;
   schedules::ScheduleEngine *engine_;
@@ -80,9 +80,9 @@ class WebScheduleEditor : public AsyncWebHandler, public Component {
   web_origin_guard::WebOriginGuard guard_{this};
   std::string url_prefix_{"/schedule-editor"};
   // The server handles one request at a time, so one body buffer is enough, taken whole at its
-  // first chunk. body_total_ is the Content-Length the buffer belongs to: a receive that failed
-  // midway never reaches handleRequest, so the next request checks it against its own before
-  // trusting the buffer.
+  // first chunk, PSRAM first. body_total_ is the Content-Length the buffer belongs to: a receive
+  // that failed midway never reaches handleRequest, so the next request checks it against its
+  // own before trusting the buffer.
   char *body_{nullptr};
   size_t body_total_{0};
   size_t body_received_{0};
