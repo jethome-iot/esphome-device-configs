@@ -1,7 +1,4 @@
-#include <algorithm>
-#include <string>
 #include "common.h"
-#include "esphome/components/logger/logger.h"
 
 namespace esphome::status_indicator::testing {
 
@@ -230,31 +227,6 @@ TEST_F(StatusIndicatorTest, AnotherStateEndsAPulse) {
   expect_writes({true, false, true}, {FAST_ON, FAST_OFF});
 }
 
-// Every config line logged since clear(). Registered once: the logger keeps its listeners.
-class ConfigLog {
- public:
-  std::vector<std::string> lines;
-
-  static ConfigLog &instance() {
-    static ConfigLog *log = [] {
-      auto *l = new ConfigLog();
-      logger::global_logger->add_log_callback(l, &ConfigLog::on_log);
-      return l;
-    }();
-    return *log;
-  }
-  bool has(const char *needle) const {
-    return std::any_of(this->lines.begin(), this->lines.end(),
-                       [needle](const std::string &line) { return line.find(needle) != std::string::npos; });
-  }
-
- protected:
-  static void on_log(void *self, uint8_t level, const char *, const char *message, size_t len) {
-    if (level == ESPHOME_LOG_LEVEL_CONFIG)
-      static_cast<ConfigLog *>(self)->lines.emplace_back(message, len);
-  }
-};
-
 TEST_F(StatusIndicatorTest, DumpConfigNamesThePinAndTheTimes) {
   ConfigLog &log = ConfigLog::instance();
   log.lines.clear();
@@ -263,6 +235,9 @@ TEST_F(StatusIndicatorTest, DumpConfigNamesThePinAndTheTimes) {
   EXPECT_TRUE(log.has("Slow blink: 400 ms on, 600 ms off"));
   EXPECT_TRUE(log.has("Fast blink: 150 ms on, 250 ms off"));
   EXPECT_TRUE(log.has("Pulse: 500 ms"));
+  // Without signals nothing polls, so there is no interval to name.
+  EXPECT_FALSE(log.has("Signals"));
+  EXPECT_FALSE(log.has("Update Interval"));
 }
 
 }  // namespace esphome::status_indicator::testing

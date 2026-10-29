@@ -1,7 +1,8 @@
 # Google Test binary for components/status_indicator, built through esphome compile by
 # tests/run.py. The harness main.cpp replaces the generated one, so nothing declared here is
-# ever set up: the instance and the automations exist to get the sources and every action's
-# codegen compiled. The cases build their own instances over a pin that records its writes.
+# ever set up: the instance and the automations exist to get the sources and the codegen of
+# every action and kind of signal compiled. The cases build their own instances over a pin that
+# records its writes.
 esphome:
   name: status-indicator-test
   includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
@@ -60,6 +61,30 @@ status_indicator:
   pin: GPIO2
   slow_on_time: 1s
   fast_off_time: 100ms
+  update_interval: 1s
+  # Compile-only: a state signal, a count with and without its times, conditions with an id,
+  # a nested one and a list.
+  signals:
+    - condition:
+        script.is_running: show_code
+      state: BLINK_FAST
+    - condition:
+        for:
+          time: 30s
+          condition:
+            lambda: return millis() > 1000;
+      count: 2
+      on_time: 250ms
+      off_time: 350ms
+      pause_time: 2s
+    - condition:
+        - lambda: return true;
+        - not:
+            script.is_running: show_code
+      count: 1
+    - condition:
+        lambda: return false;
+      state: ON
 
 # The actions under a trigger that has arguments.
 script:

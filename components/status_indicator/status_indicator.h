@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
+#include "esphome/core/automation.h"
 #include "esphome/core/component.h"
 #include "esphome/core/hal.h"
 
@@ -15,7 +17,7 @@ enum class IndicatorState : uint8_t {
   PULSE = 5,
 };
 
-class StatusIndicator : public Component {
+class StatusIndicator : public PollingComponent {
  public:
   void set_pin(GPIOPin *pin) { this->pin_ = pin; }
 
@@ -39,7 +41,17 @@ class StatusIndicator : public Component {
   // On for duration_ms (0: the configured one), then back to the state it interrupted.
   void pulse(uint32_t duration_ms = 0);
 
+  // Shown while its condition holds and no signal added before it does: blink_n with these
+  // times when count is above 0, else state, which the schema keeps to ON, BLINK_SLOW and
+  // BLINK_FAST.
+  void add_signal(Condition<> *condition, IndicatorState state, uint8_t count = 0, uint32_t on_ms = 200,
+                  uint32_t off_ms = 200, uint32_t pause_ms = 1500);
+  // The signal shown, as its index in the order added; -1 for none.
+  int get_signal() const { return this->signal_; }
+
   void setup() override;
+  // Shows the first signal that holds, when it is another than the last one shown.
+  void update() override;
   void dump_config() override;
   float get_setup_priority() const override { return setup_priority::HARDWARE; }
 
@@ -48,6 +60,17 @@ class StatusIndicator : public Component {
   void apply_state_();
   void blink_(bool fast);
   void blink_n_(uint8_t left);
+
+  struct Signal {
+    Condition<> *condition;
+    IndicatorState state;
+    uint8_t count;
+    uint32_t on_ms;
+    uint32_t off_ms;
+    uint32_t pause_ms;
+  };
+  std::vector<Signal> signals_;
+  int signal_{-1};
 
   GPIOPin *pin_{nullptr};
   IndicatorState state_{IndicatorState::OFF};

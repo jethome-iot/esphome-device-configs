@@ -1,11 +1,14 @@
 #pragma once
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <memory>
+#include <string>
 #include <thread>
 #include <vector>
+#include "esphome/components/logger/logger.h"
 #include "esphome/components/status_indicator/status_indicator.h"
 #include "esphome/core/application.h"
 #include "esphome/core/gpio.h"
@@ -156,6 +159,32 @@ class StatusIndicatorTest : public ::testing::Test {
 
   uint32_t mark_at_{0};
   uint32_t stalled_{0};
+};
+
+// Every config line logged since clear(). Registered once: the logger keeps its listeners, and
+// the build has room for one.
+class ConfigLog {
+ public:
+  std::vector<std::string> lines;
+
+  static ConfigLog &instance() {
+    static ConfigLog *log = [] {
+      auto *l = new ConfigLog();
+      logger::global_logger->add_log_callback(l, &ConfigLog::on_log);
+      return l;
+    }();
+    return *log;
+  }
+  bool has(const char *needle) const {
+    return std::any_of(this->lines.begin(), this->lines.end(),
+                       [needle](const std::string &line) { return line.find(needle) != std::string::npos; });
+  }
+
+ protected:
+  static void on_log(void *self, uint8_t level, const char *, const char *message, size_t len) {
+    if (level == ESPHOME_LOG_LEVEL_CONFIG)
+      static_cast<ConfigLog *>(self)->lines.emplace_back(message, len);
+  }
 };
 
 }  // namespace esphome::status_indicator::testing

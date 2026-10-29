@@ -338,11 +338,62 @@ binary_sensor:
       - delayed_on: 10s
     on_press:
       - script.execute: fn_factory_reset
+  - platform: template
+    id: reboot_required
+    internal: true
+    lambda: return id(temps)->reboot_required();
 status_indicator:
   id: red_led
   pin:
     number: GPIO2
     ignore_strapping_warning: true
+  signals:
+    - condition:
+        script.is_running: fn_factory_reset
+      state: BLINK_FAST
+    - condition:
+        - for:
+            time: 30s
+            condition:
+              lambda: return !network::is_connected();
+        - lambda: return !id(wifi_id).is_ap_active();
+      count: 1
+      on_time: 250ms
+      off_time: 350ms
+      pause_time: 2s
+    - condition:
+        - for:
+            time: 30s
+            condition:
+              lambda: return !network::is_connected();
+        - lambda: return id(wifi_id).is_ap_active();
+      count: 2
+      on_time: 250ms
+      off_time: 350ms
+      pause_time: 2s
+    - condition:
+        for:
+          time: 1min
+          condition:
+            lambda: |-
+              if (id(temps)->status_has_warning() || id(pcb_temp)->status_has_warning())
+                return true;
+              for (const auto &doc : id(climates)->store().all()) {
+                const auto *runtime = id(climates)->runtime(doc->id);
+                if (runtime != nullptr && runtime->fault() == climate_hub::HubFault::SENSOR_STALE)
+                  return true;
+              }
+              return false;
+      count: 3
+      on_time: 250ms
+      off_time: 350ms
+      pause_time: 2s
+    - condition:
+        binary_sensor.is_on: reboot_required
+      count: 4
+      on_time: 250ms
+      off_time: 350ms
+      pause_time: 2s
 text_sensor:
   - platform: uptime
     name: Uptime
@@ -558,7 +609,6 @@ script:
       - logger.log:
           level: WARN
           format: 'FN held for 10 s: factory reset in 5 s'
-      - status_indicator.blink_fast: red_led
       - delay: 5s
       - script.execute: run_factory_reset
   - id: apply_modbus_bus
