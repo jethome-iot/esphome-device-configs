@@ -244,6 +244,42 @@ TEST_F(SwitchSettings, StoredBindingsAreAppliedAtBoot) {
   EXPECT_TRUE(e.relay2.state);
 }
 
+TEST_F(SwitchSettings, AnInputGoneForGoodTakesItsBindingsWithIt) {
+  manager();
+  stored(R"({"source_name":"relay_2","binding_input":"input_1","binding_mode":"none"})");
+  stored(R"({"source_name":"relay_1","binding_input":"input_1","binding_mode":"follow","label":"Staircase"})");
+  stored(R"({"source_name":"no_such_relay","binding_input":"input_1","binding_mode":"follow"})");
+  settings.apply();
+  e.in1.publish_state(true);
+  ASSERT_TRUE(e.relay1.state);
+  // In App's order, by label; a relay this build lacks is no relay to name.
+  EXPECT_EQ(settings.relays_bound_to("input_1"), (std::vector<std::string>{"Staircase", "Relay 2"}));
+  EXPECT_TRUE(settings.relays_bound_to("input_2").empty());
+
+  EXPECT_TRUE(settings.unbind_input("input_1"));
+  EXPECT_TRUE(settings.is_dirty());
+  for (const char *relay : {"relay_1", "relay_2", "no_such_relay"})
+    EXPECT_EQ(record_of(relay)->binding_input, "") << relay;
+  EXPECT_EQ(record_of("relay_1")->binding_mode, "follow");  // as Bind to: None leaves it
+  EXPECT_TRUE(settings.relays_bound_to("input_1").empty());
+  // The relay stays where it was, and the input drives it no more.
+  EXPECT_TRUE(e.relay1.state);
+  const int writes = e.relay1.writes;
+  e.in1.publish_state(false);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, writes);
+
+  // Another input's binding is left alone, and nothing names an empty input.
+  settings.set_option(&e.relay2, Field::BINDING_INPUT, 2);  // Input 2
+  settings.set_option(&e.relay2, Field::BINDING_MODE, 1);   // Toggle
+  settings.clear_dirty();
+  EXPECT_FALSE(settings.unbind_input("input_1"));
+  EXPECT_FALSE(settings.unbind_input(""));
+  EXPECT_FALSE(settings.is_dirty());
+  e.in2.publish_state(true);
+  EXPECT_TRUE(e.relay2.state);
+}
+
 TEST_F(SwitchSettings, ARestWriteRefusesAnInvertedThatIsNotABoolean) {
   JsonDocument refused = body(R"({"source_name":"relay_1","settings":{"inverted":"yes"}})");
   EXPECT_EQ(settings.update_record(refused.as<JsonObject>()), nullptr);

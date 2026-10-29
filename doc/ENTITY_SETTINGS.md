@@ -11,7 +11,7 @@ loaded at boot and applied before the entities set themselves up.
 | --- | --- | --- | --- |
 | Relay | `Inverted` | `No`, `Yes` | Swaps the physical output: the app's On drives the pin low. Refused while a running thermostat drives the relay |
 | Relay | `Start mode` | `Off`, `On`, `Last` | What the relay does at power-up. On a relay a thermostat drives, `On`, or `Last` when it was on, closes it until the thermostat takes it over |
-| Relay | `Bind to` | `None`, `Input 1` … `Input 6` | The input that drives this relay directly; needs a `Binding` other than `Disabled` |
+| Relay | `Bind to` | `None`, `Input 1` … `Input 6`, the virtual inputs | The input that drives this relay directly; needs a `Binding` other than `Disabled` |
 | Relay | `Binding` | `Disabled`, `Toggle`, `Follow` | `Toggle` flips the relay on each rising edge of the input as reported, after its `Inverted`; `Follow` makes the relay copy the input, at boot too, so it wins over `Start mode` |
 | Input | `Inverted` | `No`, `Yes` | A closed contact is reported as Off. Flipping it re-reports the input at once; bindings and automations take that as a level, not as a press or release |
 | Relay, Input | `Label` | Text, up to 24 characters; empty for none | Shown on the panel and the dashboard in place of the name. Set from the dashboard only; it changes nothing else, so Home Assistant, the REST routes, Modbus, automations and thermostats still see the name. A temperature slot's [label](ONEWIRE_WORKFLOW.md#label) takes the same text |
@@ -35,6 +35,49 @@ A relay or an input with a label goes by it in the Relays and Inputs lists and i
 choices, as soon as it is set. A label too long for its row is cut, to 12 characters in the
 lists, where the state follows it, and to 8 in `Bind to`, the last of them `…`. A character the
 menu font cannot draw shows as `?`; the font has Latin and Cyrillic.
+
+## Virtual inputs
+
+An input set up on the dashboard, under **Settings → Inputs**, that follows one physical input
+through an on delay and an off delay. A motion sensor that drops a few seconds after the last
+movement becomes "someone is here" that holds for ten minutes after the last pulse, so a
+thermostat following it does not flip on every pause, and a relay bound to it is a staircase
+light with no rule.
+
+| Setting | Choices | Effect |
+| --- | --- | --- |
+| `Source` | `Input 1` … `Input 6` | The physical input it follows, never another virtual input or a relay |
+| `On delay` | 0 to 86400 s | It turns on once the source has stayed on that long |
+| `Off delay` | 0 to 86400 s | It turns off that long after the source last went off; every new pulse starts the count again |
+| `Label` | As for an input | Shown on the panel and the dashboard in place of the name |
+
+It is an input wherever one is taken: a rule's trigger and condition, a relay's `Bind to` on the
+panel and the dashboard, a `binary_sensor` in Home Assistant and a row of the panel's Inputs list.
+It goes by `Virtual input N` (object id `virtual_input_N`) whatever its label, so rules and
+bindings keep pointing at it. It has no `Inverted` and no Modbus register. The firmware has 16
+(`max_inputs` in `devices/JXD/packages/features/virtual-inputs.yaml`, up to 32).
+
+A change is in force at once, its delays counted from the save; at boot a virtual input takes its
+source's state as soon as the source reports, the on delay counting from then. Changing the
+source's `Inverted` flips the source, and a virtual input on it takes that, through its delays, as
+a real press or release, which its rules and a `Toggle` binding act on. One whose source this
+firmware does not have stays off, and the dashboard says why. A new one or a deleted one makes
+Home Assistant reconnect to list it or drop it. A deleted one takes its label with it, and
+every relay bound to it goes to `Bind to: None`, staying where it is; a rule that names it stops,
+as for any input this firmware lacks, and runs again once a virtual input is set up in that slot.
+The dashboard's Delete names those rules and relays first. A new one takes the lowest free slot
+that no rule and no binding names, so nothing set up for a deleted one follows it; only when every
+free slot is named does it take the lowest free one.
+
+The panel lists, after the physical inputs, the virtual inputs there were at boot, each with its
+label or name and its state, read only: one added later shows after a reboot, and one deleted
+shows `--` until then.
+
+They are kept in `/littlefs/config/virtual_inputs.json`, next to the files below, so an update
+keeps them, a factory reset clears them, and a backup of the partition carries them. The
+dashboard's Restore puts them back at once, before the rules that name them; their labels come
+back with the other input settings at the next boot. The format is in
+[components/virtual_inputs](../components/virtual_inputs/README.md).
 
 ## Files
 

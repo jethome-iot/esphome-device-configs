@@ -61,6 +61,8 @@ tests/
                               # generate_fixture.py, rerun after a tzdata or aioesphomeapi bump
     virtual_display/          # test_schema.py alone: the C++ includes <esp_http_server.h>,
                               # which the host platform has no header for
+    virtual_inputs/           # the cases boot the pool, the entity settings, the bindings and the
+                              # rules in the firmware's priority order
     web_auth/
     web_automation_editor/
     web_climate_editor/       # contract.json: requests and their answers, which the dashboard
