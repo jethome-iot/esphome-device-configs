@@ -114,9 +114,11 @@ TEST_F(Pool, BindToShowsTheStoredInputForAChoiceTheListLostWhileEditing) {
   ASSERT_TRUE(pool().save(1, follow_config("input_2", 0, 5)));
   using Field = entity_config::SwitchSettingsJson::Field;
   ASSERT_EQ(store().relays.option_count(Field::BINDING_INPUT), 5u);
+  ASSERT_TRUE(store().relays.set_option(&e.relay1, Field::BINDING_INPUT, 1));  // Input 1
   // The panel's row holds the last choice while the dashboard deletes it.
   ASSERT_TRUE(pool().remove(1));
-  EXPECT_EQ(store().relays.option_label(&e.relay1, Field::BINDING_INPUT, 4), "None");
+  EXPECT_EQ(store().relays.option_label(&e.relay1, Field::BINDING_INPUT, 4),
+            store().relays.option_label(&e.relay1, Field::BINDING_INPUT, 1));
   EXPECT_FALSE(store().relays.set_option(&e.relay1, Field::BINDING_INPUT, 4));
   store().keeper.cancel_pending_save();
 }

@@ -149,6 +149,7 @@ esphome:
                               std::function<std::string(int)> label, std::function<int()> index,
                               std::function<void(size_t)> set) {
               auto *pending = new int(-1);  // the choice being edited; -1 outside editing
+              auto *entered = new int(-1);  // the value the edit began on
               // The row reads "text (value)" or "text >value<": a value too long for the rest
               // of it is cut, so the closing mark stays on the panel.
               const size_t taken = panel_glyphs(text) + 3;
@@ -157,14 +158,16 @@ esphome:
               row->set_text(std::string(text));
               row->set_value_lambda(
                   [=](const MenuItem *) { return panel_fit(label(*pending >= 0 ? *pending : index()), room); });
-              row->add_on_enter_callback([=]() { *pending = index(); });
+              row->add_on_enter_callback([=]() { *pending = *entered = index(); });
               row->add_on_next_callback([=]() { *pending = (*pending + 1) % static_cast<int>(count()); });
               row->add_on_prev_callback([=]() {
                 const int n = count();
                 *pending = *pending < 0 ? n - 1 : (*pending + n - 1) % n;
               });
               row->add_on_leave_callback([=]() {
-                if (*pending >= 0 && *pending != index())
+                // Against where the edit began: a virtual input made or deleted meanwhile moves
+                // index() with nobody choosing anything.
+                if (*pending >= 0 && *pending != *entered)
                   set(*pending);
                 *pending = -1;
               });
@@ -205,17 +208,22 @@ esphome:
               state_row->add_on_prev_callback(toggle);
               menu->add_item(state_row);
 
-              // set_option refuses only an Inverted change on a relay a thermostat drives.
+              // set_option refuses an Inverted change on a relay a thermostat drives, and a choice
+              // the list lost while the row was being edited.
               auto field_row = [&](const char *text, Field field) {
                 add_row(menu, text, [sws, field]() { return sws->option_count(field); },
                         [sws, sw, field, has](int index) {
                           return panel_safe(sws->option_label(sw, field, index), 4 * ROW, has);
                         },
                         [sws, sw, field]() { return sws->option_index(sw, field); },
-                        [sws, sw, field](size_t index) {
-                          if (!sws->set_option(sw, field, index))
+                        [sws, sw, field, text](size_t index) {
+                          if (sws->set_option(sw, field, index))
+                            return;
+                          if (field == Field::INVERTED)
                             ESP_LOGI("menu", "'%s' Inverted left alone: thermostat '%s' drives it",
                                      sw->get_name().c_str(), switch_hold::holder(sw).c_str());
+                          else
+                            ESP_LOGI("menu", "'%s' %s left alone: that choice is gone", sw->get_name().c_str(), text);
                         });
               };
               field_row("Inverted", Field::INVERTED);
