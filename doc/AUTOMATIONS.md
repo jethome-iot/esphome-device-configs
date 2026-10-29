@@ -46,7 +46,9 @@ formats the partition, so the rules go with it.
 
 Entities are named by object id, so renaming a relay, an input or a sensor leaves
 the rules that used it unbuilt — the boot log says which, and their files are kept exactly as
-written until the entity is back.
+written until the entity is back. A [virtual input](ENTITY_SETTINGS.md#virtual-inputs) comes and
+goes while the device runs, and the rules that name it follow: a delete stops them, files kept,
+and a virtual input set up in that slot starts them again.
 
 A thermostat is named by its id, which a rename leaves as it is, and a preset by its key. A
 rule naming a thermostat or a preset that is not there cannot be saved. One that loses it —

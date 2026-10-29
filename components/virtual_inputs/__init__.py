@@ -101,14 +101,21 @@ async def to_code(config):
     ):
         relays = await cg.get_variable(entity_config["switch_settings_id"])
         cg.add(var.set_switch_settings(relays))
-    # The rules that name a slot, when the firmware runs rules: a lambda keeps their engine's
-    # header out of this component.
+    # The rules that name a slot, and their rebuild when it comes or goes, when the firmware runs
+    # rules: a lambda keeps their engine's header out of this component.
     if (automations := CORE.config.get("automations")) is not None:
         engine = await cg.get_variable(automations[CONF_ID])
         cg.add(
             var.set_rule_finder(
                 cg.RawExpression(
                     f"[](uint32_t key) {{ return {engine}->rules_naming_binary_sensor(key); }}"
+                )
+            )
+        )
+        cg.add(
+            var.set_rule_rebuilder(
+                cg.RawExpression(
+                    f"[](uint32_t key) {{ {engine}->rebuild_rules_naming_binary_sensor(key); }}"
                 )
             )
         )

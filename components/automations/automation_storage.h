@@ -46,6 +46,9 @@ class AutomationStorage : public Component {
   /// id's fnv1 hash), built or not: one that found no such input still names it. Loop task, as
   /// configs().
   std::vector<std::string> rules_naming_binary_sensor(uint32_t key) const;
+  /// The binary sensor `key` came or went, as a virtual input does: the rules that name it are
+  /// built or dropped to match, as a thermostat's are. Loop task.
+  void rebuild_rules_naming_binary_sensor(uint32_t key);
 
   /// The loaded configs. They belong to the loop task, which the mutators above and a rule's
   /// own dispatch run on: a caller on another task reads them through run_on_loop().
@@ -103,7 +106,8 @@ class AutomationStorage : public Component {
   /// climate_hub created, removed or re-keyed the presets of a thermostat: the rules that name
   /// it are built or dropped to match.
   void on_climate_change_(const std::string &climate_id);
-  void rebuild_for_climate_(const std::string &climate_id);
+  /// Builds or drops, to match, each rule `names` picks; `what` is what came back, for the log.
+  void rebuild_rules_(std::function<bool(const AutomationConfig &)> names, std::string what);
   void check_time_();
   virtual ESPTime clock_now_();
 

@@ -63,10 +63,11 @@ source's `Inverted` flips the source, and a virtual input on it takes that, thro
 a real press or release, which its rules and a `Toggle` binding act on. One whose source this
 firmware does not have stays off, and the dashboard says why. A new one or a deleted one makes
 Home Assistant reconnect to list it or drop it. A deleted one takes its label with it, and
-every relay bound to it goes to `Bind to: None`, staying where it is; a rule that names it finds no
-input, as for any input this firmware lacks. The dashboard's Delete names those rules and relays
-first. A new one takes the lowest free slot that no rule and no binding names, so nothing set up
-for a deleted one follows it; only when every free slot is named does it take the lowest free one.
+every relay bound to it goes to `Bind to: None`, staying where it is; a rule that names it stops,
+as for any input this firmware lacks, and runs again once a virtual input is set up in that slot.
+The dashboard's Delete names those rules and relays first. A new one takes the lowest free slot
+that no rule and no binding names, so nothing set up for a deleted one follows it; only when every
+free slot is named does it take the lowest free one.
 
 The panel lists, after the physical inputs, the virtual inputs there were at boot, each with its
 label or name and its state, read only: one added later shows after a reboot, and one deleted

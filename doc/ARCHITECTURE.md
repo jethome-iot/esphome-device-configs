@@ -81,10 +81,10 @@ boundaries; everything else is local to its file.
   of `binary_sensor`s, `Virtual input N`, each following a physical input through an on and an off
   delay, kept as `virtual_inputs.json` in `config_json_keeper`'s folder. Their labels are
   `binary_sensor_settings`' records, which take no inversion for them. A delete also drops
-  `switch_settings`' bindings to the slot, and codegen hands the pool a lambda over the rule
-  engine that names the rules naming a slot. `display/menu.yaml` reads
-  `configured()` and `sensor()` for the Inputs rows, and `web_device_dashboard` finds the pool in
-  the config for `/api/device/virtual-inputs`.
+  `switch_settings`' bindings to the slot, and codegen hands the pool two lambdas over the rule
+  engine: one names the rules naming a slot, the other builds or drops them when the slot is set
+  up or deleted. `display/menu.yaml` reads `configured()` and `sensor()` for the Inputs rows, and
+  `web_device_dashboard` finds the pool in the config for `/api/device/virtual-inputs`.
 - `switch_settings` and `binary_sensor_settings` (`features/entity-settings.yaml`) are the
   settings objects the menu's Relay N and Input N rows call, and whose `display_name()` names
   each relay and input there. Those two ids are set explicitly: a generated id cannot be named

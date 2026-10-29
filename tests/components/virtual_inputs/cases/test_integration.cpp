@@ -262,6 +262,163 @@ TEST_F(Pool, ARuleNamingAFreeSlotIsRefusedAsForAnyMissingInput) {
   EXPECT_NE(error.find("input not found"), std::string::npos) << error;
 }
 
+static const char *const COMFORT = "Comfort while someone is home";
+static const char *const COMFORT_RULE =
+    R"({"id":1,"name":"Comfort while someone is home","triggers":[{"source":"input","type":"state_change",)"
+    R"("object_id":"virtual_input_1"}],"actions":[{"source":"switch","type":"follow","object_id":"relay_2",)"
+    R"("invert":false}]})";
+
+// The fallback: every free slot is named, so the new input lands in the one a stored rule names.
+// That rule, not built at boot, runs on it from the save on, through its delays.
+TEST_F(Pool, ARuleNamingAFreeSlotRunsOnceAVirtualInputIsSetUpThere) {
+  write(FILE_NAME, R"({"records":[{"slot":2,"source":"input_2"},{"slot":3,"source":"input_2"},)"
+                   R"({"slot":4,"source":"input_2"}]})");
+  write_rule("comfort_while_someone_is_home.json", COMFORT_RULE);
+  boot();
+  TestEngine &engine = new_engine();
+  engine.setup();
+  ASSERT_EQ(engine.rule(COMFORT), nullptr);
+  EXPECT_EQ(engine.build_error(COMFORT), "Trigger 1: input not found");
+  ASSERT_EQ(pool().slot_for_new(), 0);
+
+  ASSERT_TRUE(pool().save(0, follow_config("input_1", 2, 5)));
+  ASSERT_NE(engine.rule(COMFORT), nullptr);
+  EXPECT_EQ(engine.build_error(COMFORT), "");
+  EXPECT_EQ(e.relay2.writes, 0);  // the level the slot took is no change
+
+  e.in1.publish_state(true);
+  pool().advance(1999);
+  EXPECT_FALSE(e.relay2.state);
+  pool().advance(1);
+  EXPECT_TRUE(e.relay2.state);
+  e.in1.publish_state(false);
+  pool().advance(4999);
+  EXPECT_TRUE(e.relay2.state);
+  pool().advance(1);
+  EXPECT_FALSE(e.relay2.state);
+  EXPECT_EQ(e.relay2.writes, 2);
+}
+
+// Built while the input was there, the rule stops with the delete and runs again on the next
+// input in the slot, once per change however often the slot comes and goes, as it was left.
+TEST_F(Pool, ADeleteStopsTheRulesNamingTheSlotAndTheNextInputThereRunsThemOnce) {
+  boot();
+  TestEngine &engine = new_engine();
+  engine.setup();
+  ASSERT_TRUE(pool().save(0, follow_config("input_1")));
+  std::string error;
+  const uint32_t id = engine.add_automation(rule(COMFORT_RULE), &error);
+  ASSERT_NE(id, 0u) << error;
+  const size_t subscriptions = engine.input_subscriptions();
+  for (int round = 0; round < 2; round++) {
+    log().clear();
+    ASSERT_TRUE(pool().remove(0));
+    EXPECT_EQ(engine.rule(COMFORT), nullptr);
+    EXPECT_EQ(engine.build_error(COMFORT), "Trigger 1: input not found");
+    EXPECT_TRUE(log().has_warning("Automation 'Comfort while someone is home' is not built any more"));
+    ASSERT_TRUE(pool().save(0, follow_config("input_1")));  // as a Restore puts it back
+    ASSERT_NE(engine.rule(COMFORT), nullptr) << round;
+    EXPECT_EQ(engine.build_error(COMFORT), "");
+    const int writes = e.relay2.writes;
+    e.in1.publish_state(true);
+    EXPECT_EQ(e.relay2.writes, writes + 1) << round;
+    e.in1.publish_state(false);
+    EXPECT_EQ(e.relay2.writes, writes + 2) << round;
+  }
+  EXPECT_EQ(engine.input_subscriptions(), subscriptions);
+
+  // Turned off before the delete, it comes back off.
+  bool persisted = false;
+  ASSERT_TRUE(engine.set_enable_automation(id, false, &persisted));
+  ASSERT_TRUE(persisted);
+  ASSERT_TRUE(pool().remove(0));
+  ASSERT_TRUE(pool().save(0, follow_config("input_1")));
+  ASSERT_NE(engine.rule(COMFORT), nullptr);
+  EXPECT_FALSE(engine.rule(COMFORT)->is_enabled());
+  const int writes = e.relay2.writes;
+  e.in1.publish_state(true);
+  EXPECT_EQ(e.relay2.writes, writes);
+  store().keeper.cancel_pending_save();
+}
+
+// A deleted input is not one that is off: a condition naming it, at any depth, stops the rule as
+// the next boot would, and the rule's file stays as written.
+TEST_F(Pool, ARuleWhoseConditionNamesADeletedInputStopsAsAtBoot) {
+  static const char *const AWAY =
+      R"({"id":1,"name":"Away","triggers":[{"source":"input","type":"press","object_id":"input_2"}],)"
+      R"("condition":{"type":"and","conditions":[{"type":"or","conditions":[{"type":"input",)"
+      R"("object_id":"virtual_input_1","state":"false"}]}]},)"
+      R"("actions":[{"source":"switch","type":"toggle","object_id":"relay_1"}]})";
+  write(FILE_NAME, SOMEONE_HOME);
+  write_rule("away.json", AWAY);
+  boot(true);
+  TestEngine &engine = new_engine();
+  engine.setup();
+  ASSERT_NE(engine.rule("Away"), nullptr);
+  e.in2.publish_state(true);
+  EXPECT_EQ(e.relay1.writes, 0);  // someone is home
+  e.in2.publish_state(false);
+
+  ASSERT_TRUE(pool().remove(0));
+  EXPECT_EQ(engine.rule("Away"), nullptr);
+  EXPECT_EQ(engine.build_error("Away"), "Condition: input not found");
+  e.in2.publish_state(true);
+  EXPECT_EQ(e.relay1.writes, 0);
+  EXPECT_EQ(read_rule("away.json"), AWAY);
+
+  const std::string after_delete = engine.build_error("Away");
+  reboot();
+  TestEngine &next = new_engine();
+  next.setup();
+  EXPECT_EQ(next.rule("Away"), nullptr);
+  EXPECT_EQ(next.build_error("Away"), after_delete);
+}
+
+// A delete ends a run of a rule naming the slot that waits out a delay, as a save of the rule
+// does, and leaves the relay where the run left it. A run of a rule that names it not goes on
+// through the delete and the next create.
+TEST_F(Pool, ADeleteEndsARunWaitingOutADelayAsASaveOfTheRuleDoes) {
+  static const char *const STAIRCASE =
+      R"({"name":"Staircase","triggers":[{"source":"input","type":"press","object_id":"virtual_input_1"}],)"
+      R"("actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"},{"source":"delay","delay_ms":60000},)"
+      R"({"source":"switch","type":"turn_off","object_id":"relay_1"}]})";
+  static const char *const PORCH =
+      R"({"name":"Porch","triggers":[{"source":"input","type":"press","object_id":"input_2"}],)"
+      R"("actions":[{"source":"delay","delay_ms":60000},{"source":"switch","type":"toggle","object_id":"relay_2"}]})";
+  boot();
+  TestEngine &engine = new_engine();
+  engine.setup();
+  ASSERT_TRUE(pool().save(0, follow_config("input_1")));
+  const uint32_t staircase = engine.add_automation(rule(STAIRCASE));
+  ASSERT_NE(staircase, 0u);
+  ASSERT_NE(engine.add_automation(rule(PORCH)), 0u);
+  automations::RuntimeAutomation *porch = engine.rule("Porch");
+  e.in1.publish_state(true);
+  e.in2.publish_state(true);
+  ASSERT_TRUE(e.relay1.state);
+  ASSERT_EQ(engine.delays.size(), 2u);
+
+  ASSERT_TRUE(pool().remove(0));
+  EXPECT_EQ(engine.delays.size(), 1u);
+  EXPECT_TRUE(e.relay1.state);
+  ASSERT_TRUE(pool().save(0, follow_config("input_1")));
+  ASSERT_NE(engine.rule("Staircase"), nullptr);
+  EXPECT_FALSE(engine.rule("Staircase")->is_running());
+  EXPECT_EQ(engine.rule("Porch"), porch);
+  ASSERT_TRUE(engine.fire_next());
+  EXPECT_TRUE(e.relay2.state);
+  EXPECT_TRUE(e.relay1.state);
+
+  // The same run, ended by a save of the rule.
+  e.in1.publish_state(false);
+  e.in1.publish_state(true);
+  ASSERT_EQ(engine.delays.size(), 1u);
+  ASSERT_TRUE(engine.update_automation(staircase, rule(STAIRCASE)));
+  EXPECT_TRUE(engine.delays.empty());
+  EXPECT_TRUE(e.relay1.state);
+  store().keeper.cancel_pending_save();
+}
+
 TEST_F(Pool, ALabelIsTheEntitySettingsRecordsAndAnInversionIsRefused) {
   boot(true);
   ASSERT_TRUE(pool().save(0, follow_config("input_1")));

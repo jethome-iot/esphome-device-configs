@@ -7,11 +7,13 @@
 #include <algorithm>
 #include <chrono>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <ostream>
 #include <sstream>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 #include "esphome/components/automations/automation_config.h"
 #include "esphome/components/automations/automation_storage.h"
@@ -125,15 +127,52 @@ class TestInputs : public VirtualInputs {
   void resync_home_assistant_() override { this->resyncs++; }
 };
 
-// The rule engine with its clock taken; forget() drops the rules without touching the files.
+// The rule engine with its clock taken and its delays held for the test to fire; forget() drops
+// the rules without touching the files.
 class TestEngine : public automations::AutomationStorage {
  public:
   uint32_t ms{0};
+  std::vector<std::pair<uint32_t, std::function<void()>>> delays;
+
   uint32_t now_ms() const override { return this->ms; }
+  void schedule_delay(uint32_t id, uint32_t /*delay_ms*/, std::function<void()> &&f) override {
+    this->delays.emplace_back(id, std::move(f));
+  }
+  void cancel_delay(uint32_t id) override {
+    this->delays.erase(
+        std::remove_if(this->delays.begin(), this->delays.end(), [id](const auto &delay) { return delay.first == id; }),
+        this->delays.end());
+  }
+  // Runs the oldest pending delay. False when there is none.
+  bool fire_next() {
+    if (this->delays.empty())
+      return false;
+    auto f = std::move(this->delays.front().second);
+    this->delays.erase(this->delays.begin());
+    f();
+    return true;
+  }
   void forget() {
     this->automations_.clear();
     this->config_storage_.clear();
+    this->delays.clear();
   }
+  // The built rule by name; nullptr for one not built or not there.
+  automations::RuntimeAutomation *rule(const std::string &name) {
+    for (const auto &rule : this->automations_) {
+      if (rule != nullptr && rule->get_name() == name)
+        return rule.get();
+    }
+    return nullptr;
+  }
+  std::string build_error(const std::string &name) const {
+    for (const auto &config : this->config_storage_.get_all_configs()) {
+      if (config.name == name)
+        return config.build_error;
+    }
+    return "no such rule";
+  }
+  size_t input_subscriptions() const { return this->binary_sensor_subs_.size(); }
 };
 
 // The physical inputs and the relays. Registered once, ahead of the pool, as codegen registers
@@ -231,6 +270,7 @@ class Pool : public ::testing::Test {
     s.pool.reset();
     s.pool.set_keeper(&s.keeper);
     s.pool.set_rule_finder(nullptr);
+    s.pool.set_rule_rebuilder(nullptr);
     config_json::global_config_json_keeper = &s.keeper;
     s.keeper.cancel_pending_save();
     s.inputs.reset();
@@ -297,6 +337,7 @@ class Pool : public ::testing::Test {
     this->engines.push_back(&engine);
     // As codegen wires the firmware's one engine.
     store().pool.set_rule_finder([&engine](uint32_t key) { return engine.rules_naming_binary_sensor(key); });
+    store().pool.set_rule_rebuilder([&engine](uint32_t key) { engine.rebuild_rules_naming_binary_sensor(key); });
     return engine;
   }
 
@@ -307,6 +348,12 @@ class Pool : public ::testing::Test {
     mkdir(folder.c_str(), 0755);
     std::ofstream out(folder + "/" + file);
     out << json;
+  }
+  std::string read_rule(const std::string &file) const {
+    std::ifstream in(this->base + "/automations/" + file);
+    std::stringstream text;
+    text << in.rdbuf();
+    return text.str();
   }
   void write(const std::string &file, const std::string &json) {
     mkdir(this->config_dir().c_str(), 0755);

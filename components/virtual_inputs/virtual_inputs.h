@@ -87,6 +87,10 @@ class VirtualInputs : public Component {
   /// firmware runs rules. Called on the loop task.
   using RuleFinder = std::function<std::vector<std::string>(uint32_t key)>;
   void set_rule_finder(RuleFinder finder) { this->rule_finder_ = std::move(finder); }
+  /// Builds or drops the rules that name a binary sensor, by the same key, once it came or went;
+  /// set beside the finder. Called on the loop task.
+  using RuleRebuilder = std::function<void(uint32_t key)>;
+  void set_rule_rebuilder(RuleRebuilder rebuilder) { this->rule_rebuilder_ = std::move(rebuilder); }
 
   size_t max_inputs() const { return this->max_inputs_; }
   /// The slot follows a source; slots are 0-based here.
@@ -112,14 +116,15 @@ class VirtualInputs : public Component {
   bool can_save() const;
   /// The file loaded at boot, or there was none; one that did not waits for a person to fix it.
   bool file_loaded() const { return this->file_loaded_; }
-  /// Writes the file, then puts the slot in force: shown if it was free, its delays counted
-  /// again from now. False, with nothing changed, unless the slot is in the pool, the source
-  /// checks OK, both delays are at most MAX_DELAY_S, can_save() and file_loaded() hold and the
-  /// write succeeds. The same config again is true with nothing written.
+  /// Writes the file, then puts the slot in force: shown if it was free, its delays counted again
+  /// from now, and, if it was free, the rules that name it built. False, with nothing changed,
+  /// unless the slot is in the pool, the source checks OK, both delays are at most MAX_DELAY_S,
+  /// can_save() and file_loaded() hold and the write succeeds. The same config again is true with
+  /// nothing written.
   bool save(size_t slot, const InputConfig &config);
-  /// Writes the file without the slot, then hides it with no state and drops its label and the
-  /// bindings to it. False, with nothing changed, for a free slot or under the conditions save()
-  /// names.
+  /// Writes the file without the slot, then hides it with no state, drops the rules that name it
+  /// as for a missing input, and drops its label and the bindings to it. False, with nothing
+  /// changed, for a free slot or under the conditions save() names.
   bool remove(size_t slot);
 
  protected:
@@ -149,6 +154,8 @@ class VirtualInputs : public Component {
   std::vector<InputConfig> table_() const;
   /// Home Assistant lists entities only when it connects. Named, so a burst costs one reconnect.
   void schedule_ha_resync_();
+  /// The slot came or went: the rules that name it follow.
+  void rebuild_rules_(const Slot *slot);
 
   config_json::ConfigJsonKeeper *keeper_{nullptr};
   InputFile file_{"virtual_inputs"};
@@ -170,6 +177,7 @@ class VirtualInputs : public Component {
   entity_config::SwitchSettingsJson *switch_settings_{nullptr};
 #endif
   RuleFinder rule_finder_;
+  RuleRebuilder rule_rebuilder_;
 };
 
 }  // namespace esphome::virtual_inputs

@@ -1578,10 +1578,11 @@ paths:
         state, and its label goes with it, so the next virtual input in that
         slot starts without one. Every relay bound to it loses that binding,
         as if its Bind to were set to None, kept like any settings change, and
-        stays where it is. A rule that names it finds no input from then on, as
-        for any input the firmware lacks. The list's `used_by` names both
-        beforehand. Home Assistant is asked to reconnect a moment later. Written
-        before the answer, with no confirmation.
+        stays where it is. A rule that names it stops, as for any input the
+        firmware lacks, until a virtual input is set up in that slot again. The
+        list's `used_by` names both beforehand. Home Assistant is asked to
+        reconnect a moment later. Written before the answer, with no
+        confirmation.
       requestBody:
         required: true
         content:

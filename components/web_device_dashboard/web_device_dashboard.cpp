@@ -1629,7 +1629,7 @@ void WebDeviceDashboard::handle_virtual_inputs_save_(AsyncWebServerRequest *requ
 }
 
 // POST /api/device/virtual-inputs/delete: {"slot": N}. The slot goes back to the pool, hidden, its
-// label and the bindings to it with it; a rule that names it finds no input from then on.
+// label and the bindings to it with it; a rule that names it stops until the slot is set up again.
 void WebDeviceDashboard::handle_virtual_inputs_delete_(AsyncWebServerRequest *request) {
   auto *inputs = this->virtual_inputs_;
   if (inputs == nullptr) {

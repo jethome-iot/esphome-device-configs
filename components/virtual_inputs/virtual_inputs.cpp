@@ -315,6 +315,9 @@ bool VirtualInputs::save(size_t index, const InputConfig &config) {
     this->schedule_ha_resync_();
   }
   this->start_(slot, this->now_ms_());
+  // After the start, as at boot: to a rule built now, the level the slot took is a state, not an edge.
+  if (created)
+    this->rebuild_rules_(slot);
   ESP_LOGI(TAG, "%s follows '%s', on after %us, off after %us", slot->entity.fixed_name(), config.source.c_str(),
            static_cast<unsigned>(config.on_delay), static_cast<unsigned>(config.off_delay));
   return true;
@@ -331,9 +334,10 @@ bool VirtualInputs::remove(size_t index) {
   slot->config = InputConfig{};
   slot->source = nullptr;
   slot->line.reset();
-  // A rule naming it now finds no input, as for any input this firmware lacks.
   slot->entity.set_visible(false, 0);
   slot->entity.invalidate_state();
+  // A rule naming it stops, as for any input this firmware lacks, until one is back in the slot.
+  this->rebuild_rules_(slot);
   char buffer[OBJECT_ID_MAX_LEN];
   [[maybe_unused]] const std::string object_id(slot->entity.get_object_id_to(buffer));
 #ifdef ENTITY_CONFIG_BINARY_SENSOR
@@ -349,6 +353,11 @@ bool VirtualInputs::remove(size_t index) {
   this->schedule_ha_resync_();
   ESP_LOGI(TAG, "%s deleted", slot->entity.fixed_name());
   return true;
+}
+
+void VirtualInputs::rebuild_rules_(const Slot *slot) {
+  if (this->rule_rebuilder_)
+    this->rule_rebuilder_(slot->entity.get_object_id_hash());
 }
 
 // --- Home Assistant ---

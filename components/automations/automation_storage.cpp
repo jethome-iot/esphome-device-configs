@@ -196,20 +196,21 @@ void AutomationStorage::subscribe_(const RuntimeAutomation &automation) {
 }
 
 void AutomationStorage::on_climate_change_(const std::string &climate_id) {
-  // A lambda behind a rule's own switch action may have changed the hub: rebuilding now would
-  // pull that rule from under its run.
-  if (this->dispatching_ > 0) {
-    this->defer([this, climate_id]() { this->rebuild_for_climate_(climate_id); });
-    return;
-  }
-  this->rebuild_for_climate_(climate_id);
+  this->rebuild_rules_([climate_id](const AutomationConfig &config) { return names_climate(config, climate_id); },
+                       "thermostat '" + climate_id + "'");
 }
 
 // A built rule that still builds is left running; only the ones whose state changes move.
-void AutomationStorage::rebuild_for_climate_(const std::string &climate_id) {
+void AutomationStorage::rebuild_rules_(std::function<bool(const AutomationConfig &)> names, std::string what) {
+  // A lambda behind a rule's own switch action may have made the change: rebuilding now would
+  // pull that rule from under its run.
+  if (this->dispatching_ > 0) {
+    this->defer([this, names = std::move(names), what = std::move(what)]() { this->rebuild_rules_(names, what); });
+    return;
+  }
   for (size_t i = 0; i < this->config_storage_.size(); i++) {
     AutomationConfig *config = this->config_storage_.get_config(static_cast<uint8_t>(i));
-    if (!names_climate(*config, climate_id))
+    if (!names(*config))
       continue;
     std::string error;
     auto rebuilt = RuntimeAutomation::build(this, *config, &error);
@@ -221,7 +222,7 @@ void AutomationStorage::rebuild_for_climate_(const std::string &climate_id) {
         this->automations_[i].reset();
       }
     } else if (!built) {
-      ESP_LOGI(TAG, "Automation '%s' is built: thermostat '%s' is there", config->name.c_str(), climate_id.c_str());
+      ESP_LOGI(TAG, "Automation '%s' is built: %s is there", config->name.c_str(), what.c_str());
       config->build_error.clear();
       this->subscribe_(*rebuilt);
       this->automations_[i] = std::move(rebuilt);
@@ -570,16 +571,25 @@ static bool condition_names(const ConditionConfig &condition, uint32_t key) {
                      [key](const ConditionConfig &sub) { return condition_names(sub, key); });
 }
 
+static bool names_binary_sensor(const AutomationConfig &config, uint32_t key) {
+  const bool triggered = std::any_of(config.triggers.begin(), config.triggers.end(), [key](const TriggerConfig &t) {
+    return t.source == SourceTrigger::INPUT && t.params.input.input_id == key;
+  });
+  return triggered || condition_names(config.condition, key);
+}
+
 std::vector<std::string> AutomationStorage::rules_naming_binary_sensor(uint32_t key) const {
   std::vector<std::string> names;
   for (const auto &config : this->config_storage_.get_all_configs()) {
-    const bool triggered = std::any_of(config.triggers.begin(), config.triggers.end(), [key](const TriggerConfig &t) {
-      return t.source == SourceTrigger::INPUT && t.params.input.input_id == key;
-    });
-    if (triggered || condition_names(config.condition, key))
+    if (names_binary_sensor(config, key))
       names.push_back(config.name);
   }
   return names;
+}
+
+void AutomationStorage::rebuild_rules_naming_binary_sensor(uint32_t key) {
+  this->rebuild_rules_([key](const AutomationConfig &config) { return names_binary_sensor(config, key); },
+                       "input '" + binary_sensor_object_id(key) + "'");
 }
 
 uint32_t AutomationStorage::allocate_id_() {

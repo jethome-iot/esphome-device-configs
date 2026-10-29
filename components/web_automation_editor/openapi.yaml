@@ -385,8 +385,8 @@ components:
           type: boolean
           description: >-
             False when the rule is on the device but cannot be built;
-            `build_error` says why. One that names a thermostat or a preset
-            that is not there runs again once it is back.
+            `build_error` says why. One that names a thermostat, a preset or a
+            virtual input that is not there runs again once it is back.
         build_error:
           type: string
           description: Why it is not built, `""` when it is.

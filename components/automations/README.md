@@ -128,7 +128,9 @@ file is deleted by hand.
 
 Every entity reference is the `fnv1_hash` of an object id, resolved once at boot. A rule naming
 an entity that is not there stays on disk but is not built — the log says why and `dump_config`
-marks it `(not built: <why>)`. Renaming an entity orphans the rules that used it.
+marks it `(not built: <why>)`. Renaming an entity orphans the rules that used it. A virtual
+input comes and goes while the device runs, and takes the rules that name it along, as a
+thermostat does (below).
 
 Such a file is never rewritten, not even to restamp its `id` or move it to its own name: a file
 holds the object ids, memory holds only their hashes, so a rewrite would blank the names. Put
@@ -157,6 +159,10 @@ callback, say) they refuse and return false.
 - `set_enable_automation(id, enable, persisted = nullptr)`: `persisted` says whether it reached flash
 - `reset_all()`: remove every rule and its file
 - `is_name_taken(name, exclude_id = 0)`: names collide by file name
+- `rules_naming_binary_sensor(key)`: the names of the rules whose trigger or condition names the
+  binary sensor with that object id hash, built or not; loop task
+- `rebuild_rules_naming_binary_sensor(key)`: that sensor came or went, so those rules are built or
+  dropped to match; loop task
 - `configs()`: the loaded `AutomationConfig`s, including the ones that did not build, each with
   its `build_error`
 - `run_on_loop(job)`: runs `job` on the loop task and blocks; `false` when the loop never got to it
