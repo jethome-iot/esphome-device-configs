@@ -617,8 +617,8 @@ export interface VirtualInputSaveResult extends Omit<MutationResponse, 'reboot_r
 
 /** POST /virtual-inputs/delete — free a slot: its entity is hidden, its label dropped and every
  *  relay bound to it unbound, the relay left as it is; a rule that names it stops until a virtual
- *  input is set up in that slot again. `used_by` names both beforehand. `400` for a slot out of range, `409` for a free one,
- *  `503` and `500` as for a save. */
+ *  input is set up in that slot again. `used_by` names both beforehand. `400` for a slot out of
+ *  range, `409` for a free one, `503` and `500` as for a save. */
 export interface VirtualInputDeletePayload {
   slot: number
 }
