@@ -49,14 +49,17 @@ TEST_F(Dashboard, CapabilitiesNamesTheScreensThisFirmwareServes) {
   EXPECT_TRUE(without["files"].isUnbound());
   EXPECT_TRUE(without["automations"].isUnbound());
   EXPECT_TRUE(without["climates"].isUnbound());
+  EXPECT_TRUE(without["schedules"].isUnbound());
 
   this->dashboard->set_files_url_prefix("/files");
   this->dashboard->set_automations_url_prefix("/automation-editor");
   this->dashboard->set_climates_url_prefix("/climate-editor");
+  this->dashboard->set_schedules_url_prefix("/schedule-editor");
   Reply with = this->get(CAPABILITIES);
   EXPECT_EQ(with["files"]["url_prefix"].as<std::string>(), "/files");
   EXPECT_EQ(with["automations"]["url_prefix"].as<std::string>(), "/automation-editor");
   EXPECT_EQ(with["climates"]["url_prefix"].as<std::string>(), "/climate-editor");
+  EXPECT_EQ(with["schedules"]["url_prefix"].as<std::string>(), "/schedule-editor");
 }
 
 // Each screen follows its own component: a firmware with the thermostat editor alone offers
@@ -68,6 +71,16 @@ TEST_F(Dashboard, CapabilitiesReportsEachScreenOnItsOwn) {
   EXPECT_EQ(reply["climates"].size(), 1u);
   EXPECT_TRUE(reply["files"].isUnbound());
   EXPECT_TRUE(reply["automations"].isUnbound());
+  EXPECT_TRUE(reply["schedules"].isUnbound());
+}
+
+// The schedule editor on its own too: Restore sends schedules over it only when it is there.
+TEST_F(Dashboard, CapabilitiesReportsTheScheduleEditorOnItsOwn) {
+  this->dashboard->set_schedules_url_prefix("/timetables");
+  Reply reply = this->get(CAPABILITIES);
+  EXPECT_EQ(reply["schedules"]["url_prefix"].as<std::string>(), "/timetables");
+  EXPECT_EQ(reply["schedules"].size(), 1u);
+  EXPECT_TRUE(reply["climates"].isUnbound());
 }
 
 TEST_F(Dashboard, CapabilitiesSaysWhenTheStorageDidNotMount) {

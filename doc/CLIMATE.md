@@ -26,6 +26,9 @@ at the next boot. The file format and the C++ API are in
   went off, pick one of its presets or set its target, or follow an input or a switch with a
   preset or on/off ([Automations](AUTOMATIONS.md)). The mode to go back to is kept across a
   reboot, and a thermostat restored from a backup goes back to the backup's.
+- **Schedules** turn a thermostat on or off, pick one of its presets or set its target by the
+  time of day and the day of the week, among the other actions of a mode; a preset or a target
+  turns a thermostat that is off back on ([Schedules](SCHEDULES.md)).
 - **Safety**: it keeps its relays open until its sensor's first reading, and waits for one
   as long as the sensor timeout before it reports a fault. A sensor silent for longer than its
   timeout, or a reading above the cut-out temperature, opens the relays until that clears. A
@@ -65,11 +68,11 @@ The result, the gains it replaced and any warning about it stay in the thermosta
 the next calibration, a delete or a reboot.
 
 A calibration ends without new gains when it is cancelled, when the target or the mode changes
-from anywhere (Home Assistant, the web server, the editor, a rule, a preset), when the thermostat
-is saved, brought back from a backup, switched off, deleted or taken over, on any fault, after 24
-hours, after 6 hours without a relay switch (a heater that cannot cross the band), or when a noisy
-probe crosses the target more than 65 times. A reboot ends it too. The status says which, and the
-thermostat goes back to its PID with the gains it had.
+from anywhere (Home Assistant, the web server, the editor, a rule, a schedule, a preset), when
+the thermostat is saved, brought back from a backup, switched off, deleted or taken over, on any
+fault, after 24 hours, after 6 hours without a relay switch (a heater that cannot cross the
+band), or when a noisy probe crosses the target more than 65 times. A reboot ends it too. The
+status says which, and the thermostat goes back to its PID with the gains it had.
 
 ## A running thermostat's relays
 
@@ -81,6 +84,7 @@ What everything else that switches a relay does with one a running thermostat dr
 | Modbus coils `0x0000`–`0x0005` | a write that would move it answers exception `0x04`; writing the state it already has is accepted |
 | Automation rules, `switch` actions | leave it alone and log the rule and the thermostat; the rest of the rule runs |
 | Input bindings, Toggle and Follow | leave it alone; once the thermostat frees it, a Follow relay takes its input's state at once, unless a thermostat that waited for the relay starts on it |
+| Schedules | skip the action, and the schedule's status lists it with the thermostat's name; once the thermostat frees it, the relay takes the last action on it the list of the mode in force has passed |
 | Home Assistant, the web server's REST | switch it, and the thermostat puts it back, as below; the dashboard locks its own toggle |
 | **Inverted** in the relay's settings, on the panel or the dashboard | refused; the dashboard's answer and the panel's log name the thermostat. Start mode and the binding change as usual |
 

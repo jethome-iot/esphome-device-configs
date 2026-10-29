@@ -40,6 +40,9 @@ minutes fires every cron time it skipped at once, and a longer one skips them; a
 more than 15 minutes fires the times in between again as the clock passes them, and a shorter
 one fires nothing until the clock is back where it was.
 
+A timetable, what relays and thermostats do by the time of day and the day of the week, is a
+[schedule](SCHEDULES.md) rather than a rule.
+
 ## Storage
 
 Rules are `/littlefs/automations/<name>.json` on the LittleFS partition from

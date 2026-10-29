@@ -32,6 +32,8 @@ packages:
   modbus: !include ${features}/modbus-server.yaml
   network: !include ${features}/network.yaml
   rtc_time: !include ${features}/rtc-time.yaml
+  schedule_editor: !include ${features}/schedule-editor.yaml
+  schedules: !include ${features}/schedules.yaml
   storage: !include ${features}/storage.yaml
   temperature: !include ${features}/temperature.yaml
   uarts: !include ${features}/uarts.yaml

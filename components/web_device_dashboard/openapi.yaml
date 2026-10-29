@@ -2498,6 +2498,16 @@ components:
             url_prefix:
               type: string
               example: /climate-editor
+        schedules:
+          type: object
+          required: [url_prefix]
+          description: >-
+            The firmware serves the schedule API the Schedules screens use.
+            Absent without a `web_schedule_editor`.
+          properties:
+            url_prefix:
+              type: string
+              example: /schedule-editor
         entity_settings:
           type: object
           required: [types]
@@ -2552,6 +2562,8 @@ components:
           url_prefix: /automation-editor
         climates:
           url_prefix: /climate-editor
+        schedules:
+          url_prefix: /schedule-editor
         entity_settings:
           types: [switch, binary_sensor]
         board_info: true

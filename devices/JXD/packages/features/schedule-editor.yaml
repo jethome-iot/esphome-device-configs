@@ -1,0 +1,8 @@
+# The schedules over HTTP: the JSON API under /schedule-editor/api that the
+# dashboard's editor and curl use. Needs the schedules package.
+# Details: components/web_schedule_editor/README.md
+external_components:
+  - source: ${components}
+    components: [web_schedule_editor, web_origin_guard, loop_job]
+
+web_schedule_editor:
