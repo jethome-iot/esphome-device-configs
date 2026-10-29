@@ -80,7 +80,9 @@ boundaries; everything else is local to its file.
 - `virtual_input_pool` (`features/virtual-inputs.yaml`) is the `virtual_inputs` component: a pool
   of `binary_sensor`s, `Virtual input N`, each following a physical input through an on and an off
   delay, kept as `virtual_inputs.json` in `config_json_keeper`'s folder. Their labels are
-  `binary_sensor_settings`' records, which take no inversion for them. `display/menu.yaml` reads
+  `binary_sensor_settings`' records, which take no inversion for them. A delete also drops
+  `switch_settings`' bindings to the slot, and codegen hands the pool a lambda over the rule
+  engine that names the rules naming a slot. `display/menu.yaml` reads
   `configured()` and `sensor()` for the Inputs rows, and `web_device_dashboard` finds the pool in
   the config for `/api/device/virtual-inputs`.
 - `switch_settings` and `binary_sensor_settings` (`features/entity-settings.yaml`) are the

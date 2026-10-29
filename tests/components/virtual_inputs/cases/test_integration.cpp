@@ -121,25 +121,95 @@ TEST_F(Pool, BindToShowsTheStoredInputForAChoiceTheListLostWhileEditing) {
   store().keeper.cancel_pending_save();
 }
 
-TEST_F(Pool, ADeletedVirtualInputDrivesItsBindingNoMore) {
+TEST_F(Pool, ADeleteDropsTheBindingsToItsSlotAndLeavesTheRelaysWhereTheyAre) {
   write(FILE_NAME, SOMEONE_HOME);
   write("switch.json", R"({"version":1,"records":[)"
-                       R"({"source_name":"relay_1","binding_input":"virtual_input_1","binding_mode":"follow"}]})");
+                       R"({"source_name":"relay_1","binding_input":"virtual_input_1","binding_mode":"follow"},)"
+                       R"({"source_name":"relay_2","binding_input":"input_2","binding_mode":"toggle"}]})");
   bindings::BindingsManager &manager = new_manager();
   boot(true);
   manager.setup();
   EXPECT_TRUE(e.relay1.state);
   ASSERT_TRUE(pool().remove(0));
-  // As for any input this firmware lacks: the relay is left where it was, and stays there.
+  // Bind to: None, kept like any settings change.
+  entity_config::SwitchSettingsRecord record;
+  ASSERT_TRUE(store().relays.get_record(&e.relay1, record));
+  EXPECT_EQ(record.binding_input, "");
+  EXPECT_TRUE(store().keeper.is_save_pending());
+  // The relay is left where it was, and the next virtual input in the slot drives it no more.
   EXPECT_TRUE(e.relay1.state);
-  e.in1.publish_state(false);
-  pool().advance(600000);
+  const int writes = e.relay1.writes;
+  ASSERT_TRUE(pool().save(0, follow_config("input_2")));
+  e.in2.publish_state(true);
+  e.in2.publish_state(false);
   EXPECT_TRUE(e.relay1.state);
-  // The binding is kept, and finds no input at the next boot, which has a manager of its own.
-  new_manager();
+  EXPECT_EQ(e.relay1.writes, writes);
+  EXPECT_TRUE(e.relay2.state);  // the binding to another input stays
+
+  // The next boot finds no binding to the slot: nothing to warn about, nothing to drive.
+  store().keeper.save_immediate();
+  EXPECT_EQ(read("switch.json").find("virtual_input_1"), std::string::npos);
+  bindings::BindingsManager &next = new_manager();
   log().clear();
-  reboot(false);
-  EXPECT_TRUE(log().has_warning("not found for output"));
+  reboot(false, true);
+  next.setup();
+  EXPECT_FALSE(log().has_warning("not found for output"));
+  ASSERT_TRUE(pool().sensor(0)->state);
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 0);
+}
+
+TEST_F(Pool, ANewVirtualInputTakesTheLowestFreeSlotNothingNames) {
+  // Slot 2 is named by a rule that found no input at boot, slot 4 by a hand-edited binding.
+  write_rule("gated.json", R"({"id":1,"name":"Hall light when someone is home","triggers":[{"source":"input",)"
+                           R"("type":"press","object_id":"input_2"}],"condition":{"type":"input",)"
+                           R"("object_id":"virtual_input_2","state":"true"},"actions":[]})");
+  write("switch.json", R"({"version":1,"records":[)"
+                       R"({"source_name":"relay_2","binding_input":"virtual_input_4","binding_mode":"follow"}]})");
+  new_manager();
+  boot();
+  TestEngine &engine = new_engine();
+  engine.setup();
+  EXPECT_EQ(pool().slot_for_new(), 0);
+  // Slot 1 is named by a rule made while its input was in use.
+  ASSERT_TRUE(pool().save(0, follow_config("input_1", 0, 600)));
+  ASSERT_NE(engine.add_automation(rule(R"({"name":"Comfort while someone is home","triggers":[{"source":"input",)"
+                                       R"("type":"state_change","object_id":"virtual_input_1"}],"actions":[]})")),
+            0u);
+  ASSERT_TRUE(pool().remove(0));
+  EXPECT_EQ(pool().slot_for_new(), 2);
+  ASSERT_TRUE(pool().save(2, follow_config("input_2")));
+  // Every free slot is named: the lowest of them.
+  EXPECT_EQ(pool().slot_for_new(), 0);
+  store().keeper.cancel_pending_save();
+}
+
+TEST_F(Pool, ASlotIsUsedByTheRulesThatNameItBuiltOrNotAndTheRelaysBoundToIt) {
+  write(FILE_NAME, R"({"records":[{"slot":1,"source":"input_1","off_delay":600},{"slot":2,"source":"input_2"}]})");
+  write("switch.json", R"({"version":1,"records":[)"
+                       R"({"source_name":"relay_2","binding_input":"virtual_input_1","binding_mode":"toggle"},)"
+                       R"({"source_name":"relay_1","binding_input":"virtual_input_1","binding_mode":"follow",)"
+                       R"("label":"Staircase"}]})");
+  write_rule("comfort.json", R"({"id":1,"name":"Comfort while someone is home","triggers":[{"source":"input",)"
+                             R"("type":"state_change","object_id":"virtual_input_1"}],"actions":[]})");
+  // Not built: its trigger names an input this firmware lacks.
+  write_rule("away.json", R"({"id":2,"name":"Away","triggers":[{"source":"input","type":"press",)"
+                          R"("object_id":"no_such_input"}],"condition":{"type":"input",)"
+                          R"("object_id":"virtual_input_1","state":"false"},"actions":[]})");
+  new_manager();
+  boot();
+  // Without the rule engine, only the relays.
+  EXPECT_TRUE(pool().users(0).rules.empty());
+  EXPECT_EQ(pool().users(0).relays, (std::vector<std::string>{"Staircase", "Relay 2"}));
+  TestEngine &engine = new_engine();
+  engine.setup();
+  const SlotUsers users = pool().users(0);
+  EXPECT_EQ(users.rules, (std::vector<std::string>{"Comfort while someone is home", "Away"}));
+  EXPECT_EQ(users.relays, (std::vector<std::string>{"Staircase", "Relay 2"}));
+  for (size_t slot : {1, 2, 9}) {
+    EXPECT_TRUE(pool().users(slot).rules.empty()) << slot;
+    EXPECT_TRUE(pool().users(slot).relays.empty()) << slot;
+  }
 }
 
 TEST_F(Pool, ARuleTriggersOnAVirtualInputAndReadsItAsACondition) {

@@ -244,12 +244,35 @@ std::string VirtualInputs::problem(size_t slot) const {
   return "";
 }
 
-int VirtualInputs::first_free() const {
+int VirtualInputs::slot_for_new() const {
+  // A rule or a binding still naming a free slot would follow whatever is set up in it next.
+  int fallback = -1;
   for (size_t index = 0; index < this->slots_.size(); index++) {
-    if (!this->slots_[index]->config.configured())
+    if (this->slots_[index]->config.configured())
+      continue;
+    const SlotUsers users = this->users(index);
+    if (users.rules.empty() && users.relays.empty())
       return static_cast<int>(index);
+    if (fallback < 0)
+      fallback = static_cast<int>(index);
   }
-  return -1;
+  return fallback;
+}
+
+SlotUsers VirtualInputs::users(size_t slot) const {
+  SlotUsers users;
+  if (slot >= this->slots_.size())
+    return users;
+  const VirtualInput &entity = this->slots_[slot]->entity;
+  if (this->rule_finder_)
+    users.rules = this->rule_finder_(entity.get_object_id_hash());
+#ifdef VIRTUAL_INPUTS_BINDINGS
+  if (this->switch_settings_ != nullptr) {
+    char buffer[OBJECT_ID_MAX_LEN];
+    users.relays = this->switch_settings_->relays_bound_to(std::string(entity.get_object_id_to(buffer)));
+  }
+#endif
+  return users;
 }
 
 // --- Changing them ---
@@ -308,15 +331,20 @@ bool VirtualInputs::remove(size_t index) {
   slot->config = InputConfig{};
   slot->source = nullptr;
   slot->line.reset();
-  // A rule or a binding naming it now finds no input, as for any input this firmware lacks.
+  // A rule naming it now finds no input, as for any input this firmware lacks.
   slot->entity.set_visible(false, 0);
   slot->entity.invalidate_state();
+  char buffer[OBJECT_ID_MAX_LEN];
+  [[maybe_unused]] const std::string object_id(slot->entity.get_object_id_to(buffer));
 #ifdef ENTITY_CONFIG_BINARY_SENSOR
   // The next virtual input in this slot starts without the old one's label.
-  char buffer[OBJECT_ID_MAX_LEN];
-  const std::string object_id(slot->entity.get_object_id_to(buffer));
   if (this->input_settings_ != nullptr && this->input_settings_->remove_record(object_id))
     this->keeper_->save(this->input_settings_->get_key());
+#endif
+#ifdef VIRTUAL_INPUTS_BINDINGS
+  // A relay bound to it would follow the next one in this slot: its Bind to goes to None.
+  if (this->switch_settings_ != nullptr && this->switch_settings_->unbind_input(object_id))
+    this->keeper_->save(this->switch_settings_->get_key());
 #endif
   this->schedule_ha_resync_();
   ESP_LOGI(TAG, "%s deleted", slot->entity.fixed_name());

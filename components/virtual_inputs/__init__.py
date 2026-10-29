@@ -93,6 +93,25 @@ async def to_code(config):
     if entity_config is not None and "binary_sensor" in entity_config["settings"]:
         settings = await cg.get_variable(entity_config["binary_sensor_settings_id"])
         cg.add(var.set_input_settings(settings))
+    # The relays' bindings, which a delete drops, when the firmware has them.
+    if (
+        entity_config is not None
+        and "switch" in entity_config["settings"]
+        and "bindings" in CORE.config
+    ):
+        relays = await cg.get_variable(entity_config["switch_settings_id"])
+        cg.add(var.set_switch_settings(relays))
+    # The rules that name a slot, when the firmware runs rules: a lambda keeps their engine's
+    # header out of this component.
+    if (automations := CORE.config.get("automations")) is not None:
+        engine = await cg.get_variable(automations[CONF_ID])
+        cg.add(
+            var.set_rule_finder(
+                cg.RawExpression(
+                    f"[](uint32_t key) {{ return {engine}->rules_naming_binary_sensor(key); }}"
+                )
+            )
+        )
 
     # Same group hash as web_server.add_entity_config() computes for YAML entities.
     sorting = config.get(CONF_WEB_SERVER)

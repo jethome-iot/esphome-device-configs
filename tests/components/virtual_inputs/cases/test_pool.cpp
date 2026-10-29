@@ -30,7 +30,7 @@ TEST_F(Pool, EverySlotIsRegisteredOnceUnderItsFixedNameAndHidden) {
   EXPECT_FALSE(pool().configured(4));
   EXPECT_FALSE(pool().config(4).configured());
   EXPECT_FALSE(pool().is_virtual_input(&e.in1));
-  EXPECT_EQ(pool().first_free(), 0);
+  EXPECT_EQ(pool().slot_for_new(), 0);
   // A second boot reuses the pool: App has no room for another.
   const size_t sensors = App.get_binary_sensors().size();
   reboot();
@@ -77,7 +77,7 @@ TEST_F(Pool, ABootShowsTheStoredSlotsAndTakesTheirSourcesFirstLevel) {
   EXPECT_TRUE(pool().entity(3).state);
   EXPECT_EQ(pool().problem(1), "");
   EXPECT_EQ(pool().problem(0), "");  // free
-  EXPECT_EQ(pool().first_free(), 0);
+  EXPECT_EQ(pool().slot_for_new(), 0);
 }
 
 TEST_F(Pool, ASlotHasNoStateUntilItsSourceHasOne) {
@@ -135,9 +135,9 @@ TEST_F(Pool, AFullPoolHasNoFreeSlot) {
   boot();
   for (size_t slot = 0; slot < 4; slot++)
     ASSERT_TRUE(pool().save(slot, follow_config("input_1")));
-  EXPECT_EQ(pool().first_free(), -1);
+  EXPECT_EQ(pool().slot_for_new(), -1);
   ASSERT_TRUE(pool().remove(2));
-  EXPECT_EQ(pool().first_free(), 2);
+  EXPECT_EQ(pool().slot_for_new(), 2);
 }
 
 TEST_F(Pool, APoolTheEntityTableHasNoRoomForRegistersNothingAndSaysSo) {
@@ -152,7 +152,7 @@ TEST_F(Pool, APoolTheEntityTableHasNoRoomForRegistersNothingAndSaysSo) {
   extra->setup();
   EXPECT_TRUE(log().has_error("No room in the entity table for virtual input 1"));
   EXPECT_EQ(App.get_binary_sensors().size(), sensors);
-  EXPECT_EQ(extra->first_free(), -1);
+  EXPECT_EQ(extra->slot_for_new(), -1);
   EXPECT_FALSE(extra->configured(0));
   EXPECT_EQ(extra->sensor(0), nullptr);
   EXPECT_FALSE(extra->save(0, follow_config("input_1")));
@@ -179,7 +179,7 @@ TEST_F(Pool, ASaveShowsAFreeSlotWritesTheFileAndAsksHomeAssistantToReconnect) {
   ASSERT_TRUE(pool().entity(2).has_state());
   EXPECT_TRUE(pool().entity(2).state);  // its source is on, and there is no on delay
   EXPECT_EQ(read(FILE_NAME), R"({"version":1,"records":[{"slot":3,"source":"input_1","on_delay":0,"off_delay":30}]})");
-  EXPECT_EQ(pool().first_free(), 0);
+  EXPECT_EQ(pool().slot_for_new(), 0);
   EXPECT_EQ(pool().resyncs, 0);
   pass_resync_delay();
   EXPECT_EQ(pool().resyncs, 1);
@@ -280,7 +280,7 @@ TEST_F(Pool, ADeleteHidesTheSlotWithNoStateAndFreesIt) {
   EXPECT_FALSE(pool().configured(0));
   EXPECT_TRUE(pool().entity(0).is_internal());
   EXPECT_FALSE(pool().entity(0).has_state());
-  EXPECT_EQ(pool().first_free(), 0);
+  EXPECT_EQ(pool().slot_for_new(), 0);
   EXPECT_EQ(read(FILE_NAME), R"({"version":1,"records":[{"slot":2,"source":"input_1","on_delay":0,"off_delay":0}]})");
   pass_resync_delay();
   EXPECT_EQ(pool().resyncs, 2);

@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "delay_line.h"
@@ -15,6 +17,10 @@
 #endif
 #ifdef ENTITY_CONFIG_BINARY_SENSOR
 #include "esphome/components/entity_config/binary_sensor_settings_json.h"
+#endif
+#if defined(ENTITY_CONFIG_SWITCH) && defined(ENTITY_CONFIG_BINDINGS)
+#define VIRTUAL_INPUTS_BINDINGS
+#include "esphome/components/entity_config/switch_settings_json.h"
 #endif
 
 namespace esphome::virtual_inputs {
@@ -43,6 +49,14 @@ enum class SourceCheck : uint8_t {
   VIRTUAL,
 };
 
+/// What names a slot, and stops working when it is deleted.
+struct SlotUsers {
+  /// The rules that name it as a trigger or a condition, built or not.
+  std::vector<std::string> rules;
+  /// The relays bound to it, as they are shown.
+  std::vector<std::string> relays;
+};
+
 /// A pool of virtual inputs: each follows one physical input through an on and an off delay,
 /// kept as a file in the config_json keeper's folder. See README.md.
 ///
@@ -65,6 +79,14 @@ class VirtualInputs : public Component {
   /// Where the slots' labels live; they take no inversion there.
   void set_input_settings(entity_config::BinarySensorSettingsJson *settings) { this->input_settings_ = settings; }
 #endif
+#ifdef VIRTUAL_INPUTS_BINDINGS
+  /// Where the relays' bindings live: a delete drops the ones to its slot.
+  void set_switch_settings(entity_config::SwitchSettingsJson *settings) { this->switch_settings_ = settings; }
+#endif
+  /// The names of the rules that name a binary sensor, by its object id's fnv1 hash; set when the
+  /// firmware runs rules. Called on the loop task.
+  using RuleFinder = std::function<std::vector<std::string>(uint32_t key)>;
+  void set_rule_finder(RuleFinder finder) { this->rule_finder_ = std::move(finder); }
 
   size_t max_inputs() const { return this->max_inputs_; }
   /// The slot follows a source; slots are 0-based here.
@@ -76,8 +98,11 @@ class VirtualInputs : public Component {
   bool is_virtual_input(const binary_sensor::BinarySensor *sensor) const;
   /// Why a configured slot is off whatever its source does, or waits; "" when it follows it.
   std::string problem(size_t slot) const;
-  /// The lowest free slot, -1 when every one is taken.
-  int first_free() const;
+  /// The slot a new virtual input takes: the lowest free one nothing names, else the lowest free
+  /// one; -1 when every one is taken.
+  int slot_for_new() const;
+  /// The rules and the relays that name the slot, in use or not.
+  SlotUsers users(size_t slot) const;
 
   SourceCheck check_source(const std::string &object_id) const;
   /// What a slot may follow: every visible binary sensor that is not a virtual input.
@@ -92,8 +117,9 @@ class VirtualInputs : public Component {
   /// checks OK, both delays are at most MAX_DELAY_S, can_save() and file_loaded() hold and the
   /// write succeeds. The same config again is true with nothing written.
   bool save(size_t slot, const InputConfig &config);
-  /// Writes the file without the slot, then hides it with no state and drops its label. False,
-  /// with nothing changed, for a free slot or under the conditions save() names.
+  /// Writes the file without the slot, then hides it with no state and drops its label and the
+  /// bindings to it. False, with nothing changed, for a free slot or under the conditions save()
+  /// names.
   bool remove(size_t slot);
 
  protected:
@@ -140,6 +166,10 @@ class VirtualInputs : public Component {
 #ifdef ENTITY_CONFIG_BINARY_SENSOR
   entity_config::BinarySensorSettingsJson *input_settings_{nullptr};
 #endif
+#ifdef VIRTUAL_INPUTS_BINDINGS
+  entity_config::SwitchSettingsJson *switch_settings_{nullptr};
+#endif
+  RuleFinder rule_finder_;
 };
 
 }  // namespace esphome::virtual_inputs

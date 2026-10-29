@@ -1483,6 +1483,15 @@ void WebDeviceDashboard::write_virtual_input_(JsonObject entry, virtual_inputs::
     entry["state"] = nullptr;
   }
   entry["problem"] = inputs->problem(slot);
+  // What a delete stops: the dashboard's confirmation names them.
+  const virtual_inputs::SlotUsers users = inputs->users(slot);
+  JsonObject used_by = entry["used_by"].to<JsonObject>();
+  JsonArray rules = used_by["rules"].to<JsonArray>();
+  for (const std::string &name : users.rules)
+    rules.add(name);
+  JsonArray relays = used_by["relays"].to<JsonArray>();
+  for (const std::string &name : users.relays)
+    relays.add(name);
 }
 
 // GET /api/device/virtual-inputs: the configured slots, numbered from 1 as their names are, and the
@@ -1523,9 +1532,10 @@ void WebDeviceDashboard::handle_virtual_inputs_(AsyncWebServerRequest *request) 
 }
 
 // POST /api/device/virtual-inputs/save: {"slot": N, "source": "input_1", "on_delay": s, "off_delay": s}.
-// Without `slot` it takes the lowest free one; a delay left out is 0 on a new slot and kept on one
-// in use. No confirmation: it is undone the same way. The source check and the write go over to the
-// loop task together, and the answer is the slot as it now stands.
+// Without `slot` it takes slot_for_new(), the lowest free one nothing names; a delay left out is 0
+// on a new slot and kept on one in use. No confirmation: it is undone the same way. The source
+// check and the write go over to the loop task together, and the answer is the slot as it now
+// stands.
 void WebDeviceDashboard::handle_virtual_inputs_save_(AsyncWebServerRequest *request) {
   auto *inputs = this->virtual_inputs_;
   if (inputs == nullptr) {
@@ -1580,7 +1590,7 @@ void WebDeviceDashboard::handle_virtual_inputs_save_(AsyncWebServerRequest *requ
         return false;
     }
     if (!has_slot) {
-      const int free = inputs->first_free();
+      const int free = inputs->slot_for_new();
       if (free < 0) {
         code = 409;
         why = str_sprintf("All %u virtual inputs are in use", static_cast<unsigned>(inputs->max_inputs()));
@@ -1618,8 +1628,8 @@ void WebDeviceDashboard::handle_virtual_inputs_save_(AsyncWebServerRequest *requ
   request->send(200, "application/json", body.c_str());
 }
 
-// POST /api/device/virtual-inputs/delete: {"slot": N}. The slot goes back to the pool, hidden, and its
-// label with it; a rule or a binding that names it finds no input from then on.
+// POST /api/device/virtual-inputs/delete: {"slot": N}. The slot goes back to the pool, hidden, its
+// label and the bindings to it with it; a rule that names it finds no input from then on.
 void WebDeviceDashboard::handle_virtual_inputs_delete_(AsyncWebServerRequest *request) {
   auto *inputs = this->virtual_inputs_;
   if (inputs == nullptr) {

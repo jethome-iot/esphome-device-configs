@@ -42,6 +42,10 @@ class AutomationStorage : public Component {
   void reset_all();
   /// Names collide by sanitized filename; `exclude_id` never blocks itself.
   bool is_name_taken(const std::string &name, uint32_t exclude_id = 0) const;
+  /// The names of the rules whose trigger or condition names the binary sensor `key` (its object
+  /// id's fnv1 hash), built or not: one that found no such input still names it. Loop task, as
+  /// configs().
+  std::vector<std::string> rules_naming_binary_sensor(uint32_t key) const;
 
   /// The loaded configs. They belong to the loop task, which the mutators above and a rule's
   /// own dispatch run on: a caller on another task reads them through run_on_loop().

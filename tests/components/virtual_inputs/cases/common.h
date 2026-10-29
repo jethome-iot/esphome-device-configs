@@ -204,6 +204,7 @@ inline Store &store() {
     s->pool.set_max_inputs(4);
     s->pool.set_keeper(&s->keeper);
     s->pool.set_input_settings(&s->inputs);
+    s->pool.set_switch_settings(&s->relays);
     return s;
   }();
   return *instance;
@@ -229,6 +230,7 @@ class Pool : public ::testing::Test {
     Store &s = store();
     s.pool.reset();
     s.pool.set_keeper(&s.keeper);
+    s.pool.set_rule_finder(nullptr);
     config_json::global_config_json_keeper = &s.keeper;
     s.keeper.cancel_pending_save();
     s.inputs.reset();
@@ -293,10 +295,19 @@ class Pool : public ::testing::Test {
     TestEngine &engine = *all.back();
     engine.set_storage(&store().storage);
     this->engines.push_back(&engine);
+    // As codegen wires the firmware's one engine.
+    store().pool.set_rule_finder([&engine](uint32_t key) { return engine.rules_naming_binary_sensor(key); });
     return engine;
   }
 
   std::string config_dir() const { return this->base + "/config"; }
+  // A rule file in the engine's folder, for its next setup().
+  void write_rule(const std::string &file, const std::string &json) {
+    const std::string folder = this->base + "/automations";
+    mkdir(folder.c_str(), 0755);
+    std::ofstream out(folder + "/" + file);
+    out << json;
+  }
   void write(const std::string &file, const std::string &json) {
     mkdir(this->config_dir().c_str(), 0755);
     std::ofstream out(this->config_dir() + "/" + file);

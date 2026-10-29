@@ -190,6 +190,33 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     this->mark_dirty();
     return record;
   }
+
+  // The relays whose record names `input` as Bind to, as they are shown, in App's order.
+  std::vector<std::string> relays_bound_to(const std::string &input) {
+    std::vector<std::string> shown;
+    for (auto *sw : App.get_switches()) {
+      const auto *record = this->find_(object_id_of(*sw));
+      if (record != nullptr && record->binding_input == input)
+        shown.push_back(this->display_name(sw));
+    }
+    return shown;
+  }
+
+  // Bind to: None on every record naming `input`, an entity gone for good, applied at once; the
+  // relays stay as they are. True when one changed; the caller saves.
+  bool unbind_input(const std::string &input) {
+    bool changed = false;
+    for (auto *record : this->records_) {
+      if (record == nullptr || input.empty() || record->binding_input != input)
+        continue;
+      record->binding_input.clear();
+      this->apply_record_(record);
+      changed = true;
+    }
+    if (changed)
+      this->mark_dirty();
+    return changed;
+  }
 #endif
 
   bool get_record(switch_::Switch *switch_obj, SwitchSettingsRecord &record) {

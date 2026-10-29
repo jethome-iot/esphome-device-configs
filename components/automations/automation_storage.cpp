@@ -563,6 +563,25 @@ bool AutomationStorage::is_name_taken(const std::string &name, uint32_t exclude_
   return false;
 }
 
+static bool condition_names(const ConditionConfig &condition, uint32_t key) {
+  if (condition.type == ConditionType::INPUT && condition.sensor_id == key)
+    return true;
+  return std::any_of(condition.sub_conditions.begin(), condition.sub_conditions.end(),
+                     [key](const ConditionConfig &sub) { return condition_names(sub, key); });
+}
+
+std::vector<std::string> AutomationStorage::rules_naming_binary_sensor(uint32_t key) const {
+  std::vector<std::string> names;
+  for (const auto &config : this->config_storage_.get_all_configs()) {
+    const bool triggered = std::any_of(config.triggers.begin(), config.triggers.end(), [key](const TriggerConfig &t) {
+      return t.source == SourceTrigger::INPUT && t.params.input.input_id == key;
+    });
+    if (triggered || condition_names(config.condition, key))
+      names.push_back(config.name);
+  }
+  return names;
+}
+
 uint32_t AutomationStorage::allocate_id_() {
   // Skip ids in use (a hand-written file can carry any), never hand out 0, and stay within
   // what a timer id can carry.

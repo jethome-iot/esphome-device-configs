@@ -57,6 +57,13 @@ at once, its delays counted again from the save. A slot whose source this firmwa
 have — the file edited by hand, a build without that input — stays off, and `problem()` says
 why.
 
+A delete hides the slot and drops what pointed at it: its label (see below) and, with
+[`bindings`](../bindings/README.md), every relay's binding to it, as if the relay's Bind to were
+set to None; the relay stays as it is. A rule that names it finds no input, as for any input this
+firmware lacks, and would follow the next virtual input in that slot: a new one takes the lowest
+free slot that no rule and no binding names, and only when every free slot is named the lowest
+free one.
+
 A slot set up or deleted is an entity that came or went, which Home Assistant learns only when
 it connects: the component asks it to reconnect two seconds later, one reconnect for a burst of
 changes.
@@ -97,7 +104,12 @@ Slots are 0-based here. Everything runs on the loop task.
 - `configured(slot)`, `config(slot)`: `source`, `on_delay` and `off_delay` in seconds; an empty
   source for a free slot
 - `sensor(slot)`: the slot's binary sensor, in use or not; `nullptr` past the pool
-- `is_virtual_input(sensor)`, `first_free()` (`-1` when every slot is in use)
+- `is_virtual_input(sensor)`
+- `slot_for_new()`: the lowest free slot nothing names, else the lowest free one; `-1` when every
+  slot is in use
+- `users(slot)`: `rules`, the names of the rules whose trigger or condition names the slot, built or
+  not, and `relays`, the relays bound to it as they are shown; empty without the `automations`
+  engine or `bindings`
 - `problem(slot)`: why a slot in use is off whatever its source does or has no state yet, `""`
   while it follows its source
 - `check_source(object_id)`: `OK`, `MISSING` or `VIRTUAL`; `sources()`, what a slot may follow
@@ -106,8 +118,8 @@ Slots are 0-based here. Everything runs on the loop task.
 - `save(slot, config)`: write and put in force; false, with nothing changed, for a slot past the
   pool, a source that is not `OK`, a delay past 86400, storage that cannot keep it or a write
   that fails
-- `remove(slot)`: write, hide and drop the label; false, with nothing changed, for a free slot or
-  as `save()`
+- `remove(slot)`: write, hide, drop the label and unbind the relays bound to it; false, with
+  nothing changed, for a free slot or as `save()`
 
 [`web_device_dashboard`](../web_device_dashboard/README.md) lists, saves and deletes them over
 HTTP; its page does under **Settings → Inputs**.
@@ -115,6 +127,7 @@ HTTP; its page does under **Settings → Inputs**.
 ## Tests
 
 `tests/components/virtual_inputs/` covers the delays, the file, the pool and its boot, and a slot
-as a binding's source, a rule's trigger and condition and an `entity_config` label, booted in the
-firmware's priority order. The real LittleFS and the Home Assistant reconnect are out of reach on
-the host: a directory stands in for the partition, and the reconnect is counted.
+as a binding's source, a rule's trigger and condition and an `entity_config` label, what a delete
+drops and where a new slot lands, booted in the firmware's priority order. The real LittleFS and
+the Home Assistant reconnect are out of reach on the host: a directory stands in for the
+partition, and the reconnect is counted.

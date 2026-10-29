@@ -1451,8 +1451,11 @@ paths:
         A virtual input follows one physical input: it turns on once the source
         has stayed on for `on_delay` seconds, and off once `off_delay` seconds
         have passed since the source last went off, every new pulse starting
-        that count again. Without `slot` it takes the lowest free one. A delay
-        left out is `0` on a new slot and kept on one in use. Written before the
+        that count again. Without `slot` it takes the lowest free one that no
+        rule and no relay's binding names, so nothing set up for an input
+        deleted from it follows the new one; when every free slot is named, the
+        lowest free one. A delay left out is `0` on a new slot and kept on one
+        in use. Written before the
         answer and in force at once, with no confirmation and no reboot: the
         delays count from the save, and a new slot takes its source's state at
         once. A new slot is a new binary sensor, so Home Assistant is asked to
@@ -1498,6 +1501,9 @@ paths:
                   off_delay: 600
                   state: false
                   problem: ""
+                  used_by:
+                    rules: []
+                    relays: []
         "400":
           description: >-
             A body that is empty, not JSON or not an object (`Invalid JSON`), a
@@ -1570,10 +1576,12 @@ paths:
       description: >-
         The slot goes back to the pool: its binary sensor is hidden, with no
         state, and its label goes with it, so the next virtual input in that
-        slot starts without one. A rule or a binding that names it finds no
-        input from then on, as for any input the firmware lacks: a relay it
-        drove stays where it is. Home Assistant is asked to reconnect a moment
-        later. Written before the answer, with no confirmation.
+        slot starts without one. Every relay bound to it loses that binding,
+        as if its Bind to were set to None, kept like any settings change, and
+        stays where it is. A rule that names it finds no input from then on, as
+        for any input the firmware lacks. The list's `used_by` names both
+        beforehand. Home Assistant is asked to reconnect a moment later. Written
+        before the answer, with no confirmation.
       requestBody:
         required: true
         content:
@@ -3117,7 +3125,7 @@ components:
 
     VirtualInput:
       type: object
-      required: [slot, object_id, name, label, source, on_delay, off_delay, state, problem]
+      required: [slot, object_id, name, label, source, on_delay, off_delay, state, problem, used_by]
       properties:
         slot:
           type: integer
@@ -3161,6 +3169,28 @@ components:
             from a file edited by hand or a build without that input, is
             `Source 'input_9' not found`.
           example: ""
+        used_by:
+          type: object
+          description: What a delete stops.
+          required: [rules, relays]
+          properties:
+            rules:
+              type: array
+              items:
+                type: string
+              description: >-
+                The names of the rules whose trigger or condition names it,
+                including one the firmware could not build: from the delete on
+                they find no input.
+              example: [Comfort while someone is home]
+            relays:
+              type: array
+              items:
+                type: string
+              description: >-
+                The relays bound to it, by label or else by name, in the
+                firmware's order: a delete drops their binding.
+              example: [Staircase light]
 
     VirtualInputSource:
       type: object
@@ -3181,7 +3211,9 @@ components:
         slot:
           type: integer
           minimum: 1
-          description: The slot, from 1 up to `max_inputs`; without it, the lowest free one.
+          description: >-
+            The slot, from 1 up to `max_inputs`; without it, the lowest free one
+            nothing names.
         source:
           type: string
           minLength: 1

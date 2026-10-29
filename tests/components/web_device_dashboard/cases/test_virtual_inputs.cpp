@@ -82,6 +82,7 @@ class VirtualInputRoutes : public Dashboard {
   }
   void TearDown() override {
     chmod((std::string(FOLDER) + "/config").c_str(), 0755);
+    pool().inputs.set_rule_finder(nullptr);
     pool().inputs.reset();
     Dashboard::TearDown();
   }
@@ -159,6 +160,36 @@ TEST_F(VirtualInputRoutes, ASaveWithoutASlotTakesTheLowestFreeOne) {
   EXPECT_EQ(full.code, 409);
   EXPECT_EQ(full.error(), "All 3 virtual inputs are in use");
   EXPECT_EQ(this->get(LIST)["inputs"].as<JsonArray>().size(), 3u);
+}
+
+TEST_F(VirtualInputRoutes, EachInputSaysWhatUsesItAndANewOneSkipsASlotARuleNames) {
+  // The rules, as the firmware's engine names them; this suite has no relays' settings.
+  pool().inputs.set_rule_finder([](uint32_t key) {
+    return key == fnv1_hash("virtual_input_1")
+               ? std::vector<std::string>{"Comfort while someone is home", "Hall light when someone is home"}
+               : std::vector<std::string>{};
+  });
+  ASSERT_EQ(this->save(R"({"slot":2,"source":"in_1"})").code, 200);
+  Reply skipped = this->save(R"({"source":"in_1"})");
+  ASSERT_EQ(skipped.code, 200) << skipped.body;
+  EXPECT_EQ(skipped["input"]["slot"].as<int>(), 3);
+  EXPECT_EQ(skipped["input"]["used_by"]["rules"].as<JsonArray>().size(), 0u);
+  // The one slot left is named: a new input takes it all the same.
+  Reply named = this->save(R"({"source":"in_1"})");
+  ASSERT_EQ(named.code, 200) << named.body;
+  EXPECT_EQ(named.message(), "Virtual input 1 created");
+
+  Reply listed = this->get(LIST);
+  ASSERT_EQ(listed["inputs"].as<JsonArray>().size(), 3u);
+  JsonVariant used = listed["inputs"][0]["used_by"];
+  ASSERT_EQ(used["rules"].as<JsonArray>().size(), 2u);
+  EXPECT_EQ(used["rules"][0].as<std::string>(), "Comfort while someone is home");
+  EXPECT_EQ(used["rules"][1].as<std::string>(), "Hall light when someone is home");
+  for (JsonVariant input : listed["inputs"].as<JsonArray>()) {
+    ASSERT_TRUE(input["used_by"]["relays"].is<JsonArray>());
+    EXPECT_EQ(input["used_by"]["relays"].as<JsonArray>().size(), 0u);
+  }
+  EXPECT_EQ(listed["inputs"][1]["used_by"]["rules"].as<JsonArray>().size(), 0u);
 }
 
 TEST_F(VirtualInputRoutes, AnEditKeepsTheDelaysItLeavesOut) {

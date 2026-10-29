@@ -559,6 +559,18 @@ export interface VirtualInput {
   /** Why it is off whatever its source does (`Source 'input_9' not found`), or why it has no
    *  state yet; `''` while it follows its source. */
   problem: string
+  /** What a delete stops. */
+  used_by: VirtualInputUsers
+}
+
+/** What names a virtual input, by what the page shows. */
+export interface VirtualInputUsers {
+  /** The rules whose trigger or condition names it, one the firmware could not build included:
+   *  from a delete on they find no input. */
+  rules: string[]
+  /** The relays bound to it, by label or else by name, in the firmware's order: a delete drops
+   *  their binding. */
+  relays: string[]
 }
 
 /** An input a virtual input may follow: a visible `binary_sensor` that is not a virtual input. */
@@ -583,7 +595,8 @@ export interface VirtualInputs {
 }
 
 /** POST /virtual-inputs/save — set up a slot, or change one in use. Without `slot` it takes the
- *  lowest free one, `409` when none is. A delay left out is `0` on a new slot and kept on one in
+ *  lowest free one nothing names (no rule, no relay's binding), else the lowest free one, and
+ *  `409` when none is free. A delay left out is `0` on a new slot and kept on one in
  *  use. Written and in force at once, no confirmation: the delays count from the save. `400` for a
  *  slot out of range, a `source` that is not a physical input's object id (a virtual input, a
  *  relay or nothing at all), or a delay that is not a whole number of seconds up to `max_delay`;
@@ -602,9 +615,10 @@ export interface VirtualInputSaveResult extends Omit<MutationResponse, 'reboot_r
   input: VirtualInput
 }
 
-/** POST /virtual-inputs/delete — free a slot: its entity is hidden and its label dropped, and a
- *  rule or a binding that names it finds no input from then on. `400` for a slot out of range,
- *  `409` for a free one, `503` and `500` as for a save. */
+/** POST /virtual-inputs/delete — free a slot: its entity is hidden, its label dropped and every
+ *  relay bound to it unbound, the relay left as it is; a rule that names it finds no input from
+ *  then on. `used_by` names both beforehand. `400` for a slot out of range, `409` for a free one,
+ *  `503` and `500` as for a save. */
 export interface VirtualInputDeletePayload {
   slot: number
 }

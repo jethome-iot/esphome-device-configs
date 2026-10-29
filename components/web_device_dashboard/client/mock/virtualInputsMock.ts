@@ -7,6 +7,7 @@ import type {
   VirtualInput,
   VirtualInputSavePayload,
   VirtualInputSource,
+  VirtualInputUsers,
   VirtualInputs
 } from '../device/types'
 
@@ -34,7 +35,11 @@ export interface VirtualInputsMockOptions {
   labelOf?: (objectId: string) => string
   /** A source's state, `null` before it has reported; off when left out. */
   stateOf?: (objectId: string) => boolean | null
-  /** What a delete does to the entity settings: the device drops the slot's label with it. */
+  /** The rules and the relays that name an object id, as the device's engine and entity settings
+   *  would; nothing when left out. A new slot skips a free one they name. */
+  usedBy?: (objectId: string) => VirtualInputUsers
+  /** What a delete does to the entity settings: the device drops the slot's label and the relays'
+   *  bindings to it. */
   onDelete?: (objectId: string) => void
   /** `nostorage` (the partition did not mount), `badfile` (the file is there but did not load),
    *  `writefail` (a write fails) or `busy` (the loop task misses every other request); anything
@@ -59,6 +64,7 @@ export function createVirtualInputsMock(options: VirtualInputsMockOptions) {
   const mode = options.mode ?? ''
   const labelOf = options.labelOf ?? (() => '')
   const stateOf = options.stateOf ?? (() => false)
+  const usedBy = options.usedBy ?? ((): VirtualInputUsers => ({ rules: [], relays: [] }))
   const storage = mode !== 'nostorage'
   const fileLoaded = storage && mode !== 'badfile'
 
@@ -109,8 +115,20 @@ export function createVirtualInputsMock(options: VirtualInputsMockOptions) {
       on_delay: slot.on_delay,
       off_delay: slot.off_delay,
       state: level,
-      problem
+      problem,
+      used_by: usedBy(objectId)
     }
+  }
+
+  /** The slot a new input takes, as the device picks it: the lowest free one nothing names, else
+   *  the lowest free one; -1 when none is free. */
+  function slotForNew(): number {
+    const free = slots.flatMap((slot, i) => (slot === null ? [i] : []))
+    const named = (i: number) => {
+      const users = usedBy(virtualInputObjectId(i + 1))
+      return users.rules.length > 0 || users.relays.length > 0
+    }
+    return free.find((i) => !named(i)) ?? free[0] ?? -1
   }
 
   /** GET /virtual-inputs */
@@ -170,7 +188,7 @@ export function createVirtualInputsMock(options: VirtualInputsMockOptions) {
     if (busy('write')) return refuse(503, 'Device busy')
     if (isVirtual(source)) return refuse(400, `'${source}' is a virtual input; the source must be a physical one`)
     if (!sourceOf(source)) return refuse(400, `'${source}' is not an input`)
-    const index = hasSlot ? (body.slot as number) - 1 : slots.findIndex((slot) => slot === null)
+    const index = hasSlot ? (body.slot as number) - 1 : slotForNew()
     if (index < 0) return refuse(409, `All ${maxInputs} virtual inputs are in use`)
     const was = slots[index]
     const payload = body as unknown as VirtualInputSavePayload
