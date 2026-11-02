@@ -204,9 +204,10 @@ network comes up. A key cleared later — by Forget HA below, or from Home Assis
 deleting the device there may do — leaves the device to be added again within 15 minutes of a
 boot: reboot it to add it later.
 
-**Settings → Forget HA → Confirm** on the display clears that key and reboots, so the device can
-be added again, to the same Home Assistant or another, without a factory reset; the settings
-and files stay. `POST /api/device/system/forget-api-key` does the same over the network
+**Settings → Forget HA → Confirm** on the display, or **Forget Home Assistant key** under
+**Settings → Security** on the dashboard, clears that key and reboots, so the device can be added
+again, to the same Home Assistant or another, without a factory reset; the settings and files
+stay. Over the network it is `POST /api/device/system/forget-api-key`
 ([details](components/web_device_dashboard/README.md#system-actions)). The Home Assistant that
 held the key can no longer connect with it and asks to re-authenticate the device; do that, or
 delete the device there and add it again, within 15 minutes of the reboot. A factory reset
