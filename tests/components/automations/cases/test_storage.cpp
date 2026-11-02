@@ -333,6 +333,30 @@ TEST_F(Storage, AnAnnouncedLevelIsNotAPress) {
   EXPECT_EQ(e.relay2.writes, 1);
 }
 
+TEST_F(Storage, NamesTheRulesThatNameAnInputBuiltOrNot) {
+  write("input_press.json", PRESS_RELAY_1);
+  write("gated.json",
+        R"({"id":2,"name":"Gated","triggers":[{"source":"startup"}],"condition":{"type":"and","conditions":[)"
+        R"({"type":"input","object_id":"in_2","state":"true"},{"type":"or","conditions":[)"
+        R"({"type":"input","object_id":"in_1","state":"false"}]}]},"actions":[]})");
+  // Not built: it names an input this firmware lacks, and in_1 too.
+  write("orphan.json",
+        R"({"id":3,"name":"Orphan","triggers":[{"source":"input","type":"press","object_id":"no_such_input"},)"
+        R"({"source":"input","type":"release","object_id":"in_1"}],"actions":[]})");
+  // A sensor's hash in a temperature trigger is no input.
+  write(
+      "warm.json",
+      R"({"id":4,"name":"Warm","triggers":[{"source":"temperature","type":"above","object_id":"in_1","threshold":25}],)"
+      R"("actions":[]})");
+  boot();
+  ASSERT_FALSE(built("Orphan"));
+  EXPECT_EQ(engine->rules_naming_binary_sensor(fnv1_hash("in_1")),
+            (std::vector<std::string>{"Input press", "Gated", "Orphan"}));
+  EXPECT_EQ(engine->rules_naming_binary_sensor(fnv1_hash("in_2")), (std::vector<std::string>{"Gated"}));
+  EXPECT_EQ(engine->rules_naming_binary_sensor(fnv1_hash("no_such_input")), (std::vector<std::string>{"Orphan"}));
+  EXPECT_TRUE(engine->rules_naming_binary_sensor(fnv1_hash("relay_1")).empty());
+}
+
 TEST_F(Storage, TheApiEditsRulesAndTheirFiles) {
   boot();
   const uint32_t id = engine->add_automation(rule(

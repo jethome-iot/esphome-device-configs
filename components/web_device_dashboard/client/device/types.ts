@@ -319,6 +319,8 @@ export interface Capabilities {
   automations?: { url_prefix: string }
   /** Present when the firmware serves the thermostat API the Climate screens use. */
   climates?: { url_prefix: string }
+  /** Present when the firmware serves the schedule API the Schedules screens use. */
+  schedules?: { url_prefix: string }
   /** Present with a `config_json` store; `types` are the keys `/entity-settings` takes. */
   entity_settings?: { types: string[] }
   /** The CPU board's EEPROM identity is in `/info`. */
@@ -331,6 +333,9 @@ export interface Capabilities {
   modbus?: ModbusMap
   /** GET and POST /time answer: the device clock, and a timezone this page can choose. */
   time?: true
+  /** A `virtual_inputs` is wired in: GET /virtual-inputs and POST /virtual-inputs/save and /delete
+   *  answer. Without it all three are `404`. */
+  virtual_inputs?: true
 }
 
 // --- Time ---
@@ -362,20 +367,52 @@ export interface DeviceTime {
   posix: string | null
   /** The zone compiled into the firmware, as its config writes it, e.g. `"UTC"`. */
   default_zone: string
+  /** The NTP servers the device asks; present on a firmware with an `ntp_servers`. */
+  ntp?: DeviceNtp
 }
+
+/** The NTP servers, in the order the device asks them: `servers`, then `fallback_servers` when
+ *  `fallback` is on. One is asked at a time; the next when it gives no answer, and the first
+ *  again at the poll after an answer from another. */
+export interface DeviceNtp {
+  /** Set with POST /time, at most NTP_SERVERS_MAX; empty when none was. */
+  servers: string[]
+  /** The firmware's own servers are asked after `servers`. On until POST /time turns it off. */
+  fallback: boolean
+  /** The firmware's own servers, e.g. `0.pool.ntp.org`; empty when it has none. */
+  fallback_servers: string[]
+  /** The server being asked now, or the one that answered last; null when the list is empty. */
+  current: string | null
+  /** The last answer since boot: when, as the clock read once it was set, and which server gave it. */
+  last_sync: { time: number; server: string } | null
+}
+
+/** POST /time's `ntp`: the servers to ask ahead of the firmware's own, and whether to ask those
+ *  at all; whichever is left out stays. Each is a host name or an IPv4 address, at most
+ *  NTP_SERVER_NAME_MAX bytes, none twice (case aside). A change is in force at once: the device
+ *  asks the first server again; the same servers again change nothing. */
+export type NtpUpdate = { servers: string[]; fallback?: boolean } | { fallback: boolean; servers?: never }
 
 /** POST /time. `posix` (with the zone's name, for display, or `null`) replaces the chosen zone,
  *  which is in force unless the device follows Home Assistant. `follow_homeassistant: true`
  *  follows Home Assistant and keeps the chosen zone; `false` puts the chosen one in force. `time`,
  *  alone or with the rest, sets the clock to that UTC epoch in whole seconds and writes the RTC.
+ *  `ntp`, on a firmware whose GET has it, sets the NTP servers.
  *  `422` for `false` with no zone stored or sent, a `zone` without `posix`, a POSIX string the
- *  device cannot parse, a string over 63 bytes or a `time` before CLOCK_TIME_MIN or from
- *  CLOCK_TIME_END on; `400` for a malformed body or a `time` that is no integer; `500` when the
- *  zone could not be stored, or the clock not set (a zone sent with it is in force all the same). */
+ *  device cannot parse, a string over 63 bytes, a `time` before CLOCK_TIME_MIN or from
+ *  CLOCK_TIME_END on, or NTP servers it refuses; `400` for a malformed body or a `time` that is
+ *  no integer; `500` when the zone or the servers could not be stored, or the clock not set (a
+ *  zone sent with it is in force all the same). */
 export type DeviceTimeUpdate =
-  | { posix: string; zone?: string | null; follow_homeassistant?: boolean; time?: number }
-  | { follow_homeassistant: boolean; posix?: never; zone?: never; time?: number }
-  | { time: number; follow_homeassistant?: never; posix?: never; zone?: never }
+  | { posix: string; zone?: string | null; follow_homeassistant?: boolean; time?: number; ntp?: NtpUpdate }
+  | { follow_homeassistant: boolean; posix?: never; zone?: never; time?: number; ntp?: NtpUpdate }
+  | { time: number; follow_homeassistant?: never; posix?: never; zone?: never; ntp?: NtpUpdate }
+  | { ntp: NtpUpdate; follow_homeassistant?: never; posix?: never; zone?: never; time?: never }
+
+/** How many servers `ntp.servers` holds. */
+export const NTP_SERVERS_MAX = 3
+/** The longest server name `ntp.servers` takes, in bytes. */
+export const NTP_SERVER_NAME_MAX = 63
 
 /** The earliest `time` POST /time takes: 2019-01-01T00:00:00Z. */
 export const CLOCK_TIME_MIN = 1546300800
@@ -530,6 +567,94 @@ export interface SlotLabelPayload {
 export interface TemperatureSlotLabelResult extends Omit<MutationResponse, 'reboot_required'> {
   /** The label the slot holds now, trimmed; `''` for none. */
   label: string
+}
+
+// --- Virtual inputs ---
+
+/** One virtual input in use: a `binary_sensor` that follows a physical input through an on and an
+ *  off delay. `slot` numbers from 1, as its name does. */
+export interface VirtualInput {
+  slot: number
+  /** `virtual_input_<slot>`, whatever the label: what rules, bindings and the entity settings name
+   *  it by, and the key of its label in POST /entity-settings (type `binary_sensor`). */
+  object_id: string
+  /** `Virtual input <slot>`: the entity web_server serves, and so the key to its state on `/events`. */
+  name: string
+  /** What the panel and the page show in place of `name`, `''` for none: the entity settings'. */
+  label: string
+  /** The physical input it follows, by object id. */
+  source: string
+  /** Seconds the source has to stay on before it turns on. */
+  on_delay: number
+  /** Seconds it stays on after the source last went off; every new pulse starts them again. */
+  off_delay: number
+  /** Its state when read; `null` until its source has reported. Live, it is on `/events`. */
+  state: boolean | null
+  /** Why it is off whatever its source does (`Source 'input_9' not found`), or why it has no
+   *  state yet; `''` while it follows its source. */
+  problem: string
+  /** What a delete stops. */
+  used_by: VirtualInputUsers
+}
+
+/** What names a virtual input, by what the page shows. */
+export interface VirtualInputUsers {
+  /** The rules whose trigger or condition names it, one the firmware could not build included:
+   *  from a delete on they find no input. */
+  rules: string[]
+  /** The relays bound to it, by label or else by name, in the firmware's order: a delete drops
+   *  their binding. */
+  relays: string[]
+}
+
+/** An input a virtual input may follow: a visible `binary_sensor` that is not a virtual input. */
+export interface VirtualInputSource {
+  object_id: string
+  name: string
+  /** The entity settings' label, `''` for none. */
+  label: string
+}
+
+/** GET /virtual-inputs — the slots in use, slot order, and what they may follow. */
+export interface VirtualInputs {
+  /** The pool, `virtual_inputs`' `max_inputs`: slots run from 1 to it. */
+  max_inputs: number
+  /** The longest on or off delay, in seconds. */
+  max_delay: number
+  /** A save or a delete can be kept: false when the user partition did not mount or the file is
+   *  there but did not load at boot, and then both are `503`. */
+  can_save: boolean
+  inputs: VirtualInput[]
+  sources: VirtualInputSource[]
+}
+
+/** POST /virtual-inputs/save — set up a slot, or change one in use. Without `slot` it takes the
+ *  lowest free one nothing names (no rule, no relay's binding), else the lowest free one, and
+ *  `409` when none is free. A delay left out is `0` on a new slot and kept on one in
+ *  use. Written and in force at once, no confirmation: the delays count from the save. `400` for a
+ *  slot out of range, a `source` that is not a physical input's object id (a virtual input, a
+ *  relay or nothing at all), or a delay that is not a whole number of seconds up to `max_delay`;
+ *  `503` when `can_save` is false or the loop task is busy, `500` when the write fails. */
+export interface VirtualInputSavePayload {
+  slot?: number
+  source: string
+  on_delay?: number
+  off_delay?: number
+}
+
+/** What POST /virtual-inputs/save answers. */
+// Never reboot_required: a virtual input is in force at once.
+export interface VirtualInputSaveResult extends Omit<MutationResponse, 'reboot_required'> {
+  /** The slot as it stands after the save. */
+  input: VirtualInput
+}
+
+/** POST /virtual-inputs/delete — free a slot: its entity is hidden, its label dropped and every
+ *  relay bound to it unbound, the relay left as it is; a rule that names it stops until a virtual
+ *  input is set up in that slot again. `used_by` names both beforehand. `400` for a slot out of
+ *  range, `409` for a free one, `503` and `500` as for a save. */
+export interface VirtualInputDeletePayload {
+  slot: number
 }
 
 // --- Network (live status + saved config) ---
@@ -698,6 +823,8 @@ export interface EntityIndexEntry {
   source_name: string
   name: string
   label: string
+  /** A virtual input (`binary_sensor` only): it takes a label and no `inverted`. */
+  virtual?: true
 }
 
 /** GET /entities — settable entities per settings type (`switch`, `binary_sensor`, ...). */

@@ -56,6 +56,13 @@ class AutomationStorage : public Component {
   RunResult run_automation(uint32_t id);
   /// Names collide by sanitized filename; `exclude_id` never blocks itself.
   bool is_name_taken(const std::string &name, uint32_t exclude_id = 0) const;
+  /// The names of the rules whose trigger or condition names the binary sensor `key` (its object
+  /// id's fnv1 hash), built or not: one that found no such input still names it. Loop task, as
+  /// configs().
+  std::vector<std::string> rules_naming_binary_sensor(uint32_t key) const;
+  /// The binary sensor `key` came or went, as a virtual input does: the rules that name it are
+  /// built or dropped to match, as a thermostat's are. Loop task.
+  void rebuild_rules_naming_binary_sensor(uint32_t key);
   /// Whether a run of that rule is under way. For the loop task, as configs() is.
   bool is_running(uint32_t id) const;
   /// The clock of AutomationConfig::last_run_ms: milliseconds since boot, never wrapping.
@@ -121,7 +128,8 @@ class AutomationStorage : public Component {
   /// climate_hub created, removed or re-keyed the presets of a thermostat: the rules that name
   /// it are built or dropped to match.
   void on_climate_change_(const std::string &climate_id);
-  void rebuild_for_climate_(const std::string &climate_id);
+  /// Builds or drops, to match, each rule `names` picks; `what` is what came back, for the log.
+  void rebuild_rules_(std::function<bool(const AutomationConfig &)> names, std::string what);
   void check_time_();
   virtual ESPTime clock_now_();
 

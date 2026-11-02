@@ -38,16 +38,35 @@ TEST_F(Dashboard, LooksEveryRouteUpByItsName) {
   EXPECT_EQ(this->dashboard->route_for_("/api/device/entities")->id, RouteId::ENTITIES);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/entity-settings")->id, RouteId::ENTITY_SETTINGS);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/entity-settings-meta")->id, RouteId::ENTITY_SETTINGS_META);
+  EXPECT_EQ(this->dashboard->route_for_("/api/device/virtual-inputs")->id, RouteId::VIRTUAL_INPUTS);
+  EXPECT_EQ(this->dashboard->route_for_("/api/device/virtual-inputs/save")->id, RouteId::VIRTUAL_INPUTS_SAVE);
+  EXPECT_EQ(this->dashboard->route_for_("/api/device/virtual-inputs/delete")->id, RouteId::VIRTUAL_INPUTS_DELETE);
 }
 
 TEST_F(Dashboard, HasNoRouteForAnythingElse) {
   // The tail is matched whole: no prefix, no suffix and no path below a route.
-  for (const char *url : {"/", "/api/device/", "/api/device/nonesuch", "/api/device/inf", "/api/device/information",
-                          "/api/device/info/extra", "/api/device/entity-settings/meta", "/info", "/api/device/system",
-                          "/api/device/system/", "/api/device/system/reboot/extra", "/api/device/reboot",
-                          "/api/device/temperature-slots/", "/api/device/temperature-slots/1",
-                          "/api/device/temperature-slots/forget/extra", "/api/device/temperature-slots/label/1",
-                          "/api/device/temperature-slots/labels", "/api/device/forget"}) {
+  for (const char *url : {"/",
+                          "/api/device/",
+                          "/api/device/nonesuch",
+                          "/api/device/inf",
+                          "/api/device/information",
+                          "/api/device/info/extra",
+                          "/api/device/entity-settings/meta",
+                          "/info",
+                          "/api/device/system",
+                          "/api/device/system/",
+                          "/api/device/system/reboot/extra",
+                          "/api/device/reboot",
+                          "/api/device/temperature-slots/",
+                          "/api/device/temperature-slots/1",
+                          "/api/device/temperature-slots/forget/extra",
+                          "/api/device/temperature-slots/label/1",
+                          "/api/device/temperature-slots/labels",
+                          "/api/device/forget",
+                          "/api/device/virtual-inputs/",
+                          "/api/device/virtual-inputs/1",
+                          "/api/device/virtual-input",
+                          "/api/device/virtual-inputs/save/1"}) {
     EXPECT_EQ(this->dashboard->route_for_(url), nullptr) << url;
   }
 }
@@ -62,9 +81,9 @@ TEST_F(Dashboard, ReadRoutesAnswerGet) {
 }
 
 TEST_F(Dashboard, ReadRoutesRefusePostAndAllowOnlyGet) {
-  for (const char *url :
-       {"/api/device/info", "/api/device/status", "/api/device/network", "/api/device/capabilities",
-        "/api/device/entities", "/api/device/entity-settings-meta", "/api/device/temperature-slots"}) {
+  for (const char *url : {"/api/device/info", "/api/device/status", "/api/device/network", "/api/device/capabilities",
+                          "/api/device/entities", "/api/device/entity-settings-meta", "/api/device/temperature-slots",
+                          "/api/device/virtual-inputs"}) {
     LogCapture::instance().clear();
     Reply reply = this->post(url);
     EXPECT_EQ(reply.code, 405) << url;
@@ -79,7 +98,8 @@ TEST_F(Dashboard, WriteRoutesRefuseGetAndAllowOnlyPost) {
   for (const char *url :
        {"/api/device/system/reboot", "/api/device/system/factory-reset", "/api/device/system/rollback",
         "/api/device/temperature-slots/forget", "/api/device/temperature-slots/assign",
-        "/api/device/temperature-slots/offset", "/api/device/temperature-slots/label"}) {
+        "/api/device/temperature-slots/offset", "/api/device/temperature-slots/label",
+        "/api/device/virtual-inputs/save", "/api/device/virtual-inputs/delete"}) {
     LogCapture::instance().clear();
     Reply reply = this->get(url);
     EXPECT_EQ(reply.code, 405) << url;

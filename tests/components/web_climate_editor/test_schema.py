@@ -159,6 +159,7 @@ class FinalValidate(unittest.TestCase):
             {
                 "web_file_browser": {"url_prefix": "/files"},
                 "web_automation_editor": {"url_prefix": "/automation-editor"},
+                "web_schedule_editor": {"url_prefix": "/schedule-editor"},
             },
         )
         self.validate("/climate-editor", {})
@@ -182,6 +183,8 @@ class FinalValidate(unittest.TestCase):
             ("/files/climate", "web_file_browser", "/files"),
             ("/edit", "web_automation_editor", "/edit/rules"),
             ("/edit/rules/climate", "web_automation_editor", "/edit/rules"),
+            ("/plans", "web_schedule_editor", "/plans"),
+            ("/plans/climate", "web_schedule_editor", "/plans"),
         ):
             with (
                 self.subTest(ours=ours, component=component),
