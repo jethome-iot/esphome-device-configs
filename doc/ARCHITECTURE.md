@@ -208,10 +208,13 @@ server.
 - `boards/jxd-cpu-e1eth.yaml` marks `provisioning`'s source `0` provisioned at boot when the API
   key is there: that is the network source, which the manager registers in its constructor,
   before any other. Were it not, an added device would again close its window when no network
-  came up in 15 minutes. Its `api: on_client_disconnected:` calls the manager's `enable_loop()`
-  whenever the device is no longer provisioned: the manager stops its loop for good once it is,
-  and a key cleared over the API, which disconnects every client, would otherwise leave the
-  window open until the next boot.
+  came up in 15 minutes. Its `esphome: on_loop:` calls the manager's `enable_loop()` while the
+  device has no key and is neither provisioned nor closed: the manager stops its loop for good
+  once it is provisioned, and a key cleared over the API would otherwise leave the window open
+  until the next boot. `provisioning: on_timeout:`, and that `on_loop:` when the key it reads
+  through `NoiseContext::load_psk()` changes, drop every client in `active_clients()` through
+  `APIConnection::on_fatal_error()`: upstream only sends them a `DisconnectRequest`, which a
+  client can ignore and keep its session.
 - `components/display_menu_base` and `components/graphical_display_menu` are copies of
   upstream's, carrying `right_for_menu_enter`, the `display_menu.back` action, `fill_row`,
   item `weight` and submenus that may be empty;
