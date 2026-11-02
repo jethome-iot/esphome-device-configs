@@ -2,13 +2,13 @@ openapi: 3.1.0
 
 info:
   title: web_automation_editor HTTP API
-  version: 1.1.0
+  version: 1.2.0
   description: >-
     JSON/REST API of the ESPHome `automations` component, served by the
     `web_automation_editor` component on the device's own web server (default
     prefix `/automation-editor`, routes under `<prefix>/api/`). List, read,
-    create, update, delete and export the rules, discover the entities a rule
-    may name, and read what an editor may offer. ESP-IDF (ESP32) only.
+    create, update, delete, run and export the rules, discover the entities a
+    rule may name, and read what an editor may offer. ESP-IDF (ESP32) only.
 
     This document is the wire contract; the TypeScript client and mock in
     `client/` implement it. Every route answers exactly one HTTP method — any
@@ -171,6 +171,64 @@ paths:
           $ref: "#/components/responses/NotFound"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /run:
+    post:
+      tags: [write]
+      operationId: runAutomation
+      summary: Play a rule's actions now.
+      description: >-
+        Runs the rule's `actions` at once, skipping its triggers and its
+        condition, whether the rule is enabled or not. The run starts with no
+        trigger state, so a `follow` action has none to copy unless a trigger
+        arrives while it plays. The rule's mode
+        decides as it does for a trigger: `single` refuses while a run is under
+        way, `restart` starts over, `parallel` adds a copy up to 8. The answer
+        comes once the run has started; a delay in it plays on afterwards, and
+        `/list` reports it `running` until it ends.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+      responses:
+        "200":
+          description: The run started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+              example:
+                success: true
+                message: Automation started
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          description: >-
+            The rule cannot run now: it is not built (`build_error` follows the
+            prefix), or its mode refuses another run while one is under way.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                running:
+                  value:
+                    success: false
+                    error: Automation is already running
+                parallelFull:
+                  value:
+                    success: false
+                    error: Automation is already running 8 copies
+                notBuilt:
+                  value:
+                    success: false
+                    error: 'Automation cannot run: Action 1: thermostat "attic" not found'
         "503":
           $ref: "#/components/responses/Busy"
 
@@ -365,7 +423,7 @@ components:
   schemas:
     AutomationSummary:
       type: object
-      required: [id, name, enabled, trigger_count, action_count, else_action_count, mode, built, build_error]
+      required: [id, name, enabled, trigger_count, action_count, else_action_count, mode, built, build_error, running, last_run_s]
       properties:
         id:
           type: integer
@@ -385,12 +443,22 @@ components:
           type: boolean
           description: >-
             False when the rule is on the device but cannot be built;
-            `build_error` says why. One that names a thermostat or a preset
-            that is not there runs again once it is back.
+            `build_error` says why. One that names a thermostat, a preset or a
+            virtual input that is not there runs again once it is back.
         build_error:
           type: string
           description: Why it is not built, `""` when it is.
           example: 'Action 1: thermostat "attic" not found'
+        running:
+          type: boolean
+          description: A run of the rule is under way, a delay in it still to play, say.
+        last_run_s:
+          type: [integer, "null"]
+          minimum: 0
+          description: >-
+            Seconds since a run last started, from a trigger (either branch) or
+            from `/run`. A trigger the mode ignored does not count, nor a run
+            with no action to play. `null` when none has since boot.
       example:
         id: 1
         name: Porch light
@@ -401,6 +469,8 @@ components:
         mode: single
         built: true
         build_error: ""
+        running: false
+        last_run_s: 42
 
     Mode:
       type: string

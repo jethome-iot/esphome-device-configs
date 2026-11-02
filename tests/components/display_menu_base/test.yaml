@@ -31,3 +31,20 @@ external_components:
     components: [display_menu_host]
 
 display_menu_host:
+
+# Only for USE_SELECT, USE_NUMBER and their sources; the cases make their own.
+select:
+  - platform: template
+    id: select_unused
+    name: "Select"
+    optimistic: true
+    options: ["A"]
+
+number:
+  - platform: template
+    id: number_unused
+    name: "Number"
+    optimistic: true
+    min_value: 0
+    max_value: 1
+    step: 1

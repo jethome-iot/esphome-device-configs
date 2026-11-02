@@ -30,6 +30,9 @@
 #ifdef USE_WEB_DEVICE_DASHBOARD_NTP
 #include "esphome/components/ntp_servers/ntp_servers.h"
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
+#include "esphome/components/virtual_inputs/virtual_inputs.h"
+#endif
 
 namespace esphome::web_device_dashboard {
 
@@ -59,6 +62,11 @@ enum class RouteId : uint8_t {
 #ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
   TIME,
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
+  VIRTUAL_INPUTS,
+  VIRTUAL_INPUTS_SAVE,
+  VIRTUAL_INPUTS_DELETE,
+#endif
 };
 
 struct Route {
@@ -75,8 +83,9 @@ using firmware_rollback::RollbackTarget;
 // EEPROM identity when jethome_board_info is wired in), status, network, what the firmware
 // can do, the three system actions, with web_auth the HTTP credentials, with dallas_scan the
 // temperature slots, forgetting and assigning them, their offsets and labels, with config_json the
-// entity index, the entity settings and their form fields, and with timezone_settings the clock
-// and the zone. A modbus_map is reported in /capabilities.
+// entity index, the entity settings and their form fields, with timezone_settings the clock
+// and the zone, and with virtual_inputs the virtual inputs. A modbus_map is reported in
+// /capabilities.
 class WebDeviceDashboard : public AsyncWebHandler, public Component {
  public:
   explicit WebDeviceDashboard(web_server_base::WebServerBase *base) : base_(base) {}
@@ -103,6 +112,9 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_NTP
   void set_ntp_servers(ntp_servers::NTPServers *servers) { this->ntp_servers_ = servers; }
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
+  void set_virtual_inputs(virtual_inputs::VirtualInputs *inputs) { this->virtual_inputs_ = inputs; }
 #endif
   // Where the other web components serve, as this firmware configured them; nullptr when it
   // has none. Only /capabilities reads them.
@@ -184,6 +196,16 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   bool read_ntp_(AsyncWebServerRequest *request, JsonVariant ntp, std::vector<std::string> &list, bool &list_given,
                  bool &fallback, bool &fallback_given);
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
+  void handle_virtual_inputs_(AsyncWebServerRequest *request);
+  void handle_virtual_inputs_save_(AsyncWebServerRequest *request);
+  void handle_virtual_inputs_delete_(AsyncWebServerRequest *request);
+  /// Answers 404 or 503 itself when there is nothing to edit or it cannot be kept.
+  bool check_virtual_inputs_writable_(AsyncWebServerRequest *request);
+  /// The body's `slot`, 1 to max_inputs(), as an index; answers 400 itself when it is not one.
+  bool read_virtual_slot_(AsyncWebServerRequest *request, JsonVariant value, size_t &slot);
+  static void write_virtual_input_(JsonObject entry, virtual_inputs::VirtualInputs *inputs, size_t slot);
+#endif
 #ifdef USE_CONFIG_JSON
   void handle_entities_(AsyncWebServerRequest *request);
   void handle_entity_settings_get_(AsyncWebServerRequest *request);
@@ -216,6 +238,9 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_NTP
   ntp_servers::NTPServers *ntp_servers_{nullptr};
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
+  virtual_inputs::VirtualInputs *virtual_inputs_{nullptr};
 #endif
   const char *files_url_prefix_{nullptr};
   const char *automations_url_prefix_{nullptr};

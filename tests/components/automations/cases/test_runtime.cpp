@@ -316,4 +316,99 @@ TEST_F(Runtime, ClickSurvivesTheMillisWrap) {
   EXPECT_EQ(e.relay1.writes, 1);
 }
 
+// --- run now ---
+
+TEST_F(Runtime, RunNowSkipsTheTriggersAndTheCondition) {
+  auto rule = build_rule(engine, R"({"name":"Gated","triggers":[{"source":"input","type":"press","object_id":"in_1"}],
+      "condition":{"type":"input","object_id":"in_2","state":"true"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],
+      "else_actions":[{"source":"switch","type":"turn_on","object_id":"relay_2"}]})");
+  ASSERT_NE(rule, nullptr);
+  ASSERT_FALSE(e.in2.state);
+  EXPECT_TRUE(rule->run_now());
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay2.writes, 0);
+  EXPECT_FALSE(rule->is_running());
+}
+
+TEST_F(Runtime, RunNowPlaysADisabledRule) {
+  auto rule = build_rule(engine, delayed("single").c_str());
+  ASSERT_NE(rule, nullptr);
+  rule->set_enabled(false);
+  EXPECT_TRUE(rule->run_now());
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_TRUE(rule->is_running());
+  ASSERT_TRUE(engine.fire_next());
+  EXPECT_EQ(e.relay2.writes, 1);
+  // Its triggers stay off.
+  rule->on_binary_sensor(&e.in1, true);
+  EXPECT_EQ(e.relay1.writes, 1);
+}
+
+TEST_F(Runtime, RunNowCarriesNoStateForAFollow) {
+  auto rule = build_rule(
+      engine, R"({"name":"Follow","triggers":[{"source":"switch","type":"state_change","object_id":"relay_1"}],
+      "actions":[{"source":"switch","type":"follow","object_id":"relay_2"},
+                 {"source":"switch","type":"turn_on","object_id":"boiler"}]})");
+  ASSERT_NE(rule, nullptr);
+  EXPECT_TRUE(rule->run_now());
+  EXPECT_EQ(e.relay2.writes, 0);
+  EXPECT_TRUE(e.boiler.state);  // the rest of the run plays
+}
+
+// A trigger single ignores while a run now plays hands it its state, as it would to any run.
+TEST_F(Runtime, RunNowTakesTheStateOfATriggerThatArrivesWhileItPlays) {
+  auto rule =
+      build_rule(engine, R"({"name":"Late","triggers":[{"source":"input","type":"state_change","object_id":"in_1"}],
+      "actions":[{"source":"delay","delay_ms":500},{"source":"switch","type":"follow","object_id":"relay_2"}]})");
+  ASSERT_NE(rule, nullptr);
+  EXPECT_TRUE(rule->run_now());
+  rule->on_binary_sensor(&e.in1, true);
+  ASSERT_EQ(engine.delays.size(), 1u);
+  ASSERT_TRUE(engine.fire_next());
+  EXPECT_TRUE(e.relay2.state);
+}
+
+TEST_F(Runtime, RunNowInSingleModeIsRefusedWhileARunIsUnderWay) {
+  auto rule = build_rule(engine, delayed("single").c_str());
+  ASSERT_NE(rule, nullptr);
+  rule->on_binary_sensor(&e.in1, true);
+  EXPECT_FALSE(rule->run_now());
+  EXPECT_EQ(e.relay1.writes, 1);
+  ASSERT_EQ(engine.delays.size(), 1u);
+  // And a run now holds off a trigger the same way.
+  engine.fire_next();
+  EXPECT_TRUE(rule->run_now());
+  rule->on_binary_sensor(&e.in1, true);
+  EXPECT_EQ(e.relay1.writes, 2);
+  EXPECT_EQ(engine.delays.size(), 1u);
+}
+
+TEST_F(Runtime, RunNowInRestartModeStartsOver) {
+  auto rule = build_rule(engine, delayed("restart").c_str());
+  ASSERT_NE(rule, nullptr);
+  rule->on_binary_sensor(&e.in1, true);
+  EXPECT_TRUE(rule->run_now());
+  EXPECT_EQ(e.relay1.writes, 2);
+  ASSERT_EQ(engine.delays.size(), 1u);
+  engine.fire_next();
+  EXPECT_EQ(e.relay2.writes, 1);
+  EXPECT_FALSE(rule->is_running());
+}
+
+TEST_F(Runtime, RunNowInParallelModeAddsACopyUpToEight) {
+  auto rule = build_rule(engine, delayed("parallel").c_str());
+  ASSERT_NE(rule, nullptr);
+  rule->on_binary_sensor(&e.in1, true);
+  for (int i = 0; i < 7; i++)
+    EXPECT_TRUE(rule->run_now()) << i;
+  EXPECT_FALSE(rule->run_now());
+  EXPECT_EQ(e.relay1.writes, 8);
+  EXPECT_EQ(engine.delays.size(), 8u);
+  while (engine.fire_next()) {
+  }
+  EXPECT_EQ(e.relay2.writes, 8);
+  EXPECT_TRUE(rule->run_now());
+}
+
 }  // namespace esphome::automations::testing

@@ -333,6 +333,30 @@ TEST_F(Storage, AnAnnouncedLevelIsNotAPress) {
   EXPECT_EQ(e.relay2.writes, 1);
 }
 
+TEST_F(Storage, NamesTheRulesThatNameAnInputBuiltOrNot) {
+  write("input_press.json", PRESS_RELAY_1);
+  write("gated.json",
+        R"({"id":2,"name":"Gated","triggers":[{"source":"startup"}],"condition":{"type":"and","conditions":[)"
+        R"({"type":"input","object_id":"in_2","state":"true"},{"type":"or","conditions":[)"
+        R"({"type":"input","object_id":"in_1","state":"false"}]}]},"actions":[]})");
+  // Not built: it names an input this firmware lacks, and in_1 too.
+  write("orphan.json",
+        R"({"id":3,"name":"Orphan","triggers":[{"source":"input","type":"press","object_id":"no_such_input"},)"
+        R"({"source":"input","type":"release","object_id":"in_1"}],"actions":[]})");
+  // A sensor's hash in a temperature trigger is no input.
+  write(
+      "warm.json",
+      R"({"id":4,"name":"Warm","triggers":[{"source":"temperature","type":"above","object_id":"in_1","threshold":25}],)"
+      R"("actions":[]})");
+  boot();
+  ASSERT_FALSE(built("Orphan"));
+  EXPECT_EQ(engine->rules_naming_binary_sensor(fnv1_hash("in_1")),
+            (std::vector<std::string>{"Input press", "Gated", "Orphan"}));
+  EXPECT_EQ(engine->rules_naming_binary_sensor(fnv1_hash("in_2")), (std::vector<std::string>{"Gated"}));
+  EXPECT_EQ(engine->rules_naming_binary_sensor(fnv1_hash("no_such_input")), (std::vector<std::string>{"Orphan"}));
+  EXPECT_TRUE(engine->rules_naming_binary_sensor(fnv1_hash("relay_1")).empty());
+}
+
 TEST_F(Storage, TheApiEditsRulesAndTheirFiles) {
   boot();
   const uint32_t id = engine->add_automation(rule(
@@ -631,6 +655,168 @@ TEST_F(Storage, StopsAt255Rules) {
   EXPECT_EQ(engine->add_automation(rule(R"({"name":"One more","triggers":[{"source":"startup"}]})")), 0u);
   EXPECT_TRUE(log().has(log().errors, "already at the 255 automation limit"));
   EXPECT_EQ(files().size(), 255u);
+}
+
+// --- run now, and when a rule last ran ---
+
+// Relay 1 on, a delay, relay 2 on; behind a condition that is false, with relay 2 on at once
+// in its place.
+static const char *const GATED =
+    R"({"id":20,"name":"Gated","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"condition":{"type":"input","object_id":"in_2","state":"true"},"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"},{"source":"delay","delay_ms":5000},{"source":"switch","type":"turn_on","object_id":"relay_2"}],"else_actions":[{"source":"switch","type":"toggle","object_id":"relay_2"}]})";
+
+TEST_F(Storage, RunNowPlaysTheActionsWhateverTheCondition) {
+  write("gated.json", GATED);
+  boot();
+  engine->uptime = 5000;
+  EXPECT_EQ(engine->run_automation(20), RunResult::STARTED);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay2.writes, 0);
+  EXPECT_TRUE(engine->is_running(20));
+  EXPECT_EQ(config("Gated")->last_run_ms, optional<uint64_t>(5000));
+
+  // Single mode: a second one waits for the first to end, and is not a run.
+  engine->uptime = 6000;
+  EXPECT_EQ(engine->run_automation(20), RunResult::ALREADY_RUNNING);
+  EXPECT_TRUE(log().has(log().lines, "Automation 'Gated' is already running"));
+  EXPECT_EQ(config("Gated")->last_run_ms, optional<uint64_t>(5000));
+  ASSERT_TRUE(engine->fire_next());
+  EXPECT_TRUE(e.relay2.state);
+  EXPECT_FALSE(engine->is_running(20));
+}
+
+TEST_F(Storage, RunNowNeedsARuleThatIsBuilt) {
+  write("orphan.json", ORPHAN);
+  boot();
+  const uint32_t orphan = id_of("Orphan");
+  ASSERT_NE(orphan, 0u);
+  EXPECT_EQ(engine->run_automation(orphan), RunResult::NOT_BUILT);
+  EXPECT_EQ(engine->run_automation(99), RunResult::NOT_FOUND);
+  EXPECT_FALSE(engine->is_running(orphan));
+  EXPECT_FALSE(engine->is_running(99));
+  EXPECT_FALSE(config("Orphan")->last_run_ms.has_value());
+  EXPECT_EQ(e.relay1.writes, 0);
+}
+
+TEST_F(Storage, RunNowIsRefusedFromInsideARulesAction) {
+  write("input_press.json", PRESS_RELAY_1);
+  write(
+      "other.json",
+      R"({"id":21,"name":"Other","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_2"}]})");
+  boot();
+  RunResult result = RunResult::STARTED;
+  e.relay1.on_change = [&]() { result = engine->run_automation(21); };
+  press(e.in1);
+  EXPECT_EQ(result, RunResult::REFUSED);
+  EXPECT_EQ(e.relay2.writes, 0);
+  EXPECT_FALSE(config("Other")->last_run_ms.has_value());
+}
+
+// As from a trigger: the run is a rule's own dispatch, so its actions cannot edit the rules.
+TEST_F(Storage, RulesCannotBeEditedFromInsideARunNow) {
+  write("gated.json", GATED);
+  boot();
+  bool removed = true;
+  e.relay1.on_change = [&]() { removed = engine->remove_automation(20); };
+  EXPECT_EQ(engine->run_automation(20), RunResult::STARTED);
+  EXPECT_FALSE(removed);
+  EXPECT_EQ(engine->configs().size(), 1u);
+}
+
+TEST_F(Storage, ATriggeredRunIsStampedOnEitherBranch) {
+  write("gated.json", GATED);
+  boot();
+  EXPECT_FALSE(config("Gated")->last_run_ms.has_value());
+
+  // The condition is false: the else branch is a run all the same.
+  engine->uptime = 1000;
+  press(e.in1);
+  EXPECT_TRUE(e.relay2.state);
+  EXPECT_EQ(config("Gated")->last_run_ms, optional<uint64_t>(1000));
+
+  e.in2.publish_state(true);
+  engine->uptime = 2000;
+  press(e.in1);
+  EXPECT_TRUE(engine->is_running(20));
+  EXPECT_EQ(config("Gated")->last_run_ms, optional<uint64_t>(2000));
+
+  // Single mode ignores this one: no run, no stamp.
+  engine->uptime = 3000;
+  press(e.in1);
+  EXPECT_EQ(config("Gated")->last_run_ms, optional<uint64_t>(2000));
+}
+
+TEST_F(Storage, TheStampOutlivesAnEditAndTheMillisWrap) {
+  write("gated.json", GATED);
+  boot();
+  engine->uptime = UINT32_MAX - 10;
+  press(e.in1);
+  ASSERT_TRUE(engine->update_automation(
+      20,
+      rule(
+          R"({"name":"Gated again","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"toggle","object_id":"relay_2"}]})")));
+  EXPECT_EQ(config("Gated again")->last_run_ms, optional<uint64_t>(UINT32_MAX - 10));
+
+  // Past 2^32 ms the stamp still reads as the moment it was.
+  engine->uptime = uint64_t(UINT32_MAX) + 20000;
+  EXPECT_EQ((engine->uptime - *config("Gated again")->last_run_ms) / 1000, 20u);
+  EXPECT_EQ(engine->run_automation(20), RunResult::STARTED);
+  EXPECT_EQ(config("Gated again")->last_run_ms, optional<uint64_t>(uint64_t(UINT32_MAX) + 20000));
+
+  // A new rule has not run, whatever the config it came from says; nor has anything after a boot.
+  AutomationConfig copied = *config("Gated again");
+  copied.name = "Copy";
+  ASSERT_NE(engine->add_automation(copied), 0u);
+  EXPECT_FALSE(config("Copy")->last_run_ms.has_value());
+  reboot();
+  EXPECT_FALSE(config("Gated again")->last_run_ms.has_value());
+}
+
+// A run that has nothing to play has not run: the stamp says when the rule last did something.
+TEST_F(Storage, ARunWithNothingToPlayIsNotStamped) {
+  write(
+      "no_else.json",
+      R"({"id":30,"name":"No else","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"condition":{"type":"input","object_id":"in_2","state":"true"},"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})");
+  write("empty.json", R"({"id":31,"name":"Empty","triggers":[{"source":"startup"}]})");
+  boot();
+  engine->uptime = 1000;
+  press(e.in1);  // the condition is false, and there is no else branch
+  EXPECT_EQ(e.relay1.writes, 0);
+  EXPECT_FALSE(config("No else")->last_run_ms.has_value());
+  EXPECT_EQ(engine->run_automation(31), RunResult::STARTED);
+  EXPECT_FALSE(engine->is_running(31));
+  EXPECT_FALSE(config("Empty")->last_run_ms.has_value());
+
+  // The same rules with something to play are stamped.
+  e.in2.publish_state(true);
+  press(e.in1);
+  EXPECT_EQ(config("No else")->last_run_ms, optional<uint64_t>(1000));
+}
+
+// An edit rebuilds the rule: the run it was playing stops, and when it last ran still holds.
+TEST_F(Storage, AnEditStopsARunNowAndKeepsTheStamp) {
+  write("gated.json", GATED);
+  boot();
+  engine->uptime = 4000;
+  ASSERT_EQ(engine->run_automation(20), RunResult::STARTED);
+  ASSERT_TRUE(engine->is_running(20));
+  ASSERT_EQ(engine->delays.size(), 1u);
+
+  engine->uptime = 6000;
+  AutomationConfig edited = rule(GATED);
+  edited.name = "Gated, edited";
+  ASSERT_TRUE(engine->update_automation(20, edited));
+  EXPECT_FALSE(engine->is_running(20));
+  EXPECT_TRUE(engine->delays.empty());
+  EXPECT_EQ(e.relay2.writes, 0);  // the step after the delay never plays
+  EXPECT_EQ(config("Gated, edited")->last_run_ms, optional<uint64_t>(4000));
+}
+
+// The clock the device stamps with: milliseconds since boot in 64 bits, where millis() wraps.
+TEST_F(Storage, TheStampClockIsTheOneThatDoesNotWrap) {
+  const uint64_t before = millis_64();
+  const uint64_t read = engine->AutomationStorage::uptime_ms();
+  EXPECT_LE(before, read);
+  EXPECT_LE(read, millis_64());
 }
 
 }  // namespace esphome::automations::testing

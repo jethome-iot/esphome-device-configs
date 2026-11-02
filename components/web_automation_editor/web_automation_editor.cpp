@@ -21,6 +21,7 @@ static const Route ROUTES[] = {
     {"get", RouteId::GET, false},
     {"save", RouteId::SAVE, true},
     {"delete", RouteId::DELETE, true},
+    {"run", RouteId::RUN, true},
     {"export", RouteId::EXPORT, false},
     {"entities", RouteId::ENTITIES, false},
     {"schema", RouteId::SCHEMA, false},
@@ -139,6 +140,9 @@ void WebAutomationEditor::handleRequest(AsyncWebServerRequest *request) {
       case RouteId::DELETE:
         this->handle_delete_(request);
         break;
+      case RouteId::RUN:
+        this->handle_run_(request);
+        break;
       case RouteId::EXPORT:
         this->handle_export_(request);
         break;
@@ -203,6 +207,7 @@ void WebAutomationEditor::handle_list_(AsyncWebServerRequest *request) {
   const bool read = this->storage_->run_on_loop([&]() {
     JsonDocument doc;
     JsonArray rows = doc["automations"].to<JsonArray>();
+    const uint64_t now = this->storage_->uptime_ms();
     for (const auto &config : this->storage_->configs().get_all_configs()) {
       // The job holds the loop task, so the loop is not feeding the watchdog while this runs --
       // the same reason the engine's own walks of the rule set feed it.
@@ -217,6 +222,15 @@ void WebAutomationEditor::handle_list_(AsyncWebServerRequest *request) {
       row["mode"] = automations::EnumUtils::automation_mode_to_string(config.mode);
       row["built"] = config.build_error.empty();
       row["build_error"] = config.build_error;
+      row["running"] = this->storage_->is_running(config.id);
+      if (config.last_run_ms.has_value()) {
+        // A stamp ahead of the clock reads as just now. Seconds in 32 bits last 136 years, and
+        // ArduinoJson may not carry 64-bit integers.
+        const uint64_t since = now > *config.last_run_ms ? now - *config.last_run_ms : 0;
+        row["last_run_s"] = static_cast<uint32_t>(since / 1000);
+      } else {
+        row["last_run_s"] = nullptr;
+      }
     }
     serializeJson(doc, json);
     return true;
@@ -362,6 +376,48 @@ void WebAutomationEditor::handle_delete_(AsyncWebServerRequest *request) {
     return;
   }
   this->send_success_(request, "Automation deleted");
+}
+
+void WebAutomationEditor::handle_run_(AsyncWebServerRequest *request) {
+  uint32_t id;
+  if (!this->read_id_(request, id))
+    return;
+  std::string reason;
+  int code = 409;
+  const bool started = this->storage_->run_on_loop([&]() {
+    const automations::AutomationConfig *config = this->find_(id);
+    if (config == nullptr) {
+      code = 404;
+      reason = "Automation not found";
+      return false;
+    }
+    // The rule list holds still while the run plays: an edit from inside it is refused.
+    switch (this->storage_->run_automation(id)) {
+      case automations::RunResult::STARTED:
+        return true;
+      case automations::RunResult::NOT_BUILT:
+        reason = "Automation cannot run: " + config->build_error;
+        return false;
+      case automations::RunResult::ALREADY_RUNNING:
+        reason = config->mode == automations::AutomationMode::PARALLEL
+                     ? "Automation is already running " + std::to_string(automations::MAX_RUNS) + " copies"
+                     : "Automation is already running";
+        return false;
+      default:
+        code = 400;
+        reason = "Failed to run automation";
+        return false;
+    }
+  });
+  if (!started) {
+    if (reason.empty()) {
+      this->send_busy_(request);
+    } else {
+      this->send_error_(request, reason, code);
+    }
+    return;
+  }
+  this->send_success_(request, "Automation started");
 }
 
 // Every rule in its stored form, one document at a time: the peak is one rule plus the

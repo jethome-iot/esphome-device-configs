@@ -94,8 +94,8 @@ class FakeClock : public time::RealTimeClock {
 };
 
 // Holds the delays instead of handing them to the scheduler, so a test fires them itself, and
-// takes its clocks from the test: `ms` for click timing, `now` (epoch seconds, 0 = not set) for
-// cron.
+// takes its clocks from the test: `ms` for click timing, `uptime` for when a run started, `now`
+// (epoch seconds, 0 = not set) for cron.
 class FakeEngine : public AutomationStorage {
  public:
   struct Delay {
@@ -105,9 +105,11 @@ class FakeEngine : public AutomationStorage {
   };
   std::vector<Delay> delays;
   uint32_t ms{0};
+  uint64_t uptime{0};
   time_t now{0};
 
   uint32_t now_ms() const override { return this->ms; }
+  uint64_t uptime_ms() const override { return this->uptime; }
   // One cron tick, as the engine's one-second interval would run it.
   void tick() { this->check_time_(); }
   // A rule that runs inside this engine without going through the storage.

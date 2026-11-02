@@ -63,6 +63,8 @@ class TestEngine : public automations::AutomationStorage {
   // on-loop-task branch here; the handshake is `tests/components/loop_job/`.
   int jobs{0};
   bool loop_busy{false};
+  // The clock a run's start is stamped on, moved by the test.
+  uint64_t uptime{0};
 
   bool run_on_loop(std::function<bool()> &&job) override {
     this->jobs++;
@@ -70,6 +72,7 @@ class TestEngine : public automations::AutomationStorage {
       return false;
     return automations::AutomationStorage::run_on_loop(std::move(job));
   }
+  uint64_t uptime_ms() const override { return this->uptime; }
 };
 
 // The hub, its loop jobs counted and refused at will, as TestEngine's are.

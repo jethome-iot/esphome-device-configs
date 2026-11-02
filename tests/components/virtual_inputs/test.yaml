@@ -1,0 +1,89 @@
+# Google Test binary for components/virtual_inputs, built through esphome compile by
+# tests/run.py. The harness main.cpp replaces the generated one, so nothing declared here is
+# ever set up: the sections exist to get the sources compiled and the USE_* defines set. The
+# cases build their own pool, settings, bindings and rule engine, and boot them in the order the
+# firmware's setup priorities do.
+esphome:
+  name: virtual-inputs-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+      - -DUSE_LOG_LISTENERS
+      - -DESPHOME_LOG_MAX_LISTENERS=1
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../../components
+    components:
+      - filesystem_storage_abstract
+      - config_base
+      - config_json
+      - entity_config
+      - bindings
+      - switch_hold
+      - panel_text
+      - automations
+      - loop_job
+      - virtual_inputs
+  - source: ../../harness/components
+    components: [dir_storage]
+
+dir_storage:
+  id: test_storage
+  path: .storage
+
+config_json:
+  storage: test_storage
+
+# With the binary_sensor type, so the pool takes its labels and no inversion from it.
+entity_config:
+  settings: [switch, binary_sensor]
+
+bindings:
+
+automations:
+  storage: test_storage
+
+# Reserves the pool the cases' one component registers: its max_inputs must match.
+virtual_inputs:
+  max_inputs: 4
+
+# App sizes its entity lists from what is declared here and silently drops a registration past
+# that, so this is at least what cases/common.h registers beside the pool.
+binary_sensor:
+  - platform: template
+    id: input_1_unused
+    name: "Input 1"
+  - platform: template
+    id: input_2_unused
+    name: "Input 2"
+  - platform: template
+    id: input_3_unused
+    name: "Input 3"
+  - platform: template
+    id: hidden_unused
+    name: "Hidden"
+    internal: true
+
+switch:
+  - platform: template
+    id: relay_1_unused
+    name: "Relay 1"
+    optimistic: true
+  - platform: template
+    id: relay_2_unused
+    name: "Relay 2"
+    optimistic: true

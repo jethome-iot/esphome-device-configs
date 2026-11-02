@@ -24,6 +24,7 @@ generated files and runs the pre-commit hooks.
 | touch the `climate_hub` thermostats, their file format or their HTTP API | [doc/CLIMATE.md](doc/CLIMATE.md), [components/climate_hub/README.md](components/climate_hub/README.md), [components/web_climate_editor/README.md](components/web_climate_editor/README.md) |
 | add a test, or wonder which suite a case belongs in | [doc/TESTING.md](doc/TESTING.md) |
 | change what a relay or an input remembers across reboots | [doc/ENTITY_SETTINGS.md](doc/ENTITY_SETTINGS.md) |
+| touch the virtual inputs: their delays, their file or their HTTP API | [doc/ENTITY_SETTINGS.md](doc/ENTITY_SETTINGS.md#virtual-inputs), [components/virtual_inputs/README.md](components/virtual_inputs/README.md) |
 | change WiFi provisioning | [doc/WIFI_SETUP.md](doc/WIFI_SETUP.md) |
 
 The tree itself is in the README, "Repository Layout".
