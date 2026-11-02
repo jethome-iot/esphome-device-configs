@@ -331,15 +331,16 @@ page, anything else on the main page.
 ## Status LED
 
 The LED on the CPU board is green while all is well. Otherwise it blinks red: a code is that many
-blinks and a 2-second pause, and only the most important one shows.
+blinks and a 2-second pause. Only the most important code shows, in the order of the table: while
+the device has no network, a sensor fault or a due reboot does not show.
 
-| Blinks | Meaning |
-| ------ | ------- |
-| Fast, nonstop | The FN button was held for 10 seconds: a factory reset in 5 seconds |
-| 1 | No network for 30 seconds: no address over Ethernet or WiFi |
-| 2 | No network for 30 seconds, and the WiFi access point is up to set the device up from ([WiFi Setup](doc/WIFI_SETUP.md)) |
-| 3 | A Dallas sensor or PCB Temp has given no readings for a minute, or a running thermostat has lost its sensor's readings |
-| 4 | A saved change waits for a reboot, such as a temperature slot assigned or forgotten |
+| Blinks | Meaning | What to do |
+| ------ | ------- | ---------- |
+| Fast, nonstop | The FN button was held for 10 seconds: a factory reset in 5 seconds | Nothing stops it once it blinks: letting go of FN does not |
+| 1 | No network for 30 seconds: no address over Ethernet or WiFi | Check the cable or the WiFi network; the code goes once the device has an address |
+| 2 | No network for 30 seconds, and the WiFi access point is up to set the device up from | Join that access point and set WiFi ([WiFi Setup](doc/WIFI_SETUP.md)) |
+| 3 | A Dallas sensor or PCB Temp has given no readings for a minute, or a running thermostat has lost its sensor's readings | Check the sensor's wiring; the code goes at its next reading |
+| 4 | A saved change waits for a reboot, such as a temperature slot assigned or forgotten | Reboot the device: **Settings → Reboot device** on the display, or **Reboot now** on the dashboard |
 
 ## Documentation
 
