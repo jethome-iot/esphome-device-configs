@@ -125,6 +125,7 @@ class ServedScreens(unittest.TestCase):
         "web_file_browser": {"storage_id": "store"},
         "web_automation_editor": {},
         "web_climate_editor": {},
+        "web_schedule_editor": {},
     }
 
     def test_each_one_is_configured_under_the_key_the_dashboard_looks_up(self):

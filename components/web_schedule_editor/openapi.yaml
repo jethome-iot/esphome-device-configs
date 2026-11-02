@@ -1,0 +1,1492 @@
+openapi: 3.1.0
+
+info:
+  title: web_schedule_editor HTTP API
+  version: 1.0.0
+  description: >-
+    JSON/REST API of the `schedules` engine, served by the
+    `web_schedule_editor` component on the device's own web server (default
+    prefix `/schedule-editor`, routes under `<prefix>/api/`). List, read,
+    create, change, enable, disable and delete weekly schedules, bring one back
+    from a backup under its own id, and discover the relays and thermostats an
+    action may drive. A schedule names modes, each a list of actions on relays
+    and `climate_hub` thermostats with waits between them; its week's switch
+    points pick a mode, whose list runs from the point on.
+    ESP-IDF (ESP32) only.
+
+    This document is the wire contract; the TypeScript client and mock in
+    `client/` implement it, and `client/types.ts` is where a shape changes
+    first. Every route answers exactly one HTTP method: a `GET` or `POST` it
+    does not take, and an `OPTIONS`, is `405` with an `Allow` header naming
+    the one it does. The server takes no other method to any path — a `PUT`,
+    `DELETE`, `HEAD` or `PATCH` gets ESP-IDF's own `405`, an HTML sentence
+    with no `Allow` header and no JSON, and the connection is closed. Route
+    names match the URL path exactly, and any other path under the prefix is
+    `404`. A POST needs a `Content-Length`, even `0`: ESP-IDF's server answers
+    `411` without one.
+
+    Every route that reads or changes the schedules runs on the device's main
+    loop, so an answer describes what actually happened; `503` means the loop
+    did not get to the request within five seconds, or a read's answer did not
+    fit the free memory, and nothing changed. A change the device made is
+    never `503`: when its whole answer does not fit the free memory, it is
+    `200` with `success`, the `message` without what follows its first part,
+    and `id` or `persisted`.
+    `/schema` and `/ping` never wait for the loop.
+
+    One enabled schedule per target, the targets being every relay and
+    thermostat any of its modes names: a Save, an import or an enable that
+    would make a second one on any of them is `409`, unless the enable asks to
+    take them over. A relay, a thermostat or a preset the device does not have
+    is no refusal: the schedule is stored, with a `warning`, the action is
+    skipped and `/list` names it among the schedule's `issues`.
+
+    A request whose `Origin` header is not the `Host` it was sent to is answered
+    `403` before it reaches a route: the credentials a browser has cached for
+    this device cannot be steered here from a page on another site. That refusal
+    is `text/plain`, not one of the JSON envelopes below — it is the server
+    turning the request away, not a route answering it. Clients that send no
+    `Origin` — `curl`, a script, a Home Assistant `rest_command` — are
+    unaffected.
+
+servers:
+  - url: http://{host}:{port}{prefix}/api
+    description: A device on the local network.
+    variables:
+      host:
+        default: device.local
+      port:
+        default: "80"
+      prefix:
+        default: /schedule-editor
+        description: The component's `url_prefix`, reported by the device dashboard's `/api/device/capabilities`.
+
+# The routes inherit whatever auth the `web_server:` block sets. The configs in
+# this repository set Digest credentials, so that is the shipped default; the
+# empty requirement covers a firmware built without an `auth:` block, where
+# anything that reaches the port may call every route.
+security:
+  - webServerAuth: []
+  - {}
+
+tags:
+  - name: read
+    description: Read-only routes (GET).
+  - name: write
+    description: Mutating routes (POST).
+
+paths:
+  /list:
+    get:
+      tags: [read]
+      operationId: listSchedules
+      summary: Every schedule, summarized, sorted by id, and the device's clock.
+      description: >-
+        A row carries no modes and no week: `/get` gives those. `targets` are
+        the relays and thermostats the modes name; `status.issues` the actions
+        the device would skip now. `now` is the point in force at the device's
+        clock, so the mode in force and since when, and `next` the one after
+        it, for a disabled schedule too; both are `null` while the clock is not
+        valid. `not_loaded` counts the schedules whose files the device left on
+        flash at boot for lack of memory: they do not run and are not listed,
+        `/delete` removes one by its id, and no schedule under a new id can be
+        added while there are any.
+      responses:
+        "200":
+          description: The schedules, the firmware's limit and the device's local time.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchedulesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /get:
+    get:
+      tags: [read]
+      operationId: getSchedule
+      summary: One schedule's document, as its file stores it.
+      description: The bare document, not the success envelope; `/save` and `/import` take it back as it is.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+      responses:
+        "200":
+          description: The document.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /save:
+    post:
+      tags: [write]
+      operationId: saveSchedule
+      summary: Create or replace a schedule.
+      description: >-
+        `id` absent or `""` creates a schedule, whose id the device makes from
+        the name; an existing `id` replaces that schedule's document, renamed
+        or not, and the id stays. `enabled` left out is true, a day left out
+        has no points, and `version` is not read. The body is read raw, so the
+        request needs a `Content-Type` that is not a form: `application/json`.
+
+        `revision`, when the body has it as a whole number, must be the one
+        `/get` gives now: it moves on at every change of the schedule (a Save,
+        an enable or a disable that changes the flag, a take-over that stops
+        it, an `/import` over it), so a form read before one is refused rather
+        than undo it. One without it is not checked, and a create ignores it.
+
+        The refusals come in this order, and the first one a document meets is
+        the answer: `400` for an empty body, a body that is not JSON, or a
+        document that breaks a rule (the name; the modes one at a time, each
+        one's name, id, colour and then its actions in order; the days the
+        week names, then each day Monday first and its points in the order the
+        body lists them: the time, a time the day has already, the mode; last,
+        a week without a point); `404` for an unknown `id`, `409` for a schedule
+        whose file a newer firmware wrote, `409` when the body's `revision` is
+        not the schedule's, `507` for a create past
+        `max_schedules` or while `/list` counts schedules `not_loaded`; `409`
+        for a name another schedule has, ignoring ASCII
+        case and runs of spaces, or on a create for a name whose every id is
+        taken by a file in the folder; `409` for an enabled schedule whose modes
+        name a target another enabled schedule drives, naming the first such
+        target; `413` when the file would be over 16 KiB. While the schedule
+        storage is not usable, a body is `500` before it is read. A body the
+        free memory cannot hold is `507`: it is received but neither kept nor
+        parsed. So is one whose parse would take more memory than a schedule of
+        its size needs, and a schedule that would leave the device too little
+        memory is `507` before its file is written; one that holds no more than
+        the schedule it replaces is never refused for memory. Nothing changes
+        on a `507`.
+
+        A Save stops the schedule's list where it is; an enabled schedule then
+        runs the list of the mode in force at once, at every Save, a rename too.
+        One that leaves a target leaves it as it is, and the schedule that
+        waited for that target starts and is named in `started`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleSaveInput"
+      responses:
+        "200":
+          description: >-
+            Created or updated; the message says which, then names the
+            schedules that started, then repeats the `warning`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaveResponse"
+              examples:
+                created:
+                  value:
+                    success: true
+                    message: Schedule created
+                    id: porch
+                missing:
+                  summary: Saved enabled, an action's thermostat not on the device
+                  value:
+                    success: true
+                    message: 'Schedule created; skips mode "Warm", action 1: thermostat "attic" is not on this device'
+                    id: attic-week
+                    warning: 'skips mode "Warm", action 1: thermostat "attic" is not on this device'
+                handedOn:
+                  summary: Moved off a relay another schedule waited for
+                  value:
+                    success: true
+                    message: Schedule updated; "Winter" started
+                    id: summer
+                    started: [winter]
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "500":
+          $ref: "#/components/responses/NotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+        "507":
+          $ref: "#/components/responses/Full"
+
+  /import:
+    post:
+      tags: [write]
+      operationId: importSchedule
+      summary: Bring a schedule back under its own id.
+      description: >-
+        What a restore sends: a schedule's document as `/get` answers it, or as
+        a backup's file holds it, `id` included. The schedule with that id is
+        replaced, otherwise one is created under it; `enabled` is kept and
+        `version` is not read. Nor is `revision`: a replaced schedule's moves
+        on by one, so a Save of a form read before the import is `409`, and a
+        new one starts at 0. The refusals are a Save's, in its order, with
+        the id first (`id is required`, then `id must be a slug: lowercase
+        letters, digits and single dashes`) and `id 'new' is reserved` once
+        the rest of the document is sound; `409` too for an id a file in the
+        schedule folder holds that the device did not load at boot, and `507`
+        for any new id while `/list` counts schedules `not_loaded`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleImportInput"
+      responses:
+        "200":
+          description: Created or replaced; the message says which.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaveResponse"
+              examples:
+                created:
+                  value:
+                    success: true
+                    message: Schedule created
+                    id: kitchen
+                replaced:
+                  value:
+                    success: true
+                    message: Schedule replaced
+                    id: porch
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "500":
+          $ref: "#/components/responses/NotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+        "507":
+          $ref: "#/components/responses/Full"
+
+  /delete:
+    post:
+      tags: [write]
+      operationId: deleteSchedule
+      summary: Remove a schedule and its file.
+      description: >-
+        Its list stops and its targets stay as it left them. A schedule that
+        waited for one of them starts, and the message names it. An id `/list`
+        does not show because the device left its file on flash for lack of
+        memory (`not_loaded`) has its file deleted, and the message says so.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+      responses:
+        "200":
+          description: >-
+            Removed. Should the partition refuse both the removal and blanking
+            the file, `persisted` is false and the message says the schedule
+            comes back at the next boot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResponse"
+              examples:
+                deleted:
+                  value:
+                    success: true
+                    message: Schedule deleted
+                    persisted: true
+                comesBack:
+                  summary: Gone until the next boot
+                  value:
+                    success: true
+                    message: Schedule deleted; its file could not be removed, so it comes back at the next boot
+                    persisted: false
+                notLoaded:
+                  summary: A file the device left on flash for lack of memory
+                  value:
+                    success: true
+                    message: Schedule deleted; it was not loaded for lack of memory
+                    persisted: true
+                handedOn:
+                  summary: Another schedule waited for one of its targets
+                  value:
+                    success: true
+                    message: Schedule deleted; "Winter" started
+                    persisted: true
+                    started: [winter]
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/NotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /enable:
+    post:
+      tags: [write]
+      operationId: enableSchedule
+      summary: Enable or disable a schedule, and store the flag.
+      description: >-
+        Enabling one whose modes name a target another enabled schedule drives
+        is `409`; with `take_over=true` every other enabled schedule that
+        shares a target with it is stored disabled first, and `stopped` names
+        them. A schedule that starts to drive its targets runs the list of the
+        mode in force. Disabling stops its list and leaves the targets as they
+        are, and a schedule that waited for one of them starts. Enabling one
+        that drives its targets already changes nothing. A schedule whose
+        file a newer firmware wrote changes in memory only: `persisted` is
+        false, and the next boot runs what the file says.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+        - name: value
+          in: query
+          required: true
+          description: "`true` or `false`, nothing else: `Missing value parameter`, `Invalid value parameter`."
+          schema:
+            type: string
+            enum: ["true", "false"]
+        - name: take_over
+          in: query
+          required: false
+          description: "`true` stores the other enabled schedules that share a target with it disabled; `Invalid take_over parameter` for anything but `true` or `false`."
+          schema:
+            type: string
+            enum: ["true", "false"]
+      responses:
+        "200":
+          description: >-
+            Enabled or disabled; the message names the schedules a take-over
+            stopped, then those that started, then repeats the `warning`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnableResponse"
+              examples:
+                enabled:
+                  value:
+                    success: true
+                    message: Schedule enabled
+                    persisted: true
+                tookOver:
+                  value:
+                    success: true
+                    message: Schedule enabled; "Living room week" stopped
+                    persisted: true
+                    stopped: [living-room-week]
+                missing:
+                  summary: An action's thermostat is not on the device
+                  value:
+                    success: true
+                    message: 'Schedule enabled; skips mode "Warm", action 1: thermostat "attic" is not on this device'
+                    persisted: true
+                    warning: 'skips mode "Warm", action 1: thermostat "attic" is not on this device'
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/NotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /targets:
+    get:
+      tags: [read]
+      operationId: listTargets
+      summary: The relays and the thermostats an action may drive.
+      description: >-
+        Every switch that is not internal, and every thermostat with its range
+        and presets; `thermostats` is empty on a firmware without
+        `climate_hub`. `held_by` names the running thermostat that drives a
+        relay, `scheduled_by` the schedule that drives a target: the one that
+        runs and whose modes name it.
+      responses:
+        "200":
+          description: The targets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TargetsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /schema:
+    get:
+      tags: [read]
+      operationId: getSchema
+      summary: What an editor may offer.
+      description: The firmware's limits, the days, the colours and the values each target takes, from the build.
+      responses:
+        "200":
+          description: The catalog.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleSchema"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /ping:
+    get:
+      tags: [read]
+      operationId: ping
+      summary: Liveness.
+      responses:
+        "200":
+          description: The API answers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+components:
+  securitySchemes:
+    webServerAuth:
+      type: http
+      scheme: digest
+      description: >-
+        Credentials from the `web_server:` `auth:` block. The scheme is fixed at
+        build time; the configs in this repository build Digest. A firmware with a
+        `web_auth` serves the pair stored on the device instead of the compiled
+        one, so a client must be ready for either.
+
+  parameters:
+    IdQuery:
+      name: id
+      in: query
+      required: true
+      description: The schedule's id, as `/list` reports it. `Missing id parameter` without one, `Invalid id parameter` for anything but a slug.
+      schema:
+        $ref: "#/components/schemas/Id"
+      example: living-room-week
+
+  responses:
+    Unauthorized:
+      description: >-
+        The credentials the `web_server:` `auth:` block set — replaced by what a
+        `web_auth` stored — are missing or wrong. The server names the scheme in
+        `WWW-Authenticate`; the body is the HTTP server's, not this API's.
+      headers:
+        WWW-Authenticate:
+          description: The scheme the firmware was built with.
+          schema:
+            type: string
+    BadRequest:
+      description: >-
+        A missing or malformed parameter, a body that is empty or not JSON, or
+        a document that breaks a rule. A sentence about a mode names its
+        number until its name is read, then its name (`Mode 2: …`, `Mode
+        "Day": …`), and one about an action its place in the list too (`Mode
+        "Day", action 2: …`). A sentence about a point names its day and, once
+        its time is read, the time (`Mon 06:30: …`); one about two points at
+        one time names the day and the time (`Mon: 06:30 is there twice`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            parameter:
+              value:
+                success: false
+                error: Invalid id parameter
+            parse:
+              value:
+                success: false
+                error: "JSON parse error: IncompleteInput"
+            name:
+              value:
+                success: false
+                error: Name is longer than 48 characters
+            day:
+              value:
+                success: false
+                error: 'Unknown day "mo": expected mon, tue, wed, thu, fri, sat or sun'
+            time:
+              value:
+                success: false
+                error: "Mon: at must be HH:MM from 00:00 to 23:59"
+            twice:
+              value:
+                success: false
+                error: "Mon: 06:30 is there twice"
+            modeName:
+              value:
+                success: false
+                error: Two modes are called "Day"
+            actions:
+              value:
+                success: false
+                error: 'Mode "Day": at most 12 actions'
+            action:
+              value:
+                success: false
+                error: 'Mode "Day", action 2: a relay takes on or off'
+            wait:
+              value:
+                success: false
+                error: 'Mode "Day", action 3: a wait is 1 s to 24 h'
+            color:
+              value:
+                success: false
+                error: 'Mode "Day": color must be one of red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, violet, pink or grey'
+            mode:
+              value:
+                success: false
+                error: 'Mon 06:30: there is no mode "dusk"'
+            empty:
+              value:
+                success: false
+                error: A schedule needs at least one switch point
+            importId:
+              summary: "/import with no id"
+              value:
+                success: false
+                error: id is required
+    NotFound:
+      description: No schedule has that id, or the path names no route.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            schedule:
+              value:
+                success: false
+                error: Schedule not found
+            route:
+              value:
+                success: false
+                error: Unknown endpoint
+    MethodNotAllowed:
+      description: >-
+        A `GET` to a route that takes `POST`, a `POST` to one that takes
+        `GET`, or an `OPTIONS`. Any other method never reaches a route: the
+        server answers it with a `405` of its own, `text/html`, no `Allow`,
+        and closes the connection.
+      headers:
+        Allow:
+          description: The one method this route accepts.
+          schema:
+            type: string
+            enum: [GET, POST]
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Method not allowed
+    Conflict:
+      description: >-
+        The name is one another schedule has, every id it gives is taken by a
+        file in the folder (or, on `/import`, the id is), another enabled
+        schedule drives a target the modes name (the first such one), a newer
+        firmware wrote the schedule's file, or the Save's `revision` is not
+        the device's.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            name:
+              value:
+                success: false
+                error: '"Living room week" is already used by another schedule'
+            target:
+              value:
+                success: false
+                error: '"Living room week" already drives Living Room; switch it off first or take over'
+            newerFirmware:
+              value:
+                success: false
+                error: A newer firmware wrote this schedule; update the firmware to change it
+            revision:
+              value:
+                success: false
+                error: The device changed this schedule since it was read; reload it
+            importId:
+              summary: "/import onto a file the device did not load"
+              value:
+                success: false
+                error: The id "porch" is taken by a file in the schedule folder that was not loaded
+    TooLarge:
+      description: >-
+        The body is over 16 KiB, or the file the document makes would be:
+        eight modes of twelve actions with long ids can reach it.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            body:
+              value:
+                success: false
+                error: Request body over 16 KiB
+            file:
+              value:
+                success: false
+                error: The schedule's file would be over 16 KiB
+    NotWritten:
+      description: >-
+        Nothing changed: the schedule's file could not be written, or, for one
+        the device did not load, deleted; or the storage the schedules live on
+        was not usable at boot, and every write is refused until a restart
+        finds it usable.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            file:
+              value:
+                success: false
+                error: The schedule's file could not be written
+            notDeleted:
+              value:
+                success: false
+                error: The schedule's file could not be deleted
+            storage:
+              value:
+                success: false
+                error: Schedule storage is not available
+    Full:
+      description: >-
+        A new schedule would pass the firmware's `max_schedules`, or join
+        schedules the device left on flash for lack of memory (`not_loaded`):
+        the next boot might load it in their place. Or the body, its parse or
+        the schedule would leave the device too little free memory. Nothing
+        changed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            full:
+              value:
+                success: false
+                error: This device allows 16 schedules; delete one to add another
+            memory:
+              value:
+                success: false
+                error: Not enough free memory on the device to save this schedule
+            notLoaded:
+              value:
+                success: false
+                error: 2 saved schedules were not loaded for lack of memory; delete them, or make room and restart, before adding another
+    Busy:
+      description: >-
+        The main loop did not take the request in time (`Device busy`), or a
+        read's answer did not fit the free memory (`Device is low on memory;
+        try again`). Nothing was read or written; ask again.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Device busy
+
+  schemas:
+    Id:
+      type: string
+      description: >-
+        A slug made from the name at creation, or the one an `/import` brings;
+        never `new` (`New` gets `new-2`), and the file's name; a rename never
+        changes it.
+      pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+      maxLength: 48
+      example: living-room-week
+
+    Name:
+      type: string
+      description: >-
+        1 to 48 characters (code points, so Cyrillic counts one each), no
+        control characters, neither `/` nor `\`, surrounding blanks trimmed.
+        Unique among the schedules, ignoring ASCII case and runs of spaces.
+      minLength: 1
+      maxLength: 48
+      example: Living room week
+
+    Day:
+      type: string
+      enum: [mon, tue, wed, thu, fri, sat, sun]
+
+    Time:
+      type: string
+      description: The device's local time of day, 00:00 to 23:59.
+      pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+      example: "06:30"
+
+    Value:
+      description: >-
+        What a relay's or a thermostat's action sets. A relay takes `on` and
+        `off`. A thermostat takes `on` (back on, in the mode it had before it
+        went off), `off`, `preset` (turned on first when it is off and the
+        preset keeps the mode) or `target` (turned on first when it is off;
+        the thermostat holds the number in its range).
+      oneOf:
+        - type: object
+          required: [type]
+          properties:
+            type:
+              type: string
+              enum: ["on", "off"]
+        - type: object
+          required: [type, preset]
+          properties:
+            type:
+              type: string
+              const: preset
+            preset:
+              type: string
+              description: The preset's key, as `/targets` lists it.
+              pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+              maxLength: 48
+        - type: object
+          required: [type, target]
+          properties:
+            type:
+              type: string
+              const: target
+            target:
+              type: number
+      example:
+        type: preset
+        preset: eco
+
+    Action:
+      description: >-
+        One step of a mode's list: a relay, by its object id, takes `on` or
+        `off`; a thermostat, by its id, any value; a wait holds the rest of the
+        list for whole seconds, 1 to 86400. No toggle and no follow.
+      oneOf:
+        - type: object
+          required: [type, id, value]
+          properties:
+            type:
+              type: string
+              const: relay
+            id:
+              type: string
+              description: The relay's object id.
+            value:
+              type: object
+              required: [type]
+              properties:
+                type:
+                  type: string
+                  enum: ["on", "off"]
+        - type: object
+          required: [type, id, value]
+          properties:
+            type:
+              type: string
+              const: thermostat
+            id:
+              type: string
+              description: The thermostat's id.
+            value:
+              $ref: "#/components/schemas/Value"
+        - type: object
+          required: [type, seconds]
+          properties:
+            type:
+              type: string
+              const: wait
+            seconds:
+              type: integer
+              minimum: 1
+              maximum: 86400
+      example:
+        type: relay
+        id: relay_5
+        value: {type: "on"}
+
+    Color:
+      type: string
+      description: A palette key; the dashboard maps each to a colour that reads in both themes.
+      enum: [red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, violet, pink, grey]
+
+    ModeId:
+      type: string
+      description: Made by the editor, from the name or `m1`, `m2`…; points name the mode by it, so a rename keeps it.
+      pattern: "^[a-z0-9-]{1,24}$"
+      example: day
+
+    ModeName:
+      type: string
+      description: >-
+        1 to 24 characters, no control characters, surrounding blanks
+        trimmed; unique in the schedule, ignoring ASCII case and runs of
+        spaces.
+      minLength: 1
+      maxLength: 24
+      example: Day
+
+    Mode:
+      type: object
+      description: >-
+        A named list of actions. At a switch point that names it the list runs
+        from its first action, waits included, even when the targets are that
+        way already.
+      required: [id, name, actions]
+      properties:
+        id:
+          $ref: "#/components/schemas/ModeId"
+        name:
+          $ref: "#/components/schemas/ModeName"
+        color:
+          $ref: "#/components/schemas/Color"
+        actions:
+          type: array
+          description: In order; none is a mode that does nothing.
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/Action"
+
+    ModeInput:
+      type: object
+      description: A mode as `/save` and `/import` take it.
+      required: [id, name]
+      properties:
+        id:
+          $ref: "#/components/schemas/ModeId"
+        name:
+          $ref: "#/components/schemas/ModeName"
+        color:
+          $ref: "#/components/schemas/Color"
+        actions:
+          type: array
+          description: In order; left out, the mode has none and does nothing.
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/Action"
+
+    SwitchPoint:
+      type: object
+      description: From `at` on, until the next point of the week, `mode` is in force; its list ran at `at`.
+      required: [at, mode]
+      properties:
+        at:
+          $ref: "#/components/schemas/Time"
+        mode:
+          $ref: "#/components/schemas/ModeId"
+
+    DayPoints:
+      type: array
+      maxItems: 12
+      items:
+        $ref: "#/components/schemas/SwitchPoint"
+
+    Week:
+      type: object
+      description: >-
+        The points of each day, sorted by time. A stored document has all
+        seven, Monday first; a body may leave a day out, which reads as none.
+        A point's mode holds until the next point, across midnight and from
+        Sunday into Monday. A week needs at least one point.
+      additionalProperties: false
+      properties:
+        mon:
+          $ref: "#/components/schemas/DayPoints"
+        tue:
+          $ref: "#/components/schemas/DayPoints"
+        wed:
+          $ref: "#/components/schemas/DayPoints"
+        thu:
+          $ref: "#/components/schemas/DayPoints"
+        fri:
+          $ref: "#/components/schemas/DayPoints"
+        sat:
+          $ref: "#/components/schemas/DayPoints"
+        sun:
+          $ref: "#/components/schemas/DayPoints"
+
+    Target:
+      type: object
+      description: A relay or a thermostat an action names.
+      required: [type, id]
+      properties:
+        type:
+          type: string
+          enum: [relay, thermostat]
+        id:
+          type: string
+          description: A relay's object id, or a thermostat's id.
+          example: living-room
+
+    ScheduleDocument:
+      type: object
+      description: The stored document, as `/get` answers it and the file holds it.
+      required: [version, revision, id, name, enabled, modes, week]
+      properties:
+        version:
+          type: integer
+          description: >-
+            1, or the higher number of a file a newer firmware wrote: that
+            schedule runs, but a Save of it and an import over it are `409`.
+        revision:
+          type: integer
+          minimum: 0
+          description: >-
+            `0` for a new schedule; moves on by one at every change of the
+            document: a Save, an enable or a disable that changes the flag, a
+            take-over that stops it, an `/import` over it, a rename at boot. A
+            file without one reads as `0`. A Save that sends another one is
+            `409`.
+        id:
+          $ref: "#/components/schemas/Id"
+        name:
+          $ref: "#/components/schemas/Name"
+        enabled:
+          type: boolean
+        modes:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/Mode"
+        week:
+          $ref: "#/components/schemas/Week"
+      example:
+        version: 1
+        revision: 4
+        id: home-weekdays
+        name: Home weekdays
+        enabled: true
+        modes:
+          - id: day
+            name: Day
+            color: amber
+            actions:
+              - {type: thermostat, id: living-room, value: {type: preset, preset: comfort}}
+              - {type: relay, id: boiler_pump, value: {type: "on"}}
+              - {type: wait, seconds: 120}
+              - {type: relay, id: relay_5, value: {type: "on"}}
+          - id: night
+            name: Night
+            color: indigo
+            actions:
+              - {type: thermostat, id: living-room, value: {type: preset, preset: eco}}
+              - {type: relay, id: relay_5, value: {type: "off"}}
+              - {type: relay, id: boiler_pump, value: {type: "off"}}
+        week:
+          mon:
+            - {at: "06:30", mode: day}
+            - {at: "23:00", mode: night}
+          tue: []
+          wed: []
+          thu: []
+          fri: []
+          sat: []
+          sun: []
+
+    ScheduleSaveInput:
+      type: object
+      description: >-
+        What `/save` takes. An absent or empty `id` creates a schedule, an
+        existing one replaces that schedule's document. `enabled` left out is
+        true; `version` is not read; other keys are ignored.
+      required: [name, modes, week]
+      properties:
+        id:
+          type: string
+        version:
+          type: integer
+        revision:
+          type: integer
+          minimum: 0
+          description: >-
+            The one `/get` gave. On an update, a whole number other than the
+            device's is `409`; left out, or not a whole number, it is not
+            checked. A create ignores it.
+        name:
+          $ref: "#/components/schemas/Name"
+        enabled:
+          type: boolean
+          default: true
+        modes:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/ModeInput"
+        week:
+          $ref: "#/components/schemas/Week"
+      example:
+        name: Porch light
+        modes:
+          - id: "on"
+            name: "On"
+            color: green
+            actions: [{type: relay, id: relay_3, value: {type: "on"}}]
+          - id: "off"
+            name: "Off"
+            color: grey
+            actions: [{type: relay, id: relay_3, value: {type: "off"}}]
+        week:
+          mon: [{at: "19:00", mode: "on"}, {at: "23:30", mode: "off"}]
+
+    ScheduleImportInput:
+      allOf:
+        - $ref: "#/components/schemas/ScheduleSaveInput"
+        - type: object
+          required: [id]
+          properties:
+            id:
+              $ref: "#/components/schemas/Id"
+            revision:
+              type: integer
+              minimum: 0
+              description: >-
+                Not read: a replaced schedule's revision moves on by one, a new
+                one's is `0`.
+
+    State:
+      type: string
+      description: >-
+        The first that holds of: `disabled`; `waiting_for_clock` (the device
+        has no valid time yet); `conflict` (a schedule before it by id that
+        runs drives a target its modes name, and it waits whole); `running`.
+      enum: [disabled, waiting_for_clock, conflict, running]
+
+    Issue:
+      type: object
+      description: >-
+        An action the device skips right now. A relay, a thermostat or a
+        preset not on the device, or a firmware without thermostats, skips it
+        whenever the list gets there; a relay a running thermostat holds
+        (`held`) takes the mode in force once it is let go.
+      required: [mode, action, kind, text]
+      properties:
+        mode:
+          $ref: "#/components/schemas/ModeId"
+        action:
+          type: integer
+          minimum: 0
+          description: The action's index in the mode's `actions`.
+        kind:
+          type: string
+          enum: [missing_relay, missing_thermostat, missing_preset, no_thermostats, held]
+        text:
+          type: string
+          examples:
+            - Relay "relay_7" is not on this device
+            - Thermostat "attic" is not on this device
+            - Thermostat "Living Room" has no preset "eco"
+            - This device has no thermostats
+            - Thermostat "Floor" drives Relay 3
+        held_by:
+          type: string
+          description: "`held` only: the thermostat that drives the relay."
+      example:
+        mode: day
+        action: 1
+        kind: held
+        text: Thermostat "Floor" drives Relay 1
+        held_by: Floor
+
+    Status:
+      type: object
+      required: [state, reason, issues]
+      properties:
+        state:
+          $ref: "#/components/schemas/State"
+        reason:
+          type: string
+          description: Why it does not run, "" when it runs or is disabled.
+          examples:
+            - Waiting for the clock
+            - Schedule "Winter" drives Living Room
+        note:
+          type: string
+          description: Running, and a thermostat it names is switched off.
+          example: Thermostat "Hall" is stopped; it starts in the scheduled values
+        issues:
+          type: array
+          description: Every action of every mode the device would skip now, mode by mode, whatever the state.
+          items:
+            $ref: "#/components/schemas/Issue"
+
+    PointRef:
+      type: object
+      required: [day, at, mode]
+      properties:
+        day:
+          $ref: "#/components/schemas/Day"
+        at:
+          $ref: "#/components/schemas/Time"
+        mode:
+          $ref: "#/components/schemas/ModeId"
+
+    ScheduleSummary:
+      type: object
+      required: [id, revision, name, enabled, targets, status, now, next]
+      properties:
+        id:
+          $ref: "#/components/schemas/Id"
+        revision:
+          type: integer
+          minimum: 0
+          description: As the document's; one that moved on is a schedule another client changed.
+        name:
+          $ref: "#/components/schemas/Name"
+        enabled:
+          type: boolean
+        targets:
+          type: array
+          description: Every relay and thermostat the modes name, each once, in the order they first name them.
+          items:
+            allOf:
+              - $ref: "#/components/schemas/Target"
+              - type: object
+                required: [name]
+                properties:
+                  name:
+                    type: string
+                    description: The relay's or the thermostat's name, its id when the device does not have it.
+        status:
+          $ref: "#/components/schemas/Status"
+        now:
+          description: >-
+            The point in force at the device's clock, so the mode in force and
+            since when; null while the clock is not valid.
+          oneOf:
+            - $ref: "#/components/schemas/PointRef"
+            - type: "null"
+        next:
+          description: The first point after the clock, the same mode or not; null as `now`.
+          oneOf:
+            - $ref: "#/components/schemas/PointRef"
+            - type: "null"
+      example:
+        id: home-weekdays
+        revision: 4
+        name: Home weekdays
+        enabled: true
+        targets:
+          - {type: thermostat, id: living-room, name: Living Room}
+          - {type: relay, id: boiler_pump, name: Boiler pump}
+          - {type: relay, id: relay_5, name: Relay 5}
+        status:
+          state: running
+          reason: ""
+          issues:
+            - mode: day
+              action: 1
+              kind: held
+              text: Thermostat "Floor" drives Boiler pump
+              held_by: Floor
+            - mode: night
+              action: 2
+              kind: held
+              text: Thermostat "Floor" drives Boiler pump
+              held_by: Floor
+        now: {day: wed, at: "06:30", mode: day}
+        next: {day: wed, at: "23:00", mode: night}
+
+    SchedulesResponse:
+      type: object
+      required: [success, count, max_schedules, clock, schedules]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        count:
+          type: integer
+        max_schedules:
+          type: integer
+        not_loaded:
+          type: integer
+          description: >-
+            Schedules whose files the device left on flash at boot for lack of
+            memory; 0 when it loaded them all.
+        clock:
+          description: The device's local day and time; null until it has a valid time.
+          oneOf:
+            - type: object
+              required: [day, time]
+              properties:
+                day:
+                  $ref: "#/components/schemas/Day"
+                time:
+                  type: string
+                  pattern: "^[0-9]{2}:[0-9]{2}:[0-9]{2}$"
+                  example: "10:15:42"
+            - type: "null"
+        schedules:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScheduleSummary"
+
+    TargetsResponse:
+      type: object
+      required: [success, relays, thermostats]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        relays:
+          type: array
+          items:
+            type: object
+            required: [object_id, name, held_by, scheduled_by]
+            properties:
+              object_id:
+                type: string
+              name:
+                type: string
+              held_by:
+                type: string
+                description: The running thermostat that drives it, "" for none.
+              scheduled_by:
+                type: string
+                description: The id of the schedule that runs and names it, "" for none.
+        thermostats:
+          type: array
+          items:
+            type: object
+            required:
+              [id, name, enabled, running, mode, min_temperature, max_temperature, step, scheduled_by, presets]
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              enabled:
+                type: boolean
+              running:
+                type: boolean
+              mode:
+                type: string
+                enum: ["off", heat, cool, heat_cool]
+              min_temperature:
+                type: number
+              max_temperature:
+                type: number
+              step:
+                type: number
+              scheduled_by:
+                type: string
+              presets:
+                type: array
+                items:
+                  type: object
+                  required: [key, name, setpoint, mode]
+                  properties:
+                    key:
+                      type: string
+                    name:
+                      type: string
+                    setpoint:
+                      type: number
+                    mode:
+                      type: string
+                      enum: [keep, "off", heat, cool, heat_cool]
+
+    ScheduleSchema:
+      type: object
+      required:
+        - version
+        - max_schedules
+        - max_points_per_day
+        - name_max_length
+        - max_modes
+        - max_actions
+        - mode_name_max_length
+        - mode_id_max_length
+        - min_wait_seconds
+        - max_wait_seconds
+        - days
+        - colors
+        - values
+      properties:
+        version:
+          type: integer
+        max_schedules:
+          type: integer
+        max_points_per_day:
+          type: integer
+        name_max_length:
+          type: integer
+          description: In characters (code points), not bytes.
+        max_modes:
+          type: integer
+        max_actions:
+          type: integer
+          description: Per mode.
+        mode_name_max_length:
+          type: integer
+          description: In characters.
+        mode_id_max_length:
+          type: integer
+        min_wait_seconds:
+          type: integer
+        max_wait_seconds:
+          type: integer
+        days:
+          type: array
+          items:
+            $ref: "#/components/schemas/Day"
+        colors:
+          type: array
+          items:
+            $ref: "#/components/schemas/Color"
+        values:
+          type: object
+          required: [relay, thermostat]
+          properties:
+            relay:
+              type: array
+              items:
+                type: string
+            thermostat:
+              type: array
+              items:
+                type: string
+      example:
+        version: 1
+        max_schedules: 16
+        max_points_per_day: 12
+        name_max_length: 48
+        max_modes: 8
+        max_actions: 12
+        mode_name_max_length: 24
+        mode_id_max_length: 24
+        min_wait_seconds: 1
+        max_wait_seconds: 86400
+        days: [mon, tue, wed, thu, fri, sat, sun]
+        colors: [red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, violet, pink, grey]
+        values:
+          relay: ["on", "off"]
+          thermostat: ["on", "off", preset, target]
+
+    SaveResponse:
+      type: object
+      description: What `/save` and `/import` answer.
+      required: [success, message, id]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+        id:
+          $ref: "#/components/schemas/Id"
+        warning:
+          type: string
+          description: >-
+            Present only when the schedule was saved enabled with an action
+            that names a relay, a thermostat or a preset the device does not
+            have: the first such action. It is stored and runs all the same,
+            that action skipped.
+          examples:
+            - 'skips mode "On", action 1: relay "relay_7" is not on this device'
+            - 'skips mode "Night", action 1: thermostat "Living Room" has no preset "night"'
+        started:
+          type: array
+          description: The ids of the enabled schedules that waited for a target this one left and drive theirs now.
+          items:
+            $ref: "#/components/schemas/Id"
+
+    DeleteResponse:
+      type: object
+      required: [success, message, persisted]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+        persisted:
+          type: boolean
+          description: False when the schedule is gone but its file is not, so the next boot brings it back.
+        started:
+          type: array
+          items:
+            $ref: "#/components/schemas/Id"
+
+    EnableResponse:
+      type: object
+      required: [success, message, persisted]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+        persisted:
+          type: boolean
+          description: False when the change is live but did not reach flash.
+        warning:
+          type: string
+          description: As on `/save`.
+        stopped:
+          type: array
+          description: The ids of the schedules a take-over stored disabled.
+          items:
+            $ref: "#/components/schemas/Id"
+        started:
+          type: array
+          description: After a disable, the ids of the schedules that drive its targets now.
+          items:
+            $ref: "#/components/schemas/Id"
+
+    ErrorEnvelope:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: string
+          description: A sentence an editor can show as it is.
