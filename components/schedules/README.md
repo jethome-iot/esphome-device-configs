@@ -119,7 +119,8 @@ one switch point` and the like.
   back to the mode it had before off. A stopped thermostat takes the values into its document
   and stays stopped. A scheduled change ends a calibration.
 - A relay, a thermostat or a preset not on the device is no error: the schedule is saved, with a
-  `warning`, the action is skipped and the rest of the list runs. When a thermostat or a preset
+  `warning`, the action is skipped and the rest of the list runs; a config switch
+  (`entity_category: config`) is no relay and counts as missing. When a thermostat or a preset
   comes back, the actions on it the list has passed apply again, in order, without the waits;
   one whose preset is still missing is skipped, and once that preset is back they all apply
   again.
@@ -181,10 +182,10 @@ not be read; every change is then refused with 500.
   Monday), minutes since midnight and the `Point`, whose `mode` indexes `config.modes`; false
   until the clock has been valid
 - `clock_text(&day, &time)`: the device's local day (`wed`) and time (`10:15:42`)
-- `relay_targets()`: every visible switch, with the thermostat that holds it (`held_by`) and the
-  schedule that drives it (`scheduled_by`); `thermostat_targets()`: every thermostat with its
-  name, enabled and running, mode, range, step, presets (key, name, setpoint, mode or `keep`) and
-  `scheduled_by`, none without `climate_hub`; `scheduled_by(type, id)`
+- `relay_targets()`: every visible switch but a config one, with the thermostat that holds it
+  (`held_by`) and the schedule that drives it (`scheduled_by`); `thermostat_targets()`: every
+  thermostat with its name, enabled and running, mode, range, step, presets (key, name, setpoint,
+  mode or `keep`) and `scheduled_by`, none without `climate_hub`; `scheduled_by(type, id)`
 - `create(draft)`, `update(id, doc, revision)`, `restore(doc)`, `remove(id)`,
   `set_enabled(id, enabled, take_over)`: each returns a `Result` — `ok`, the HTTP `code` that
   fits (400, 404, 409, 413, 500, 507: past `max_schedules`, while files are not loaded for lack

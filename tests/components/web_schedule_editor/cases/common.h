@@ -87,7 +87,12 @@ struct Entities {
   FakeSwitch boiler;
   FakeSwitch pump;
   FakeSwitch hidden;
+  // entity_category: config, as the board's ESPHome OTA switch: no schedule may drive it.
+  FakeSwitch ota_allowed;
 };
+
+// entity_fields for an entity declared with `entity_category: config`.
+inline constexpr uint32_t CONFIG_CATEGORY = uint32_t{ENTITY_CATEGORY_CONFIG} << ENTITY_FIELD_ENTITY_CATEGORY_SHIFT;
 
 // The entity field that gives `unit`, from the table codegen built out of test.yaml's units.
 inline uint32_t unit_field(const char *unit) {
@@ -111,6 +116,7 @@ inline Entities &entities() {
     App.register_switch(&e->boiler, "Boiler", fnv1_hash("boiler"), 0);
     App.register_switch(&e->pump, "Pump", fnv1_hash("pump"), 0);
     App.register_switch(&e->hidden, "Hidden", fnv1_hash("hidden"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);
+    App.register_switch(&e->ota_allowed, "Allow ESPHome updates", fnv1_hash("allow_esphome_updates"), CONFIG_CATEGORY);
     return e;
   }();
   return *instance;
@@ -118,7 +124,7 @@ inline Entities &entities() {
 
 inline void reset_entities() {
   Entities &e = entities();
-  for (FakeSwitch *sw : {&e.relay1, &e.relay2, &e.relay3, &e.boiler, &e.pump, &e.hidden}) {
+  for (FakeSwitch *sw : {&e.relay1, &e.relay2, &e.relay3, &e.boiler, &e.pump, &e.hidden, &e.ota_allowed}) {
     sw->publish_state(false);
     sw->writes.clear();
   }

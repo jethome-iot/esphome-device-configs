@@ -130,12 +130,17 @@ void VirtualInputs::dump_config() {
 
 // --- The sources ---
 
+// A physical input: visible, not a virtual input, and not one of the device's own settings.
+static bool is_physical_input(const binary_sensor::BinarySensor *sensor) {
+  return !sensor->is_internal() && sensor->get_entity_category() != ENTITY_CATEGORY_CONFIG;
+}
+
 binary_sensor::BinarySensor *VirtualInputs::find_source_(const std::string &object_id) const {
   if (object_id.empty())
     return nullptr;
   const uint32_t key = fnv1_hash(object_id);
   for (auto *sensor : App.get_binary_sensors()) {
-    if (sensor->get_object_id_hash() == key && !sensor->is_internal() && !this->is_virtual_input(sensor))
+    if (sensor->get_object_id_hash() == key && is_physical_input(sensor) && !this->is_virtual_input(sensor))
       return sensor;
   }
   return nullptr;
@@ -154,7 +159,7 @@ SourceCheck VirtualInputs::check_source(const std::string &object_id) const {
 std::vector<binary_sensor::BinarySensor *> VirtualInputs::sources() const {
   std::vector<binary_sensor::BinarySensor *> found;
   for (auto *sensor : App.get_binary_sensors()) {
-    if (!sensor->is_internal() && !this->is_virtual_input(sensor))
+    if (is_physical_input(sensor) && !this->is_virtual_input(sensor))
       found.push_back(sensor);
   }
   return found;

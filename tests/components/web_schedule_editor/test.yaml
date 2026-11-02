@@ -68,8 +68,9 @@ web_schedule_editor:
 
 # App sizes its entity lists from what is declared here and silently drops a
 # registration past that, so this is at least what cases/common.h registers: the
-# relays contract.json names, the thermostats' sensor and relays, and one internal
-# switch. The unit fills the generated unit table the sensor takes its own from.
+# relays contract.json names, the thermostats' sensor and relays, one internal
+# switch and one config switch. The unit fills the generated unit table the sensor
+# takes its own from.
 sensor:
   - platform: template
     id: room_unused
@@ -102,3 +103,7 @@ switch:
     name: "Hidden"
     optimistic: true
     internal: true
+  - platform: template
+    id: ota_allowed_unused
+    name: "Allow ESPHome updates"
+    optimistic: true

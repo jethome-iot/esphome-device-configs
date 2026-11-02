@@ -49,8 +49,9 @@ internal, so nothing outside the firmware sees it. A slot in use follows one sou
   counts starts it again;
 - either delay may be 0, and neither more than 86400 (a day).
 
-The source is a physical input: a visible `binary_sensor` that is not a virtual input, so a
-virtual input never follows another and nothing loops through one. It follows the source as
+The source is a physical input: a visible `binary_sensor` that is neither a virtual input nor
+one with `entity_category: config`, so a virtual input never follows another and nothing loops
+through one. It follows the source as
 the source reports, its `Inverted` included: flipping that is a real press or release here, which
 the slot's rules and a `Toggle` binding act on. At boot a slot has no state until its source
 reports, then takes that level, the on delay counting from then. A save puts the slot in force

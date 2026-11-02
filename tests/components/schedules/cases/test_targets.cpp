@@ -60,6 +60,33 @@ TEST_F(Targets, AnInternalSwitchIsNoTarget) {
   EXPECT_TRUE(this->e.hidden.writes.empty());
 }
 
+// A config switch is the device's own setting, not a relay: a schedule on it is one on a relay
+// the device does not have, at every point of its week and across a reboot, and is not offered.
+TEST_F(Targets, AConfigSwitchIsNoTarget) {
+  this->boot(at_local(0, 9, 0));
+  Result created = this->create(daily("Unlock", "allow_esphome_updates"));
+  EXPECT_EQ("skips mode \"On\", action 1: relay \"allow_esphome_updates\" is not on this device", created.warning);
+  EXPECT_TRUE(
+      LogCapture::instance().warned("Schedule 'Unlock': relay 'allow_esphome_updates' is not on this device; skipped"));
+  const ScheduleStatus status = this->engine->status("unlock");
+  EXPECT_EQ(ScheduleState::RUNNING, status.state);
+  ASSERT_EQ((std::vector<IssueKind>{IssueKind::MISSING_RELAY, IssueKind::MISSING_RELAY}), this->kinds("unlock"));
+  EXPECT_EQ("Relay \"allow_esphome_updates\" is not on this device", status.issues[0].text);
+  EXPECT_EQ("allow_esphome_updates", this->engine->target_name(Target{TargetType::RELAY, "allow_esphome_updates"}));
+
+  this->engine->stall(11 * 3600);  // Monday's off at 20:00
+  this->engine->stall(12 * 3600);  // Tuesday's on at 08:00
+  this->reboot();
+  EXPECT_TRUE(this->e.ota_allowed.writes.empty());
+  for (const RelayTarget &row : this->engine->relay_targets())
+    EXPECT_NE("allow_esphome_updates", row.object_id);
+
+  // The same schedule on a relay drives it.
+  created = this->create(daily("Porch", "relay_2"));
+  EXPECT_EQ("", created.warning);
+  EXPECT_EQ(std::vector<bool>{true}, this->e.relay2.writes);
+}
+
 // A disabled schedule is saved without one; the issues are listed all the same.
 TEST_F(Targets, OnlyAnEnabledScheduleIsWarned) {
   this->boot(at_local(0, 9, 0));
@@ -504,7 +531,7 @@ TEST_F(Targets, TheListingSaysWhoHoldsAndWhoSchedules) {
   this->create(thermostat_doc("Spare", id.c_str(), {off_at(0)}, false));
 
   const std::vector<RelayTarget> relays = this->engine->relay_targets();
-  ASSERT_EQ(3u, relays.size()) << "the internal switch is no target";
+  ASSERT_EQ(3u, relays.size()) << "neither the internal switch nor the config one is a target";
   EXPECT_EQ("relay_1", relays[0].object_id);
   EXPECT_EQ("Relay 1", relays[0].name);
   EXPECT_EQ("", relays[0].held_by);

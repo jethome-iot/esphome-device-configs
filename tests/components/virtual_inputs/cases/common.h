@@ -185,6 +185,8 @@ struct Entities {
   binary_sensor::BinarySensor in3;
   // internal: true in YAML; nothing outside the firmware may name it.
   binary_sensor::BinarySensor hidden;
+  // entity_category: config: the device's own setting, not an input to follow.
+  binary_sensor::BinarySensor config_input;
   FakeSwitch relay1;
   FakeSwitch relay2;
 };
@@ -196,6 +198,8 @@ inline Entities &entities() {
     App.register_binary_sensor(&e->in2, "Input 2", fnv1_hash("input_2"), 0);
     App.register_binary_sensor(&e->in3, "Input 3", fnv1_hash("input_3"), 0);
     App.register_binary_sensor(&e->hidden, "Hidden", fnv1_hash("hidden"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);
+    App.register_binary_sensor(&e->config_input, "Config Input", fnv1_hash("config_input"),
+                               uint32_t{ENTITY_CATEGORY_CONFIG} << ENTITY_FIELD_ENTITY_CATEGORY_SHIFT);
     App.register_switch(&e->relay1, "Relay 1", fnv1_hash("relay_1"), 0);
     App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
     return e;
@@ -206,7 +210,7 @@ inline Entities &entities() {
 // The relays with no preference to restore, so a boot's apply never asks for one.
 inline void reset_entities() {
   Entities &e = entities();
-  for (binary_sensor::BinarySensor *input : {&e.in1, &e.in2, &e.in3, &e.hidden})
+  for (binary_sensor::BinarySensor *input : {&e.in1, &e.in2, &e.in3, &e.hidden, &e.config_input})
     input->invalidate_state();
   for (FakeSwitch *sw : {&e.relay1, &e.relay2}) {
     sw->set_inverted(false);

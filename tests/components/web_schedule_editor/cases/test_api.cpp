@@ -155,7 +155,7 @@ TEST_F(Api, ARelayARunningThermostatDrivesHoldsItsActionsBack) {
 }
 
 // The thermostats a schedule may drive, with the range a target is held in and their presets;
-// an internal switch is no one's to schedule.
+// an internal or a config switch is no one's to schedule.
 TEST_F(Api, TargetsListsWhatASchedulePicksFrom) {
   Reply reply = this->get("targets");
   EXPECT_EQ(reply.code, 200);
@@ -170,6 +170,29 @@ TEST_F(Api, TargetsListsWhatASchedulePicksFrom) {
   EXPECT_EQ(thermostats[0]["presets"].size(), 0u);
   EXPECT_EQ(thermostats[1]["presets"][1]["key"].as<std::string>(), "eco");
   EXPECT_FLOAT_EQ(thermostats[1]["presets"][1]["setpoint"].as<float>(), 19.f);
+}
+
+// A config switch is the device's own setting, not a relay: the editor does not offer it, and a
+// schedule saved on it is one on a relay the device does not have, while the same on a relay
+// drives it.
+TEST_F(Api, AConfigSwitchIsNeitherListedNorScheduled) {
+  this->set_clock(at_local(2, 20, 0));
+  Reply targets = this->get("targets");
+  ASSERT_EQ(targets.code, 200);
+  for (JsonObject relay : targets["relays"].as<JsonArray>())
+    EXPECT_NE(relay["object_id"].as<std::string>(), "allow_esphome_updates");
+
+  Reply reply = this->post("save", porch("Unlock", "allow_esphome_updates"));
+  EXPECT_EQ(reply.code, 200);
+  EXPECT_EQ(reply["warning"].as<std::string>(),
+            R"(skips mode "On", action 1: relay "allow_esphome_updates" is not on this device)");
+  Reply list = this->get("list");
+  EXPECT_EQ(list["schedules"][0]["targets"][0]["name"].as<std::string>(), "allow_esphome_updates");
+  EXPECT_EQ(list["schedules"][0]["status"]["issues"][0]["kind"].as<std::string>(), "missing_relay");
+  EXPECT_TRUE(this->e.ota_allowed.writes.empty());
+
+  ASSERT_EQ(this->create(porch("Porch", "relay_3")), "porch");
+  EXPECT_EQ(this->e.relay3.writes, std::vector<bool>{true}) << "on since 19:00";
 }
 
 TEST_F(Api, AThermostatActionGoesThroughTheHub) {
