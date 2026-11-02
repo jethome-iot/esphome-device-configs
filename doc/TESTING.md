@@ -53,6 +53,7 @@ tests/
     loop_job/
     modbus_map/               # test_schema.py alone: the class only holds what the build derived,
                               # and web_device_dashboard's suite reads one
+    ntp_servers/
     panel_text/
     status_indicator/
     switch_hold/

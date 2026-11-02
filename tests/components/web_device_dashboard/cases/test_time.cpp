@@ -1,4 +1,5 @@
 #include "common.h"
+#include "esphome/components/ntp_servers/ntp_servers.h"
 #include "esphome/components/time/real_time_clock.h"
 #include "esphome/components/timezone_settings/posix_tz_parse.h"
 #include "esphome/components/timezone_settings/timezone_settings.h"
@@ -468,6 +469,183 @@ TEST_F(Time, TakesGetAndPostOnly) {
     EXPECT_EQ(reply.code, 405) << method;
     EXPECT_TRUE(LogCapture::instance().has_warning("allowed: GET, POST")) << method;
   }
+}
+
+// The NTP servers, which share the route; the component's own suite covers the rest of what
+// they do.
+class TestNtp : public ntp_servers::NTPServers {
+ public:
+  bool flush_fails{false};
+  std::vector<std::string> handed;
+  void reply_from(const std::string &server) { this->answered_by_(server); }
+
+ protected:
+  void use_server_(const char *server) override { this->handed.emplace_back(server == nullptr ? "" : server); }
+  bool connected_() const override { return true; }
+  time_t now_() const override { return JULY; }
+  bool store_(const ntp_servers::StoredServers &stored) override {
+    return !this->flush_fails && NTPServers::store_(stored);
+  }
+};
+
+class Ntp : public Time {
+ protected:
+  void SetUp() override {
+    Time::SetUp();
+    this->ntp.set_clock(&this->sntp);
+    for (const char *server : {"0.pool.ntp.org", "1.pool.ntp.org", "2.pool.ntp.org"})
+      this->ntp.add_fallback_server(server);
+    this->ntp.set_preference_hash(fnv1_hash("ntp"));
+    this->ntp.setup();
+    this->dashboard->set_ntp_servers(&this->ntp);
+  }
+
+  TestNtp ntp;
+};
+
+static const char *const POOL = R"("fallback_servers":["0.pool.ntp.org","1.pool.ntp.org","2.pool.ntp.org"])";
+
+TEST_F(Ntp, GetAnswersTheServersAfterTheZone) {
+  Reply reply = this->get(TIME);
+  ASSERT_EQ(reply.code, 200);
+  const std::string tail = std::string(R"("default_zone":"Europe/Berlin","ntp":{"servers":[],"fallback":true,)") +
+                           POOL + R"(,"current":"0.pool.ntp.org","last_sync":null}})";
+  ASSERT_GE(reply.body.size(), tail.size());
+  EXPECT_EQ(reply.body.substr(reply.body.size() - tail.size()), tail) << reply.body;
+}
+
+TEST_F(Ntp, GetNamesTheServerThatAnswered) {
+  this->ntp.reply_from("0.pool.ntp.org");
+  this->sntp.sync();
+  Reply reply = this->get(TIME);
+  EXPECT_EQ(reply["ntp"]["last_sync"]["time"].as<int64_t>(), JULY) << reply.body;
+  EXPECT_EQ(reply["ntp"]["last_sync"]["server"].as<std::string>(), "0.pool.ntp.org");
+}
+
+TEST_F(Ntp, PostSetsTheServersAtOnce) {
+  Reply reply = this->set(R"({"ntp":{"servers":["ntp.local","10.0.0.1"],"fallback":false}})");
+  ASSERT_EQ(reply.code, 200) << reply.body;
+  EXPECT_EQ(reply["ntp"]["servers"].size(), 2u);
+  EXPECT_EQ(reply["ntp"]["servers"][1].as<std::string>(), "10.0.0.1");
+  EXPECT_FALSE(reply["ntp"]["fallback"].as<bool>());
+  EXPECT_EQ(reply["ntp"]["current"].as<std::string>(), "ntp.local");
+  EXPECT_EQ(this->ntp.handed.back(), "ntp.local");
+  // The zone's keys answer as GET has them.
+  EXPECT_TRUE(reply["follow_homeassistant"].as<bool>());
+}
+
+TEST_F(Ntp, WhatIsLeftOutStays) {
+  ASSERT_EQ(this->set(R"({"ntp":{"servers":["ntp.local"]}})").code, 200);
+  EXPECT_TRUE(this->ntp.fallback());
+  ASSERT_EQ(this->set(R"({"ntp":{"fallback":false}})").code, 200);
+  EXPECT_EQ(this->ntp.servers(), std::vector<std::string>{"ntp.local"});
+  EXPECT_FALSE(this->ntp.fallback());
+  Reply reply = this->set(R"({"ntp":{"servers":[]}})");
+  ASSERT_EQ(reply.code, 200);
+  EXPECT_TRUE(reply["ntp"]["current"].isNull());
+  EXPECT_FALSE(reply["ntp"]["current"].isUnbound());
+}
+
+TEST_F(Ntp, TheServersComeWithAZone) {
+  Reply reply = this->set(R"({"follow_homeassistant":false,"zone":"Asia/Tokyo","posix":"JST-9",)"
+                          R"("ntp":{"servers":["ntp.local"]}})");
+  ASSERT_EQ(reply.code, 200) << reply.body;
+  EXPECT_TRUE(this->in_effect("JST-9"));
+  EXPECT_EQ(this->ntp.servers(), std::vector<std::string>{"ntp.local"});
+}
+
+TEST_F(Ntp, WhatIsNotARequestIsABadRequest) {
+  struct Case {
+    const char *body;
+    const char *error;
+  };
+  for (const Case &c : {
+           Case{"{}", "Expected 'follow_homeassistant', 'posix', 'zone', 'time' or 'ntp'"},
+           Case{R"({"ntp":null})", "'ntp' must be an object"},
+           Case{R"({"ntp":["ntp.local"]})", "'ntp' must be an object"},
+           Case{R"({"ntp":{}})", "'ntp' needs 'servers' or 'fallback'"},
+           Case{R"({"ntp":{"server":"ntp.local"}})", "'ntp' needs 'servers' or 'fallback'"},
+           Case{R"({"ntp":{"servers":"ntp.local"}})", "'ntp.servers' must be a list of strings"},
+           Case{R"({"ntp":{"servers":null}})", "'ntp.servers' must be a list of strings"},
+           Case{R"({"ntp":{"servers":["ntp.local",1]}})", "'ntp.servers' must be a list of strings"},
+           Case{R"({"ntp":{"servers":[null]}})", "'ntp.servers' must be a list of strings"},
+           Case{R"({"ntp":{"fallback":"no"}})", "'ntp.fallback' must be true or false"},
+           Case{R"({"ntp":{"servers":[],"fallback":null}})", "'ntp.fallback' must be true or false"},
+           // A server list before the fallback, and both before what the device refuses.
+           Case{R"({"ntp":{"servers":[1],"fallback":1}})", "'ntp.servers' must be a list of strings"},
+           Case{R"({"ntp":{"servers":["a","b","c","d"],"fallback":1}})", "'ntp.fallback' must be true or false"},
+       }) {
+    Reply reply = this->set(c.body);
+    EXPECT_EQ(reply.code, 400) << c.body;
+    EXPECT_EQ(reply.error(), c.error) << c.body;
+  }
+  EXPECT_TRUE(this->ntp.servers().empty());
+  EXPECT_TRUE(this->ntp.fallback());
+}
+
+TEST_F(Ntp, ServersTheDeviceCannotAskAreUnprocessable) {
+  const std::string long_name(64, 'a');
+  struct Case {
+    std::string body;
+    const char *error;
+  };
+  for (const Case &c : {
+           Case{R"({"ntp":{"servers":["a","b","c","d"]}})", "'ntp.servers' lists more than 3 servers"},
+           Case{R"({"ntp":{"servers":["ntp.local",")" + long_name + R"("]}})", "'ntp.servers' item 2 is over 63 bytes"},
+           Case{R"({"ntp":{"servers":["ntp_local"]}})", "'ntp.servers' item 1 is not a host name or an IPv4 address"},
+           Case{R"({"ntp":{"servers":["ntp\u0000.local"]}})",
+                "'ntp.servers' item 1 is not a host name or an IPv4 address"},
+           Case{R"({"ntp":{"servers":[""]}})", "'ntp.servers' item 1 is not a host name or an IPv4 address"},
+           Case{R"({"ntp":{"servers":["10.0.0.256"]}})", "'ntp.servers' item 1 is not a host name or an IPv4 address"},
+           Case{R"({"ntp":{"servers":["a.local","b.local","A.LOCAL"]}})", "'ntp.servers' item 3 repeats item 1"},
+       }) {
+    Reply reply = this->set(c.body);
+    EXPECT_EQ(reply.code, 422) << c.body;
+    EXPECT_EQ(reply.error(), c.error) << c.body;
+  }
+  EXPECT_TRUE(this->ntp.servers().empty());
+}
+
+// Everything is checked before anything changes.
+TEST_F(Ntp, RefusedServersLeaveTheZoneAlone) {
+  Reply reply = this->set(R"({"follow_homeassistant":false,"zone":"Asia/Tokyo","posix":"JST-9",)"
+                          R"("ntp":{"servers":["ntp_local"]}})");
+  EXPECT_EQ(reply.code, 422);
+  EXPECT_FALSE(this->zone.has_chosen_zone());
+  EXPECT_TRUE(this->in_effect(BERLIN));
+}
+
+TEST_F(Ntp, AStoreThatFailsIsAServerError) {
+  this->ntp.flush_fails = true;
+  Reply reply = this->set(R"({"ntp":{"servers":["ntp.local"]}})");
+  EXPECT_EQ(reply.code, 500);
+  EXPECT_EQ(reply.error(), "The NTP servers were not stored");
+  EXPECT_TRUE(this->ntp.servers().empty());
+}
+
+// Stored first, the zone stays in force, as with a clock the device refuses.
+TEST_F(Ntp, AZoneSentWithServersThatAreNotStoredStillApplies) {
+  this->ntp.flush_fails = true;
+  Reply reply = this->set(R"({"follow_homeassistant":false,"zone":"Asia/Tokyo","posix":"JST-9",)"
+                          R"("ntp":{"servers":["ntp.local"]}})");
+  EXPECT_EQ(reply.code, 500);
+  EXPECT_TRUE(this->in_effect("JST-9"));
+}
+
+TEST_F(Ntp, ALoopTaskThatDoesNotTakeTheServersChangesNothing) {
+  this->dashboard->loop_busy = true;
+  Reply reply = this->set(R"({"ntp":{"servers":["ntp.local"]}})");
+  EXPECT_EQ(reply.code, 503);
+  EXPECT_EQ(reply.error(), "Device busy");
+  EXPECT_TRUE(this->ntp.servers().empty());
+}
+
+// Without the servers wired in, `ntp` is a key this route does not know.
+TEST_F(Time, NtpIsUnknownWithoutTheServers) {
+  Reply reply = this->set(R"({"ntp":{"servers":["ntp.local"]}})");
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "Expected 'follow_homeassistant', 'posix', 'zone' or 'time'");
+  EXPECT_TRUE(this->get(TIME)["ntp"].isUnbound());
 }
 
 }  // namespace esphome::web_device_dashboard::testing

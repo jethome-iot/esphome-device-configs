@@ -49,6 +49,7 @@ external_components:
       - modbus_map
       - panel_text
       - timezone_settings
+      - ntp_servers
       - virtual_inputs
   - source: ../../harness/components
     components: [dir_storage, web_server_base, web_server, one_wire_host]
@@ -151,6 +152,11 @@ time:
 timezone_settings:
   id: zone
   timezone: Europe/Berlin
+
+# The same for ntp_servers and USE_WEB_DEVICE_DASHBOARD_NTP.
+ntp_servers:
+  id: ntp
+  sntp_id: host_time
 
 # A virtual_inputs is what sets USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS, and reserves the pool the
 # cases' one component registers: its max_inputs must match.

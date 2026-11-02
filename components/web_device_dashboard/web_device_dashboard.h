@@ -27,6 +27,9 @@
 #ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
 #include "esphome/components/timezone_settings/timezone_settings.h"
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+#include "esphome/components/ntp_servers/ntp_servers.h"
+#endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
 #include "esphome/components/virtual_inputs/virtual_inputs.h"
 #endif
@@ -107,6 +110,9 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
   void set_timezone_settings(timezone_settings::TimezoneSettings *settings) { this->timezone_settings_ = settings; }
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+  void set_ntp_servers(ntp_servers::NTPServers *servers) { this->ntp_servers_ = servers; }
+#endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
   void set_virtual_inputs(virtual_inputs::VirtualInputs *inputs) { this->virtual_inputs_ = inputs; }
 #endif
@@ -184,7 +190,11 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
   void handle_time_get_(AsyncWebServerRequest *request);
   void handle_time_set_(AsyncWebServerRequest *request);
-  static std::string time_json_(const timezone_settings::TimezoneSettings &settings);
+  std::string time_json_(const timezone_settings::TimezoneSettings &settings) const;
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+  bool read_ntp_(AsyncWebServerRequest *request, JsonVariant ntp, std::vector<std::string> &list, bool &list_given,
+                 bool &fallback, bool &fallback_given);
 #endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
   void handle_virtual_inputs_(AsyncWebServerRequest *request);
@@ -225,6 +235,9 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
   timezone_settings::TimezoneSettings *timezone_settings_{nullptr};
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+  ntp_servers::NTPServers *ntp_servers_{nullptr};
 #endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
   virtual_inputs::VirtualInputs *virtual_inputs_{nullptr};
