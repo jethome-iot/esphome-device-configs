@@ -127,10 +127,10 @@ file is deleted by hand.
 ## Missing entities and thermostats
 
 Every entity reference is the `fnv1_hash` of an object id, resolved once at boot. A rule naming
-an entity that is not there stays on disk but is not built — the log says why and `dump_config`
-marks it `(not built: <why>)`. Renaming an entity orphans the rules that used it. A virtual
-input comes and goes while the device runs, and takes the rules that name it along, as a
-thermostat does (below).
+an entity that is not there, or a config switch (`entity_category: config`), stays on disk but
+is not built — the log says why and `dump_config` marks it `(not built: <why>)`. Renaming an
+entity orphans the rules that used it. A virtual input comes and goes while the device runs, and
+takes the rules that name it along, as a thermostat does (below).
 
 Such a file is never rewritten, not even to restamp its `id` or move it to its own name: a file
 holds the object ids, memory holds only their hashes, so a rewrite would blank the names. Put

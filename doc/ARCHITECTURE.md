@@ -106,6 +106,8 @@ boundaries; everything else is local to its file.
   `web_device_dashboard` finds it in the config for `/api/device/time`. Its `on_clock_set`
   writes `pcf8563_time` after the dashboard set the clock, as the `on_time_sync` of
   `homeassistant_time` and `sntp_time` do after theirs.
+- `esphome_ota_allowed` (`boards/jxd-cpu-e1eth.yaml`) is the switch that unlocks
+  `esphome_ota`, ESPHome's own OTA, for 30 minutes; `display/menu.yaml` puts it under Settings.
 - `device_ntp` (`features/rtc-time.yaml`) is the `ntp_servers` component, which hands
   `sntp_time`'s lwIP client one server at a time and takes `sntp_time`'s own servers as its
   fallback; `web_device_dashboard` finds it in the config and serves it on `/api/device/time`.

@@ -44,6 +44,7 @@ TEST_F(Pool, TheSourcesAreTheVisibleInputsThatAreNotVirtual) {
   EXPECT_EQ(pool().sources(), expected);
   EXPECT_EQ(pool().check_source("input_1"), SourceCheck::OK);
   EXPECT_EQ(pool().check_source("hidden"), SourceCheck::MISSING);
+  EXPECT_EQ(pool().check_source("config_input"), SourceCheck::MISSING);
   EXPECT_EQ(pool().check_source("relay_1"), SourceCheck::MISSING);  // a switch is no input
   EXPECT_EQ(pool().check_source("no_such_input"), SourceCheck::MISSING);
   EXPECT_EQ(pool().check_source(""), SourceCheck::MISSING);

@@ -44,7 +44,8 @@ climate_hub:
 
 # App sizes its entity lists from what is declared here and silently drops a
 # registration past that, so this is at least what cases/common.h registers:
-# two YAML climates beside the pool, a sensor for each probe, a switch per relay.
+# two YAML climates beside the pool, a sensor for each probe, a switch per relay
+# and a config one.
 # The units fill the table the cases' sensors take theirs from.
 climate:
   - platform: template
@@ -91,4 +92,8 @@ switch:
   - platform: template
     id: relay_3_unused
     name: "Relay 3"
+    optimistic: true
+  - platform: template
+    id: ota_allowed_unused
+    name: "Allow ESPHome updates"
     optimistic: true

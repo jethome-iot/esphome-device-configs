@@ -176,13 +176,20 @@ class FileWriter {
   bool failed_{false};
 };
 
+#ifdef USE_SWITCH
+// An internal switch is no one's to schedule, nor is a config switch: the device's own setting, not a relay.
+static bool is_output_switch(const EntityBase &entity) {
+  return !entity.is_internal() && entity.get_entity_category() != ENTITY_CATEGORY_CONFIG;
+}
+#endif
+
 static switch_::Switch *find_switch(const std::string &object_id) {
 #ifdef USE_SWITCH
-  // The hash narrows, the string decides; an internal switch is no one's to schedule.
+  // The hash narrows, the string decides.
   const uint32_t key = fnv1_hash(object_id);
   for (auto *sw : App.get_switches()) {
     char buf[OBJECT_ID_MAX_LEN];
-    if (sw->get_object_id_hash() == key && !sw->is_internal() && object_id == sw->get_object_id_to(buf).c_str())
+    if (sw->get_object_id_hash() == key && is_output_switch(*sw) && object_id == sw->get_object_id_to(buf).c_str())
       return sw;
   }
 #else
@@ -991,7 +998,7 @@ std::vector<RelayTarget> ScheduleEngine::relay_targets() const {
   std::vector<RelayTarget> out;
 #ifdef USE_SWITCH
   for (auto *sw : App.get_switches()) {
-    if (sw->is_internal())
+    if (!is_output_switch(*sw))
       continue;
     char buf[OBJECT_ID_MAX_LEN];
     RelayTarget row;

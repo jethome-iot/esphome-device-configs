@@ -61,7 +61,7 @@ simply be made again.
 | POST | `delete?id=` | Removes the rule and its file; `Failed to delete automation` when the engine refuses |
 | POST | `run?id=` | Plays the rule's actions now, skipping its triggers and its condition, enabled or not. Answers `{"success": true, "message": "Automation started"}` once the run has started; `409` when it cannot |
 | GET | `export` | `{"version": 1, "automations": [...]}`, every rule as `get` returns it — the backup file a client re-imports rule by rule through `save`, with each `id` dropped so the rules are created |
-| GET | `entities` | `{"binary_sensors", "sensors", "switches"}`, each `[{"object_id", "name"}, ...]`, sensors with `"unit"`; internal entities are left out. `"climates"`: the thermostats, `[{"id", "name", "presets": [{"key", "name"}, ...]}, ...]`, by the id and keys a climate action names; empty on a firmware without them |
+| GET | `entities` | `{"binary_sensors", "sensors", "switches"}`, each `[{"object_id", "name"}, ...]`, sensors with `"unit"`; internal entities and config switches are left out. `"climates"`: the thermostats, `[{"id", "name", "presets": [{"key", "name"}, ...]}, ...]`, by the id and keys a climate action names; empty on a firmware without them |
 | GET | `schema` | The trigger, condition and action types and subtypes and the cron presets the engine parses, for an editor's menus. The `climate` action only on a firmware with thermostats (`climate_hub`) |
 | POST | `reboot` | Answers, then `App.safe_reboot()` |
 | GET | `ping` | `{"status": "ok"}` |

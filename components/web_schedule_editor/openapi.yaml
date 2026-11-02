@@ -428,11 +428,11 @@ paths:
       operationId: listTargets
       summary: The relays and the thermostats an action may drive.
       description: >-
-        Every switch that is not internal, and every thermostat with its range
-        and presets; `thermostats` is empty on a firmware without
-        `climate_hub`. `held_by` names the running thermostat that drives a
-        relay, `scheduled_by` the schedule that drives a target: the one that
-        runs and whose modes name it.
+        Every switch that is neither internal nor a config switch, and every
+        thermostat with its range and presets; `thermostats` is empty on a
+        firmware without `climate_hub`. `held_by` names the running thermostat
+        that drives a relay, `scheduled_by` the schedule that drives a target:
+        the one that runs and whose modes name it.
       responses:
         "200":
           description: The targets.

@@ -18,10 +18,15 @@ inline std::string object_id_of(const EntityBase &entity) {
   return std::string(entity.get_object_id_to(buf));
 }
 
-// Records are keyed by the object_id hash; internal entities are not settable.
+// The settings are for the device's I/O: internal and config entities are not settable.
+inline bool is_settable(const EntityBase &entity) {
+  return !entity.is_internal() && entity.get_entity_category() != ENTITY_CATEGORY_CONFIG;
+}
+
+// Records are keyed by the object_id hash.
 template<typename T, typename V> T *find_entity_by_key(const V &entities, uint32_t key) {
   for (auto *entity : entities) {
-    if (entity->get_object_id_hash() == key && !entity->is_internal())
+    if (entity->get_object_id_hash() == key && is_settable(*entity))
       return entity;
   }
   return nullptr;

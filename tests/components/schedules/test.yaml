@@ -53,7 +53,8 @@ climate_hub:
   max_controllers: 2
 
 # App sizes its entity lists from what is declared here and silently drops a
-# registration past that, so this is at least what cases/common.h registers.
+# registration past that, so this is at least what cases/common.h registers: the
+# sensor, the relays, an internal switch and a config one.
 sensor:
   - platform: template
     id: room_unused
@@ -78,3 +79,7 @@ switch:
     name: "Hidden"
     optimistic: true
     internal: true
+  - platform: template
+    id: ota_allowed_unused
+    name: "Allow ESPHome updates"
+    optimistic: true

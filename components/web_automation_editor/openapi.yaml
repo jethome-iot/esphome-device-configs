@@ -260,10 +260,10 @@ paths:
       operationId: listEntities
       summary: The entities and the thermostats a rule may name.
       description: >-
-        Internal entities are left out. Sensors carry their unit. The
-        thermostats are `climate_hub`'s, running or not, by the id and the
-        preset keys a climate action names; `503` when the loop task does not
-        get to reading them.
+        Internal entities and config switches are left out. Sensors carry
+        their unit. The thermostats are `climate_hub`'s, running or not, by the
+        id and the preset keys a climate action names; `503` when the loop task
+        does not get to reading them.
       responses:
         "200":
           description: Entities by domain.
