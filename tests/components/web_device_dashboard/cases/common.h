@@ -360,6 +360,9 @@ class TestDashboard : public WebDeviceDashboard {
 
   int restarts{0};
   int rollbacks{0};
+  // The API key clears counted, and what each answers.
+  int key_clears{0};
+  bool key_clear_result{true};
   // A host build has one task, so every job runs inline and a handler that read the records
   // where they stand would answer exactly like one that handed the read over. What crossed is
   // counted here instead, and `loop_busy` refuses a job the way the dispatcher does when the
@@ -377,6 +380,10 @@ class TestDashboard : public WebDeviceDashboard {
 
  protected:
   void restart_() override { this->restarts++; }
+  bool clear_api_key_() override {
+    this->key_clears++;
+    return this->key_clear_result;
+  }
   RollbackTarget rollback_target_() const override {
     return this->stub_rollback ? this->rollback : WebDeviceDashboard::rollback_target_();
   }

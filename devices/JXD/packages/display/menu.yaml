@@ -111,6 +111,33 @@ graphical_display_menu:
                     id: forget_temperatures
                     slot: -1
 
+        # Clears the API key Home Assistant set; the reboot opens the window to add the device again.
+        - type: menu
+          text: "Forget HA"
+          weight: 20
+          on_leave:
+            - lambda: id(forget_ha_yes)->set_text("Confirm");
+          items:
+            - type: label
+              text: "Forget HA key?"
+
+            - type: command
+              text: "Confirm"
+              id: forget_ha_yes
+              on_value:
+                - lambda: 'id(forget_ha_yes)->set_text("Confirm - OK");'
+                - delay: 1s
+                - lambda: |-
+                    // A key from the YAML is compiled in and cannot be cleared.
+                    #ifndef USE_API_NOISE_PSK_FROM_YAML
+                    // Not made active: the reboot does that.
+                    if (id(api_server)->clear_noise_psk(false)) {
+                      App.safe_reboot();
+                      return;
+                    }
+                    #endif
+                    id(forget_ha_yes)->set_text("Confirm - failed");
+
         - type: menu
           text: "Factory reset"
           weight: 40

@@ -18,6 +18,47 @@ api:
   id: api_server
   encryption: null
   reboot_timeout: 0s
+provisioning:
+  timeout: 15min
+esphome:
+  on_boot:
+    - priority: -100
+      then:
+        - lambda: |-
+            if (id(api_server)->get_noise_ctx().has_psk())
+              provisioning::global_provisioning_manager->set_source_provisioned(0, true);  // the network source
+    - priority: 800
+      then:
+        - lambda: |-
+            id(relays) = {id(relay_1), id(relay_2), id(relay_3),
+                          id(relay_4), id(relay_5), id(relay_6)};
+            id(inputs) = {id(input_1), id(input_2), id(input_3),
+                          id(input_4), id(input_5), id(input_6)};
+    - priority: 700
+      then:
+        - script.execute: apply_modbus_bus
+        - globals.set:
+            id: modbus_bus_applied
+            value: 'true'
+    - priority: 600
+      then:
+        - script.execute: set_wifi_ap
+    - priority: 200
+      then:
+        - script.execute: apply_network_mode
+        - globals.set:
+            id: network_mode_applied
+            value: 'true'
+    - priority: 600
+      then:
+        - delay: 200ms
+        - script.execute: setup_time
+  name: ${name}
+  name_add_mac_suffix: true
+  friendly_name: ${friendly_name}
+  project:
+    name: JetHome.JXD-R6-E1ETH
+    version: ${version}
 ota:
   - platform: esphome
     id: esphome_ota
@@ -536,40 +577,6 @@ globals:
   - id: stored_timezone
     type: esphome::time::ParsedTimezone
     restore_value: true
-esphome:
-  on_boot:
-    - priority: 800
-      then:
-        - lambda: |-
-            id(relays) = {id(relay_1), id(relay_2), id(relay_3),
-                          id(relay_4), id(relay_5), id(relay_6)};
-            id(inputs) = {id(input_1), id(input_2), id(input_3),
-                          id(input_4), id(input_5), id(input_6)};
-    - priority: 700
-      then:
-        - script.execute: apply_modbus_bus
-        - globals.set:
-            id: modbus_bus_applied
-            value: 'true'
-    - priority: 600
-      then:
-        - script.execute: set_wifi_ap
-    - priority: 200
-      then:
-        - script.execute: apply_network_mode
-        - globals.set:
-            id: network_mode_applied
-            value: 'true'
-    - priority: 600
-      then:
-        - delay: 200ms
-        - script.execute: setup_time
-  name: ${name}
-  name_add_mac_suffix: true
-  friendly_name: ${friendly_name}
-  project:
-    name: JetHome.JXD-R6-E1ETH
-    version: ${version}
 web_automation_editor: null
 automations:
   id: automations_engine

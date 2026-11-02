@@ -111,6 +111,12 @@ boundaries; everything else is local to its file.
 - `device_ntp` (`features/rtc-time.yaml`) is the `ntp_servers` component, which hands
   `sntp_time`'s lwIP client one server at a time and takes `sntp_time`'s own servers as its
   fallback; `web_device_dashboard` finds it in the config and serves it on `/api/device/time`.
+- `api_server` (`boards/jxd-cpu-e1eth.yaml`) has `encryption:` with no `key:`, so the key Home
+  Assistant writes is kept on the device: the menu's Forget HA (`display/menu.yaml`) and
+  `web_device_dashboard`'s `/api/device/system/forget-api-key` clear it. With a key in the YAML
+  the route is not built and the row's Confirm only says it failed. The `provisioning:` block
+  next to it closes the API, and the fallback AP and captive portal of `features/network.yaml`,
+  15 minutes after a boot on a device that has no key by then.
 - `run_factory_reset` (a script in `features/factory-reset.yaml`) is the reset the menu's
   Factory reset runs; the same file runs it when `fn_button` (`boards/jxd-cpu-e1eth.yaml`) is
   held for 10 s, after blinking `red_led`, the `status_indicator` on the CPU board's LED.
@@ -196,6 +202,11 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` and the RE
 server.
 
 ## Coupled to upstream internals
+
+- `boards/jxd-cpu-e1eth.yaml` marks `provisioning`'s source `0` provisioned at boot when the API
+  key is there: that is the network source, which the manager registers in its constructor,
+  before any other. Were it not, an added device would again close its window when no network
+  came up in 15 minutes.
 
 - `components/display_menu_base` and `components/graphical_display_menu` are copies of
   upstream's, carrying `right_for_menu_enter`, the `display_menu.back` action, `fill_row`,

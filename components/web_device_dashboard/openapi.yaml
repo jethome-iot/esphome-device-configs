@@ -380,6 +380,55 @@ paths:
                     success: false
                     error: Device busy
 
+  /system/forget-api-key:
+    post:
+      tags: [write]
+      operationId: forgetApiKey
+      summary: Clear the API key Home Assistant set, and restart.
+      description: >-
+        The same as **Settings → Forget HA** on the display: the native API's
+        encryption key is cleared and the device restarts without one, so Home
+        Assistant can add it again; until it does, its old key no longer
+        connects. Settings and files stay. Answers before any of it happens, and
+        restarts even when the key could not be cleared, which leaves the device
+        as it was. Only on a firmware that keeps the key Home Assistant sets
+        rather than one compiled in, which `capabilities` reports as
+        `forget_api_key`.
+      requestBody:
+        $ref: "#/components/requestBodies/Confirmation"
+      responses:
+        "200":
+          description: Forgetting the key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+              example:
+                success: true
+                message: Forgetting the API key, rebooting
+        "400":
+          $ref: "#/components/responses/NotConfirmed"
+        "403":
+          $ref: "#/components/responses/WrongToken"
+        "404":
+          description: >-
+            This firmware has a key compiled in, or no encryption at all, so the
+            route does not exist; `capabilities` carries no `forget_api_key`, and
+            the answer is the prefix's plain 404.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Not found
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+
   /temperature-slots:
     get:
       tags: [read]
@@ -2532,6 +2581,13 @@ components:
               type: string
               description: The name that image was built under, the device's node name.
               example: jxd-r6-e1eth-lcd
+        forget_api_key:
+          type: boolean
+          enum: [true]
+          description: >-
+            `/system/forget-api-key` is served: the firmware keeps the API key
+            Home Assistant sets rather than one compiled in. Absent otherwise,
+            and then that route is `404`.
         storage:
           $ref: "#/components/schemas/StorageCapability"
         files:
@@ -2618,6 +2674,7 @@ components:
           partition: app1
           version: 2026.8.1
           project_name: jxd-r6-e1eth-lcd
+        forget_api_key: true
         storage:
           type: LittleFS
           base_path: /littlefs
