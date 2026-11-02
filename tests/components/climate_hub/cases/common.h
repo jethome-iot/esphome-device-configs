@@ -226,6 +226,8 @@ struct Entities {
   FakeSwitch relay1;
   FakeSwitch relay2;
   FakeSwitch relay3;
+  // entity_category: config, as the board's ESPHome OTA switch: no thermostat may take it.
+  FakeSwitch ota_allowed;
   YamlClimate hall;
   // internal: true in YAML; the web server still answers its name.
   YamlClimate cellar;
@@ -244,6 +246,9 @@ inline uint32_t unit_field(const char *unit) {
   return 0;
 }
 
+// entity_fields for an entity declared with `entity_category: config`.
+inline constexpr uint32_t CONFIG_CATEGORY = uint32_t{ENTITY_CATEGORY_CONFIG} << ENTITY_FIELD_ENTITY_CATEGORY_SHIFT;
+
 inline Entities &entities() {
   static Entities *instance = [] {
     auto *e = new Entities();
@@ -256,6 +261,7 @@ inline Entities &entities() {
     App.register_switch(&e->relay1, "Relay 1", fnv1_hash("relay_1"), 0);
     App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
     App.register_switch(&e->relay3, "Relay 3", fnv1_hash("relay_3"), 0);
+    App.register_switch(&e->ota_allowed, "Allow ESPHome updates", fnv1_hash("allow_esphome_updates"), CONFIG_CATEGORY);
     App.register_climate(&e->hall, "Hall", fnv1_hash("hall"), 0);
     App.register_climate(&e->cellar, "Cellar", fnv1_hash("cellar"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);
     return e;
@@ -289,7 +295,7 @@ inline void reset_entities() {
     s->state = NAN;
     s->set_has_state(false);
   }
-  for (FakeSwitch *sw : {&e.relay1, &e.relay2, &e.relay3}) {
+  for (FakeSwitch *sw : {&e.relay1, &e.relay2, &e.relay3, &e.ota_allowed}) {
     sw->publish_state(false);
     sw->writes = 0;
   }

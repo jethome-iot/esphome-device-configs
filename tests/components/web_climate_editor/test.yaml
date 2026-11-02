@@ -47,9 +47,9 @@ web_climate_editor:
 
 # App sizes its entity lists from what is declared here and silently drops a
 # registration past that, so this is at least what cases/common.h registers: one
-# YAML climate beside the pool, the sensors, the relays, one internal sensor and one
-# internal switch. Temp 1 and Temp 2 are contract.json's, named as the client mock
-# names them.
+# YAML climate beside the pool, the sensors, the relays, one internal sensor, one
+# internal switch and one config switch. Temp 1 and Temp 2 are contract.json's,
+# named as the client mock names them.
 # The units fill the generated unit table the cases' sensors take theirs from.
 climate:
   - platform: template
@@ -98,4 +98,8 @@ switch:
   - platform: template
     id: hidden_unused
     name: "Hidden"
+    optimistic: true
+  - platform: template
+    id: ota_allowed_unused
+    name: "Allow ESPHome updates"
     optimistic: true

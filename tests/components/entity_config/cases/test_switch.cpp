@@ -73,6 +73,7 @@ class SwitchSettings : public ::testing::Test {
   void TearDown() override {
     manager().remove_binding(fnv1_hash("relay_1"));
     manager().remove_binding(fnv1_hash("relay_2"));
+    manager().remove_binding(fnv1_hash("allow_esphome_updates"));
     reset_entities();
   }
 
@@ -244,6 +245,42 @@ TEST_F(SwitchSettings, StoredBindingsAreAppliedAtBoot) {
   EXPECT_TRUE(e.relay2.state);
 }
 
+TEST_F(SwitchSettings, AnInputGoneForGoodTakesItsBindingsWithIt) {
+  manager();
+  stored(R"({"source_name":"relay_2","binding_input":"input_1","binding_mode":"none"})");
+  stored(R"({"source_name":"relay_1","binding_input":"input_1","binding_mode":"follow","label":"Staircase"})");
+  stored(R"({"source_name":"no_such_relay","binding_input":"input_1","binding_mode":"follow"})");
+  settings.apply();
+  e.in1.publish_state(true);
+  ASSERT_TRUE(e.relay1.state);
+  // In App's order, by label; a relay this build lacks is no relay to name.
+  EXPECT_EQ(settings.relays_bound_to("input_1"), (std::vector<std::string>{"Staircase", "Relay 2"}));
+  EXPECT_TRUE(settings.relays_bound_to("input_2").empty());
+
+  EXPECT_TRUE(settings.unbind_input("input_1"));
+  EXPECT_TRUE(settings.is_dirty());
+  for (const char *relay : {"relay_1", "relay_2", "no_such_relay"})
+    EXPECT_EQ(record_of(relay)->binding_input, "") << relay;
+  EXPECT_EQ(record_of("relay_1")->binding_mode, "follow");  // as Bind to: None leaves it
+  EXPECT_TRUE(settings.relays_bound_to("input_1").empty());
+  // The relay stays where it was, and the input drives it no more.
+  EXPECT_TRUE(e.relay1.state);
+  const int writes = e.relay1.writes;
+  e.in1.publish_state(false);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, writes);
+
+  // Another input's binding is left alone, and nothing names an empty input.
+  settings.set_option(&e.relay2, Field::BINDING_INPUT, 2);  // Input 2
+  settings.set_option(&e.relay2, Field::BINDING_MODE, 1);   // Toggle
+  settings.clear_dirty();
+  EXPECT_FALSE(settings.unbind_input("input_1"));
+  EXPECT_FALSE(settings.unbind_input(""));
+  EXPECT_FALSE(settings.is_dirty());
+  e.in2.publish_state(true);
+  EXPECT_TRUE(e.relay2.state);
+}
+
 TEST_F(SwitchSettings, ARestWriteRefusesAnInvertedThatIsNotABoolean) {
   JsonDocument refused = body(R"({"source_name":"relay_1","settings":{"inverted":"yes"}})");
   EXPECT_EQ(settings.update_record(refused.as<JsonObject>()), nullptr);
@@ -347,6 +384,60 @@ TEST_F(SwitchSettings, TheMetaOffersALabelFirst) {
   EXPECT_EQ(std::string(obj.begin()->key().c_str()), "label");
   // The Bound input options stay the inputs' names: the page has the labels from /entities.
   EXPECT_EQ(obj["binding_input"]["options"][1]["label"].as<std::string>(), "Input 1");
+}
+
+// --- config entities ---
+
+// The board's "Allow ESPHome updates" has to boot Off whatever the file says.
+TEST_F(SwitchSettings, AStoredRecordDoesNotReachAConfigSwitch) {
+  manager();
+  stored(R"({"source_name":"allow_esphome_updates","restore_mode":"ALWAYS_ON","inverted":true,)"
+         R"("binding_input":"input_1","binding_mode":"follow"})");
+  stored(R"({"source_name":"relay_1","restore_mode":"ALWAYS_ON","inverted":true})");
+  settings.apply();
+  EXPECT_EQ(e.ota_allowed.restore_mode, switch_::SWITCH_ALWAYS_OFF);
+  EXPECT_FALSE(e.ota_allowed.is_inverted());
+  EXPECT_TRUE(LogCapture::instance().has("Switch not found for source_name 'allow_esphome_updates'"));
+  e.in1.publish_state(true);
+  EXPECT_EQ(e.ota_allowed.writes, 0);
+  // The same record on a relay applies.
+  EXPECT_EQ(e.relay1.restore_mode, switch_::SWITCH_ALWAYS_ON);
+  EXPECT_TRUE(e.relay1.is_inverted());
+}
+
+TEST_F(SwitchSettings, ARestWriteToAConfigSwitchIsRefused) {
+  settings.apply();
+  for (const char *json : {
+           R"({"source_name":"allow_esphome_updates","settings":{"restore_mode":"ALWAYS_ON"}})",
+           R"({"source_name":"allow_esphome_updates","settings":{"inverted":true}})",
+           R"({"source_name":"allow_esphome_updates","settings":{"binding_input":"input_1","binding_mode":"follow"}})",
+           R"({"source_name":"allow_esphome_updates","settings":{"label":"OTA"}})",
+       }) {
+    JsonDocument refused = body(json);
+    EXPECT_EQ(settings.update_record(refused.as<JsonObject>()), nullptr) << json;
+  }
+  EXPECT_EQ(record_of("allow_esphome_updates"), nullptr);
+  EXPECT_EQ(e.ota_allowed.restore_mode, switch_::SWITCH_ALWAYS_OFF);
+  EXPECT_FALSE(e.ota_allowed.is_inverted());
+}
+
+TEST_F(SwitchSettings, AConfigInputIsNotOfferedToBindTo) {
+  settings.apply();
+  ASSERT_EQ(settings.option_count(Field::BINDING_INPUT), 3u);  // None + the two inputs
+  EXPECT_EQ(settings.option_label(&e.relay1, Field::BINDING_INPUT, 2), "Input 2");
+
+  JsonDocument doc;
+  JsonObject meta = doc.to<JsonObject>();
+  settings.write_settings_meta(meta);
+  JsonArray options = meta["binding_input"]["options"];
+  EXPECT_EQ(options.size(), 3u);
+  for (JsonObject option : options)
+    EXPECT_NE(option["value"].as<std::string>(), "config_input");
+
+  JsonDocument refused = body(R"({"source_name":"relay_1","settings":{"binding_input":"config_input",)"
+                              R"("binding_mode":"follow"}})");
+  EXPECT_EQ(settings.update_record(refused.as<JsonObject>()), nullptr);
+  EXPECT_EQ(record_of("relay_1"), nullptr);
 }
 
 }  // namespace esphome::entity_config::testing

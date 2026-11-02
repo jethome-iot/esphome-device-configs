@@ -22,6 +22,7 @@ Nothing to configure; needs at least one `switch` and one `binary_sensor` in the
 |---|---|
 | Source | a `binary_sensor` |
 | Target | a `switch` |
+| Neither end | internal, or with `entity_category: config` |
 | Per output | at most one binding (a second write overwrites) |
 | Per input | any number of outputs |
 
