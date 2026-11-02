@@ -456,18 +456,18 @@ TEST_F(HubTest, AWaitingThermostatKeepsWhyItDoesNotRun) {
 // A config switch is the device's own setting, not a relay: a thermostat on it waits as on a
 // relay the device does not have, in either direction and across a reboot, and never drives it.
 TEST_F(HubTest, AConfigSwitchIsNoRelay) {
-  Result result = hub().create(draft("Unlock", "allow_esphome_updates"));
+  Result result = hub().create(draft("Unlock", "allow_uploads_from_esphome"));
   ASSERT_TRUE(result.ok) << result.error;
-  EXPECT_EQ("not started: relay 'allow_esphome_updates' not found", result.warning);
+  EXPECT_EQ("not started: relay 'allow_uploads_from_esphome' not found", result.warning);
   EXPECT_FALSE(hub().is_running("unlock"));
-  EXPECT_EQ("", hub().claimed_by("allow_esphome_updates"));
+  EXPECT_EQ("", hub().claimed_by("allow_uploads_from_esphome"));
 
   ClimateConfig chill = draft("Unlock", "");
-  chill.cool.relay_id = "allow_esphome_updates";
+  chill.cool.relay_id = "allow_uploads_from_esphome";
   chill.mode = HubMode::COOL;
   result = hub().update("unlock", chill);
   ASSERT_TRUE(result.ok) << result.error;
-  EXPECT_EQ("not started: relay 'allow_esphome_updates' not found", result.warning);
+  EXPECT_EQ("not started: relay 'allow_uploads_from_esphome' not found", result.warning);
   EXPECT_FALSE(hub().is_running("unlock"));
 
   this->reboot();

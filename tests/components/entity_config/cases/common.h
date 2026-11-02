@@ -75,7 +75,8 @@ inline Entities &entities() {
     App.register_switch(&e->relay1, "Relay 1", fnv1_hash("relay_1"), 0);
     App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
     App.register_binary_sensor(&e->config_input, "Config Input", fnv1_hash("config_input"), CONFIG_CATEGORY);
-    App.register_switch(&e->ota_allowed, "Allow ESPHome updates", fnv1_hash("allow_esphome_updates"), CONFIG_CATEGORY);
+    App.register_switch(&e->ota_allowed, "Allow uploads from ESPHome", fnv1_hash("allow_uploads_from_esphome"),
+                        CONFIG_CATEGORY);
     return e;
   }();
   return *instance;

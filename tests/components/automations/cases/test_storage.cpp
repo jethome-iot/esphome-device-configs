@@ -614,15 +614,15 @@ TEST_F(Storage, StartupRulesFireOnceTheEngineIsUp) {
   EXPECT_TRUE(e.relay1.state);
 }
 
-// The board's "Allow ESPHome updates" is a config switch: a rule on it, from a file or the API,
+// The board's "Allow uploads from ESPHome" is a config switch: a rule on it, from a file or the API,
 // fares as one on a switch the device does not have: it is not built.
 TEST_F(Storage, ARuleOnAConfigSwitchIsAnOrphan) {
   static const char *const UNLOCK =
-      R"({"id":1,"name":"Unlock","enabled":true,"mode":"single","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"allow_esphome_updates"}]})";
+      R"({"id":1,"name":"Unlock","enabled":true,"mode":"single","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"allow_uploads_from_esphome"}]})";
   static const char *const UNLOCK_AGAIN =
-      R"({"name":"Unlock again","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"allow_esphome_updates"}]})";
+      R"({"name":"Unlock again","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"allow_uploads_from_esphome"}]})";
   static const char *const WATCH =
-      R"({"name":"Watch","triggers":[{"source":"switch","type":"turn_on","object_id":"allow_esphome_updates"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})";
+      R"({"name":"Watch","triggers":[{"source":"switch","type":"turn_on","object_id":"allow_uploads_from_esphome"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})";
   write("unlock.json", UNLOCK);
   boot();
   EXPECT_FALSE(built("Unlock"));
@@ -634,7 +634,7 @@ TEST_F(Storage, ARuleOnAConfigSwitchIsAnOrphan) {
   EXPECT_EQ(files(), (std::vector<std::string>{"unlock.json"}));
 
   std::string on_relay = UNLOCK_AGAIN;
-  const std::string config_switch = "allow_esphome_updates";
+  const std::string config_switch = "allow_uploads_from_esphome";
   on_relay.replace(on_relay.find(config_switch), config_switch.size(), "relay_1");
   EXPECT_NE(engine->add_automation(rule(on_relay.c_str())), 0u);
 }

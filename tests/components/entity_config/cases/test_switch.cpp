@@ -73,7 +73,7 @@ class SwitchSettings : public ::testing::Test {
   void TearDown() override {
     manager().remove_binding(fnv1_hash("relay_1"));
     manager().remove_binding(fnv1_hash("relay_2"));
-    manager().remove_binding(fnv1_hash("allow_esphome_updates"));
+    manager().remove_binding(fnv1_hash("allow_uploads_from_esphome"));
     reset_entities();
   }
 
@@ -388,16 +388,16 @@ TEST_F(SwitchSettings, TheMetaOffersALabelFirst) {
 
 // --- config entities ---
 
-// The board's "Allow ESPHome updates" has to boot Off whatever the file says.
+// The board's "Allow uploads from ESPHome" has to boot Off whatever the file says.
 TEST_F(SwitchSettings, AStoredRecordDoesNotReachAConfigSwitch) {
   manager();
-  stored(R"({"source_name":"allow_esphome_updates","restore_mode":"ALWAYS_ON","inverted":true,)"
+  stored(R"({"source_name":"allow_uploads_from_esphome","restore_mode":"ALWAYS_ON","inverted":true,)"
          R"("binding_input":"input_1","binding_mode":"follow"})");
   stored(R"({"source_name":"relay_1","restore_mode":"ALWAYS_ON","inverted":true})");
   settings.apply();
   EXPECT_EQ(e.ota_allowed.restore_mode, switch_::SWITCH_ALWAYS_OFF);
   EXPECT_FALSE(e.ota_allowed.is_inverted());
-  EXPECT_TRUE(LogCapture::instance().has("Switch not found for source_name 'allow_esphome_updates'"));
+  EXPECT_TRUE(LogCapture::instance().has("Switch not found for source_name 'allow_uploads_from_esphome'"));
   e.in1.publish_state(true);
   EXPECT_EQ(e.ota_allowed.writes, 0);
   // The same record on a relay applies.
@@ -407,16 +407,17 @@ TEST_F(SwitchSettings, AStoredRecordDoesNotReachAConfigSwitch) {
 
 TEST_F(SwitchSettings, ARestWriteToAConfigSwitchIsRefused) {
   settings.apply();
-  for (const char *json : {
-           R"({"source_name":"allow_esphome_updates","settings":{"restore_mode":"ALWAYS_ON"}})",
-           R"({"source_name":"allow_esphome_updates","settings":{"inverted":true}})",
-           R"({"source_name":"allow_esphome_updates","settings":{"binding_input":"input_1","binding_mode":"follow"}})",
-           R"({"source_name":"allow_esphome_updates","settings":{"label":"OTA"}})",
-       }) {
+  for (
+      const char *json : {
+          R"({"source_name":"allow_uploads_from_esphome","settings":{"restore_mode":"ALWAYS_ON"}})",
+          R"({"source_name":"allow_uploads_from_esphome","settings":{"inverted":true}})",
+          R"({"source_name":"allow_uploads_from_esphome","settings":{"binding_input":"input_1","binding_mode":"follow"}})",
+          R"({"source_name":"allow_uploads_from_esphome","settings":{"label":"OTA"}})",
+      }) {
     JsonDocument refused = body(json);
     EXPECT_EQ(settings.update_record(refused.as<JsonObject>()), nullptr) << json;
   }
-  EXPECT_EQ(record_of("allow_esphome_updates"), nullptr);
+  EXPECT_EQ(record_of("allow_uploads_from_esphome"), nullptr);
   EXPECT_EQ(e.ota_allowed.restore_mode, switch_::SWITCH_ALWAYS_OFF);
   EXPECT_FALSE(e.ota_allowed.is_inverted());
 }

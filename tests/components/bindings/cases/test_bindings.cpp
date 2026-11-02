@@ -232,7 +232,7 @@ TEST_F(Bindings, AMissingOutputIsLoggedWhenDriven) {
 }
 
 // A config entity is not the device's I/O: a binding is kept, as for a missing one, and never
-// drives the board's "Allow ESPHome updates" nor listens to a config input.
+// drives the board's "Allow uploads from ESPHome" nor listens to a config input.
 TEST_F(Bindings, AConfigOutputIsNeverDriven) {
   manager->setup();
   manager->set_binding(OTA_ALLOWED, IN_1, BindingMode::FOLLOW);

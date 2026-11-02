@@ -36,7 +36,7 @@ TEST_F(Dashboard, EntitiesLeavesOutConfigEntities) {
   ASSERT_EQ(reply.code, 200);
   for (const char *type : {"switch", "binary_sensor"}) {
     for (JsonVariant entry : reply[type].as<JsonArray>()) {
-      EXPECT_NE(entry["source_name"].as<std::string>(), "allow_esphome_updates") << reply.body;
+      EXPECT_NE(entry["source_name"].as<std::string>(), "allow_uploads_from_esphome") << reply.body;
       EXPECT_NE(entry["source_name"].as<std::string>(), "config_input") << reply.body;
     }
   }

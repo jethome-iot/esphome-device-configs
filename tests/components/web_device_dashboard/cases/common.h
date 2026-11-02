@@ -120,7 +120,7 @@ inline Entities &entities() {
     App.register_switch(&e->hidden, "Hidden", fnv1_hash("hidden"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);
     const uint32_t config = uint32_t{ENTITY_CATEGORY_CONFIG} << ENTITY_FIELD_ENTITY_CATEGORY_SHIFT;
     App.register_binary_sensor(&e->config_input, "Config Input", fnv1_hash("config_input"), config);
-    App.register_switch(&e->ota_allowed, "Allow ESPHome updates", fnv1_hash("allow_esphome_updates"), config);
+    App.register_switch(&e->ota_allowed, "Allow uploads from ESPHome", fnv1_hash("allow_uploads_from_esphome"), config);
     return e;
   }();
   return *instance;

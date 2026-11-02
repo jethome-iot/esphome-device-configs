@@ -105,5 +105,5 @@ switch:
     internal: true
   - platform: template
     id: ota_allowed_unused
-    name: "Allow ESPHome updates"
+    name: "Allow uploads from ESPHome"
     optimistic: true

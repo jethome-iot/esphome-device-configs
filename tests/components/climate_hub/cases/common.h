@@ -261,7 +261,8 @@ inline Entities &entities() {
     App.register_switch(&e->relay1, "Relay 1", fnv1_hash("relay_1"), 0);
     App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
     App.register_switch(&e->relay3, "Relay 3", fnv1_hash("relay_3"), 0);
-    App.register_switch(&e->ota_allowed, "Allow ESPHome updates", fnv1_hash("allow_esphome_updates"), CONFIG_CATEGORY);
+    App.register_switch(&e->ota_allowed, "Allow uploads from ESPHome", fnv1_hash("allow_uploads_from_esphome"),
+                        CONFIG_CATEGORY);
     App.register_climate(&e->hall, "Hall", fnv1_hash("hall"), 0);
     App.register_climate(&e->cellar, "Cellar", fnv1_hash("cellar"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);
     return e;
