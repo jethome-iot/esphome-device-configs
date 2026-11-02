@@ -176,8 +176,9 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   virtual const char *select_rollback_(const RollbackTarget &target);
   virtual void restart_();
 #ifdef USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
-  /// False when the API server did not clear the key in flash. Loop task only. Virtual as well:
-  /// the tests have no API server that set up, so none that can hold a key.
+  /// False when the API server did not clear the key in flash; else its clients are dropped too.
+  /// Loop task only. Virtual as well: the tests have no API server that set up, so none that can
+  /// hold a key.
   virtual bool clear_api_key_();
 #endif
   /// Hands @p job to the loop task, which owns the entity records and the rollback, and waits

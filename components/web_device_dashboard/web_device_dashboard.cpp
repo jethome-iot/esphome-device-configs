@@ -882,9 +882,15 @@ const char *WebDeviceDashboard::select_rollback_(const RollbackTarget &target) {
 void WebDeviceDashboard::restart_() { App.safe_reboot(); }
 
 #ifdef USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
-// Not made active: the restart right after it does that.
+// Made active, and every client dropped: a session left open until the restart could write a
+// key of its own.
 bool WebDeviceDashboard::clear_api_key_() {
-  return api::global_api_server != nullptr && api::global_api_server->clear_noise_psk(false);
+  auto *api = api::global_api_server;
+  if (api == nullptr || !api->clear_noise_psk(true))
+    return false;
+  for (auto &client : api->active_clients())
+    client->on_fatal_error();
+  return true;
 }
 #endif
 

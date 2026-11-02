@@ -133,11 +133,12 @@ is a `500` here rather than a device that comes back unchanged — and the firmw
 one monitored boot: if it fails before it marks itself good, the bootloader returns to this
 one. `503` means there is nothing to roll back to, or that the device was too busy to take the
 request (`Device busy`) and selected nothing. Forgetting the API key does what **Settings →
-Forget HA** on the display does: it clears the key while the request is still open and restarts
-only once the key is gone. Home Assistant's old key then stops connecting, and Home Assistant can
-add the device again — on a firmware with a `provisioning:` block, within the window it opens
-after the boot. `500` means the API server did not clear the key, and the device does not
-restart; `503`, that the device was too busy to take the request and cleared nothing.
+Forget HA** on the display does: it clears the key while the request is still open, closes every
+native API connection open at the time, and restarts only once the key is gone. Home Assistant's
+old key then stops connecting, and Home Assistant can add the device again — on a firmware with a
+`provisioning:` block, within the window it opens after the boot. `500` means the API server did
+not clear the key, and the device does not restart; `503`, that the device was too busy to take
+the request and cleared nothing.
 
 With a [`web_auth`](../web_auth/README.md), the web server's own credentials; without one
 these routes are `404`:

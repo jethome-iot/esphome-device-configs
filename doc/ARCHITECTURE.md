@@ -116,8 +116,8 @@ boundaries; everything else is local to its file.
   `web_device_dashboard`'s `/api/device/system/forget-api-key` clear it. With a key in the YAML
   the route is not built and the row's Confirm only says it failed. The `provisioning:` block
   next to it closes the API, the fallback AP and captive portal of `features/network.yaml`, and
-  `esphome_ota_allowed`, 15 minutes after a boot on a device that has no key by then; on one whose key is cleared over
-  the API later, at that mark or at once past it.
+  `esphome_ota_allowed`, 15 minutes after a boot on a device that has no key by then; on one
+  whose key is cleared later, at that mark or at once past it.
 - `run_factory_reset` (a script in `features/factory-reset.yaml`) is the reset the menu's
   Factory reset runs; the same file runs it when `fn_button` (`boards/jxd-cpu-e1eth.yaml`) is
   held for 10 s, after blinking `red_led`, the `status_indicator` on the CPU board's LED.
@@ -208,11 +208,16 @@ server.
 - `boards/jxd-cpu-e1eth.yaml` marks `provisioning`'s source `0` provisioned at boot when the API
   key is there: that is the network source, which the manager registers in its constructor,
   before any other. Were it not, an added device would again close its window when no network
-  came up in 15 minutes. Its `esphome: on_loop:` calls the manager's `enable_loop()` while the
-  device has no key and is neither provisioned nor closed: the manager stops its loop for good
-  once it is provisioned, and a key cleared over the API would otherwise leave the window open
-  until the next boot. `provisioning: on_timeout:`, and that `on_loop:` when the key it reads
-  through `NoiseContext::load_psk()` changes, drop every client in `active_clients()` through
+  came up in 15 minutes. Its `esphome: on_loop:` takes over from the manager, which stops its
+  loop for good once the device is provisioned, whenever the device is unprovisioned with the
+  window open, as `clear_noise_psk()` leaves it at once, 100 ms before the server stops taking
+  the old key. It calls the manager's `loop()` itself, so past the timeout the window closes in
+  that same pass. The manager compares the 32-bit `App.get_loop_component_start_time()` with its
+  timeout, which that clock's wrap every 49.7 days puts back under it; once `millis_64()` is
+  past 2^32 ms, `on_loop:` first sets the timeout to 1 ms, past at any 32-bit reading above 1.
+  `provisioning: on_timeout:`, that `on_loop:` when the key it reads through
+  `NoiseContext::load_psk()` changes, the menu's Forget HA and `web_device_dashboard`'s
+  forget-api-key drop every client in `active_clients()` through
   `APIConnection::on_fatal_error()`: upstream only sends them a `DisconnectRequest`, which a
   client can ignore and keep its session.
 - `components/display_menu_base` and `components/graphical_display_menu` are copies of

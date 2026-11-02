@@ -130,8 +130,10 @@ graphical_display_menu:
                 - lambda: |-
                     // A key from the YAML is compiled in and cannot be cleared.
                     #if defined(USE_API_NOISE) && !defined(USE_API_NOISE_PSK_FROM_YAML)
-                    // Not made active: the reboot does that.
+                    // Not made active: the reboot does that. Its teardown still serves the clients,
+                    // on the old key, so they go first.
                     if (id(api_server)->clear_noise_psk(false)) {
+                      id(drop_api_clients).execute("Forget HA");
                       App.safe_reboot();
                       return;
                     }
