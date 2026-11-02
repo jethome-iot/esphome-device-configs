@@ -1,5 +1,5 @@
-"""The component's YAML schema: a GPIO output and its blink and pulse times, and the actions
-that drive it."""
+"""The component's YAML schema: a GPIO output and its blink and pulse times, the signals it
+shows on its own, and the actions that drive it."""
 
 import unittest
 from pathlib import Path
@@ -127,6 +127,188 @@ class Esp32Pin(unittest.TestCase):
     def test_an_input_only_pin_is_refused(self):
         with self.assertRaisesRegex(cv.Invalid, "does not support output pin mode"):
             status_indicator.CONFIG_SCHEMA({"pin": "GPIO34"})
+
+
+BLINK_N_TIMES = ("on_time", "off_time", "pause_time")
+
+
+# A plain string is a lambda only once the YAML loader has marked where it came from.
+def holds(code="return true;"):
+    return {"lambda": Lambda(code)}
+
+
+def signal(**options):
+    return {"condition": holds(), **options}
+
+
+class Signals(unittest.TestCase):
+    def setUp(self):
+        CORE.data.setdefault(KEY_CORE, {})[KEY_TARGET_PLATFORM] = PLATFORM_HOST
+
+    def validate(self, *signals, **options):
+        return status_indicator.CONFIG_SCHEMA(
+            {"pin": "GPIO2", "signals": list(signals), **options}
+        )
+
+    def signal(self, **options):
+        return self.validate(signal(**options))["signals"][0]
+
+    def test_none_by_default_and_a_poll_every_half_second(self):
+        config = status_indicator.CONFIG_SCHEMA({"pin": "GPIO2"})
+        self.assertEqual(config["signals"], [])
+        self.assertEqual(ms(config["update_interval"]), 500)
+
+    def test_it_takes_an_update_interval(self):
+        config = self.validate(signal(count=1), update_interval="2s")
+        self.assertEqual(ms(config["update_interval"]), 2000)
+
+    def test_they_keep_their_order(self):
+        config = self.validate(signal(count=4), signal(state="ON"))
+        self.assertEqual(config["signals"][0]["count"], 4)
+        self.assertEqual(config["signals"][1]["state"], "ON")
+
+    def test_one_needs_no_list(self):
+        config = status_indicator.CONFIG_SCHEMA(
+            {"pin": "GPIO2", "signals": signal(count=1)}
+        )
+        self.assertEqual(len(config["signals"]), 1)
+
+    def test_the_condition_is_any_condition(self):
+        config = self.signal(
+            condition={"for": {"time": "30s", "condition": holds()}}, count=1
+        )
+        self.assertEqual(ms(config["condition"]["for"]["time"]), 30000)
+        self.assertIsInstance(config["condition"]["for"]["condition"]["lambda"], Lambda)
+
+    def test_a_list_of_conditions_is_an_and(self):
+        config = self.signal(
+            condition=[holds(), holds("return false;")], state="BLINK_SLOW"
+        )
+        self.assertEqual(len(config["condition"]["and"]), 2)
+
+    def test_a_count_takes_the_blink_n_actions_times(self):
+        config = self.signal(count=2)
+        self.assertEqual(config["count"], 2)
+        self.assertNotIn("state", config)
+        self.assertEqual(
+            {key: ms(config[key]) for key in BLINK_N_TIMES},
+            {"on_time": 200, "off_time": 200, "pause_time": 1500},
+        )
+
+    def test_a_count_takes_its_own_times(self):
+        config = self.signal(
+            count=255, on_time="250ms", off_time="0.35s", pause_time="2s"
+        )
+        self.assertEqual(config["count"], 255)
+        self.assertEqual(
+            {key: ms(config[key]) for key in BLINK_N_TIMES},
+            {"on_time": 250, "off_time": 350, "pause_time": 2000},
+        )
+
+    def test_a_state_is_on_or_a_blink_in_any_case_and_has_no_times(self):
+        for state in ("ON", "BLINK_SLOW", "BLINK_FAST"):
+            for spelling in (state, state.lower()):
+                with self.subTest(state=spelling):
+                    config = self.signal(state=spelling)
+                    self.assertEqual(config["state"], state)
+                    self.assertNotIn("count", config)
+                    for key in BLINK_N_TIMES:
+                        self.assertNotIn(key, config)
+
+    # YAML reads a bare ON as a boolean.
+    def test_a_state_takes_on_as_a_boolean(self):
+        self.assertEqual(self.signal(state=True)["state"], "ON")
+
+    # OFF is what no signal shows, BLINK_N is a count, and a pulse would end on its own.
+    def test_the_other_states_are_refused(self):
+        for value, state in (
+            ("OFF", "OFF"),
+            (False, "OFF"),
+            ("blink_n", "BLINK_N"),
+            ("PULSE", "PULSE"),
+        ):
+            with (
+                self.subTest(value=value),
+                self.assertRaisesRegex(
+                    cv.Invalid,
+                    "A signal shows ON, BLINK_SLOW or BLINK_FAST, or a count, "
+                    rf"not {state} for dictionary value @ data\['signals'\]\[0\]\['state'\]",
+                ),
+            ):
+                self.signal(state=value)
+
+    def test_an_unknown_state_is_refused(self):
+        with self.assertRaisesRegex(cv.Invalid, "Unknown value 'BLINK'"):
+            self.signal(state="blink")
+
+    def test_it_needs_a_state_or_a_count(self):
+        with self.assertRaisesRegex(
+            cv.Invalid,
+            r"Must contain exactly one of state, count. @ data\['signals'\]\[0\]",
+        ):
+            self.signal()
+
+    def test_it_refuses_both_a_state_and_a_count(self):
+        with self.assertRaisesRegex(
+            cv.Invalid, "Cannot specify more than one of state, count"
+        ):
+            self.signal(state="ON", count=2)
+
+    def test_a_time_goes_with_a_count_only(self):
+        for key in BLINK_N_TIMES:
+            with (
+                self.subTest(key=key),
+                self.assertRaisesRegex(
+                    cv.Invalid,
+                    rf"{key} goes with count, not with state "
+                    rf"@ data\['signals'\]\[0\]\['{key}'\]",
+                ),
+            ):
+                self.signal(state="BLINK_FAST", **{key: "1s"})
+
+    def test_a_count_out_of_a_byte_or_zero_is_refused(self):
+        for count, message in (
+            (0, "at least 1"),
+            (256, "at most 255"),
+            (-1, "at least 1"),
+        ):
+            with (
+                self.subTest(count=count),
+                self.assertRaisesRegex(cv.Invalid, message),
+            ):
+                self.signal(count=count)
+
+    def test_a_zero_time_is_refused(self):
+        for key in BLINK_N_TIMES:
+            with (
+                self.subTest(key=key),
+                self.assertRaisesRegex(
+                    cv.Invalid,
+                    rf"value must be higher than 0s .*\['signals'\]\[0\]\['{key}'\]",
+                ),
+            ):
+                self.signal(count=2, **{key: "0ms"})
+
+    def test_a_condition_is_required(self):
+        with self.assertRaisesRegex(
+            cv.Invalid,
+            r"required key not provided @ data\['signals'\]\[0\]\['condition'\]",
+        ):
+            self.validate({"count": 2})
+
+    def test_an_unknown_condition_is_refused(self):
+        with self.assertRaisesRegex(
+            cv.Invalid, "Unable to find condition with the name 'led.is_lit'"
+        ):
+            self.signal(condition={"led.is_lit": "red_led"}, count=2)
+
+    def test_an_error_names_the_signal(self):
+        with self.assertRaisesRegex(cv.Invalid, r"@ data\['signals'\]\[1\]\['count'\]"):
+            self.validate(signal(count=1), signal(count=0))
+
+    def test_an_unknown_key_is_refused(self):
+        with self.assertRaisesRegex(cv.Invalid, "extra keys not allowed"):
+            self.signal(count=2, colour="red")
 
 
 def action(name, value):
