@@ -336,10 +336,10 @@ the device has no network, a sensor fault or a due reboot does not show.
 
 | Blinks | Meaning | What to do |
 | ------ | ------- | ---------- |
-| Fast, nonstop | The FN button was held for 10 seconds: a factory reset in 5 seconds | Nothing stops it once it blinks: letting go of FN does not |
+| Fast, nonstop | The FN button was held for 10 seconds: a factory reset in 5 seconds | Letting go of FN does not stop it; only cutting the power within those 5 seconds does |
 | 1 | No network for 30 seconds: no address over Ethernet or WiFi | Check the cable or the WiFi network; the code goes once the device has an address |
-| 2 | No network for 30 seconds, and the WiFi access point is up to set the device up from | Join that access point and set WiFi ([WiFi Setup](doc/WIFI_SETUP.md)) |
-| 3 | A Dallas sensor or PCB Temp has given no readings for a minute, or a running thermostat has lost its sensor's readings | Check the sensor's wiring; the code goes at its next reading |
+| 2 | No network for 30 seconds, and the WiFi access point is up to set the device up from | As for 1; to set or change the WiFi network, join that access point ([WiFi Setup](doc/WIFI_SETUP.md)) |
+| 3 | A Dallas sensor or PCB Temp has given no readings for a minute, or a running thermostat has lost its sensor's readings | Check the Dallas sensor and its wiring; the code goes at its next reading. For a sensor taken away for good, forget its slot and reboot |
 | 4 | A saved change waits for a reboot, such as a temperature slot assigned or forgotten | Reboot the device: **Settings → Reboot device** on the display, or **Reboot now** on the dashboard |
 
 ## Documentation
