@@ -14,7 +14,11 @@ import type {
   TemperatureSlotChangeResult,
   TemperatureSlotLabelResult,
   TemperatureSlotOffsetResult,
-  TemperatureSlots
+  TemperatureSlots,
+  VirtualInputDeletePayload,
+  VirtualInputs,
+  VirtualInputSavePayload,
+  VirtualInputSaveResult
 } from './types'
 
 // A class, so a value export: a consumer needs it for `instanceof`, not only for types.
@@ -62,6 +66,16 @@ export interface DeviceApi {
    *  file did not load at boot or the loop task is busy (the error says which), `500` when the
    *  write fails. */
   setTemperatureSlotLabel(payload: SlotLabelPayload): Promise<TemperatureSlotLabelResult>
+  /** GET /virtual-inputs — the virtual inputs in use and the inputs they may follow; `404`
+   *  without `capabilities.virtual_inputs`, `503` when the loop task does not take it. */
+  virtualInputs(): Promise<VirtualInputs>
+  /** POST /virtual-inputs/save — set up a virtual input or change one, in force at once; `400`
+   *  for a bad slot, source or delay, `409` when no slot is free, `503` when it cannot be kept or
+   *  the loop task is busy, `500` when the write fails. The label goes through the entity settings. */
+  saveVirtualInput(payload: VirtualInputSavePayload): Promise<VirtualInputSaveResult>
+  /** POST /virtual-inputs/delete — free a slot, its label with it; `400` for a slot out of range,
+   *  `409` for a free one, `503` and `500` as for a save. */
+  deleteVirtualInput(payload: VirtualInputDeletePayload): Promise<MutationResponse>
 }
 
 export function createDeviceApi(options: HttpOptions): DeviceApi {
@@ -99,6 +113,15 @@ export function createDeviceApi(options: HttpOptions): DeviceApi {
     },
     setTemperatureSlotLabel(payload) {
       return http.jpost<TemperatureSlotLabelResult>('/temperature-slots/label', payload)
+    },
+    virtualInputs() {
+      return http.jget<VirtualInputs>('/virtual-inputs')
+    },
+    saveVirtualInput(payload) {
+      return http.jpost<VirtualInputSaveResult>('/virtual-inputs/save', payload)
+    },
+    deleteVirtualInput(payload) {
+      return http.jpost<MutationResponse>('/virtual-inputs/delete', payload)
     }
   }
 }

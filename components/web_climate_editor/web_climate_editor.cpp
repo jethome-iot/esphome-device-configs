@@ -496,7 +496,7 @@ void WebClimateEditor::handle_entities_(AsyncWebServerRequest *request) {
 #endif
 #ifdef USE_SWITCH
     for (auto *entity : App.get_switches()) {
-      if (entity->is_internal())
+      if (!climate_hub::is_output_switch(*entity))
         continue;
       const std::string object_id = climate_hub::object_id_of(*entity);
       JsonObject row = switches.add<JsonObject>();

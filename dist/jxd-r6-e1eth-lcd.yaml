@@ -20,7 +20,96 @@ api:
   reboot_timeout: 0s
 ota:
   - platform: esphome
+    id: esphome_ota
+    password: ''
   - platform: web_server
+switch:
+  - platform: template
+    id: esphome_ota_allowed
+    name: Allow ESPHome updates
+    icon: mdi:upload-lock
+    entity_category: config
+    web_server:
+      sorting_group_id: group_system
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: id(esphome_ota).set_auth_password("");
+      - delay: 30min
+      - switch.turn_off: esphome_ota_allowed
+    turn_off_action:
+      - lambda: |-
+          uint8_t lock[16];
+          random_bytes(lock, sizeof(lock));
+          char hex[sizeof(lock) * 2 + 1];
+          format_hex_to(hex, lock, sizeof(lock));
+          id(esphome_ota).set_auth_password(hex);
+  - platform: gpio
+    name: Relay 1
+    id: relay_1
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 1
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 0
+      mode:
+        output: true
+  - platform: gpio
+    name: Relay 2
+    id: relay_2
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 2
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 1
+      mode:
+        output: true
+  - platform: gpio
+    name: Relay 3
+    id: relay_3
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 3
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 2
+      mode:
+        output: true
+  - platform: gpio
+    name: Relay 4
+    id: relay_4
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 4
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 3
+      mode:
+        output: true
+  - platform: gpio
+    name: Relay 5
+    id: relay_5
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 5
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 4
+      mode:
+        output: true
+  - platform: gpio
+    name: Relay 6
+    id: relay_6
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 6
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 5
+      mode:
+        output: true
 preferences:
   flash_write_interval: 5s
 external_components:
@@ -98,7 +187,26 @@ external_components:
       ref: master
       path: components
     components:
+      - ntp_servers
       - timezone_settings
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - web_schedule_editor
+      - web_origin_guard
+      - loop_job
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - schedules
+      - loop_job
+      - switch_hold
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -117,6 +225,13 @@ external_components:
     components:
       - dallas_scan
       - panel_text
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - virtual_inputs
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -572,73 +687,6 @@ one_wire:
     id: one_wire_bus
     address: 24
     active_pullup: true
-switch:
-  - platform: gpio
-    name: Relay 1
-    id: relay_1
-    web_server:
-      sorting_group_id: group_relays
-      sorting_weight: 1
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 0
-      mode:
-        output: true
-  - platform: gpio
-    name: Relay 2
-    id: relay_2
-    web_server:
-      sorting_group_id: group_relays
-      sorting_weight: 2
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 1
-      mode:
-        output: true
-  - platform: gpio
-    name: Relay 3
-    id: relay_3
-    web_server:
-      sorting_group_id: group_relays
-      sorting_weight: 3
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 2
-      mode:
-        output: true
-  - platform: gpio
-    name: Relay 4
-    id: relay_4
-    web_server:
-      sorting_group_id: group_relays
-      sorting_weight: 4
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 3
-      mode:
-        output: true
-  - platform: gpio
-    name: Relay 5
-    id: relay_5
-    web_server:
-      sorting_group_id: group_relays
-      sorting_weight: 5
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 4
-      mode:
-        output: true
-  - platform: gpio
-    name: Relay 6
-    id: relay_6
-    web_server:
-      sorting_group_id: group_relays
-      sorting_weight: 6
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 5
-      mode:
-        output: true
 globals:
   - id: relays
     type: std::vector<switch_::Switch *>
@@ -706,7 +754,8 @@ esphome:
             auto add_row = [](MenuItemMenu *menu, const char *text, std::function<size_t()> count,
                               std::function<std::string(int)> label, std::function<int()> index,
                               std::function<void(size_t)> set) {
-              auto *pending = new int(-1);  // the choice being edited; -1 outside editing
+              // The choice being stepped to, an index into the live list; -1 until the first step.
+              auto *pending = new int(-1);
               // The row reads "text (value)" or "text >value<": a value too long for the rest
               // of it is cut, so the closing mark stays on the panel.
               const size_t taken = panel_glyphs(text) + 3;
@@ -715,11 +764,17 @@ esphome:
               row->set_text(std::string(text));
               row->set_value_lambda(
                   [=](const MenuItem *) { return panel_fit(label(*pending >= 0 ? *pending : index()), room); });
-              row->add_on_enter_callback([=]() { *pending = index(); });
-              row->add_on_next_callback([=]() { *pending = (*pending + 1) % static_cast<int>(count()); });
+              row->add_on_enter_callback([=]() { *pending = -1; });
+              // From the stored value until the first step: a virtual input made or deleted
+              // meanwhile shifts the list, and the row keeps showing what is stored.
+              row->add_on_next_callback([=]() {
+                const int from = *pending >= 0 ? *pending : index();
+                *pending = (from + 1) % static_cast<int>(count());
+              });
               row->add_on_prev_callback([=]() {
                 const int n = count();
-                *pending = *pending < 0 ? n - 1 : (*pending + n - 1) % n;
+                const int from = *pending >= 0 ? *pending : index();
+                *pending = from < 0 ? n - 1 : (from + n - 1) % n;
               });
               row->add_on_leave_callback([=]() {
                 if (*pending >= 0 && *pending != index())
@@ -763,17 +818,22 @@ esphome:
               state_row->add_on_prev_callback(toggle);
               menu->add_item(state_row);
 
-              // set_option refuses only an Inverted change on a relay a thermostat drives.
+              // set_option refuses an Inverted change on a relay a thermostat drives, and a choice
+              // the list lost while the row was being edited.
               auto field_row = [&](const char *text, Field field) {
                 add_row(menu, text, [sws, field]() { return sws->option_count(field); },
                         [sws, sw, field, has](int index) {
                           return panel_safe(sws->option_label(sw, field, index), 4 * ROW, has);
                         },
                         [sws, sw, field]() { return sws->option_index(sw, field); },
-                        [sws, sw, field](size_t index) {
-                          if (!sws->set_option(sw, field, index))
+                        [sws, sw, field, text](size_t index) {
+                          if (sws->set_option(sw, field, index))
+                            return;
+                          if (field == Field::INVERTED)
                             ESP_LOGI("menu", "'%s' Inverted left alone: thermostat '%s' drives it",
                                      sw->get_name().c_str(), switch_hold::holder(sw).c_str());
+                          else
+                            ESP_LOGI("menu", "'%s' %s left alone: that choice is gone", sw->get_name().c_str(), text);
                         });
               };
               field_row("Inverted", Field::INVERTED);
@@ -801,6 +861,22 @@ esphome:
                       [bss, input]() { return bss->is_inverted(input) ? 1 : 0; },
                       [bss, input](size_t index) { bss->set_inverted(input, index == 1); });
               id(inputs_menu)->add_item(menu);
+            }
+
+            // The virtual inputs set up at boot, after the physical ones: a row each, read only.
+            // One deleted since boot keeps its row until the reboot and says --.
+            auto *vis = id(virtual_input_pool);
+            for (size_t slot = 0; slot < vis->max_inputs(); slot++) {
+              if (!vis->configured(slot))
+                continue;
+              auto *input = vis->sensor(slot);
+              auto *row = new MenuItem(MENU_ITEM_LABEL);
+              row->set_text([bss, vis, slot, input, has, with_state](const MenuItem *) {
+                if (vis->configured(slot))
+                  return with_state(bss->display_name(input), input->state);
+                return panel_fit(panel_safe(bss->display_name(input), 4 * ROW, has), ROW - 6) + " (--)";
+              });
+              id(inputs_menu)->add_item(row);
             }
     - priority: 500
       then:
@@ -1702,6 +1778,9 @@ timezone_settings:
   on_clock_set:
     then:
       pcf8563.write_time: null
+ntp_servers:
+  id: device_ntp
+  sntp_id: sntp_time
 time:
   - platform: homeassistant
     id: homeassistant_time
@@ -1723,6 +1802,11 @@ time:
     address: 81
     timezone: ${timezone}
     update_interval: 15min
+web_schedule_editor: null
+schedules:
+  id: schedules_engine
+  storage: user_storage
+  time_id: pcf8563_time
 littlefs_storage:
   id: user_storage
   partition_label: littlefs
@@ -1751,6 +1835,12 @@ uart:
     rx_pin: GPIO39
     baud_rate: 9600
     stop_bits: 1
+virtual_inputs:
+  id: virtual_input_pool
+  max_inputs: 16
+  web_server:
+    sorting_group_id: group_inputs
+    sorting_weight: 7
 web_auth:
   id: web_auth_credentials
 web_device_dashboard:
@@ -1960,6 +2050,10 @@ graphical_display_menu:
         - type: select
           text: Display off
           select: display_off_timer_select
+        - type: switch
+          text: ESPHome OTA
+          switch: esphome_ota_allowed
+          weight: 10
         - type: menu
           text: Modbus
           weight: 10

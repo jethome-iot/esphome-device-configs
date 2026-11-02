@@ -39,6 +39,9 @@ entity_config:
 | `switch`        | object_id  | `restore_mode`, `inverted`, `binding_input`, `binding_mode`, `label`; a field a record leaves out, or names wrongly, keeps the switch's compiled value | At `HARDWARE + 1`, before the switch's own setup. A `RESTORE_*` mode chosen at run time stores the current state at once, since the switch itself makes its preference only in setup. |
 | `binary_sensor` | object_id  | `inverted`, `label` | A filter appended to the end of the sensor's chain; a flip re-emits the last raw level, so it shows without waiting for an edge. |
 
+An internal entity and one with `entity_category: config` take no record: the settings are for
+the device's inputs and outputs, not for its own settings.
+
 `binding_input` and `binding_mode` round-trip as plain strings; they do nothing without the
 [`bindings`](../bindings/README.md) component, and the lambdas that edit them are compiled out
 with it.
@@ -59,6 +62,13 @@ not bytes); the spaces at both ends are trimmed. The rules are
 refused, and a label in the file that breaks the rules is dropped with a warning. It is set through
 `web_device_dashboard`; a write that leaves it out, or sends `null`, keeps it, on both types. It
 applies at once.
+
+## Inputs that take a label only
+
+A [virtual input](../virtual_inputs/README.md) shows its source as it is, so its record keeps a
+`label` and nothing else: a write with `inverted: true` is refused, the menu's `set_inverted` does
+nothing, and an `inverted` stored for it is ignored with a warning and read back as `false`.
+`virtual_inputs` registers its slots so at setup.
 
 ## Naming the settings objects
 
@@ -82,7 +92,9 @@ with the `bindings` component `BINDING_INPUT`, `BINDING_MODE`), each field is a 
   names it by `display_name()`
 
 `binary_sensor` settings, given a `binary_sensor::BinarySensor *`: `is_inverted(sensor)`,
-`set_inverted(sensor, inverted)`.
+`set_inverted(sensor, inverted)`; `set_label_only(sensor)` and `is_label_only(sensor)` for the
+inputs above, registered before the boot's apply; `remove_record(object_id)` drops an entity's
+record, its label with it, and leaves the save to the caller.
 
 A set applies at once and schedules the debounced save.
 

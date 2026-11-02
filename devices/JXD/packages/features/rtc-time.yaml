@@ -5,7 +5,7 @@ substitutions:
 
 external_components:
   - source: ${components}
-    components: [timezone_settings]
+    components: [ntp_servers, timezone_settings]
 
 # Home Assistant's zone is global but RAM-only; keep it across reboots.
 globals:
@@ -26,6 +26,11 @@ timezone_settings:
   on_clock_set:
     then:
       pcf8563.write_time:
+
+# Servers set on the dashboard, asked ahead of sntp_time's own.
+ntp_servers:
+  id: device_ntp
+  sntp_id: sntp_time
 
 time:
   # No timezone here: that is what makes Home Assistant send its own.

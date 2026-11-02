@@ -49,6 +49,8 @@ external_components:
       - modbus_map
       - panel_text
       - timezone_settings
+      - ntp_servers
+      - virtual_inputs
   - source: ../../harness/components
     components: [dir_storage, web_server_base, web_server, one_wire_host]
   # web_device_dashboard depends on web_server for the entity REST API its page calls, and
@@ -151,6 +153,16 @@ timezone_settings:
   id: zone
   timezone: Europe/Berlin
 
+# The same for ntp_servers and USE_WEB_DEVICE_DASHBOARD_NTP.
+ntp_servers:
+  id: ntp
+  sntp_id: host_time
+
+# A virtual_inputs is what sets USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS, and reserves the pool the
+# cases' one component registers: its max_inputs must match.
+virtual_inputs:
+  max_inputs: 3
+
 # board_info_id sets USE_WEB_DEVICE_DASHBOARD_BOARD_INFO, so /api/device/info carries the board;
 # storage_id sets USE_WEB_DEVICE_DASHBOARD_STORAGE, so the factory reset has a mount to wipe;
 # dallas_scan_id sets USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS, so the slot routes exist.
@@ -165,6 +177,9 @@ binary_sensor:
   - platform: template
     id: in_1_unused
     name: "In 1"
+  - platform: template
+    id: config_input_unused
+    name: "Config Input"
 
 switch:
   - platform: template
@@ -174,4 +189,8 @@ switch:
   - platform: template
     id: hidden_unused
     name: "Hidden"
+    optimistic: true
+  - platform: template
+    id: ota_allowed_unused
+    name: "Allow ESPHome updates"
     optimistic: true

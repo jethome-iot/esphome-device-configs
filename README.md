@@ -51,11 +51,21 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
   `firmware.elf` ([details](components/crash_report/README.md))
 - **Runtime Automations**: rules stored on that partition as JSON, loaded at boot and editable without a recompile, over HTTP under `/automation-editor/api` ([details](doc/AUTOMATIONS.md))
 - **Thermostats**: hysteresis or PID control of a relay from any temperature sensor, stored on that partition as JSON and run without a recompile, editable over HTTP under `/climate-editor/api`; each one is a climate entity in Home Assistant ([details](doc/CLIMATE.md))
+- **Schedules**: modes picked by switch points through the week, each mode a list of relay and
+  thermostat actions with waits between them, stored on that partition as JSON and run without a
+  recompile, editable over HTTP under `/schedule-editor/api` ([details](doc/SCHEDULES.md))
 - **Per-entity settings**: each relay's inversion, start mode and the input bound to it, and each
   input's inversion, set from the display menu and kept on that partition
   ([details](doc/ENTITY_SETTINGS.md))
 - **Password-protected web server**: `admin` / `admin` out of the factory, changed from the
   dashboard and kept across reboots ([details](components/web_auth/README.md))
+- **Locked ESPHome OTA**: the ESPHome Builder and `esphome run --device` install only while
+  **Allow ESPHome updates** is on — in Home Assistant, on the dashboard or **Settings → ESPHome
+  OTA** on the display. It turns itself off 30 minutes after it was turned on, so on a slow
+  build turn it on while the build runs, and at every reboot, except into safe mode, where the
+  port stays open as the way back without USB. The lock holds once Home Assistant has set the
+  API key: until then anyone on the network can turn the switch on over the API. An upload
+  encrypted with that key, and one through the dashboard behind the web password, do not need it
 - **Factory reset**: **Settings → Factory reset** on the display, the dashboard, or the FN button
   on the CPU board held for 10 seconds on a running device — the LED then blinks fast, red and
   green, for 5 seconds before the device resets; the button works without the display and without the web
@@ -87,7 +97,7 @@ the device. Those packages live under the family's `packages/`, split by role:
 | Directory            | Contents |
 | -------------------- | -------- |
 | `packages/boards/`   | Platform and the chips sitting on each board — `jxd-cpu-e1eth.yaml` (ESP32, api/ota/logger/web_server, TMP102, LED, FN button, the identity EEPROM) and `jxd-d6-r6-rev1.2.yaml` (PCA9554 expander, 6 relays, 6 inputs, DS2484 1-Wire bridge) |
-| `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `entity-settings`, `factory-reset`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network`, `web-auth`, `web-device-dashboard`, `web-file-browser`, `automations`, `automation-editor`, `climates`, `climate-editor`, `crash-report`, `firmware-update` |
+| `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `entity-settings`, `factory-reset`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network`, `web-auth`, `web-device-dashboard`, `web-file-browser`, `automations`, `automation-editor`, `climates`, `climate-editor`, `schedules`, `schedule-editor`, `crash-report`, `firmware-update` |
 | `packages/display/`  | Display, pages, menu and buttons — `display.yaml`, `menu.yaml`, `buttons.yaml`, `menu-items-network.yaml`, `menu-serial.yaml`, `menu-timezone.yaml`, `menu-firmware.yaml`, `firmware-page.yaml` |
 | `packages/qemu/`     | Overlays that `scripts/qemu.sh` layers over the real config to run it in the emulator — never part of a firmware build |
 
@@ -95,7 +105,7 @@ Shared code and tooling stay at the repository root:
 
 | Directory  | Contents |
 | ---------- | -------- |
-| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `climate_hub` (the thermostats, each a climate entity), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `web_climate_editor` (the thermostat API of `climate_hub`), `crash_report` (the last panic's record, written to that partition at the next boot), `web_device_dashboard` (the web UI at `/` and its device API), `modbus_map` (the Modbus ranges' names that the dashboard lists, checked against the server at build time), `web_auth` (the web server's credentials, changeable at runtime), `web_origin_guard` (the cross-origin refusal every handler on that server answers with), `loop_job` (what a web handler hands the loop task so it does not edit its state from the server's), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), `entity_config` (the per-entity settings) with the `config_base` / `config_json` it is built on, `bindings` (an input driving a relay), `switch_hold` (who holds a relay, a running thermostat; the panel, Modbus, the rules, the bindings and the relay settings ask it before they move one), `jethome_update` (the firmware update entity) over the `jethome_manifest` parser of the firmware server's answer, `firmware_rollback` (booting the firmware in the other app slot, for the dashboard and the display menu), `status_indicator` (the CPU board's LED: on, off, blinking, pulses), `timezone_settings` (the zone in effect: Home Assistant's, the compiled one or one set on the dashboard), `panel_text` (text fitted to a row of the display menu, and the rules a label follows), and `display_menu_base` with `graphical_display_menu` (upstream's, with the menu options `packages/display/menu.yaml` needs) |
+| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `climate_hub` (the thermostats, each a climate entity), `schedules` (the weekly schedules whose modes run lists of relay and thermostat actions), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `web_climate_editor` (the thermostat API of `climate_hub`), `web_schedule_editor` (the schedule API of `schedules`), `crash_report` (the last panic's record, written to that partition at the next boot), `web_device_dashboard` (the web UI at `/` and its device API), `modbus_map` (the Modbus ranges' names that the dashboard lists, checked against the server at build time), `web_auth` (the web server's credentials, changeable at runtime), `web_origin_guard` (the cross-origin refusal every handler on that server answers with), `loop_job` (what a web handler hands the loop task so it does not edit its state from the server's), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), `entity_config` (the per-entity settings) with the `config_base` / `config_json` it is built on, `bindings` (an input driving a relay), `virtual_inputs` (inputs that follow a physical one through an on and an off delay, set up at run time), `switch_hold` (who holds a relay, a running thermostat; the panel, Modbus, the rules, the bindings, the schedules and the relay settings ask it before they move one), `jethome_update` (the firmware update entity) over the `jethome_manifest` parser of the firmware server's answer, `firmware_rollback` (booting the firmware in the other app slot, for the dashboard and the display menu), `status_indicator` (the CPU board's LED: on, off, blinking, pulses), `timezone_settings` (the zone in effect: Home Assistant's, the compiled one or one set on the dashboard), `ntp_servers` (the NTP servers the device asks, set on the dashboard), `panel_text` (text fitted to a row of the display menu, and the rules a label follows), and `display_menu_base` with `graphical_display_menu` (upstream's, with the menu options `packages/display/menu.yaml` needs) |
 | `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `device-files.py` (the `web_file_browser` API from a terminal), `qemu.sh` (the emulator), `qemu-climate-smoke.py` (the thermostats checked in it), `setup.sh` / `setup.bat` |
 | `dist/`    | Generated self-contained configs the ESPHome Builder imports |
 | `doc/`     | Guides, plus the README's UI mockups in `doc/images/` |
@@ -193,6 +203,11 @@ RTC; the same screen sets the date and time by hand, into the RTC as well, so th
 reboot. NTP or Home Assistant, once either can reach the device, sets the time again as
 usual.
 
+A site with an NTP server of its own, such as its router or a domain controller, sets up to
+three servers on the same screen; they are asked ahead of `pool.ntp.org`, which can be turned
+off, and the screen shows when the time came last and from which server. See
+[ntp_servers](components/ntp_servers/README.md).
+
 The compiled zone is the one to set for a device that runs standalone from its first boot:
 
 ```bash
@@ -218,8 +233,9 @@ For the first flash, connect via USB:
 esphome run devices/JXD/jxd-r6-e1eth-lcd.yaml
 ```
 
-Subsequent updates can be done over-the-air (OTA). A change to the partition table (for
-example, the size of the storage partition) needs a USB flash: OTA keeps the table it finds.
+Subsequent updates can be done over-the-air (OTA), once **Allow ESPHome updates** is on. A
+change to the partition table (for example, the size of the storage partition) needs a USB
+flash: OTA keeps the table it finds.
 
 ```bash
 esphome run devices/JXD/jxd-r6-e1eth-lcd.yaml --device <IP_ADDRESS>
@@ -285,7 +301,10 @@ untouched; any button then takes the page away, and it leaves on its own after h
 - **Thermostats** - a row per thermostat with what its sensor reads; it opens the thermostat's name, the reading, what it is doing (heating, idle, waiting, a fault), the target, the preset and Enabled. The list is the one the device booted with: a thermostat created later shows after a reboot
 - **Automations** - a row per rule that switches it on or off; the list is the one the device booted with
 - **Info** - network information (Ethernet and WiFi IP and MAC addresses, access point password), the timezone in effect (the city of a zone chosen on the dashboard, else its offset from UTC, as `UTC+3`), then the serial number from the CPU board's EEPROM (`--` when it holds none)
-- **Settings** - display auto-off timer, Modbus settings, firmware updates (the running and the offered version, the release channel, a check, an install, and a rollback row that says whether there is a firmware to go back to; after a rollback the same row goes forward again), temperature slots, network mode, WiFi credential reset, reboot; a factory reset clears the stored preferences (WiFi credentials, settings) and formats the user partition, taking the temperature slot table, the automation rules and uploaded files with it
+- **Settings** - display auto-off timer, ESPHome OTA (the **Allow ESPHome updates** switch), Modbus settings, firmware updates (the running and the offered version, the release channel, a check, an install, and a rollback row that says whether there is a firmware to go back to; after a rollback the same row goes forward again), temperature slots, network mode, WiFi credential reset, reboot; a factory reset clears the stored preferences (WiFi credentials, settings) and formats the user partition, taking the temperature slot table, the automation rules and uploaded files with it
+
+CENTER opens a setting, LEFT and RIGHT pick its value, and the device applies it when CENTER or
+BACK closes the row; leaving the menu while a row is open applies it as well.
 
 **Getting here**: CENTER from the main page.
 

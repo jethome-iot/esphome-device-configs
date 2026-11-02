@@ -34,7 +34,8 @@ boundaries; everything else is local to its file.
   package order unless a `weight` moves them, and rows added from C++ at boot come after all of
   them. A submenu may be empty, and `info_submenu`, `relays_menu` and `inputs_menu` declare no
   rows of their own: the last two are filled at boot from the `relays` / `inputs` vectors, so the
-  menu follows whatever the board package put there. `temperatures_menu` gets a `Temp N` submenu per
+  menu follows whatever the board package put there, and `inputs_menu` gets a row after them per
+  virtual input set up at boot. `temperatures_menu` gets a `Temp N` submenu per
   slot up to the last bound one at boot, named after the slot's label or name; a freed slot's
   submenu only names the slot and says `Free slot`.
   `automations_menu` is filled at boot with a row per loaded rule, or one `No automations` row.
@@ -53,14 +54,21 @@ boundaries; everything else is local to its file.
   names the running thermostat that drives a relay, `""` when none does. Everything that moves
   a relay on its own asks it first — the status page's CENTER (`display/buttons.yaml`), the
   menu's State and Inverted rows (`display/menu.yaml`), the Modbus coils, `automations`,
-  `bindings` and the `switch_settings` Inverted field — and `bindings` hears from it when a
-  relay is freed. Home Assistant and the web server's REST do not ask; the thermostat puts the
-  relay back. The list of writers and what each gets is in
+  `bindings`, `schedules` and the `switch_settings` Inverted field — and `bindings` and
+  `schedules` hear from it when a relay is freed. Home Assistant and the web server's REST do
+  not ask; the thermostat puts the relay back. The list of writers and what each gets is in
   [CLIMATE.md](CLIMATE.md#a-running-thermostats-relays); a new writer of a relay asks too.
-  `features/climates.yaml`, `automations.yaml` and `entity-settings.yaml` load `switch_hold`;
-  `display/buttons.yaml` and `features/modbus-server.yaml` call `switch_hold::` without loading
-  it, so they count on one of those three being in the same firmware, as `display/menu.yaml`
-  counts on all of them.
+  `features/climates.yaml`, `automations.yaml`, `entity-settings.yaml` and `schedules.yaml` load
+  `switch_hold`; `display/buttons.yaml` and `features/modbus-server.yaml` call `switch_hold::`
+  without loading it, so they count on one of those being in the same firmware, as
+  `display/menu.yaml` counts on the first three.
+- `schedules_engine` (`features/schedules.yaml`) is the `schedules` component: the weekly
+  schedules, kept on `user_storage` under `schedules/` and read against `pcf8563_time` in local
+  time. The id cannot be `schedules`, the component's C++ namespace. A schedule's actions name
+  relays by object id and thermostats by their `climates` id, so renaming a relay in YAML leaves
+  the actions on it skipped; `climates` tells it when a thermostat is created or removed or its
+  presets change. `web_schedule_editor` (`features/schedule-editor.yaml`) edits the schedules
+  under `/schedule-editor/api`.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
   and expanded inside the main-page lambda in `display/display.yaml`. Package substitutions share
   one namespace with the device config's.
@@ -76,6 +84,14 @@ boundaries; everything else is local to its file.
   `crash_report` (`features/crash-report.yaml`) writes the last panic's record to `crash/` there.
 - `config_json_keeper` (`features/storage.yaml`) owns the JSON settings files on that partition
   for any component that registers a settings type with it.
+- `virtual_input_pool` (`features/virtual-inputs.yaml`) is the `virtual_inputs` component: a pool
+  of `binary_sensor`s, `Virtual input N`, each following a physical input through an on and an off
+  delay, kept as `virtual_inputs.json` in `config_json_keeper`'s folder. Their labels are
+  `binary_sensor_settings`' records, which take no inversion for them. A delete also drops
+  `switch_settings`' bindings to the slot, and codegen hands the pool two lambdas over the rule
+  engine: one names the rules naming a slot, the other builds or drops them when the slot is set
+  up or deleted. `display/menu.yaml` reads `configured()` and `sensor()` for the Inputs rows, and
+  `web_device_dashboard` finds the pool in the config for `/api/device/virtual-inputs`.
 - `switch_settings` and `binary_sensor_settings` (`features/entity-settings.yaml`) are the
   settings objects the menu's Relay N and Input N rows call, and whose `display_name()` names
   each relay and input there. Those two ids are set explicitly: a generated id cannot be named
@@ -90,6 +106,11 @@ boundaries; everything else is local to its file.
   `web_device_dashboard` finds it in the config for `/api/device/time`. Its `on_clock_set`
   writes `pcf8563_time` after the dashboard set the clock, as the `on_time_sync` of
   `homeassistant_time` and `sntp_time` do after theirs.
+- `esphome_ota_allowed` (`boards/jxd-cpu-e1eth.yaml`) is the switch that unlocks
+  `esphome_ota`, ESPHome's own OTA, for 30 minutes; `display/menu.yaml` puts it under Settings.
+- `device_ntp` (`features/rtc-time.yaml`) is the `ntp_servers` component, which hands
+  `sntp_time`'s lwIP client one server at a time and takes `sntp_time`'s own servers as its
+  fallback; `web_device_dashboard` finds it in the config and serves it on `/api/device/time`.
 - `run_factory_reset` (a script in `features/factory-reset.yaml`) is the reset the menu's
   Factory reset runs; the same file runs it when `fn_button` (`boards/jxd-cpu-e1eth.yaml`) is
   held for 10 s, after blinking `red_led`, the `status_indicator` on the CPU board's LED.
@@ -98,9 +119,9 @@ boundaries; everything else is local to its file.
   `/events`, the Files screen through `web_file_browser` at `/files`, the Automations screen
   through `web_automation_editor` at `/automation-editor`; both prefixes are baked into the page
   at build time and reported at run time by `/api/device/capabilities`, which reports
-  `web_climate_editor`'s `/climate-editor` too. Its `storage_id` is
-  `user_storage`, which is what `/api/device/system/factory-reset` wipes — the same wipe the
-  menu's Factory reset does.
+  `web_climate_editor`'s `/climate-editor` and `web_schedule_editor`'s `/schedule-editor` too.
+  Its `storage_id` is `user_storage`, which is what `/api/device/system/factory-reset` wipes —
+  the same wipe the menu's Factory reset does.
 
 ## Boot order
 
@@ -109,11 +130,12 @@ boundaries; everything else is local to its file.
 | Priority | What runs |
 | --- | --- |
 | 800 | fill the `relays` / `inputs` vectors |
-| 700 | `apply_modbus_bus` (the stored baud rate, parity and stop bits into `jxm_uart2`, and the Modbus frame timing re-derived from them), then `modbus_bus_applied = true`; the selects' `on_value` is a no-op before that flag. Build a submenu per entry of those vectors, named after the entity's label or name, with its settings rows |
+| 700 | `apply_modbus_bus` (the stored baud rate, parity and stop bits into `jxm_uart2`, and the Modbus frame timing re-derived from them), then `modbus_bus_applied = true`; the selects' `on_value` is a no-op before that flag. Build a submenu per entry of those vectors, named after the entity's label or name, with its settings rows, then a read-only row per virtual input in use |
 | 600 | derive the fallback-AP SSID and password from the MAC (`set_wifi_ap`); read the RTC (`setup_time`, called from the device config), into the zone `timezone_settings` put in effect at `HARDWARE - 1`. `dallas_scan` sets up at this priority too: after the 1-Wire scan at 999, it binds slots and creates the sensors |
 | 599.5 | `climate_hub` sets up: it registers its pool of climate entities, loads the thermostats and starts the enabled ones, so it sits below the `Temp N` sensors (600) and above `automations`, whose rules name thermostats |
 | 599.25 | `bindings` sets up and drives the `Follow` relays once, skipping those a thermostat claimed at 599.5 |
 | 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created, and every thermostat a rule names, so below the hub (`DATA - 1` against `DATA - 0.5`). The hub tells the engine of a thermostat only when one is created, restored or removed or a Save or a restore changes its presets, never at load: a rule built ahead of the hub would stay unbuilt until then. `board_info` reads the EEPROM here too, once `eeprom_cpu` (600) has answered |
+| 598.5 | `schedules` sets up: it loads the schedules and finds the relays and thermostats they name, so it sits below the hub (`DATA - 1.5` against `DATA - 0.5`), whose changes it then hears of. It runs nothing at setup: the lists of the modes in force run once `pcf8563_time` reads valid, on a loop pass |
 | 500 | add a `Temp N` submenu per bound slot to the Temperatures menu; add a row per loaded rule to the Automations menu; add a submenu per loaded thermostat to the Thermostats menu |
 | 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
 
@@ -130,13 +152,17 @@ the next, saying nothing either time.
 Entity settings ride on `setup_priority` instead, ahead of every `on_boot` block: the
 `config_json` keeper loads the files at `HARDWARE + 5`, and one apply component per settings type
 pushes the values into the entities at `HARDWARE + 1`, before the switches and binary sensors set
-themselves up. `bindings` sets up at `DATA - 0.75`, after every entity and after the thermostats
-have claimed their relays, and drives the `Follow` relays they left free once there; until then
-input changes are ignored. A relay whose start mode closes it at boot stays closed until its
-thermostat's first loop pass. See [ENTITY_SETTINGS.md](ENTITY_SETTINGS.md).
+themselves up. `virtual_inputs` sets up between the two, at `HARDWARE + 2`: the keeper has its
+folder by then, and the slots in use are named and visible before the `switch` settings hand the
+stored bindings to `bindings`, which looks an input up as it takes a binding, and before the
+`binary_sensor` settings apply the labels. `bindings` sets up at `DATA - 0.75`, after every entity
+and after the thermostats have claimed their relays, and drives the `Follow` relays they left free
+once there; until then input changes are ignored. A relay whose start mode closes it at boot
+stays closed until its thermostat's first loop pass. See [ENTITY_SETTINGS.md](ENTITY_SETTINGS.md).
 `timezone_settings` sets up at `HARDWARE - 1`, right after the globals have restored Home
 Assistant's zone at `HARDWARE`, and puts the zone in effect before anything that reads the local
-time sets up.
+time sets up. `ntp_servers` sets up at `BEFORE_CONNECTION - 1`, right after `sntp_time` has
+started lwIP's client on its own servers, and restarts it on the first server to ask.
 
 ## Settings
 
@@ -197,9 +223,10 @@ server.
   `setup_priority::WIFI - 0.5`, just ahead of `web_server`'s `WIFI - 1`, and `web_server_base`
   asks its handlers in registration order. `web_server` therefore runs without `local: true`:
   the page it would embed is never served. Its `to_code` also reads the validated config of
-  `web_file_browser`, `web_automation_editor` and `web_climate_editor` out of `CORE.config` to
-  report their prefixes, the id of a `modbus_map` to report the map, and the id of a
-  `timezone_settings` to serve `/api/device/time`.
+  `web_file_browser`, `web_automation_editor`, `web_climate_editor` and `web_schedule_editor`
+  out of `CORE.config` to report their prefixes, the id of a `modbus_map` to report the map,
+  and the id of a `timezone_settings` to serve `/api/device/time`, with an `ntp_servers`
+  beside it.
 - `components/modbus_map` derives its ranges from the validated `modbus_server` config: each
   `bits:` and `registers:` entry's `address`, `value_type` and whether it has a `write_lambda`,
   `courtesy_response`, and a value's width from `TYPE_REGISTER_MAP` in `modbus/helpers.py`. Final
@@ -220,7 +247,7 @@ server.
   and ours at `WIFI - 1` and above the web_server OTA platform at `AFTER_WIFI`, and it writes
   its `403` through `httpd_resp_*` because `AsyncWebServerRequest::send()` maps every status it
   does not know to a 500. That last coupling is `web_device_dashboard`'s, `web_file_browser`'s
-  and the two editors' too, and it is why each carries a `send_status_` of its own.
+  and the three editors' too, and it is why each carries a `send_status_` of its own.
 - `components/web_auth` replaces the two `const char *` upstream's `WebServerBase` keeps and
   never copies, so the strings it hands over must outlive every request and the setters are
   called again after each change. It also needs a compiled `auth:` block to exist at all:
@@ -260,6 +287,15 @@ server.
   - `api::APIServer::active_clients()`, `APIConnection::send_message(DisconnectRequest)` and
     `on_fatal_error()`: after a structural change the component makes Home Assistant reconnect
     the way upstream does after a new API key, since a client lists entities only on connect.
+- `components/virtual_inputs` registers its pool the way `climate_hub` does: codegen reserves
+  `max_inputs` places (`CORE.register_platform_component`, before any `await` in `to_code`), and
+  `setup()` registers every slot through the four-argument `App.register_binary_sensor`,
+  internal, under its fixed name. Showing and hiding a slot calls the protected
+  `EntityBase::configure_entity_` again with the same name and hash 0, so it leans on
+  `is_internal()` being read when the API and the web server list and push, as `climate_hub`
+  does, and on the same reconnect to make Home Assistant list the change. `web_server`'s REST
+  matches a binary sensor by name, hidden or not, so a free slot still answers a read: `OFF`,
+  or no state.
 - `components/timezone_settings` reads the zone Home Assistant sent one loop pass after the
   `homeassistant` clock's sync callback fires, in a named `defer`: upstream's
   `APIConnection::on_get_time_response` runs the sync callbacks (through `set_epoch_time()`)
@@ -279,6 +315,24 @@ server.
   platform's `settimeofday` call and its skip within a second upstream's. It returns nothing, so
   the component reads the clock back to tell whether it took. The `uint32_t` it takes would
   end the range in 2106; the PCF8563's two-digit year ends it in 2100.
+- `components/ntp_servers` takes lwIP's SNTP client over from upstream's `sntp` platform:
+  `SNTPComponent::setup()` fills one slot per configured server and starts it, and the
+  component, setting up right after, clears every slot and restarts it on one server. It does so
+  with lwIP's own `sntp_stop()`, `sntp_setserver()`, `sntp_setservername()` and `sntp_init()`
+  in one `esp_netif_tcpip_exec()` call (`lwip_sntp.cpp`): `esp_sntp.h`'s wrappers queue the stop
+  and the start for lwIP's task but, with TCP/IP core locking, set the slots at once, so a reply
+  could be taken under the new name before the stop, and the header hides the plain names. lwIP
+  keeps the name's pointer, so the component hands it a string of its own and rewrites it only
+  once no slot points there. Left with several servers, lwIP stays on whichever answered
+  last, never returns to the first, and cannot say which one answered; with one it can do
+  neither wrong. The component replaces upstream's `esp_sntp_set_time_sync_notification_cb()`
+  callback with one that does what upstream's does, deferring the public
+  `SNTPComponent::time_synced()` to the loop task, and first reads slot 0's name on lwIP's task,
+  so the answer is credited to the server that sent it. A sync with no reply before it is
+  upstream's first loop pass reporting a clock that was already set, after a software restart,
+  and counts for nothing. lwIP times its next poll from the reply, ahead of the loop task, so
+  the component goes back to the first server 5 s before that poll. ESP-IDF polls no more often
+  than every 15 s whatever `update_interval` says.
 - `components/automations` names entities by `fnv1_hash` of their object id and walks
   `App.get_binary_sensors()` / `get_sensors()` / `get_switches()` itself, so the hash and
   `EntityBase::get_object_id_to` are part of the on-disk rule format.
