@@ -387,25 +387,24 @@ paths:
       summary: Clear the API key Home Assistant set, and restart.
       description: >-
         The same as **Settings → Forget HA** on the display: the native API's
-        encryption key is cleared and the device restarts without one, so Home
-        Assistant can add it again; until it does, its old key no longer
-        connects. Settings and files stay. Answers before any of it happens, and
-        restarts even when the key could not be cleared, which leaves the device
-        as it was. Only on a firmware that keeps the key Home Assistant sets
-        rather than one compiled in, which `capabilities` reports as
-        `forget_api_key`.
+        encryption key is cleared while the request is open, and the device
+        then answers and restarts without one, so Home Assistant can add it
+        again; until it does, its old key no longer connects. Settings and files
+        stay. A key the API server did not clear restarts nothing. Only on a
+        firmware that keeps the key Home Assistant sets rather than one compiled
+        in, which `capabilities` reports as `forget_api_key`.
       requestBody:
         $ref: "#/components/requestBodies/Confirmation"
       responses:
         "200":
-          description: Forgetting the key.
+          description: The key is cleared; restarting.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SuccessEnvelope"
               example:
                 success: true
-                message: Forgetting the API key, rebooting
+                message: API key cleared, rebooting
         "400":
           $ref: "#/components/responses/NotConfirmed"
         "403":
@@ -428,6 +427,28 @@ paths:
           $ref: "#/components/responses/BodyTooLarge"
         "415":
           $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          description: >-
+            The API server did not clear the key — its own log says why — and
+            the device does not restart.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: The API key was not cleared
+        "503":
+          description: >-
+            The device was too busy to take the request; nothing was cleared,
+            and asking again may succeed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Device busy
 
   /temperature-slots:
     get:

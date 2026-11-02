@@ -39,7 +39,8 @@ export interface DeviceApi {
   factoryReset(confirm: ConfirmPayload): Promise<MutationResponse>
   /** POST /system/forget-api-key — requires a confirmation. Clears the API key Home Assistant
    *  set and restarts, so Home Assistant can add the device again; `404` without
-   *  `capabilities.forget_api_key`. */
+   *  `capabilities.forget_api_key`, `500` when the key was not cleared (no restart then), `503`
+   *  when the device is too busy to take it (`Device busy`, nothing cleared). */
   forgetApiKey(confirm: ConfirmPayload): Promise<MutationResponse>
   /** POST /system/rollback — requires a confirmation. Boots the other app slot, the one
    *  `capabilities.rollback` describes; `503` without one or when the device is too busy to

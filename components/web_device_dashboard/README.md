@@ -125,7 +125,7 @@ can address the device can spell it. It is there so a single stray POST does not
 device; what keeps other sites out is the `web_server:` `auth:` block and
 [`web_origin_guard`](../web_origin_guard/README.md).
 
-Each answers before it acts, so the caller gets its answer. A factory reset does what
+Each answers before it restarts, so the caller gets its answer. A factory reset does what
 **Settings → Factory reset** on the display does, in the same order; the files it takes are
 gone once the device is back, not when it answers. A rollback selects the
 other app slot, checking the image while the request is still open — a slot that is not whole
@@ -133,10 +133,11 @@ is a `500` here rather than a device that comes back unchanged — and the firmw
 one monitored boot: if it fails before it marks itself good, the bootloader returns to this
 one. `503` means there is nothing to roll back to, or that the device was too busy to take the
 request (`Device busy`) and selected nothing. Forgetting the API key does what **Settings →
-Forget HA** on the display does: Home Assistant's old key stops connecting once the device is
-back, and Home Assistant can add the device again — on a firmware with a `provisioning:` block,
-within the window it opens after the boot. The device restarts even when the key could not be
-cleared, the log says so, and nothing has changed then.
+Forget HA** on the display does: it clears the key while the request is still open and restarts
+only once the key is gone. Home Assistant's old key then stops connecting, and Home Assistant can
+add the device again — on a firmware with a `provisioning:` block, within the window it opens
+after the boot. `500` means the API server did not clear the key, and the device does not
+restart; `503`, that the device was too busy to take the request and cleared nothing.
 
 With a [`web_auth`](../web_auth/README.md), the web server's own credentials; without one
 these routes are `404`:
@@ -221,13 +222,14 @@ is home" rule follows.
 `web_server_base` stand-in: the URLs it claims, the route table and its method matrix, the body
 accumulation and its 4 KiB cap, the JSON every route answers with, the confirmation the system
 actions take, a factory reset wiping a stand-in storage and the preferences before it restarts,
-forgetting the API key through a stand-in for the API server before it restarts, and the
+the API key forgotten before the restart, through a stand-in for the call into ESPHome's API
+server, and refused by a real server that was never set up, and the
 temperature slots listed, forgotten and assigned and their offsets and labels set on a real
 `dallas_scan` over the harness's 1-Wire bus, with `/status` reporting what waits, booted again to
 see what the table kept, the time route over a real `timezone_settings` on a clock the cases
 set and a real `ntp_servers`, every body it takes and refuses, and the virtual input routes over a real `virtual_inputs`
 whose file sits in a directory, every body they take and refuse. Out of reach there is the ESP-IDF half — the `Allow` header, URL
 decoding, the reset reason and the IP lookups, the eFuse block, a live WiFi or Ethernet link, the
-real reboot, the LittleFS format, the API server clearing its key, and the rollback's reads and
-switch, which the tests stand in for; the rule that decides is covered by [`firmware_rollback`](../firmware_rollback/README.md)'s
+real reboot, the LittleFS format, and the rollback's reads and switch, which the tests stand
+in for; the rule that decides is covered by [`firmware_rollback`](../firmware_rollback/README.md)'s
 own suite.

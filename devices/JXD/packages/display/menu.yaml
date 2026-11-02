@@ -129,13 +129,14 @@ graphical_display_menu:
                 - delay: 1s
                 - lambda: |-
                     // A key from the YAML is compiled in and cannot be cleared.
-                    #ifndef USE_API_NOISE_PSK_FROM_YAML
+                    #if defined(USE_API_NOISE) && !defined(USE_API_NOISE_PSK_FROM_YAML)
                     // Not made active: the reboot does that.
                     if (id(api_server)->clear_noise_psk(false)) {
                       App.safe_reboot();
                       return;
                     }
                     #endif
+                    ESP_LOGW("menu", "Forget HA: the API key was not cleared");
                     id(forget_ha_yes)->set_text("Confirm - failed");
 
         - type: menu

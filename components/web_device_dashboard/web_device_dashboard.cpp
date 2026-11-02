@@ -851,14 +851,25 @@ void WebDeviceDashboard::handle_rollback_(AsyncWebServerRequest *request) {
 }
 
 #ifdef USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
-// POST /api/device/system/forget-api-key: what the display menu's Forget HA does. The restart
-// opens the window in which Home Assistant can add the device again.
+// POST /api/device/system/forget-api-key: what the display menu's Forget HA does, the clear on
+// the loop task as there, which owns the API server. The restart opens the window in which Home
+// Assistant can add the device again; a clear that failed restarts nothing.
 void WebDeviceDashboard::handle_forget_api_key_(AsyncWebServerRequest *request) {
   if (!this->check_confirm_(request))
     return;
   ESP_LOGW(TAG, "Forgetting the API key, requested over the API");
-  this->send_success_(request, "Forgetting the API key, rebooting");
-  this->forget_api_key_();
+  bool ran = false;
+  const bool cleared = this->run_on_loop_([&]() {
+    ran = true;
+    return this->clear_api_key_();
+  });
+  if (!cleared) {
+    // Not run means the loop task never took the job: nothing was cleared and nothing will be.
+    this->send_error_(request, ran ? 500 : 503, ran ? "The API key was not cleared" : "Device busy");
+    return;
+  }
+  this->send_success_(request, "API key cleared, rebooting");
+  this->reboot_();
 }
 #endif
 
@@ -900,17 +911,6 @@ void WebDeviceDashboard::factory_reset_() {
     this->restart_();
   });
 }
-
-#ifdef USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
-// The restart comes either way, as the answer said: a key that stayed leaves the device as it was.
-void WebDeviceDashboard::forget_api_key_() {
-  this->set_timeout(this->action_delay_ms_, [this]() {
-    if (!this->clear_api_key_())
-      ESP_LOGE(TAG, "The API key was not cleared");
-    this->restart_();
-  });
-}
-#endif
 
 #ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
 // A string: a 64-bit ROM does not survive a JavaScript number.

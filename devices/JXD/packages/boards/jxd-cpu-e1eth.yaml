@@ -19,6 +19,15 @@ api:
   id: api_server
   encryption:
   reboot_timeout: 0s
+  # A key cleared over the API disconnects every client; upstream's manager stopped checking
+  # once the device was added, so wake it to close the window as for a device never added.
+  on_client_disconnected:
+    - lambda: |-
+        #if defined(USE_PROVISIONING) && defined(USE_API_NOISE)
+        auto *manager = provisioning::global_provisioning_manager;
+        if (manager != nullptr && !manager->is_provisioned())
+          manager->enable_loop();
+        #endif
 
 # Until Home Assistant has set the API key, whoever connects first can control the device and
 # write a key of their own: that stays possible for 15 minutes after a boot, then not until the
@@ -33,8 +42,11 @@ esphome:
     - priority: -100
       then:
         - lambda: |-
-            if (id(api_server)->get_noise_ctx().has_psk())
-              provisioning::global_provisioning_manager->set_source_provisioned(0, true);  // the network source
+            #if defined(USE_PROVISIONING) && defined(USE_API_NOISE)
+            auto *manager = provisioning::global_provisioning_manager;
+            if (manager != nullptr && id(api_server)->get_noise_ctx().has_psk())
+              manager->set_source_provisioned(0, true);  // the network source
+            #endif
 
 ota:
   # Takes plaintext uploads from anyone even once Home Assistant has set the API key, so it

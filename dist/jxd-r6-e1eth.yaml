@@ -18,6 +18,13 @@ api:
   id: api_server
   encryption: null
   reboot_timeout: 0s
+  on_client_disconnected:
+    - lambda: |-
+        #if defined(USE_PROVISIONING) && defined(USE_API_NOISE)
+        auto *manager = provisioning::global_provisioning_manager;
+        if (manager != nullptr && !manager->is_provisioned())
+          manager->enable_loop();
+        #endif
 provisioning:
   timeout: 15min
 esphome:
@@ -25,8 +32,11 @@ esphome:
     - priority: -100
       then:
         - lambda: |-
-            if (id(api_server)->get_noise_ctx().has_psk())
-              provisioning::global_provisioning_manager->set_source_provisioned(0, true);  // the network source
+            #if defined(USE_PROVISIONING) && defined(USE_API_NOISE)
+            auto *manager = provisioning::global_provisioning_manager;
+            if (manager != nullptr && id(api_server)->get_noise_ctx().has_psk())
+              manager->set_source_provisioned(0, true);  // the network source
+            #endif
     - priority: 800
       then:
         - lambda: |-

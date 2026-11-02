@@ -63,10 +63,10 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
   **Allow ESPHome updates** is on — in Home Assistant, on the dashboard or **Settings → ESPHome
   OTA** on the display. It turns itself off 30 minutes after it was turned on, so on a slow
   build turn it on while the build runs, and at every reboot, except into safe mode, where the
-  port stays open as the way back without USB. Until Home Assistant has set the API key, anyone
-  on the network can turn the switch on over the API, but only in the first 15 minutes after a
-  boot. An upload encrypted with that key, and one through the dashboard behind the web
-  password, do not need it
+  port stays open as the way back without USB. Until Home Assistant has set the API key, or
+  once it is cleared, anyone on the network can turn the switch on over the API, but only in the
+  first 15 minutes after a boot. An upload encrypted with that key, and one through the dashboard
+  behind the web password, do not need it
 - **Factory reset**: **Settings → Factory reset** on the display, the dashboard, or the FN button
   on the CPU board held for 10 seconds on a running device — the LED then blinks fast, red and
   green, for 5 seconds before the device resets; the button works without the display and without the web
@@ -199,14 +199,17 @@ has to happen in the first 15 minutes after power-on or a reboot. After that, a 
 added turns every API connection away, and its WiFi setup access point goes down, until the
 next reboot: to add it later, reboot it first — from **Settings → Reboot device** on the
 display, from the dashboard, or by power. A device already added is not affected, whenever its
-network comes up.
+network comes up. A key cleared later — by Forget HA below, or from Home Assistant's side, as
+deleting the device there may do — leaves the device to be added again within 15 minutes of a
+boot: reboot it to add it later.
 
 **Settings → Forget HA → Confirm** on the display clears that key and reboots, so the device can
 be added again, to the same Home Assistant or another, without a factory reset; the settings
 and files stay. `POST /api/device/system/forget-api-key` does the same over the network
 ([details](components/web_device_dashboard/README.md#system-actions)). The Home Assistant that
-held the key can no longer connect with it and asks to re-authenticate the device; confirm that
-within 15 minutes of the reboot and it writes a new key. A factory reset clears the key as well.
+held the key can no longer connect with it and asks to re-authenticate the device; do that, or
+delete the device there and add it again, within 15 minutes of the reboot. A factory reset
+clears the key as well.
 
 ### Timezone
 

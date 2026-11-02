@@ -1,5 +1,6 @@
 #include <cctype>
 #include "common.h"
+#include "esphome/components/api/api_server.h"
 
 namespace esphome::web_device_dashboard::testing {
 
@@ -371,28 +372,70 @@ TEST_F(Dashboard, RollbackPassesOnWhatFirmwareRollbackRefusedWith) {
   EXPECT_EQ(this->dashboard->restarts, 0);
 }
 
-TEST_F(Dashboard, ForgetApiKeyAnswersThenClearsTheKeyAndReboots) {
-  Reply reply = this->post(FORGET_API_KEY, this->confirmation());
+// Cleared on the loop task while the request is open, so a key that stayed is an error the
+// caller sees; the restart waits for the answer to leave the socket, and comes after the clear.
+TEST_F(Dashboard, ForgetApiKeyClearsTheKeyThenAnswersAndReboots) {
+  const std::string confirmation = this->confirmation();
+  this->dashboard->jobs = 0;
+  Reply reply = this->post(FORGET_API_KEY, confirmation);
   EXPECT_EQ(reply.code, 200);
   EXPECT_TRUE(reply.success());
-  EXPECT_EQ(reply.message(), "Forgetting the API key, rebooting");
-  // Both wait for the answer to leave the socket.
-  EXPECT_EQ(this->dashboard->key_clears, 0);
+  EXPECT_EQ(reply.message(), "API key cleared, rebooting");
+  EXPECT_EQ(this->dashboard->key_clears, 1);
+  EXPECT_EQ(this->dashboard->jobs, 1);
   EXPECT_EQ(this->dashboard->restarts, 0);
   this->loop();
-  EXPECT_EQ(this->dashboard->key_clears, 1);
   EXPECT_EQ(this->dashboard->restarts, 1);
+  EXPECT_EQ(this->dashboard->key_clears_at_restart, 1);
 }
 
-// The answer already said it reboots, and a key that stayed leaves the device as it was.
-TEST_F(Dashboard, AForgetWhoseKeyStayedSaysSoAndStillReboots) {
+// As the display's Forget HA: a key the API server did not clear restarts nothing.
+TEST_F(Dashboard, AForgetWhoseKeyStayedSaysSoAndDoesNotReboot) {
   this->dashboard->key_clear_result = false;
   Reply reply = this->post(FORGET_API_KEY, this->confirmation());
-  EXPECT_EQ(reply.code, 200);
-  this->loop();
+  EXPECT_EQ(reply.code, 500);
+  EXPECT_FALSE(reply.success());
+  EXPECT_EQ(reply.error(), "The API key was not cleared");
   EXPECT_EQ(this->dashboard->key_clears, 1);
-  EXPECT_TRUE(LogCapture::instance().has_error("The API key was not cleared"));
-  EXPECT_EQ(this->dashboard->restarts, 1);
+  this->loop();
+  EXPECT_EQ(this->dashboard->restarts, 0);
+}
+
+TEST_F(Dashboard, ForgetApiKeyAnswersBusyWhenTheLoopNeverTakesIt) {
+  this->dashboard->loop_busy = true;
+  Reply reply = this->post(FORGET_API_KEY, this->confirmation());
+  this->dashboard->loop_busy = false;
+  EXPECT_EQ(reply.code, 503);
+  EXPECT_FALSE(reply.success());
+  EXPECT_EQ(reply.error(), "Device busy");
+  EXPECT_EQ(this->dashboard->key_clears, 0);
+  this->loop();
+  EXPECT_EQ(this->dashboard->restarts, 0);
+}
+
+TEST_F(Dashboard, AForgetOnAFirmwareWithNoApiServerClearsNothing) {
+  this->dashboard->real_clear = true;
+  ASSERT_EQ(api::global_api_server, nullptr);
+  Reply reply = this->post(FORGET_API_KEY, this->confirmation());
+  EXPECT_EQ(reply.code, 500);
+  EXPECT_EQ(reply.error(), "The API key was not cleared");
+  this->loop();
+  EXPECT_EQ(this->dashboard->restarts, 0);
+}
+
+// The real API server, but one that never set up: it has no key record to write, so it refuses
+// the clear, its log says so, and the route answers for it.
+TEST_F(Dashboard, AForgetTheRealApiServerRefusesRestartsNothing) {
+  this->dashboard->real_clear = true;
+  auto server = std::make_unique<api::APIServer>();
+  LogCapture::instance().clear();
+  Reply reply = this->post(FORGET_API_KEY, this->confirmation());
+  api::global_api_server = nullptr;
+  EXPECT_EQ(reply.code, 500);
+  EXPECT_EQ(reply.error(), "The API key was not cleared");
+  EXPECT_TRUE(LogCapture::instance().has_warning("Failed to clear Noise PSK"));
+  this->loop();
+  EXPECT_EQ(this->dashboard->restarts, 0);
 }
 
 // 503, as every route that hands its work over answers it: nothing was selected.

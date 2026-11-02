@@ -116,7 +116,8 @@ boundaries; everything else is local to its file.
   `web_device_dashboard`'s `/api/device/system/forget-api-key` clear it. With a key in the YAML
   the route is not built and the row's Confirm only says it failed. The `provisioning:` block
   next to it closes the API, and the fallback AP and captive portal of `features/network.yaml`,
-  15 minutes after a boot on a device that has no key by then.
+  15 minutes after a boot on a device that has no key by then; on one whose key is cleared over
+  the API later, at that mark or at once past it.
 - `run_factory_reset` (a script in `features/factory-reset.yaml`) is the reset the menu's
   Factory reset runs; the same file runs it when `fn_button` (`boards/jxd-cpu-e1eth.yaml`) is
   held for 10 s, after blinking `red_led`, the `status_indicator` on the CPU board's LED.
@@ -144,6 +145,7 @@ boundaries; everything else is local to its file.
 | 598.5 | `schedules` sets up: it loads the schedules and finds the relays and thermostats they name, so it sits below the hub (`DATA - 1.5` against `DATA - 0.5`), whose changes it then hears of. It runs nothing at setup: the lists of the modes in force run once `pcf8563_time` reads valid, on a loop pass |
 | 500 | add a `Temp N` submenu per bound slot to the Temperatures menu; add a row per loaded rule to the Automations menu; add a submenu per loaded thermostat to the Thermostats menu |
 | 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
+| -100 | on a device that has its API key, which `api_server` loaded at its setup at `AFTER_WIFI`, mark `provisioning`'s network source provisioned (`boards/jxd-cpu-e1eth.yaml`), so the window never closes on that key however late the network comes up |
 
 `littlefs_storage` mounts at 810, so the rule files are readable by the time `automations` loads
 them. A wipe a factory reset asked for runs just before that mount. Three things leave the
@@ -206,8 +208,10 @@ server.
 - `boards/jxd-cpu-e1eth.yaml` marks `provisioning`'s source `0` provisioned at boot when the API
   key is there: that is the network source, which the manager registers in its constructor,
   before any other. Were it not, an added device would again close its window when no network
-  came up in 15 minutes.
-
+  came up in 15 minutes. Its `api: on_client_disconnected:` calls the manager's `enable_loop()`
+  whenever the device is no longer provisioned: the manager stops its loop for good once it is,
+  and a key cleared over the API, which disconnects every client, would otherwise leave the
+  window open until the next boot.
 - `components/display_menu_base` and `components/graphical_display_menu` are copies of
   upstream's, carrying `right_for_menu_enter`, the `display_menu.back` action, `fill_row`,
   item `weight` and submenus that may be empty;

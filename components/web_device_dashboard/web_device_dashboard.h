@@ -169,9 +169,6 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   }
   void reboot_();
   void factory_reset_();
-#ifdef USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
-  void forget_api_key_();
-#endif
   // Virtual so the host tests can watch these happen: the real ones end the process or move
   // the boot partition, and there is no second app slot to read off a host build.
   virtual RollbackTarget rollback_target_() const;
@@ -179,8 +176,8 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   virtual const char *select_rollback_(const RollbackTarget &target);
   virtual void restart_();
 #ifdef USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
-  /// False when the cleared key did not reach flash. Virtual as well: the tests have no API
-  /// server holding a key.
+  /// False when the API server did not clear the key in flash. Loop task only. Virtual as well:
+  /// the tests have no API server that set up, so none that can hold a key.
   virtual bool clear_api_key_();
 #endif
   /// Hands @p job to the loop task, which owns the entity records and the rollback, and waits
