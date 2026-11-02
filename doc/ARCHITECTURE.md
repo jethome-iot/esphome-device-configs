@@ -115,8 +115,8 @@ boundaries; everything else is local to its file.
   Assistant writes is kept on the device: the menu's Forget HA (`display/menu.yaml`) and
   `web_device_dashboard`'s `/api/device/system/forget-api-key` clear it. With a key in the YAML
   the route is not built and the row's Confirm only says it failed. The `provisioning:` block
-  next to it closes the API, and the fallback AP and captive portal of `features/network.yaml`,
-  15 minutes after a boot on a device that has no key by then; on one whose key is cleared over
+  next to it closes the API, the fallback AP and captive portal of `features/network.yaml`, and
+  `esphome_ota_allowed`, 15 minutes after a boot on a device that has no key by then; on one whose key is cleared over
   the API later, at that mark or at once past it.
 - `run_factory_reset` (a script in `features/factory-reset.yaml`) is the reset the menu's
   Factory reset runs; the same file runs it when `fn_button` (`boards/jxd-cpu-e1eth.yaml`) is

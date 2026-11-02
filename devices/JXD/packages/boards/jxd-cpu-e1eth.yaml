@@ -26,10 +26,12 @@ api:
 provisioning:
   timeout: 15min
   # Upstream only asks the clients to leave: one that stays would keep control past the window.
+  # ESPHome's own OTA, if opened in the window, closes with it.
   on_timeout:
     - script.execute:
         id: drop_api_clients
         reason: Window expired
+    - switch.turn_off: esphome_ota_allowed
 
 script:
   # Every API client goes, whatever state it is in; Home Assistant comes back with its key.
@@ -75,6 +77,8 @@ esphome:
           // the session it had.
           last = key;
           id(drop_api_clients).execute(api->get_noise_ctx().has_psk() ? "Key set" : "Key cleared");
+          // ESPHome's own OTA, opened before the change, closes as well.
+          id(esphome_ota_allowed).turn_off();
         }
         // Upstream's manager stops once the device is added; with the key cleared over the API,
         // waking it lets it close the window, at once if 15 minutes have passed.

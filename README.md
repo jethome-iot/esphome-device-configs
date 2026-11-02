@@ -65,8 +65,9 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
   build turn it on while the build runs, and at every reboot, except into safe mode, where the
   port stays open as the way back without USB. Until Home Assistant has set the API key, or
   once it is cleared, anyone on the network can turn the switch on over the API, but only in the
-  first 15 minutes after a boot. An upload encrypted with that key, and one through the dashboard
-  behind the web password, do not need it
+  first 15 minutes after a boot; the switch turns off when those 15 minutes run out, however it
+  was turned on, and whenever the key is set or cleared. An upload encrypted with that key, and
+  one through the dashboard behind the web password, do not need it
 - **Factory reset**: **Settings → Factory reset** on the display, the dashboard, or the FN button
   on the CPU board held for 10 seconds on a running device — the LED then blinks fast, red and
   green, for 5 seconds before the device resets; the button works without the display and without the web
