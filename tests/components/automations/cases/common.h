@@ -94,8 +94,8 @@ class FakeClock : public time::RealTimeClock {
 };
 
 // Holds the delays instead of handing them to the scheduler, so a test fires them itself, and
-// takes its clocks from the test: `ms` for click timing, `now` (epoch seconds, 0 = not set) for
-// cron.
+// takes its clocks from the test: `ms` for click timing, `uptime` for when a run started, `now`
+// (epoch seconds, 0 = not set) for cron.
 class FakeEngine : public AutomationStorage {
  public:
   struct Delay {
@@ -105,9 +105,11 @@ class FakeEngine : public AutomationStorage {
   };
   std::vector<Delay> delays;
   uint32_t ms{0};
+  uint64_t uptime{0};
   time_t now{0};
 
   uint32_t now_ms() const override { return this->ms; }
+  uint64_t uptime_ms() const override { return this->uptime; }
   // One cron tick, as the engine's one-second interval would run it.
   void tick() { this->check_time_(); }
   // A rule that runs inside this engine without going through the storage.
@@ -161,6 +163,9 @@ class FakeEngine : public AutomationStorage {
   FakeClock clock_;
 };
 
+// entity_fields for an entity declared with `entity_category: config`.
+inline constexpr uint32_t CONFIG_CATEGORY = uint32_t{ENTITY_CATEGORY_CONFIG} << ENTITY_FIELD_ENTITY_CATEGORY_SHIFT;
+
 // The entities the rules under test may name. Registered once: App keeps the pointers for the
 // life of the process and the engine finds them by the hash of their object id. `room` and
 // `boiler` are what the thermostats run on.
@@ -172,6 +177,8 @@ struct Entities {
   FakeSwitch relay1;
   FakeSwitch relay2;
   FakeSwitch boiler;
+  // entity_category: config, as the board's ESPHome OTA switch: no rule may name it.
+  FakeSwitch ota_allowed;
 };
 
 // The entity field that gives `unit`, from the table codegen built out of test.yaml's units.
@@ -196,6 +203,7 @@ inline Entities &entities() {
     App.register_switch(&e->relay1, "Relay 1", fnv1_hash("relay_1"), 0);
     App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
     App.register_switch(&e->boiler, "Boiler", fnv1_hash("boiler"), 0);
+    App.register_switch(&e->ota_allowed, "Allow ESPHome updates", fnv1_hash("allow_esphome_updates"), CONFIG_CATEGORY);
     return e;
   }();
   return *instance;
@@ -207,7 +215,7 @@ inline void reset_entities() {
   e.in1.publish_state(false);
   e.in2.publish_state(false);
   e.temp.state = NAN;
-  for (FakeSwitch *sw : {&e.relay1, &e.relay2, &e.boiler}) {
+  for (FakeSwitch *sw : {&e.relay1, &e.relay2, &e.boiler, &e.ota_allowed}) {
     sw->on_change = nullptr;
     sw->publish_state(false);
     sw->writes = 0;

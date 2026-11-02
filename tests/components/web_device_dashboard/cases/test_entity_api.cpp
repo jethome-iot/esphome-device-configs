@@ -6,7 +6,7 @@ TEST_F(Dashboard, EntitiesListsOneEntryPerEntityWithSettings) {
   Reply reply = this->get("/api/device/entities");
   ASSERT_EQ(reply.code, 200);
   JsonVariant switches = reply["switch"];
-  ASSERT_EQ(switches.size(), 1u) << reply.body;  // the internal switch is left out
+  ASSERT_EQ(switches.size(), 1u) << reply.body;  // the internal and the config switches are left out
   EXPECT_EQ(switches[0]["source_name"].as<std::string>(), "relay_1");
   EXPECT_EQ(switches[0]["name"].as<std::string>(), "Relay 1");
   EXPECT_EQ(switches[0]["label"].as<std::string>(), "");
@@ -28,6 +28,20 @@ TEST_F(Dashboard, EntitiesCarriesEachEntitysLabel) {
   EXPECT_EQ(reply["switch"][0]["label"].as<std::string>(), "Свет на кухне") << reply.body;
   EXPECT_EQ(reply["switch"][0]["name"].as<std::string>(), "Relay 1");
   EXPECT_EQ(reply["binary_sensor"][0]["label"].as<std::string>(), "Door") << reply.body;
+}
+
+// entity_config takes no record for a config entity, so the page is not offered one.
+TEST_F(Dashboard, EntitiesLeavesOutConfigEntities) {
+  Reply reply = this->get("/api/device/entities");
+  ASSERT_EQ(reply.code, 200);
+  for (const char *type : {"switch", "binary_sensor"}) {
+    for (JsonVariant entry : reply[type].as<JsonArray>()) {
+      EXPECT_NE(entry["source_name"].as<std::string>(), "allow_esphome_updates") << reply.body;
+      EXPECT_NE(entry["source_name"].as<std::string>(), "config_input") << reply.body;
+    }
+  }
+  EXPECT_EQ(reply["switch"][0]["source_name"].as<std::string>(), "relay_1") << reply.body;
+  EXPECT_EQ(reply["binary_sensor"][0]["source_name"].as<std::string>(), "in_1") << reply.body;
 }
 
 TEST_F(Dashboard, EntitiesLeavesOutASettingsTypeItHasNoEntityKindFor) {

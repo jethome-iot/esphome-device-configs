@@ -33,11 +33,14 @@ packages:
   network: !include ${features}/network.yaml
   reboot_required: !include ${features}/reboot-required.yaml
   rtc_time: !include ${features}/rtc-time.yaml
+  schedule_editor: !include ${features}/schedule-editor.yaml
+  schedules: !include ${features}/schedules.yaml
   status_led: !include ${features}/status-led.yaml
   storage: !include ${features}/storage.yaml
   temperature: !include ${features}/temperature.yaml
   uarts: !include ${features}/uarts.yaml
   vin_measure: !include ${features}/vin-measure.yaml
+  virtual_inputs: !include ${features}/virtual-inputs.yaml
   web_auth: !include ${features}/web-auth.yaml
   web_device_dashboard: !include ${features}/web-device-dashboard.yaml
   web_file_browser: !include ${features}/web-file-browser.yaml

@@ -11,8 +11,9 @@ info:
     link, on a firmware with a `web_auth` the HTTP credentials, with a
     `dallas_scan` the temperature slots and their offsets, with a `modbus_map`
     the Modbus server's address map, with a `timezone_settings` the clock and
-    the timezone, and — on a firmware with a `config_json` store — the
-    per-entity settings and their form fields.
+    the timezone, with a `virtual_inputs` the virtual inputs, and — on a
+    firmware with a `config_json` store — the per-entity settings and their
+    form fields.
     ESP-IDF (ESP32) only.
 
     This document is the wire contract; the TypeScript client in `client/device`
@@ -1022,7 +1023,7 @@ paths:
         the object id, which keys the settings records, the display name, which
         `web_server`'s routes and `/events` address entities by, and the label
         the owner gave the entity, which the page shows in place of the name.
-        Internal entities are left out. The types are `entity_config`'s:
+        Internal and config entities are left out. The types are `entity_config`'s:
         `switch` and `binary_sensor`.
       responses:
         "200":
@@ -1134,8 +1135,9 @@ paths:
             is anything but the string `delete` (`'action' must be 'delete'`); a
             record the type
             refuses (`Failed to update settings record`: no `source_name`, one
-            naming no entity of that type, an `inverted` that is not a boolean, a
-            `restore_mode` or `binding_mode` outside its options, a
+            naming no entity of that type or an internal or config one, an
+            `inverted` that is not a boolean, a `restore_mode` or
+            `binding_mode` outside its options, a
             `binding_input` naming no input, a `label` that is not a string or
             breaks its rules); a delete on a type that keeps its
             records (`Cannot delete: record not found`).
@@ -1215,9 +1217,10 @@ paths:
       description: >-
         The device's clock in UTC, the offset and DST of the zone in effect at
         that instant, which clock set the time last, and where the zone comes
-        from: Home Assistant's, the compiled one, or one chosen here. Only on a
-        firmware with a `timezone_settings`; without one this route is the
-        prefix's plain 404. Read on the device's main loop.
+        from: Home Assistant's, the compiled one, or one chosen here; with an
+        `ntp_servers`, the NTP servers too. Only on a firmware with a
+        `timezone_settings`; without one this route is the prefix's plain 404.
+        Read on the device's main loop.
       responses:
         "200":
           description: The clock and the zone.
@@ -1236,7 +1239,7 @@ paths:
     post:
       tags: [write]
       operationId: setTime
-      summary: Follow Home Assistant's zone, or choose one; set the clock.
+      summary: Follow Home Assistant's zone, or choose one; set the clock or the NTP servers.
       description: >-
         `follow_homeassistant: true` follows Home Assistant's zone, or the
         compiled one until Home Assistant first sets the clock, and asks Home
@@ -1258,9 +1261,15 @@ paths:
         answer, or the RTC reads back a time of its own; after a reboot it is
         `rtc` again. A `time` within a second of the clock leaves it as it is.
 
-        Keys other than these four are ignored, but at least one of them must
-        be there; they may come in any combination. Everything in the body is
-        checked before anything changes.
+        `ntp`, on a firmware whose `GET` answers it, sets the servers asked
+        ahead of the firmware's own and whether those are asked at all; a key
+        it leaves out stays. Stored before it takes effect, and the first
+        server is asked at once.
+
+        Keys other than these five are ignored, but at least one of them must
+        be there (`ntp` counts only where `GET` has it); they may come in any
+        combination. Everything in the body is checked before anything
+        changes.
       requestBody:
         required: true
         content:
@@ -1294,6 +1303,18 @@ paths:
                   zone: Europe/Berlin
                   posix: CET-1CEST,M3.5.0,M10.5.0/3
                   time: 1791369125
+              ntp:
+                summary: Ask the site's own servers first, the firmware's after them
+                value:
+                  ntp:
+                    servers: [ntp.example.com, 192.168.1.10]
+                    fallback: true
+              ntp_off:
+                summary: Ask no NTP server at all
+                value:
+                  ntp:
+                    servers: []
+                    fallback: false
       responses:
         "200":
           description: >-
@@ -1306,9 +1327,10 @@ paths:
         "400":
           description: >-
             A body that is empty, not JSON or not an object (`Invalid JSON`);
-            none of the four keys; `follow_homeassistant` not a boolean, `zone`
-            not a string or null, `posix` not a string, `time` not an integer.
-            Nothing changed.
+            none of the keys; `follow_homeassistant` not a boolean, `zone`
+            not a string or null, `posix` not a string, `time` not an integer;
+            `ntp` not an object or with neither of its keys, `ntp.servers` not a
+            list of strings, `ntp.fallback` not a boolean. Nothing changed.
           content:
             application/json:
               schema:
@@ -1334,6 +1356,27 @@ paths:
                   value:
                     success: false
                     error: "'time' must be an integer"
+                empty_with_ntp:
+                  summary: On a firmware with NTP servers
+                  value:
+                    success: false
+                    error: Expected 'follow_homeassistant', 'posix', 'zone', 'time' or 'ntp'
+                ntp:
+                  value:
+                    success: false
+                    error: "'ntp' must be an object"
+                ntp_keys:
+                  value:
+                    success: false
+                    error: "'ntp' needs 'servers' or 'fallback'"
+                ntp_servers:
+                  value:
+                    success: false
+                    error: "'ntp.servers' must be a list of strings"
+                ntp_fallback:
+                  value:
+                    success: false
+                    error: "'ntp.fallback' must be true or false"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -1350,8 +1393,10 @@ paths:
             `posix` it cannot parse (empty, or with a byte outside printable
             ASCII, included), a `posix` or `zone` over 63 bytes, a `zone` with a
             control character, a `zone` without `posix`, not following Home
-            Assistant while no zone was ever chosen, or a `time` before 2019 or
-            from 2100 on. Nothing changed.
+            Assistant while no zone was ever chosen, a `time` before 2019 or
+            from 2100 on; more than 3 NTP servers, or one that is no host name
+            or IPv4 address, is over 63 bytes or repeats an earlier one, case
+            aside (items count from 1). Nothing changed.
           content:
             application/json:
               schema:
@@ -1385,11 +1430,29 @@ paths:
                   value:
                     success: false
                     error: "'time' must be from 1546300800 (2019-01-01) to 4102444799 (2099-12-31)"
+                ntp_count:
+                  value:
+                    success: false
+                    error: "'ntp.servers' lists more than 3 servers"
+                ntp_length:
+                  value:
+                    success: false
+                    error: "'ntp.servers' item 2 is over 63 bytes"
+                ntp_name:
+                  value:
+                    success: false
+                    error: "'ntp.servers' item 1 is not a host name or an IPv4 address"
+                ntp_repeat:
+                  value:
+                    success: false
+                    error: "'ntp.servers' item 3 repeats item 1"
         "500":
           description: >-
             The settings did not reach flash, so the device keeps the zone it
-            had and the clock is not set; or the clock did not take the time, and
-            a zone sent with it is in effect all the same. The log says why.
+            had and the clock is not set; the NTP servers did not, so it keeps
+            asking the ones it had, and a zone sent with them is in effect all
+            the same; or the clock did not take the time, and a zone or servers
+            sent with it are in effect all the same. The log says why.
           content:
             application/json:
               schema:
@@ -1403,8 +1466,246 @@ paths:
                   value:
                     success: false
                     error: The clock could not be set
+                ntp_not_stored:
+                  value:
+                    success: false
+                    error: The NTP servers were not stored
         "503":
           $ref: "#/components/responses/TimeBusy"
+
+  /virtual-inputs:
+    get:
+      tags: [read]
+      operationId: getVirtualInputs
+      summary: The virtual inputs in use, and the inputs they may follow.
+      description: >-
+        Every slot of the firmware's `virtual_inputs` that follows a source, in
+        slot order, numbered from 1 as the `Virtual input N` binary sensors are,
+        and the physical inputs a slot may follow. A slot's `state` is the one
+        it had when read; live, it is the binary sensor's state on
+        `web_server`'s `/events`, matched by `name`. Its label is the entity
+        settings' (type `binary_sensor`, keyed by `object_id`), set through
+        `/entity-settings` like a physical input's. Read on the loop task,
+        which owns the slots and the labels.
+      responses:
+        "200":
+          description: The slots in use.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VirtualInputs"
+        "404":
+          $ref: "#/components/responses/NoVirtualInputs"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          description: The loop task did not take the request in time (`Device busy`). Nothing was read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Device busy
+
+  /virtual-inputs/save:
+    post:
+      tags: [write]
+      operationId: saveVirtualInput
+      summary: Set up a virtual input, or change one in use.
+      description: >-
+        A virtual input follows one physical input: it turns on once the source
+        has stayed on for `on_delay` seconds, and off once `off_delay` seconds
+        have passed since the source last went off, every new pulse starting
+        that count again. Without `slot` it takes the lowest free one that no
+        rule and no relay's binding names, so nothing set up for an input
+        deleted from it follows the new one; when every free slot is named, the
+        lowest free one. A delay left out is `0` on a new slot and kept on one
+        in use. Written before the
+        answer and in force at once, with no confirmation and no reboot: the
+        delays count from the save, and a new slot takes its source's state at
+        once. A new slot is a new binary sensor, so Home Assistant is asked to
+        reconnect a moment later. Saving what a slot holds already is a success
+        with nothing written. The label is not here: it goes through
+        `/entity-settings`. Refused before anything happens: a slot out of
+        range, a `source` that is not a physical input's object id, or a delay
+        that is not a whole number of seconds from 0 to `max_delay` (`400`);
+        no free slot (`409`); storage that cannot keep it (`503`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VirtualInputSaveRequest"
+            examples:
+              create:
+                value:
+                  source: input_3
+                  off_delay: 600
+              edit:
+                value:
+                  slot: 1
+                  source: input_3
+                  on_delay: 2
+      responses:
+        "200":
+          description: Saved and in force.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VirtualInputSaveResult"
+              example:
+                success: true
+                message: Virtual input 1 created
+                input:
+                  slot: 1
+                  object_id: virtual_input_1
+                  name: Virtual input 1
+                  label: ""
+                  source: input_3
+                  on_delay: 0
+                  off_delay: 600
+                  state: false
+                  problem: ""
+                  used_by:
+                    rules: []
+                    relays: []
+        "400":
+          description: >-
+            A body that is empty, not JSON or not an object (`Invalid JSON`), a
+            `slot` that is not a number from 1 to `max_inputs` (`null`
+            included), a `source` that is missing, empty or not a string, a
+            delay that is not a whole number of seconds from 0 to `max_delay`
+            (`null` included), or a `source` that names no visible input, a
+            relay, or a virtual input. Nothing happened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                slot:
+                  value:
+                    success: false
+                    error: "'slot' must be a number from 1 to 16"
+                source:
+                  value:
+                    success: false
+                    error: "'source' must be the object id of an input"
+                delay:
+                  value:
+                    success: false
+                    error: "'off_delay' must be a whole number of seconds from 0 to 86400"
+                missing:
+                  value:
+                    success: false
+                    error: "'input_9' is not an input"
+                virtual:
+                  value:
+                    success: false
+                    error: "'virtual_input_2' is a virtual input; the source must be a physical one"
+        "404":
+          $ref: "#/components/responses/NoVirtualInputs"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          description: No `slot` was given and every one is in use. Nothing happened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: All 16 virtual inputs are in use
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          description: >-
+            The file could not be written, so the slot is as it was. The log
+            says why.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: The virtual inputs were not written
+        "503":
+          $ref: "#/components/responses/VirtualInputsUnwritable"
+
+  /virtual-inputs/delete:
+    post:
+      tags: [write]
+      operationId: deleteVirtualInput
+      summary: Free a slot.
+      description: >-
+        The slot goes back to the pool: its binary sensor is hidden, with no
+        state, and its label goes with it, so the next virtual input in that
+        slot starts without one. Every relay bound to it loses that binding,
+        as if its Bind to were set to None, kept like any settings change, and
+        stays where it is. A rule that names it stops, as for any input the
+        firmware lacks, until a virtual input is set up in that slot again. The
+        list's `used_by` names both beforehand. Home Assistant is asked to
+        reconnect a moment later. Written before the answer, with no
+        confirmation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VirtualInputDeleteRequest"
+            example:
+              slot: 1
+      responses:
+        "200":
+          description: Freed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+              example:
+                success: true
+                message: Virtual input 1 deleted
+        "400":
+          description: >-
+            A body that is not a JSON object (`Invalid JSON`), or a `slot` that
+            is missing or not a number from 1 to `max_inputs`. Nothing happened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: "'slot' must be a number from 1 to 16"
+        "404":
+          $ref: "#/components/responses/NoVirtualInputs"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          description: The slot is free already. Nothing happened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: Virtual input 3 is free
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          description: The file could not be written, so the slot is still in use. The log says why.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: The virtual inputs were not written
+        "503":
+          $ref: "#/components/responses/VirtualInputsUnwritable"
 
 components:
   securitySchemes:
@@ -1541,6 +1842,49 @@ components:
               value:
                 success: false
                 error: Not found
+    NoVirtualInputs:
+      description: >-
+        This firmware has no `virtual_inputs`: `capabilities` carries no
+        `virtual_inputs`. On a firmware built without one at all the routes do
+        not exist, and the answer is the prefix's plain `Not found`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            unwired:
+              value:
+                success: false
+                error: No virtual inputs
+            absent:
+              value:
+                success: false
+                error: Not found
+    VirtualInputsUnwritable:
+      description: >-
+        The user partition did not mount (`Virtual input storage
+        unavailable`); the file is there but did not load at boot, so it waits
+        for a person to fix it and a reboot (`The virtual inputs file did not
+        load; fix it and reboot`) — `can_save` is false in both cases; or the
+        loop task did not take the request in time (`Device busy`). Nothing
+        happened.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            unavailable:
+              value:
+                success: false
+                error: Virtual input storage unavailable
+            unloaded:
+              value:
+                success: false
+                error: The virtual inputs file did not load; fix it and reboot
+            busy:
+              value:
+                success: false
+                error: Device busy
     NoTimeSettings:
       description: >-
         This firmware has no `timezone_settings`, so the time route does not
@@ -2220,6 +2564,16 @@ components:
             url_prefix:
               type: string
               example: /climate-editor
+        schedules:
+          type: object
+          required: [url_prefix]
+          description: >-
+            The firmware serves the schedule API the Schedules screens use.
+            Absent without a `web_schedule_editor`.
+          properties:
+            url_prefix:
+              type: string
+              example: /schedule-editor
         entity_settings:
           type: object
           required: [types]
@@ -2250,6 +2604,12 @@ components:
           type: boolean
           enum: [true]
           description: "A `timezone_settings` is in the firmware, so `/time` answers."
+        virtual_inputs:
+          type: boolean
+          enum: [true]
+          description: >-
+            A `virtual_inputs` is in the firmware, so `/virtual-inputs`,
+            `/virtual-inputs/save` and `/virtual-inputs/delete` answer.
       example:
         reboot: true
         factory_reset:
@@ -2268,11 +2628,14 @@ components:
           url_prefix: /automation-editor
         climates:
           url_prefix: /climate-editor
+        schedules:
+          url_prefix: /schedule-editor
         entity_settings:
           types: [switch, binary_sensor]
         board_info: true
         temperature_slots: true
         time: true
+        virtual_inputs: true
         modbus:
           bits:
             - address: 0
@@ -2451,6 +2814,13 @@ components:
             What the panel and the page show in place of `name`; empty when the
             entity has none, and then they show `name`. Changes with the record:
             read again after a write.
+        virtual:
+          type: boolean
+          enum: [true]
+          description: >-
+            A virtual input (`binary_sensor` only): it takes a `label` and no
+            `inverted`, which a write refuses with `400`. Absent on every other
+            entity.
 
     SettingsRecords:
       type: object
@@ -2758,6 +3128,8 @@ components:
           type: string
           description: The compiled zone, as the configuration writes it.
           example: UTC
+        ntp:
+          $ref: "#/components/schemas/NtpStatus"
       example:
         time: 1791369125
         utc_offset: 10800
@@ -2772,13 +3144,14 @@ components:
     TimeUpdate:
       type: object
       description: >-
-        At least one of the four; other keys are ignored. A `zone` needs a
+        At least one of the five; other keys are ignored. A `zone` needs a
         `posix` (`422` without one).
       anyOf:
         - required: [follow_homeassistant]
         - required: [posix]
         - required: [zone]
         - required: [time]
+        - required: [ntp]
       dependentRequired:
         zone: [posix]
       properties:
@@ -2800,6 +3173,236 @@ components:
             What to set the device's clock to: UTC epoch seconds, from
             2019-01-01 to the end of 2099.
           example: 1791369125
+        ntp:
+          $ref: "#/components/schemas/NtpUpdate"
+
+    NtpStatus:
+      type: object
+      description: >-
+        The NTP servers, on a firmware with an `ntp_servers`. They are asked in
+        the order `servers`, then `fallback_servers` not among them (case
+        aside) while `fallback` is on. One is asked at a time: the next when it
+        gives no answer, and the first again at the poll after an answer from
+        another.
+      required: [servers, fallback, fallback_servers, current, last_sync]
+      properties:
+        servers:
+          type: array
+          maxItems: 3
+          items:
+            type: string
+          description: The servers set with `POST /time`; empty when none were.
+        fallback:
+          type: boolean
+          description: The firmware's own servers are asked after `servers`. On until turned off.
+        fallback_servers:
+          type: array
+          items:
+            type: string
+          description: The firmware's own servers, as the configuration lists them.
+        current:
+          type: [string, "null"]
+          description: >-
+            The server being asked, or the one that answered last; `null` when
+            there is none to ask.
+        last_sync:
+          type: [object, "null"]
+          description: The last answer since boot; `null` until one came.
+          required: [time, server]
+          properties:
+            time:
+              type: integer
+              description: UTC epoch seconds, as the clock read once the answer set it.
+            server:
+              type: string
+      example:
+        servers: [ntp.example.com]
+        fallback: true
+        fallback_servers: [0.pool.ntp.org, 1.pool.ntp.org, 2.pool.ntp.org]
+        current: ntp.example.com
+        last_sync:
+          time: 1791369125
+          server: ntp.example.com
+
+    NtpUpdate:
+      type: object
+      description: >-
+        The servers to ask ahead of the firmware's own, and whether to ask
+        those at all; at least one of the two, and the other stays.
+      anyOf:
+        - required: [servers]
+        - required: [fallback]
+      properties:
+        servers:
+          type: array
+          maxItems: 3
+          items:
+            type: string
+            minLength: 1
+            maxLength: 63
+            description: >-
+              A host name — letters, digits and hyphens in dot-separated
+              labels, none starting or ending with a hyphen — or an IPv4
+              address: four numbers up to 255, no leading zeros. None twice,
+              case aside.
+        fallback:
+          type: boolean
+
+    VirtualInputs:
+      type: object
+      required: [max_inputs, max_delay, can_save, inputs, sources]
+      properties:
+        max_inputs:
+          type: integer
+          minimum: 1
+          maximum: 32
+          description: The pool, `virtual_inputs`' `max_inputs`; slots run from 1 to it.
+        max_delay:
+          type: integer
+          description: The longest on or off delay, in seconds (86400, a day).
+        can_save:
+          type: boolean
+          description: >-
+            A save or a delete can be kept. False when the user partition did
+            not mount, or the file is there but did not load at boot; both
+            routes are `503` then.
+        inputs:
+          type: array
+          description: The slots in use, in slot order.
+          items:
+            $ref: "#/components/schemas/VirtualInput"
+        sources:
+          type: array
+          description: >-
+            What a slot may follow: every visible `binary_sensor` that is not a
+            virtual input, in the firmware's order.
+          items:
+            $ref: "#/components/schemas/VirtualInputSource"
+
+    VirtualInput:
+      type: object
+      required: [slot, object_id, name, label, source, on_delay, off_delay, state, problem, used_by]
+      properties:
+        slot:
+          type: integer
+          minimum: 1
+        object_id:
+          type: string
+          description: >-
+            `virtual_input_<slot>`, whatever the label: what rules, bindings,
+            Home Assistant and the entity settings know it by.
+          example: virtual_input_1
+        name:
+          type: string
+          description: "`Virtual input <slot>`: the key of `web_server`'s routes and `/events`."
+          example: Virtual input 1
+        label:
+          type: string
+          description: The entity settings' label, `""` for none.
+        source:
+          type: string
+          description: The object id of the physical input it follows.
+        on_delay:
+          type: integer
+          minimum: 0
+          maximum: 86400
+          description: Seconds the source has to stay on before it turns on.
+        off_delay:
+          type: integer
+          minimum: 0
+          maximum: 86400
+          description: >-
+            Seconds it stays on after the source last went off; a new pulse
+            starts them again.
+        state:
+          type: [boolean, "null"]
+          description: Its state when read; `null` until its source has reported.
+        problem:
+          type: string
+          description: >-
+            Why it is off whatever its source does, or has no state yet; `""`
+            while it follows its source. A source the firmware does not have,
+            from a file edited by hand or a build without that input, is
+            `Source 'input_9' not found`.
+          example: ""
+        used_by:
+          type: object
+          description: What a delete stops.
+          required: [rules, relays]
+          properties:
+            rules:
+              type: array
+              items:
+                type: string
+              description: >-
+                The names of the rules whose trigger or condition names it,
+                including one the firmware could not build: from the delete on
+                they find no input.
+              example: [Comfort while someone is home]
+            relays:
+              type: array
+              items:
+                type: string
+              description: >-
+                The relays bound to it, by label or else by name, in the
+                firmware's order: a delete drops their binding.
+              example: [Staircase light]
+
+    VirtualInputSource:
+      type: object
+      required: [object_id, name, label]
+      properties:
+        object_id:
+          type: string
+        name:
+          type: string
+        label:
+          type: string
+          description: The entity settings' label, `""` for none.
+
+    VirtualInputSaveRequest:
+      type: object
+      required: [source]
+      properties:
+        slot:
+          type: integer
+          minimum: 1
+          description: >-
+            The slot, from 1 up to `max_inputs`; without it, the lowest free one
+            nothing names.
+        source:
+          type: string
+          minLength: 1
+          description: The object id of a physical input, one of the list's `sources`.
+        on_delay:
+          type: integer
+          minimum: 0
+          maximum: 86400
+          description: Seconds; `0` on a new slot and kept on one in use when left out.
+        off_delay:
+          type: integer
+          minimum: 0
+          maximum: 86400
+          description: Seconds; `0` on a new slot and kept on one in use when left out.
+
+    VirtualInputSaveResult:
+      description: What a save answers once it is written and in force. Never `reboot_required`.
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          required: [input]
+          properties:
+            input:
+              $ref: "#/components/schemas/VirtualInput"
+
+    VirtualInputDeleteRequest:
+      type: object
+      required: [slot]
+      properties:
+        slot:
+          type: integer
+          minimum: 1
+          description: The slot, from 1 up to `max_inputs`.
 
     SuccessEnvelope:
       type: object

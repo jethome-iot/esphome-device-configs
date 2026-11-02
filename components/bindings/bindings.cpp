@@ -11,9 +11,11 @@ BindingsManager *global_bindings_manager = nullptr;  // NOLINT(cppcoreguidelines
 
 static const char *const TAG = "bindings";
 
+// As entity_config: only the device's I/O binds, never an internal or a config entity.
 template<typename T, typename V> static T *find_by_key(const V &entities, uint32_t key) {
   for (auto *entity : entities) {
-    if (entity->get_object_id_hash() == key && !entity->is_internal())
+    if (entity->get_object_id_hash() == key && !entity->is_internal() &&
+        entity->get_entity_category() != ENTITY_CATEGORY_CONFIG)
       return entity;
   }
   return nullptr;

@@ -190,6 +190,33 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     this->mark_dirty();
     return record;
   }
+
+  // The relays whose record names `input` as Bind to, as they are shown, in App's order.
+  std::vector<std::string> relays_bound_to(const std::string &input) {
+    std::vector<std::string> shown;
+    for (auto *sw : App.get_switches()) {
+      const auto *record = this->find_(object_id_of(*sw));
+      if (record != nullptr && record->binding_input == input)
+        shown.push_back(this->display_name(sw));
+    }
+    return shown;
+  }
+
+  // Bind to: None on every record naming `input`, an entity gone for good, applied at once; the
+  // relays stay as they are. True when one changed; the caller saves.
+  bool unbind_input(const std::string &input) {
+    bool changed = false;
+    for (auto *record : this->records_) {
+      if (record == nullptr || input.empty() || record->binding_input != input)
+        continue;
+      record->binding_input.clear();
+      this->apply_record_(record);
+      changed = true;
+    }
+    if (changed)
+      this->mark_dirty();
+    return changed;
+  }
 #endif
 
   bool get_record(switch_::Switch *switch_obj, SwitchSettingsRecord &record) {
@@ -359,7 +386,11 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
         return index < 0 ? restore_mode_to_string(record.restore_mode) : START_MODE_OPTIONS[index].label;
 #ifdef ENTITY_CONFIG_BINDINGS
       case Field::BINDING_INPUT: {
-        const std::string input = index < 0 ? record.binding_input : binding_inputs_()[index];
+        // A virtual input deleted while the panel edits this row shortens the list under it:
+        // an index past the end shows the stored value.
+        const auto options = binding_inputs_();
+        const bool listed = index >= 0 && static_cast<size_t>(index) < options.size();
+        const std::string input = listed ? options[index] : record.binding_input;
         if (input.empty())
           return "None";
         auto *sensor = find_binary_sensor(fnv1_hash(input));
@@ -423,7 +454,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
       JsonArray input_options = input_field["options"].to<JsonArray>();
       add_option_(input_options, "", "None");
       for (auto *sensor : App.get_binary_sensors()) {
-        if (sensor == nullptr || sensor->is_internal())
+        if (sensor == nullptr || !is_settable(*sensor))
           continue;
         JsonObject opt = input_options.add<JsonObject>();
         opt["value"] = object_id_of(*sensor);
@@ -461,7 +492,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
   static std::vector<std::string> binding_inputs_() {
     std::vector<std::string> options{""};
     for (auto *sensor : App.get_binary_sensors()) {
-      if (sensor != nullptr && !sensor->is_internal())
+      if (sensor != nullptr && is_settable(*sensor))
         options.push_back(object_id_of(*sensor));
     }
     return options;
@@ -469,7 +500,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
 
   static bool has_bindable_input_() {
     for (auto *sensor : App.get_binary_sensors()) {
-      if (sensor != nullptr && !sensor->is_internal())
+      if (sensor != nullptr && is_settable(*sensor))
         return true;
     }
     return false;
