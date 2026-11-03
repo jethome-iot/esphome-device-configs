@@ -128,7 +128,7 @@ CYCLE_SCHEMA = cv.Schema(
 )
 
 
-# A bare cycle: reads as null.
+# YAML reads a bare cycle: as null.
 def cycle(value):
     return CYCLE_SCHEMA({} if value is None else value)
 

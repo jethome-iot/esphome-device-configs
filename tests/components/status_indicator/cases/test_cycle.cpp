@@ -258,6 +258,67 @@ TEST_F(CycleTest, APulseKeepsTheTurns) {
   expect_writes({true, false, true, false, true, false, true}, {PULSE + N_ON, N_OFF, N_ON, N_PAUSE, B_ON, ROUND});
 }
 
+// B, after A, keeps its own pause; C, the last, ends the round.
+TEST_F(CycleTest, ThreeCountsTakeTurnsAndOnlyTheLastEndsTheRound) {
+  const uint32_t c_on = 450;
+  this->add_a(condition(true));
+  this->add_b(condition(true));
+  this->led->add_signal(condition(true), State::BLINK_N, 1, c_on, N_OFF, N_PAUSE);
+  this->led->update();
+  expect_writes({true, false, true, false, true, false, true, false, true},
+                {N_ON, N_OFF, N_ON, N_PAUSE, B_ON, B_PAUSE, c_on, ROUND});
+  EXPECT_EQ(this->led->get_signal(), 0);
+}
+
+// B stops with no update since: the handover checks afresh and gives A its series again, not a
+// flash of B.
+TEST_F(CycleTest, ACountThatStoppedBeforeItsTurnIsSkipped) {
+  FakeCondition *b = condition(true);
+  this->add_a(condition(true));
+  this->add_b(b);
+  this->led->update();
+  b->holds = false;
+  expect_writes({true, false, true, false, true, false, true}, {N_ON, N_OFF, N_ON, N_PAUSE, N_ON, N_OFF});
+  EXPECT_EQ(this->led->get_signal(), 0);
+}
+
+// The last one gone with no update since: the handover turns it off.
+TEST_F(CycleTest, AHandoverWithNoneHoldingTurnsItOff) {
+  FakeCondition *a = condition(true);
+  this->add_a(a);
+  this->led->update();
+  a->holds = false;
+  run_until_writes(4);
+  run_for(N_PAUSE + this->late());
+  EXPECT_EQ(this->led->get_signal(), -1);
+  EXPECT_EQ(this->led->get_state(), State::OFF);
+  EXPECT_EQ(this->pin->levels(), Levels({true, false, true, false}));
+}
+
+// FN pressed with no update since: the handover shows it, not a dark LED until the next update.
+TEST_F(CycleTest, AHandoverFindsAStateSignalThatCameToHold) {
+  FakeCondition *reset = condition();
+  this->led->add_signal(reset, State::BLINK_FAST);
+  this->add_a(condition(true));
+  this->led->update();
+  reset->holds = true;
+  expect_writes({true, false, true, false, true, false}, {N_ON, N_OFF, N_ON, N_PAUSE, FAST_ON});
+  EXPECT_EQ(this->led->get_signal(), 0);
+  EXPECT_EQ(this->led->get_state(), State::BLINK_FAST);
+}
+
+TEST_F(CycleTest, AStateSignalThatComesToHoldEndsAnAction) {
+  FakeCondition *reset = condition();
+  this->led->add_signal(reset, State::BLINK_FAST);
+  this->add_a(condition(true));
+  this->led->update();
+  this->led->turn_on();
+  reset->holds = true;
+  this->led->update();
+  EXPECT_EQ(this->led->get_signal(), 0);
+  EXPECT_EQ(this->led->get_state(), State::BLINK_FAST);
+}
+
 TEST_F(CycleTest, DumpConfigNamesTheTurnsAndTheRoundPause) {
   CapturedLog &log = CapturedLog::instance();
   log.clear();

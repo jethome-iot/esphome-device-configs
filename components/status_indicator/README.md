@@ -125,11 +125,11 @@ status_indicator:
   that holds, in the order of `signals`, round and round. One alone repeats as without `cycle`.
 - With two or more, the last of a round ends on `pause_time` instead of its own; left out, it
   keeps its own.
-- A signal that comes to hold waits for its turn. One that stops holding while shown hands over
-  at once.
+- A `count` signal that comes to hold waits for its turn. One that stops holding while shown
+  hands over at once.
 - A `state` signal shows alone while it holds, so each comes before every `count` signal.
 - An action stops the turns: it shows until the signal shown stops holding or a `state` signal
-  holds. A pulse does not stop them.
+  holds. A pulse does not stop them; the series it interrupts starts over.
 
 ## From lambdas
 

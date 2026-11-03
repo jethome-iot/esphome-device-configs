@@ -68,6 +68,17 @@ void StatusIndicator::update() {
 // A count shown keeps its turn while it holds, so one that comes to hold waits for it; one
 // that stops hands over at once.
 void StatusIndicator::update_cycle_() {
+  int winner = this->check_holding_();
+  if (winner < 0) {
+    if (this->signal_ >= 0 && this->holding_[this->signal_])
+      return;
+    winner = this->next_after_(this->signal_);
+  }
+  if (winner != this->signal_)
+    this->show_(winner);
+}
+
+int StatusIndicator::check_holding_() {
   int state_winner = -1;
   bool changed = false;
   for (size_t i = 0; i < this->signals_.size(); i++) {
@@ -82,14 +93,7 @@ void StatusIndicator::update_cycle_() {
   }
   if (changed)
     this->log_holding_();
-  int winner = state_winner;
-  if (winner < 0) {
-    if (this->signal_ >= 0 && this->holding_[this->signal_])
-      return;
-    winner = this->next_after_(this->signal_);
-  }
-  if (winner != this->signal_)
-    this->show_(winner);
+  return state_winner;
 }
 
 int StatusIndicator::next_after_(int from) const {
@@ -257,14 +261,19 @@ void StatusIndicator::blink_n_(uint8_t left) {
   });
 }
 
-// The next count's series in a cycle, else this one's again.
+// The next count's series in a cycle, else this one's again. Checked afresh: the last update
+// may be older than a code that has gone since.
 void StatusIndicator::next_series_() {
-  int next = this->cycling_ ? this->next_after_(this->signal_) : -1;
-  if (next >= 0 && next != this->signal_) {
-    this->show_(next);
-  } else {
-    this->blink_n_(this->blink_count_);
+  if (this->cycling_) {
+    int winner = this->check_holding_();
+    if (winner < 0)
+      winner = this->next_after_(this->signal_);
+    if (winner != this->signal_) {
+      this->show_(winner);
+      return;
+    }
   }
+  this->blink_n_(this->blink_count_);
 }
 
 void StatusIndicator::set_output_(bool on) {

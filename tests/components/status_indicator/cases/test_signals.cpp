@@ -221,6 +221,20 @@ TEST_F(SignalTest, SetupKeepsThePollerWithSignals) {
   EXPECT_EQ(polled->get_state(), State::ON);
 }
 
+// Every change of winner, and what it shows.
+TEST_F(SignalTest, TheLogNamesEachWinner) {
+  FakeCondition *code = condition(true);
+  this->led->add_signal(code, State::BLINK_N, 2, N_ON, N_OFF, N_PAUSE);
+  CapturedLog &log = CapturedLog::instance();
+  log.clear();
+  this->led->update();
+  this->led->update();
+  code->holds = false;
+  this->led->update();
+  EXPECT_EQ(log.debug(), std::vector<std::string>({"Signal 0", "Blink 2 times, 200 ms on, 300 ms off, 700 ms pause",
+                                                   "No signal", "State: OFF"}));
+}
+
 TEST_F(SignalTest, DumpConfigCountsTheSignalsAndNamesTheInterval) {
   this->led->add_signal(condition(), State::ON);
   this->led->add_signal(condition(), State::BLINK_N, 2, N_ON, N_OFF, N_PAUSE);
