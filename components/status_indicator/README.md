@@ -3,7 +3,8 @@
 Drives one LED on a GPIO output: on, off, slow or fast blinking, a number of blinks and a
 pause, or a single pulse. Each is an action, and the LED stays in a state until the next action
 changes it. It starts off. Signals can drive it instead: conditions in order of importance,
-each with what the LED shows while it is the first that holds.
+each with what the LED shows while it is the first that holds, or with `cycle` while it holds,
+in turn with the others.
 
 ```yaml
 external_components:
@@ -30,6 +31,7 @@ status_indicator:
 | `fast_off_time`  | `200ms` | Dark part of a fast blink |
 | `pulse_duration` | `200ms` | A pulse's length when the action gives none |
 | `signals`        |         | See [Signals](#signals) |
+| `cycle`          |         | See [Signals in turn](#signals-in-turn) |
 | `update_interval` | `500ms` | How often the signals are checked |
 
 Every time is above zero, in whole milliseconds.
@@ -98,6 +100,36 @@ status_indicator:
 - The LED changes only when another signal, or none, comes first. The same one showing again
   keeps its rhythm, so two signals that blink alike restart it when one hands over to the other.
 - An action still works and shows until the signal shown changes.
+
+## Signals in turn
+
+```yaml
+status_indicator:
+  id: red_led
+  pin: GPIO2
+  cycle:
+    pause_time: 4s        # after the last of two or more, in place of its pause_time
+  signals:
+    - condition:
+        script.is_running: factory_reset_countdown
+      state: BLINK_FAST
+    - condition:
+        lambda: return !network::is_connected();
+      count: 1
+    - condition:
+        lambda: return id(reboot_pending);
+      count: 4
+```
+
+- Every `count` signal that holds shows one series of blinks and its pause, then the next one
+  that holds, in the order of `signals`, round and round. One alone repeats as without `cycle`.
+- With two or more, the last of a round ends on `pause_time` instead of its own; left out, it
+  keeps its own.
+- A signal that comes to hold waits for its turn. One that stops holding while shown hands over
+  at once.
+- A `state` signal shows alone while it holds, so each comes before every `count` signal.
+- An action stops the turns: it shows until the signal shown stops holding or a `state` signal
+  holds. A pulse does not stop them.
 
 ## From lambdas
 

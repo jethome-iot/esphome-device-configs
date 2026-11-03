@@ -62,12 +62,18 @@ status_indicator:
   slow_on_time: 1s
   fast_off_time: 100ms
   update_interval: 1s
-  # Compile-only: a state signal, a count with and without its times, conditions with an id,
+  # Compile-only: the counts in turn with a round pause, which takes the states first.
+  cycle:
+    pause_time: 4s
+  # Compile-only: state signals, a count with and without its times, conditions with an id,
   # a nested one and a list.
   signals:
     - condition:
         script.is_running: show_code
       state: BLINK_FAST
+    - condition:
+        lambda: return false;
+      state: ON
     - condition:
         for:
           time: 30s
@@ -82,9 +88,6 @@ status_indicator:
         - not:
             script.is_running: show_code
       count: 1
-    - condition:
-        lambda: return false;
-      state: ON
 
 # The actions under a trigger that has arguments.
 script:

@@ -1,5 +1,6 @@
 #include "status_indicator.h"
 #include <cinttypes>
+#include <cstdio>
 #include "esphome/core/log.h"
 
 namespace esphome::status_indicator {
@@ -37,11 +38,16 @@ void StatusIndicator::setup() {
 void StatusIndicator::add_signal(Condition<> *condition, IndicatorState state, uint8_t count, uint32_t on_ms,
                                  uint32_t off_ms, uint32_t pause_ms) {
   this->signals_.push_back({condition, state, count, on_ms, off_ms, pause_ms});
+  this->holding_.push_back(false);
 }
 
 // Only a change is applied: the same signal again would restart its blink_n, and an action
 // taken since it was shown stays until another one is.
 void StatusIndicator::update() {
+  if (this->cycle_) {
+    this->update_cycle_();
+    return;
+  }
   int winner = -1;
   for (size_t i = 0; i < this->signals_.size(); i++) {
     if (this->signals_[i].condition->check()) {
@@ -51,18 +57,80 @@ void StatusIndicator::update() {
   }
   if (winner == this->signal_)
     return;
-  this->signal_ = winner;
   if (winner < 0) {
     ESP_LOGD(TAG, "No signal");
+  } else {
+    ESP_LOGD(TAG, "Signal %d", winner);
+  }
+  this->show_(winner);
+}
+
+// A count shown keeps its turn while it holds, so one that comes to hold waits for it; one
+// that stops hands over at once.
+void StatusIndicator::update_cycle_() {
+  int state_winner = -1;
+  bool changed = false;
+  for (size_t i = 0; i < this->signals_.size(); i++) {
+    // Past a state signal that holds, nothing else shows.
+    bool holds = state_winner < 0 && this->signals_[i].condition->check();
+    if (holds && this->signals_[i].count == 0)
+      state_winner = static_cast<int>(i);
+    if (holds != this->holding_[i]) {
+      this->holding_[i] = holds;
+      changed = true;
+    }
+  }
+  if (changed)
+    this->log_holding_();
+  int winner = state_winner;
+  if (winner < 0) {
+    if (this->signal_ >= 0 && this->holding_[this->signal_])
+      return;
+    winner = this->next_after_(this->signal_);
+  }
+  if (winner != this->signal_)
+    this->show_(winner);
+}
+
+int StatusIndicator::next_after_(int from) const {
+  const int size = static_cast<int>(this->signals_.size());
+  for (int step = 1; step <= size; step++) {
+    int i = (from + step) % size;
+    if (this->holding_[i] && this->signals_[i].count > 0)
+      return i;
+  }
+  return -1;
+}
+
+// The handovers go unlogged: with two codes they come every few seconds.
+void StatusIndicator::log_holding_() const {
+  char list[64];
+  size_t len = 0;
+  for (size_t i = 0; i < this->signals_.size() && len < sizeof(list); i++) {
+    if (this->holding_[i])
+      len += snprintf(list + len, sizeof(list) - len, len == 0 ? "%u" : ", %u", static_cast<unsigned>(i));
+  }
+  if (len == 0) {
+    ESP_LOGD(TAG, "No signal");
+  } else {
+    ESP_LOGD(TAG, "Signals: %s", list);
+  }
+}
+
+void StatusIndicator::show_(int index) {
+  this->signal_ = index;
+  if (index < 0) {
     this->turn_off();
     return;
   }
-  ESP_LOGD(TAG, "Signal %d", winner);
-  const Signal &signal = this->signals_[winner];
-  if (signal.count > 0) {
-    this->blink_n(signal.count, signal.on_ms, signal.off_ms, signal.pause_ms);
-  } else {
+  const Signal &signal = this->signals_[index];
+  if (signal.count == 0) {
     this->set_state(signal.state);
+  } else if (this->cycle_) {
+    this->start_blink_n_(signal.count, signal.on_ms, signal.off_ms, signal.pause_ms);
+    this->cycling_ = true;
+  } else {
+    this->blink_n(signal.count, signal.on_ms, signal.off_ms, signal.pause_ms);
   }
 }
 
@@ -75,7 +143,10 @@ void StatusIndicator::dump_config() {
                 this->slow_on_ms_, this->slow_off_ms_, this->fast_on_ms_, this->fast_off_ms_, this->pulse_duration_ms_);
   LOG_PIN("  Pin: ", this->pin_);
   if (!this->signals_.empty()) {
-    ESP_LOGCONFIG(TAG, "  Signals: %u", static_cast<unsigned>(this->signals_.size()));
+    ESP_LOGCONFIG(TAG, "  Signals: %u%s", static_cast<unsigned>(this->signals_.size()),
+                  this->cycle_ ? ", counts in turn" : "");
+    if (this->cycle_ && this->cycle_pause_ms_ > 0)
+      ESP_LOGCONFIG(TAG, "  Round pause: %" PRIu32 " ms", this->cycle_pause_ms_);
     LOG_UPDATE_INTERVAL(this);
   }
 }
@@ -88,6 +159,7 @@ void StatusIndicator::set_state(IndicatorState state) {
   if (state == this->state_)
     return;
   this->cancel_timeout(TIMER);
+  this->cycling_ = false;
   ESP_LOGD(TAG, "State: %s", LOG_STR_ARG(state_to_string(state)));
   this->state_ = state;
   this->apply_state_();
@@ -103,13 +175,18 @@ void StatusIndicator::blink_n(uint8_t count, uint32_t on_ms, uint32_t off_ms, ui
     ESP_LOGW(TAG, "Blink N refused: every time must be above zero");
     return;
   }
+  ESP_LOGD(TAG, "Blink %u times, %" PRIu32 " ms on, %" PRIu32 " ms off, %" PRIu32 " ms pause", count, on_ms, off_ms,
+           pause_ms);
+  this->start_blink_n_(count, on_ms, off_ms, pause_ms);
+}
+
+void StatusIndicator::start_blink_n_(uint8_t count, uint32_t on_ms, uint32_t off_ms, uint32_t pause_ms) {
   this->cancel_timeout(TIMER);
+  this->cycling_ = false;
   this->blink_count_ = count;
   this->blink_on_ms_ = on_ms;
   this->blink_off_ms_ = off_ms;
   this->blink_pause_ms_ = pause_ms;
-  ESP_LOGD(TAG, "Blink %u times, %" PRIu32 " ms on, %" PRIu32 " ms off, %" PRIu32 " ms pause", count, on_ms, off_ms,
-           pause_ms);
   this->state_ = IndicatorState::BLINK_N;
   this->blink_n_(count);
 }
@@ -165,11 +242,29 @@ void StatusIndicator::blink_n_(uint8_t left) {
   this->set_output_(true);
   this->set_timeout(TIMER, this->blink_on_ms_, [this, left]() {
     this->set_output_(false);
-    bool last = left <= 1;
-    uint8_t next = last ? this->blink_count_ : static_cast<uint8_t>(left - 1);
-    this->set_timeout(TIMER, last ? this->blink_pause_ms_ : this->blink_off_ms_,
-                      [this, next]() { this->blink_n_(next); });
+    if (left > 1) {
+      this->set_timeout(TIMER, this->blink_off_ms_, [this, left]() { this->blink_n_(static_cast<uint8_t>(left - 1)); });
+      return;
+    }
+    uint32_t pause = this->blink_pause_ms_;
+    if (this->cycling_ && this->cycle_pause_ms_ > 0) {
+      // Wrapping round to an earlier count ends the round.
+      int next = this->next_after_(this->signal_);
+      if (next >= 0 && next < this->signal_)
+        pause = this->cycle_pause_ms_;
+    }
+    this->set_timeout(TIMER, pause, [this]() { this->next_series_(); });
   });
+}
+
+// The next count's series in a cycle, else this one's again.
+void StatusIndicator::next_series_() {
+  int next = this->cycling_ ? this->next_after_(this->signal_) : -1;
+  if (next >= 0 && next != this->signal_) {
+    this->show_(next);
+  } else {
+    this->blink_n_(this->blink_count_);
+  }
 }
 
 void StatusIndicator::set_output_(bool on) {

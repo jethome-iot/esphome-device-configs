@@ -1,22 +1,9 @@
 #include "common.h"
-#include "esphome/core/automation.h"
 
 namespace esphome::status_indicator::testing {
 
 using State = IndicatorState;
 using Levels = std::vector<bool>;
-
-// Holds when the test says so, and counts how often it was asked.
-class FakeCondition : public Condition<> {
- public:
-  bool holds{false};
-  int checks{0};
-
-  bool check() override {
-    this->checks++;
-    return this->holds;
-  }
-};
 
 // Counts the poller's calls.
 class PolledIndicator : public StatusIndicator {
@@ -34,14 +21,6 @@ constexpr uint32_t INTERVAL = 50;
 
 class SignalTest : public StatusIndicatorTest {
  protected:
-  // Outlives the test, as the instance that checks it does.
-  static FakeCondition *condition(bool holds = false) {
-    static std::vector<std::unique_ptr<FakeCondition>> conditions;
-    conditions.push_back(std::make_unique<FakeCondition>());
-    conditions.back()->holds = holds;
-    return conditions.back().get();
-  }
-
   // Not the fixture's, which is set up already. Outlives the test: the poller points at it.
   static PolledIndicator *new_polled() {
     static std::vector<std::unique_ptr<RecordingPin>> pins;
@@ -246,12 +225,15 @@ TEST_F(SignalTest, DumpConfigCountsTheSignalsAndNamesTheInterval) {
   this->led->add_signal(condition(), State::ON);
   this->led->add_signal(condition(), State::BLINK_N, 2, N_ON, N_OFF, N_PAUSE);
   this->led->set_update_interval(500);
-  ConfigLog &log = ConfigLog::instance();
-  log.lines.clear();
+  CapturedLog &log = CapturedLog::instance();
+  log.clear();
   this->led->dump_config();
   EXPECT_TRUE(log.has("Pin: recording pin"));
   EXPECT_TRUE(log.has("Signals: 2"));
   EXPECT_TRUE(log.has("Update Interval: 0.500s"));
+  // Without a cycle the first that holds is shown, and there is no round.
+  EXPECT_FALSE(log.has("counts in turn"));
+  EXPECT_FALSE(log.has("Round pause"));
 }
 
 }  // namespace esphome::status_indicator::testing
