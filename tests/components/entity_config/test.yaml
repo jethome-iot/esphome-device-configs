@@ -66,6 +66,6 @@ switch:
     name: "Relay 2"
     optimistic: true
   - platform: template
-    id: ota_allowed_unused
-    name: "Allow uploads from ESPHome"
+    id: config_switch_unused
+    name: "Config Switch"
     optimistic: true

@@ -64,23 +64,21 @@ TEST_F(Targets, AnInternalSwitchIsNoTarget) {
 // the device does not have, at every point of its week and across a reboot, and is not offered.
 TEST_F(Targets, AConfigSwitchIsNoTarget) {
   this->boot(at_local(0, 9, 0));
-  Result created = this->create(daily("Unlock", "allow_uploads_from_esphome"));
-  EXPECT_EQ("skips mode \"On\", action 1: relay \"allow_uploads_from_esphome\" is not on this device", created.warning);
-  EXPECT_TRUE(LogCapture::instance().warned(
-      "Schedule 'Unlock': relay 'allow_uploads_from_esphome' is not on this device; skipped"));
+  Result created = this->create(daily("Unlock", "config_switch"));
+  EXPECT_EQ("skips mode \"On\", action 1: relay \"config_switch\" is not on this device", created.warning);
+  EXPECT_TRUE(LogCapture::instance().warned("Schedule 'Unlock': relay 'config_switch' is not on this device; skipped"));
   const ScheduleStatus status = this->engine->status("unlock");
   EXPECT_EQ(ScheduleState::RUNNING, status.state);
   ASSERT_EQ((std::vector<IssueKind>{IssueKind::MISSING_RELAY, IssueKind::MISSING_RELAY}), this->kinds("unlock"));
-  EXPECT_EQ("Relay \"allow_uploads_from_esphome\" is not on this device", status.issues[0].text);
-  EXPECT_EQ("allow_uploads_from_esphome",
-            this->engine->target_name(Target{TargetType::RELAY, "allow_uploads_from_esphome"}));
+  EXPECT_EQ("Relay \"config_switch\" is not on this device", status.issues[0].text);
+  EXPECT_EQ("config_switch", this->engine->target_name(Target{TargetType::RELAY, "config_switch"}));
 
   this->engine->stall(11 * 3600);  // Monday's off at 20:00
   this->engine->stall(12 * 3600);  // Tuesday's on at 08:00
   this->reboot();
-  EXPECT_TRUE(this->e.ota_allowed.writes.empty());
+  EXPECT_TRUE(this->e.config_switch.writes.empty());
   for (const RelayTarget &row : this->engine->relay_targets())
-    EXPECT_NE("allow_uploads_from_esphome", row.object_id);
+    EXPECT_NE("config_switch", row.object_id);
 
   // The same schedule on a relay drives it.
   created = this->create(daily("Porch", "relay_2"));

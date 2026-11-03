@@ -241,7 +241,7 @@ TEST_F(Editor, AConfigSwitchIsNeitherListedNorTaken) {
 
   reply = this->post(
       "save",
-      R"({"name":"Unlock","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"allow_uploads_from_esphome"}]})");
+      R"({"name":"Unlock","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"config_switch"}]})");
   EXPECT_EQ(reply.code, 400);
   EXPECT_EQ(reply.error(), "Action 1: switch not found");
   EXPECT_TRUE(this->files().empty());

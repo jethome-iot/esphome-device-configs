@@ -1226,9 +1226,9 @@ TEST_F(Editor, AConfigSwitchIsNeitherListedNorTaken) {
 
   reply = this->post(
       "save",
-      R"({"name":"Unlock","kind":"bang_bang","sensor_id":"room","heat":{"relay_id":"allow_uploads_from_esphome"},"mode":"heat","setpoint":22})");
+      R"({"name":"Unlock","kind":"bang_bang","sensor_id":"room","heat":{"relay_id":"config_switch"},"mode":"heat","setpoint":22})");
   EXPECT_EQ(reply.code, 200);
-  EXPECT_EQ(reply["warning"].as<std::string>(), "not started: relay 'allow_uploads_from_esphome' not found");
+  EXPECT_EQ(reply["warning"].as<std::string>(), "not started: relay 'config_switch' not found");
 }
 
 // Straight from the table the codec clamps against, so the form cannot offer what the device

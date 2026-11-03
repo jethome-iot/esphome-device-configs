@@ -178,7 +178,7 @@ struct Entities {
   FakeSwitch relay2;
   FakeSwitch boiler;
   // entity_category: config, as the board's ESPHome OTA switch: no rule may name it.
-  FakeSwitch ota_allowed;
+  FakeSwitch config_switch;
 };
 
 // The entity field that gives `unit`, from the table codegen built out of test.yaml's units.
@@ -203,8 +203,7 @@ inline Entities &entities() {
     App.register_switch(&e->relay1, "Relay 1", fnv1_hash("relay_1"), 0);
     App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
     App.register_switch(&e->boiler, "Boiler", fnv1_hash("boiler"), 0);
-    App.register_switch(&e->ota_allowed, "Allow uploads from ESPHome", fnv1_hash("allow_uploads_from_esphome"),
-                        CONFIG_CATEGORY);
+    App.register_switch(&e->config_switch, "Config Switch", fnv1_hash("config_switch"), CONFIG_CATEGORY);
     return e;
   }();
   return *instance;
@@ -216,7 +215,7 @@ inline void reset_entities() {
   e.in1.publish_state(false);
   e.in2.publish_state(false);
   e.temp.state = NAN;
-  for (FakeSwitch *sw : {&e.relay1, &e.relay2, &e.boiler, &e.ota_allowed}) {
+  for (FakeSwitch *sw : {&e.relay1, &e.relay2, &e.boiler, &e.config_switch}) {
     sw->on_change = nullptr;
     sw->publish_state(false);
     sw->writes = 0;

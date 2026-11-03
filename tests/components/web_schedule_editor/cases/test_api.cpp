@@ -180,16 +180,16 @@ TEST_F(Api, AConfigSwitchIsNeitherListedNorScheduled) {
   Reply targets = this->get("targets");
   ASSERT_EQ(targets.code, 200);
   for (JsonObject relay : targets["relays"].as<JsonArray>())
-    EXPECT_NE(relay["object_id"].as<std::string>(), "allow_uploads_from_esphome");
+    EXPECT_NE(relay["object_id"].as<std::string>(), "config_switch");
 
-  Reply reply = this->post("save", porch("Unlock", "allow_uploads_from_esphome"));
+  Reply reply = this->post("save", porch("Unlock", "config_switch"));
   EXPECT_EQ(reply.code, 200);
   EXPECT_EQ(reply["warning"].as<std::string>(),
-            R"(skips mode "On", action 1: relay "allow_uploads_from_esphome" is not on this device)");
+            R"(skips mode "On", action 1: relay "config_switch" is not on this device)");
   Reply list = this->get("list");
-  EXPECT_EQ(list["schedules"][0]["targets"][0]["name"].as<std::string>(), "allow_uploads_from_esphome");
+  EXPECT_EQ(list["schedules"][0]["targets"][0]["name"].as<std::string>(), "config_switch");
   EXPECT_EQ(list["schedules"][0]["status"]["issues"][0]["kind"].as<std::string>(), "missing_relay");
-  EXPECT_TRUE(this->e.ota_allowed.writes.empty());
+  EXPECT_TRUE(this->e.config_switch.writes.empty());
 
   ASSERT_EQ(this->create(porch("Porch", "relay_3")), "porch");
   EXPECT_EQ(this->e.relay3.writes, std::vector<bool>{true}) << "on since 19:00";
