@@ -640,7 +640,11 @@ TEST(ScheduleClocks, WithoutAClockSourceTheClockIsNeverValid) {
   std::string day;
   std::string time;
   EXPECT_FALSE(plain.clock_text(&day, &time));
-  EXPECT_LE(plain.mono(), millis_64());
+  // Read in a fixed order: a millisecond can tick between the two reads.
+  const uint64_t before = millis_64();
+  const uint64_t mono = plain.mono();
+  EXPECT_GE(mono, before);
+  EXPECT_LE(mono, millis_64());
 }
 
 TEST_F(Targets, TargetNamesAreTheNamesPeopleKnow) {
