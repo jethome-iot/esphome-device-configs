@@ -1,8 +1,11 @@
-# What the CPU board's LED shows over its green: the first signal below whose condition
-# holds. A code is that many red blinks, then a pause; the codes are in the README,
-# "Status LED". One signal per code: two that blink alike would restart the rhythm when
-# one hands over to the other.
+# What the CPU board's LED shows over its green: FN's fast blink while it holds, else every
+# code below that holds, one series each, from the lowest. A code is that many red blinks,
+# then a pause; the codes are in the README, "Status LED". One signal per code: two alike
+# would show it twice a round.
 status_indicator:
+  # The longer pause after the last of two or more codes marks where the round starts again.
+  cycle:
+    pause_time: 4s
   signals:
     # FN held for 10 s: 5 s of this, then the reset.
     - condition:

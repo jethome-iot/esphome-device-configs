@@ -647,6 +647,8 @@ status_indicator:
   pin:
     number: GPIO2
     ignore_strapping_warning: true
+  cycle:
+    pause_time: 4s
   signals:
     - condition:
         script.is_running: fn_factory_reset
