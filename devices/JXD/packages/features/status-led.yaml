@@ -1,0 +1,63 @@
+# What the CPU board's LED shows over its green: the first signal below whose condition
+# holds. A code is that many red blinks, then a pause; the codes are in the README,
+# "Status LED". One signal per code: two that blink alike would restart the rhythm when
+# one hands over to the other.
+status_indicator:
+  signals:
+    # FN held for 10 s: 5 s of this, then the reset.
+    - condition:
+        script.is_running: fn_factory_reset
+      state: BLINK_FAST
+
+    # 1: no network, and no fallback AP to set WiFi from. Long enough for a boot's DHCP; the
+    # AP outside the wait, so its coming or going hands over between 1 and 2 at once.
+    - condition:
+        - for:
+            time: 30s
+            condition:
+              lambda: return !network::is_connected();
+        - lambda: return !id(wifi_id).is_ap_active();
+      count: 1
+      on_time: 250ms
+      off_time: 350ms
+      pause_time: 2s
+
+    # 2: no network, the fallback AP up for setting WiFi.
+    - condition:
+        - for:
+            time: 30s
+            condition:
+              lambda: return !network::is_connected();
+        - lambda: return id(wifi_id).is_ap_active();
+      count: 2
+      on_time: 250ms
+      off_time: 350ms
+      pause_time: 2s
+
+    # 3: a sensor gives no readings: a Dallas slot, PCB Temp, or a running thermostat's
+    # sensor gone stale. A read lost now and then is not a minute without one.
+    - condition:
+        for:
+          time: 1min
+          condition:
+            lambda: |-
+              if (id(temps)->status_has_warning() || id(pcb_temp)->status_has_warning())
+                return true;
+              for (const auto &doc : id(climates)->store().all()) {
+                const auto *runtime = id(climates)->runtime(doc->id);
+                if (runtime != nullptr && runtime->fault() == climate_hub::HubFault::SENSOR_STALE)
+                  return true;
+              }
+              return false;
+      count: 3
+      on_time: 250ms
+      off_time: 350ms
+      pause_time: 2s
+
+    # 4: a saved change waits for a reboot.
+    - condition:
+        binary_sensor.is_on: reboot_required
+      count: 4
+      on_time: 250ms
+      off_time: 350ms
+      pause_time: 2s

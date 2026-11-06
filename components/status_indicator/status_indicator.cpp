@@ -30,6 +30,40 @@ void StatusIndicator::setup() {
   this->pin_->setup();
   // Off, unless an action ran before setup.
   this->pin_->digital_write(this->output_);
+  if (this->signals_.empty())
+    this->stop_poller();
+}
+
+void StatusIndicator::add_signal(Condition<> *condition, IndicatorState state, uint8_t count, uint32_t on_ms,
+                                 uint32_t off_ms, uint32_t pause_ms) {
+  this->signals_.push_back({condition, state, count, on_ms, off_ms, pause_ms});
+}
+
+// Only a change is applied: the same signal again would restart its blink_n, and an action
+// taken since it was shown stays until another one is.
+void StatusIndicator::update() {
+  int winner = -1;
+  for (size_t i = 0; i < this->signals_.size(); i++) {
+    if (this->signals_[i].condition->check()) {
+      winner = static_cast<int>(i);
+      break;
+    }
+  }
+  if (winner == this->signal_)
+    return;
+  this->signal_ = winner;
+  if (winner < 0) {
+    ESP_LOGD(TAG, "No signal");
+    this->turn_off();
+    return;
+  }
+  ESP_LOGD(TAG, "Signal %d", winner);
+  const Signal &signal = this->signals_[winner];
+  if (signal.count > 0) {
+    this->blink_n(signal.count, signal.on_ms, signal.off_ms, signal.pause_ms);
+  } else {
+    this->set_state(signal.state);
+  }
 }
 
 void StatusIndicator::dump_config() {
@@ -40,6 +74,10 @@ void StatusIndicator::dump_config() {
                 "  Pulse: %" PRIu32 " ms",
                 this->slow_on_ms_, this->slow_off_ms_, this->fast_on_ms_, this->fast_off_ms_, this->pulse_duration_ms_);
   LOG_PIN("  Pin: ", this->pin_);
+  if (!this->signals_.empty()) {
+    ESP_LOGCONFIG(TAG, "  Signals: %u", static_cast<unsigned>(this->signals_.size()));
+    LOG_UPDATE_INTERVAL(this);
+  }
 }
 
 void StatusIndicator::set_state(IndicatorState state) {
