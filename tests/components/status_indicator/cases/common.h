@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <memory>
 #include <string>
 #include <thread>
@@ -11,6 +12,7 @@
 #include "esphome/components/logger/logger.h"
 #include "esphome/components/status_indicator/status_indicator.h"
 #include "esphome/core/application.h"
+#include "esphome/core/automation.h"
 #include "esphome/core/gpio.h"
 #include "esphome/core/hal.h"
 
@@ -42,6 +44,18 @@ class RecordingPin : public GPIOPin {
   }
   // Milliseconds from write i - 1 to write i.
   uint32_t gap(size_t i) const { return this->writes[i].at - this->writes[i - 1].at; }
+};
+
+// Holds when the test says so, and counts how often it was asked.
+class FakeCondition : public Condition<> {
+ public:
+  bool holds{false};
+  int checks{0};
+
+  bool check() override {
+    this->checks++;
+    return this->holds;
+  }
 };
 
 // Distinct, so a gap names its phase, and long enough that a probe half way through the shortest
@@ -78,6 +92,14 @@ class StatusIndicatorTest : public ::testing::Test {
   }
   // Cancels a running timer: the state is OFF only when none is pending.
   void TearDown() override { this->led->turn_off(); }
+
+  // Outlives the test, as the instance that checks it does.
+  static FakeCondition *condition(bool holds = false) {
+    static std::vector<std::unique_ptr<FakeCondition>> conditions;
+    conditions.push_back(std::make_unique<FakeCondition>());
+    conditions.back()->holds = holds;
+    return conditions.back().get();
+  }
 
   // Instances and pins outlive the test: a cancelled scheduler entry keeps pointing at its
   // component until a later call drops it.
@@ -161,30 +183,52 @@ class StatusIndicatorTest : public ::testing::Test {
   uint32_t stalled_{0};
 };
 
-// Every config line logged since clear(). Registered once: the logger keeps its listeners, and
-// the build has room for one.
-class ConfigLog {
+// The config lines, and the component's own debug messages, logged since clear(). Registered
+// once: the logger keeps its listeners, and the build has room for one.
+class CapturedLog {
  public:
-  std::vector<std::string> lines;
-
-  static ConfigLog &instance() {
-    static ConfigLog *log = [] {
-      auto *l = new ConfigLog();
-      logger::global_logger->add_log_callback(l, &ConfigLog::on_log);
+  static CapturedLog &instance() {
+    static CapturedLog *log = [] {
+      auto *l = new CapturedLog();
+      logger::global_logger->add_log_callback(l, &CapturedLog::on_log);
       return l;
     }();
     return *log;
   }
+  void clear() {
+    this->config_.clear();
+    this->debug_.clear();
+  }
+  // A config line that contains needle: dump_config logs several lines in one.
   bool has(const char *needle) const {
-    return std::any_of(this->lines.begin(), this->lines.end(),
+    return std::any_of(this->config_.begin(), this->config_.end(),
                        [needle](const std::string &line) { return line.find(needle) != std::string::npos; });
   }
+  // Each message as written, without the header and the colour.
+  const std::vector<std::string> &debug() const { return this->debug_; }
 
  protected:
-  static void on_log(void *self, uint8_t level, const char *, const char *message, size_t len) {
-    if (level == ESPHOME_LOG_LEVEL_CONFIG)
-      static_cast<ConfigLog *>(self)->lines.emplace_back(message, len);
+  static void on_log(void *self, uint8_t level, const char *tag, const char *message, size_t len) {
+    auto *log = static_cast<CapturedLog *>(self);
+    if (level == ESPHOME_LOG_LEVEL_CONFIG) {
+      log->config_.emplace_back(message, len);
+    } else if (level == ESPHOME_LOG_LEVEL_DEBUG && strcmp(tag, "status_indicator") == 0) {
+      log->debug_.push_back(body(std::string(message, len)));
+    }
   }
+  // "<colour>[D][tag:line]: <message><reset>": the tag has no ": " in it.
+  static std::string body(const std::string &line) {
+    static const std::string RESET = "\033[0m";
+    size_t start = line.find(": ");
+    start = start == std::string::npos ? 0 : start + 2;
+    size_t end = line.size();
+    if (end >= start + RESET.size() && line.compare(end - RESET.size(), RESET.size(), RESET) == 0)
+      end -= RESET.size();
+    return line.substr(start, end - start);
+  }
+
+  std::vector<std::string> config_;
+  std::vector<std::string> debug_;
 };
 
 }  // namespace esphome::status_indicator::testing

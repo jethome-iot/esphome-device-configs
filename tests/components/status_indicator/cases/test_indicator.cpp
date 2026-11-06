@@ -228,8 +228,8 @@ TEST_F(StatusIndicatorTest, AnotherStateEndsAPulse) {
 }
 
 TEST_F(StatusIndicatorTest, DumpConfigNamesThePinAndTheTimes) {
-  ConfigLog &log = ConfigLog::instance();
-  log.lines.clear();
+  CapturedLog &log = CapturedLog::instance();
+  log.clear();
   this->led->dump_config();
   EXPECT_TRUE(log.has("Pin: recording pin"));
   EXPECT_TRUE(log.has("Slow blink: 400 ms on, 600 ms off"));

@@ -311,6 +311,77 @@ class Signals(unittest.TestCase):
             self.signal(count=2, colour="red")
 
 
+class Cycle(unittest.TestCase):
+    def setUp(self):
+        CORE.data.setdefault(KEY_CORE, {})[KEY_TARGET_PLATFORM] = PLATFORM_HOST
+
+    def validate(self, *signals, **options):
+        return status_indicator.CONFIG_SCHEMA(
+            {"pin": "GPIO2", "signals": list(signals), **options}
+        )
+
+    def test_none_by_default(self):
+        self.assertNotIn("cycle", self.validate(signal(count=1)))
+
+    def test_it_takes_a_round_pause(self):
+        config = self.validate(
+            signal(count=1), signal(count=4), cycle={"pause_time": "4s"}
+        )
+        self.assertEqual(ms(config["cycle"]["pause_time"]), 4000)
+
+    # Left out, the last count of a round keeps its own pause.
+    def test_the_round_pause_is_optional(self):
+        config = self.validate(signal(count=1), signal(count=4), cycle={})
+        self.assertEqual(config["cycle"], {})
+
+    # YAML reads a bare cycle: as null.
+    def test_a_bare_cycle_has_no_round_pause(self):
+        config = self.validate(signal(count=1), signal(count=4), cycle=None)
+        self.assertEqual(config["cycle"], {})
+
+    def test_a_zero_round_pause_is_refused(self):
+        with self.assertRaisesRegex(
+            cv.Invalid,
+            r"value must be higher than 0s .*\['cycle'\]\['pause_time'\]",
+        ):
+            self.validate(signal(count=1), cycle={"pause_time": "0ms"})
+
+    def test_an_unknown_key_is_refused(self):
+        with self.assertRaisesRegex(
+            cv.Invalid, r"extra keys not allowed @ data\['cycle'\]\['pause'\]"
+        ):
+            self.validate(signal(count=1), cycle={"pause": "4s"})
+
+    def test_states_before_counts_are_accepted(self):
+        config = self.validate(
+            signal(state="BLINK_FAST"),
+            signal(state="ON"),
+            signal(count=1),
+            signal(count=4),
+            cycle={},
+        )
+        self.assertEqual(len(config["signals"]), 4)
+
+    # A state never ends, so it cannot take a turn after a count.
+    def test_a_state_after_a_count_is_refused(self):
+        with self.assertRaisesRegex(
+            cv.Invalid,
+            "^With cycle, a signal with state comes before every signal with count "
+            r"@ data\['signals'\]\[2\]\['state'\]$",
+        ):
+            self.validate(
+                signal(state="ON"),
+                signal(count=1),
+                signal(state="BLINK_FAST"),
+                cycle={"pause_time": "4s"},
+            )
+
+    # Without a cycle the first that holds wins, whatever it shows.
+    def test_without_it_a_state_may_follow_a_count(self):
+        config = self.validate(signal(count=1), signal(state="BLINK_FAST"))
+        self.assertEqual(config["signals"][1]["state"], "BLINK_FAST")
+
+
 def action(name, value):
     return automation.ACTION_REGISTRY[f"status_indicator.{name}"].schema(value)
 

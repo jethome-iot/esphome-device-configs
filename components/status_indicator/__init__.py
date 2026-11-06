@@ -2,7 +2,7 @@
 
 Each state is an action; the slow and fast blink times and the pulse length are configured on
 the instance, the blink_n timing on the action. Signals pair a condition with a state or a
-blink_n; the first that holds is shown.
+blink_n; the first that holds is shown, or with cycle every count that holds in turn.
 """
 
 from esphome import automation, pins
@@ -28,6 +28,7 @@ CONF_OFF_TIME = "off_time"
 CONF_PAUSE_TIME = "pause_time"
 CONF_PULSE_DURATION = "pulse_duration"
 CONF_SIGNALS = "signals"
+CONF_CYCLE = "cycle"
 
 status_indicator_ns = cg.esphome_ns.namespace("status_indicator")
 StatusIndicator = status_indicator_ns.class_("StatusIndicator", cg.PollingComponent)
@@ -102,19 +103,53 @@ SIGNAL_SCHEMA = cv.All(
     blink_times_with_count,
 )
 
-# Signals are checked every update_interval; with none there is no polling.
-CONFIG_SCHEMA = cv.Schema(
+
+# A state never ends, so it cannot take a turn: it goes first and wins outright.
+def states_before_counts(config):
+    if CONF_CYCLE not in config:
+        return config
+    counts = False
+    for index, signal in enumerate(config[CONF_SIGNALS]):
+        if CONF_COUNT in signal:
+            counts = True
+        elif counts:
+            raise cv.Invalid(
+                "With cycle, a signal with state comes before every signal with count",
+                path=[CONF_SIGNALS, index, CONF_STATE],
+            )
+    return config
+
+
+CYCLE_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(): cv.declare_id(StatusIndicator),
-        cv.Required(CONF_PIN): pins.gpio_output_pin_schema,
-        cv.Optional(CONF_SLOW_ON_TIME, default="500ms"): time_ms,
-        cv.Optional(CONF_SLOW_OFF_TIME, default="500ms"): time_ms,
-        cv.Optional(CONF_FAST_ON_TIME, default="200ms"): time_ms,
-        cv.Optional(CONF_FAST_OFF_TIME, default="200ms"): time_ms,
-        cv.Optional(CONF_PULSE_DURATION, default="200ms"): time_ms,
-        cv.Optional(CONF_SIGNALS, default=[]): cv.ensure_list(SIGNAL_SCHEMA),
+        # Dark after the last count of a round, in place of its own pause_time.
+        cv.Optional(CONF_PAUSE_TIME): time_ms,
     }
-).extend(cv.polling_component_schema("500ms"))
+)
+
+
+# YAML reads a bare cycle: as null.
+def cycle(value):
+    return CYCLE_SCHEMA({} if value is None else value)
+
+
+# Signals are checked every update_interval; with none there is no polling.
+CONFIG_SCHEMA = cv.All(
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.declare_id(StatusIndicator),
+            cv.Required(CONF_PIN): pins.gpio_output_pin_schema,
+            cv.Optional(CONF_SLOW_ON_TIME, default="500ms"): time_ms,
+            cv.Optional(CONF_SLOW_OFF_TIME, default="500ms"): time_ms,
+            cv.Optional(CONF_FAST_ON_TIME, default="200ms"): time_ms,
+            cv.Optional(CONF_FAST_OFF_TIME, default="200ms"): time_ms,
+            cv.Optional(CONF_PULSE_DURATION, default="200ms"): time_ms,
+            cv.Optional(CONF_SIGNALS, default=[]): cv.ensure_list(SIGNAL_SCHEMA),
+            cv.Optional(CONF_CYCLE): cycle,
+        }
+    ).extend(cv.polling_component_schema("500ms")),
+    states_before_counts,
+)
 
 
 async def to_code(config):
@@ -147,6 +182,8 @@ async def to_code(config):
             )
         else:
             cg.add(var.add_signal(condition, signal[CONF_STATE]))
+    if CONF_CYCLE in config:
+        cg.add(var.set_cycle(config[CONF_CYCLE].get(CONF_PAUSE_TIME, 0)))
 
 
 ID_SCHEMA = automation.maybe_simple_id({cv.GenerateID(): cv.use_id(StatusIndicator)})

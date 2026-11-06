@@ -261,7 +261,8 @@ export interface MutationResponse {
  *  Trimmed, printable ASCII, 1..32 chars; the compiled name clears the override. */
 export type DeviceNameUpdate = { name: string; reset?: false } | { reset: true; name?: never }
 
-/** Body required by the confirm-gated system actions (reboot/rollback/factory-reset).
+/** Body required by the confirm-gated system actions (reboot/rollback/factory-reset/
+ *  forget-api-key).
  *  `confirm_token` is the last three octets of `DeviceInfo.base_mac_address`, e.g.
  *  `"DD:EE:FF"` — matched in either case. NOT `mac_address`, which on a build with Ethernet
  *  is a different MAC. A wrong or missing one is `403`, a body without
@@ -311,6 +312,9 @@ export interface Capabilities {
     /** The name the image was built under, the device's node name, e.g. `"jxd-r6-e1eth-lcd"`. */
     project_name?: string
   }
+  /** POST /system/forget-api-key is served: the firmware keeps the API key Home Assistant sets,
+   *  rather than one compiled in. Without it that route is `404`. */
+  forget_api_key?: true
   /** Present with a storage component; then `factory_reset.clears_storage` is true. */
   storage?: StorageCapability
   /** Present when the firmware serves the file API the Files screen uses. */

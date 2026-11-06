@@ -80,6 +80,6 @@ switch:
     optimistic: true
     internal: true
   - platform: template
-    id: ota_allowed_unused
-    name: "Allow ESPHome updates"
+    id: config_switch_unused
+    name: "Config Switch"
     optimistic: true

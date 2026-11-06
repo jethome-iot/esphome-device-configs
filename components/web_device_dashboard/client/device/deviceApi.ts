@@ -37,6 +37,11 @@ export interface DeviceApi {
   /** POST /system/factory-reset — requires a confirmation. Clears the settings, and the
    *  user partition when `capabilities.factory_reset.clears_storage`. */
   factoryReset(confirm: ConfirmPayload): Promise<MutationResponse>
+  /** POST /system/forget-api-key — requires a confirmation. Clears the API key Home Assistant
+   *  set and restarts, so Home Assistant can add the device again; `404` without
+   *  `capabilities.forget_api_key`, `500` when the key was not cleared (no restart then), `503`
+   *  when the device is too busy to take it (`Device busy`, nothing cleared). */
+  forgetApiKey(confirm: ConfirmPayload): Promise<MutationResponse>
   /** POST /system/rollback — requires a confirmation. Boots the other app slot, the one
    *  `capabilities.rollback` describes; `503` without one or when the device is too busy to
    *  take it (`Device busy`, nothing selected), `500` when that slot turns out not to hold a
@@ -95,6 +100,9 @@ export function createDeviceApi(options: HttpOptions): DeviceApi {
     },
     factoryReset(confirm) {
       return http.jpost<MutationResponse>('/system/factory-reset', confirm)
+    },
+    forgetApiKey(confirm) {
+      return http.jpost<MutationResponse>('/system/forget-api-key', confirm)
     },
     rollback(confirm) {
       return http.jpost<MutationResponse>('/system/rollback', confirm)
