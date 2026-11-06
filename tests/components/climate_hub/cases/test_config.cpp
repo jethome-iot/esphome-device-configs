@@ -850,6 +850,14 @@ TEST(ClimateConfigJson, TheNameIsTrimmed) {
       << error;
   EXPECT_EQ("Boiler", parsed.name);
   EXPECT_EQ("Boiler", trim_name("\n\r\f\vBoiler\t "));
+  // A paste brings no-break and ideographic spaces along; inside the name they stay.
+  EXPECT_EQ("Кухня\u00a01", trim_name("\u00a0\u3000Кухня\u00a01\u2009\ufeff\u202f"));
+  EXPECT_EQ("", trim_name("\u00a0\u3000"));
+  // Bytes that are not UTF-8 stop the trim; the name rules refuse them.
+  EXPECT_EQ("\xa0"
+            "Boiler",
+            trim_name(" \xa0"
+                      "Boiler "));
 }
 
 TEST(NameRules, WhatANameMayBe) {

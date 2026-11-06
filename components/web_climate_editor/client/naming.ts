@@ -5,12 +5,18 @@
 import type { StandardPresetName } from './types'
 import { NAME_MAX_BYTES, NAME_MAX_LENGTH, STANDARD_PRESETS } from './types'
 
-// C's isspace() in the "C" locale: the device leaves every other character alone.
+// C's isspace() in the "C" locale: inside a name the device collapses these and leaves every
+// other character alone.
 const ASCII_SPACE = /[ \t\n\v\f\r]+/g
 
-/// The name the device stores: ASCII whitespace trimmed from both ends.
+// The white space the device trims from both ends: ASCII's, and the Unicode spaces a paste brings
+// along (no-break, ideographic and the like).
+const EDGE_SPACE = '[\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff]+'
+const EDGES = new RegExp(`^${EDGE_SPACE}|${EDGE_SPACE}$`, 'g')
+
+/// The name the device stores: white space trimmed from both ends.
 export function trimName(name: string): string {
-  return name.replace(/^[ \t\n\v\f\r]+|[ \t\n\v\f\r]+$/g, '')
+  return name.replace(EDGES, '')
 }
 
 /// The name as a person reads it: trimmed, inner whitespace collapsed, ASCII

@@ -1,8 +1,9 @@
 // TypeScript client for the upstream web_server entity control routes:
-//   POST /{domain}/{name}/{action}?params…
+//   POST /{domain}/{name}/{action}, inputs as a form body
 // `id` is the entity's display name (see types.ts) and is URL-encoded here.
-// Control inputs are URL query params; a non-2xx surfaces the backend's {error}
-// string when present, else the HTTP status.
+// web_server reads a form body before the query string, and httpd takes 512 bytes of
+// URL: a long name and a long preset, both percent-encoded, would outgrow it. A non-2xx
+// surfaces the backend's {error} string when present, else the HTTP status.
 export type * from './types'
 
 /** Injectable fetch — pass one that adds a timeout / auth / logging. Defaults to window.fetch. */
@@ -84,14 +85,15 @@ export interface EntitiesApi {
   checkUpdate(id: string): Promise<void>
 }
 
-/** Build a `?a=1&b=2` query string, dropping undefined values. */
-function qs(params: Record<string, string | number | boolean | undefined>): string {
-  const parts: string[] = []
+type Inputs = Record<string, string | number | boolean | undefined>
+
+/** The inputs as a form body, dropping undefined values; undefined when none is left. */
+function form(params: Inputs): URLSearchParams | undefined {
+  const body = new URLSearchParams()
   for (const [k, v] of Object.entries(params)) {
-    if (v === undefined) continue
-    parts.push(`${k}=${encodeURIComponent(String(v))}`)
+    if (v !== undefined) body.append(k, String(v))
   }
-  return parts.length ? `?${parts.join('&')}` : ''
+  return body.toString() ? body : undefined
 }
 
 export function createEntitiesApi(options: EntitiesApiOptions): EntitiesApi {
@@ -113,20 +115,14 @@ export function createEntitiesApi(options: EntitiesApiOptions): EntitiesApi {
     return new Error(msg)
   }
 
-  async function jpost<T>(path: string, body?: unknown): Promise<T> {
+  /** POST a control action, its inputs as a form body. */
+  async function ctrl(path: string, inputs: Inputs = {}): Promise<void> {
     const init: RequestInit = { method: 'POST' }
-    if (body !== undefined) {
-      init.headers = { 'Content-Type': 'application/json' }
-      init.body = JSON.stringify(body)
-    }
+    const body = form(inputs)
+    if (body) init.body = body
     const res = await doFetch(`${base}${path}`, init)
     if (!res.ok) throw await toError(res)
-    const text = await res.text()
-    return (text ? JSON.parse(text) : undefined) as T
   }
-
-  /** POST a control action; body-less, params in the query string. */
-  const ctrl = (path: string): Promise<void> => jpost<void>(path)
   const enc = encodeURIComponent
 
   return {
@@ -136,33 +132,31 @@ export function createEntitiesApi(options: EntitiesApiOptions): EntitiesApi {
     turnOnSwitch: (id) => ctrl(`/switch/${enc(id)}/turn_on`),
     turnOffSwitch: (id) => ctrl(`/switch/${enc(id)}/turn_off`),
     // select
-    setSelect: (id, value) => ctrl(`/select/${enc(id)}/set?option=${encodeURIComponent(value)}`),
+    setSelect: (id, value) => ctrl(`/select/${enc(id)}/set`, { option: value }),
     // number
-    setNumber: (id, value) => ctrl(`/number/${enc(id)}/set?value=${encodeURIComponent(String(value))}`),
+    setNumber: (id, value) => ctrl(`/number/${enc(id)}/set`, { value }),
     // button
     pressButton: (id) => ctrl(`/button/${enc(id)}/press`),
     // light
     toggleLight: (id) => ctrl(`/light/${enc(id)}/toggle`),
-    lightTurnOn: (id, params = {}) => ctrl(`/light/${enc(id)}/turn_on${qs({ ...params })}`),
-    lightTurnOff: (id, transition) => ctrl(`/light/${enc(id)}/turn_off${qs({ transition })}`),
+    lightTurnOn: (id, params = {}) => ctrl(`/light/${enc(id)}/turn_on`, { ...params }),
+    lightTurnOff: (id, transition) => ctrl(`/light/${enc(id)}/turn_off`, { transition }),
     // fan
     toggleFan: (id) => ctrl(`/fan/${enc(id)}/toggle`),
     fanTurnOn: (id, params = {}) =>
-      ctrl(
-        `/fan/${enc(id)}/turn_on${qs({
-          speed_level: params.speed_level,
-          oscillation: params.oscillation === undefined ? undefined : params.oscillation ? 'ON' : 'OFF'
-        })}`
-      ),
+      ctrl(`/fan/${enc(id)}/turn_on`, {
+        speed_level: params.speed_level,
+        oscillation: params.oscillation === undefined ? undefined : params.oscillation ? 'ON' : 'OFF'
+      }),
     fanTurnOff: (id) => ctrl(`/fan/${enc(id)}/turn_off`),
     // cover
     coverCommand: (id, action) => ctrl(`/cover/${enc(id)}/${action}`),
-    coverSet: (id, params) => ctrl(`/cover/${enc(id)}/set${qs({ position: params.position, tilt: params.tilt })}`),
+    coverSet: (id, params) => ctrl(`/cover/${enc(id)}/set`, { position: params.position, tilt: params.tilt }),
     // lock
     lock: (id) => ctrl(`/lock/${enc(id)}/lock`),
     unlock: (id) => ctrl(`/lock/${enc(id)}/unlock`),
     // climate
-    setClimate: (id, params) => ctrl(`/climate/${enc(id)}/set${qs({ ...params })}`),
+    setClimate: (id, params) => ctrl(`/climate/${enc(id)}/set`, { ...params }),
     // update entity
     installUpdate: (id) => ctrl(`/update/${enc(id)}/install`),
     checkUpdate: (id) => ctrl(`/update/${enc(id)}/check`)

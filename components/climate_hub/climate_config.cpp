@@ -63,6 +63,13 @@ size_t decode_utf8(const std::string &text, size_t i, uint32_t *code_point) {
 // C0, DEL and C1.
 bool is_control(uint32_t code_point) { return code_point < 0x20 || (code_point >= 0x7F && code_point <= 0x9F); }
 
+// The white space a name loses at either end: ASCII's, and the Unicode spaces a paste brings
+// along (no-break, ideographic and the like), which would make two names look alike.
+bool is_edge_space(uint32_t c) {
+  return c == ' ' || (c >= 0x09 && c <= 0x0D) || c == 0xA0 || c == 0x1680 || (c >= 0x2000 && c <= 0x200A) ||
+         c == 0x2028 || c == 0x2029 || c == 0x202F || c == 0x205F || c == 0x3000 || c == 0xFEFF;
+}
+
 // ESPHome's object id taken per character rather than per byte: a non-ASCII one becomes one
 // '_', or stays as it is with `keep_non_ascii`.
 std::string object_id_per_character(const std::string &name, bool keep_non_ascii) {
@@ -296,12 +303,19 @@ bool validate_id(const std::string &id, std::string *error) {
 }
 
 std::string trim_name(const std::string &name) {
+  uint32_t c;
   size_t begin = 0;
+  for (size_t length; begin < name.size() && (length = decode_utf8(name, begin, &c)) != 0 && is_edge_space(c);)
+    begin += length;
   size_t end = name.size();
-  while (begin < end && is_ascii_space(name[begin]))
-    begin++;
-  while (end > begin && is_ascii_space(name[end - 1]))
-    end--;
+  while (end > begin) {
+    size_t start = end - 1;
+    while (start > begin && is_continuation(name[start]))
+      start--;
+    if (decode_utf8(name, start, &c) != end - start || !is_edge_space(c))
+      break;
+    end = start;
+  }
   return name.substr(begin, end - begin);
 }
 

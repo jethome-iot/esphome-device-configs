@@ -199,7 +199,7 @@ std::string id_with_suffix(const std::string &base, unsigned n);
 /// The rules an id read from outside meets: present, and a slug.
 bool validate_id(const std::string &id, std::string *error);
 
-/// The name with surrounding ASCII whitespace removed.
+/// The name without the white space at its ends, ASCII's and Unicode's spaces alike.
 std::string trim_name(const std::string &name);
 
 /// The name rules on a trimmed name: UTF-8 text of 1..NAME_MAX_LENGTH characters and at most
