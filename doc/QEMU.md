@@ -123,6 +123,10 @@ curl -sX POST -d "" $A 'http://127.0.0.1:8080/switch/Drive%20input%203/turn_on' 
 A password set from the dashboard is kept in flash, so it outlives a restart of the emulator
 but not a fresh image.
 
+A device without an API key, a fresh image among them, turns every native API client away from
+15 minutes after its boot, as stock `provisioning:` has it: attach Home Assistant or
+aioesphomeapi before then and set a key, or restart the emulator first.
+
 The `Drive input N` switches are deliberately `internal:`, so they are absent from the entity
 list and from the `/events` stream — but a command still reaches them, because the web server
 matches a request by name and the internal flag only gates listing and state pushes.

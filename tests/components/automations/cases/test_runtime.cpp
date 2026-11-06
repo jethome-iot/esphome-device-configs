@@ -36,7 +36,7 @@ TEST_F(Runtime, BuildRefusesAConfigSwitchAsAMissingOne) {
     EXPECT_TRUE(load(json.c_str(), config));
     return config;
   };
-  for (const char *object_id : {"allow_esphome_updates", "no_such"}) {
+  for (const char *object_id : {"config_switch", "no_such"}) {
     std::string error;
     EXPECT_EQ(RuntimeAutomation::build(&engine, naming(UNLOCK, object_id), &error), nullptr) << object_id;
     EXPECT_EQ(error, "Action 1: switch not found") << object_id;

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
+#include "esphome/core/automation.h"
 #include "esphome/core/component.h"
 #include "esphome/core/hal.h"
 
@@ -15,7 +17,7 @@ enum class IndicatorState : uint8_t {
   PULSE = 5,
 };
 
-class StatusIndicator : public Component {
+class StatusIndicator : public PollingComponent {
  public:
   void set_pin(GPIOPin *pin) { this->pin_ = pin; }
 
@@ -39,7 +41,25 @@ class StatusIndicator : public Component {
   // On for duration_ms (0: the configured one), then back to the state it interrupted.
   void pulse(uint32_t duration_ms = 0);
 
+  // Shown while its condition holds and no signal added before it does, or in a cycle while it
+  // holds and has its turn: blink_n with these times when count is above 0, else state, which
+  // the schema keeps to ON, BLINK_SLOW and BLINK_FAST.
+  void add_signal(Condition<> *condition, IndicatorState state, uint8_t count = 0, uint32_t on_ms = 200,
+                  uint32_t off_ms = 200, uint32_t pause_ms = 1500);
+  // Count signals that hold take turns, one series each, in the order added; the last of two
+  // or more ends on pause_ms instead of its own pause, 0 keeping its own. State signals, which
+  // never end, come before them and still win.
+  void set_cycle(uint32_t pause_ms) {
+    this->cycle_ = true;
+    this->cycle_pause_ms_ = pause_ms;
+  }
+  // The signal shown, as its index in the order added; -1 for none.
+  int get_signal() const { return this->signal_; }
+
   void setup() override;
+  // Shows the first signal that holds, when it is another than the last one shown. In a cycle
+  // the count shown keeps its turn unless it stops holding or a state signal holds.
+  void update() override;
   void dump_config() override;
   float get_setup_priority() const override { return setup_priority::HARDWARE; }
 
@@ -47,7 +67,37 @@ class StatusIndicator : public Component {
   void set_output_(bool on);
   void apply_state_();
   void blink_(bool fast);
+  void start_blink_n_(uint8_t count, uint32_t on_ms, uint32_t off_ms, uint32_t pause_ms);
   void blink_n_(uint8_t left);
+  void next_series_();
+
+  void show_(int index);
+  void update_cycle_();
+  // Checks the signals in order into holding_ up to the first state signal that holds, the rest
+  // not holding, and logs a change; returns that state signal, -1 for none.
+  int check_holding_();
+  // The next count after `from` that held at the last check, wrapping round to `from` itself;
+  // -1 for none.
+  int next_after_(int from) const;
+  void log_holding_() const;
+
+  struct Signal {
+    Condition<> *condition;
+    IndicatorState state;
+    uint8_t count;
+    uint32_t on_ms;
+    uint32_t off_ms;
+    uint32_t pause_ms;
+  };
+  std::vector<Signal> signals_;
+  int signal_{-1};
+
+  bool cycle_{false};
+  uint32_t cycle_pause_ms_{0};
+  // In a cycle: which signals held at the last check.
+  std::vector<bool> holding_;
+  // The blink_n shown is a signal's in a cycle, so its series hands over to the next.
+  bool cycling_{false};
 
   GPIOPin *pin_{nullptr};
   IndicatorState state_{IndicatorState::OFF};

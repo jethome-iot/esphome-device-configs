@@ -30,6 +30,7 @@ TEST_F(Dashboard, LooksEveryRouteUpByItsName) {
   EXPECT_EQ(this->dashboard->route_for_("/api/device/system/reboot")->id, RouteId::SYSTEM_REBOOT);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/system/factory-reset")->id, RouteId::SYSTEM_FACTORY_RESET);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/system/rollback")->id, RouteId::SYSTEM_ROLLBACK);
+  EXPECT_EQ(this->dashboard->route_for_("/api/device/system/forget-api-key")->id, RouteId::SYSTEM_FORGET_API_KEY);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/temperature-slots")->id, RouteId::TEMPERATURE_SLOTS);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/temperature-slots/forget")->id, RouteId::TEMPERATURE_SLOTS_FORGET);
   EXPECT_EQ(this->dashboard->route_for_("/api/device/temperature-slots/assign")->id, RouteId::TEMPERATURE_SLOTS_ASSIGN);
@@ -95,11 +96,11 @@ TEST_F(Dashboard, ReadRoutesRefusePostAndAllowOnlyGet) {
 }
 
 TEST_F(Dashboard, WriteRoutesRefuseGetAndAllowOnlyPost) {
-  for (const char *url :
-       {"/api/device/system/reboot", "/api/device/system/factory-reset", "/api/device/system/rollback",
-        "/api/device/temperature-slots/forget", "/api/device/temperature-slots/assign",
-        "/api/device/temperature-slots/offset", "/api/device/temperature-slots/label",
-        "/api/device/virtual-inputs/save", "/api/device/virtual-inputs/delete"}) {
+  for (const char *url : {"/api/device/system/reboot", "/api/device/system/factory-reset",
+                          "/api/device/system/rollback", "/api/device/system/forget-api-key",
+                          "/api/device/temperature-slots/forget", "/api/device/temperature-slots/assign",
+                          "/api/device/temperature-slots/offset", "/api/device/temperature-slots/label",
+                          "/api/device/virtual-inputs/save", "/api/device/virtual-inputs/delete"}) {
     LogCapture::instance().clear();
     Reply reply = this->get(url);
     EXPECT_EQ(reply.code, 405) << url;
