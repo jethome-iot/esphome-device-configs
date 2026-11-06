@@ -108,8 +108,8 @@ rule with such an action is never built there.
 ## Storage
 
 One file per rule, `<base_path>/<folder_path>/<name>.json`, the name lower-cased with runs of
-spaces, dashes and underscores collapsed into one `_` and cut to 48 bytes. The name is the key
-on disk, so two rules cannot share one.
+spaces, dashes and underscores collapsed into one `_`; past 48 bytes it is cut and ends in
+`-<id>`. Two rules cannot have names that come out the same before that cut.
 
 The folder is meant to be writable by hand, so what it holds is repaired at boot: a rule in a
 file named after something else is moved to its own file, a missing or repeated `id` is
@@ -121,8 +121,8 @@ word and the file. Nothing is loaded from it, so a rule with one typo never runs
 says — and a repair never writes the engine's guess over what its author wrote.
 
 A removal or a rename that the partition refuses to carry out leaves the file empty rather than
-whole, so the rule does not come back at the next boot. The name it held stays taken until that
-file is deleted by hand.
+whole, so the rule does not come back at the next boot. A name short enough to be that file
+stays taken until it is deleted by hand.
 
 ## Missing entities and thermostats
 
@@ -164,7 +164,7 @@ callback, say) they refuse and return false.
   `ALREADY_RUNNING` (single with a run under way, parallel at 8 copies) or `REFUSED` (the
   engine failed at boot, the loop never took it, or the call came from inside a rule's own
   action)
-- `is_name_taken(name, exclude_id = 0)`: names collide by file name
+- `is_name_taken(name, exclude_id = 0)`: names collide by the file name they spell before the cut
 - `rules_naming_binary_sensor(key)`: the names of the rules whose trigger or condition names the
   binary sensor with that object id hash, built or not; loop task
 - `rebuild_rules_naming_binary_sensor(key)`: that sensor came or went, so those rules are built or

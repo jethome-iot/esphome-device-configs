@@ -1,10 +1,11 @@
 // Where the device stores an automation: one file per name, so two names that
-// reduce to one key cannot coexist. Mirrors sanitize_filename_ in
+// reduce to one key cannot coexist. Mirrors name_key_ in
 // automations/automation_storage.cpp — the firmware is the authority, this is what
 // lets a client say so before the round trip.
 
-/// The automation's filename, without the .json: lowercased ASCII alphanumerics,
-/// space/-/_ folded to one underscore, non-ASCII kept, capped at 48 UTF-8 bytes.
+/// The key the device stores an automation under: lowercased ASCII alphanumerics,
+/// space/-/_ folded to one underscore, non-ASCII kept. A key too long for a file
+/// name is cut on the device, but two names collide only when their whole keys do.
 export function storageKey(name: string): string {
   const folded = Array.from(name)
     .map((c) =>
@@ -17,16 +18,7 @@ export function storageKey(name: string): string {
             : ''
     )
     .join('')
-  let key = folded.replace(/_+/g, '_').replace(/^_+|_+$/g, '')
-  // The device's LittleFS filename budget. Back off over continuation bytes to
-  // find the boundary: dropping decoded U+FFFD would also eat a real one.
-  const bytes = new TextEncoder().encode(key)
-  if (bytes.length > 48) {
-    let cut = 48
-    while (cut > 0 && ((bytes[cut] as number) & 0xc0) === 0x80) cut--
-    key = new TextDecoder().decode(bytes.subarray(0, cut))
-  }
-  return key.replace(/_+$/, '') || 'automation'
+  return folded.replace(/_+/g, '_').replace(/^_+|_+$/g, '') || 'automation'
 }
 
 /// Whether `name` would land in a file another automation already owns. `id` is
