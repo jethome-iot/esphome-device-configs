@@ -320,9 +320,11 @@ TEST(PresetRules, TheNameRulesHoldForEveryPreset) {
       {"", "Preset 2: Name is required"},
       {"   ", "Preset 2: Name is required"},
       {std::string(49, 'a'), "Preset 2: Name is longer than 48 characters"},
+      {repeat("\u043d", 49), "Preset 2: Name is longer than 48 characters"},
       {"Up/down", "Preset 2: Name cannot contain '/'"},
       {"Back\\\\slash", "Preset 2: Name cannot contain '\\'"},
-      {"\u041d\u043e\u0447\u044c", "Preset 2: Use printable ASCII characters only"},
+      {"Late\tnight", "Preset 2: Name cannot contain control characters"},
+      {"\xd0", "Preset 2: Name is not valid UTF-8"},
       {"none", "Preset 2: \"none\" is reserved"},
       {" NONE ", "Preset 2: \"NONE\" is reserved"},
       {"Eco", "Preset 2: \"Eco\" is already used by Preset 1"},
@@ -345,6 +347,24 @@ TEST(PresetRules, TheNameRulesHoldForEveryPreset) {
 
   ASSERT_TRUE(from_json(doc_with(R"([{"name":"  Night \t","setpoint":18}])"), &parsed, &error, false)) << error;
   EXPECT_EQ("Night", parsed.presets[0].name) << "trimmed, as a thermostat's name is";
+}
+
+// Any script, as a thermostat's name; the key falls back to "preset" and stays unique.
+TEST(PresetRules, ANameInAnyScriptIsKeptAndKeyedUniquely) {
+  ClimateConfig parsed;
+  std::string error;
+  const std::string presets =
+      R"([{"name":"\u041d\u043e\u0447\u044c","setpoint":18},{"name":"\u0414\u0435\u043d\u044c","setpoint":21},)"
+      R"({"name":"Preset","setpoint":19},{"name":")" +
+      repeat("\u043d", 48) + R"(","setpoint":20}])";
+  ASSERT_TRUE(from_json(doc_with(presets), &parsed, &error, false)) << error;
+  ASSERT_EQ(4u, parsed.presets.size());
+  EXPECT_EQ("\u041d\u043e\u0447\u044c", parsed.presets[0].name);
+  EXPECT_EQ("preset", parsed.presets[0].key);
+  EXPECT_EQ("preset-2", parsed.presets[1].key);
+  EXPECT_EQ("preset-3", parsed.presets[2].key) << "\"Preset\" slugifies to a key taken already";
+  EXPECT_EQ("preset-4", parsed.presets[3].key);
+  EXPECT_EQ(repeat("\u043d", 48), parsed.presets[3].name);
 }
 
 // The presets come after the thermostat's own rules and before its name; within them, every
@@ -670,7 +690,9 @@ TEST(ClimateConfigJson, TheLargestDocumentTheRulesAllowFitsTheCap) {
   ClimateConfig c;
   c.version = 65535;
   c.id = std::string(ID_MAX_LENGTH, 'a');
-  c.name = std::string(NAME_MAX_LENGTH, '"');
+  // 48 characters in 96 bytes, written out longest: a '"' takes two, a four-byte one four.
+  const std::string worst_name = std::string(32, '"') + repeat("\U0001F525", 16);
+  c.name = worst_name;
   c.sensor_id = std::string(ENTITY_ID_MAX_LENGTH, '\0');
   c.heat.relay_id = std::string(ENTITY_ID_MAX_LENGTH, '\0');
   c.cool.relay_id = std::string(ENTITY_ID_MAX_LENGTH - 1, '\0') + "x";
@@ -689,7 +711,7 @@ TEST(ClimateConfigJson, TheLargestDocumentTheRulesAllowFitsTheCap) {
   for (size_t i = 0; i < PRESET_MAX_COUNT; i++) {
     PresetConfig preset;
     preset.key = std::string(ID_MAX_LENGTH - 1, 'k') + std::to_string(i);
-    preset.name = std::string(NAME_MAX_LENGTH, '"');
+    preset.name = worst_name;
     preset.setpoint = wide;
     preset.mode = HubMode::HEAT_COOL;
     c.presets.push_back(preset);
@@ -697,6 +719,7 @@ TEST(ClimateConfigJson, TheLargestDocumentTheRulesAllowFitsTheCap) {
   c.active_preset = c.presets.back().key;
   std::string error;
   ASSERT_TRUE(validate_name(c.name, &error)) << error;
+  ASSERT_EQ(NAME_MAX_BYTES, c.name.size());
 
   std::string json;
   ASSERT_EQ(EncodeError::NONE, c.encode(&json));
@@ -827,12 +850,24 @@ TEST(ClimateConfigJson, TheNameIsTrimmed) {
       << error;
   EXPECT_EQ("Boiler", parsed.name);
   EXPECT_EQ("Boiler", trim_name("\n\r\f\vBoiler\t "));
+  // A paste brings no-break and ideographic spaces along; inside the name they stay.
+  EXPECT_EQ("Кухня\u00a01", trim_name("\u00a0\u3000Кухня\u00a01\u2009\ufeff\u202f"));
+  EXPECT_EQ("", trim_name("\u00a0\u3000"));
+  // Bytes that are not UTF-8 stop the trim; the name rules refuse them.
+  EXPECT_EQ("\xa0"
+            "Boiler",
+            trim_name(" \xa0"
+                      "Boiler "));
 }
 
 TEST(NameRules, WhatANameMayBe) {
   std::string error;
-  EXPECT_TRUE(validate_name("Living room 2 (south)", &error)) << error;
-  EXPECT_TRUE(validate_name(std::string(48, 'a'), &error)) << error;
+  for (const std::string &name : {std::string("Living room 2 (south)"), std::string(48, 'a'), std::string("Кухня"),
+                                  std::string("Café crème"), std::string("Ёлка \U0001F384"), repeat("ж", 48),
+                                  // Two-byte letters to the byte limit, a three-byte one in 32 characters.
+                                  repeat("ж", 47) + "z", repeat("€", 32)}) {
+    EXPECT_TRUE(validate_name(name, &error)) << name << ": " << error;
+  }
 
   struct Case {
     std::string name;
@@ -841,13 +876,28 @@ TEST(NameRules, WhatANameMayBe) {
   const Case cases[] = {
       {"", "Name is required"},
       {std::string(49, 'a'), "Name is longer than 48 characters"},
+      {repeat("ж", 49), "Name is longer than 48 characters"},
+      {repeat("ж", 47) + "€", "Name is longer than 96 bytes"},
+      {repeat("\U0001F525", 25), "Name is longer than 96 bytes"},
       {"Up/down", "Name cannot contain '/'"},
+      {"Кухня/2", "Name cannot contain '/'"},
       {"Back\\slash", "Name cannot contain '\\'"},
-      {"Кухня", "Use printable ASCII characters only"},
-      {"Tab\there", "Use printable ASCII characters only"},
+      {"Tab\there", "Name cannot contain control characters"},
+      {"Bell\x07", "Name cannot contain control characters"},
+      {"Del\x7f", "Name cannot contain control characters"},
+      {"Next\xc2\x85line", "Name cannot contain control characters"},
+      {"\xff", "Name is not valid UTF-8"},
+      {"Кухн\xd1", "Name is not valid UTF-8"},
+      {"\xd1\x20", "Name is not valid UTF-8"},
+      {"\xc0\xaf", "Name is not valid UTF-8"},
+      {"\xe0\x80\xaf", "Name is not valid UTF-8"},
+      {"\xed\xa0\x80", "Name is not valid UTF-8"},
+      {"\xf4\x90\x80\x80", "Name is not valid UTF-8"},
+      {"\x80", "Name is not valid UTF-8"},
       // The whole name is checked for each rule in turn, not character by character.
-      {"a/b\tc", "Use printable ASCII characters only"},
+      {"a/b\tc", "Name cannot contain control characters"},
       {"a\\b/c", "Name cannot contain '/'"},
+      {"a\tb\xff", "Name is not valid UTF-8"},
   };
   for (const Case &c : cases) {
     EXPECT_FALSE(validate_name(c.name, &error)) << c.name;
@@ -858,6 +908,13 @@ TEST(NameRules, WhatANameMayBe) {
 TEST(NameRules, TheDocumentRefusesABrokenName) {
   ClimateConfig parsed;
   std::string error;
+  EXPECT_FALSE(from_json("{\"name\":\"Kitchen\xd1\",\"sensor_id\":\"s\",\"heat\":{\"relay_id\":\"r\"}}", &parsed,
+                         &error, false));
+  EXPECT_EQ("Name is not valid UTF-8", error);
+  ASSERT_TRUE(from_json(R"({"name":" \u041a\u0443\u0445\u043d\u044f ","sensor_id":"s","heat":{"relay_id":"r"}})",
+                        &parsed, &error, false))
+      << error;
+  EXPECT_EQ("Кухня", parsed.name) << "trimmed, and kept as it is";
   EXPECT_FALSE(from_json(R"({"name":"a/b","sensor_id":"s","heat":{"relay_id":"r"}})", &parsed, &error, false));
   EXPECT_EQ("Name cannot contain '/'", error);
   EXPECT_FALSE(from_json(R"({"name":"   ","sensor_id":"s","heat":{"relay_id":"r"}})", &parsed, &error, false));
@@ -910,6 +967,49 @@ TEST(NameRules, TheObjectIdIsWhatESPHomeDerives) {
   EXPECT_EQ("room_1", object_id_of_name("Room_1"));
   EXPECT_EQ("room_1", object_id_of_name("Room.1"));
   EXPECT_EQ(fnv1_hash_object_id("Room 1", 6), fnv1_hash(object_id_of_name("Room 1")));
+  // One '_' per byte: a Cyrillic letter is two.
+  EXPECT_EQ("__________", object_id_of_name("Кухня"));
+  EXPECT_EQ(fnv1_hash_object_id("Кухня", 10), fnv1_hash(object_id_of_name("Кухня")));
+}
+
+// aioesphomeapi's compute_object_id(), which Home Assistant keys the entity on: one '_' per
+// code point. The expected ids are what it gives for these names.
+TEST(NameRules, HomeAssistantsObjectIdIsPerCharacter) {
+  const std::pair<const char *, const char *> cases[] = {
+      {"Living Room", "living_room"},
+      {"Room.1", "room_1"},
+      {"ROOM-1", "room-1"},
+      {"Кухня", "_____"},
+      {"Кухня 1", "______1"},
+      {"Café", "caf_"},
+      {"Café crème", "caf__cr_me"},
+      {"Ёлка \U0001F384", "______"},
+      {"€", "_"},
+  };
+  for (const auto &c : cases)
+    EXPECT_EQ(c.second, ha_object_id_of_name(c.first)) << c.first;
+  // Neither id implies the other.
+  EXPECT_EQ(ha_object_id_of_name("Café"), ha_object_id_of_name("Caf_"));
+  EXPECT_NE(object_id_of_name("Café"), object_id_of_name("Caf_"));
+  EXPECT_NE(ha_object_id_of_name("Café"), ha_object_id_of_name("Caf__"));
+  EXPECT_EQ(object_id_of_name("Café"), object_id_of_name("Caf__"));
+}
+
+// A clash the non-ASCII letters make, as against one an ASCII spelling makes.
+TEST(NameRules, AClashOfNonAsciiLettersIsToldApart) {
+  EXPECT_TRUE(non_ascii_clash("Кухня", "Ванна"));
+  EXPECT_TRUE(non_ascii_clash("Café", "Caf_"));
+  EXPECT_FALSE(non_ascii_clash("Room 1", "Room_1"));
+  EXPECT_FALSE(non_ascii_clash("Кухня 1", "Кухня_1")) << "the space makes this one, not the letters";
+}
+
+TEST(NameRules, AFittedNameNeverEndsInsideACharacter) {
+  EXPECT_EQ("Boil", fit_name("Boiler", 4, 96));
+  EXPECT_EQ("Кух", fit_name("Кухня", 3, 96));
+  EXPECT_EQ("Кух", fit_name("Кухня", 48, 7)) << "a fourth letter would end on byte 8";
+  EXPECT_EQ("Кухня", fit_name("Кухня", 48, 96));
+  EXPECT_EQ(repeat("ж", 46), fit_name(repeat("ж", 48), 46, 94));
+  EXPECT_EQ("", fit_name("\U0001F525", 1, 3));
 }
 
 TEST(NameRules, TheKeyIsTheNameAsAPersonReadsIt) {

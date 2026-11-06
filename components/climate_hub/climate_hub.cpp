@@ -55,6 +55,12 @@ static const char *const RESERVED_ID = "new";
 // Why a start found every climate entity in use; a stop that frees one tries it again.
 static const char *const NO_FREE_ENTITY = "no free climate entity";
 static const char *const NOT_STARTED = "not started: ";
+// The end of a name clash that exists only because non-ASCII letters become '_': in Home
+// Assistant's id, then in ESPHome's, which the API's key is a hash of.
+static const char *const HA_ID_CLASH = ", which reads every character but a Latin letter, a digit, '-' or '_' as '_'; "
+                                       "a digit or a Latin letter makes them distinct";
+static const char *const API_ID_CLASH = ", which reads every byte of a non-ASCII letter as '_'; "
+                                        "a digit or a Latin letter makes them distinct";
 
 // A create or update whose file was not written: nothing changed.
 static Result not_saved(bool too_large) {
@@ -320,7 +326,8 @@ void ClimateHub::resolve_name_(ClimateConfig *config) {
   const std::string original = config->name;
   for (unsigned n = 2; n <= MAX_NAME_SUFFIX; n++) {
     const std::string tail = " " + std::to_string(n);
-    const std::string candidate = trim_name(original.substr(0, NAME_MAX_LENGTH - tail.size())) + tail;
+    const std::string candidate =
+        trim_name(fit_name(original, NAME_MAX_LENGTH - tail.size(), NAME_MAX_BYTES - tail.size())) + tail;
     if (this->is_name_taken(candidate, config->id, nullptr))
       continue;
     config->name = candidate;
@@ -446,14 +453,21 @@ bool ClimateHub::is_name_taken(const std::string &name, const std::string &exclu
       return true;
     }
   }
-  // Home Assistant keys an entity on this id, and drops the second of two that share it.
+  // Home Assistant keys an entity on the id it rebuilds per character, the API on a hash of
+  // ESPHome's per byte; a clash in either loses one of the two.
+  const std::string ha_id = ha_object_id_of_name(name);
   const std::string object_id = object_id_of_name(name);
   for (const std::string &other : others) {
-    if (object_id_of_name(other) == object_id) {
-      if (error != nullptr)
-        *error = "\"" + name + "\" is too close to \"" + other + "\": both are " + object_id + " to Home Assistant";
-      return true;
+    const bool by_ha = ha_id == ha_object_id_of_name(other);
+    if (!by_ha && object_id != object_id_of_name(other))
+      continue;
+    if (error != nullptr) {
+      *error = "\"" + name + "\" is too close to \"" + other + "\": both are " + (by_ha ? ha_id : object_id) +
+               (by_ha ? " to Home Assistant" : " to the device's API");
+      if (non_ascii_clash(name, other))
+        *error += by_ha ? HA_ID_CLASH : API_ID_CLASH;
     }
+    return true;
   }
   return false;
 }
@@ -1063,8 +1077,10 @@ std::deque<ClimateHub::Slot *>::iterator ClimateHub::free_slot_like_(const std::
   if (it != this->free_.end())
     return it;
   const std::string object_id = object_id_of_name(name);
-  return std::find_if(this->free_.begin(), this->free_.end(), [&object_id](const Slot *slot) {
-    return slot->entity.is_named() && object_id_of(slot->entity) == object_id;
+  const std::string ha_id = ha_object_id_of_name(name);
+  return std::find_if(this->free_.begin(), this->free_.end(), [&object_id, &ha_id](const Slot *slot) {
+    return slot->entity.is_named() &&
+           (object_id_of(slot->entity) == object_id || ha_object_id_of_name(slot->entity.get_name().c_str()) == ha_id);
   });
 }
 

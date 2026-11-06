@@ -66,12 +66,14 @@ void expect_names_unique(const char *step) {
   }
 }
 
-// What the listing sends: never the placeholder, and no name or key twice.
+// What the listing sends: never the placeholder, and no name, key or Home Assistant id twice.
 void expect_listing_sound(const ApiListing &listing, const std::string &step) {
   std::set<std::string> names;
+  std::set<std::string> ha_ids;
   for (const std::string &name : listing.encode()) {
     EXPECT_NE(FREE_SLOT_NAME, name) << step;
     EXPECT_TRUE(names.insert(name).second) << step << ": \"" << name << "\" twice";
+    EXPECT_TRUE(ha_ids.insert(ha_object_id_of_name(name)).second) << step << ": \"" << name << "\"'s id twice";
   }
   std::set<uint32_t> keys;
   for (uint32_t key : listing.keys())
@@ -142,7 +144,7 @@ TEST_F(HubTest, ThePlaceholderSitsInABufferAsLongAsAName) {
   for (size_t index : {size_t{0}, hub().slot_count() - 1}) {
     const char *name = hub().slot_entity(index)->get_name().c_str();
     ASSERT_STREQ(FREE_SLOT_NAME, name) << index;
-    for (size_t i = std::strlen(name); i <= NAME_MAX_LENGTH; i++)
+    for (size_t i = std::strlen(name); i <= NAME_MAX_BYTES; i++)
       EXPECT_EQ('\0', name[i]) << index << ", byte " << i;
   }
 }
@@ -334,6 +336,25 @@ TEST_F(HubTest, ARenameOntoAHiddenSlotsEntityIdSwapsTheNames) {
   EXPECT_EQ(kettle, hub().entity_of("kettle"));
   EXPECT_STREQ("Kettle", hidden->get_name().c_str());
   expect_names_unique("restart");
+}
+
+// Home Assistant's id, per character, can be the hidden one's while ESPHome's, per byte, is not:
+// the hidden slot takes the name the rename leaves all the same.
+TEST_F(HubTest, ARenameOntoAHiddenSlotsHomeAssistantIdSwapsTheNames) {
+  this->create(draft("Café", "relay_1"));
+  this->create(draft("Kettle", "relay_2"));
+  HubClimate *hidden = hub().entity_of("caf");
+  HubClimate *kettle = hub().entity_of("kettle");
+  ASSERT_NE(nullptr, hidden);
+  ApiListing listing;
+
+  ASSERT_TRUE(hub().remove("caf").ok);
+  ASSERT_TRUE(hub().update("kettle", draft("Caf_", "relay_2")).ok);
+  expect_listing_sound(listing, "rename");
+  EXPECT_STREQ("Kettle", hidden->get_name().c_str());
+  EXPECT_TRUE(hidden->is_free());
+  EXPECT_EQ(kettle, web_server_match("Caf_"));
+  EXPECT_EQ(nullptr, web_server_match("Café"));
 }
 
 // A start under a name that differs from the hidden one's only in case and spacing has another
@@ -678,6 +699,23 @@ TEST_F(HubTest, ANameTakenTwiceAtBootCountsOn) {
   EXPECT_EQ("Boiler", hub().store().get("a")->name);
   EXPECT_EQ("Boiler 2", hub().store().get("b")->name);
   EXPECT_EQ("boiler 3", hub().store().get("c")->name);
+}
+
+// The suffix fits the limits in characters and in bytes, and never splits a letter.
+TEST_F(HubTest, ANameInAnyScriptTakenAtBootIsRenamedWithinTheLimits) {
+  const std::string longest = repeat("ж", NAME_MAX_LENGTH);
+  write_file(this->file_of("a"), doc("a", "Кухня", "relay_1", false));
+  write_file(this->file_of("b"), doc("b", "Ванна", "relay_1", false));
+  write_file(this->file_of("c"), doc("c", longest.c_str(), "relay_1", false));
+  write_file(this->file_of("d"), doc("d", longest.c_str(), "relay_1", false));
+  this->reboot();
+  ASSERT_EQ(4u, hub().store().size());
+  EXPECT_EQ("Кухня", hub().store().get("a")->name);
+  EXPECT_EQ("Ванна 2", hub().store().get("b")->name) << "_____ to Home Assistant, like Кухня";
+  EXPECT_EQ(longest, hub().store().get("c")->name);
+  EXPECT_EQ(repeat("ж", NAME_MAX_LENGTH - 2) + " 2", hub().store().get("d")->name);
+  std::string error;
+  EXPECT_TRUE(validate_name(hub().store().get("d")->name, &error)) << error;
 }
 
 TEST_F(HubTest, ANameThatIsTheSameEntityIdAtBootIsRenamedToo) {

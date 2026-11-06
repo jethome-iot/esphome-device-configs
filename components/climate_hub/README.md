@@ -93,8 +93,8 @@ component: it would list the entities no thermostat is using.
 | -------------------- | -------------------------------------------------------------------------- |
 | `version`            | `4`, the format this firmware writes; a file without one, or with `1`, `2` or `3`, is read as `4` and written back as `4`. A higher one is a file from a newer firmware, see [Storage](#storage) |
 | `revision`           | `0` when created; moves on when a [calibration](#calibration) writes new gains and when a `restore()` replaces the thermostat, never on an `update()` or any other write. A file without one reads as `0` |
-| `id`                 | Made from the name when the thermostat is created (`a-z`, `0-9`, single dashes, at most 48; `New` gets `new-2`, since the dashboard opens a blank editor at `new`), or the one a restore brings, then never changes; the file is `<id>.json` |
-| `name`               | 1 to 48 printable ASCII characters, neither `/` nor `\`, trimmed; also the climate entity's name |
+| `id`                 | Made from the name when the thermostat is created (`a-z`, `0-9`, single dashes, at most 48; `climate`, then `climate-2` and on, for a name with no Latin letter or digit; `New` gets `new-2`, since the dashboard opens a blank editor at `new`), or the one a restore brings, then never changes; the file is `<id>.json` |
+| `name`               | 1 to 48 characters in any script and at most 96 bytes of UTF-8, no control characters, neither `/` nor `\`, trimmed; also the climate entity's name |
 | `kind`               | `bang_bang` (the default) or `pid`                                         |
 | `sensor_id`          | The object id of a temperature sensor that reports °C, `temp_1` for `Temp 1`; at most 120 characters, the longest an object id gets |
 | `heat`, `cool`       | `relay_id`: the object id of a switch, `""` for a direction not used; at least one, not the same one twice, at most 120 characters |
@@ -120,7 +120,7 @@ disabled one may name what is not there yet.
 
 | Key        | Values                                                                         |
 | ---------- | ------------------------------------------------------------------------------ |
-| `key`      | The slug of the name the preset was created with (`a-z`, `0-9`, single dashes, at most 48), `-2` and on when another preset has it; a rename keeps it. A file may leave it out: it is then made from the name |
+| `key`      | The slug of the name the preset was created with (`a-z`, `0-9`, single dashes, at most 48; `preset` for a name with no Latin letter or digit), `-2` and on when another preset has it; a rename keeps it. A file may leave it out: it is then made from the name |
 | `name`     | The thermostat name rules; `none`, in any case, is reserved. Unique within the thermostat, compared without case and extra spaces |
 | `setpoint` | Required; held inside the visual range like the thermostat's own                |
 | `mode`     | `keep` (the default) leaves the thermostat's mode, or `off`, `heat`, `cool`, `heat_cool`, which need the relays they drive |
@@ -271,13 +271,20 @@ relay before `bindings` hears of it, which then never does.
 
 A thermostat's name is its entity's name. No two thermostats may share a name, compared without
 case and extra spaces, or two names that give the same entity id (`Room 1` and `Room_1`), and a
-thermostat may not take the name of a climate declared in YAML, `internal: true` or not.
+thermostat may not take the name of a climate declared in YAML, `internal: true` or not. Home
+Assistant tells entities apart by an id that keeps only the name's Latin letters, digits, `_`
+and `-`, every other character one `_`: `Кухня` and `Ванна` are both `_____` there, so they
+clash, and a digit or a Latin letter tells such names apart (`Кухня 1`, `Ванна 2`). Two names
+the device's API would key alike clash too, though Home Assistant tells them apart (`Café` and
+`Caf__`).
 
-Home Assistant knows an entity by its name. Renaming a thermostat therefore shows up there as a
-new entity, and Home Assistant removes the old one when it lists the entities again. A
-thermostat that stops or is removed drops out of the entity lists, and so out of Home Assistant;
-one that runs again under the same name gets that entity back there, with what was set for it in
-Home Assistant.
+Home Assistant knows an entity by the id it makes from the name. Renaming a thermostat
+therefore shows up there as a new entity, and Home Assistant removes the old one when it lists
+the entities again; a rename between two names with the same id (`Кухня` to `Ванна`) keeps the
+entity. A thermostat that stops or is removed drops out of the entity lists, and so out of Home
+Assistant; one that runs again under a name with that id gets that entity back there, with what
+was set for it in Home Assistant, and so does a new thermostat whose name has the id of one
+removed.
 
 On the device, the entity of a thermostat that stops keeps its name, and the web server still
 answers that name with a stopped state, as it does for any `internal: true` entity, until

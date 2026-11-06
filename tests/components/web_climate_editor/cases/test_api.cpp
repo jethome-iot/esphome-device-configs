@@ -105,8 +105,9 @@ TEST_F(Editor, SaveRefusesWhatItCannotRead) {
                 "Name is required"},
            Case{R"({"name":"Up/down","sensor_id":"room","heat":{"relay_id":"relay_1"}})", "application/json",
                 "Name cannot contain '/'"},
-           Case{R"({"name":"Кухня","sensor_id":"room","heat":{"relay_id":"relay_1"}})", "application/json",
-                "Use printable ASCII characters only"},
+           // Bytes no browser sends, so not in the contract.
+           Case{"{\"name\":\"Kitchen\xd1\",\"sensor_id\":\"room\",\"heat\":{\"relay_id\":\"relay_1\"}}",
+                "application/json", "Name is not valid UTF-8"},
            Case{R"({"name":")" + std::string(49, 'a') + R"(","sensor_id":"room","heat":{"relay_id":"relay_1"}})",
                 "application/json", "Name is longer than 48 characters"},
            // The codec's rules come first, the name's last.

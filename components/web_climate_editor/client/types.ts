@@ -388,7 +388,7 @@ export interface ClimateSchema {
   faults: ClimateHubFault[]
   /** How many thermostats the firmware has room for; a create past it is 507. */
   max_controllers: number
-  /** Longest name the device accepts, in characters (printable ASCII only). */
+  /** Longest name the device accepts, in characters (code points); at most NAME_MAX_BYTES of UTF-8 too. */
   name_max_length: number
   presets: PresetSchema
   /** Parameters by group, in the order the form shows them. */
@@ -521,8 +521,11 @@ export const STANDARD_PRESETS: ReadonlyArray<StandardPresetName> = [
   'activity'
 ]
 
-/** Longest thermostat name, in characters; the same number /schema serves. */
+/** Longest thermostat or preset name, in characters (code points); the same number /schema serves. */
 export const NAME_MAX_LENGTH = 48
+
+/** And in UTF-8 bytes: 48 letters of a two-byte script fit. */
+export const NAME_MAX_BYTES = 96
 
 /** Longest `sensor_id` or `relay_id`: no object id is longer. */
 export const ENTITY_ID_MAX_LENGTH = 120

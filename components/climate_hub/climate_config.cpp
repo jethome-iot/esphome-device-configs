@@ -23,6 +23,70 @@ std::string text_of(JsonVariantConst value) { return value.is<const char *>() ? 
 
 bool is_ascii_space(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v'; }
 
+bool is_continuation(char c) { return (static_cast<uint8_t>(c) & 0xC0) == 0x80; }
+
+// The length of the well-formed UTF-8 sequence at `i`, 0 for none, and its code point. The
+// second byte's range rules out overlong forms, surrogates and anything past U+10FFFF.
+size_t decode_utf8(const std::string &text, size_t i, uint32_t *code_point) {
+  const auto lead = static_cast<uint8_t>(text[i]);
+  if (lead < 0x80) {
+    *code_point = lead;
+    return 1;
+  }
+  if (lead < 0xC2 || lead > 0xF4)
+    return 0;
+  size_t length = 2;
+  uint8_t low = 0x80;
+  uint8_t high = 0xBF;
+  if (lead >= 0xF0) {
+    length = 4;
+    low = lead == 0xF0 ? 0x90 : low;
+    high = lead == 0xF4 ? 0x8F : high;
+  } else if (lead >= 0xE0) {
+    length = 3;
+    low = lead == 0xE0 ? 0xA0 : low;
+    high = lead == 0xED ? 0x9F : high;
+  }
+  if (i + length > text.size())
+    return 0;
+  uint32_t value = lead & (0x7F >> length);
+  for (size_t k = 1; k < length; k++) {
+    const auto next = static_cast<uint8_t>(text[i + k]);
+    if (next < (k == 1 ? low : 0x80) || next > (k == 1 ? high : 0xBF))
+      return 0;
+    value = (value << 6) | (next & 0x3F);
+  }
+  *code_point = value;
+  return length;
+}
+
+// C0, DEL and C1.
+bool is_control(uint32_t code_point) { return code_point < 0x20 || (code_point >= 0x7F && code_point <= 0x9F); }
+
+// The white space a name loses at either end: ASCII's, and the Unicode spaces a paste brings
+// along (no-break, ideographic and the like), which would make two names look alike.
+bool is_edge_space(uint32_t c) {
+  return c == ' ' || (c >= 0x09 && c <= 0x0D) || c == 0xA0 || c == 0x1680 || (c >= 0x2000 && c <= 0x200A) ||
+         c == 0x2028 || c == 0x2029 || c == 0x202F || c == 0x205F || c == 0x3000 || c == 0xFEFF;
+}
+
+// ESPHome's object id taken per character rather than per byte: a non-ASCII one becomes one
+// '_', or stays as it is with `keep_non_ascii`.
+std::string object_id_per_character(const std::string &name, bool keep_non_ascii) {
+  std::string out;
+  out.reserve(name.size());
+  for (char c : name) {
+    if (static_cast<uint8_t>(c) < 0x80) {
+      out += to_sanitized_char(to_snake_case_char(c));
+    } else if (keep_non_ascii) {
+      out += c;
+    } else if (!is_continuation(c)) {
+      out += '_';
+    }
+  }
+  return out;
+}
+
 void serialize_output(JsonObject obj, const OutputConfig &out) {
   obj["relay_id"] = out.relay_id;
   obj["period_s"] = out.period_s;
@@ -239,25 +303,43 @@ bool validate_id(const std::string &id, std::string *error) {
 }
 
 std::string trim_name(const std::string &name) {
+  uint32_t c;
   size_t begin = 0;
+  for (size_t length; begin < name.size() && (length = decode_utf8(name, begin, &c)) != 0 && is_edge_space(c);)
+    begin += length;
   size_t end = name.size();
-  while (begin < end && is_ascii_space(name[begin]))
-    begin++;
-  while (end > begin && is_ascii_space(name[end - 1]))
-    end--;
+  while (end > begin) {
+    size_t start = end - 1;
+    while (start > begin && is_continuation(name[start]))
+      start--;
+    if (decode_utf8(name, start, &c) != end - start || !is_edge_space(c))
+      break;
+    end = start;
+  }
   return name.substr(begin, end - begin);
 }
+
+static_assert(NAME_MAX_LENGTH == 48 && NAME_MAX_BYTES == 96, "the sentences below name the limits");
 
 bool validate_name(const std::string &name, std::string *error) {
   if (name.empty())
     return fail(error, "Name is required");
-  if (name.size() > NAME_MAX_LENGTH)
-    return fail(error, "Name is longer than 48 characters");
-  for (char c : name) {
-    auto u = static_cast<unsigned char>(c);
-    if (u < 0x20 || u > 0x7E)
-      return fail(error, "Use printable ASCII characters only");
+  size_t chars = 0;
+  bool control = false;
+  for (size_t i = 0; i < name.size(); chars++) {
+    uint32_t code_point;
+    const size_t length = decode_utf8(name, i, &code_point);
+    if (length == 0)
+      return fail(error, "Name is not valid UTF-8");
+    control = control || is_control(code_point);
+    i += length;
   }
+  if (chars > NAME_MAX_LENGTH)
+    return fail(error, "Name is longer than 48 characters");
+  if (name.size() > NAME_MAX_BYTES)
+    return fail(error, "Name is longer than 96 bytes");
+  if (control)
+    return fail(error, "Name cannot contain control characters");
   if (name.find('/') != std::string::npos)
     return fail(error, "Name cannot contain '/'");
   if (name.find('\\') != std::string::npos)
@@ -301,6 +383,25 @@ std::string object_id_of_name(const std::string &name) {
   for (char c : name)
     out += to_sanitized_char(to_snake_case_char(c));
   return out;
+}
+
+std::string ha_object_id_of_name(const std::string &name) { return object_id_per_character(name, false); }
+
+bool non_ascii_clash(const std::string &a, const std::string &b) {
+  return object_id_per_character(a, true) != object_id_per_character(b, true);
+}
+
+std::string fit_name(const std::string &name, size_t max_chars, size_t max_bytes) {
+  size_t end = 0;
+  for (size_t chars = 0; end < name.size() && chars < max_chars; chars++) {
+    size_t next = end + 1;
+    while (next < name.size() && is_continuation(name[next]))
+      next++;
+    if (next > max_bytes)
+      break;
+    end = next;
+  }
+  return name.substr(0, end);
 }
 
 void ClimateConfig::serialize(JsonObject root) const {

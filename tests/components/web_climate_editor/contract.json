@@ -194,6 +194,16 @@
       },
       "mode": "off",
       "setpoint": 20
+    },
+    "kitchen": {
+      "name": "Кухня",
+      "kind": "bang_bang",
+      "sensor_id": "temp_2",
+      "heat": {
+        "relay_id": "relay_2"
+      },
+      "mode": "heat",
+      "setpoint": 21
     }
   },
   "cases": [
@@ -736,6 +746,88 @@
       "error": "Name is longer than 48 characters"
     },
     {
+      "name": "A name in any script is saved as it is, its id the fallback",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Кухня",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 200,
+      "expect": {
+        "message": "Thermostat created",
+        "id": "climate"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=climate",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "name": "Кухня"
+          }
+        }
+      ]
+    },
+    {
+      "name": "A name of 49 letters in any script is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "жжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжж",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 400,
+      "error": "Name is longer than 48 characters"
+    },
+    {
+      "name": "A name over 96 bytes is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "жжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжжж€",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 400,
+      "error": "Name is longer than 96 bytes"
+    },
+    {
+      "name": "A name with a control character is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living\troom",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 400,
+      "error": "Name cannot contain control characters"
+    },
+    {
       "name": "The file format's rules come before the name's",
       "method": "POST",
       "path": "save",
@@ -939,6 +1031,48 @@
       },
       "status": 409,
       "error": "\"Living_Room\" is too close to \"Living Room\": both are living_room to Home Assistant"
+    },
+    {
+      "name": "Two names Home Assistant reads as one in another script are 409, saying what tells them apart",
+      "setup": [
+        "kitchen"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Ванна",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 409,
+      "error": "\"Ванна\" is too close to \"Кухня\": both are _____ to Home Assistant, which reads every character but a Latin letter, a digit, '-' or '_' as '_'; a digit or a Latin letter makes them distinct"
+    },
+    {
+      "name": "A digit tells two names in another script apart",
+      "setup": [
+        "kitchen"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Ванна 2",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 200,
+      "expect": {
+        "id": "2"
+      }
     },
     {
       "name": "A climate's name from the YAML is 409",
@@ -2114,7 +2248,30 @@
       "error": "Preset 1: Name is longer than 48 characters"
     },
     {
-      "name": "A preset name outside printable ASCII is 400",
+      "name": "A preset name with a control character is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Living Room",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22,
+        "presets": [
+          {
+            "name": "Late\tnight",
+            "setpoint": 18
+          }
+        ]
+      },
+      "status": 400,
+      "error": "Preset 1: Name cannot contain control characters"
+    },
+    {
+      "name": "A preset name in any script is kept, its key made of nothing it can slugify",
       "method": "POST",
       "path": "save",
       "body": {
@@ -2130,11 +2287,31 @@
           {
             "name": "Ночь",
             "setpoint": 18
+          },
+          {
+            "name": "День",
+            "setpoint": 21
           }
         ]
       },
-      "status": 400,
-      "error": "Preset 1: Use printable ASCII characters only"
+      "status": 200,
+      "expect": {
+        "id": "living-room"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "presets.0.key": "preset",
+            "presets.0.name": "Ночь",
+            "presets.1.key": "preset-2",
+            "presets.1.name": "День"
+          }
+        }
+      ]
     },
     {
       "name": "A preset name with a slash is 400",

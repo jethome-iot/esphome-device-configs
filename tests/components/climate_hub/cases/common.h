@@ -359,6 +359,14 @@ inline std::string object_id(const EntityBase &entity) {
   return std::string(entity.get_object_id_to(buf));
 }
 
+// `text` `n` times over: a name of `n` letters in a script of more than one byte each.
+inline std::string repeat(const std::string &text, size_t n) {
+  std::string out;
+  for (size_t i = 0; i < n; i++)
+    out += text;
+  return out;
+}
+
 // What web_server answers /climate/<name> with: the first climate by that name, hidden or not.
 inline climate::Climate *web_server_match(const std::string &name) {
   for (auto *climate : App.get_climates()) {
