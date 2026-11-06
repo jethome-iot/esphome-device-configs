@@ -1,0 +1,10 @@
+# On while a saved change waits for a reboot to apply, whichever feature saved it: a new
+# reason is one more term here, and one more in the dashboard's /api/device/status
+# reboot_reasons. The status LED shows it as code 4. Internal: a visible binary sensor
+# would be offered as an input to invert, bind to a relay or trigger on.
+binary_sensor:
+  - platform: template
+    id: reboot_required
+    internal: true
+    # Temperature slots assigned or forgotten since boot.
+    lambda: return id(temps)->reboot_required();

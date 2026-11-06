@@ -41,12 +41,13 @@ SKIP=build-dist pre-commit run --all-files # what the CI lint job runs
 Build output lands next to the config:
 `devices/JXD/.esphome/build/<name>/build/firmware.{factory,ota}.bin`.
 
-`esphome run --device` needs **Allow ESPHome updates** on, or the upload stops at
-`Authentication invalid`. It turns itself off after 30 minutes and at every reboot; from the
-shell:
+`esphome run --device` needs **Allow uploads from ESPHome** on, or the upload stops at
+`Authentication invalid`. It turns itself off after 30 minutes, at every reboot, whenever the
+API key is set or cleared, and, on a device Home Assistant has not added, 15 minutes after a
+boot: turn it on again then. From the shell:
 
 ```bash
-curl --digest -u admin:admin -X POST -d '' 'http://<ip>/switch/Allow%20ESPHome%20updates/turn_on'
+curl --digest -u admin:admin -X POST -d '' 'http://<ip>/switch/Allow%20uploads%20from%20ESPHome/turn_on'
 ```
 
 A config without `password: ""` under `ota: - platform: esphome`, such as one imported into the
