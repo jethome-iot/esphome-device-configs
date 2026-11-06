@@ -122,6 +122,15 @@ TEST_F(Editor, SaveTakesTwoLongNamesThatStartAlike) {
   EXPECT_EQ(this->files().size(), 2u);
 }
 
+TEST_F(Editor, SaveRefusesAControlCharacterInTheName) {
+  std::string json = PORCH_LIGHT;
+  json.replace(json.find("Porch light"), 11, "Porch\\u0007light");
+  Reply reply = this->post("save", json);
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "Name cannot contain control characters");
+  EXPECT_TRUE(this->files().empty());
+}
+
 TEST_F(Editor, SaveRefusesWhatItCannotRead) {
   struct Case {
     const char *body;

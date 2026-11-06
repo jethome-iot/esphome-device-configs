@@ -24,7 +24,7 @@ import type {
 } from '../types'
 import type { FetchImpl } from '../automationApi'
 import { normalizeCron, validateCronExpression } from '../cron'
-import { isNameTaken } from '../naming'
+import { isNameTaken, nameProblem } from '../naming'
 
 // The firmware does NOT store a posted cron string — it parses each field into an
 // integer set and RE-SERIALISES on every read, so `1,7` comes back as `*/6`.
@@ -388,6 +388,8 @@ export function createAutomationMockStore(options: AutomationMockStoreOptions = 
         if (cfg.id > 0 && !automations.some((a) => a.id === cfg.id)) {
           return { status: 404, body: { success: false, error: 'Automation not found' } }
         }
+        const problem = nameProblem(cfg.name)
+        if (problem) return { status: 400, body: { success: false, error: problem } }
         // Fail closed: a rule naming what the device does not have is refused with the reason.
         const missing = buildError(cfg)
         if (missing) return { status: 400, body: { success: false, error: missing } }

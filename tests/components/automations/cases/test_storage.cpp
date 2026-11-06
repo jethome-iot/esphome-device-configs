@@ -313,6 +313,43 @@ TEST_F(Storage, FilenamesAreSanitized) {
   EXPECT_EQ(files(), expected);
 }
 
+TEST_F(Storage, ANameIsAnyScriptButNoControlCharacter) {
+  boot();
+  uint32_t id = 0;
+  for (const char *name : {"Кухня свет", "Küche Licht", "Żółć", "🔥 Boiler", "Ελλάδα"}) {
+    id = engine->add_automation(rule(startup_rule(name).c_str()));
+    EXPECT_NE(id, 0u) << name;
+  }
+  struct Case {
+    std::string name;
+    const char *error;
+  };
+  for (const Case &c :
+       {Case{"Bell\a", "Name cannot contain control characters"},
+        Case{"Tab\there", "Name cannot contain control characters"},
+        Case{"Del\x7f", "Name cannot contain control characters"},
+        Case{"Next\xc2\x85line", "Name cannot contain control characters"}, Case{"Cut \xd0", "Name is not valid UTF-8"},
+        Case{"Bad \xff byte", "Name is not valid UTF-8"}, Case{"Overlong \xc0\xaf", "Name is not valid UTF-8"},
+        Case{"Surrogate \xed\xa0\x80", "Name is not valid UTF-8"}}) {
+    AutomationConfig config = rule(startup_rule("Placeholder").c_str());
+    config.name = c.name;
+    std::string error;
+    EXPECT_EQ(engine->add_automation(config, &error), 0u) << c.error;
+    EXPECT_EQ(error, c.error);
+    error.clear();
+    EXPECT_FALSE(engine->update_automation(id, config, &error)) << c.error;
+    EXPECT_EQ(error, c.error);
+  }
+  EXPECT_EQ(names(), (std::vector<std::string>{"Кухня свет", "Küche Licht", "Żółć", "🔥 Boiler", "Ελλάδα"}));
+}
+
+// A file written before the rule was refused still loads: the panel shows the character as `?`.
+TEST_F(Storage, AControlCharacterInAStoredNameStillLoads) {
+  write("bell.json", R"({"id":1,"name":"Bell\u0007","triggers":[{"source":"startup"}]})");
+  boot();
+  EXPECT_EQ(names(), (std::vector<std::string>{"Bell\a"}));
+}
+
 // The two agree in their first 48 bytes, all a file name holds.
 TEST_F(Storage, LongNamesThatStartAlikeAreTwoRules) {
   const std::string weekdays = "Свет на кухне по вечерам в будни";

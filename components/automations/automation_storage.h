@@ -57,6 +57,8 @@ class AutomationStorage : public Component {
   /// Names collide by their key, the file name before it is cut to fit; `exclude_id` never
   /// blocks itself.
   bool is_name_taken(const std::string &name, uint32_t exclude_id = 0) const;
+  /// A name is any UTF-8 text without control characters; `error` says which rule it breaks.
+  static bool check_name(const std::string &name, std::string *error = nullptr);
   /// The names of the rules whose trigger or condition names the binary sensor `key` (its object
   /// id's fnv1 hash), built or not: one that found no such input still names it. Loop task, as
   /// configs().

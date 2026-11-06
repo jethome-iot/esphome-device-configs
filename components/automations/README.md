@@ -55,8 +55,9 @@ automations:
 }
 ```
 
-Entities are named by their object id. Any trigger fires the rule; the condition, when there is
-one, picks `actions` or `else_actions`.
+A name is any text in any script, without control characters. Entities are named by their
+object id. Any trigger fires the rule; the condition, when there is one, picks `actions` or
+`else_actions`.
 
 | Key                 | Values                                                                      |
 | ------------------- | --------------------------------------------------------------------------- |
@@ -165,6 +166,8 @@ callback, say) they refuse and return false.
   engine failed at boot, the loop never took it, or the call came from inside a rule's own
   action)
 - `is_name_taken(name, exclude_id = 0)`: names collide by the file name they spell before the cut
+- `check_name(name, &error)`: false for a name that is not UTF-8 or carries a control character;
+  `add_automation` and `update_automation` refuse such a name with that reason
 - `rules_naming_binary_sensor(key)`: the names of the rules whose trigger or condition names the
   binary sensor with that object id hash, built or not; loop task
 - `rebuild_rules_naming_binary_sensor(key)`: that sensor came or went, so those rules are built or
