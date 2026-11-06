@@ -152,7 +152,11 @@ checks from the native API, as Home Assistant sees it, that:
   keeps the mode leaves it as it was;
 - a values-only edit of the presets makes no client reconnect, and the active preset's new target
   applies at once;
-- the active preset survives a restart of the emulator.
+- gain sets are saved, renamed (in another script), applied into the thermostat's file and
+  deleted, and a deleted set's number is not given again; a sets file written back over the file
+  API, as a restore writes it, lists whole in chunks and pages by `after` and `limit`;
+- the active preset, the applied set's gains and the sets survive a restart of the emulator;
+- deleting the thermostat deletes its sets.
 
 It prints one line per check and stops at the first failure with exit status 1. On the way out,
 Ctrl-C and a closed terminal included, it deletes the thermostat, or warns that it could not

@@ -78,7 +78,8 @@ other relay keeping its own, and runs with them. An
 editor page opened before can no longer save over them: its Save is refused until it reloads, as
 it is after a thermostat was brought back from a backup over the one it shows.
 The result, the gains it replaced and any warning about it stay in the thermostat's status until
-the next calibration, a delete or a reboot.
+the next calibration, a delete or a reboot, and the result is kept for good as a
+[saved gain set](#saved-gain-sets).
 
 A calibration ends without new gains when it is cancelled, when the target or the mode changes
 from anywhere (Home Assistant, the web server, the editor, a rule, a schedule, a preset), when
@@ -86,6 +87,62 @@ the thermostat is saved, brought back from a backup, switched off, deleted or ta
 fault, after 24 hours, after 6 hours without a relay switch (a heater that cannot cross the
 band), or when a noisy probe crosses the target more than 65 times. A reboot ends it too. The
 status says which, and the thermostat goes back to its PID with the gains it had.
+
+### Which rule to pick
+
+| Heating | Rule |
+| --- | --- |
+| Radiators or a floor heating sized for the room, or not sure | Ziegler–Nichols PI, the default |
+| An electric convector or panel heater | Pessen integral if the relay may switch about a third more often, Ziegler–Nichols PI otherwise |
+| A heater that only just keeps the room warm in the cold | Pessen integral |
+
+What simulated rooms showed:
+
+- With radiators and floors sized for the room, Ziegler–Nichols PI held the target best of the
+  five rules and switched the relay least. The rules with a derivative term switched a floor's
+  relay almost twice as often for no better control.
+- Some overshoot and No overshoot reach the target slowest, and in most rooms they overshot more
+  than Ziegler–Nichols PI, not less.
+- Calibrate rather than keep the default gains: those keep most rooms swinging around the target.
+- Calibrate once, with the room near its target and in mild weather. On a cold day a floor heating
+  runs most of the time just to keep up, so the room may not cross the band in 6 hours, and the
+  calibration ends with `no_switch`.
+- Right after a calibration the PID starts over, so the room dips one to two degrees below the
+  target, more with a heater that only just keeps up. It is back at the target within an hour to
+  a few with radiators, five to nine hours with a floor heating.
+- A probe whose readings jitter by more than about 0.1 °C spoils the gains while the calibration
+  still succeeds: they come out far too sharp and the room swings. A DS18B20 read every 20 s is
+  fine. When the result warns `uneven`, calibrate again, or apply the gain set an earlier
+  calibration saved.
+- Keep the relay's minimum on and off times under about a third of the PWM period (300 s by
+  default): longer ones keep the relay from delivering the heat the PID asks for, and the room
+  never settles.
+- A heating relay's gains hardly change with the season, unless the boiler's supply temperature
+  follows the weather. Then calibrate once in each season and keep a gain set for each, to apply
+  when the season turns.
+
+## Saved gain sets
+
+Every calibration that succeeds is kept as a gain set of its thermostat: the gains it wrote, the
+rule, what it measured and its warnings, named after the date and time it ended and the rule
+(`2026-10-26 14:05 ZN PI`), or, while the device's clock is not set, after the relay, the rule
+and a number (`Heat ZN PI #3`). A thermostat keeps as many as the storage has room for. From the
+editor:
+
+- **Save the gains a relay has now** as a set, the ones typed in by hand among them, to come back
+  to after trying others.
+- **Apply a set**: its gains become those of its relay, the other relay keeping its own. A
+  running PID goes on with them at once and keeps what it had learnt. An editor page opened
+  before has to reload before it can save. Not while the thermostat calibrates.
+- **Another rule for the same measurement**: a calibration's set keeps the room's Ku and Pu, so
+  the gains of another rule come from them without calibrating again, as a new set that says
+  which one it came from, applied at once if asked.
+- **Rename** a set, up to 48 characters in any script, or **delete** it. Two sets may share a
+  name; a deleted set's number is never given to another.
+
+A season can keep its own set: one calibrated in winter and one in spring, say, applied as the
+weather turns. With less than 64 KiB free on the storage no new set is saved; a calibration then
+still writes its gains into the thermostat, and its result says that no set was saved.
 
 ## A running thermostat's relays
 
@@ -122,6 +179,12 @@ Thermostats are `/littlefs/climates/<id>.json` on the LittleFS partition from
 The device keeps at most eight. OTA updates keep the files; a factory reset formats the
 partition, so the thermostats go with it. A file dropped into the folder, over the file API
 under `/files` for instance, is loaded at the next boot.
+
+Each thermostat's gain sets are `/littlefs/climates/gains/<id>.jsonl`, one set per line.
+Deleting the thermostat deletes them, and a new thermostat that gets the id of one deleted before
+starts with none. The dashboard's Backup takes the folder with the thermostats, and its Restore
+writes the sets back before it brings the thermostat back, so they return together. A file the
+boot does not load keeps its sets beside it.
 
 A file written by a newer firmware, after a rollback say, loads and runs as far as this one
 understands it, but this firmware never writes it: a change from Home Assistant, the panel or a
@@ -167,7 +230,8 @@ it.
 `features/climate-editor.yaml` serves the thermostats on the web server port under
 `/climate-editor/api`: list them, read, create, change and delete one, bring one back from a
 backup under its own id with its presets as they were, edit and pick its presets, start or stop
-it, move its target, calibrate it, and watch what each one is doing and which preset is active.
+it, move its target, calibrate it, keep, apply and derive its gain sets, and watch what each one
+is doing and which preset is active.
 The routes and their contract are in
 [components/web_climate_editor/openapi.yaml](../components/web_climate_editor/openapi.yaml),
 the usage in [its README](../components/web_climate_editor/README.md).

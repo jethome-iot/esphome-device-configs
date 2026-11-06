@@ -142,10 +142,10 @@ export interface ControllerDocument {
    */
   version: number
   /**
-   * Moves on when a calibration writes new gains and when an /import replaces the thermostat; a
-   * Save or any other write never moves it, and a new thermostat has 0. A Save that sends one other
-   * than the device's is 409 (STALE_DOCUMENT): the form was read before, and would write the old
-   * values back.
+   * Moves on when a calibration writes new gains, when a gain set is applied and when an /import
+   * replaces the thermostat; a Save or any other write never moves it, and a new thermostat has 0.
+   * A Save that sends one other than the device's is 409 (STALE_DOCUMENT): the form was read
+   * before, and would write the old values back.
    */
   revision: number
   /** Immutable slug and the document's file name; a rename never changes it. */
@@ -236,6 +236,8 @@ export interface ControllerSummary {
   cool_relay_id: string
   /** Enabled and bound to its sensor and relays. Enabled but not running, it waits: see `waiting`. */
   running: boolean
+  /** As ControllerDocument.revision, so an editor with the document open sees the device move it on. */
+  revision: number
   /**
    * Why an enabled thermostat does not run, the latest reason in a SaveResponse.warning's words
    * ("not started: sensor 'attic' not found"); "" when it runs or is disabled.
@@ -342,7 +344,86 @@ export interface AutotuneStatus {
    * the thermostat is written, by the device's retry or any later change.
    */
   persisted: boolean
+  /**
+   * The gain set a success was saved as, under its name now; null while it runs, after a failure,
+   * once that set is deleted, and when the set could not be written.
+   */
+  set: GainSetRef | null
 }
+
+/** Where a saved set's gains came from. A newer firmware's word comes as it is. */
+export type GainSetSource = 'calibration' | 'derived' | 'manual'
+
+/** A gain set by its number and its name, as /status names the one a calibration saved. */
+export interface GainSetRef {
+  n: number
+  name: string
+}
+
+/**
+ * One saved set of a relay's gains, keys in this order. A thermostat has any number; a delete
+ * takes them with it, an import keeps them.
+ */
+export interface GainSet {
+  /** From 1 within the thermostat, never given again there, a deleted set's included. */
+  n: number
+  /**
+   * 1..GAIN_SET_NAME_MAX_LENGTH characters in any script, no control characters; two sets may
+   * share one. A set given none is named for the local time it was saved at and how it was made
+   * ("2026-11-06 14:05 ZN PI"), or, while the device's clock is not set, for its relay, how it was
+   * made and its number ("Heat manual #3").
+   */
+  name: string
+  /** The relay whose gains these are; an apply writes them there. */
+  direction: RelayDirection
+  source: GainSetSource
+  /** The rule that turned Ku and Pu into the gains; null for a manual set. */
+  rule: AutotuneRule | null
+  /** What the calibration measured, Pu in seconds; null for a manual set, which cannot be derived from. */
+  ku: number | null
+  pu: number | null
+  kp: number
+  ki: number
+  kd: number
+  /** The calibration's warnings; a derived set keeps `asymmetric` and `uneven`, `clamped` is its own rule's. */
+  flags: AutotuneFlag[]
+  /** When it was saved, UTC seconds since the epoch; null while the device's clock was not set. */
+  time: number | null
+  /** The set a derived one was made from. */
+  from: number | null
+}
+
+/**
+ * GET /gains: the sets after `after`, oldest first, at most `limit` of them; `more` when the
+ * thermostat has others after the last one.
+ */
+export interface GainSetsResponse {
+  success: true
+  sets: GainSet[]
+  more: boolean
+}
+
+/** POST /gains/add and /gains/rename: the set as it is now. */
+export interface GainSetResponse extends SuccessResponse {
+  set: GainSet
+}
+
+/**
+ * POST /gains/apply: the set's gains are its relay's now, held in the parameters' ranges, and the
+ * thermostat's revision moved on to `revision`, so a form read before can take it and Save again.
+ * `persisted` is false when they run but did not reach the file. `warning` is there when the
+ * thermostat could not restart on them, and waits; worded as SaveResponse.warning.
+ */
+export interface GainSetApplyResponse extends SuccessResponse {
+  revision: number
+  persisted: boolean
+  warning?: string
+}
+
+/** POST /gains/derive: the new set; with apply=true what /gains/apply answers besides. */
+export interface GainSetDeriveResponse
+  extends GainSetResponse,
+    Partial<Omit<GainSetApplyResponse, 'success' | 'message'>> {}
 
 export interface ControllerStatus {
   id: string
@@ -506,7 +587,7 @@ export interface ErrorResponse {
   error: string
 }
 
-/** A save body larger than this is refused with 413 before it is parsed. */
+/** A body of /save, /import or a gain set route larger than this is refused with 413 before it is parsed. */
 export const CONFIG_MAX_BYTES = 8192
 
 /** The file format this contract describes; a document with a higher `version` came from a newer firmware. */
@@ -517,9 +598,25 @@ export const NEWER_FILE = 'A newer firmware wrote this thermostat; update the fi
 
 /**
  * The 409 error of a Save whose `revision` is not the device's, in the device's words: the form
- * was read before a calibration wrote new gains, or before an import replaced the thermostat.
+ * was read before a calibration wrote new gains, a gain set was applied, or an import replaced
+ * the thermostat.
  */
 export const STALE_DOCUMENT = 'The device changed this thermostat since it was read; reload it'
+
+/** The 404 error of a gain set route whose `set` the thermostat does not have, in the device's words. */
+export const GAIN_SET_NOT_FOUND = 'Gain set not found'
+
+/** The 409 error of an apply, or a derive with apply=true, while the thermostat calibrates. */
+export const CALIBRATION_RUNNING = 'A calibration is running; apply a gain set once it ends or is cancelled'
+
+/** The 409 error of a derive from a set without Ku and Pu: a manual one. */
+export const NO_MEASUREMENT = 'This set has no Ku and Pu'
+
+/** Longest gain set name, in characters (code points). */
+export const GAIN_SET_NAME_MAX_LENGTH = 48
+
+/** Most sets one GET /gains answers with, and its default `limit`. */
+export const GAIN_SET_PAGE_MAX = 200
 
 /** The tuning rules, in the order the dashboard offers them; the first is the default. */
 export const AUTOTUNE_RULES: ReadonlyArray<AutotuneRule> = ['zn_pi', 'zn_pid', 'pessen', 'some_overshoot', 'no_overshoot']

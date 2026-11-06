@@ -2,15 +2,16 @@ openapi: 3.1.0
 
 info:
   title: web_climate_editor HTTP API
-  version: 2.0.0
+  version: 2.1.0
   description: >-
     JSON/REST API of the `climate_hub` thermostats, served by the
     `web_climate_editor` component on the device's own web server (default
     prefix `/climate-editor`, routes under `<prefix>/api/`). List, read,
     create, change, start, stop and delete thermostats, bring one back from a
     backup under its own id, edit and pick their presets, move a target,
-    calibrate a PID thermostat, watch the control loop, and discover the
-    sensors and relays a thermostat may name. ESP-IDF (ESP32) only.
+    calibrate a PID thermostat, keep its relays' gains as saved sets and put
+    one back, watch the control loop, and discover the sensors and relays a
+    thermostat may name. ESP-IDF (ESP32) only.
 
     This document is the wire contract; the TypeScript client and mock in
     `client/` implement it, and `client/types.ts` is where a shape changes
@@ -616,7 +617,9 @@ paths:
         ultimate gain and period of the room, `rule` turns them into kp, ki and
         kd, and the device writes them into the thermostat as that relay's
         gains, `pid.heat` or `pid.cool`, and runs with them, its `revision`
-        moved on; the other relay keeps its own. A room with radiators takes
+        moved on; the other relay keeps its own. The result is also saved as a
+        gain set of the thermostat's (see `/gains`), unless less than 64 KiB is
+        free on the storage. A room with radiators takes
         about an hour and a half, a floor heating eight to ten hours; start
         near the target, since
         a floor that needs more than 6 hours to reach the band ends the run as
@@ -739,6 +742,301 @@ paths:
         "503":
           $ref: "#/components/responses/Busy"
 
+  /gains:
+    get:
+      tags: [read]
+      operationId: listGainSets
+      summary: A thermostat's saved gain sets, oldest first, a page at a time.
+      description: >-
+        Every calibration that succeeds saves the gains it found as a set, and
+        a client may save the gains a relay has, rename a set, delete it, put
+        its gains back into the relay (`/gains/apply`) or make another rule's
+        gains from its Ku and Pu (`/gains/derive`). A thermostat may keep any
+        number of them; this answers those with an `n` above `after`, at most
+        `limit`, and `more` says whether others follow: the next page is
+        `after` the last `n` of this one. The sets live in a file of their own
+        beside the thermostat's, which the device reads as it answers, so the
+        listing never waits for the whole of it.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+        - name: after
+          in: query
+          required: false
+          description: Only sets with a higher `n`; `0` when left out. Digits only.
+          schema:
+            type: string
+            pattern: "^[0-9]{1,10}$"
+        - name: limit
+          in: query
+          required: false
+          description: At most this many, 1 to 200; `200` when left out.
+          schema:
+            type: string
+            pattern: "^[0-9]{1,10}$"
+      responses:
+        "200":
+          description: The page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GainSetsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /gains/add:
+    post:
+      tags: [write]
+      operationId: addGainSet
+      summary: Save the gains a relay has now as a new set.
+      description: >-
+        The gains of the relay of `direction`, or of the relay the thermostat's
+        mode drives when it is left out, go into a new set with the next `n`;
+        the thermostat itself does not change. A body may name it; without a
+        name the set is named after the local date and time it was saved,
+        `2026-11-06 14:05 manual`, or, while the device's clock is not set,
+        after its relay and number, `Heat manual #3`. Two sets may share a
+        name.
+
+        `400` for a malformed parameter or body, or a name that breaks the
+        rules; then `404`, `409` for a relay the thermostat does not have, and
+        `507` when less than 64 KiB is free on the storage.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+        - name: direction
+          in: query
+          required: false
+          description: The relay whose gains to keep; its mode's when left out.
+          schema:
+            $ref: "#/components/schemas/RelayDirection"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GainSetNameBody"
+      responses:
+        "200":
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GainSetResponse"
+        "400":
+          $ref: "#/components/responses/GainSetBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          description: The thermostat has no relay in that direction.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                success: false
+                error: The thermostat has no cooling relay
+        "413":
+          $ref: "#/components/responses/GainSetBodyTooLarge"
+        "500":
+          $ref: "#/components/responses/GainSetsNotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+        "507":
+          $ref: "#/components/responses/GainSetNoRoom"
+
+  /gains/rename:
+    post:
+      tags: [write]
+      operationId: renameGainSet
+      summary: Rename a set.
+      description: >-
+        The rest of the set stays as it is. `400` for a malformed parameter or
+        body, or a name that breaks the rules, `Name is required` for none;
+        then `404` for the thermostat or the set.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+        - $ref: "#/components/parameters/SetQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GainSetNameBody"
+      responses:
+        "200":
+          description: Renamed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GainSetResponse"
+        "400":
+          $ref: "#/components/responses/GainSetBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/GainSetNotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/GainSetBodyTooLarge"
+        "500":
+          $ref: "#/components/responses/GainSetsNotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /gains/delete:
+    post:
+      tags: [write]
+      operationId: deleteGainSet
+      summary: Delete a set.
+      description: >-
+        Its `n` is never given to another set of the thermostat. `400` for a
+        malformed parameter, then `404` for the thermostat or the set.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+        - $ref: "#/components/parameters/SetQuery"
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessEnvelope"
+              example:
+                success: true
+                message: Gain set deleted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/GainSetNotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/GainSetsNotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /gains/apply:
+    post:
+      tags: [write]
+      operationId: applyGainSet
+      summary: Put a set's gains into its relay.
+      description: >-
+        The set's gains become the gains of its relay, `pid.heat` or
+        `pid.cool`, the other relay keeping its own, and the thermostat's
+        `revision` moves on, as after a calibration: a form read before cannot
+        Save the old gains back (`409`). A running PID goes on with them from
+        its next pass, keeping what it had learnt, as after a Save. The set
+        stays.
+
+        `400` for a malformed parameter; then `404` for the thermostat or the
+        set; `409` for a thermostat whose file a newer firmware wrote, one that
+        no longer has the set's relay, and one that calibrates.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+        - $ref: "#/components/parameters/SetQuery"
+      responses:
+        "200":
+          description: Applied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GainSetApplyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/GainSetNotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/GainSetNotApplied"
+        "500":
+          $ref: "#/components/responses/NotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+
+  /gains/derive:
+    post:
+      tags: [write]
+      operationId: deriveGainSet
+      summary: Make another rule's gains from a set's Ku and Pu.
+      description: >-
+        A new set with `rule`'s gains for the Ku and Pu of set `set`, which a
+        calibration measured: no new calibration needed. It keeps the parent's
+        `asymmetric` and `uneven` and has `clamped` when one of its own gains
+        had to be held in its range; `from` names the parent, which stays as
+        it is. Named as `/gains/add` names a set, with the rule's label in
+        place of `manual`. With `apply=true` it is also applied as
+        `/gains/apply` applies a set, and an apply that would be refused adds
+        nothing.
+
+        `400` for a malformed parameter or body, or a name that breaks the
+        rules; then `404` for the thermostat or the set; `409` for a set
+        without Ku and Pu, one saved by hand, and with `apply=true` as
+        `/gains/apply`; `507` when less than 64 KiB is free on the storage.
+      parameters:
+        - $ref: "#/components/parameters/IdQuery"
+        - $ref: "#/components/parameters/SetQuery"
+        - name: rule
+          in: query
+          required: true
+          description: The rule for the new gains. `Missing rule parameter`, `Invalid rule parameter`.
+          schema:
+            $ref: "#/components/schemas/AutotuneRule"
+        - name: apply
+          in: query
+          required: false
+          description: "`true` applies the new set at once; `false` when left out."
+          schema:
+            type: string
+            enum: ["true", "false"]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GainSetNameBody"
+      responses:
+        "200":
+          description: Derived, and applied with `apply=true`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GainSetDeriveResponse"
+        "400":
+          $ref: "#/components/responses/GainSetBadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/GainSetNotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/GainSetNotApplied"
+        "413":
+          $ref: "#/components/responses/GainSetBodyTooLarge"
+        "500":
+          $ref: "#/components/responses/GainSetsNotWritten"
+        "503":
+          $ref: "#/components/responses/Busy"
+        "507":
+          $ref: "#/components/responses/GainSetNoRoom"
+
   /status:
     get:
       tags: [read]
@@ -855,6 +1153,15 @@ components:
       schema:
         $ref: "#/components/schemas/Id"
       example: living-room
+    SetQuery:
+      name: set
+      in: query
+      required: true
+      description: A gain set's `n`, as `/gains` lists it. `Missing set parameter` without one, `Invalid set parameter` for anything but digits from 1 to 4294967295.
+      schema:
+        type: string
+        pattern: "^[0-9]{1,10}$"
+      example: "12"
 
   responses:
     Unauthorized:
@@ -1009,6 +1316,113 @@ components:
               value:
                 success: false
                 error: Thermostat storage is not available
+    GainSetBadRequest:
+      description: >-
+        A malformed parameter, a body that is not a JSON object with a string
+        `name` in it, or a name that breaks the rules: 1 to 48 characters in
+        any script, valid UTF-8, no control characters.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            parameter:
+              value:
+                success: false
+                error: Invalid set parameter
+            body:
+              value:
+                success: false
+                error: name must be a string
+            length:
+              value:
+                success: false
+                error: Name is longer than 48 characters
+            control:
+              value:
+                success: false
+                error: Name cannot contain control characters
+            utf8:
+              value:
+                success: false
+                error: Name is not valid UTF-8
+            required:
+              summary: "/gains/rename"
+              value:
+                success: false
+                error: Name is required
+    GainSetNotFound:
+      description: No thermostat has that id, or it has no set with that `n`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            thermostat:
+              value:
+                success: false
+                error: Thermostat not found
+            set:
+              value:
+                success: false
+                error: Gain set not found
+    GainSetNotApplied:
+      description: The set's gains cannot go into the thermostat now, or the set has nothing to derive from.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            calibrating:
+              value:
+                success: false
+                error: A calibration is running; apply a gain set once it ends or is cancelled
+            relay:
+              value:
+                success: false
+                error: The thermostat has no cooling relay
+            newerFirmware:
+              value:
+                success: false
+                error: A newer firmware wrote this thermostat; update the firmware to change it
+            measurement:
+              summary: "/gains/derive"
+              value:
+                success: false
+                error: This set has no Ku and Pu
+    GainSetBodyTooLarge:
+      description: The body is over 8 KiB.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Request body over 8 KiB
+    GainSetsNotWritten:
+      description: Nothing changed; the sets file could not be written, or the thermostats' storage was not usable at boot.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            file:
+              value:
+                success: false
+                error: The gain sets file could not be written
+            storage:
+              value:
+                success: false
+                error: Thermostat storage is not available
+    GainSetNoRoom:
+      description: Less than 64 KiB is free on the storage, which the thermostats' own files need more.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            success: false
+            error: Less than 64 KiB is free on the storage; delete gain sets or files to make room for another
     Busy:
       description: The main loop did not take the request in time. Nothing was read or written; ask again.
       content:
@@ -1619,6 +2033,7 @@ components:
         - heat_relay_id
         - cool_relay_id
         - running
+        - revision
         - waiting
         - active_preset
         - active_preset_name
@@ -1645,6 +2060,13 @@ components:
           description: >-
             Enabled, and its sensor and relays were there to run on. Enabled
             and not running, it waits: see `waiting`.
+        revision:
+          type: integer
+          minimum: 0
+          description: >-
+            The document's `revision`: an editor that has it open sees here
+            that a calibration, an applied gain set or an import moved it on,
+            and that its Save would be refused.
         waiting:
           $ref: "#/components/schemas/Waiting"
         active_preset:
@@ -1825,7 +2247,7 @@ components:
         until the next one, a delete or a reboot.
       required:
         [state, reason, direction, rule, setpoint, phase, aim, swings, elapsed_s, extremes, ku, pu, flags, old, new,
-         persisted]
+         persisted, set]
       properties:
         state:
           type: string
@@ -1922,6 +2344,14 @@ components:
             False when the gains it found run but did not reach the file, so a
             reboot loses them; true again once the thermostat is written, by the
             device's retry a few seconds later or any later change.
+        set:
+          oneOf:
+            - $ref: "#/components/schemas/GainSetRef"
+            - type: "null"
+          description: >-
+            The gain set it saved its result as, under the name the set has
+            now; `null` while it runs, when it failed, when the storage had no
+            room for a set, and once that set is deleted.
       example:
         state: succeeded
         reason: ""
@@ -1945,6 +2375,7 @@ components:
         old: {kp: 0.6, ki: 0.0025, kd: 0}
         new: {kp: 0.436022, ki: 0.000278, kd: 0}
         persisted: true
+        set: {n: 3, name: "2026-11-06 14:05 ZN PI"}
 
     StatusResponse:
       type: object
@@ -2173,6 +2604,175 @@ components:
         success: true
         message: Preset applied
         persisted: true
+
+    GainSetName:
+      type: string
+      minLength: 1
+      description: >-
+        1 to 48 characters in any script, trimmed, without control characters;
+        two sets may share one.
+      example: Winter, radiators
+
+    GainSetNameBody:
+      type: object
+      properties:
+        name:
+          oneOf:
+            - $ref: "#/components/schemas/GainSetName"
+            - type: "null"
+          description: >-
+            Left out, `null` or blank, a new set takes the name of the local date
+            and time it was saved and its rule's label (`2026-11-06 14:05 ZN PI`),
+            or, while the clock is not set, its relay, label and number
+            (`Heat ZN PI #3`). A rename needs one.
+
+    GainSetRef:
+      type: object
+      required: [n, name]
+      properties:
+        n:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+
+    GainSet:
+      type: object
+      description: One saved set of a relay's gains, in the order the file keeps its keys.
+      required: [n, name, direction, source, rule, ku, pu, kp, ki, kd, flags, time, from]
+      properties:
+        n:
+          type: integer
+          minimum: 1
+          description: Its number, from 1; a deleted set's is never given again.
+        name:
+          type: string
+        direction:
+          $ref: "#/components/schemas/RelayDirection"
+        source:
+          type: string
+          description: >-
+            `calibration`: a calibration's result. `derived`: another rule's
+            gains for a set's Ku and Pu, which `from` names. `manual`: the gains
+            a relay had when it was saved. A newer firmware's word, from a file
+            it wrote, comes as it is.
+          examples: [calibration, derived, manual]
+        rule:
+          type: [string, "null"]
+          description: The rule that made the gains; `null` for a `manual` set.
+          examples: [zn_pi]
+        ku:
+          type: [number, "null"]
+          description: The ultimate gain a calibration measured; `null` for a `manual` set.
+        pu:
+          type: [number, "null"]
+          description: The ultimate period, in seconds; `null` for a `manual` set.
+        kp:
+          type: number
+        ki:
+          type: number
+        kd:
+          type: number
+        flags:
+          type: array
+          description: The calibration's warnings, as `/status` words them.
+          items:
+            type: string
+        time:
+          type: [integer, "null"]
+          description: When it was saved, UTC seconds; `null` when the device's clock was not set.
+        from:
+          type: [integer, "null"]
+          description: The set a `derived` one was made from.
+      example:
+        n: 12
+        name: 2026-10-26 14:05 ZN PI
+        direction: heat
+        source: calibration
+        rule: zn_pi
+        ku: 12.5
+        pu: 3600
+        kp: 5.625
+        ki: 0.001875
+        kd: 0
+        flags: [uneven]
+        time: 1793023500
+        from: null
+
+    GainSetsResponse:
+      type: object
+      required: [success, sets, more]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        sets:
+          type: array
+          description: Oldest first, those with an `n` above `after`, at most `limit`.
+          items:
+            $ref: "#/components/schemas/GainSet"
+        more:
+          type: boolean
+          description: Others follow; ask again `after` the last `n` here.
+
+    GainSetResponse:
+      type: object
+      required: [success, message, set]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+          examples: [Gain set saved, Gain set renamed]
+        set:
+          $ref: "#/components/schemas/GainSet"
+
+    GainSetApplyResponse:
+      type: object
+      required: [success, message, revision, persisted]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+        revision:
+          type: integer
+          description: The thermostat's revision now, which a Save of it is checked against.
+        persisted:
+          type: boolean
+          description: >-
+            False when the gains run but did not reach the file: the device
+            writes them again within three seconds or at shutdown.
+        warning:
+          $ref: "#/components/schemas/Waiting"
+      example:
+        success: true
+        message: Gain set applied
+        revision: 4
+        persisted: true
+
+    GainSetDeriveResponse:
+      type: object
+      required: [success, message, set]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+          examples: [Gain set derived, Gain set derived and applied]
+        set:
+          $ref: "#/components/schemas/GainSet"
+        revision:
+          type: integer
+          description: With `apply=true`, as `/gains/apply` answers it.
+        persisted:
+          type: boolean
+          description: With `apply=true`, as `/gains/apply` answers it.
+        warning:
+          $ref: "#/components/schemas/Waiting"
 
     SuccessEnvelope:
       type: object

@@ -25,7 +25,7 @@ TEST_F(Editor, SaveCreatesAThermostatTheOtherRoutesThenSee) {
   EXPECT_EQ(list.body, R"({"success":true,"count":1,"max_controllers":3,"controllers":[)"
                        R"({"id":"living-room","name":"Living Room","enabled":true,"kind":"pid","mode":"heat",)"
                        R"("sensor_id":"room","heat_relay_id":"relay_1","cool_relay_id":"","running":true,)"
-                       R"("waiting":"","active_preset":"","active_preset_name":""}]})");
+                       R"("revision":0,"waiting":"","active_preset":"","active_preset_name":""}]})");
 
   // The bare document, every key there, the same shape save takes back.
   Reply got = this->get("get?id=living-room");
