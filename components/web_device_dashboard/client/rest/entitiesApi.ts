@@ -16,7 +16,7 @@ export interface EntitiesApiOptions {
   fetchImpl?: FetchImpl
 }
 
-/** Query params for POST /light/{id}/turn_on (all optional). */
+/** Inputs for POST /light/{id}/turn_on (all optional). */
 export interface LightTurnOnParams {
   brightness?: number // 0-255
   r?: number // 0-255
@@ -29,19 +29,19 @@ export interface LightTurnOnParams {
   flash?: number // seconds
 }
 
-/** Query params for POST /fan/{id}/turn_on. */
+/** Inputs for POST /fan/{id}/turn_on. */
 export interface FanTurnOnParams {
   speed_level?: number
   oscillation?: boolean
 }
 
-/** Query params for POST /cover/{id}/{action}. */
+/** Inputs for POST /cover/{id}/{action}. */
 export interface CoverSetParams {
   position?: number // 0.0-1.0
   tilt?: number // 0.0-1.0
 }
 
-/** Query params for POST /climate/{id}/set. */
+/** Inputs for POST /climate/{id}/set. */
 export interface ClimateSetParams {
   mode?: string
   fan_mode?: string
