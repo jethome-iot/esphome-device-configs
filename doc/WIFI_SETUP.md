@@ -67,7 +67,7 @@ display or the network.
 
 **By baking credentials into the firmware.** `devices/JXD/packages/features/network.yaml` configures
 only the fallback AP; add `ssid` and `password` to its `wifi:` block, keeping them out
-of the repository, then recompile and upload with **Allow ESPHome updates** on
+of the repository, then recompile and upload with **Allow uploads from ESPHome** on
 ([how](DEVELOPMENT.md#commands)):
 
 ```bash

@@ -73,7 +73,7 @@ class SwitchSettings : public ::testing::Test {
   void TearDown() override {
     manager().remove_binding(fnv1_hash("relay_1"));
     manager().remove_binding(fnv1_hash("relay_2"));
-    manager().remove_binding(fnv1_hash("allow_esphome_updates"));
+    manager().remove_binding(fnv1_hash("config_switch"));
     reset_entities();
   }
 
@@ -388,18 +388,19 @@ TEST_F(SwitchSettings, TheMetaOffersALabelFirst) {
 
 // --- config entities ---
 
-// The board's "Allow ESPHome updates" has to boot Off whatever the file says.
+// A config switch keeps what it was compiled with, whatever the file says: the board's ESPHome OTA
+// one has to boot Off.
 TEST_F(SwitchSettings, AStoredRecordDoesNotReachAConfigSwitch) {
   manager();
-  stored(R"({"source_name":"allow_esphome_updates","restore_mode":"ALWAYS_ON","inverted":true,)"
+  stored(R"({"source_name":"config_switch","restore_mode":"ALWAYS_ON","inverted":true,)"
          R"("binding_input":"input_1","binding_mode":"follow"})");
   stored(R"({"source_name":"relay_1","restore_mode":"ALWAYS_ON","inverted":true})");
   settings.apply();
-  EXPECT_EQ(e.ota_allowed.restore_mode, switch_::SWITCH_ALWAYS_OFF);
-  EXPECT_FALSE(e.ota_allowed.is_inverted());
-  EXPECT_TRUE(LogCapture::instance().has("Switch not found for source_name 'allow_esphome_updates'"));
+  EXPECT_EQ(e.config_switch.restore_mode, switch_::SWITCH_ALWAYS_OFF);
+  EXPECT_FALSE(e.config_switch.is_inverted());
+  EXPECT_TRUE(LogCapture::instance().has("Switch not found for source_name 'config_switch'"));
   e.in1.publish_state(true);
-  EXPECT_EQ(e.ota_allowed.writes, 0);
+  EXPECT_EQ(e.config_switch.writes, 0);
   // The same record on a relay applies.
   EXPECT_EQ(e.relay1.restore_mode, switch_::SWITCH_ALWAYS_ON);
   EXPECT_TRUE(e.relay1.is_inverted());
@@ -408,17 +409,17 @@ TEST_F(SwitchSettings, AStoredRecordDoesNotReachAConfigSwitch) {
 TEST_F(SwitchSettings, ARestWriteToAConfigSwitchIsRefused) {
   settings.apply();
   for (const char *json : {
-           R"({"source_name":"allow_esphome_updates","settings":{"restore_mode":"ALWAYS_ON"}})",
-           R"({"source_name":"allow_esphome_updates","settings":{"inverted":true}})",
-           R"({"source_name":"allow_esphome_updates","settings":{"binding_input":"input_1","binding_mode":"follow"}})",
-           R"({"source_name":"allow_esphome_updates","settings":{"label":"OTA"}})",
+           R"({"source_name":"config_switch","settings":{"restore_mode":"ALWAYS_ON"}})",
+           R"({"source_name":"config_switch","settings":{"inverted":true}})",
+           R"({"source_name":"config_switch","settings":{"binding_input":"input_1","binding_mode":"follow"}})",
+           R"({"source_name":"config_switch","settings":{"label":"OTA"}})",
        }) {
     JsonDocument refused = body(json);
     EXPECT_EQ(settings.update_record(refused.as<JsonObject>()), nullptr) << json;
   }
-  EXPECT_EQ(record_of("allow_esphome_updates"), nullptr);
-  EXPECT_EQ(e.ota_allowed.restore_mode, switch_::SWITCH_ALWAYS_OFF);
-  EXPECT_FALSE(e.ota_allowed.is_inverted());
+  EXPECT_EQ(record_of("config_switch"), nullptr);
+  EXPECT_EQ(e.config_switch.restore_mode, switch_::SWITCH_ALWAYS_OFF);
+  EXPECT_FALSE(e.config_switch.is_inverted());
 }
 
 TEST_F(SwitchSettings, AConfigInputIsNotOfferedToBindTo) {

@@ -107,7 +107,7 @@ struct Entities {
   FakeSwitch hidden;
   // entity_category: config, as the board's ESPHome OTA switch: not the device's I/O.
   binary_sensor::BinarySensor config_input;
-  FakeSwitch ota_allowed;
+  FakeSwitch config_switch;
 };
 
 inline Entities &entities() {
@@ -120,7 +120,7 @@ inline Entities &entities() {
     App.register_switch(&e->hidden, "Hidden", fnv1_hash("hidden"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);
     const uint32_t config = uint32_t{ENTITY_CATEGORY_CONFIG} << ENTITY_FIELD_ENTITY_CATEGORY_SHIFT;
     App.register_binary_sensor(&e->config_input, "Config Input", fnv1_hash("config_input"), config);
-    App.register_switch(&e->ota_allowed, "Allow ESPHome updates", fnv1_hash("allow_esphome_updates"), config);
+    App.register_switch(&e->config_switch, "Config Switch", fnv1_hash("config_switch"), config);
     return e;
   }();
   return *instance;

@@ -211,7 +211,7 @@ ota:
 switch:
   - platform: template
     id: esphome_ota_allowed
-    name: Allow ESPHome updates
+    name: Allow uploads from ESPHome
     icon: mdi:upload-lock
     entity_category: config
     web_server:

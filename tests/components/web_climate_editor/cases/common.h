@@ -84,7 +84,7 @@ struct Entities {
   FakeSwitch relay2;
   FakeSwitch hidden;
   // entity_category: config, as the board's ESPHome OTA switch: no thermostat may take it.
-  FakeSwitch ota_allowed;
+  FakeSwitch config_switch;
   YamlClimate hall;
 };
 
@@ -118,7 +118,7 @@ inline Entities &entities() {
     App.register_switch(&e->relay1, "Relay 1", fnv1_hash("relay_1"), 0);
     App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
     App.register_switch(&e->hidden, "Hidden", fnv1_hash("hidden"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);
-    App.register_switch(&e->ota_allowed, "Allow ESPHome updates", fnv1_hash("allow_esphome_updates"), CONFIG_CATEGORY);
+    App.register_switch(&e->config_switch, "Config Switch", fnv1_hash("config_switch"), CONFIG_CATEGORY);
     App.register_climate(&e->hall, "Hall", fnv1_hash("hall"), 0);
     return e;
   }();
