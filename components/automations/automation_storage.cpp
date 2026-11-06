@@ -31,6 +31,42 @@ static const size_t MAX_FILE_BYTES = 16384;
 // A cron tick further away than this from the previous one is a clock jump, not elapsed time.
 static const time_t MAX_TIMESTAMP_DRIFT = 900;
 
+// The code point at `i`, moving past it; false where the bytes are not UTF-8.
+static bool next_code_point(const std::string &text, size_t *i, uint32_t *out) {
+  auto byte = [&text](size_t at) { return static_cast<unsigned char>(text[at]); };
+  const unsigned char lead = byte(*i);
+  size_t width;
+  uint32_t c;
+  if (lead < 0x80) {
+    width = 1;
+    c = lead;
+  } else if (lead >= 0xC2 && lead <= 0xDF) {
+    width = 2;
+    c = lead & 0x1F;
+  } else if (lead >= 0xE0 && lead <= 0xEF) {
+    width = 3;
+    c = lead & 0x0F;
+  } else if (lead >= 0xF0 && lead <= 0xF4) {
+    width = 4;
+    c = lead & 0x07;
+  } else {
+    return false;
+  }
+  if (*i + width > text.size())
+    return false;
+  for (size_t k = 1; k < width; k++) {
+    if ((byte(*i + k) & 0xC0) != 0x80)
+      return false;
+    c = (c << 6) | (byte(*i + k) & 0x3F);
+  }
+  // Overlong forms, surrogates and past U+10FFFF.
+  if ((width == 3 && c < 0x800) || (width == 4 && c < 0x10000) || (c >= 0xD800 && c <= 0xDFFF) || c > 0x10FFFF)
+    return false;
+  *i += width;
+  *out = c;
+  return true;
+}
+
 // Cut to at most `limit` bytes without splitting a UTF-8 character.
 static std::string truncate_utf8(const std::string &text, size_t limit) {
   size_t cut = 0;
@@ -284,6 +320,23 @@ void AutomationStorage::check_time_() {
 
 // --- Mutators: any task in, loop task does the work ---
 
+bool AutomationStorage::check_name(const std::string &name, std::string *error) {
+  for (size_t i = 0; i < name.size();) {
+    uint32_t c;
+    if (!next_code_point(name, &i, &c)) {
+      if (error != nullptr)
+        *error = "Name is not valid UTF-8";
+      return false;
+    }
+    if (c < 0x20 || (c >= 0x7F && c <= 0x9F)) {
+      if (error != nullptr)
+        *error = "Name cannot contain control characters";
+      return false;
+    }
+  }
+  return true;
+}
+
 bool AutomationStorage::run_on_loop(std::function<bool()> &&job) {
   // A failed component is not scheduled, so a deferred job would only wait out the timeout.
   // Its mutators refuse for that same reason, so nothing can move the list under a reader
@@ -370,6 +423,11 @@ uint32_t AutomationStorage::add_automation_(const AutomationConfig &config, std:
              static_cast<unsigned>(MAX_AUTOMATIONS));
     return 0;
   }
+  // The log and the panel show the name, so it carries nothing they cannot.
+  if (!check_name(config.name, error)) {
+    ESP_LOGE(TAG, "Refusing to add a rule: its name is not UTF-8 or carries a control character");
+    return 0;
+  }
   // A name short enough is its own file, so a second rule by that name would replace it.
   if (this->is_name_taken(config.name)) {
     ESP_LOGE(TAG, "Refusing to add '%s': that name is already in use", config.name.c_str());
@@ -416,6 +474,12 @@ bool AutomationStorage::update_automation_(uint32_t id, const AutomationConfig &
   }
   auto index = static_cast<size_t>(found);
 
+  // A name kept as it is passes: switching a rule on or off writes it back whole.
+  if (new_config.name != this->config_storage_.get_all_configs()[index].name && !check_name(new_config.name, error)) {
+    ESP_LOGE(TAG, "Refusing to update automation id=%u: its name is not UTF-8 or carries a control character",
+             static_cast<unsigned>(id));
+    return false;
+  }
   if (this->is_name_taken(new_config.name, id)) {
     ESP_LOGE(TAG, "Refusing to rename automation id=%u to '%s': that name is already in use", static_cast<unsigned>(id),
              new_config.name.c_str());

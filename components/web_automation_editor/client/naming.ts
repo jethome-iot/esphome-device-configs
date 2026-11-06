@@ -31,3 +31,15 @@ export function isNameTaken(
   const wanted = storageKey(name)
   return existing.some((a) => a.id !== id && storageKey(a.name) === wanted)
 }
+
+/// Why the device refuses `name`, in its words; '' when it takes it. Mirrors
+/// AutomationStorage::check_name: any script, but no C0, DEL or C1 character. A string holds no
+/// bytes that are not UTF-8; a lone surrogate, which JSON would carry garbled, stands in for them.
+export function nameProblem(name: string): string {
+  for (const ch of name) {
+    const c = ch.codePointAt(0) ?? 0
+    if (c >= 0xd800 && c <= 0xdfff) return 'Name is not valid UTF-8'
+    if (c < 0x20 || (c >= 0x7f && c <= 0x9f)) return 'Name cannot contain control characters'
+  }
+  return ''
+}
