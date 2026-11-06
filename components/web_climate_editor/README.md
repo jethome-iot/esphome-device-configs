@@ -107,8 +107,10 @@ The refusals come in this order, and the first one a document meets is the answe
    (`A newer firmware wrote this thermostat; update the firmware to change it`), `409` for a
    `revision` that is not the thermostat's, or `507` when a create would pass `max_controllers`;
 3. `409` for a name another thermostat or a YAML climate answers to, compared without case and
-   extra spaces or by the entity id both would get (`Room 1` and `Room_1`), and on a create for
-   a name whose every id is taken by a file in the folder;
+   extra spaces or by the entity id both would get (`Room 1` and `Room_1`; `Кухня` and `Ванна`,
+   which Home Assistant reads as `_____`, the sentence then saying that a digit or a Latin
+   letter tells them apart) or by the key the device's API would give both (`Café` and
+   `Caf__`), and on a create for a name whose every id is taken by a file in the folder;
 4. for an enabled thermostat, `400` when its sensor does not report °C
    (`"Uptime" reports s, not °C`), then `409` when a running thermostat holds its relay:
    `"Relay 1" is already driven by "Living Room"`, and then when another enabled thermostat that

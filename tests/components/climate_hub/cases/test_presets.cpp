@@ -138,13 +138,14 @@ TEST_F(Presets, TheEntityListsBuiltInAndCustomPresets) {
 // slot's own buffers and never moves the list, nor does a park or the eight names after it.
 TEST_F(Presets, TheCustomNamesStayInTheSlotsBuffers) {
   ClimateConfig config = with_presets();
-  config.presets[3].name = std::string(NAME_MAX_LENGTH, 'd');
+  config.presets[3].name = repeat("д", NAME_MAX_LENGTH);
   this->create(config);
   HubClimate *entity = hub().entity_of("boiler");
+  ASSERT_NE(nullptr, entity);
   const std::vector<const char *> &list = entity->get_traits().get_supported_custom_presets();
   const char *const *storage = list.data();
   const char *first = list[0];
-  EXPECT_EQ(NAME_MAX_LENGTH, strlen(list[1]));
+  EXPECT_EQ(repeat("д", NAME_MAX_LENGTH), list[1]) << "the longest name, 96 bytes, whole";
 
   // The built-in two make way for six more: eight custom names, the most there can be.
   config = stored("boiler");

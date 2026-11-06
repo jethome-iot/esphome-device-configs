@@ -14,7 +14,7 @@ class ClimateHub;
 /// URL segment can carry, so nothing can address it; an empty name would fall back to the device's.
 /// As long as a name buffer and zero-filled, so a reader that pairs this pointer with a longer
 /// name's length stays inside it.
-inline constexpr char FREE_SLOT_NAME[64] = "climate_hub/free";
+inline constexpr char FREE_SLOT_NAME[NAME_MAX_BYTES + 1] = "climate_hub/free";
 
 /// One climate entity of the hub's pool. The hub registers every slot with App in its setup()
 /// and never frees one: a thermostat that starts takes a free slot, one that stops hands it
@@ -63,8 +63,8 @@ class HubClimate final : public climate::Climate {
   bool free_{true};
   bool named_{false};
   // EntityBase keeps a StringRef to the name, not a copy. A rename alternates the buffers, so a
-  // reader still holding the previous pointer reads intact bytes; byte 63 is never written.
-  char names_[2][64]{};
+  // reader still holding the previous pointer reads intact bytes; the last byte is never written.
+  char names_[2][NAME_MAX_BYTES + 1]{};
   uint8_t current_name_{0};
   bool heat_{false};
   bool cool_{false};
@@ -74,8 +74,8 @@ class HubClimate final : public climate::Climate {
   climate::ClimatePresetMask standard_presets_;
   // Upstream keeps const char * into these, as the custom preset list and as the active one, and
   // the web server reads them on its task: they live as long as the slot, and the list never
-  // outgrows the room the constructor gave it. Byte NAME_MAX_LENGTH is never written.
-  char custom_presets_[PRESET_MAX_COUNT][NAME_MAX_LENGTH + 1]{};
+  // outgrows the room the constructor gave it. Byte NAME_MAX_BYTES is never written.
+  char custom_presets_[PRESET_MAX_COUNT][NAME_MAX_BYTES + 1]{};
 };
 
 }  // namespace esphome::climate_hub
