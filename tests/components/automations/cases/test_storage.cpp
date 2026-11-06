@@ -343,11 +343,20 @@ TEST_F(Storage, ANameIsAnyScriptButNoControlCharacter) {
   EXPECT_EQ(names(), (std::vector<std::string>{"Кухня свет", "Küche Licht", "Żółć", "🔥 Boiler", "Ελλάδα"}));
 }
 
-// A file written before the rule was refused still loads: the panel shows the character as `?`.
+// A file written before the rule was refused still loads, the panel showing the character as
+// `?`, and the rule can be switched off without a rename.
 TEST_F(Storage, AControlCharacterInAStoredNameStillLoads) {
   write("bell.json", R"({"id":1,"name":"Bell\u0007","triggers":[{"source":"startup"}]})");
   boot();
   EXPECT_EQ(names(), (std::vector<std::string>{"Bell\a"}));
+  AutomationConfig off = *config("Bell\a");
+  off.enabled = false;
+  std::string error;
+  EXPECT_TRUE(engine->update_automation(1, off, &error)) << error;
+  EXPECT_FALSE(config("Bell\a")->enabled);
+  off.name = "Bell\a\a";
+  EXPECT_FALSE(engine->update_automation(1, off, &error));
+  EXPECT_EQ(error, "Name cannot contain control characters");
 }
 
 // The two agree in their first 48 bytes, all a file name holds.

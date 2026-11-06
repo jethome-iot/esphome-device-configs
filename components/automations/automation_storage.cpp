@@ -474,7 +474,8 @@ bool AutomationStorage::update_automation_(uint32_t id, const AutomationConfig &
   }
   auto index = static_cast<size_t>(found);
 
-  if (!check_name(new_config.name, error)) {
+  // A name kept as it is passes: switching a rule on or off writes it back whole.
+  if (new_config.name != this->config_storage_.get_all_configs()[index].name && !check_name(new_config.name, error)) {
     ESP_LOGE(TAG, "Refusing to update automation id=%u: its name is not UTF-8 or carries a control character",
              static_cast<unsigned>(id));
     return false;

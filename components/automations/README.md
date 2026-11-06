@@ -167,7 +167,8 @@ callback, say) they refuse and return false.
   action)
 - `is_name_taken(name, exclude_id = 0)`: names collide by the file name they spell before the cut
 - `check_name(name, &error)`: false for a name that is not UTF-8 or carries a control character;
-  `add_automation` and `update_automation` refuse such a name with that reason
+  `add_automation` refuses such a name with that reason, and so does `update_automation` unless
+  the rule already had it
 - `rules_naming_binary_sensor(key)`: the names of the rules whose trigger or condition names the
   binary sensor with that object id hash, built or not; loop task
 - `rebuild_rules_naming_binary_sensor(key)`: that sensor came or went, so those rules are built or

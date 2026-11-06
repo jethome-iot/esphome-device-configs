@@ -388,7 +388,8 @@ export function createAutomationMockStore(options: AutomationMockStoreOptions = 
         if (cfg.id > 0 && !automations.some((a) => a.id === cfg.id)) {
           return { status: 404, body: { success: false, error: 'Automation not found' } }
         }
-        const problem = nameProblem(cfg.name)
+        // A name the rule already has passes, as on the device.
+        const problem = automations.some((a) => a.id === cfg.id && a.name === cfg.name) ? '' : nameProblem(cfg.name)
         if (problem) return { status: 400, body: { success: false, error: problem } }
         // Fail closed: a rule naming what the device does not have is refused with the reason.
         const missing = buildError(cfg)
