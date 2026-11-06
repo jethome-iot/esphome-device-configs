@@ -258,7 +258,7 @@ struct Entities {
   // internal: true in YAML; nothing outside the firmware may name it.
   FakeSwitch hidden;
   // entity_category: config, as the board's ESPHome OTA switch: no schedule may drive it.
-  FakeSwitch ota_allowed;
+  FakeSwitch config_switch;
 };
 
 // entity_fields for an entity declared with `entity_category: config`.
@@ -284,7 +284,7 @@ inline Entities &entities() {
     App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
     App.register_switch(&e->boiler, "Boiler", fnv1_hash("boiler"), 0);
     App.register_switch(&e->hidden, "Hidden", fnv1_hash("hidden"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);
-    App.register_switch(&e->ota_allowed, "Allow ESPHome updates", fnv1_hash("allow_esphome_updates"), CONFIG_CATEGORY);
+    App.register_switch(&e->config_switch, "Config Switch", fnv1_hash("config_switch"), CONFIG_CATEGORY);
     return e;
   }();
   return *instance;
@@ -293,7 +293,7 @@ inline Entities &entities() {
 inline void reset_entities() {
   Entities &e = entities();
   e.room.state = NAN;
-  for (FakeSwitch *sw : {&e.relay1, &e.relay2, &e.boiler, &e.hidden, &e.ota_allowed}) {
+  for (FakeSwitch *sw : {&e.relay1, &e.relay2, &e.boiler, &e.hidden, &e.config_switch}) {
     sw->on_write = nullptr;
     sw->publish_state(false);
     sw->writes.clear();

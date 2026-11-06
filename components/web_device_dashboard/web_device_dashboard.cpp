@@ -67,6 +67,9 @@ static const Route ROUTES[] = {
     {"system/reboot", RouteId::SYSTEM_REBOOT, false, true},
     {"system/factory-reset", RouteId::SYSTEM_FACTORY_RESET, false, true},
     {"system/rollback", RouteId::SYSTEM_ROLLBACK, false, true},
+#ifdef USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
+    {"system/forget-api-key", RouteId::SYSTEM_FORGET_API_KEY, false, true},
+#endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
     {"temperature-slots", RouteId::TEMPERATURE_SLOTS, true, false},
     {"temperature-slots/forget", RouteId::TEMPERATURE_SLOTS_FORGET, false, true},
@@ -192,6 +195,11 @@ void WebDeviceDashboard::handleRequest(AsyncWebServerRequest *request) {
       case RouteId::SYSTEM_ROLLBACK:
         this->handle_rollback_(request);
         break;
+#ifdef USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
+      case RouteId::SYSTEM_FORGET_API_KEY:
+        this->handle_forget_api_key_(request);
+        break;
+#endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
       case RouteId::TEMPERATURE_SLOTS:
         this->handle_temperature_slots_(request);
@@ -671,6 +679,9 @@ void WebDeviceDashboard::handle_capabilities_(AsyncWebServerRequest *request) {
       if (!target.project_name.empty())
         rollback["project_name"] = target.project_name;
     }
+#ifdef USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
+    root["forget_api_key"] = true;
+#endif
     if (this->files_url_prefix_ != nullptr) {
       JsonObject files = root["files"].to<JsonObject>();
       files["url_prefix"] = this->files_url_prefix_;
@@ -839,6 +850,29 @@ void WebDeviceDashboard::handle_rollback_(AsyncWebServerRequest *request) {
   this->reboot_();
 }
 
+#ifdef USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
+// POST /api/device/system/forget-api-key: what the display menu's Forget HA does, the clear on
+// the loop task as there, which owns the API server. The restart opens the window in which Home
+// Assistant can add the device again; a clear that failed restarts nothing.
+void WebDeviceDashboard::handle_forget_api_key_(AsyncWebServerRequest *request) {
+  if (!this->check_confirm_(request))
+    return;
+  ESP_LOGW(TAG, "Forgetting the API key, requested over the API");
+  bool ran = false;
+  const bool cleared = this->run_on_loop_([&]() {
+    ran = true;
+    return this->clear_api_key_();
+  });
+  if (!cleared) {
+    // Not run means the loop task never took the job: nothing was cleared and nothing will be.
+    this->send_error_(request, ran ? 500 : 503, ran ? "The API key was not cleared" : "Device busy");
+    return;
+  }
+  this->send_success_(request, "API key cleared, rebooting");
+  this->reboot_();
+}
+#endif
+
 RollbackTarget WebDeviceDashboard::rollback_target_() const { return firmware_rollback::rollback_target(); }
 
 const char *WebDeviceDashboard::select_rollback_(const RollbackTarget &target) {
@@ -846,6 +880,19 @@ const char *WebDeviceDashboard::select_rollback_(const RollbackTarget &target) {
 }
 
 void WebDeviceDashboard::restart_() { App.safe_reboot(); }
+
+#ifdef USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
+// Made active, and every client dropped: a session left open until the restart could write a
+// key of its own.
+bool WebDeviceDashboard::clear_api_key_() {
+  auto *api = api::global_api_server;
+  if (api == nullptr || !api->clear_noise_psk(true))
+    return false;
+  for (auto &client : api->active_clients())
+    client->on_fatal_error();
+  return true;
+}
+#endif
 
 bool WebDeviceDashboard::run_on_loop_(std::function<bool()> &&job) {
   return this->dispatcher_.run_on_loop(this, std::move(job));

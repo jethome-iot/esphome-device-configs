@@ -120,8 +120,7 @@ export const seedSwitches: Array<Omit<BindableSwitch, 'claimed_by'>> = [
   { object_id: 'relay_3', name: 'Relay 3' },
   { object_id: 'relay_4', name: 'Relay 4' },
   { object_id: 'relay_5', name: 'Relay 5' },
-  { object_id: 'relay_6', name: 'Relay 6' },
-  { object_id: 'red_led', name: 'Red led' }
+  { object_id: 'relay_6', name: 'Relay 6' }
 ]
 
 // Where each sensor starts and what it settles to with nothing driving it. Temp 2

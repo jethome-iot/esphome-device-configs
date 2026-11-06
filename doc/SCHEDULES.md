@@ -70,7 +70,7 @@ and a preset by its key. A schedule with an action whose relay, thermostat or pr
 the device is saved all the same, with a warning that names the first such action
 (`skips mode "Day", action 2: relay "relay_7" is not on this device`), and keeps its file. The
 action is skipped and the rest of the list runs; the schedule's status lists every such action.
-The device's own settings, such as **Allow ESPHome updates**, are never a relay and count as
+The device's own settings, such as **Allow uploads from ESPHome**, are never a relay and count as
 missing.
 When a thermostat or a preset comes back, created or restored from a backup, the actions on it
 the list has passed apply again, in order, without the waits; one whose preset is still missing

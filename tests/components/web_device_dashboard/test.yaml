@@ -17,10 +17,6 @@ esphome:
       - -fsanitize=undefined
       - -fno-sanitize-recover=all
       - -fno-omit-frame-pointer
-      # The Allow header is set through the ESP-IDF handle; off ESP32 the value only reaches
-      # check_method_'s warning, which the tests read through a log listener.
-      - -DUSE_LOG_LISTENERS
-      - -DESPHOME_LOG_MAX_LISTENERS=1
 
 host:
 
@@ -163,6 +159,13 @@ ntp_servers:
 virtual_inputs:
   max_inputs: 3
 
+# encryption: with no key is what compiles the forget-api-key route in; the cases stand in for
+# the key the API server would clear. The server is never set up, so the log listener slot it
+# asks for is free for the cases, which read the errors and warnings through it: off ESP32 the
+# Allow value reaches nothing but check_method_'s warning.
+api:
+  encryption:
+
 # board_info_id sets USE_WEB_DEVICE_DASHBOARD_BOARD_INFO, so /api/device/info carries the board;
 # storage_id sets USE_WEB_DEVICE_DASHBOARD_STORAGE, so the factory reset has a mount to wipe;
 # dallas_scan_id sets USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS, so the slot routes exist.
@@ -191,6 +194,6 @@ switch:
     name: "Hidden"
     optimistic: true
   - platform: template
-    id: ota_allowed_unused
-    name: "Allow ESPHome updates"
+    id: config_switch_unused
+    name: "Config Switch"
     optimistic: true

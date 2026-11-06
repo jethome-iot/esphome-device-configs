@@ -18,704 +18,139 @@ api:
   id: api_server
   encryption: null
   reboot_timeout: 0s
-ota:
-  - platform: esphome
-    id: esphome_ota
-    password: ''
-  - platform: web_server
-switch:
-  - platform: template
-    id: esphome_ota_allowed
-    name: Allow ESPHome updates
-    icon: mdi:upload-lock
-    entity_category: config
-    web_server:
-      sorting_group_id: group_system
-    optimistic: true
-    restore_mode: ALWAYS_OFF
-    turn_on_action:
-      - lambda: id(esphome_ota).set_auth_password("");
-      - delay: 30min
-      - switch.turn_off: esphome_ota_allowed
-    turn_off_action:
+provisioning:
+  timeout: 15min
+  on_timeout:
+    - script.execute:
+        id: drop_api_clients
+        reason: Window expired
+    - switch.turn_off: esphome_ota_allowed
+script:
+  - id: drop_api_clients
+    parameters:
+      reason: string
+    then:
       - lambda: |-
-          uint8_t lock[16];
-          random_bytes(lock, sizeof(lock));
-          char hex[sizeof(lock) * 2 + 1];
-          format_hex_to(hex, lock, sizeof(lock));
-          id(esphome_ota).set_auth_password(hex);
-  - platform: gpio
-    name: Relay 1
-    id: relay_1
-    web_server:
-      sorting_group_id: group_relays
-      sorting_weight: 1
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 0
-      mode:
-        output: true
-  - platform: gpio
-    name: Relay 2
-    id: relay_2
-    web_server:
-      sorting_group_id: group_relays
-      sorting_weight: 2
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 1
-      mode:
-        output: true
-  - platform: gpio
-    name: Relay 3
-    id: relay_3
-    web_server:
-      sorting_group_id: group_relays
-      sorting_weight: 3
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 2
-      mode:
-        output: true
-  - platform: gpio
-    name: Relay 4
-    id: relay_4
-    web_server:
-      sorting_group_id: group_relays
-      sorting_weight: 4
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 3
-      mode:
-        output: true
-  - platform: gpio
-    name: Relay 5
-    id: relay_5
-    web_server:
-      sorting_group_id: group_relays
-      sorting_weight: 5
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 4
-      mode:
-        output: true
-  - platform: gpio
-    name: Relay 6
-    id: relay_6
-    web_server:
-      sorting_group_id: group_relays
-      sorting_weight: 6
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 5
-      mode:
-        output: true
-preferences:
-  flash_write_interval: 5s
-external_components:
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - i2c_eeprom
-      - jethome_board_info
-      - status_indicator
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - web_automation_editor
-      - web_origin_guard
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - automations
-      - loop_job
-      - switch_hold
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - web_climate_editor
-      - web_origin_guard
-      - loop_job
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - climate_hub
-      - loop_job
-      - switch_hold
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - crash_report
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - entity_config
-      - bindings
-      - switch_hold
-      - panel_text
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - modbus_map
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - ntp_servers
-      - timezone_settings
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - web_schedule_editor
-      - web_origin_guard
-      - loop_job
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - schedules
-      - loop_job
-      - switch_hold
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - filesystem_storage_abstract
-      - littlefs_storage
-      - config_base
-      - config_json
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - dallas_scan
-      - panel_text
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - virtual_inputs
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - web_auth
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - web_device_dashboard
-      - web_origin_guard
-      - loop_job
-      - firmware_rollback
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - web_file_browser
-      - web_origin_guard
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - web_server_idf
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - display_menu_base
-      - graphical_display_menu
-      - panel_text
-i2c_eeprom:
-  - id: eeprom_cpu
-    size: 64KB
-    address: 84
-jethome_board_info:
-  id: board_info
-  eeprom_id: eeprom_cpu
-logger:
-  level: debug
-web_server:
-  port: 80
-  version: 3
-  sorting_groups:
-    - id: group_relays
-      name: Relays
-      sorting_weight: 10
-    - id: group_inputs
-      name: Inputs
-      sorting_weight: 20
-    - id: group_temperature
-      name: Temperature
-      sorting_weight: 30
-    - id: group_climate
-      name: Climate
-      sorting_weight: 35
-    - id: group_modbus
-      name: Modbus
-      sorting_weight: 40
-    - id: group_network
-      name: Network
-      sorting_weight: 50
-    - id: group_system
-      name: System
-      sorting_weight: 60
-  auth:
-    type: digest
-    username: admin
-    password: admin
-sensor:
-  - platform: tmp102
-    name: PCB Temp
-    id: pcb_temp
-    web_server:
-      sorting_group_id: group_system
-      sorting_weight: 1
-    update_interval: 20s
-    entity_category: diagnostic
-  - platform: adc
-    name: VIN voltage
-    id: vin_meas
-    pin: GPIO35
-    attenuation: 2.5dB
-    accuracy_decimals: 2
-    entity_category: diagnostic
-    internal: true
-    update_interval: 100ms
-    filters:
-      - multiply: 32.0
-      - median:
-          window_size: 20
-          send_every: 20
-          send_first_at: 10
-      - clamp:
-          min_value: 0
-      - lambda: |-
-          if (x <= 2.8) return 0;
-          return x;
-  - platform: adc
-    name: PoE voltage
-    id: poe_voltage
-    pin: GPIO37
-    attenuation: 2.5dB
-    accuracy_decimals: 2
-    entity_category: diagnostic
-    internal: true
-    update_interval: 100ms
-    filters:
-      - multiply: 32.0
-      - median:
-          window_size: 20
-          send_every: 20
-          send_first_at: 10
-      - clamp:
-          min_value: 0
-      - lambda: |-
-          if (x <= 2.8) return 0;
-          return x;
-  - platform: template
-    name: Input voltage
-    id: input_voltage
-    web_server:
-      sorting_group_id: group_system
-      sorting_weight: 2
-    entity_category: diagnostic
-    device_class: voltage
-    state_class: measurement
-    unit_of_measurement: V
-    update_interval: 2s
-    lambda: return std::max(id(vin_meas).state, id(poe_voltage).state);
-    filters:
-      - delta: 0.1
-binary_sensor:
-  - platform: gpio
-    name: FN
-    id: fn_button
-    internal: true
-    pin:
-      number: GPIO0
-      inverted: true
-      ignore_strapping_warning: true
-  - platform: gpio
-    name: Input 1
-    id: input_1
-    web_server:
-      sorting_group_id: group_inputs
-      sorting_weight: 1
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 8
-      mode:
-        input: true
-  - platform: gpio
-    name: Input 2
-    id: input_2
-    web_server:
-      sorting_group_id: group_inputs
-      sorting_weight: 2
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 9
-      mode:
-        input: true
-  - platform: gpio
-    name: Input 3
-    id: input_3
-    web_server:
-      sorting_group_id: group_inputs
-      sorting_weight: 3
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 10
-      mode:
-        input: true
-  - platform: gpio
-    name: Input 4
-    id: input_4
-    web_server:
-      sorting_group_id: group_inputs
-      sorting_weight: 4
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 11
-      mode:
-        input: true
-  - platform: gpio
-    name: Input 5
-    id: input_5
-    web_server:
-      sorting_group_id: group_inputs
-      sorting_weight: 5
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 12
-      mode:
-        input: true
-  - platform: gpio
-    name: Input 6
-    id: input_6
-    web_server:
-      sorting_group_id: group_inputs
-      sorting_weight: 6
-    pin:
-      pca9554: jxd_d6_r6_exp
-      number: 13
-      mode:
-        input: true
-  - platform: template
-    id: fn_held
-    internal: true
-    setup_priority: 600
-    lambda: |-
-      static bool armed = false;
-      if (!id(fn_button).state)
-        armed = true;
-      return armed && id(fn_button).state;
-    filters:
-      - delayed_on: 10s
-    on_press:
-      - script.execute: fn_factory_reset
-  - platform: gpio
-    name: UP
-    id: up_button_id
-    internal: true
-    pin:
-      pca9554: jxd_display_exp
-      number: 8
-      mode:
-        input: true
-    on_press:
-      - lambda: |-
-          if (id(display_menu).is_active()) {
-            id(display_menu).up();
-          } else if (id(display1).get_active_page() == id(status_page)) {
-            id(status_temp_scroll)--;
-            id(display1).update();
-          }
-      - script.execute: check_blank_page
-  - platform: gpio
-    name: DOWN
-    id: down_button_id
-    internal: true
-    pin:
-      pca9554: jxd_display_exp
-      number: 9
-      mode:
-        input: true
-    on_press:
-      - lambda: |-
-          if (id(display_menu).is_active()) {
-            id(display_menu).down();
-          } else if (id(display1).get_active_page() == id(status_page)) {
-            id(status_temp_scroll)++;
-            id(display1).update();
-          }
-      - script.execute: check_blank_page
-  - platform: gpio
-    name: LEFT
-    id: left_button_id
-    internal: true
-    pin:
-      pca9554: jxd_display_exp
-      number: 10
-      mode:
-        input: true
-    on_press:
-      - lambda: |-
-          auto *page = id(display1).get_active_page();
-          if (id(display_menu).is_active()) {
-            id(display_menu).left();
-          } else if (page == id(main_page) || page == id(blank_page)) {
-            id(status_relay_sel) = 0;
-            id(status_temp_scroll) = 0;
-            id(display1).show_page(id(status_page));
-          } else if (page == id(status_page) && !id(relays).empty()) {
-            int n = id(relays).size();
-            id(status_relay_sel) = (id(status_relay_sel) + n - 1) % n;
-            id(display1).update();
-          }
-      - script.execute: check_blank_page
-  - platform: gpio
-    name: RIGHT
-    id: right_button_id
-    internal: true
-    pin:
-      pca9554: jxd_display_exp
-      number: 11
-      mode:
-        input: true
-    on_press:
-      - lambda: |-
-          auto *page = id(display1).get_active_page();
-          if (id(display_menu).is_active()) {
-            id(display_menu).right();
-          } else if (page == id(main_page) || page == id(blank_page)) {
-            id(display1).show_page(id(time_page));
-          } else if (page == id(status_page) && !id(relays).empty()) {
-            int n = id(relays).size();
-            id(status_relay_sel) = (id(status_relay_sel) + 1) % n;
-            id(display1).update();
-          }
-      - script.execute: check_blank_page
-  - platform: gpio
-    name: CENTER
-    id: center_button_id
-    internal: true
-    pin:
-      pca9554: jxd_display_exp
-      number: 12
-      mode:
-        input: true
-    on_press:
-      - lambda: |-
-          auto *page = id(display1).get_active_page();
-          if (id(display_menu).is_active()) {
-            id(display_menu).enter();
-          } else if (page == id(main_page)) {
-            id(display_menu).show_main();
-          } else if (page == id(status_page)) {
-            int sel = id(status_relay_sel);
-            if (sel >= 0 && sel < (int) id(relays).size()) {
-              // A relay a thermostat drives is the thermostat's: the press only logs whose it is.
-              auto *relay = id(relays)[sel];
-              const std::string holder = switch_hold::holder(relay);
-              if (holder.empty()) {
-                relay->toggle();
-              } else {
-                ESP_LOGI("status_page", "'%s' left alone: thermostat '%s' drives it", relay->get_name().c_str(),
-                         holder.c_str());
-              }
-              id(display1).update();
+          #ifdef USE_API
+          unsigned dropped = 0;
+          for (auto &client : id(api_server)->active_clients()) {
+            if (!client->is_marked_for_removal()) {
+              client->on_fatal_error();
+              dropped++;
             }
           }
-      - script.execute: check_blank_page
-  - platform: gpio
-    name: HOME
-    id: home_button_id
-    internal: true
-    pin:
-      pca9554: jxd_display_exp
-      number: 13
-      mode:
-        input: true
-    on_press:
+          if (dropped > 0)
+            ESP_LOGW("api", "%s: dropped %u client(s)", reason.c_str(), dropped);
+          #endif
+  - id: run_factory_reset
+    then:
       - lambda: |-
-          if (id(display1).get_active_page() != id(main_page)) {
-            id(display_menu).hide();
-            id(display1).show_page(id(main_page));
+          // The partition is wiped at the next boot; the record has to outlive
+          // the preferences erase, which takes all of NVS.
+          global_preferences->reset();
+          if (!id(user_storage)->request_format()) {
+            ESP_LOGE("factory_reset", "The user partition was not wiped and will not be");
           }
-      - script.execute: check_blank_page
-  - platform: gpio
-    name: BACK
-    id: back_button_id
-    internal: true
-    pin:
-      pca9554: jxd_display_exp
-      number: 14
-      mode:
-        input: true
-    on_press:
+          App.safe_reboot();
+  - id: fn_factory_reset
+    then:
+      - logger.log:
+          level: WARN
+          format: 'FN held for 10 s: factory reset in 5 s'
+      - delay: 5s
+      - script.execute: run_factory_reset
+  - id: apply_modbus_bus
+    then:
       - lambda: |-
-          // back() is false only at the root with nothing being edited: close the menu then.
-          auto *page = id(display1).get_active_page();
-          if (id(display_menu).is_active()) {
-            if (!id(display_menu).back()) {
-              id(display_menu).hide();
-              id(display1).show_page(id(main_page));
-            }
-          } else if (page == id(blank_page)) {
-            id(display_off_s) = 0;
-            id(display1).show_page(id(main_page));
-          } else if (page == id(main_page)) {
-            id(display1).show_page(id(blank_page));
+          auto *bus = id(jxm_uart2);
+          const uint32_t baud = parse_number<uint32_t>(id(modbus_baud_rate).current_option().c_str()).value_or(9600);
+          const uint8_t stop_bits = parse_number<uint8_t>(id(modbus_stop_bits).current_option().c_str()).value_or(1);
+          const auto parity = (uart::UARTParityOptions) id(modbus_parity).active_index().value_or(0);
+          // A select re-set to its own option fires too, and a reload drops what is on the wire.
+          if (baud == bus->get_baud_rate() && stop_bits == bus->get_stop_bits() && parity == bus->get_parity()) {
+            return;
+          }
+          bus->set_baud_rate(baud);
+          bus->set_stop_bits(stop_bits);
+          bus->set_parity(parity);
+          bus->load_settings(false);
+          // Modbus takes its frame timing from the UART in setup(), which ran before this.
+          id(modbus_bus).setup();
+  - id: set_wifi_ap
+    then:
+      - lambda: |-
+          uint8_t mac[6];
+          get_mac_address_raw(mac);
+          wifi::WiFiAP ap;
+          ap.set_ssid("${friendly_name}-" + str_snprintf("%02X%02X", 4, mac[4], mac[5]));
+          ap.set_password(str_snprintf("%02x%02x%02x%02x", 8, mac[2], mac[3], mac[4], mac[5]));
+          id(wifi_id).set_ap(ap);
+  - id: apply_network_mode
+    then:
+      - lambda: |-
+          // Option index: 0 Auto, 1 Ethernet, 2 WiFi.
+          const size_t mode = id(network_mode).active_index().value_or(0);
+          if (mode == 2) {
+            id(ethernet_id).disable();
           } else {
+            id(ethernet_id).enable();
+          }
+          if (mode == 1) {
+            id(wifi_id).disable();
+          } else {
+            id(wifi_id).enable();
+          }
+      - component.update: ip
+  - id: reset_wifi
+    then:
+      - logger.log: Reset WiFi creds
+      - lambda: |-
+          // Both keys WiFiComponent::start can pick, the literal being its own.
+          constexpr uint32_t WIFI_PREF_KEY_NO_COMPILED_NETWORK = 88491487;
+          const uint32_t keys[] = {WIFI_PREF_KEY_NO_COMPILED_NETWORK, App.get_config_version_hash()};
+          uint8_t cleared = 0;
+          bool ok = true;
+          for (uint32_t key : keys) {
+            auto pref = global_preferences->make_preference(sizeof(cleared), key);
+            ok = pref.save(&cleared) && ok;
+          }
+          ok = global_preferences->sync() && ok;
+          if (!ok) {
+            ESP_LOGE("reset_wifi", "Clearing the WiFi credentials failed");
+          }
+          id(wifi_id).clear_sta();
+          // Restarting the radio is what raises the AP; in Ethernet mode there is none to raise.
+          if (!id(wifi_id).is_disabled()) {
+            id(wifi_id).disable();
+            id(wifi_id).enable();
+          }
+  - id: setup_time
+    then:
+      - pcf8563.read_time:
+          id: pcf8563_time
+  - id: forget_temperatures
+    parameters:
+      slot: int
+    then:
+      - delay: 1s
+      - lambda: id(temps)->forget(slot);
+  - id: check_blank_page
+    then:
+      - lambda: |-
+          id(display_off_s) = 0;
+          if (id(display1).get_active_page() == id(blank_page)) {
             id(display1).show_page(id(main_page));
           }
-status_indicator:
-  id: red_led
-  pin:
-    number: GPIO2
-    ignore_strapping_warning: true
-text_sensor:
-  - platform: uptime
-    name: Uptime
-    id: uptime_sensor
-    internal: true
-    format:
-      separator: ' '
-  - platform: ethernet_info
-    ip_address:
-      name: Ethernet IP
-      web_server:
-        sorting_group_id: group_network
-        sorting_weight: 1
-      address_0:
-        id: ip_eth
-        on_value:
-          - component.update: ip
-    mac_address:
-      name: Ethernet MAC
-      web_server:
-        sorting_group_id: group_network
-        sorting_weight: 2
-      id: mac_eth
-  - platform: wifi_info
-    ip_address:
-      name: WiFi IP
-      web_server:
-        sorting_group_id: group_network
-        sorting_weight: 3
-      id: ip_wifi
-      on_value:
-        - component.update: ip
-    mac_address:
-      name: WiFi MAC
-      web_server:
-        sorting_group_id: group_network
-        sorting_weight: 4
-      id: mac_wifi
-  - platform: template
-    id: ip
-    internal: true
-    update_interval: never
-    lambda: |-
-      if (id(ethernet_id).is_connected())
-        return id(ip_eth).state;
-      if (id(wifi_id).is_connected())
-        return id(ip_wifi).state;
-      if (id(wifi_id).is_ap_active()) {
-        char buf[esphome::network::IP_ADDRESS_BUFFER_SIZE];
-        return std::string(id(wifi_id).wifi_soft_ap_ip().str_to(buf));
-      }
-      return std::string();
-pca9554:
-  - id: jxd_d6_r6_exp
-    pin_count: 16
-    address: 34
-  - id: jxd_display_exp
-    pin_count: 16
-    address: 36
-one_wire:
-  - platform: ds2484
-    id: one_wire_bus
-    address: 24
-    active_pullup: true
-globals:
-  - id: relays
-    type: std::vector<switch_::Switch *>
-  - id: inputs
-    type: std::vector<binary_sensor::BinarySensor *>
-  - id: display_off_threshold_s
-    type: uint32_t
-  - id: display_off_s
-    type: uint32_t
-  - id: modbus_bus_applied
-    type: bool
-    initial_value: 'false'
-  - id: network_mode_applied
-    type: bool
-    initial_value: 'false'
-  - id: ap_was_active
-    type: bool
-    initial_value: 'false'
-  - id: stored_timezone
-    type: esphome::time::ParsedTimezone
-    restore_value: true
-  - id: status_relay_sel
-    type: int
-    initial_value: '0'
-  - id: status_temp_scroll
-    type: int
-    initial_value: '0'
 esphome:
   on_boot:
+    - priority: -100
+      then:
+        - lambda: |-
+            #if defined(USE_PROVISIONING) && defined(USE_API_NOISE)
+            auto *manager = provisioning::global_provisioning_manager;
+            if (manager != nullptr && id(api_server)->get_noise_ctx().has_psk())
+              manager->set_source_provisioned(0, true);  // the network source
+            #endif
     - priority: 800
       then:
         - lambda: |-
@@ -1264,12 +699,788 @@ esphome:
       then:
         - delay: 200ms
         - script.execute: setup_time
+  on_loop:
+    - lambda: |-
+        #if defined(USE_PROVISIONING) && defined(USE_API_NOISE)
+        // The manager stops for good once the device is added. A key cleared later leaves it
+        // unprovisioned at once, 100 ms before the server stops taking the old key, so its check
+        // runs here, in this pass: past the window it closes before a keyless client can get in.
+        auto *manager = provisioning::global_provisioning_manager;
+        if (manager != nullptr && !manager->closed() && !manager->is_provisioned()) {
+          // Its check reads a 32-bit clock, which reads as early again past 49.7 days of uptime.
+          if (millis_64() > UINT32_MAX)
+            manager->set_timeout(1);
+          manager->loop();
+        }
+        // Checked every loop, so the change is seen before Home Assistant is back with the key.
+        auto *api = id(api_server);
+        noise::psk_t key;
+        api->get_noise_ctx().load_psk(key);
+        static noise::psk_t last = key;
+        if (key != last) {
+          // A key set, cleared or replaced only asks the clients to leave: one that stays keeps
+          // the session it had.
+          last = key;
+          id(drop_api_clients).execute(api->get_noise_ctx().has_psk() ? "Key set" : "Key cleared");
+          // ESPHome's own OTA, opened before the change, closes as well.
+          id(esphome_ota_allowed).turn_off();
+        }
+        #endif
   name: ${name}
   name_add_mac_suffix: true
   friendly_name: ${friendly_name}
   project:
     name: JetHome.JXD-R6-E1ETH-LCD
     version: ${version}
+ota:
+  - platform: esphome
+    id: esphome_ota
+    password: ''
+  - platform: web_server
+switch:
+  - platform: template
+    id: esphome_ota_allowed
+    name: Allow uploads from ESPHome
+    icon: mdi:upload-lock
+    entity_category: config
+    web_server:
+      sorting_group_id: group_system
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: id(esphome_ota).set_auth_password("");
+      - delay: 30min
+      - switch.turn_off: esphome_ota_allowed
+    turn_off_action:
+      - lambda: |-
+          uint8_t lock[16];
+          random_bytes(lock, sizeof(lock));
+          char hex[sizeof(lock) * 2 + 1];
+          format_hex_to(hex, lock, sizeof(lock));
+          id(esphome_ota).set_auth_password(hex);
+  - platform: gpio
+    name: Relay 1
+    id: relay_1
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 1
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 0
+      mode:
+        output: true
+  - platform: gpio
+    name: Relay 2
+    id: relay_2
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 2
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 1
+      mode:
+        output: true
+  - platform: gpio
+    name: Relay 3
+    id: relay_3
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 3
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 2
+      mode:
+        output: true
+  - platform: gpio
+    name: Relay 4
+    id: relay_4
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 4
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 3
+      mode:
+        output: true
+  - platform: gpio
+    name: Relay 5
+    id: relay_5
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 5
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 4
+      mode:
+        output: true
+  - platform: gpio
+    name: Relay 6
+    id: relay_6
+    web_server:
+      sorting_group_id: group_relays
+      sorting_weight: 6
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 5
+      mode:
+        output: true
+preferences:
+  flash_write_interval: 5s
+external_components:
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - i2c_eeprom
+      - jethome_board_info
+      - status_indicator
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - web_automation_editor
+      - web_origin_guard
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - automations
+      - loop_job
+      - switch_hold
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - web_climate_editor
+      - web_origin_guard
+      - loop_job
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - climate_hub
+      - loop_job
+      - switch_hold
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - crash_report
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - entity_config
+      - bindings
+      - switch_hold
+      - panel_text
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - modbus_map
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - ntp_servers
+      - timezone_settings
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - web_schedule_editor
+      - web_origin_guard
+      - loop_job
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - schedules
+      - loop_job
+      - switch_hold
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - filesystem_storage_abstract
+      - littlefs_storage
+      - config_base
+      - config_json
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - dallas_scan
+      - panel_text
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - virtual_inputs
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - web_auth
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - web_device_dashboard
+      - web_origin_guard
+      - loop_job
+      - firmware_rollback
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - web_file_browser
+      - web_origin_guard
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - web_server_idf
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - display_menu_base
+      - graphical_display_menu
+      - panel_text
+i2c_eeprom:
+  - id: eeprom_cpu
+    size: 64KB
+    address: 84
+jethome_board_info:
+  id: board_info
+  eeprom_id: eeprom_cpu
+logger:
+  level: debug
+web_server:
+  port: 80
+  version: 3
+  sorting_groups:
+    - id: group_relays
+      name: Relays
+      sorting_weight: 10
+    - id: group_inputs
+      name: Inputs
+      sorting_weight: 20
+    - id: group_temperature
+      name: Temperature
+      sorting_weight: 30
+    - id: group_climate
+      name: Climate
+      sorting_weight: 35
+    - id: group_modbus
+      name: Modbus
+      sorting_weight: 40
+    - id: group_network
+      name: Network
+      sorting_weight: 50
+    - id: group_system
+      name: System
+      sorting_weight: 60
+  auth:
+    type: digest
+    username: admin
+    password: admin
+sensor:
+  - platform: tmp102
+    name: PCB Temp
+    id: pcb_temp
+    web_server:
+      sorting_group_id: group_system
+      sorting_weight: 1
+    update_interval: 20s
+    entity_category: diagnostic
+  - platform: adc
+    name: VIN voltage
+    id: vin_meas
+    pin: GPIO35
+    attenuation: 2.5dB
+    accuracy_decimals: 2
+    entity_category: diagnostic
+    internal: true
+    update_interval: 100ms
+    filters:
+      - multiply: 32.0
+      - median:
+          window_size: 20
+          send_every: 20
+          send_first_at: 10
+      - clamp:
+          min_value: 0
+      - lambda: |-
+          if (x <= 2.8) return 0;
+          return x;
+  - platform: adc
+    name: PoE voltage
+    id: poe_voltage
+    pin: GPIO37
+    attenuation: 2.5dB
+    accuracy_decimals: 2
+    entity_category: diagnostic
+    internal: true
+    update_interval: 100ms
+    filters:
+      - multiply: 32.0
+      - median:
+          window_size: 20
+          send_every: 20
+          send_first_at: 10
+      - clamp:
+          min_value: 0
+      - lambda: |-
+          if (x <= 2.8) return 0;
+          return x;
+  - platform: template
+    name: Input voltage
+    id: input_voltage
+    web_server:
+      sorting_group_id: group_system
+      sorting_weight: 2
+    entity_category: diagnostic
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    update_interval: 2s
+    lambda: return std::max(id(vin_meas).state, id(poe_voltage).state);
+    filters:
+      - delta: 0.1
+binary_sensor:
+  - platform: gpio
+    name: FN
+    id: fn_button
+    internal: true
+    pin:
+      number: GPIO0
+      inverted: true
+      ignore_strapping_warning: true
+  - platform: gpio
+    name: Input 1
+    id: input_1
+    web_server:
+      sorting_group_id: group_inputs
+      sorting_weight: 1
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 8
+      mode:
+        input: true
+  - platform: gpio
+    name: Input 2
+    id: input_2
+    web_server:
+      sorting_group_id: group_inputs
+      sorting_weight: 2
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 9
+      mode:
+        input: true
+  - platform: gpio
+    name: Input 3
+    id: input_3
+    web_server:
+      sorting_group_id: group_inputs
+      sorting_weight: 3
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 10
+      mode:
+        input: true
+  - platform: gpio
+    name: Input 4
+    id: input_4
+    web_server:
+      sorting_group_id: group_inputs
+      sorting_weight: 4
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 11
+      mode:
+        input: true
+  - platform: gpio
+    name: Input 5
+    id: input_5
+    web_server:
+      sorting_group_id: group_inputs
+      sorting_weight: 5
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 12
+      mode:
+        input: true
+  - platform: gpio
+    name: Input 6
+    id: input_6
+    web_server:
+      sorting_group_id: group_inputs
+      sorting_weight: 6
+    pin:
+      pca9554: jxd_d6_r6_exp
+      number: 13
+      mode:
+        input: true
+  - platform: template
+    id: fn_held
+    internal: true
+    setup_priority: 600
+    lambda: |-
+      static bool armed = false;
+      if (!id(fn_button).state)
+        armed = true;
+      return armed && id(fn_button).state;
+    filters:
+      - delayed_on: 10s
+    on_press:
+      - script.execute: fn_factory_reset
+  - platform: template
+    id: reboot_required
+    internal: true
+    lambda: return id(temps)->reboot_required();
+  - platform: gpio
+    name: UP
+    id: up_button_id
+    internal: true
+    pin:
+      pca9554: jxd_display_exp
+      number: 8
+      mode:
+        input: true
+    on_press:
+      - lambda: |-
+          if (id(display_menu).is_active()) {
+            id(display_menu).up();
+          } else if (id(display1).get_active_page() == id(status_page)) {
+            id(status_temp_scroll)--;
+            id(display1).update();
+          }
+      - script.execute: check_blank_page
+  - platform: gpio
+    name: DOWN
+    id: down_button_id
+    internal: true
+    pin:
+      pca9554: jxd_display_exp
+      number: 9
+      mode:
+        input: true
+    on_press:
+      - lambda: |-
+          if (id(display_menu).is_active()) {
+            id(display_menu).down();
+          } else if (id(display1).get_active_page() == id(status_page)) {
+            id(status_temp_scroll)++;
+            id(display1).update();
+          }
+      - script.execute: check_blank_page
+  - platform: gpio
+    name: LEFT
+    id: left_button_id
+    internal: true
+    pin:
+      pca9554: jxd_display_exp
+      number: 10
+      mode:
+        input: true
+    on_press:
+      - lambda: |-
+          auto *page = id(display1).get_active_page();
+          if (id(display_menu).is_active()) {
+            id(display_menu).left();
+          } else if (page == id(main_page) || page == id(blank_page)) {
+            id(status_relay_sel) = 0;
+            id(status_temp_scroll) = 0;
+            id(display1).show_page(id(status_page));
+          } else if (page == id(status_page) && !id(relays).empty()) {
+            int n = id(relays).size();
+            id(status_relay_sel) = (id(status_relay_sel) + n - 1) % n;
+            id(display1).update();
+          }
+      - script.execute: check_blank_page
+  - platform: gpio
+    name: RIGHT
+    id: right_button_id
+    internal: true
+    pin:
+      pca9554: jxd_display_exp
+      number: 11
+      mode:
+        input: true
+    on_press:
+      - lambda: |-
+          auto *page = id(display1).get_active_page();
+          if (id(display_menu).is_active()) {
+            id(display_menu).right();
+          } else if (page == id(main_page) || page == id(blank_page)) {
+            id(display1).show_page(id(time_page));
+          } else if (page == id(status_page) && !id(relays).empty()) {
+            int n = id(relays).size();
+            id(status_relay_sel) = (id(status_relay_sel) + 1) % n;
+            id(display1).update();
+          }
+      - script.execute: check_blank_page
+  - platform: gpio
+    name: CENTER
+    id: center_button_id
+    internal: true
+    pin:
+      pca9554: jxd_display_exp
+      number: 12
+      mode:
+        input: true
+    on_press:
+      - lambda: |-
+          auto *page = id(display1).get_active_page();
+          if (id(display_menu).is_active()) {
+            id(display_menu).enter();
+          } else if (page == id(main_page)) {
+            id(display_menu).show_main();
+          } else if (page == id(status_page)) {
+            int sel = id(status_relay_sel);
+            if (sel >= 0 && sel < (int) id(relays).size()) {
+              // A relay a thermostat drives is the thermostat's: the press only logs whose it is.
+              auto *relay = id(relays)[sel];
+              const std::string holder = switch_hold::holder(relay);
+              if (holder.empty()) {
+                relay->toggle();
+              } else {
+                ESP_LOGI("status_page", "'%s' left alone: thermostat '%s' drives it", relay->get_name().c_str(),
+                         holder.c_str());
+              }
+              id(display1).update();
+            }
+          }
+      - script.execute: check_blank_page
+  - platform: gpio
+    name: HOME
+    id: home_button_id
+    internal: true
+    pin:
+      pca9554: jxd_display_exp
+      number: 13
+      mode:
+        input: true
+    on_press:
+      - lambda: |-
+          if (id(display1).get_active_page() != id(main_page)) {
+            id(display_menu).hide();
+            id(display1).show_page(id(main_page));
+          }
+      - script.execute: check_blank_page
+  - platform: gpio
+    name: BACK
+    id: back_button_id
+    internal: true
+    pin:
+      pca9554: jxd_display_exp
+      number: 14
+      mode:
+        input: true
+    on_press:
+      - lambda: |-
+          // back() is false only at the root with nothing being edited: close the menu then.
+          auto *page = id(display1).get_active_page();
+          if (id(display_menu).is_active()) {
+            if (!id(display_menu).back()) {
+              id(display_menu).hide();
+              id(display1).show_page(id(main_page));
+            }
+          } else if (page == id(blank_page)) {
+            id(display_off_s) = 0;
+            id(display1).show_page(id(main_page));
+          } else if (page == id(main_page)) {
+            id(display1).show_page(id(blank_page));
+          } else {
+            id(display1).show_page(id(main_page));
+          }
+status_indicator:
+  id: red_led
+  pin:
+    number: GPIO2
+    ignore_strapping_warning: true
+  cycle:
+    pause_time: 4s
+  signals:
+    - condition:
+        script.is_running: fn_factory_reset
+      state: BLINK_FAST
+    - condition:
+        - for:
+            time: 30s
+            condition:
+              lambda: return !network::is_connected();
+        - lambda: return !id(wifi_id).is_ap_active();
+      count: 1
+      on_time: 250ms
+      off_time: 350ms
+      pause_time: 2s
+    - condition:
+        - for:
+            time: 30s
+            condition:
+              lambda: return !network::is_connected();
+        - lambda: return id(wifi_id).is_ap_active();
+      count: 2
+      on_time: 250ms
+      off_time: 350ms
+      pause_time: 2s
+    - condition:
+        for:
+          time: 1min
+          condition:
+            lambda: |-
+              if (id(temps)->status_has_warning() || id(pcb_temp)->status_has_warning())
+                return true;
+              for (const auto &doc : id(climates)->store().all()) {
+                const auto *runtime = id(climates)->runtime(doc->id);
+                if (runtime != nullptr && runtime->fault() == climate_hub::HubFault::SENSOR_STALE)
+                  return true;
+              }
+              return false;
+      count: 3
+      on_time: 250ms
+      off_time: 350ms
+      pause_time: 2s
+    - condition:
+        binary_sensor.is_on: reboot_required
+      count: 4
+      on_time: 250ms
+      off_time: 350ms
+      pause_time: 2s
+text_sensor:
+  - platform: uptime
+    name: Uptime
+    id: uptime_sensor
+    internal: true
+    format:
+      separator: ' '
+  - platform: ethernet_info
+    ip_address:
+      name: Ethernet IP
+      web_server:
+        sorting_group_id: group_network
+        sorting_weight: 1
+      address_0:
+        id: ip_eth
+        on_value:
+          - component.update: ip
+    mac_address:
+      name: Ethernet MAC
+      web_server:
+        sorting_group_id: group_network
+        sorting_weight: 2
+      id: mac_eth
+  - platform: wifi_info
+    ip_address:
+      name: WiFi IP
+      web_server:
+        sorting_group_id: group_network
+        sorting_weight: 3
+      id: ip_wifi
+      on_value:
+        - component.update: ip
+    mac_address:
+      name: WiFi MAC
+      web_server:
+        sorting_group_id: group_network
+        sorting_weight: 4
+      id: mac_wifi
+  - platform: template
+    id: ip
+    internal: true
+    update_interval: never
+    lambda: |-
+      if (id(ethernet_id).is_connected())
+        return id(ip_eth).state;
+      if (id(wifi_id).is_connected())
+        return id(ip_wifi).state;
+      if (id(wifi_id).is_ap_active()) {
+        char buf[esphome::network::IP_ADDRESS_BUFFER_SIZE];
+        return std::string(id(wifi_id).wifi_soft_ap_ip().str_to(buf));
+      }
+      return std::string();
+pca9554:
+  - id: jxd_d6_r6_exp
+    pin_count: 16
+    address: 34
+  - id: jxd_display_exp
+    pin_count: 16
+    address: 36
+one_wire:
+  - platform: ds2484
+    id: one_wire_bus
+    address: 24
+    active_pullup: true
+globals:
+  - id: relays
+    type: std::vector<switch_::Switch *>
+  - id: inputs
+    type: std::vector<binary_sensor::BinarySensor *>
+  - id: display_off_threshold_s
+    type: uint32_t
+  - id: display_off_s
+    type: uint32_t
+  - id: modbus_bus_applied
+    type: bool
+    initial_value: 'false'
+  - id: network_mode_applied
+    type: bool
+    initial_value: 'false'
+  - id: ap_was_active
+    type: bool
+    initial_value: 'false'
+  - id: stored_timezone
+    type: esphome::time::ParsedTimezone
+    restore_value: true
+  - id: status_relay_sel
+    type: int
+    initial_value: '0'
+  - id: status_temp_scroll
+    type: int
+    initial_value: '0'
 web_automation_editor: null
 automations:
   id: automations_engine
@@ -1413,107 +1624,6 @@ entity_config:
   switch_settings_id: switch_settings
   binary_sensor_settings_id: binary_sensor_settings
 bindings: null
-script:
-  - id: run_factory_reset
-    then:
-      - lambda: |-
-          // The partition is wiped at the next boot; the record has to outlive
-          // the preferences erase, which takes all of NVS.
-          global_preferences->reset();
-          if (!id(user_storage)->request_format()) {
-            ESP_LOGE("factory_reset", "The user partition was not wiped and will not be");
-          }
-          App.safe_reboot();
-  - id: fn_factory_reset
-    then:
-      - logger.log:
-          level: WARN
-          format: 'FN held for 10 s: factory reset in 5 s'
-      - status_indicator.blink_fast: red_led
-      - delay: 5s
-      - script.execute: run_factory_reset
-  - id: apply_modbus_bus
-    then:
-      - lambda: |-
-          auto *bus = id(jxm_uart2);
-          const uint32_t baud = parse_number<uint32_t>(id(modbus_baud_rate).current_option().c_str()).value_or(9600);
-          const uint8_t stop_bits = parse_number<uint8_t>(id(modbus_stop_bits).current_option().c_str()).value_or(1);
-          const auto parity = (uart::UARTParityOptions) id(modbus_parity).active_index().value_or(0);
-          // A select re-set to its own option fires too, and a reload drops what is on the wire.
-          if (baud == bus->get_baud_rate() && stop_bits == bus->get_stop_bits() && parity == bus->get_parity()) {
-            return;
-          }
-          bus->set_baud_rate(baud);
-          bus->set_stop_bits(stop_bits);
-          bus->set_parity(parity);
-          bus->load_settings(false);
-          // Modbus takes its frame timing from the UART in setup(), which ran before this.
-          id(modbus_bus).setup();
-  - id: set_wifi_ap
-    then:
-      - lambda: |-
-          uint8_t mac[6];
-          get_mac_address_raw(mac);
-          wifi::WiFiAP ap;
-          ap.set_ssid("${friendly_name}-" + str_snprintf("%02X%02X", 4, mac[4], mac[5]));
-          ap.set_password(str_snprintf("%02x%02x%02x%02x", 8, mac[2], mac[3], mac[4], mac[5]));
-          id(wifi_id).set_ap(ap);
-  - id: apply_network_mode
-    then:
-      - lambda: |-
-          // Option index: 0 Auto, 1 Ethernet, 2 WiFi.
-          const size_t mode = id(network_mode).active_index().value_or(0);
-          if (mode == 2) {
-            id(ethernet_id).disable();
-          } else {
-            id(ethernet_id).enable();
-          }
-          if (mode == 1) {
-            id(wifi_id).disable();
-          } else {
-            id(wifi_id).enable();
-          }
-      - component.update: ip
-  - id: reset_wifi
-    then:
-      - logger.log: Reset WiFi creds
-      - lambda: |-
-          // Both keys WiFiComponent::start can pick, the literal being its own.
-          constexpr uint32_t WIFI_PREF_KEY_NO_COMPILED_NETWORK = 88491487;
-          const uint32_t keys[] = {WIFI_PREF_KEY_NO_COMPILED_NETWORK, App.get_config_version_hash()};
-          uint8_t cleared = 0;
-          bool ok = true;
-          for (uint32_t key : keys) {
-            auto pref = global_preferences->make_preference(sizeof(cleared), key);
-            ok = pref.save(&cleared) && ok;
-          }
-          ok = global_preferences->sync() && ok;
-          if (!ok) {
-            ESP_LOGE("reset_wifi", "Clearing the WiFi credentials failed");
-          }
-          id(wifi_id).clear_sta();
-          // Restarting the radio is what raises the AP; in Ethernet mode there is none to raise.
-          if (!id(wifi_id).is_disabled()) {
-            id(wifi_id).disable();
-            id(wifi_id).enable();
-          }
-  - id: setup_time
-    then:
-      - pcf8563.read_time:
-          id: pcf8563_time
-  - id: forget_temperatures
-    parameters:
-      slot: int
-    then:
-      - delay: 1s
-      - lambda: id(temps)->forget(slot);
-  - id: check_blank_page
-    then:
-      - lambda: |-
-          id(display_off_s) = 0;
-          if (id(display1).get_active_page() == id(blank_page)) {
-            id(display1).show_page(id(main_page));
-          }
 i2c:
   - id: i2c1
     sda: 5
@@ -2085,6 +2195,33 @@ graphical_display_menu:
                 - script.execute:
                     id: forget_temperatures
                     slot: -1
+        - type: menu
+          text: Forget HA
+          weight: 20
+          on_leave:
+            - lambda: id(forget_ha_yes)->set_text("Confirm");
+          items:
+            - type: label
+              text: Forget HA key?
+            - type: command
+              text: Confirm
+              id: forget_ha_yes
+              on_value:
+                - lambda: id(forget_ha_yes)->set_text("Confirm - OK");
+                - delay: 1s
+                - lambda: |-
+                    // A key from the YAML is compiled in and cannot be cleared.
+                    #if defined(USE_API_NOISE) && !defined(USE_API_NOISE_PSK_FROM_YAML)
+                    // Not made active: the reboot does that. Its teardown still serves the clients,
+                    // on the old key, so they go first.
+                    if (id(api_server)->clear_noise_psk(false)) {
+                      id(drop_api_clients).execute("Forget HA");
+                      App.safe_reboot();
+                      return;
+                    }
+                    #endif
+                    ESP_LOGW("menu", "Forget HA: the API key was not cleared");
+                    id(forget_ha_yes)->set_text("Confirm - failed");
         - type: menu
           text: Factory reset
           weight: 40

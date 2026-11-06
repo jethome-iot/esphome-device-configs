@@ -111,9 +111,22 @@ boundaries; everything else is local to its file.
 - `device_ntp` (`features/rtc-time.yaml`) is the `ntp_servers` component, which hands
   `sntp_time`'s lwIP client one server at a time and takes `sntp_time`'s own servers as its
   fallback; `web_device_dashboard` finds it in the config and serves it on `/api/device/time`.
+- `api_server` (`boards/jxd-cpu-e1eth.yaml`) has `encryption:` with no `key:`, so the key Home
+  Assistant writes is kept on the device: the menu's Forget HA (`display/menu.yaml`) and
+  `web_device_dashboard`'s `/api/device/system/forget-api-key` clear it. With a key in the YAML
+  the route is not built and the row's Confirm only says it failed. The `provisioning:` block
+  next to it closes the API, the fallback AP and captive portal of `features/network.yaml`, and
+  `esphome_ota_allowed`, 15 minutes after a boot on a device that has no key by then; on one
+  whose key is cleared later, at that mark or at once past it.
 - `run_factory_reset` (a script in `features/factory-reset.yaml`) is the reset the menu's
   Factory reset runs; the same file runs it when `fn_button` (`boards/jxd-cpu-e1eth.yaml`) is
-  held for 10 s, after blinking `red_led`, the `status_indicator` on the CPU board's LED.
+  held for 10 s, after the 5 s of `fn_factory_reset`.
+- `red_led` (`boards/jxd-cpu-e1eth.yaml`) is the `status_indicator` on the CPU board's LED;
+  `features/status-led.yaml` adds its signals, which read `fn_factory_reset`, `wifi_id`, `temps`,
+  `pcb_temp`, `climates` and `reboot_required`.
+- `reboot_required` (`features/reboot-required.yaml`) is the device's one internal flag for a saved change
+  that waits for a reboot; a feature with such a change adds its term to that lambda and its
+  name to `reboot_reasons` in `web_device_dashboard`'s `/api/device/status`.
 - `web_device_dashboard` (`features/web-device-dashboard.yaml`) is the page at `/`, registered
   ahead of `web_server`'s own. Entity state and control go through `web_server`'s REST and
   `/events`, the Files screen through `web_file_browser` at `/files`, the Automations screen
@@ -138,6 +151,7 @@ boundaries; everything else is local to its file.
 | 598.5 | `schedules` sets up: it loads the schedules and finds the relays and thermostats they name, so it sits below the hub (`DATA - 1.5` against `DATA - 0.5`), whose changes it then hears of. It runs nothing at setup: the lists of the modes in force run once `pcf8563_time` reads valid, on a loop pass |
 | 500 | add a `Temp N` submenu per bound slot to the Temperatures menu; add a row per loaded rule to the Automations menu; add a submenu per loaded thermostat to the Thermostats menu |
 | 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
+| -100 | on a device that has its API key, which `api_server` loaded at its setup at `AFTER_WIFI`, mark `provisioning`'s network source provisioned (`boards/jxd-cpu-e1eth.yaml`), so the window never closes on that key however late the network comes up |
 
 `littlefs_storage` mounts at 810, so the rule files are readable by the time `automations` loads
 them. A wipe a factory reset asked for runs just before that mount. Three things leave the
@@ -197,6 +211,21 @@ server.
 
 ## Coupled to upstream internals
 
+- `boards/jxd-cpu-e1eth.yaml` marks `provisioning`'s source `0` provisioned at boot when the API
+  key is there: that is the network source, which the manager registers in its constructor,
+  before any other. Were it not, an added device would again close its window when no network
+  came up in 15 minutes. Its `esphome: on_loop:` takes over from the manager, which stops its
+  loop for good once the device is provisioned, whenever the device is unprovisioned with the
+  window open, as `clear_noise_psk()` leaves it at once, 100 ms before the server stops taking
+  the old key. It calls the manager's `loop()` itself, so past the timeout the window closes in
+  that same pass. The manager compares the 32-bit `App.get_loop_component_start_time()` with its
+  timeout, which that clock's wrap every 49.7 days puts back under it; once `millis_64()` is
+  past 2^32 ms, `on_loop:` first sets the timeout to 1 ms, past at any 32-bit reading above 1.
+  `provisioning: on_timeout:`, that `on_loop:` when the key it reads through
+  `NoiseContext::load_psk()` changes, the menu's Forget HA and `web_device_dashboard`'s
+  forget-api-key drop every client in `active_clients()` through
+  `APIConnection::on_fatal_error()`: upstream only sends them a `DisconnectRequest`, which a
+  client can ignore and keep its session.
 - `components/display_menu_base` and `components/graphical_display_menu` are copies of
   upstream's, carrying `right_for_menu_enter`, the `display_menu.back` action, `fill_row`,
   item `weight` and submenus that may be empty;
