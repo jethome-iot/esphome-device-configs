@@ -286,7 +286,7 @@ export interface SchedulesResponse {
 }
 
 /** A thermostat's mode, as the thermostat editor's API words it. */
-export type ThermostatMode = 'off' | 'heat' | 'cool' | 'heat_cool'
+export type ThermostatMode = 'off' | 'heat' | 'cool'
 
 /** What a preset does to the mode: `keep` leaves the thermostat's as it is. */
 export type PresetMode = 'keep' | ThermostatMode

@@ -35,14 +35,20 @@
 // A calibration (/autotune) runs climate_hub's port of upstream's autotuner on the
 // simulated room, which swings in minutes rather than hours; what ends it on the
 // device ends it here, a fault, a Save, an import, a target or a mode included.
-// On success the gains go into the document and its revision moves on, as an
-// import over it moves it, and a Save carrying an older revision is 409.
+// A calibration swings the relay of the thermostat's mode; a `direction` given has to be that
+// one. On success the gains go into the document as that relay's and its revision moves on,
+// as an import over it moves it, and a Save carrying an older revision is 409.
+// Each relay has its own gains. A body's bare pid.kp/ki/kd are read only for a relay whose
+// own gains it leaves out, and /get answers them as a copy of the gains of the relay a turn-on
+// goes to. A PID pass for the other relay than its state was built for starts it over on that
+// relay's gains.
 // tests/components/web_climate_editor/contract.json lists the requests it must
 // answer as the device does.
 // /status reads a first-order room model per sensor, heated and cooled by the
 // thermostats bound to it. Their relays keep min_on_s and min_off_s, counted from
-// the boot for one no thermostat has held, and the action follows the relays, not
-// the demand, as on the device; /status says which minimum holds a relay. Nothing
+// the boot for one no thermostat has held, a relay closes only once the thermostat's
+// other relay has opened, and the action follows the relays, not the demand, as on
+// the device; /status says which minimum, or the other relay, holds one. Nothing
 // switches a relay from elsewhere here. control() stands in for Home Assistant
 // setting a running thermostat's mode, target or preset through its climate entity.
 import type {
@@ -62,10 +68,12 @@ import type {
   ControllerSummary,
   OutputConfig,
   ParamDesc,
+  PidConfig,
   PidGains,
   PidTerms,
   PresetConfig,
   PresetMode,
+  RelayDirection,
   RelayWait
 } from '../types'
 import {
@@ -95,8 +103,8 @@ import {
 const MAX_CONTROLLERS = 8
 // ClimateHub::start_'s reason when every climate entity is in use.
 const NO_FREE_ENTITY = 'no free climate entity'
-const MODES = ['off', 'heat', 'cool', 'heat_cool'] as const
-const ON_MODES = ['heat', 'cool', 'heat_cool'] as const
+const MODES = ['off', 'heat', 'cool'] as const
+const ON_MODES = ['heat', 'cool'] as const
 
 // --- Seed data ---------------------------------------------------------------
 // Typed against the SDK contract, so these double as canonical example payloads
@@ -232,6 +240,10 @@ function clampParam(key: string, value: number): number {
   return p.integer ? Math.sign(value) * Math.round(Math.abs(value)) : value
 }
 
+function defaultGains(): PidGains {
+  return { kp: def('kp'), ki: def('ki'), kd: def('kd') }
+}
+
 /** A document holding every default — what a save merges its body over. */
 export function blankDocument(): ControllerDocument {
   const output = () => ({
@@ -258,9 +270,8 @@ export function blankDocument(): ControllerDocument {
     },
     safety: { sensor_timeout_s: def('sensor_timeout_s'), max_temperature: def('safety_max_temperature') },
     pid: {
-      kp: def('kp'),
-      ki: def('ki'),
-      kd: def('kd'),
+      heat: defaultGains(),
+      cool: defaultGains(),
       min_integral: def('min_integral'),
       max_integral: def('max_integral'),
       starting_integral_term: def('starting_integral_term'),
@@ -464,16 +475,25 @@ function decodeOutput(raw: unknown, out: ControllerDocument['heat']) {
 }
 
 const KINDS = ['pid', 'bang_bang'] as const
-const PID_KEYS = Object.keys(blankDocument().pid) as Array<keyof ControllerDocument['pid']>
+type SharedPidKey = Exclude<keyof PidConfig, 'heat' | 'cool' | 'kp' | 'ki' | 'kd'>
+// What both relays share; each one's gains are its own.
+const PID_SHARED_KEYS = (Object.keys(blankDocument().pid) as Array<keyof PidConfig>).filter(
+  (key): key is SharedPidKey => key !== 'heat' && key !== 'cool'
+)
+const DIRECTIONS = ['heat', 'cool'] as const
+
+// A relay without gains of its own, as in a file from before they were per relay, takes the
+// bare ones beside them; a gain neither has keeps its default. Clamped as the codec clamps.
+function decodeGains(pid: Json, dir: RelayDirection, out: PidGains) {
+  const from = objectOf(pid[dir]) ?? pid
+  out.kp = clampParam('kp', numberOr(from.kp, out.kp))
+  out.ki = clampParam('ki', numberOr(from.ki, out.ki))
+  out.kd = clampParam('kd', numberOr(from.kd, out.kd))
+}
 
 // The modes the entity advertises: off, and what its relays can do.
 function modeSupported(doc: ControllerDocument, mode: ClimateHubMode): boolean {
-  return (
-    mode === 'off' ||
-    (mode === 'heat' && !!doc.heat.relay_id) ||
-    (mode === 'cool' && !!doc.cool.relay_id) ||
-    (mode === 'heat_cool' && !!doc.heat.relay_id && !!doc.cool.relay_id)
-  )
+  return mode === 'off' || (mode === 'heat' && !!doc.heat.relay_id) || (mode === 'cool' && !!doc.cool.relay_id)
 }
 
 // ClimateConfig::on_mode(): the mode while it is not off, else `last` while the relays serve
@@ -493,7 +513,30 @@ function setMode(doc: ControllerDocument, mode: ClimateHubMode) {
 
 // ClimateConfig's own mode rule, worded for the thermostat or for one of its presets.
 function modeNeeds(mode: ClimateHubMode): string {
-  return mode === 'heat' ? 'heat.relay_id' : mode === 'cool' ? 'cool.relay_id' : 'both relays'
+  return mode === 'heat' ? 'heat.relay_id' : 'cool.relay_id'
+}
+
+// ClimateConfig::on_direction(): the relay a turn-on goes to, whose gains a PID runs on.
+function onDirection(doc: ControllerDocument): RelayDirection {
+  return onMode(doc, doc.last_on_mode) === 'cool' ? 'cool' : 'heat'
+}
+
+// The document as /get answers it: each relay's gains, and the bare ones beside them a copy of
+// the relay a turn-on goes to, for a firmware from before each relay had its own.
+function wireDocument(doc: ControllerDocument): ControllerDocument {
+  const out = structuredClone(doc)
+  const { heat, cool, kp: _kp, ki: _ki, kd: _kd, ...shared } = out.pid
+  out.pid = { heat, cool, ...out.pid[onDirection(doc)], ...shared }
+  return out
+}
+
+// What a seed holds as a file from before each relay had its own gains: its one set is both
+// relays'. The bare keys are /get's to add.
+function ownGains(doc: ControllerDocument): ControllerDocument {
+  const pid = doc.pid as Partial<PidConfig> & Json
+  const bare: PidGains = { kp: pid.kp ?? def('kp'), ki: pid.ki ?? def('ki'), kd: pid.kd ?? def('kd') }
+  const { kp: _kp, ki: _ki, kd: _kd, ...rest } = doc.pid
+  return { ...doc, pid: { ...rest, heat: { ...(pid.heat ?? bare) }, cool: { ...(pid.cool ?? bare) } } }
 }
 
 // The presets' structure: a list of objects with mode words. What the values and the
@@ -510,7 +553,7 @@ function decodePresets(raw: unknown): { presets: PresetConfig[] } | { error: str
     let mode: PresetMode = 'keep'
     if (obj.mode !== undefined && obj.mode !== null && obj.mode !== 'keep') {
       const word = MODES.find((m) => m === obj.mode)
-      if (!word) return { error: `${at}: mode must be one of keep/off/heat/cool/heat_cool` }
+      if (!word) return { error: `${at}: mode must be one of keep/off/heat/cool` }
       mode = word
     }
     presets.push({ key: textOf(obj.key), name: trimName(textOf(obj.name)), setpoint: numberOr(obj.setpoint, NaN), mode })
@@ -631,7 +674,8 @@ export function decodeDocument(raw: unknown, requireId = false): { doc: Controll
 
   const pid = objectOf(root.pid)
   if (pid) {
-    for (const key of PID_KEYS) doc.pid[key] = clampParam(key, numberOr(pid[key], doc.pid[key]))
+    for (const dir of DIRECTIONS) decodeGains(pid, dir, doc.pid[dir])
+    for (const key of PID_SHARED_KEYS) doc.pid[key] = clampParam(key, numberOr(pid[key], doc.pid[key]))
   }
   if (doc.pid.max_integral < doc.pid.min_integral) {
     return { error: 'pid.max_integral must not be below pid.min_integral' }
@@ -645,7 +689,7 @@ export function decodeDocument(raw: unknown, requireId = false): { doc: Controll
 
   if (root.mode !== undefined && root.mode !== null) {
     const mode = MODES.find((m) => m === root.mode)
-    if (!mode) return { error: 'mode must be one of off/heat/cool/heat_cool' }
+    if (!mode) return { error: 'mode must be one of off/heat/cool' }
     doc.mode = mode
   }
   // State, like active_preset: one the relays no longer serve gives way. A word it does not
@@ -653,7 +697,7 @@ export function decodeDocument(raw: unknown, requireId = false): { doc: Controll
   let last: ClimateHubOnMode | undefined
   if (root.last_on_mode !== undefined && root.last_on_mode !== null) {
     last = ON_MODES.find((m) => m === root.last_on_mode)
-    if (!last) return { error: 'last_on_mode must be one of heat/cool/heat_cool' }
+    if (!last) return { error: 'last_on_mode must be one of heat/cool' }
   }
   doc.last_on_mode = onMode(doc, last)
   if (!modeSupported(doc, doc.mode)) return { error: `mode '${doc.mode}' needs ${modeNeeds(doc.mode)}` }
@@ -926,6 +970,8 @@ interface Runtime {
   heatWait: RelayWait
   coolWait: RelayWait
   terms: PidTerms
+  /** The relay the PID state was built for, whose gains it runs on. */
+  pidDirection: RelayDirection
 }
 
 function fail(status: number, error: string): MockResult {
@@ -962,7 +1008,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
   const now = options.now ?? (() => Date.now())
   // Under ids no slug can be, so no thermostat is ever taken for one of them.
   const yamlClimates = (options.otherClimates ?? []).map((name, n) => ({ id: `yaml/${n}`, name }))
-  const docs: ControllerDocument[] = structuredClone(options.seed ?? seedControllers)
+  const docs: ControllerDocument[] = structuredClone(options.seed ?? seedControllers).map(ownGains)
   docs.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const running = new Map<string, Runtime>()
   // ClimateHub::waiting_: why each enabled thermostat that does not run did not start, by id.
@@ -986,10 +1032,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
   const switchName = (objectId: string) => seedSwitches.find((s) => s.object_id === objectId)?.name ?? objectId
   const relaysOf = (doc: ControllerDocument) => [doc.heat.relay_id, doc.cool.relay_id].filter((r) => r !== '')
   const readingOf = (sensorId: string) => rooms.get(sensorId)?.temp ?? null
-  const heatAllowed = (doc: ControllerDocument) =>
-    !!doc.heat.relay_id && (doc.mode === 'heat' || doc.mode === 'heat_cool')
-  const coolAllowed = (doc: ControllerDocument) =>
-    !!doc.cool.relay_id && (doc.mode === 'cool' || doc.mode === 'heat_cool')
+  const heatAllowed = (doc: ControllerDocument) => !!doc.heat.relay_id && doc.mode === 'heat'
+  const coolAllowed = (doc: ControllerDocument) => !!doc.cool.relay_id && doc.mode === 'cool'
   // Its file came from a newer firmware: this one never writes it.
   const newer = (doc: ControllerDocument) => doc.version > CONFIG_VERSION
 
@@ -1075,6 +1119,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     const integral = pid
       ? clamp(pid.integral, doc.pid.min_integral, doc.pid.max_integral)
       : doc.pid.starting_integral_term
+    const pidDirection = pid ? pid.pidDirection : onDirection(doc)
     const rt: Runtime = {
       boundAt: t,
       waitingSince: waiting ? waiting.waitingSince : t,
@@ -1089,9 +1134,17 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       coolDuty: prev ? prev.rt.coolDuty : 0,
       heatWait: keptWait('heat'),
       coolWait: keptWait('cool'),
+      pidDirection,
       terms: pid
         ? { ...pid.terms, integral: round(integral, 3) }
-        : { error: null, proportional: null, integral: null, derivative: null, in_deadband: false }
+        : {
+            direction: pidDirection,
+            error: null,
+            proportional: null,
+            integral: null,
+            derivative: null,
+            in_deadband: false
+          }
     }
     rt.fault = faultOf(doc, rt, t)
     rt.action = relayAction(doc, rt)
@@ -1113,7 +1166,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     if (readingOf(doc.sensor_id) === null) return 'idle'
     const heating = shows(doc, rt, 'heat')
     const cooling = shows(doc, rt, 'cool')
-    // Both closed only while min_on holds one after a switch-over: the one it drives now wins.
+    // Both closed only while one closed from elsewhere waits to be put back, which this mock never
+    // does: the one it drives now wins.
     if (heating && (!cooling || rt.heatDuty > 0)) return 'heating'
     return cooling ? 'cooling' : 'idle'
   }
@@ -1148,18 +1202,27 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     relay.since = t
   }
 
-  // ControllerRuntime::tick() after its pass: the relays move as their minimums let them, and
-  // the action follows them.
+  // ControllerRuntime::tick() after its pass: the relays move as their minimums let them, the
+  // opening first, and one closes only once the other has opened; the action follows them.
   function drive(doc: ControllerDocument, rt: Runtime, t: number) {
     const holdsOpen = readingOf(doc.sensor_id) === null || rt.fault !== 'none' || doc.mode === 'off'
-    if (doc.heat.relay_id) {
-      if (holdsOpen) forceOff(doc.heat.relay_id, t)
-      rt.heatWait = holdsOpen ? 'none' : request(doc.heat, pwm(doc, rt, rt.heatDuty, doc.heat.period_s, t), t)
+    if (holdsOpen) {
+      if (doc.heat.relay_id) forceOff(doc.heat.relay_id, t)
+      if (doc.cool.relay_id) forceOff(doc.cool.relay_id, t)
+      rt.heatWait = 'none'
+      rt.coolWait = 'none'
+      rt.action = relayAction(doc, rt)
+      return
     }
-    if (doc.cool.relay_id) {
-      if (holdsOpen) forceOff(doc.cool.relay_id, t)
-      rt.coolWait = holdsOpen ? 'none' : request(doc.cool, pwm(doc, rt, rt.coolDuty, doc.cool.period_s, t), t)
-    }
+    const wantHeat = !!doc.heat.relay_id && pwm(doc, rt, rt.heatDuty, doc.heat.period_s, t)
+    const wantCool = !!doc.cool.relay_id && pwm(doc, rt, rt.coolDuty, doc.cool.period_s, t)
+    if (doc.heat.relay_id && !wantHeat) rt.heatWait = request(doc.heat, false, t)
+    if (doc.cool.relay_id && !wantCool) rt.coolWait = request(doc.cool, false, t)
+    // A heater and a cooler never run against each other; one closed already stays.
+    const held = (own: OutputConfig, other: OutputConfig) =>
+      !relayOf(own.relay_id).on && !!other.relay_id && relayOf(other.relay_id).on
+    if (wantHeat) rt.heatWait = held(doc.heat, doc.cool) ? 'other_relay' : request(doc.heat, true, t)
+    if (wantCool) rt.coolWait = held(doc.cool, doc.heat) ? 'other_relay' : request(doc.cool, true, t)
     rt.action = relayAction(doc, rt)
   }
 
@@ -1275,9 +1338,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       return asStored(held)
     }
     const gains = { kp: gain('kp', kp * ku), ki: gain('ki', (ki * ku) / pu), kd: gain('kd', kd * ku * pu) }
-    doc.pid.kp = gains.kp
-    doc.pid.ki = gains.ki
-    doc.pid.kd = gains.kd
+    // Only its relay's: the other one keeps what it had.
+    doc.pid[run.direction] = { ...gains }
     // A form read before now would write the old gains back.
     doc.revision++
     run.new = gains
@@ -1303,8 +1365,9 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     rt.action = relayAction(doc, rt)
   }
 
-  // ControllerRuntime::end_autotune: nothing the PID held carries on.
+  // ControllerRuntime::end_autotune: nothing the PID held carries on, on the mode's relay.
   function restartPid(doc: ControllerDocument, rt: Runtime) {
+    rt.pidDirection = onDirection(doc)
     rt.integral = doc.pid.starting_integral_term
     rt.prevError = null
     rt.lastControl = null
@@ -1377,15 +1440,13 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     if (newer(doc)) return fail(409, NEWER_FILE)
     if (activeRun(doc)) return fail(409, 'A calibration is already running')
     if (doc.mode === 'off') return fail(409, 'The thermostat is off: set it to heat or cool first')
-    let direction: AutotuneDirection
-    if (rawDirection === null) {
-      if (doc.mode === 'heat_cool') return fail(400, 'In heat_cool, direction must say heat or cool')
-      direction = doc.mode === 'cool' ? 'cool' : 'heat'
-    } else {
-      direction = rawDirection
-    }
-    if (doc.mode !== direction && doc.mode !== 'heat_cool') {
-      return fail(400, `direction '${direction}' needs mode ${direction} or heat_cool`)
+    // The mode's relay: one a client names besides has to be that one.
+    const direction: AutotuneDirection = doc.mode
+    if (rawDirection !== null && rawDirection !== direction) {
+      return fail(
+        400,
+        `direction '${rawDirection}' does not match mode ${doc.mode}: a calibration swings the relay of the current mode`
+      )
     }
     if (rt.fault !== 'none') return fail(409, `The thermostat reports ${rt.fault}; calibrate it once that clears`)
     const run: Run = {
@@ -1398,7 +1459,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       endedAt: t,
       lastSwitch: t,
       tuner: new Tuner(direction === 'cool'),
-      old: { kp: doc.pid.kp, ki: doc.pid.ki, kd: doc.pid.kd },
+      old: { ...doc.pid[direction] },
       new: null,
       flags: []
     }
@@ -1428,24 +1489,34 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     }
     if (calibrate(doc, rt, temp, t)) return
     if (!rt.due && rt.lastControl !== null && t - rt.lastControl < doc.update_interval_s * 1000) return
+    // What one relay learnt means nothing to the other: a pass for it starts the PID over.
+    const direction: RelayDirection = doc.mode === 'cool' ? 'cool' : 'heat'
+    if (doc.kind === 'pid' && direction !== rt.pidDirection) {
+      rt.pidDirection = direction
+      rt.integral = doc.pid.starting_integral_term
+      rt.prevError = null
+      rt.lastControl = null
+    }
     const dt = rt.lastControl === null ? 0 : (t - rt.lastControl) / 1000
     rt.lastControl = t
     rt.due = false
 
     if (doc.kind === 'pid') {
       const pid = doc.pid
+      const gains = pid[rt.pidDirection]
       const e = doc.setpoint - temp
       const inDeadband = pid.deadband_threshold_low < -e && -e < pid.deadband_threshold_high
-      const p = pid.kp * e * (inDeadband ? pid.deadband_kp_multiplier : 1)
-      const ki = pid.ki * (inDeadband ? pid.deadband_ki_multiplier : 1)
+      const p = gains.kp * e * (inDeadband ? pid.deadband_kp_multiplier : 1)
+      const ki = gains.ki * (inDeadband ? pid.deadband_ki_multiplier : 1)
       rt.integral = clamp(rt.integral + e * dt * ki, pid.min_integral, pid.max_integral)
-      const kd = pid.kd * (inDeadband ? pid.deadband_kd_multiplier : 1)
+      const kd = gains.kd * (inDeadband ? pid.deadband_kd_multiplier : 1)
       const d = dt > 0 && rt.prevError !== null ? (kd * (e - rt.prevError)) / dt : 0
       rt.prevError = e
       const out = p + rt.integral + d
       rt.heatDuty = heatAllowed(doc) ? clamp(out, 0, 1) : 0
       rt.coolDuty = coolAllowed(doc) ? clamp(-out, 0, 1) : 0
       rt.terms = {
+        direction: rt.pidDirection,
         error: round(e, 3),
         proportional: round(p, 3),
         integral: round(rt.integral, 3),
@@ -1460,7 +1531,6 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     const high = doc.setpoint + doc.bang_bang.above
     if (temp < low) rt.latch = heatAllowed(doc) ? 'heating' : 'idle'
     else if (temp > high) rt.latch = coolAllowed(doc) ? 'cooling' : 'idle'
-    else if (doc.mode === 'heat_cool' && doc.heat.relay_id && doc.cool.relay_id) rt.latch = 'idle'
     rt.heatDuty = rt.latch === 'heating' ? 1 : 0
     rt.coolDuty = rt.latch === 'cooling' ? 1 : 0
   }
@@ -1559,7 +1629,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       status.switch_low = round(doc.setpoint - doc.bang_bang.below, 3)
       status.switch_high = round(doc.setpoint + doc.bang_bang.above, 3)
     }
-    if (rt && doc.kind === 'pid') status.pid = { ...rt.terms }
+    if (rt && doc.kind === 'pid') status.pid = { ...rt.terms, direction: rt.pidDirection }
     const run = runs.get(doc.id)
     if (run) status.autotune = runStatus(run, t)
     return status
@@ -1839,7 +1909,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
         const id = idParam(search)
         if (typeof id !== 'string') return id
         const doc = find(id)
-        return doc ? { status: 200, body: structuredClone(doc) } : fail(404, 'Thermostat not found')
+        return doc ? { status: 200, body: wireDocument(doc) } : fail(404, 'Thermostat not found')
       }
 
       case 'status': {

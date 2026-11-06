@@ -26,7 +26,7 @@ class Calibration : public HubTest {
     return id;
   }
 
-  Result calibrate(const std::string &id, optional<AutotuneDirection> direction = nullopt,
+  Result calibrate(const std::string &id, optional<Direction> direction = nullopt,
                    AutotuneRule rule = AutotuneRule::ZN_PI) {
     return hub().start_autotune(id, direction, rule);
   }
@@ -98,7 +98,7 @@ TEST_F(Calibration, ARoomWithRadiatorsGetsItsGainsInAboutTwoHours) {
   ASSERT_TRUE(this->calibrate(id).ok);
   const AutotuneRun *run = hub().autotune(id);
   ASSERT_NE(nullptr, run);
-  EXPECT_EQ(AutotuneDirection::HEAT, run->direction()) << "mode heat calibrates heating";
+  EXPECT_EQ(Direction::HEAT, run->direction()) << "mode heat calibrates heating";
   const uint64_t started = hub().ms;
 
   swing(room, model, 24.f, [&id] { return ended(id); });
@@ -125,12 +125,12 @@ TEST_F(Calibration, ARoomWithRadiatorsGetsItsGainsInAboutTwoHours) {
   EXPECT_FALSE(run->clamped());
 
   const ClimateConfig *stored = hub().store().get(id);
-  EXPECT_EQ(run->new_gains().kp, stored->pid.kp);
+  EXPECT_EQ(run->new_gains().kp, stored->pid.heat.kp);
   EXPECT_EQ(1u, stored->revision);
   const ClimateConfig flash = this->on_flash(id);
-  EXPECT_EQ(run->new_gains().kp, flash.pid.kp);
-  EXPECT_EQ(run->new_gains().ki, flash.pid.ki);
-  EXPECT_EQ(0.f, flash.pid.kd);
+  EXPECT_EQ(run->new_gains().kp, flash.pid.heat.kp);
+  EXPECT_EQ(run->new_gains().ki, flash.pid.heat.ki);
+  EXPECT_EQ(0.f, flash.pid.heat.kd);
   EXPECT_EQ(1u, flash.revision);
 
   // Back to the PID with them, from a clean start: its first pass integrates nothing.
@@ -138,7 +138,7 @@ TEST_F(Calibration, ARoomWithRadiatorsGetsItsGainsInAboutTwoHours) {
   EXPECT_EQ(nullptr, rt->autotune());
   hub().ms += 1000;
   hub().loop();
-  EXPECT_FLOAT_EQ(stored->pid.kp * rt->pid().error(), rt->pid().proportional_term());
+  EXPECT_FLOAT_EQ(stored->pid.heat.kp * rt->pid().error(), rt->pid().proportional_term());
   EXPECT_EQ(0.f, rt->pid().integral_term());
 }
 
@@ -151,7 +151,7 @@ TEST_F(Calibration, AFloorHeatingTakesEightToTenHours) {
   config.heat.min_on_s = 60.f;
   config.heat.min_off_s = 60.f;
   const std::string id = this->start(config, room.reading());
-  ASSERT_TRUE(this->calibrate(id, AutotuneDirection::HEAT, AutotuneRule::SOME_OVERSHOOT).ok);
+  ASSERT_TRUE(this->calibrate(id, Direction::HEAT, AutotuneRule::SOME_OVERSHOOT).ok);
   const uint64_t started = hub().ms;
   swing(room, model, 24.f, [&id] { return ended(id); });
 
@@ -162,7 +162,7 @@ TEST_F(Calibration, AFloorHeatingTakesEightToTenHours) {
   EXPECT_LT(hours, 11.f);
   EXPECT_LT(run->new_gains().ki, 0.0001f) << "under the old step";
   EXPECT_FALSE(run->clamped());
-  EXPECT_NEAR(0.111f * run->tuner().ku() * run->tuner().pu(), hub().store().get(id)->pid.kd, 1e-3f);
+  EXPECT_NEAR(0.111f * run->tuner().ku() * run->tuner().pu(), hub().store().get(id)->pid.heat.kd, 1e-3f);
 }
 
 // Full or nothing at the band's edges, and Home Assistant sees heating while the relay is closed,
@@ -233,17 +233,14 @@ TEST_F(Calibration, MinOnAndMinOffHold) {
   EXPECT_TRUE(entities().relay1.state);
 }
 
-// heat_cool asks which; the other relay stays open, as the cool run's relay is the cooling one.
-TEST_F(Calibration, InHeatCoolItSwingsTheRelayItIsToldTo) {
+// With both relays the mode says which it swings, no direction asked; the other relay stays open.
+TEST_F(Calibration, WithBothRelaysItSwingsTheRelayOfTheMode) {
   ClimateConfig config = living_room();
   config.cool.relay_id = "relay_2";
-  config.mode = HubMode::HEAT_COOL;
+  config.mode = HubMode::COOL;
   const std::string id = this->start(config, 21.f);
-  Result refused = this->calibrate(id);
-  EXPECT_EQ(400, refused.code);
-  EXPECT_EQ("In heat_cool, direction must say heat or cool", refused.error);
-
-  ASSERT_TRUE(this->calibrate(id, AutotuneDirection::COOL).ok);
+  ASSERT_TRUE(this->calibrate(id).ok);
+  EXPECT_EQ(Direction::COOL, hub().autotune(id)->direction());
   hold(21.5f, 10, 1);
   EXPECT_TRUE(entities().relay2.state) << "too warm: full cooling";
   EXPECT_FALSE(entities().relay1.state) << "the heating relay stays open";
@@ -266,11 +263,59 @@ TEST_F(Calibration, ACoolingRoomIsCalibratedWithItsCoolingRelay) {
   config.setpoint = 24.f;
   const std::string id = this->start(config, room.reading());
   ASSERT_TRUE(this->calibrate(id).ok);
-  EXPECT_EQ(AutotuneDirection::COOL, hub().autotune(id)->direction()) << "mode cool calibrates cooling";
+  EXPECT_EQ(Direction::COOL, hub().autotune(id)->direction()) << "mode cool calibrates cooling";
   const auto done = [&id] { return ended(id); };
   swing(room, model, 24.f, done, true);
   EXPECT_EQ(AutotuneState::SUCCEEDED, hub().autotune(id)->state());
-  EXPECT_GT(hub().store().get(id)->pid.kp, 0.f) << "the gains are the cooler's, positive as for heating";
+  EXPECT_GT(hub().store().get(id)->pid.cool.kp, 0.f) << "the gains are the cooler's, positive as for heating";
+  EXPECT_EQ(hub().autotune(id)->new_gains().kp, hub().store().get(id)->pid.cool.kp);
+}
+
+// With both relays, the run swings the relay of the mode and writes that relay's gains alone: the
+// other one keeps its own, and the file's bare ones follow the mode's relay.
+TEST_F(Calibration, WithBothRelaysOnlyTheModesRelaysGainsChange) {
+  RoomModel model = radiator_room();
+  model.start = 27.f;
+  model.outside = 32.f;
+  model.drive = -10.f;
+  Room room(model);
+  ClimateConfig config = living_room();
+  config.cool.relay_id = "relay_2";
+  config.mode = HubMode::COOL;
+  config.setpoint = 24.f;
+  config.pid.heat = PidGains{1.5f, 0.25f, 2.f};
+  config.pid.cool = PidGains{0.75f, 0.5f, 0.f};
+  const std::string id = this->start(config, room.reading());
+  ASSERT_TRUE(this->calibrate(id).ok);
+  const AutotuneRun *run = hub().autotune(id);
+  EXPECT_EQ(Direction::COOL, run->direction());
+  EXPECT_EQ(0.75f, run->old_gains().kp) << "the cooling relay's";
+  EXPECT_EQ(0.5f, run->old_gains().ki);
+  const auto done = [&id] { return ended(id); };
+  swing(room, model, 24.f, done, true);
+  ASSERT_EQ(AutotuneState::SUCCEEDED, run->state());
+  EXPECT_FALSE(entities().relay1.state) << "the heating relay never closed";
+
+  const ClimateConfig *stored = hub().store().get(id);
+  EXPECT_EQ(run->new_gains().kp, stored->pid.cool.kp);
+  EXPECT_EQ(run->new_gains().ki, stored->pid.cool.ki);
+  EXPECT_EQ(1.5f, stored->pid.heat.kp) << "the heating relay keeps its own";
+  EXPECT_EQ(0.25f, stored->pid.heat.ki);
+  EXPECT_EQ(2.f, stored->pid.heat.kd);
+  EXPECT_EQ(1u, stored->revision);
+  const ClimateConfig flash = this->on_flash(id);
+  EXPECT_EQ(run->new_gains().kp, flash.pid.cool.kp);
+  EXPECT_EQ(1.5f, flash.pid.heat.kp);
+  JsonDocument file;
+  deserializeJson(file, read_file(this->file_of(id)));
+  EXPECT_EQ(run->new_gains().kp, file["pid"]["kp"].as<float>()) << "the bare copy is the cooling relay's";
+
+  // The PID goes on with them, on the cooling relay.
+  ControllerRuntime *rt = hub().runtime_of(id);
+  EXPECT_EQ(Direction::COOL, rt->pid_direction());
+  hub().ms += 1000;
+  hub().loop();
+  EXPECT_FLOAT_EQ(stored->pid.cool.kp * rt->pid().error(), rt->pid().proportional_term());
 }
 
 // --- What ends a run ---
@@ -285,7 +330,7 @@ TEST_F(Calibration, CancelEndsItAndThePidTakesOver) {
   EXPECT_EQ(AutotuneState::FAILED, run->state());
   EXPECT_EQ(AutotuneEnd::CANCELLED, run->reason());
   EXPECT_EQ(30000u, run->elapsed_ms(hub().ms + 5000));
-  EXPECT_EQ(0.6f, hub().store().get(id)->pid.kp) << "the gains stay";
+  EXPECT_EQ(0.6f, hub().store().get(id)->pid.heat.kp) << "the gains stay";
   EXPECT_EQ(0u, hub().store().get(id)->revision);
 
   Result again = hub().cancel_autotune(id);
@@ -308,8 +353,13 @@ TEST_F(Calibration, AModeFromHomeAssistantEndsIt) {
   config.cool.relay_id = "relay_2";
   const std::string id = this->start(config, 18.f);
   ASSERT_TRUE(this->calibrate(id).ok);
+  // One it does not offer is put back, and moves nothing.
+  auto both = hub().entity_of(id)->make_call();
+  both.set_mode(climate::CLIMATE_MODE_HEAT_COOL);
+  both.perform();
+  EXPECT_TRUE(hub().autotune(id)->running());
   auto call = hub().entity_of(id)->make_call();
-  call.set_mode(climate::CLIMATE_MODE_HEAT_COOL);
+  call.set_mode(climate::CLIMATE_MODE_COOL);
   call.perform();
   EXPECT_EQ(AutotuneEnd::MODE_CHANGED, hub().autotune(id)->reason());
   EXPECT_FALSE(entities().relay2.state);
@@ -360,16 +410,22 @@ TEST_F(Calibration, ATargetOrAModeSetOnTheRuntimeItselfEndsIt) {
   EXPECT_EQ(0.f, rt->heat_duty()) << "the run's relay is not the PID's";
 
   ASSERT_TRUE(this->calibrate(id).ok);
+  // Past upstream's check of the traits too, heat and cool is no mode: the run goes on.
+  auto both = entity->make_call();
+  both.set_mode(climate::CLIMATE_MODE_HEAT_COOL);
+  rt->control(both, hub().ms);
+  EXPECT_TRUE(hub().autotune(id)->running());
+  EXPECT_EQ(HubMode::HEAT, hub().store().get(id)->mode);
   auto mode = entity->make_call();
-  mode.set_mode(climate::CLIMATE_MODE_HEAT_COOL);
+  mode.set_mode(climate::CLIMATE_MODE_COOL);
   rt->control(mode, hub().ms);
   EXPECT_EQ(AutotuneEnd::MODE_CHANGED, hub().autotune(id)->reason());
 
-  ASSERT_TRUE(this->calibrate(id, AutotuneDirection::HEAT).ok);
+  ASSERT_TRUE(this->calibrate(id, Direction::COOL).ok);
   rt->pick_preset(*hub().store().get(id)->find_preset("eco"), hub().ms);
   EXPECT_EQ(AutotuneEnd::TARGET_CHANGED, hub().autotune(id)->reason());
 
-  ASSERT_TRUE(this->calibrate(id, AutotuneDirection::HEAT).ok);
+  ASSERT_TRUE(this->calibrate(id, Direction::COOL).ok);
   rt->set_mode(HubMode::OFF, hub().ms + 300);
   EXPECT_EQ(AutotuneEnd::MODE_CHANGED, hub().autotune(id)->reason());
   EXPECT_EQ(300u, hub().autotune(id)->elapsed_ms(hub().ms + 60000)) << "ended at the clock it was given";
@@ -438,7 +494,7 @@ TEST_F(Calibration, AnImportEndsItAndARefusedOneDoesNot) {
   EXPECT_EQ(AutotuneEnd::SAVED, hub().autotune(id)->reason());
   EXPECT_EQ(nullptr, hub().runtime_of(id)->autotune());
   EXPECT_TRUE(hub().is_running(id));
-  EXPECT_EQ(0.6f, hub().store().get(id)->pid.kp) << "no gains from it";
+  EXPECT_EQ(0.6f, hub().store().get(id)->pid.heat.kp) << "no gains from it";
 }
 
 // A disabled import stops the thermostat too; the run ends once, as the import's.
@@ -514,9 +570,9 @@ TEST_F(Calibration, AReadingOverTheCutOutThatWouldFinishItEndsIt) {
   const AutotuneRun *run = hub().autotune(id);
   EXPECT_EQ(AutotuneState::FAILED, run->state());
   EXPECT_EQ(AutotuneEnd::OVERTEMP, run->reason());
-  EXPECT_EQ(0.6f, hub().store().get(id)->pid.kp) << "no gains from it";
+  EXPECT_EQ(0.6f, hub().store().get(id)->pid.heat.kp) << "no gains from it";
   EXPECT_EQ(0u, hub().store().get(id)->revision);
-  EXPECT_EQ(0.6f, this->on_flash(id).pid.kp);
+  EXPECT_EQ(0.6f, this->on_flash(id).pid.heat.kp);
   EXPECT_EQ(0u, this->on_flash(id).revision);
 }
 
@@ -560,9 +616,9 @@ TEST_F(Calibration, AReadingPastTheDayThatWouldFinishItEndsIt) {
   const AutotuneRun *run = hub().autotune(id);
   EXPECT_EQ(AutotuneState::FAILED, run->state());
   EXPECT_EQ(AutotuneEnd::TIMEOUT, run->reason());
-  EXPECT_EQ(0.6f, hub().store().get(id)->pid.kp) << "no gains from it";
+  EXPECT_EQ(0.6f, hub().store().get(id)->pid.heat.kp) << "no gains from it";
   EXPECT_EQ(0u, hub().store().get(id)->revision);
-  EXPECT_EQ(0.6f, this->on_flash(id).pid.kp);
+  EXPECT_EQ(0.6f, this->on_flash(id).pid.heat.kp);
   EXPECT_EQ(0u, this->on_flash(id).revision);
 }
 
@@ -597,10 +653,10 @@ TEST_F(Calibration, ARebootForgetsItButNotTheGains) {
   const std::string id = this->start(living_room(), room.reading());
   ASSERT_TRUE(this->calibrate(id).ok);
   swing(room, model, 24.f, [&id] { return ended(id); });
-  const float kp = hub().store().get(id)->pid.kp;
+  const float kp = hub().store().get(id)->pid.heat.kp;
   this->reboot();
   EXPECT_EQ(nullptr, hub().autotune(id));
-  EXPECT_EQ(kp, hub().store().get(id)->pid.kp);
+  EXPECT_EQ(kp, hub().store().get(id)->pid.heat.kp);
   EXPECT_EQ(1u, hub().store().get(id)->revision);
 }
 
@@ -614,8 +670,8 @@ TEST_F(Calibration, AResultTheFileDidNotTakeStillRuns) {
   const AutotuneRun *run = hub().autotune(id);
   ASSERT_EQ(AutotuneState::SUCCEEDED, run->state());
   EXPECT_FALSE(run->persisted());
-  EXPECT_EQ(run->new_gains().kp, hub().store().get(id)->pid.kp);
-  EXPECT_EQ(0.6f, this->on_flash(id).pid.kp);
+  EXPECT_EQ(run->new_gains().kp, hub().store().get(id)->pid.heat.kp);
+  EXPECT_EQ(0.6f, this->on_flash(id).pid.heat.kp);
 }
 
 // The write is tried again, as a target's is, and a write that goes through says so.
@@ -631,7 +687,7 @@ TEST_F(Calibration, AResultTheFileDidNotTakeIsWrittenAgain) {
   hub().max_file_bytes = CONFIG_MAX_BYTES;
   hub().ms += 3000;
   hub().loop();
-  EXPECT_EQ(run->new_gains().kp, this->on_flash(id).pid.kp);
+  EXPECT_EQ(run->new_gains().kp, this->on_flash(id).pid.heat.kp);
   EXPECT_EQ(1u, this->on_flash(id).revision);
   EXPECT_TRUE(run->persisted());
 }
@@ -645,7 +701,7 @@ TEST_F(Calibration, AResultTheFileDidNotTakeIsWrittenAtShutdown) {
   swing(room, model, 24.f, [&id] { return ended(id); });
   hub().max_file_bytes = CONFIG_MAX_BYTES;
   hub().on_shutdown();
-  EXPECT_EQ(hub().autotune(id)->new_gains().kp, this->on_flash(id).pid.kp);
+  EXPECT_EQ(hub().autotune(id)->new_gains().kp, this->on_flash(id).pid.heat.kp);
 }
 
 // Failed again at the retry, the gains reach the file with the next change, and the warning goes.
@@ -665,7 +721,7 @@ TEST_F(Calibration, ALaterWriteOfTheThermostatClearsTheWarning) {
   hub().ms += 3000;
   hub().loop();
   EXPECT_EQ(22.f, this->on_flash(id).setpoint);
-  EXPECT_EQ(run->new_gains().kp, this->on_flash(id).pid.kp);
+  EXPECT_EQ(run->new_gains().kp, this->on_flash(id).pid.heat.kp);
   EXPECT_TRUE(run->persisted());
 }
 
@@ -681,13 +737,13 @@ TEST_F(Calibration, ANewCalibrationStillWritesGainsTheFileDidNotTake) {
   hub().ms += 3000;
   hub().loop();
   ASSERT_FALSE(hub().autotune(id)->persisted()) << "the retry failed too";
-  const float kp = hub().store().get(id)->pid.kp;
+  const float kp = hub().store().get(id)->pid.heat.kp;
   ASSERT_NE(0.6f, kp);
   hub().max_file_bytes = CONFIG_MAX_BYTES;
   ASSERT_TRUE(this->calibrate(id).ok);
   hub().ms += 3000;
   hub().loop();
-  EXPECT_EQ(kp, this->on_flash(id).pid.kp);
+  EXPECT_EQ(kp, this->on_flash(id).pid.heat.kp);
   EXPECT_EQ(1u, this->on_flash(id).revision);
 }
 
@@ -716,14 +772,30 @@ TEST_F(Calibration, OnlyARunningPidThermostatInHeatOrCoolStarts) {
   EXPECT_EQ("The thermostat is off: set it to heat or cool first", refused.error);
 }
 
-TEST_F(Calibration, ADirectionTheModeDoesNotDriveIsRefused) {
+// A direction is no choice any more: one given has to be the mode's.
+TEST_F(Calibration, ADirectionOtherThanTheModesIsRefused) {
   ClimateConfig config = living_room();
   config.cool.relay_id = "relay_2";
   const std::string id = this->start(config, 18.f);
-  Result refused = this->calibrate(id, AutotuneDirection::COOL);
+  Result refused = this->calibrate(id, Direction::COOL);
   EXPECT_EQ(400, refused.code);
-  EXPECT_EQ("direction 'cool' needs mode cool or heat_cool", refused.error);
+  EXPECT_EQ("direction 'cool' does not match mode heat: a calibration swings the relay of the current mode",
+            refused.error);
   EXPECT_EQ(nullptr, hub().autotune(id));
+
+  ASSERT_TRUE(this->calibrate(id, Direction::HEAT).ok) << "the mode's own";
+  EXPECT_EQ(Direction::HEAT, hub().autotune(id)->direction());
+
+  ClimateConfig cooler = draft("Cooler", "");
+  cooler.cool.relay_id = "relay_3";
+  cooler.mode = HubMode::COOL;
+  const std::string cool = this->start(cooler, 22.f);
+  refused = this->calibrate(cool, Direction::HEAT);
+  EXPECT_EQ(400, refused.code);
+  EXPECT_EQ("direction 'heat' does not match mode cool: a calibration swings the relay of the current mode",
+            refused.error);
+  ASSERT_TRUE(this->calibrate(cool, Direction::COOL).ok);
+  EXPECT_EQ(Direction::COOL, hub().autotune(cool)->direction());
 }
 
 TEST_F(Calibration, OneRunAtATimeAndNotOnAFault) {
@@ -816,12 +888,12 @@ TEST_F(Calibration, ASaveOfAnOlderDocumentIsRefused) {
   ASSERT_EQ(0u, form.revision);
   ASSERT_TRUE(this->calibrate(id).ok);
   swing(room, model, 24.f, [&id] { return ended(id); });
-  const float tuned = hub().store().get(id)->pid.kp;
+  const float tuned = hub().store().get(id)->pid.heat.kp;
 
   Result refused = hub().update(id, form, form.revision);
   EXPECT_EQ(409, refused.code);
   EXPECT_EQ("The device changed this thermostat since it was read; reload it", refused.error);
-  EXPECT_EQ(tuned, hub().store().get(id)->pid.kp);
+  EXPECT_EQ(tuned, hub().store().get(id)->pid.heat.kp);
 
   ClimateConfig fresh = *hub().store().get(id);
   fresh.name = "Lounge";
@@ -833,7 +905,7 @@ TEST_F(Calibration, ASaveOfAnOlderDocumentIsRefused) {
   form.name = "Lounge";
   ASSERT_TRUE(hub().update(id, form).ok);
   EXPECT_EQ(1u, hub().store().get(id)->revision);
-  EXPECT_EQ(0.6f, hub().store().get(id)->pid.kp);
+  EXPECT_EQ(0.6f, hub().store().get(id)->pid.heat.kp);
 }
 
 // The device writes a thermostat for other reasons too; none of them moves the revision.
@@ -869,7 +941,7 @@ namespace {
 // Half-periods of ten hours and a swing of half a degree: Some Overshoot asks for a kd past the
 // table's ceiling.
 AutotuneRun slow_run(AutotuneRule rule) {
-  AutotuneRun run(AutotuneDirection::HEAT, rule, PidGains{1.f, 2.f, 3.f}, 21.f, 0);
+  AutotuneRun run(Direction::HEAT, rule, PidGains{1.f, 2.f, 3.f}, 21.f, 0);
   const float readings[] = {21.f, 20.7f, 21.3f, 20.7f, 21.3f, 20.7f, 21.3f};
   for (size_t i = 0; i < std::size(readings); i++)
     run.feed(readings[i], static_cast<uint32_t>(i) * 36000000u);
@@ -894,7 +966,7 @@ TEST(AutotuneRun, AGainPastItsRangeIsClampedAndFlagged) {
 }
 
 TEST(AutotuneRun, TheFlagsWarnOnSuccess) {
-  AutotuneRun run(AutotuneDirection::HEAT, AutotuneRule::ZN_PI, PidGains{}, 21.f, 0);
+  AutotuneRun run(Direction::HEAT, AutotuneRule::ZN_PI, PidGains{}, 21.f, 0);
   // Two short half-periods and a long one, a small swing among large ones.
   const std::pair<uint32_t, float> readings[] = {{0, 21.f},    {60, 20.7f}, {120, 21.3f}, {180, 20.7f},
                                                  {900, 21.9f}, {960, 20.f}, {1020, 21.3f}};
@@ -909,7 +981,7 @@ TEST(AutotuneRun, TheFlagsWarnOnSuccess) {
 }
 
 TEST(AutotuneRun, ItsLimitsCountFromTheStartAndTheLastSwitch) {
-  AutotuneRun run(AutotuneDirection::HEAT, AutotuneRule::ZN_PI, PidGains{}, 21.f, 1000);
+  AutotuneRun run(Direction::HEAT, AutotuneRule::ZN_PI, PidGains{}, 21.f, 1000);
   EXPECT_EQ(AutotuneEnd::NONE, run.limit_reached(1000 + AUTOTUNE_STALL_MS - 1));
   EXPECT_EQ(AutotuneEnd::NO_SWITCH, run.limit_reached(1000 + AUTOTUNE_STALL_MS));
   run.feed(21.f, 1000);
@@ -919,7 +991,7 @@ TEST(AutotuneRun, ItsLimitsCountFromTheStartAndTheLastSwitch) {
 }
 
 TEST(AutotuneRun, CrossingsPastTheCapAreNoise) {
-  AutotuneRun run(AutotuneDirection::HEAT, AutotuneRule::ZN_PI, PidGains{}, 21.f, 1000);
+  AutotuneRun run(Direction::HEAT, AutotuneRule::ZN_PI, PidGains{}, 21.f, 1000);
   for (uint32_t n = 0; n < PidAutotuner::MAX_INTERVALS + 3; n++)
     run.feed(n % 2 == 0 ? 20.9f : 21.1f, 1000 + n * 10000);
   EXPECT_EQ(AutotuneEnd::NOISY, run.limit_reached(1000 + 3600000u));

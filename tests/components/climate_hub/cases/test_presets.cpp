@@ -24,7 +24,7 @@ ClimateConfig with_presets(const char *name = "Boiler") {
   c.kind = ControlKind::BANG_BANG;
   c.cool.relay_id = "relay_2";
   c.setpoint = 21.f;
-  c.presets = {preset("Eco", 18.f), preset("away", 12.f, HubMode::OFF), preset("Night", 19.5f, HubMode::HEAT_COOL),
+  c.presets = {preset("Eco", 18.f), preset("away", 12.f, HubMode::OFF), preset("Night", 19.5f, HubMode::COOL),
                preset("Day", 22.f)};
   return c;
 }
@@ -218,9 +218,9 @@ TEST_F(Presets, HomeAssistantPicksACustomPresetByName) {
 
   const ClimateConfig *saved = hub().store().get("boiler");
   EXPECT_FLOAT_EQ(19.5f, saved->setpoint);
-  EXPECT_EQ(HubMode::HEAT_COOL, saved->mode);
+  EXPECT_EQ(HubMode::COOL, saved->mode);
   EXPECT_EQ("night", saved->active_preset);
-  EXPECT_EQ(climate::CLIMATE_MODE_HEAT_COOL, entity->mode);
+  EXPECT_EQ(climate::CLIMATE_MODE_COOL, entity->mode);
   EXPECT_EQ("Night", label(entity));
   EXPECT_FALSE(entity->preset.has_value());
 
@@ -277,12 +277,13 @@ TEST_F(Presets, ATargetBesideAPresetWins) {
   auto call = entity->make_call();
   call.set_preset("Night");
   call.set_target_temperature(25.f);
-  call.set_mode(climate::CLIMATE_MODE_COOL);
+  call.set_mode(climate::CLIMATE_MODE_OFF);
   call.perform();
 
   const ClimateConfig *saved = hub().store().get("boiler");
   EXPECT_FLOAT_EQ(25.f, saved->setpoint);
-  EXPECT_EQ(HubMode::COOL, saved->mode);
+  EXPECT_EQ(HubMode::OFF, saved->mode);
+  EXPECT_EQ(HubMode::COOL, saved->on_mode()) << "the preset's cool came first";
   EXPECT_EQ("night", saved->active_preset);
 }
 
@@ -298,7 +299,7 @@ TEST_F(Presets, TheActivePresetIsRestoredAtBoot) {
   ASSERT_NE(nullptr, entity);
   EXPECT_EQ("Night", label(entity));
   EXPECT_FLOAT_EQ(23.f, entity->target_temperature);
-  EXPECT_EQ(climate::CLIMATE_MODE_HEAT_COOL, entity->mode);
+  EXPECT_EQ(climate::CLIMATE_MODE_COOL, entity->mode);
   EXPECT_EQ((std::vector<std::string>{"Night", "Day"}), custom_presets(entity));
 
   pick(entity, climate::CLIMATE_PRESET_AWAY);
@@ -443,7 +444,7 @@ TEST_F(Presets, ApplyPresetPicksByKey) {
   ASSERT_TRUE(picked.ok);
   EXPECT_TRUE(picked.persisted);
   EXPECT_FLOAT_EQ(19.5f, entity->target_temperature);
-  EXPECT_EQ(climate::CLIMATE_MODE_HEAT_COOL, entity->mode);
+  EXPECT_EQ(climate::CLIMATE_MODE_COOL, entity->mode);
   EXPECT_EQ("Night", label(entity));
   EXPECT_TRUE(hub().dirty("boiler"));
   flush();

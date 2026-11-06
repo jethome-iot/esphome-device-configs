@@ -62,7 +62,10 @@ export interface EnableOptions {
 }
 
 export interface AutotuneOptions {
-  /** Which relay to swing; required in heat_cool, the mode's otherwise. */
+  /**
+   * The relay to swing. A calibration swings the relay of the thermostat's mode, so this may be
+   * left out; one given has to be the mode's, or the start is 400.
+   */
   direction?: AutotuneDirection
   /** How Ku and Pu become gains; zn_pi when left out. */
   rule?: AutotuneRule
@@ -102,8 +105,8 @@ export interface ClimateApi {
   applyPreset(id: string, key: string): Promise<PresetResponse>
   /**
    * POST /autotune?id=&value=true[&direction=][&rule=] — calibrate a running PID thermostat (no
-   * body): the device swings the room around its target for hours, then writes the gains it found
-   * into the thermostat and runs with them. /status follows it.
+   * body): the device swings the relay of its mode around the target for hours, then writes the
+   * gains it found as that relay's and runs with them. /status follows it.
    */
   startAutotune(id: string, options?: AutotuneOptions): Promise<SuccessResponse>
   /** POST /autotune?id=&value=false — end the calibration that runs; 409 when none does. */

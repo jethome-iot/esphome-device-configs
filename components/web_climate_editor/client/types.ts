@@ -9,8 +9,11 @@
  */
 export type ControlKind = 'pid' | 'bang_bang'
 
-/** Requested operating mode. */
-export type ClimateHubMode = 'off' | 'heat' | 'cool' | 'heat_cool'
+/**
+ * Requested operating mode: one relay at a time. A thermostat with both relays switches between
+ * heat and cool by hand, a preset, a rule or a schedule; there is no mode that drives both.
+ */
+export type ClimateHubMode = 'off' | 'heat' | 'cool'
 
 /** A mode a thermostat is on in: what a turn-on goes back to. */
 export type ClimateHubOnMode = Exclude<ClimateHubMode, 'off'>
@@ -32,10 +35,12 @@ export type ClimateHubAction = 'off' | 'idle' | 'heating' | 'cooling'
 
 /**
  * What holds a relay away from where the thermostat wants it: `min_off` before it may
- * close, `min_on` before it may open. `none` otherwise, including while a relay switched
+ * close, `min_on` before it may open, `other_relay` before it may close while the
+ * thermostat's other relay is still closed (after a switch between heat and cool, until
+ * that one's `min_on` lets it open). `none` otherwise, including while a relay switched
  * from elsewhere waits to be put back: that wait is the switch's, not the thermostat's.
  */
-export type RelayWait = 'none' | 'min_on' | 'min_off'
+export type RelayWait = 'none' | 'min_on' | 'min_off' | 'other_relay'
 
 /**
  * What is wrong with a running controller. Never persisted. `sensor_stale` and
@@ -64,10 +69,29 @@ export interface SafetyConfig {
   max_temperature: number
 }
 
-export interface PidConfig {
+/** One relay's gains: what a PID runs on while the mode drives that relay. */
+export interface PidGains {
   kp: number
   ki: number
   kd: number
+}
+
+/** Which of a thermostat's relays: the heating or the cooling one. */
+export type RelayDirection = 'heat' | 'cool'
+
+/**
+ * The PID's settings. Each relay has its own gains, `heat` and `cool`; the rest is shared.
+ * The bare `kp`, `ki` and `kd` are for a firmware from before each relay had its own: /get
+ * answers them as a copy of the gains of the relay a turn-on goes to (`last_on_mode`'s), and
+ * /save and /import read them only for a relay whose own gains the body leaves out, as a file
+ * from such a firmware has them. A form sends `heat` and `cool` and may leave the bare ones out.
+ */
+export interface PidConfig {
+  heat: PidGains
+  cool: PidGains
+  kp?: number
+  ki?: number
+  kd?: number
   min_integral: number
   max_integral: number
   starting_integral_term: number
@@ -225,6 +249,11 @@ export interface ControllerSummary {
 
 /** Terms are `null` rather than NaN — JSON has no NaN and ArduinoJson emits null. */
 export interface PidTerms {
+  /**
+   * The relay whose gains the terms come from: the mode's, once a pass has run in it. A switch to
+   * the other relay starts the PID over on that relay's gains at its first pass.
+   */
+  direction: RelayDirection
   error: number | null
   proportional: number | null
   integral: number | null
@@ -261,8 +290,8 @@ export type AutotuneReason =
 /** The tuning rule that turns Ku and Pu into gains; `zn_pi` when a start names none. */
 export type AutotuneRule = 'zn_pi' | 'zn_pid' | 'pessen' | 'some_overshoot' | 'no_overshoot'
 
-/** The relay a calibration swings: one direction per run. */
-export type AutotuneDirection = 'heat' | 'cool'
+/** The relay a calibration swings: the one its mode drives. */
+export type AutotuneDirection = RelayDirection
 
 /**
  * What warns about a result; none ever makes a run longer. `asymmetric`: the room rose and fell at
@@ -271,12 +300,6 @@ export type AutotuneDirection = 'heat' | 'cool'
  * gain had to be held inside its range.
  */
 export type AutotuneFlag = 'asymmetric' | 'uneven' | 'clamped'
-
-export interface PidGains {
-  kp: number
-  ki: number
-  kd: number
-}
 
 /** The far end of one swing: the room's coldest or warmest in a relay phase, and when. */
 export interface AutotuneExtreme {
@@ -310,9 +333,9 @@ export interface AutotuneStatus {
   ku: number | null
   pu: number | null
   flags: AutotuneFlag[]
-  /** The gains in force when it started. */
+  /** Its relay's gains when it started. */
   old: PidGains
-  /** What it wrote in their place, null unless it succeeded. */
+  /** What it wrote in their place, as that relay's gains, null unless it succeeded. */
   new: PidGains | null
   /**
    * False when the gains run but did not reach the file, so a reboot loses them; true again once
@@ -487,7 +510,7 @@ export interface ErrorResponse {
 export const CONFIG_MAX_BYTES = 8192
 
 /** The file format this contract describes; a document with a higher `version` came from a newer firmware. */
-export const CONFIG_VERSION = 4
+export const CONFIG_VERSION = 5
 
 /** The 409 error of a Save over a document whose `version` is above CONFIG_VERSION, in the device's words. */
 export const NEWER_FILE = 'A newer firmware wrote this thermostat; update the firmware to change it'

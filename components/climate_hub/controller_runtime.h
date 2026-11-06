@@ -45,9 +45,9 @@ class ControllerRuntime {
   /// state, if a finite one, which may be hours old, and control waits for a reading,
   /// sensor_timeout_s from now at most. Also how a Save applies: the claims it keeps carry their
   /// relay state and dwell over, the PWM keeps its phase while its period stands, the hysteresis
-  /// keeps its latch in the directions the mode still drives (a start latches on a closed relay
-  /// instead), the PID keeps its state while its law and sensor stand, and so does the wait for
-  /// a first reading while the sensor does.
+  /// keeps its latch in the direction the mode still drives (a start latches on a closed relay
+  /// instead), the PID keeps its state while its law and sensor stand, on the new gains of the
+  /// relay it was built for, and so does the wait for a first reading while the sensor does.
   void start(ClimateConfig *config, sensor::Sensor *sensor, RelayClaim *heat, RelayClaim *cool, uint64_t now_ms,
              const Reading &last = Reading{});
   /// Opens both relays through the claims and lets go of them and the document. The entity
@@ -58,7 +58,9 @@ class ControllerRuntime {
 
   /// The control loop, with the clock passed in. A pass that follows a pause, in mode off, on a
   /// fault but relay_contested, or waiting for a first reading, runs the PID as a first pass:
-  /// nothing integrated or differentiated over the pause.
+  /// nothing integrated or differentiated over the pause. A pass for the other relay than the
+  /// PID was built for starts it over on that relay's gains. A relay never closes while the
+  /// other one is closed.
   void tick(uint64_t now_ms);
   /// A reading from the sensor; the hub drops NaN and infinities before they get here. The
   /// entity is republished only when the temperature changed.
@@ -77,7 +79,8 @@ class ControllerRuntime {
   /// that changes, a fault, or a limit of the run ends it.
   void begin_autotune(AutotuneRun *run, uint64_t now_ms);
   /// Lets go of the calibration, failed for `why` unless NONE (the hub has marked it a
-  /// success), and starts the PID over with the document's gains. No-op without one.
+  /// success), and starts the PID over on the document's gains of the mode's relay. No-op
+  /// without one.
   void end_autotune(AutotuneEnd why, uint64_t now_ms);
   /// The calibration running here, nullptr for none.
   AutotuneRun *autotune() const { return this->autotune_; }
@@ -94,14 +97,13 @@ class ControllerRuntime {
   float cool_duty() const { return this->cool_duty_.duty(); }
   bool heat_relay_on() const { return this->heat_claim_ != nullptr && this->heat_claim_->state(); }
   bool cool_relay_on() const { return this->cool_claim_ != nullptr && this->cool_claim_->state(); }
-  /// The relay's own min_on or min_off holding it from where the thermostat wants it.
-  RelayWait heat_relay_wait() const {
-    return this->heat_claim_ != nullptr ? this->heat_claim_->wait() : RelayWait::NONE;
-  }
-  RelayWait cool_relay_wait() const {
-    return this->cool_claim_ != nullptr ? this->cool_claim_->wait() : RelayWait::NONE;
-  }
+  /// The relay's own min_on or min_off holding it from where the thermostat wants it, or the
+  /// other relay, still closed, holding it open.
+  RelayWait heat_relay_wait() const { return this->relay_wait_(this->heat_claim_, this->heat_interlocked_); }
+  RelayWait cool_relay_wait() const { return this->relay_wait_(this->cool_claim_, this->cool_interlocked_); }
   const PidCore &pid() const { return this->pid_; }
+  /// The relay whose gains the PID state runs on.
+  Direction pid_direction() const { return this->pid_direction_; }
 
  protected:
   void apply_config_();
@@ -114,8 +116,16 @@ class ControllerRuntime {
   bool shows_(const RelayClaim *claim, const DutyCycler &duty, HubAction direction, bool drives) const;
   /// Puts `action` on the entity; true when it changed.
   bool set_action_(HubAction action);
+  /// A clean PID on `direction`'s gains: nothing it held carries on.
+  void restart_pid_(Direction direction);
   void run_control_(uint64_t now_ms);
   void drive_outputs_(uint64_t now_ms);
+  static RelayWait relay_wait_(const RelayClaim *claim, bool interlocked) {
+    if (claim == nullptr)
+      return RelayWait::NONE;
+    // Closed from elsewhere, it waits on that move until its put-back, as claim->wait() says.
+    return interlocked && !claim->pending() ? RelayWait::OTHER_RELAY : claim->wait();
+  }
   /// `paced`: a relay closed from elsewhere goes back as RelayClaim::request() puts it back.
   void all_relays_off_(uint64_t now_ms, bool paced);
   /// Applies a preset, then a mode and a target, each when given; publishes the outcome. A mode
@@ -140,6 +150,11 @@ class ControllerRuntime {
   HubFault fault_{HubFault::NONE};
   // The law the PID state was built under: on a Save, config_ already holds the new one.
   ControlKind kind_{ControlKind::PID};
+  // The relay it was built for: the integral one relay learnt means nothing to the other.
+  Direction pid_direction_{Direction::HEAT};
+  // The last drive held that relay open because the other one was closed.
+  bool heat_interlocked_{false};
+  bool cool_interlocked_{false};
   uint64_t last_sample_ms_{0};
   // Since when the sensor has had its chance to give a first reading.
   uint64_t waiting_since_ms_{0};

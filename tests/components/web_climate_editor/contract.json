@@ -80,8 +80,20 @@
       "cool": {
         "relay_id": "relay_2"
       },
-      "mode": "heat_cool",
-      "setpoint": 22
+      "mode": "cool",
+      "setpoint": 22,
+      "pid": {
+        "heat": {
+          "kp": 1.5,
+          "ki": 0.25,
+          "kd": 2
+        },
+        "cool": {
+          "kp": 0.75,
+          "ki": 0.5,
+          "kd": 0
+        }
+      }
     },
     "attic": {
       "name": "Attic",
@@ -125,7 +137,7 @@
       "cool": {
         "relay_id": "relay_9"
       },
-      "mode": "heat_cool",
+      "mode": "heat",
       "setpoint": 20
     },
     "uptime-room": {
@@ -262,8 +274,7 @@
         "modes": [
           "off",
           "heat",
-          "cool",
-          "heat_cool"
+          "cool"
         ],
         "faults": [
           "none",
@@ -279,8 +290,7 @@
             "keep",
             "off",
             "heat",
-            "cool",
-            "heat_cool"
+            "cool"
           ],
           "standard": [
             "eco",
@@ -344,7 +354,7 @@
       "body": null,
       "status": 200,
       "expect": {
-        "version": 4,
+        "version": 5,
         "id": "living-room",
         "name": "Living Room",
         "enabled": true,
@@ -356,10 +366,343 @@
         "visual.min_temperature": 5,
         "visual.max_temperature": 45,
         "presets": [],
-        "active_preset": ""
+        "active_preset": "",
+        "pid.heat": {
+          "kp": 0.6,
+          "ki": 0.0025,
+          "kd": 0
+        },
+        "pid.cool": {
+          "kp": 0.6,
+          "ki": 0.0025,
+          "kd": 0
+        },
+        "pid.kp": 0.6
       },
       "absent": [
         "success"
+      ]
+    },
+    {
+      "name": "Get answers each relay's gains, and beside them a copy of the gains of the relay a turn-on goes to",
+      "setup": [
+        "studio"
+      ],
+      "method": "GET",
+      "path": "get?id=studio",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "pid.heat": {
+          "kp": 1.5,
+          "ki": 0.25,
+          "kd": 2
+        },
+        "pid.cool": {
+          "kp": 0.75,
+          "ki": 0.5,
+          "kd": 0
+        },
+        "pid.kp": 0.75,
+        "pid.ki": 0.5,
+        "pid.kd": 0
+      }
+    },
+    {
+      "name": "The bare gains follow the relay a turn-on goes to: the heating one once the mode is heat",
+      "setup": [
+        "studio"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "id": "studio",
+        "name": "Studio",
+        "enabled": false,
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "off",
+        "pid": {
+          "heat": {
+            "kp": 1.5,
+            "ki": 0.25,
+            "kd": 2
+          },
+          "cool": {
+            "kp": 0.75,
+            "ki": 0.5,
+            "kd": 0
+          }
+        },
+        "setpoint": 22
+      },
+      "status": 200,
+      "expect": {
+        "success": true
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "mode": "off",
+            "last_on_mode": "cool",
+            "pid.kp": 0.75
+          }
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "id": "studio",
+            "name": "Studio",
+            "enabled": false,
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "cool": {
+              "relay_id": "relay_2"
+            },
+            "mode": "heat",
+            "pid": {
+              "heat": {
+                "kp": 1.5,
+                "ki": 0.25,
+                "kd": 2
+              },
+              "cool": {
+                "kp": 0.75,
+                "ki": 0.5,
+                "kd": 0
+              }
+            },
+            "setpoint": 22
+          },
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "get?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "pid.kp": 1.5,
+            "pid.ki": 0.25,
+            "pid.kd": 2,
+            "pid.cool.kp": 0.75
+          }
+        }
+      ]
+    },
+    {
+      "name": "One set of gains, as a firmware before each relay had its own wrote them, is both relays'",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Studio",
+        "enabled": false,
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "pid": {
+          "kp": 1.5,
+          "ki": 0.25,
+          "kd": 2
+        },
+        "setpoint": 22
+      },
+      "status": 200,
+      "expect": {
+        "success": true,
+        "id": "studio"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "version": 5,
+            "pid.heat": {
+              "kp": 1.5,
+              "ki": 0.25,
+              "kd": 2
+            },
+            "pid.cool": {
+              "kp": 1.5,
+              "ki": 0.25,
+              "kd": 2
+            },
+            "pid.kp": 1.5
+          }
+        }
+      ]
+    },
+    {
+      "name": "Beside a relay's own gains the bare ones are not read",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Studio",
+        "enabled": false,
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "pid": {
+          "heat": {
+            "kp": 1.5,
+            "ki": 0.25,
+            "kd": 2
+          },
+          "cool": {
+            "kp": 0.75,
+            "ki": 0.5,
+            "kd": 0
+          },
+          "kp": 9,
+          "ki": 8,
+          "kd": 7
+        },
+        "setpoint": 22
+      },
+      "status": 200,
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "pid.heat": {
+              "kp": 1.5,
+              "ki": 0.25,
+              "kd": 2
+            },
+            "pid.cool": {
+              "kp": 0.75,
+              "ki": 0.5,
+              "kd": 0
+            },
+            "pid.kp": 1.5,
+            "pid.ki": 0.25,
+            "pid.kd": 2
+          }
+        }
+      ]
+    },
+    {
+      "name": "A relay without gains of its own takes the bare ones, and a gain they leave out its default",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Studio",
+        "enabled": false,
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "cool",
+        "pid": {
+          "heat": {
+            "kp": 1.5
+          },
+          "kp": 3,
+          "ki": 0.125
+        },
+        "setpoint": 22
+      },
+      "status": 200,
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "pid.heat": {
+              "kp": 1.5,
+              "ki": 0.0025,
+              "kd": 0
+            },
+            "pid.cool": {
+              "kp": 3,
+              "ki": 0.125,
+              "kd": 0
+            },
+            "pid.kp": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "Each relay's gains are clamped into the schema's range",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Studio",
+        "enabled": false,
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "cool",
+        "pid": {
+          "heat": {
+            "kp": -3,
+            "ki": 5000
+          },
+          "cool": {
+            "kp": 2000,
+            "kd": 20000
+          }
+        },
+        "setpoint": 22
+      },
+      "status": 200,
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "pid.heat.kp": 0,
+            "pid.heat.ki": 1000,
+            "pid.cool.kp": 1000,
+            "pid.cool.kd": 10000
+          }
+        }
       ]
     },
     {
@@ -770,7 +1113,7 @@
         "heat": {
           "relay_id": "relay_1"
         },
-        "mode": "heat_cool",
+        "mode": "heat",
         "setpoint": 22,
         "cool": {
           "relay_id": "relay_1"
@@ -811,7 +1154,7 @@
         "setpoint": 22
       },
       "status": 400,
-      "error": "mode must be one of off/heat/cool/heat_cool"
+      "error": "mode must be one of off/heat/cool"
     },
     {
       "name": "A mode its relays cannot serve is 400",
@@ -829,6 +1172,69 @@
       },
       "status": 400,
       "error": "mode 'cool' needs cool.relay_id"
+    },
+    {
+      "name": "Heat and cool is no mode: a Save in it is 400, with both relays too",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Studio",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat_cool",
+        "setpoint": 22
+      },
+      "status": 400,
+      "error": "mode must be one of off/heat/cool",
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "count": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "An import in heat and cool is 400 and brings nothing back",
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "studio",
+        "name": "Studio",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat_cool",
+        "setpoint": 22
+      },
+      "status": 400,
+      "error": "mode must be one of off/heat/cool",
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "count": 0
+          }
+        }
+      ]
     },
     {
       "name": "A range that ends below where it starts is 400",
@@ -1802,7 +2208,7 @@
         ]
       },
       "status": 400,
-      "error": "Preset 1: mode must be one of keep/off/heat/cool/heat_cool"
+      "error": "Preset 1: mode must be one of keep/off/heat/cool"
     },
     {
       "name": "A preset mode word in capitals is 400",
@@ -1826,7 +2232,7 @@
         ]
       },
       "status": 400,
-      "error": "Preset 1: mode must be one of keep/off/heat/cool/heat_cool"
+      "error": "Preset 1: mode must be one of keep/off/heat/cool"
     },
     {
       "name": "A preset mode that is a number is 400",
@@ -1850,7 +2256,7 @@
         ]
       },
       "status": 400,
-      "error": "Preset 1: mode must be one of keep/off/heat/cool/heat_cool"
+      "error": "Preset 1: mode must be one of keep/off/heat/cool"
     },
     {
       "name": "A preset without a target is 400",
@@ -1922,7 +2328,7 @@
       "error": "Preset 1: mode 'cool' needs cool.relay_id"
     },
     {
-      "name": "A preset that heats and cools on a thermostat with one relay is 400",
+      "name": "A preset in heat and cool is 400, as a mode word the device does not know",
       "method": "POST",
       "path": "save",
       "body": {
@@ -1940,10 +2346,13 @@
             "setpoint": 18,
             "mode": "heat_cool"
           }
-        ]
+        ],
+        "cool": {
+          "relay_id": "relay_2"
+        }
       },
       "status": 400,
-      "error": "Preset 1: mode 'heat_cool' needs both relays"
+      "error": "Preset 1: mode must be one of keep/off/heat/cool"
     },
     {
       "name": "A preset that heats on a thermostat with no heating relay is 400",
@@ -2316,7 +2725,7 @@
             ]
           },
           "status": 400,
-          "error": "Preset 2: mode must be one of keep/off/heat/cool/heat_cool"
+          "error": "Preset 2: mode must be one of keep/off/heat/cool"
         },
         {
           "method": "POST",
@@ -2483,7 +2892,7 @@
           "body": null,
           "status": 200,
           "expect": {
-            "version": 4,
+            "version": 5,
             "id": "lounge",
             "name": "Living Room",
             "setpoint": 20.5,
@@ -2678,7 +3087,7 @@
           "body": null,
           "status": 200,
           "expect": {
-            "version": 4
+            "version": 5
           }
         }
       ]
@@ -3633,7 +4042,7 @@
           "relay_id": "relay_2"
         },
         "mode": "off",
-        "last_on_mode": "cool",
+        "last_on_mode": "heat",
         "setpoint": 22
       },
       "status": 200,
@@ -3648,7 +4057,7 @@
           "status": 200,
           "expect": {
             "mode": "off",
-            "last_on_mode": "heat_cool"
+            "last_on_mode": "cool"
           }
         }
       ]
@@ -3706,7 +4115,7 @@
         "setpoint": 22
       },
       "status": 400,
-      "error": "last_on_mode must be one of heat/cool/heat_cool",
+      "error": "last_on_mode must be one of heat/cool",
       "then": [
         {
           "method": "GET",
@@ -3735,7 +4144,28 @@
         "setpoint": 22
       },
       "status": 400,
-      "error": "last_on_mode must be one of heat/cool/heat_cool"
+      "error": "last_on_mode must be one of heat/cool"
+    },
+    {
+      "name": "A last_on_mode of heat and cool is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Studio",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "off",
+        "last_on_mode": "heat_cool",
+        "setpoint": 22
+      },
+      "status": 400,
+      "error": "last_on_mode must be one of heat/cool"
     },
     {
       "name": "An import takes the mode a thermostat goes back on in from the backup, not from the thermostat it replaces",
@@ -3758,7 +4188,7 @@
         },
         "mode": "off",
         "setpoint": 22,
-        "last_on_mode": "cool"
+        "last_on_mode": "heat"
       },
       "status": 200,
       "expect": {
@@ -3774,7 +4204,7 @@
           "status": 200,
           "expect": {
             "mode": "off",
-            "last_on_mode": "cool"
+            "last_on_mode": "heat"
           }
         }
       ]
@@ -4696,6 +5126,37 @@
       ]
     },
     {
+      "name": "Status names the relay whose gains a running PID runs on",
+      "setup": [
+        "living-room",
+        "studio"
+      ],
+      "method": "GET",
+      "path": "status?id=living-room",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "controllers.0.pid.direction": "heat"
+      },
+      "then": [
+        {
+          "method": "POST",
+          "path": "enable?id=studio&value=true&take_over=true",
+          "body": null,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "status?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.pid.direction": "cool"
+          }
+        }
+      ]
+    },
+    {
       "name": "Status has no calibration before the first one",
       "setup": [
         "living-room"
@@ -4709,7 +5170,7 @@
       ]
     },
     {
-      "name": "Autotune takes the rule and the direction it is given",
+      "name": "Autotune takes the rule it is given, and a direction that is the mode's",
       "setup": [
         "living-room"
       ],
@@ -4835,7 +5296,7 @@
       "error": "The thermostat is off: set it to heat or cool first"
     },
     {
-      "name": "Autotune with a direction the mode does not drive is 400",
+      "name": "Autotune with a direction other than the mode's is 400",
       "setup": [
         "living-room"
       ],
@@ -4843,7 +5304,7 @@
       "path": "autotune?id=living-room&value=true&direction=cool",
       "body": null,
       "status": 400,
-      "error": "direction 'cool' needs mode cool or heat_cool",
+      "error": "direction 'cool' does not match mode heat: a calibration swings the relay of the current mode",
       "then": [
         {
           "method": "GET",
@@ -4857,7 +5318,7 @@
       ]
     },
     {
-      "name": "Autotune in heat_cool needs a direction",
+      "name": "Autotune swings the relay of the mode, and starts from that relay's gains",
       "setup": [
         "studio"
       ],
@@ -4870,8 +5331,41 @@
           "method": "POST",
           "path": "autotune?id=studio&value=true",
           "body": null,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "status?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.autotune.direction": "cool",
+            "controllers.0.autotune.old": {
+              "kp": 0.75,
+              "ki": 0.5,
+              "kd": 0
+            },
+            "controllers.0.heat_duty": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "With both relays a direction other than the mode's is 400 too",
+      "setup": [
+        "studio"
+      ],
+      "method": "POST",
+      "path": "enable?id=studio&value=true",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "autotune?id=studio&value=true&direction=heat",
+          "body": null,
           "status": 400,
-          "error": "In heat_cool, direction must say heat or cool"
+          "error": "direction 'heat' does not match mode cool: a calibration swings the relay of the current mode"
         },
         {
           "method": "POST",
@@ -4885,8 +5379,7 @@
           "body": null,
           "status": 200,
           "expect": {
-            "controllers.0.autotune.direction": "cool",
-            "controllers.0.heat_duty": 0
+            "controllers.0.autotune.direction": "cool"
           }
         }
       ]
