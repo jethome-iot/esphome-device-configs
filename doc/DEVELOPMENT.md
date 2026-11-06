@@ -42,8 +42,9 @@ Build output lands next to the config:
 `devices/JXD/.esphome/build/<name>/build/firmware.{factory,ota}.bin`.
 
 `esphome run --device` needs **Allow ESPHome updates** on, or the upload stops at
-`Authentication invalid`. It turns itself off after 30 minutes and at every reboot; from the
-shell:
+`Authentication invalid`. It turns itself off after 30 minutes, at every reboot, whenever the
+API key is set or cleared, and, on a device Home Assistant has not added, 15 minutes after a
+boot: turn it on again then. From the shell:
 
 ```bash
 curl --digest -u admin:admin -X POST -d '' 'http://<ip>/switch/Allow%20ESPHome%20updates/turn_on'

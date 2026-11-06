@@ -20,6 +20,78 @@ api:
   encryption:
   reboot_timeout: 0s
 
+# Until Home Assistant has set the API key, whoever connects first can control the device and
+# write a key of their own: that stays possible for 15 minutes after a boot, then not until the
+# next one.
+provisioning:
+  timeout: 15min
+  # Upstream only asks the clients to leave: one that stays would keep control past the window.
+  # ESPHome's own OTA, if opened in the window, closes with it.
+  on_timeout:
+    - script.execute:
+        id: drop_api_clients
+        reason: Window expired
+    - switch.turn_off: esphome_ota_allowed
+
+script:
+  # Every API client goes, whatever state it is in; Home Assistant comes back with its key.
+  - id: drop_api_clients
+    parameters:
+      reason: string
+    then:
+      - lambda: |-
+          #ifdef USE_API
+          unsigned dropped = 0;
+          for (auto &client : id(api_server)->active_clients()) {
+            if (!client->is_marked_for_removal()) {
+              client->on_fatal_error();
+              dropped++;
+            }
+          }
+          if (dropped > 0)
+            ESP_LOGW("api", "%s: dropped %u client(s)", reason.c_str(), dropped);
+          #endif
+
+esphome:
+  on_boot:
+    # A device that already has its key counts as added even before the network is up: upstream
+    # would close the window on it after a long outage and turn even that key away until a reboot.
+    - priority: -100
+      then:
+        - lambda: |-
+            #if defined(USE_PROVISIONING) && defined(USE_API_NOISE)
+            auto *manager = provisioning::global_provisioning_manager;
+            if (manager != nullptr && id(api_server)->get_noise_ctx().has_psk())
+              manager->set_source_provisioned(0, true);  // the network source
+            #endif
+  on_loop:
+    - lambda: |-
+        #if defined(USE_PROVISIONING) && defined(USE_API_NOISE)
+        // The manager stops for good once the device is added. A key cleared later leaves it
+        // unprovisioned at once, 100 ms before the server stops taking the old key, so its check
+        // runs here, in this pass: past the window it closes before a keyless client can get in.
+        auto *manager = provisioning::global_provisioning_manager;
+        if (manager != nullptr && !manager->closed() && !manager->is_provisioned()) {
+          // Its check reads a 32-bit clock, which reads as early again past 49.7 days of uptime.
+          if (millis_64() > UINT32_MAX)
+            manager->set_timeout(1);
+          manager->loop();
+        }
+        // Checked every loop, so the change is seen before Home Assistant is back with the key.
+        auto *api = id(api_server);
+        noise::psk_t key;
+        api->get_noise_ctx().load_psk(key);
+        static noise::psk_t last = key;
+        if (key != last) {
+          // A key set, cleared or replaced only asks the clients to leave: one that stays keeps
+          // the session it had.
+          last = key;
+          id(drop_api_clients).execute(api->get_noise_ctx().has_psk() ? "Key set" : "Key cleared");
+          // ESPHome's own OTA, opened before the change, closes as well.
+          id(esphome_ota_allowed).turn_off();
+        }
+        #endif
+
 ota:
   # Takes plaintext uploads from anyone even once Home Assistant has set the API key, so it
   # stays locked unless esphome_ota_allowed is on.

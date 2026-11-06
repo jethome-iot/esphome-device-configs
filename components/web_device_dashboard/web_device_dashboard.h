@@ -9,6 +9,7 @@
 #include "esphome/components/web_origin_guard/web_origin_guard.h"
 #include "esphome/components/web_server_base/web_server_base.h"
 #include "esphome/core/component.h"
+#include "esphome/core/defines.h"
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
 #include "esphome/components/jethome_board_info/jethome_board_info.h"
 #endif
@@ -33,6 +34,10 @@
 #ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
 #include "esphome/components/virtual_inputs/virtual_inputs.h"
 #endif
+// The key Home Assistant stores can be cleared; one from the YAML is compiled in.
+#if defined(USE_API_NOISE) && !defined(USE_API_NOISE_PSK_FROM_YAML)
+#define USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
+#endif
 
 namespace esphome::web_device_dashboard {
 
@@ -47,6 +52,9 @@ enum class RouteId : uint8_t {
   SYSTEM_REBOOT,
   SYSTEM_FACTORY_RESET,
   SYSTEM_ROLLBACK,
+#ifdef USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
+  SYSTEM_FORGET_API_KEY,
+#endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
   TEMPERATURE_SLOTS,
   TEMPERATURE_SLOTS_FORGET,
@@ -81,7 +89,7 @@ using firmware_rollback::RollbackTarget;
 
 // The dashboard page at / and the device API under /api/device/: info (with the board's
 // EEPROM identity when jethome_board_info is wired in), status, network, what the firmware
-// can do, the three system actions, with web_auth the HTTP credentials, with dallas_scan the
+// can do, the system actions, with web_auth the HTTP credentials, with dallas_scan the
 // temperature slots, forgetting and assigning them, their offsets and labels, with config_json the
 // entity index, the entity settings and their form fields, with timezone_settings the clock
 // and the zone, and with virtual_inputs the virtual inputs. A modbus_map is reported in
@@ -147,6 +155,9 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   void handle_reboot_(AsyncWebServerRequest *request);
   void handle_factory_reset_(AsyncWebServerRequest *request);
   void handle_rollback_(AsyncWebServerRequest *request);
+#ifdef USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
+  void handle_forget_api_key_(AsyncWebServerRequest *request);
+#endif
   /// Answers 400, 413 or 415 itself when the body is not a JSON object; else it is left in @p doc.
   bool read_json_body_(AsyncWebServerRequest *request, JsonDocument &doc);
   /// Answers 400, 403, 413 or 415 itself when the body is not a confirmation of this device. The
@@ -164,6 +175,12 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   /// nullptr once the next boot is the rolled-back slot, else why it is not. Loop task only.
   virtual const char *select_rollback_(const RollbackTarget &target);
   virtual void restart_();
+#ifdef USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
+  /// False when the API server did not clear the key in flash; else its clients are dropped too.
+  /// Loop task only. Virtual as well: the tests have no API server that set up, so none that can
+  /// hold a key.
+  virtual bool clear_api_key_();
+#endif
   /// Hands @p job to the loop task, which owns the entity records and the rollback, and waits
   /// for it. False when the loop never got to it: the job did not run and never will.
   /// Virtual for the same reason: a host build has one task, so nothing crosses on its own

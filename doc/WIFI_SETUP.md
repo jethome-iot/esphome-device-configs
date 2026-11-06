@@ -6,7 +6,10 @@ cannot reach the one it knows, it raises its own access point and serves a capti
 portal, and you hand it the real network from there.
 
 A device on Ethernet needs none of this. Note that in `Auto` mode the access point
-comes up and stays up until WiFi is provisioned, cable or not.
+comes up and stays up until WiFi is provisioned, cable or not — on a device not yet added to
+Home Assistant, only in the first 15 minutes after power-on or a reboot. In any mode, such a
+device then takes the access point down, the captive portal with it, until a reboot brings
+it back. See [Home Assistant](../README.md#home-assistant).
 
 ## Initial setup
 
@@ -44,6 +47,8 @@ configured or stored:
 - **Timeout** — 90 seconds without a WiFi connection (ESPHome's default); none when
   no network is stored
 - **Address** — `192.168.4.1` while in AP mode
+- **Window** — the first 15 minutes after a boot of a device not yet added to Home Assistant;
+  the next reboot opens it again
 
 ## Changing the network later
 

@@ -38,7 +38,7 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
 
 - **RTC Time Synchronization**: Hardware RTC with battery backup, synced from Home Assistant or NTP; the timezone follows Home Assistant's or is set on the dashboard ([details](#timezone))
 - **Modbus RTU Server**: Acts as Modbus slave, mapping relays to coils, digital inputs to discrete inputs and temperatures to holding registers
-- **Home Assistant Integration**: Native ESPHome API with automatic entity discovery and OTA updates
+- **Home Assistant Integration**: Native ESPHome API with automatic entity discovery and OTA updates; Home Assistant adds the device in the first 15 minutes after a boot ([details](#home-assistant))
 - **Web dashboard** at `http://<device>/`: overview, live entities and their settings, automations, the device log, the file manager and the device settings, served from the firmware ([details](components/web_device_dashboard/README.md))
 - **Firmware updates**: a firmware released from this repository polls fw.jethome.com for the
   latest build of its channel (`release` or `nightly`) and installs it on request; a config
@@ -64,9 +64,11 @@ The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the follo
   **Allow ESPHome updates** is on — in Home Assistant, on the dashboard or **Settings → ESPHome
   OTA** on the display. It turns itself off 30 minutes after it was turned on, so on a slow
   build turn it on while the build runs, and at every reboot, except into safe mode, where the
-  port stays open as the way back without USB. The lock holds once Home Assistant has set the
-  API key: until then anyone on the network can turn the switch on over the API. An upload
-  encrypted with that key, and one through the dashboard behind the web password, do not need it
+  port stays open as the way back without USB. Until Home Assistant has set the API key, or
+  once it is cleared, anyone on the network can turn the switch on over the API, but only in the
+  first 15 minutes after a boot; the switch turns off when those 15 minutes run out, however it
+  was turned on, and whenever the key is set or cleared. An upload encrypted with that key, and
+  one through the dashboard behind the web password, do not need it
 - **Factory reset**: **Settings → Factory reset** on the display, the dashboard, or the FN button
   on the CPU board held for 10 seconds on a running device — the LED then blinks fast, red and
   green, for 5 seconds before the device resets; the button works without the display and without the web
@@ -97,7 +99,7 @@ the device. Those packages live under the family's `packages/`, split by role:
 
 | Directory            | Contents |
 | -------------------- | -------- |
-| `packages/boards/`   | Platform and the chips sitting on each board — `jxd-cpu-e1eth.yaml` (ESP32, api/ota/logger/web_server, TMP102, LED, FN button, the identity EEPROM) and `jxd-d6-r6-rev1.2.yaml` (PCA9554 expander, 6 relays, 6 inputs, DS2484 1-Wire bridge) |
+| `packages/boards/`   | Platform and the chips sitting on each board — `jxd-cpu-e1eth.yaml` (ESP32, api/provisioning/ota/logger/web_server, TMP102, LED, FN button, the identity EEPROM) and `jxd-d6-r6-rev1.2.yaml` (PCA9554 expander, 6 relays, 6 inputs, DS2484 1-Wire bridge) |
 | `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `entity-settings`, `factory-reset`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network`, `reboot-required`, `status-led`, `web-auth`, `web-device-dashboard`, `web-file-browser`, `automations`, `automation-editor`, `climates`, `climate-editor`, `schedules`, `schedule-editor`, `crash-report`, `firmware-update` |
 | `packages/display/`  | Display, pages, menu and buttons — `display.yaml`, `menu.yaml`, `buttons.yaml`, `menu-items-network.yaml`, `menu-serial.yaml`, `menu-timezone.yaml`, `menu-firmware.yaml`, `firmware-page.yaml` |
 | `packages/qemu/`     | Overlays that `scripts/qemu.sh` layers over the real config to run it in the emulator — never part of a firmware build |
@@ -187,7 +189,30 @@ link is picked by **Settings → Network** on the display or the dashboard, or b
 
 The firmware ships without WiFi credentials. Once WiFi is switched on it raises a
 fallback access point, named after the device with a password derived from its MAC,
-and is provisioned through the captive portal, see [WiFi Setup](doc/WIFI_SETUP.md).
+and is provisioned through the captive portal, see [WiFi Setup](doc/WIFI_SETUP.md). On a
+device not yet added to Home Assistant, the access point is there only in the first 15
+minutes after a boot.
+
+### Home Assistant
+
+Home Assistant discovers the device and adds it through its ESPHome integration, which
+writes the device's API encryption key as it does; from then on only that key connects. That
+has to happen in the first 15 minutes after power-on or a reboot. After that, a device not yet
+added turns every API connection away, and its WiFi setup access point goes down, until the
+next reboot: to add it later, reboot it first — from **Settings → Reboot device** on the
+display, from the dashboard, or by power. A device already added is not affected, whenever its
+network comes up. A key cleared later — by Forget HA below, or from Home Assistant's side, as
+deleting the device there may do — leaves the device to be added again within 15 minutes of a
+boot: reboot it to add it later.
+
+**Settings → Forget HA → Confirm** on the display, or **Forget Home Assistant key** under
+**Settings → Security** on the dashboard, clears that key and reboots, so the device can be added
+again, to the same Home Assistant or another, without a factory reset; the settings and files
+stay. Over the network it is `POST /api/device/system/forget-api-key`
+([details](components/web_device_dashboard/README.md#system-actions)). The Home Assistant that
+held the key can no longer connect with it and asks to re-authenticate the device; do that, or
+delete the device there and add it again, within 15 minutes of the reboot. A factory reset
+clears the key as well.
 
 ### Timezone
 
@@ -302,7 +327,7 @@ untouched; any button then takes the page away, and it leaves on its own after h
 - **Thermostats** - a row per thermostat with what its sensor reads; it opens the thermostat's name, the reading, what it is doing (heating, idle, waiting, a fault), the target, the preset and Enabled. The list is the one the device booted with: a thermostat created later shows after a reboot
 - **Automations** - a row per rule that switches it on or off; the list is the one the device booted with
 - **Info** - network information (Ethernet and WiFi IP and MAC addresses, access point password), the timezone in effect (the city of a zone chosen on the dashboard, else its offset from UTC, as `UTC+3`), then the serial number from the CPU board's EEPROM (`--` when it holds none)
-- **Settings** - display auto-off timer, ESPHome OTA (the **Allow ESPHome updates** switch), Modbus settings, firmware updates (the running and the offered version, the release channel, a check, an install, and a rollback row that says whether there is a firmware to go back to; after a rollback the same row goes forward again), temperature slots, network mode, WiFi credential reset, reboot; a factory reset clears the stored preferences (WiFi credentials, settings) and formats the user partition, taking the temperature slot table, the automation rules and uploaded files with it
+- **Settings** - display auto-off timer, ESPHome OTA (the **Allow ESPHome updates** switch), Modbus settings, firmware updates (the running and the offered version, the release channel, a check, an install, and a rollback row that says whether there is a firmware to go back to; after a rollback the same row goes forward again), temperature slots, network mode, WiFi credential reset, Forget HA (clears the API key Home Assistant set and reboots, see [Home Assistant](#home-assistant)), reboot; a factory reset clears the stored preferences (WiFi credentials, settings) and formats the user partition, taking the temperature slot table, the automation rules and uploaded files with it
 
 CENTER opens a setting, LEFT and RIGHT pick its value, and the device applies it when CENTER or
 BACK closes the row; leaving the menu while a row is open applies it as well.
