@@ -325,7 +325,7 @@ inline void write_file(const std::string &path, const std::string &data) {
 // thermostats on one relay come only from files.
 inline std::string file_doc(const char *id, const char *name, const char *heat, const char *cool = "",
                             bool enabled = true, const char *sensor = "room") {
-  const char *mode = *heat == '\0' ? "cool" : *cool == '\0' ? "heat" : "heat_cool";
+  const char *mode = *heat == '\0' ? "cool" : "heat";
   char buf[512];
   snprintf(buf, sizeof(buf),
            R"({"version":1,"id":"%s","name":"%s","enabled":%s,"kind":"bang_bang","sensor_id":"%s",)"

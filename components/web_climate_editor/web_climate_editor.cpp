@@ -43,7 +43,7 @@ static const Route ROUTES[] = {
 
 // The modes /schema offers, for the thermostat and, after "keep", for a preset.
 static const climate_hub::HubMode MODES[] = {climate_hub::HubMode::OFF, climate_hub::HubMode::HEAT,
-                                             climate_hub::HubMode::COOL, climate_hub::HubMode::HEAT_COOL};
+                                             climate_hub::HubMode::COOL};
 
 // The preset picked last, by its key and by the name a client shows; both "" for none.
 static void set_active_preset(JsonObject obj, const ClimateConfig &config) {
@@ -103,14 +103,14 @@ static void set_autotune(JsonObject obj, const climate_hub::AutotuneRun &run, ui
   const float setpoint = run.setpoint();
   obj["state"] = climate_hub::enums::autotune_state_to_string(run.state());
   obj["reason"] = climate_hub::enums::autotune_end_to_string(run.reason());
-  obj["direction"] = climate_hub::enums::autotune_direction_to_string(run.direction());
+  obj["direction"] = climate_hub::enums::direction_to_string(run.direction());
   obj["rule"] = climate_hub::enums::autotune_rule_to_string(run.rule());
   obj["setpoint"] = setpoint;
   // Which way the relay goes now and the reading that turns it, while it runs and has a reading.
   const bool live = run.running() && tuner.started();
   if (live) {
     // Heating, the positive side closes the relay; cooling, the negative one.
-    const bool on = tuner.positive() == (run.direction() == climate_hub::AutotuneDirection::HEAT);
+    const bool on = tuner.positive() == (run.direction() == climate_hub::Direction::HEAT);
     obj["phase"] = on ? "on" : "off";
     obj["aim"] = setpoint - tuner.target_error();
   } else {
@@ -458,6 +458,8 @@ void WebClimateEditor::handle_status_(AsyncWebServerRequest *request) {
           runtime != nullptr ? runtime->cool_relay_wait() : climate_hub::RelayWait::NONE);
       if (runtime != nullptr && config->kind == climate_hub::ControlKind::PID) {
         JsonObject pid = row["pid"].to<JsonObject>();
+        // Whose gains the terms come from.
+        pid["direction"] = climate_hub::enums::direction_to_string(runtime->pid_direction());
         set_or_null(pid, "error", runtime->pid().error());
         set_or_null(pid, "proportional", runtime->pid().proportional_term());
         set_or_null(pid, "integral", runtime->pid().integral_term());
@@ -761,10 +763,11 @@ void WebClimateEditor::handle_autotune_(AsyncWebServerRequest *request) {
   bool start = false;
   if (!this->read_bool_(request, "value", start))
     return;
-  optional<climate_hub::AutotuneDirection> direction;
+  // Optional: the mode's relay is the one a calibration swings.
+  optional<climate_hub::Direction> direction;
   if (request->hasParam("direction")) {
-    climate_hub::AutotuneDirection parsed;
-    if (!climate_hub::enums::autotune_direction_from_string(request->getParam("direction")->value(), &parsed)) {
+    climate_hub::Direction parsed;
+    if (!climate_hub::enums::direction_from_string(request->getParam("direction")->value(), &parsed)) {
       this->send_error_(request, "Invalid direction parameter");
       return;
     }

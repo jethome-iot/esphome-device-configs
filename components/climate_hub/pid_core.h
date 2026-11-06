@@ -5,6 +5,13 @@
 
 namespace esphome::climate_hub {
 
+/// The three gains of the law: what one relay runs on, and what a calibration finds for it.
+struct PidGains {
+  float kp{0.f};
+  float ki{0.f};
+  float kd{0.f};
+};
+
 /// The newest few values of a series, for a moving average. Storage is taken when a window is
 /// first sized and kept after: every slot of the pool has a controller from boot, and most of
 /// them never run.
@@ -29,6 +36,7 @@ class SampleWindow {
 class PidCore {
  public:
   void set_gains(float kp, float ki, float kd);
+  void set_gains(const PidGains &gains) { this->set_gains(gains.kp, gains.ki, gains.kd); }
   /// Also clamps the integral held now.
   void set_integral_limits(float min_integral, float max_integral);
   void set_samples(int output_samples, int derivative_samples);

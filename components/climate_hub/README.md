@@ -60,7 +60,7 @@ component: it would list the entities no thermostat is using.
 
 ```json
 {
-  "version": 4,
+  "version": 5,
   "revision": 0,
   "id": "living-room",
   "name": "Living room",
@@ -72,7 +72,8 @@ component: it would list the entities no thermostat is using.
   "cool": {"relay_id": "", "period_s": 300, "min_on_s": 10, "min_off_s": 10},
   "visual": {"min_temperature": 5, "max_temperature": 45, "step": 0.5},
   "safety": {"sensor_timeout_s": 300, "max_temperature": 60},
-  "pid": {"kp": 0.6, "ki": 0.0025, "kd": 0, "min_integral": -1, "max_integral": 1,
+  "pid": {"heat": {"kp": 0.6, "ki": 0.0025, "kd": 0}, "cool": {"kp": 0.6, "ki": 0.0025, "kd": 0},
+          "kp": 0.6, "ki": 0.0025, "kd": 0, "min_integral": -1, "max_integral": 1,
           "starting_integral_term": 0, "output_samples": 1, "derivative_samples": 8,
           "deadband_threshold_low": 0, "deadband_threshold_high": 0,
           "deadband_kp_multiplier": 0, "deadband_ki_multiplier": 0, "deadband_kd_multiplier": 0,
@@ -91,15 +92,16 @@ component: it would list the entities no thermostat is using.
 
 | Key                  | Values                                                                     |
 | -------------------- | -------------------------------------------------------------------------- |
-| `version`            | `4`, the format this firmware writes; a file without one, or with `1`, `2` or `3`, is read as `4` and written back as `4`. A higher one is a file from a newer firmware, see [Storage](#storage) |
+| `version`            | `5`, the format this firmware writes; a file without one, or with `1` to `4`, is read as `5` and written back as `5`. A higher one is a file from a newer firmware, see [Storage](#storage) |
 | `revision`           | `0` when created; moves on when a [calibration](#calibration) writes new gains and when a `restore()` replaces the thermostat, never on an `update()` or any other write. A file without one reads as `0` |
 | `id`                 | Made from the name when the thermostat is created (`a-z`, `0-9`, single dashes, at most 48; `New` gets `new-2`, since the dashboard opens a blank editor at `new`), or the one a restore brings, then never changes; the file is `<id>.json` |
 | `name`               | 1 to 48 printable ASCII characters, neither `/` nor `\`, trimmed; also the climate entity's name |
 | `kind`               | `bang_bang` (the default) or `pid`                                         |
 | `sensor_id`          | The object id of a temperature sensor that reports °C, `temp_1` for `Temp 1`; at most 120 characters, the longest an object id gets |
 | `heat`, `cool`       | `relay_id`: the object id of a switch, `""` for a direction not used; at least one, not the same one twice, at most 120 characters |
-| `mode`               | `off`, `heat`, `cool` or `heat_cool`; a mode needs the relays it drives    |
-| `last_on_mode`       | The mode `turn_on()` goes back to: `mode` while it is not `off`, otherwise the one it was in before, `heat`, `cool` or `heat_cool`. One the relays no longer serve, or none in the file, reads as `heat`, or `cool` for a cooling-only thermostat. The thermostat's state: `create()` starts it from `mode`, `update()` keeps it, `restore()` takes the document's |
+| `mode`               | `off`, `heat` or `cool`; a mode needs the relay it drives. A thermostat with both relays drives one at a time |
+| `last_on_mode`       | The mode `turn_on()` goes back to: `mode` while it is not `off`, otherwise the one it was in before, `heat` or `cool`. One the relays no longer serve, or none in the file, reads as `heat`, or `cool` for a cooling-only thermostat. The thermostat's state: `create()` starts it from `mode`, `update()` keeps it, `restore()` takes the document's |
+| `pid`                | `heat` and `cool`: each relay's own `kp`, `ki` and `kd`; the rest is shared. The bare `kp`, `ki` and `kd` beside them are written as a copy of the gains of the relay `last_on_mode` drives, for a firmware from before each relay had its own, which reads those alone; they are read only for a relay whose own a file leaves out, so a file from such a firmware gives its one set to both |
 | `setpoint`           | The one target, held inside `visual.min_temperature` … `visual.max_temperature` |
 | `bang_bang`          | The switching points sit `below` and `above` the target                   |
 | `presets`            | Up to 8, in the order Home Assistant lists the custom ones; see [Presets](#presets) |
@@ -123,7 +125,7 @@ disabled one may name what is not there yet.
 | `key`      | The slug of the name the preset was created with (`a-z`, `0-9`, single dashes, at most 48), `-2` and on when another preset has it; a rename keeps it. A file may leave it out: it is then made from the name |
 | `name`     | The thermostat name rules; `none`, in any case, is reserved. Unique within the thermostat, compared without case and extra spaces |
 | `setpoint` | Required; held inside the visual range like the thermostat's own                |
-| `mode`     | `keep` (the default) leaves the thermostat's mode, or `off`, `heat`, `cool`, `heat_cool`, which need the relays they drive |
+| `mode`     | `keep` (the default) leaves the thermostat's mode, or `off`, `heat`, `cool`, which need the relay they drive |
 
 A name equal to one of Home Assistant's standard presets in any case (`eco`, `away`, `boost`,
 `comfort`, `home`, `sleep`, `activity`) is that built-in preset there; any other name is a custom
@@ -149,12 +151,17 @@ before its name rules.
 
 - **Hysteresis.** Heating starts below `setpoint - below` and stops above `setpoint + above`;
   cooling the other way round. Between the two points the relay keeps what it was doing.
-- **PID.** ESPHome's `pid` law, run every `update_interval_s`, drives each relay as a slow PWM
-  over `period_s`: positive output heats, negative cools. The first pass after mode `off`, a
-  fault other than `relay_contested` or the wait for a first reading is a first pass, as after
-  a start, that keeps the integral: it integrates nothing, takes no derivative and averages
-  nothing from before the pause into its output. The pause adds nothing to what the PID has
-  learnt.
+- **PID.** ESPHome's `pid` law, run every `update_interval_s`, drives the relay of its mode as a
+  slow PWM over `period_s`, on that relay's own gains: positive output heats in `heat`, negative
+  cools in `cool`. The first pass after mode `off`, a fault other than `relay_contested` or the
+  wait for a first reading is a first pass, as after a start, that keeps the integral: it
+  integrates nothing, takes no derivative and averages nothing from before the pause into its
+  output. The pause adds nothing to what the PID has learnt. The first pass for the other relay
+  than the PID last ran for starts it over on that relay's gains, from
+  `starting_integral_term`; mode `off` in between keeps it for the relay it comes back to.
+- **One relay at a time.** A relay never closes while the thermostat's other relay is closed:
+  switched straight from `heat` to `cool`, the cooling relay waits for the heating one to open,
+  which its `min_on_s` may hold off. `runtime(id)` reports the wait as `other_relay`.
 - A change of mode or target takes effect at the next loop pass, not at the next interval.
 - **Safety.** A thermostat keeps its relays open until its first reading, idle and without a
   fault, and opens one closed from elsewhere meanwhile again on every pass. With no reading
@@ -173,9 +180,10 @@ before its name rules.
   move. `runtime(id)` says which of the two holds each relay away from where the thermostat
   wants it.
 - A Save keeps what the thermostat is doing: inside the band a hysteresis thermostat goes on
-  heating, cooling or idling as it was in the modes it still has, and the PWM keeps its rhythm
+  heating, cooling or idling as it was in the mode it still has, and the PWM keeps its rhythm
   unless `period_s` changes. Unless it changes `kind` or `sensor_id`, it also keeps what a PID
-  has learnt: new gains apply from the next pass, and the integral is clamped into new limits.
+  has learnt: new gains of the relay it runs on apply from the next pass, the other relay's
+  change nothing until a pass runs for it, and the integral is clamped into new limits.
   `starting_integral_term` applies when a thermostat starts and after a Save that changes
   either. A Save that keeps `sensor_id` does not restart the wait for a first reading.
 - `kd` reaches 10000 and `ki` steps by a millionth, so the gains a slow floor calibrates to fit.
@@ -185,13 +193,14 @@ before its name rules.
   closes and heats on until one `min_on_s` holds closed opens, as ESPHome's `thermostat` does.
   A PID also heats or cools between two pulses once the first has closed the relay. Otherwise
   it is idle, and off only in mode `off`, on a fault other than `relay_contested` or when
-  stopped. Home Assistant and the web server can set the mode and the target; a target outside
-  the range is clamped to it.
+  stopped. Home Assistant and the web server are offered `off` and the modes the relays serve,
+  never heat and cool, and can set the mode and the target: a mode not offered is put back, and
+  a target outside the range is clamped to it.
 
 ## Calibration
 
 `start_autotune()` calibrates a running PID thermostat with ESPHome's relay-oscillation autotune:
-the relay in the direction asked for closes fully `0.25` °C under the target and opens `0.25` °C
+the relay of its mode closes fully `0.25` °C under the target and opens `0.25` °C
 over it (a cooling relay the other way round), the other relay held open, `min_on_s`, `min_off_s`
 and `safety.max_temperature` kept. Every reading feeds it, not every `update_interval_s`. At its
 sixth relay switch it has the room's ultimate gain Ku and period Pu, the numbers ESPHome's
@@ -207,8 +216,9 @@ asked for turns them into gains:
 | `some_overshoot` | 0.333 Ku   | 0.667 Ku / Pu | 0.111 Ku · Pu    |
 | `no_overshoot`   | 0.2 Ku     | 0.4 Ku / Pu   | 0.0625 Ku · Pu   |
 
-Each gain is held in its range and written to the file as the file keeps it, and the `revision`
-moves on; the thermostat goes on with them from a clean PID. Gains the file did not take run all
+Each gain is held in its range and written to the file as the file keeps it, as that relay's,
+`pid.heat` or `pid.cool`, and the `revision` moves on; the other relay keeps its own, and the
+thermostat goes on with them from a clean PID. Gains the file did not take run all
 the same and are written again with the next flush, three seconds later, or at shutdown, and once
 more when the next calibration starts; the run says `persisted()` false until a write of the
 thermostat succeeds. A room with radiators takes about an hour and a half, a floor heating eight
@@ -306,7 +316,9 @@ The folder is writable by hand, so what it holds is checked at boot:
 - at most `max_controllers` files are loaded, in file name order; the rest are left alone;
 - a file whose `id` is not its file name or is `new`, that is not valid JSON, or that breaks a
   rule above is refused and left exactly as it is, and its id is not given to a new thermostat
-  (a name whose every id is taken that way is refused) nor taken by a restore;
+  (a name whose every id is taken that way is refused) nor taken by a restore. `heat_cool`, the
+  mode an older firmware had, is such a word in `mode`, `last_on_mode` and a preset's `mode`:
+  the file is not migrated;
 - a name another thermostat or a YAML climate already has becomes `<name> 2` and is written back;
 - an enabled thermostat whose sensor or relay is missing, whose sensor does not report °C, or
   whose relay another one holds, stays enabled and does not run; `waiting_reason()` says which;
@@ -347,8 +359,9 @@ got to it.
 
 - `store()`: the documents, sorted by id; `max_controllers()`
 - `is_running(id)`, `runtime(id)`: the running thermostat's action, fault, duties, relay
-  states and which minimum holds each relay (`heat_relay_wait()`, `cool_relay_wait()`), PID
-  terms and sample age, `nullptr` when it is not running
+  states and which minimum, or the other relay, holds each relay (`heat_relay_wait()`,
+  `cool_relay_wait()`), PID terms, the relay whose gains they come from (`pid_direction()`) and
+  sample age, `nullptr` when it is not running
 - `waiting_reason(id)`: why an enabled thermostat does not run, the sentence its last failed
   start gave as a `warning`, at boot, a Save, an enable or when a relay it names or a climate
   entity came free (`not started: sensor 'temp_3' not found`,
@@ -382,11 +395,11 @@ got to it.
   409 `The device changed this thermostat since it was read; reload it`
 - a document's `step_preset(key, forward, with_none)`: the preset one place on or back from the
   one with `key`, going round the list, and through none (`nullptr`) as well with `with_none`
-- `start_autotune()` with no direction takes the mode's, which `heat_cool` has none of; it is
-  refused with 404, 409 (a bang-bang or stopped thermostat, a newer firmware's file, one
-  calibrating already, mode off, a fault) or 400 (a direction the mode does not drive, or none in
-  `heat_cool`). `cancel_autotune()` is 409 when nothing runs. `autotune(id)`: the last run since
-  boot, `nullptr` for none
+- `start_autotune()` swings the relay of the mode; a `direction`, when given, has to be the
+  mode's. It is refused with 404, 409 (a bang-bang or stopped thermostat, a newer firmware's
+  file, one calibrating already, mode off, a fault) or 400 (a direction that is not the mode's).
+  `cancel_autotune()` is 409 when nothing runs. `autotune(id)`: the last run since boot,
+  `nullptr` for none
 - `validate_name(name, &error)`, `is_name_taken(name, exclude_id, &error)`
 
 ## Testing

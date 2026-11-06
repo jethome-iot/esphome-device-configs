@@ -860,7 +860,7 @@ Result ClimateHub::set_mode_(const std::string &id, HubMode mode) {
   return result;
 }
 
-Result ClimateHub::start_autotune(const std::string &id, optional<AutotuneDirection> direction, AutotuneRule rule) {
+Result ClimateHub::start_autotune(const std::string &id, optional<Direction> direction, AutotuneRule rule) {
   Result result;
   if (this->refuse_if_failed_(&result))
     return result;
@@ -881,16 +881,11 @@ Result ClimateHub::start_autotune(const std::string &id, optional<AutotuneDirect
   const HubMode mode = stored->mode;
   if (mode == HubMode::OFF)
     return failure(409, "The thermostat is off: set it to heat or cool first");
-  if (!direction.has_value()) {
-    if (mode == HubMode::HEAT_COOL)
-      return failure(400, "In heat_cool, direction must say heat or cool");
-    direction = mode == HubMode::COOL ? AutotuneDirection::COOL : AutotuneDirection::HEAT;
-  }
-  const bool heat = *direction == AutotuneDirection::HEAT;
-  const HubMode own = heat ? HubMode::HEAT : HubMode::COOL;
-  if (mode != own && mode != HubMode::HEAT_COOL) {
-    const std::string word = enums::autotune_direction_to_string(*direction);
-    return failure(400, "direction '" + word + "' needs mode " + word + " or heat_cool");
+  // The mode's relay: one a client names besides has to be that one.
+  const Direction own = stored->on_direction();
+  if (direction.has_value() && *direction != own) {
+    return failure(400, std::string("direction '") + enums::direction_to_string(*direction) + "' does not match mode " +
+                            enums::mode_to_string(mode) + ": a calibration swings the relay of the current mode");
   }
   // It would end at the next pass, before a single swing.
   if (runtime.fault() != HubFault::NONE)
@@ -898,8 +893,7 @@ Result ClimateHub::start_autotune(const std::string &id, optional<AutotuneDirect
                             "; calibrate it once that clears");
 
   const uint64_t now = this->now_ms();
-  auto run = std::make_unique<AutotuneRun>(*direction, rule, PidGains{stored->pid.kp, stored->pid.ki, stored->pid.kd},
-                                           stored->setpoint, now);
+  auto run = std::make_unique<AutotuneRun>(own, rule, stored->pid.gains(own), stored->setpoint, now);
   AutotuneRun *running = run.get();
   // Gains the last one could not write would leave the status with it and come back as the old
   // ones at the next boot: they get another write.
@@ -909,7 +903,7 @@ Result ClimateHub::start_autotune(const std::string &id, optional<AutotuneDirect
   // The last one's numbers go: they stay until the next run.
   this->autotunes_[id] = std::move(run);
   runtime.begin_autotune(running, now);
-  ESP_LOGI(TAG, "'%s': calibration started, %s, rule %s", id.c_str(), enums::autotune_direction_to_string(*direction),
+  ESP_LOGI(TAG, "'%s': calibration started, %s, rule %s", id.c_str(), enums::direction_to_string(own),
            enums::autotune_rule_to_string(rule));
   return success();
 }
@@ -942,9 +936,8 @@ void ClimateHub::complete_autotune_(Slot *slot) {
   gains.kp = as_stored(gains.kp);
   gains.ki = as_stored(gains.ki);
   gains.kd = as_stored(gains.kd);
-  config->pid.kp = gains.kp;
-  config->pid.ki = gains.ki;
-  config->pid.kd = gains.kd;
+  // Only its relay's: the other one keeps what it had.
+  config->pid.gains(run->direction()) = gains;
   // A form read before now would write the old gains back.
   config->revision++;
   const bool persisted = this->save_(*config);
@@ -957,11 +950,11 @@ void ClimateHub::complete_autotune_(Slot *slot) {
   const uint64_t now = this->now_ms();
   run->succeed(gains, clamped, persisted, now);
   runtime.end_autotune(AutotuneEnd::NONE, now);
-  ESP_LOGI(TAG, "'%s': calibrated in %" PRIu64 " s: Ku %.5g, Pu %.0f s, rule %s: kp %.5g, ki %.5g, kd %.5g%s%s%s%s",
+  ESP_LOGI(TAG, "'%s': calibrated in %" PRIu64 " s: Ku %.5g, Pu %.0f s, rule %s: %s kp %.5g, ki %.5g, kd %.5g%s%s%s%s",
            config->id.c_str(), run->elapsed_ms(now) / 1000, run->tuner().ku(), run->tuner().pu(),
-           enums::autotune_rule_to_string(run->rule()), gains.kp, gains.ki, gains.kd,
-           run->asymmetric() ? ", asymmetric" : "", run->uneven() ? ", uneven" : "", clamped ? ", clamped" : "",
-           persisted ? "" : ", not written");
+           enums::autotune_rule_to_string(run->rule()), enums::direction_to_string(run->direction()), gains.kp,
+           gains.ki, gains.kd, run->asymmetric() ? ", asymmetric" : "", run->uneven() ? ", uneven" : "",
+           clamped ? ", clamped" : "", persisted ? "" : ", not written");
 }
 
 // --- Running and stopping ---

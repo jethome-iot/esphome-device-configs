@@ -157,14 +157,13 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
     this->change_callback_.add(std::forward<F>(callback));
   }
 
-  /// Calibrates a running PID thermostat: the relay in `direction` goes full below the target
-  /// and off above it, AUTOTUNE_NOISEBAND either side, the other one held open, until the
-  /// swings give Ku and Pu. `rule` turns them into kp, ki and kd, which the thermostat then runs
-  /// with and its file keeps, its revision moved on. No `direction` takes the mode's, which
-  /// heat_cool has none of. 404, or 409 for a bang-bang or stopped thermostat, a newer
-  /// firmware's file, one calibrating already, in mode off or with a fault; 400 for a direction
-  /// the mode does not drive, or none in heat_cool.
-  Result start_autotune(const std::string &id, optional<AutotuneDirection> direction, AutotuneRule rule);
+  /// Calibrates a running PID thermostat: the relay of its mode goes full below the target and
+  /// off above it, AUTOTUNE_NOISEBAND either side, the other one held open, until the swings
+  /// give Ku and Pu. `rule` turns them into kp, ki and kd, which that relay then runs on and the
+  /// file keeps as its gains, the revision moved on. 404, or 409 for a bang-bang or stopped
+  /// thermostat, a newer firmware's file, one calibrating already, in mode off or with a fault;
+  /// 400 for a `direction`, when one is given, that is not the mode's.
+  Result start_autotune(const std::string &id, optional<Direction> direction, AutotuneRule rule);
   /// Ends the running calibration as cancelled: 404, or 409 when none runs.
   Result cancel_autotune(const std::string &id);
   /// The thermostat's last calibration since boot, running or ended, nullptr for none.
