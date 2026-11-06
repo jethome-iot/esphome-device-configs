@@ -531,6 +531,20 @@ TEST_F(HubTest, BootRefusesAHeatAndCoolFileAndLeavesIt) {
   EXPECT_EQ("porch-2", this->create(draft("Porch")).id) << "its id stays taken";
 }
 
+// Deleted by hand, over the file API say, the refused file frees its id at once, without a
+// reboot: the thermostat is made again under it.
+TEST_F(HubTest, ARefusedHeatAndCoolFileFreesItsIdOnceDeleted) {
+  write_file(this->file_of("porch"),
+             R"({"version":4,"id":"porch","name":"Porch","kind":"pid","sensor_id":"room",)"
+             R"("heat":{"relay_id":"relay_1"},"cool":{"relay_id":"relay_2"},"mode":"heat_cool","setpoint":21})");
+  this->reboot();
+  ASSERT_EQ(0u, hub().store().size());
+  EXPECT_EQ(404, hub().remove("porch").code) << "no thermostat to delete";
+
+  ASSERT_EQ(0, ::remove(this->file_of("porch").c_str()));
+  EXPECT_EQ("porch", this->create(draft("Porch")).id);
+}
+
 // The dashboard's editor opens a blank form at /climate/new, so a file with that id could never
 // be edited: refused, and left.
 TEST_F(HubTest, BootRefusesTheIdNew) {

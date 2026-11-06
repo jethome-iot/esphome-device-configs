@@ -59,6 +59,9 @@ float clamp01(float v) { return std::isnan(v) ? 0.f : (v < 0.f ? 0.f : (v > 1.f 
 // Every fault but relay_contested stops control; that one only reports.
 bool cuts_out(HubFault f) { return f != HubFault::NONE && f != HubFault::RELAY_CONTESTED; }
 
+// One closed from elsewhere only waits for its put-back: it is no close of the thermostat's.
+bool closed_by_holder(const RelayClaim *claim) { return claim->state() && !claim->pending(); }
+
 }  // namespace
 
 void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, RelayClaim *heat, RelayClaim *cool,
@@ -402,8 +405,8 @@ HubAction ControllerRuntime::relay_action_() const {
     return HubAction::IDLE;
   const bool heating = this->shows_(this->heat_claim_, this->heat_duty_, HubAction::HEATING, c.mode == HubMode::HEAT);
   const bool cooling = this->shows_(this->cool_claim_, this->cool_duty_, HubAction::COOLING, c.mode == HubMode::COOL);
-  // Both closed while one closed from elsewhere waits for its put-back: the one it drives now is
-  // what it does.
+  // Both closed while one closed from elsewhere waits for its put-back, or after a take-over of
+  // two closed relays until min_on lets the undriven one open: the one it drives is what it does.
   if (heating && (!cooling || this->heat_duty_.duty() > 0.f))
     return HubAction::HEATING;
   return cooling ? HubAction::COOLING : HubAction::IDLE;
@@ -463,13 +466,14 @@ void ControllerRuntime::drive_outputs_(uint64_t now_ms) {
   if (this->cool_claim_ != nullptr && !cool)
     this->cool_claim_->request(false, now_ms);
   // A heater and a cooler never run against each other: a relay closes only once the other has
-  // opened, which its min_on may hold off. One closed already stays.
+  // opened, which its min_on may hold off. One the thermostat closed already stays; one closed
+  // from elsewhere goes back meanwhile, as any such close.
   this->heat_interlocked_ =
-      heat && !this->heat_claim_->state() && this->cool_claim_ != nullptr && this->cool_claim_->state();
+      heat && !closed_by_holder(this->heat_claim_) && this->cool_claim_ != nullptr && this->cool_claim_->state();
   if (heat)
     this->heat_claim_->request(!this->heat_interlocked_, now_ms);
   this->cool_interlocked_ =
-      cool && !this->cool_claim_->state() && this->heat_claim_ != nullptr && this->heat_claim_->state();
+      cool && !closed_by_holder(this->cool_claim_) && this->heat_claim_ != nullptr && this->heat_claim_->state();
   if (cool)
     this->cool_claim_->request(!this->cool_interlocked_, now_ms);
 }

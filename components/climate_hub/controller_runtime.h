@@ -123,7 +123,8 @@ class ControllerRuntime {
   static RelayWait relay_wait_(const RelayClaim *claim, bool interlocked) {
     if (claim == nullptr)
       return RelayWait::NONE;
-    return interlocked ? RelayWait::OTHER_RELAY : claim->wait();
+    // Closed from elsewhere, it waits on that move until its put-back, as claim->wait() says.
+    return interlocked && !claim->pending() ? RelayWait::OTHER_RELAY : claim->wait();
   }
   /// `paced`: a relay closed from elsewhere goes back as RelayClaim::request() puts it back.
   void all_relays_off_(uint64_t now_ms, bool paced);

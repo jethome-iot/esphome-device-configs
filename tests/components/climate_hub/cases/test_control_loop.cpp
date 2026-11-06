@@ -1227,6 +1227,43 @@ TEST_F(ControlLoop, ATakeOverFromTwoHoldersTakesBothRelays) {
   EXPECT_EQ(writes, entities().relay1.writes) << "the heating relay never moved";
 }
 
+// Taken over from a heater and a cooler that ran at once, both relays stay closed until the one
+// the mode does not drive may open by its min_on; the one it drives stays closed throughout.
+TEST_F(ControlLoop, ATakeOverOfTwoClosedRelaysOpensTheUndrivenOneByItsMinOn) {
+  ClimateConfig heater = this->base(ControlKind::BANG_BANG);
+  heater.name = "Heater";
+  this->start(heater, 18.f);
+  ClimateConfig cooler = with_cooling(this->base(ControlKind::BANG_BANG), false);
+  cooler.name = "Cooler";
+  cooler.setpoint = 15.f;
+  this->create(cooler);
+  tick(200000);
+  ASSERT_TRUE(entities().relay1.state);
+  ASSERT_TRUE(entities().relay2.state);
+  ClimateConfig both = with_cooling(this->base(ControlKind::BANG_BANG), true);
+  both.name = "Both";
+  both.mode = HubMode::HEAT;
+  both.cool.min_on_s = 600.f;
+  both.enabled = false;
+  this->create(both);
+
+  ASSERT_TRUE(hub().set_enabled("both", true, true).ok);
+  ControllerRuntime *rt = hub().runtime_of("both");
+  for (uint64_t t = 201000; t < 800000; t += 1000) {
+    tick(t);
+    ASSERT_TRUE(entities().relay1.state) << "at " << t;
+    ASSERT_TRUE(entities().relay2.state) << "min_on holds it until 800 s, at " << t;
+    ASSERT_EQ(RelayWait::NONE, rt->heat_relay_wait()) << "at " << t;
+    ASSERT_EQ(RelayWait::MIN_ON, rt->cool_relay_wait()) << "at " << t;
+    ASSERT_EQ(HubAction::HEATING, rt->action()) << "at " << t;
+  }
+  tick(800000);
+  EXPECT_FALSE(entities().relay2.state);
+  EXPECT_TRUE(entities().relay1.state);
+  EXPECT_EQ(RelayWait::NONE, rt->cool_relay_wait());
+  EXPECT_EQ(HubAction::HEATING, rt->action());
+}
+
 // A Save onto a relay another thermostat opened a moment ago waits out that relay's min_off.
 TEST_F(ControlLoop, ASaveOntoAnotherRelayHonoursThatRelaysLastSwitching) {
   ClimateConfig other = this->base(ControlKind::BANG_BANG);
@@ -2060,6 +2097,63 @@ TEST_F(ControlLoop, ARelayClosedFromElsewhereHoldsTheOtherOneOpen) {
   EXPECT_FALSE(entities().relay2.state);
   EXPECT_TRUE(entities().relay1.state) << "on the pass it was put back";
   EXPECT_EQ(RelayWait::NONE, rt->heat_relay_wait());
+}
+
+// The relay the new mode drives, closed from elsewhere while it waits for the other one, is put
+// back as any close from elsewhere and not kept: it closes once the other relay has opened. Either
+// way round, after one close or two.
+TEST_F(ControlLoop, ARelayClosedFromElsewhereDuringASwitchOverStillWaitsForTheOtherOne) {
+  // An assertion ends its own run only, so each way round reports.
+  auto run = [this](bool to_heat, int closes) {
+    ClimateConfig config = with_cooling(this->base(ControlKind::BANG_BANG), true);
+    config.mode = to_heat ? HubMode::COOL : HubMode::HEAT;
+    (to_heat ? config.cool : config.heat).min_on_s = 120.f;
+    ControllerRuntime *rt = this->start(config, to_heat ? 25.f : 18.f);
+    HubClimate *entity = hub().entity_of(this->id_);
+    FakeSwitch &driven = to_heat ? entities().relay1 : entities().relay2;
+    FakeSwitch &other = to_heat ? entities().relay2 : entities().relay1;
+    auto wait = [&]() { return to_heat ? rt->heat_relay_wait() : rt->cool_relay_wait(); };
+    tick(200000);
+    ASSERT_TRUE(other.state);
+
+    entities().room.publish_state(to_heat ? 18.f : 25.f);
+    call(entity, to_heat ? climate::CLIMATE_MODE_HEAT : climate::CLIMATE_MODE_COOL);
+    tick(201000);
+    ASSERT_FALSE(driven.state);
+    ASSERT_EQ(RelayWait::OTHER_RELAY, wait());
+
+    driven.turn_on();
+    tick(202000);
+    EXPECT_FALSE(driven.state) << "the first close goes back at once";
+    EXPECT_EQ(RelayWait::OTHER_RELAY, wait());
+    uint64_t put_back = 202000;
+    if (closes == 2) {
+      driven.turn_on();
+      tick(203000);
+      EXPECT_TRUE(driven.state) << "the second waits the floor";
+      EXPECT_EQ(RelayWait::NONE, wait()) << "on the move, not on the other relay";
+      put_back = 203000 + PUT_BACK_FLOOR_MS;
+    }
+    for (uint64_t t = 204000; t < 320000; t += 1000) {
+      tick(t);
+      ASSERT_TRUE(other.state) << "min_on holds it until 320 s, at " << t;
+      ASSERT_EQ(t < put_back, driven.state) << "at " << t;
+      ASSERT_EQ(t < put_back ? RelayWait::NONE : RelayWait::OTHER_RELAY, wait()) << "at " << t;
+    }
+    tick(320000);
+    EXPECT_FALSE(other.state);
+    EXPECT_TRUE(driven.state) << "on the pass the other one opened";
+    EXPECT_EQ(RelayWait::NONE, wait());
+  };
+  for (bool to_heat : {true, false}) {
+    for (int closes : {1, 2}) {
+      SCOPED_TRACE(std::string(to_heat ? "cool to heat, " : "heat to cool, ") + std::to_string(closes) + " close(s)");
+      run(to_heat, closes);
+      ASSERT_TRUE(hub().remove(this->id_).ok);
+      reset_entities();
+      hub().ms = 100000;
+    }
+  }
 }
 
 // A relay closed from elsewhere heats, whoever closed it, until it is put back; the wait for the

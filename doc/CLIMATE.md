@@ -22,7 +22,10 @@ at the next boot. The file format and the C++ API are in
   and a cooling relay runs one of them at a time, and is switched between heat and cool by
   hand, a preset, a rule or a schedule. Switched straight from one to the other, the new relay
   closes only once the other has opened, which that relay's minimum on time may hold off: the
-  two never run at once.
+  two never run at once, with two exceptions. A relay switched on from elsewhere in the
+  meantime stays on until it is put back, as below. And a thermostat that takes over a heating
+  and a cooling relay from two thermostats that were running them at once keeps both closed
+  until the one its mode does not drive has had its minimum on time.
 - **Presets**: up to eight per thermostat, each a name, a target and a mode or "keep the
   current one". Picking one, from Home Assistant, the web server, the editor's API or the
   panel, sets its target and its mode; a stopped thermostat keeps the pick and starts in it. A
@@ -136,7 +139,14 @@ left as it is, as any file that breaks them.
 
 A file from an older firmware gives its one set of gains to both relays. One that names the
 heat and cool mode those firmwares had, as its mode, as the mode to go back to or in a preset, is
-not loaded and is left as it is: the thermostat has to be made again, in heat or in cool.
+not loaded and is left as it is: the thermostat has to be made again, in heat or in cool. Until
+then the file keeps its id: the thermostat is not in the list and cannot be deleted from the
+editor, a new one with the same name gets the id with `-2` after it, an import under the old id
+is refused, and rules and schedules that name it find no thermostat. To use the id again,
+delete the file: `climates/<id>.json` on the dashboard's Files screen, or `POST /files/delete`
+with `path=/climates/<id>.json`. The id is free at once, with no reboot: a thermostat made again
+with the same name, or imported from a backup, takes it, and the rules and schedules find it
+again.
 
 A thermostat whose sensor or relay is missing, at boot or when it is saved or switched on, stays
 enabled on disk but does not run; the Save or the switch-on succeeds with a warning that names

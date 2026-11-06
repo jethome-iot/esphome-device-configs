@@ -1155,9 +1155,13 @@ components:
         `min_off` before it may close, `min_on` before it may open,
         `other_relay` before it may close while the thermostat's other relay
         is still closed: after a switch between heat and cool, until that
-        relay's `min_on` lets it open, so the two never run at once. `none`
-        when it is where the thermostat wants it, when the thermostat is not
-        running or holds its relays open (mode off, a fault other than
+        relay's `min_on` lets it open, so the two never run at once. Two
+        exceptions: a relay switched from elsewhere stays there until it is
+        put back, as below; and a take-over of a heating and a cooling relay
+        from two thermostats that had both closed keeps both closed until the
+        relay the mode does not drive may open, its wait `min_on` meanwhile.
+        `none` when it is where the thermostat wants it, when the thermostat
+        is not running or holds its relays open (mode off, a fault other than
         `relay_contested`, no reading yet), and while a relay switched from
         elsewhere stays there until it is put back, which waits on that
         switch, not on the thermostat. Under `relay_contested` the thermostat

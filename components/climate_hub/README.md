@@ -161,7 +161,11 @@ before its name rules.
   `starting_integral_term`; mode `off` in between keeps it for the relay it comes back to.
 - **One relay at a time.** A relay never closes while the thermostat's other relay is closed:
   switched straight from `heat` to `cool`, the cooling relay waits for the heating one to open,
-  which its `min_on_s` may hold off. `runtime(id)` reports the wait as `other_relay`.
+  which its `min_on_s` may hold off. `runtime(id)` reports the wait as `other_relay`. A relay
+  closed from elsewhere meanwhile is put back as any moved relay is ([Relays](#relays)), and
+  the thermostat closes it only once the other has opened. A take-over of a heating and a
+  cooling relay from two thermostats that had both closed keeps both closed until the one the
+  mode does not drive may open by its `min_on_s`.
 - A change of mode or target takes effect at the next loop pass, not at the next interval.
 - **Safety.** A thermostat keeps its relays open until its first reading, idle and without a
   fault, and opens one closed from elsewhere meanwhile again on every pass. With no reading
@@ -256,11 +260,12 @@ back, from the second on it stays. Once 5 moves come without 10 quiet minutes af
 between them, the thermostat reports `relay_contested`: it goes on controlling and putting the
 relay back, and the fault clears by itself 10 minutes after the last put-back. Meanwhile its
 action shows what the relay does, and a relay waiting for its put-back is not waiting on the
-thermostat's `min_on_s` or `min_off_s`. The count starts over when a thermostat starts or takes
-the relay over, not at a Save, and a relay the thermostat finds moved when it claims it, closed
-by Start mode On at boot say, counts as no move. Until the first reading and during
-`sensor_stale` and `overtemp`, a relay closed from elsewhere is opened again on every pass,
-without waiting. Mode `off` keeps holding the relays open and puts them back the same way.
+thermostat's `min_on_s` or `min_off_s`, nor on its other relay. The count starts over when a
+thermostat starts or takes the relay over, not at a Save, and a relay the thermostat finds
+moved when it claims it, closed by Start mode On at boot say, counts as no move. Until the
+first reading and during `sensor_stale` and `overtemp`, a relay closed from elsewhere is
+opened again on every pass, without waiting. Mode `off` keeps holding the relays open and puts
+them back the same way.
 
 Two thermostats may name the same relay and take turns: only one of them is enabled at a time.
 Enabling the second, or saving it enabled, while the first is enabled is refused, naming the
