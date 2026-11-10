@@ -62,6 +62,15 @@ bool cuts_out(HubFault f) { return f != HubFault::NONE && f != HubFault::RELAY_C
 // One closed from elsewhere only waits for its put-back: it is no close of the thermostat's.
 bool closed_by_holder(const RelayClaim *claim) { return claim->state() && !claim->pending(); }
 
+// What the relay of `direction` can do, in the PID's output: closed for none to all of its period.
+void set_output_range(PidCore &pid, Direction direction) {
+  if (direction == Direction::COOL) {
+    pid.set_output_range(-1.f, 0.f);
+  } else {
+    pid.set_output_range(0.f, 1.f);
+  }
+}
+
 }  // namespace
 
 void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, RelayClaim *heat, RelayClaim *cool,
@@ -324,6 +333,7 @@ void ControllerRuntime::restart_pid_(Direction direction) {
   const ClimateConfig &c = *this->config_;
   this->pid_direction_ = direction;
   this->pid_.set_gains(c.pid.gains(direction));
+  set_output_range(this->pid_, direction);
   this->pid_.reset();
   this->pid_.set_starting_integral_term(c.pid.starting_integral_term);
   this->controlled_ = false;

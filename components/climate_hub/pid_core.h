@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <cstddef>
 #include <vector>
 
@@ -32,7 +33,8 @@ class SampleWindow {
 
 /// ESPHome's pid control law with the clock lifted out: update() takes dt in seconds, so the
 /// loop is reproducible on the host. Term for term the same as components/pid/pid_controller,
-/// whose fields are private to PIDClimate and whose dt comes from millis().
+/// whose fields are private to PIDClimate and whose dt comes from millis(), until an output
+/// range is set: then the integral does not grow while the output is past it.
 class PidCore {
  public:
   void set_gains(float kp, float ki, float kd);
@@ -43,6 +45,12 @@ class PidCore {
   void set_deadband(float threshold_low, float threshold_high, float kp_multiplier, float ki_multiplier,
                     float kd_multiplier, int output_samples);
   void set_starting_integral_term(float v) { this->accumulated_integral_ = v; }
+  /// What the relay can follow, [0, 1] heating and [-1, 0] cooling: no integration that pushes
+  /// the output further past it. NaN for no bound, as upstream.
+  void set_output_range(float low, float high) {
+    this->output_low_ = low;
+    this->output_high_ = high;
+  }
 
   /// The control effort, positive to heat and negative to cool.
   float update(float setpoint, float process_value, float dt_s);
@@ -72,6 +80,8 @@ class PidCore {
   float kd_{0.f};
   float min_integral_{-1.f};
   float max_integral_{1.f};
+  float output_low_{NAN};
+  float output_high_{NAN};
   int output_samples_{1};
   int derivative_samples_{8};
 

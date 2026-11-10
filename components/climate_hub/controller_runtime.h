@@ -116,7 +116,7 @@ class ControllerRuntime {
   bool shows_(const RelayClaim *claim, const DutyCycler &duty, HubAction direction, bool drives) const;
   /// Puts `action` on the entity; true when it changed.
   bool set_action_(HubAction action);
-  /// A clean PID on `direction`'s gains: nothing it held carries on.
+  /// A clean PID on `direction`'s gains and its relay's range: nothing it held carries on.
   void restart_pid_(Direction direction);
   void run_control_(uint64_t now_ms);
   void drive_outputs_(uint64_t now_ms);

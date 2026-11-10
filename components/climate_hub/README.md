@@ -154,11 +154,14 @@ before its name rules.
   cooling the other way round. Between the two points the relay keeps what it was doing.
 - **PID.** ESPHome's `pid` law, run every `update_interval_s`, drives the relay of its mode as a
   slow PWM over `period_s`, on that relay's own gains: positive output heats in `heat`, negative
-  cools in `cool`. The first pass after mode `off`, a fault other than `relay_contested` or the
-  wait for a first reading is a first pass, as after a start, that keeps the integral: it
-  integrates nothing, takes no derivative and averages nothing from before the pause into its
-  output. The pause adds nothing to what the PID has learnt. The first pass for the other relay
-  than the PID last ran for starts it over on that relay's gains, from
+  cools in `cool`. Unlike ESPHome's, it adds nothing to the integral while the output is at or
+  past the end of the relay's range, full on (1 heating, -1 cooling) or off (0), and the error
+  pushes it further; otherwise the integral moves as ESPHome's does, within `min_integral` and
+  `max_integral` and scaled inside the deadband. The first pass after mode `off`, a fault other
+  than `relay_contested` or the wait for a first reading is a first pass, as after a start, that
+  keeps the integral: it integrates nothing, takes no derivative and averages nothing from before
+  the pause into its output. The pause adds nothing to what the PID has learnt. The first pass
+  for the other relay than the PID last ran for starts it over on that relay's gains, from
   `starting_integral_term`; mode `off` in between keeps it for the relay it comes back to.
 - **One relay at a time.** A relay never closes while the thermostat's other relay is closed:
   switched straight from `heat` to `cool`, the cooling relay waits for the heating one to open,

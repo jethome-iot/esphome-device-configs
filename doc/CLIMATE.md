@@ -14,7 +14,9 @@ at the next boot. The file format and the C++ API are in
 - **Hysteresis**: heats below the target minus a band and stops above the target plus a band,
   or cools the other way round. **PID**: drives the relay as a slow PWM, from 0 to 100 % of a
   period of minutes; time spent in mode off, on a fault that stops it or waiting for a reading
-  adds nothing to what it has learnt. Each relay has its own gains: in heat the PID runs on the
+  adds nothing to what it has learnt, and neither does a stretch with the relay fully on or
+  fully off, so a step in the target, a night setback or its end, does not carry the room a
+  degree or two past the new one. Each relay has its own gains: in heat the PID runs on the
   heating relay's, in cool on the cooling relay's. Switched from one to the other it starts
   afresh on the other relay's gains; mode off in between keeps what it learnt for the relay it
   comes back to.

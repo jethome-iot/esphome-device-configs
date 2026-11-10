@@ -1568,6 +1568,109 @@ TEST_F(ControlLoop, ASaveOfTheIdleRelaysGainsLeavesThePidAlone) {
   EXPECT_NEAR(5.f * 0.1f + 0.17f, rt->heat_duty(), 1e-4f) << "at the heating relay's kp";
 }
 
+// Nothing is integrated while the heating relay is full on or full off and the error pushes the
+// output further; once the output is back inside, it integrates again.
+TEST_F(ControlLoop, TheIntegralHoldsWhileTheHeatingRelayCannotFollow) {
+  ClimateConfig config = this->base(ControlKind::PID);
+  config.setpoint = 25.f;
+  config.pid.heat = PidGains{0.5f, 0.01f, 0.f};
+  ControllerRuntime *rt = this->start(config, 20.f);
+  tick(200000);
+  tick(201000);
+  EXPECT_FLOAT_EQ(1.f, rt->heat_duty());
+  EXPECT_FLOAT_EQ(0.f, rt->pid().integral_term()) << "full on";
+
+  entities().room.publish_state(26.f);
+  tick(202000);
+  EXPECT_FLOAT_EQ(0.f, rt->heat_duty());
+  EXPECT_FLOAT_EQ(0.f, rt->pid().integral_term()) << "full off";
+
+  entities().room.publish_state(24.f);
+  tick(203000);
+  EXPECT_NEAR(0.01f, rt->pid().integral_term(), 1e-6f) << "1 degree for 1 s at 0.01";
+  EXPECT_NEAR(0.51f, rt->heat_duty(), 1e-5f);
+}
+
+// The cooling relay's range runs from -1, full on, to 0.
+TEST_F(ControlLoop, TheIntegralHoldsWhileTheCoolingRelayCannotFollow) {
+  ClimateConfig config = with_cooling(this->base(ControlKind::PID), false);
+  config.setpoint = 20.f;
+  config.pid.cool = PidGains{0.5f, 0.01f, 0.f};
+  ControllerRuntime *rt = this->start(config, 25.f);
+  tick(200000);
+  tick(201000);
+  EXPECT_FLOAT_EQ(1.f, rt->cool_duty());
+  EXPECT_FLOAT_EQ(0.f, rt->pid().integral_term()) << "full on";
+
+  entities().room.publish_state(19.f);
+  tick(202000);
+  EXPECT_FLOAT_EQ(0.f, rt->cool_duty());
+  EXPECT_FLOAT_EQ(0.f, rt->pid().integral_term()) << "full off";
+
+  entities().room.publish_state(21.f);
+  tick(203000);
+  EXPECT_NEAR(-0.01f, rt->pid().integral_term(), 1e-6f) << "-1 degree for 1 s at 0.01";
+  EXPECT_NEAR(0.51f, rt->cool_duty(), 1e-5f);
+}
+
+// The range is that of the relay the PID runs for: the same error integrates on one and not on
+// the other, after a switch either way.
+TEST_F(ControlLoop, TheRangeFollowsTheRelayThePidRunsFor) {
+  ClimateConfig config = with_cooling(this->base(ControlKind::PID), true);
+  config.mode = HubMode::HEAT;
+  config.setpoint = 20.f;
+  config.pid.heat = PidGains{0.5f, 0.01f, 0.f};
+  config.pid.cool = PidGains{0.5f, 0.01f, 0.f};
+  ControllerRuntime *rt = this->start(config, 21.f);
+  HubClimate *entity = hub().entity_of(this->id_);
+  tick(200000);
+  tick(201000);
+  EXPECT_FLOAT_EQ(0.f, rt->pid().integral_term()) << "a degree too warm: the heater is off already";
+
+  call(entity, climate::CLIMATE_MODE_COOL);
+  tick(202000);
+  tick(203000);
+  EXPECT_NEAR(-0.01f, rt->pid().integral_term(), 1e-6f) << "the cooler is not full on";
+
+  entities().room.publish_state(19.f);
+  tick(204000);
+  EXPECT_NEAR(-0.01f, rt->pid().integral_term(), 1e-6f) << "a degree too cold: the cooler is off already";
+
+  call(entity, climate::CLIMATE_MODE_HEAT);
+  tick(205000);
+  tick(206000);
+  EXPECT_NEAR(0.01f, rt->pid().integral_term(), 1e-6f) << "the heater is not full on";
+}
+
+// A Save that keeps the PID keeps its range; one into the other mode gives it the other relay's
+// at the next pass.
+TEST_F(ControlLoop, ASaveKeepsTheRangeOfTheRelayItRunsFor) {
+  ClimateConfig config = with_cooling(this->base(ControlKind::PID), true);
+  config.mode = HubMode::HEAT;
+  config.setpoint = 25.f;
+  config.pid.heat = PidGains{0.5f, 0.01f, 0.f};
+  config.pid.cool = PidGains{0.5f, 0.01f, 0.f};
+  ControllerRuntime *rt = this->start(config, 20.f);
+  tick(200000);
+  tick(201000);
+  ASSERT_FLOAT_EQ(0.f, rt->pid().integral_term());
+
+  config.pid.heat.kp = 0.6f;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  tick(202000);
+  EXPECT_FLOAT_EQ(0.f, rt->pid().integral_term()) << "still full on";
+  entities().room.publish_state(24.5f);
+  tick(203000);
+  EXPECT_NEAR(0.005f, rt->pid().integral_term(), 1e-6f) << "half a degree for 1 s at 0.01";
+
+  config.mode = HubMode::COOL;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  tick(204000);
+  ASSERT_EQ(Direction::COOL, rt->pid_direction());
+  tick(205000);
+  EXPECT_FLOAT_EQ(0.f, rt->pid().integral_term()) << "half a degree too cold: the cooler is off already";
+}
+
 // A probe that last spoke a minute ago, beyond its timeout: its value is shown, not acted on.
 TEST_F(ControlLoop, AProbeSilentSinceBeforeTheStartIsStale) {
   ClimateConfig config = this->base(ControlKind::BANG_BANG);
