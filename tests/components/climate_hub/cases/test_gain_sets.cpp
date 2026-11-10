@@ -644,10 +644,11 @@ TEST_F(GainSets, ApplyMakesTheGainsTheRelaysAndMovesTheRevision) {
   ClimateConfig doc = *hub().store().get(id);
   doc.pid.heat = PidGains{2.f, 0.001f, 5.f};
   ASSERT_TRUE(hub().update(id, doc, 0u).ok);
-  // A few passes for the PID to learn something.
+  // A few passes for the PID to learn something, its output inside the relay's range: one past it
+  // integrates nothing.
   for (int i = 0; i < 4; i++) {
     hub().ms += 30000;
-    entities().room.publish_state(18.f);
+    entities().room.publish_state(20.8f);
     hub().loop();
   }
   ControllerRuntime *rt = hub().runtime_of(id);
@@ -671,7 +672,7 @@ TEST_F(GainSets, ApplyMakesTheGainsTheRelaysAndMovesTheRevision) {
   // On as after a Save: the new gains, and what it had learnt.
   EXPECT_EQ(rt, hub().runtime_of(id));
   hub().ms += 30000;
-  entities().room.publish_state(18.f);
+  entities().room.publish_state(20.8f);
   hub().loop();
   EXPECT_FLOAT_EQ(0.6f * rt->pid().error(), rt->pid().proportional_term());
   EXPECT_GT(rt->pid().integral_term(), learnt);

@@ -319,6 +319,35 @@ TEST_F(Calibration, WithBothRelaysOnlyTheModesRelaysGainsChange) {
   EXPECT_FLOAT_EQ(stored->pid.cool.kp * rt->pid().error(), rt->pid().proportional_term());
 }
 
+// A schedule's setback and its end on the gains a calibration found: the integral the step
+// would wind up while the relay is full on or off does not come back out as an overshoot.
+TEST_F(Calibration, AScheduleStepOnTheCalibratedGainsOvershootsLittle) {
+  const RoomModel model = radiator_room();
+  Room room(model);
+  const std::string id = this->start(living_room(), room.reading());
+  ASSERT_TRUE(this->calibrate(id).ok);
+  swing(room, model, 24.f, [&id] { return ended(id); });
+  ASSERT_EQ(AutotuneState::SUCCEEDED, hub().autotune(id)->state());
+  swing(room, model, 8.f);
+
+  float low = room.temperature();
+  ASSERT_TRUE(hub().set_setpoint(id, 18.f).ok);
+  swing(room, model, 8.f, [&] {
+    low = std::min(low, room.temperature());
+    return false;
+  });
+  float high = room.temperature();
+  ASSERT_TRUE(hub().set_setpoint(id, 21.f).ok);
+  swing(room, model, 8.f, [&] {
+    high = std::max(high, room.temperature());
+    return false;
+  });
+  // Integrating on while the relay is full off and then full on, upstream's law gives 1.6 and 0.9.
+  EXPECT_LT(18.f - low, 0.5f) << "under the setback";
+  EXPECT_LT(high - 21.f, 0.5f) << "over the target after it";
+  EXPECT_NEAR(21.f, room.temperature(), 0.2f) << "and settled";
+}
+
 // --- What ends a run ---
 
 TEST_F(Calibration, CancelEndsItAndThePidTakesOver) {
@@ -338,6 +367,31 @@ TEST_F(Calibration, CancelEndsItAndThePidTakesOver) {
   EXPECT_EQ(409, again.code);
   EXPECT_EQ("No calibration is running", again.error);
   EXPECT_EQ(404, hub().cancel_autotune("attic").code);
+}
+
+// The PID the run hands over to starts clean, on the range of the relay it measured: a cooler
+// still full on integrates nothing, and integrates again once it is not.
+TEST_F(Calibration, AfterTheRunThePidRunsOnItsRelaysRange) {
+  ClimateConfig config = living_room();
+  config.heat.relay_id = "";
+  config.cool.relay_id = "relay_2";
+  config.mode = HubMode::COOL;
+  config.setpoint = 24.f;
+  config.pid.cool = PidGains{0.5f, 0.01f, 0.f};
+  config.update_interval_s = 1.f;
+  const std::string id = this->start(config, 27.f);
+  ASSERT_TRUE(this->calibrate(id).ok);
+  hold(27.f, 10, 3);
+  ASSERT_TRUE(entities().relay2.state);
+  ASSERT_TRUE(hub().cancel_autotune(id).ok);
+
+  ControllerRuntime *rt = hub().runtime_of(id);
+  EXPECT_EQ(Direction::COOL, rt->pid_direction());
+  hold(27.f, 1, 3);
+  EXPECT_FLOAT_EQ(0.f, rt->pid().integral_term()) << "3 degrees too warm: full on";
+  EXPECT_FLOAT_EQ(1.f, rt->cool_duty());
+  hold(24.5f, 1, 2);
+  EXPECT_NEAR(-0.005f, rt->pid().integral_term(), 1e-6f) << "half a degree for 1 s at 0.01";
 }
 
 TEST_F(Calibration, ANewTargetEndsItAndTheSameOneDoesNot) {
