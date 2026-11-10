@@ -20,6 +20,11 @@ at the next boot. The file format and the C++ API are in
   heating relay's, in cool on the cooling relay's. Switched from one to the other it starts
   afresh on the other relay's gains; mode off in between keeps what it learnt for the relay it
   comes back to.
+
+  ![Room temperature over three days of a night setback to 18 °C, before the fix and now](images/climate-setback.svg)
+
+  Each step of a night setback used to carry the room 1.7 °C past the new target; now it is about
+  0.6 °C. In a modelled room with radiators.
 - **Modes**: off, heat or cool, as far as its relays allow. A thermostat with both a heating
   and a cooling relay runs one of them at a time, and is switched between heat and cool by
   hand, a preset, a rule or a schedule. Switched straight from one to the other, the new relay
@@ -83,6 +88,11 @@ The result, the gains it replaced and any warning about it stay in the thermosta
 the next calibration, a delete or a reboot, and the result is kept for good as a
 [saved gain set](#saved-gain-sets).
 
+![Room temperature over a day at a 21 °C target, on the factory gains and on calibrated gains](images/climate-calibrate.svg)
+
+The factory gains swing the room a degree either side of the target; calibrated ones hold it
+within a tenth. In a modelled room with radiators.
+
 A calibration ends without new gains when it is cancelled, when the target or the mode changes
 from anywhere (Home Assistant, the web server, the editor, a rule, a schedule, a preset), when
 the thermostat is saved, brought back from a backup, switched off, deleted or taken over, on any
@@ -97,6 +107,11 @@ status says which, and the thermostat goes back to its PID with the gains it had
 | Radiators or a floor heating sized for the room, or not sure | Ziegler–Nichols PI, the default |
 | An electric convector or panel heater | Pessen integral if the relay may switch about a third more often, Ziegler–Nichols PI otherwise |
 | A heater that only just keeps the room warm in the cold | Pessen integral |
+
+![Room temperature after the target goes from 18 to 21 °C, on the gains of Ziegler–Nichols PI, Pessen integral and No overshoot](images/climate-rules.svg)
+
+After a step from 18 to 21 °C, No overshoot gets there last and overshoots most, 1.3 °C against
+Ziegler–Nichols PI's 0.6 °C; Pessen integral settles first. In a modelled room with radiators.
 
 What simulated rooms showed:
 
@@ -122,6 +137,11 @@ What simulated rooms showed:
 - A heating relay's gains hardly change with the season, so one calibration does for the year,
   unless the boiler's supply temperature follows the weather. Then a calibration in each season,
   each kept as a gain set, can be applied when the season turns.
+
+![Three days of a night setback at −15 °C outside, on gains calibrated at −15 °C and at +8 °C, with a fixed supply temperature and with one that follows the weather](images/climate-seasons.svg)
+
+At −15 °C outside, gains calibrated at +8 °C do as well as those calibrated in the cold, unless
+the supply temperature follows the weather. In a modelled room with radiators.
 
 ## Saved gain sets
 
