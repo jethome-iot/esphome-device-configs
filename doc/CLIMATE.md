@@ -14,8 +14,18 @@ at the next boot. The file format and the C++ API are in
 - **Hysteresis**: heats below the target minus a band and stops above the target plus a band,
   or cools the other way round. **PID**: drives the relay as a slow PWM, from 0 to 100 % of a
   period of minutes; time spent in mode off, on a fault that stops it or waiting for a reading
-  adds nothing to what it has learnt.
-- **Modes**: off, heat, cool, or heat and cool, as far as its relays allow.
+  adds nothing to what it has learnt. Each relay has its own gains: in heat the PID runs on the
+  heating relay's, in cool on the cooling relay's. Switched from one to the other it starts
+  afresh on the other relay's gains; mode off in between keeps what it learnt for the relay it
+  comes back to.
+- **Modes**: off, heat or cool, as far as its relays allow. A thermostat with both a heating
+  and a cooling relay runs one of them at a time, and is switched between heat and cool by
+  hand, a preset, a rule or a schedule. Switched straight from one to the other, the new relay
+  closes only once the other has opened, which that relay's minimum on time may hold off: the
+  two never run at once, with two exceptions. A relay switched on from elsewhere in the
+  meantime stays on until it is put back, as below. And a thermostat that takes over a heating
+  and a cooling relay from two thermostats that were running them at once keeps both closed
+  until the one its mode does not drive has had its minimum on time.
 - **Presets**: up to eight per thermostat, each a name, a target and a mode or "keep the
   current one". Picking one, from Home Assistant, the web server, the editor's API or the
   panel, sets its target and its mode; a stopped thermostat keeps the pick and starts in it. A
@@ -38,8 +48,9 @@ at the next boot. The file format and the C++ API are in
   relay's last move, whichever thermostat made it. A thermostat shows what its relays do, not
   what it wants: idle until a relay held open by its minimum off time closes, heating until one
   held closed by its minimum on time opens, and over HTTP its status says which minimum it waits
-  on. Saving a thermostat does not restart its cycle, and a PID keeps what it has learnt unless
-  the Save changes its control law or its sensor.
+  on, or that it waits for the other relay to open. Saving a thermostat does not restart its
+  cycle, and a PID keeps what it has learnt unless the Save changes its control law or its
+  sensor; new gains for the relay it runs on apply from its next pass.
 - **A relay belongs to the running thermostat**, in mode off too, which keeps it open; only
   stopping the thermostat frees it. What the rest of the device does with such a relay is
   below. Two thermostats may name one relay and take turns, a summer and a winter profile on
@@ -56,12 +67,14 @@ either side, more where the heat is slow to arrive. The relay's minimum on and o
 cut-out temperature hold throughout. A room with radiators takes about an hour and a half, a
 floor heating eight to ten hours. Start it with the room near its target: a cold floor heats at
 full power until it reaches the band, and one that needs more than 6 hours for that ends the
-calibration before its first swing. In heat and cool mode the start asks which relay to swing; the
-other one stays open. Home Assistant sees the thermostat heating (cooling when it calibrates a
-cooling relay) while the relay is closed, and idle otherwise.
+calibration before its first swing. It swings the relay of the current mode, the heating one in
+heat and the cooling one in cool, and the other one stays open; a thermostat with both relays is
+calibrated once in each mode. Home Assistant sees the thermostat heating (cooling when it
+calibrates a cooling relay) while the relay is closed, and idle otherwise.
 
 The device then turns what it measured into the gains of the rule picked at the start
-(Ziegler-Nichols PI unless another), writes them into the thermostat and runs with them. An
+(Ziegler-Nichols PI unless another), writes them into the thermostat as that relay's gains, the
+other relay keeping its own, and runs with them. An
 editor page opened before can no longer save over them: its Save is refused until it reloads, as
 it is after a thermostat was brought back from a backup over the one it shows.
 The result, the gains it replaced and any warning about it stay in the thermostat's status until
@@ -115,14 +128,25 @@ understands it, but this firmware never writes it: a change from Home Assistant,
 rule lasts until the next reboot, and a Save from the editor is refused with a sentence that
 says a newer firmware wrote it. Starting it in another thermostat's place lasts until the next
 reboot too: the ones it took the relay from, running or waiting, stay enabled in their files.
-Deleting the thermostat still works. To a firmware from before automation rules could turn a
-thermostat off and on, one with calibration too, every thermostat file this one writes is a
-newer firmware's, calibrated or not: rolled back to it, every thermostat saved or changed here
-keeps running but cannot be changed for good until this firmware is back. A calibrated one runs
-its gains as far as a firmware from before calibration allows, and its file keeps them for the
-next update. A newer file that breaks this firmware's rules — a preset mode it does not know,
-more than eight presets, a control law it does not have — is not loaded and is left as it is, as
-any file that breaks them.
+Deleting the thermostat still works. To a firmware from before each relay had its own gains,
+2026.9.1.0 among them, every thermostat file this one writes is a newer firmware's, calibrated
+or not: rolled back to it, every thermostat saved or changed here keeps running, on the gains of
+the relay it turns on in, but cannot be changed for good until this firmware is back. A
+calibrated one runs its gains as far as a firmware from before calibration allows, and its file
+keeps them for the next update. A newer file that breaks this firmware's rules — a preset mode it
+does not know, more than eight presets, a control law it does not have — is not loaded and is
+left as it is, as any file that breaks them.
+
+A file from an older firmware gives its one set of gains to both relays. One that names the
+heat and cool mode those firmwares had, as its mode, as the mode to go back to or in a preset, is
+not loaded and is left as it is: the thermostat has to be made again, in heat or in cool. Until
+then the file keeps its id: the thermostat is not in the list and cannot be deleted from the
+editor, a new one with the same name gets the id with `-2` after it, an import under the old id
+is refused, and rules and schedules that name it find no thermostat. To use the id again,
+delete the file: `climates/<id>.json` on the dashboard's Files screen, or `POST /files/delete`
+with `path=/climates/<id>.json`. The id is free at once, with no reboot: a thermostat made again
+with the same name, or imported from a backup, takes it, and the rules and schedules find it
+again.
 
 A thermostat whose sensor or relay is missing, at boot or when it is saved or switched on, stays
 enabled on disk but does not run; the Save or the switch-on succeeds with a warning that names

@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: web_climate_editor HTTP API
-  version: 1.7.1
+  version: 2.0.0
   description: >-
     JSON/REST API of the `climate_hub` thermostats, served by the
     `web_climate_editor` component on the device's own web server (default
@@ -608,15 +608,17 @@ paths:
       operationId: autotune
       summary: Start or cancel the calibration of a PID thermostat.
       description: >-
-        `value=true` starts one: the relay in `direction` closes fully when the
-        room is 0.25 °C under the target and opens 0.25 °C over it (cooling the
-        other way round), the other relay held open, with its minimum on and
-        off times and the cut-out temperature kept. Every reading feeds it.
-        After its sixth relay switch it has measured the ultimate gain and
-        period of the room, `rule` turns them into kp, ki and kd, and the
-        device writes them into the thermostat and runs with them, its
-        `revision` moved on. A room with radiators takes about an hour and a
-        half, a floor heating eight to ten hours; start near the target, since
+        `value=true` starts one: the relay of the thermostat's mode closes fully
+        when the room is 0.25 °C under the target and opens 0.25 °C over it
+        (cooling the other way round), the other relay held open, with its
+        minimum on and off times and the cut-out temperature kept. Every
+        reading feeds it. After its sixth relay switch it has measured the
+        ultimate gain and period of the room, `rule` turns them into kp, ki and
+        kd, and the device writes them into the thermostat as that relay's
+        gains, `pid.heat` or `pid.cool`, and runs with them, its `revision`
+        moved on; the other relay keeps its own. A room with radiators takes
+        about an hour and a half, a floor heating eight to ten hours; start
+        near the target, since
         a floor that needs more than 6 hours to reach the band ends the run as
         `no_switch` before its first swing. `/status` follows it, and
         keeps what it found, or why it ended without, until the next run, a
@@ -634,9 +636,9 @@ paths:
         or `value`, a `direction` other than `heat` or `cool`, a `rule` not
         among the five. Then a start is `404` for an unknown `id`, `409` for a
         bang-bang or stopped thermostat, one a newer firmware wrote, one that
-        calibrates already, or one in mode off, `400` for a `direction` its
-        mode does not drive, or none in `heat_cool`, and `409` while it
-        reports a fault. A cancel is `404`, or `409` when nothing runs.
+        calibrates already, or one in mode off, `400` for a `direction` that
+        is not its mode's, and `409` while it reports a fault. A cancel is
+        `404`, or `409` when nothing runs.
       parameters:
         - $ref: "#/components/parameters/IdQuery"
         - name: value
@@ -650,10 +652,10 @@ paths:
           in: query
           required: false
           description: >-
-            The relay to swing. Required in `heat_cool`; in `heat` or `cool`
-            the mode's, and the other one is `400`.
+            The relay to swing, which is always the mode's: it may be left
+            out, and the other one is `400`.
           schema:
-            $ref: "#/components/schemas/AutotuneDirection"
+            $ref: "#/components/schemas/RelayDirection"
         - name: rule
           in: query
           required: false
@@ -677,7 +679,7 @@ paths:
                     success: true
                     message: Calibration cancelled
         "400":
-          description: A malformed parameter, or a direction the thermostat's mode does not drive.
+          description: A malformed parameter, or a direction that is not the thermostat's mode's.
           content:
             application/json:
               schema:
@@ -687,14 +689,10 @@ paths:
                   value:
                     success: false
                     error: Invalid rule parameter
-                heatCool:
-                  value:
-                    success: false
-                    error: "In heat_cool, direction must say heat or cool"
                 direction:
                   value:
                     success: false
-                    error: "direction 'cool' needs mode cool or heat_cool"
+                    error: "direction 'cool' does not match mode heat: a calibration swings the relay of the current mode"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -1046,11 +1044,16 @@ components:
 
     Mode:
       type: string
-      enum: ["off", heat, cool, heat_cool]
+      enum: ["off", heat, cool]
+      description: >-
+        One relay at a time: a thermostat with both relays is in `heat` or in
+        `cool`, switched between them by hand, a preset, a rule or a schedule.
+        A file from an older firmware in `heat_cool` is not loaded, and a
+        body with it is `400`, as any word this firmware does not know.
 
     OnMode:
       type: string
-      enum: [heat, cool, heat_cool]
+      enum: [heat, cool]
       description: >-
         The mode a turn-on goes back to: `mode` while it is not off, otherwise
         the one it was in before, as far as the relays still serve it, else
@@ -1058,7 +1061,7 @@ components:
 
     PresetMode:
       type: string
-      enum: [keep, "off", heat, cool, heat_cool]
+      enum: [keep, "off", heat, cool]
       description: >-
         `keep` leaves the thermostat's mode as it is; any other needs the
         relays it drives, as the thermostat's own mode does.
@@ -1146,12 +1149,19 @@ components:
 
     RelayWait:
       type: string
-      enum: [none, min_on, min_off]
+      enum: [none, min_on, min_off, other_relay]
       description: >-
         What holds a relay away from where the thermostat wants it:
-        `min_off` before it may close, `min_on` before it may open. `none`
-        when it is where the thermostat wants it, when the thermostat is not
-        running or holds its relays open (mode off, a fault other than
+        `min_off` before it may close, `min_on` before it may open,
+        `other_relay` before it may close while the thermostat's other relay
+        is still closed: after a switch between heat and cool, until that
+        relay's `min_on` lets it open, so the two never run at once. Two
+        exceptions: a relay switched from elsewhere stays there until it is
+        put back, as below; and a take-over of a heating and a cooling relay
+        from two thermostats that had both closed keeps both closed until the
+        relay the mode does not drive may open, its wait `min_on` meanwhile.
+        `none` when it is where the thermostat wants it, when the thermostat
+        is not running or holds its relays open (mode off, a fault other than
         `relay_contested`, no reading yet), and while a relay switched from
         elsewhere stays there until it is put back, which waits on that
         switch, not on the thermostat. Under `relay_contested` the thermostat
@@ -1219,7 +1229,7 @@ components:
         - $ref: "#/components/schemas/PartialSafetyConfig"
       required: [sensor_timeout_s, max_temperature]
 
-    PartialPidConfig:
+    PartialPidGains:
       type: object
       properties:
         kp:
@@ -1228,6 +1238,37 @@ components:
           type: number
         kd:
           type: number
+
+    PidGains:
+      allOf:
+        - $ref: "#/components/schemas/PartialPidGains"
+      required: [kp, ki, kd]
+
+    PartialPidConfig:
+      type: object
+      description: >-
+        Each relay's own gains, `heat` and `cool`, and the rest both share. A
+        relay whose own gains are left out takes the bare `kp`, `ki` and
+        `kd`, as a file from a firmware before each relay had its own holds
+        them, and a gain left out of both takes its default.
+      properties:
+        heat:
+          $ref: "#/components/schemas/PartialPidGains"
+        cool:
+          $ref: "#/components/schemas/PartialPidGains"
+        kp:
+          type: number
+          description: >-
+            Written for a firmware from before each relay had its own gains,
+            which reads these alone: a copy of the gains of the relay a turn-on
+            goes to, `last_on_mode`'s. Read only for a relay whose own are
+            left out.
+        ki:
+          type: number
+          description: As `kp`.
+        kd:
+          type: number
+          description: As `kp`.
         min_integral:
           type: number
         max_integral:
@@ -1254,7 +1295,15 @@ components:
     PidConfig:
       allOf:
         - $ref: "#/components/schemas/PartialPidConfig"
+        - type: object
+          properties:
+            heat:
+              $ref: "#/components/schemas/PidGains"
+            cool:
+              $ref: "#/components/schemas/PidGains"
       required:
+        - heat
+        - cool
         - kp
         - ki
         - kd
@@ -1312,9 +1361,9 @@ components:
       properties:
         version:
           type: integer
-          minimum: 4
+          minimum: 5
           description: >-
-            `4`, the format this firmware writes, or the higher number of a
+            `5`, the format this firmware writes, or the higher number of a
             file a newer firmware wrote: that thermostat runs, but its Save is
             `409`.
         revision:
@@ -1367,7 +1416,7 @@ components:
         active_preset:
           $ref: "#/components/schemas/ActivePreset"
       example:
-        version: 4
+        version: 5
         revision: 0
         id: living-room
         name: Living Room
@@ -1393,6 +1442,8 @@ components:
           sensor_timeout_s: 300
           max_temperature: 60
         pid:
+          heat: {kp: 0.6, ki: 0.0025, kd: 0}
+          cool: {kp: 0.6, ki: 0.0025, kd: 0}
           kp: 0.6
           ki: 0.0025
           kd: 0
@@ -1656,8 +1707,14 @@ components:
     PidTerms:
       type: object
       description: A running PID's last pass; a term is `null` where it is not a number.
-      required: [error, proportional, integral, derivative, in_deadband]
+      required: [direction, error, proportional, integral, derivative, in_deadband]
       properties:
+        direction:
+          $ref: "#/components/schemas/RelayDirection"
+          description: >-
+            The relay whose gains the PID runs on: the mode's, once a pass has
+            run in it. The first pass for the other relay starts the PID over
+            on that relay's gains.
         error:
           type: [number, "null"]
         proportional:
@@ -1747,9 +1804,10 @@ components:
         autotune:
           $ref: "#/components/schemas/AutotuneStatus"
 
-    AutotuneDirection:
+    RelayDirection:
       type: string
       enum: [heat, cool]
+      description: One of a thermostat's relays, the heating or the cooling one.
 
     AutotuneRule:
       type: string
@@ -1759,17 +1817,6 @@ components:
         (a, b, c) = (0.45, 0.54, 0), (0.6, 1.2, 0.075), (0.7, 1.75, 0.105),
         (0.333, 0.667, 0.111), (0.2, 0.4, 0.0625).
       enum: [zn_pi, zn_pid, pessen, some_overshoot, no_overshoot]
-
-    Gains:
-      type: object
-      required: [kp, ki, kd]
-      properties:
-        kp:
-          type: number
-        ki:
-          type: number
-        kd:
-          type: number
 
     AutotuneStatus:
       type: object
@@ -1808,7 +1855,7 @@ components:
             - no_switch
             - noisy
         direction:
-          $ref: "#/components/schemas/AutotuneDirection"
+          $ref: "#/components/schemas/RelayDirection"
         rule:
           $ref: "#/components/schemas/AutotuneRule"
         setpoint:
@@ -1862,12 +1909,13 @@ components:
             type: string
             enum: [asymmetric, uneven, clamped]
         old:
-          $ref: "#/components/schemas/Gains"
+          $ref: "#/components/schemas/PidGains"
+          description: Its relay's gains when it started.
         new:
           oneOf:
-            - $ref: "#/components/schemas/Gains"
+            - $ref: "#/components/schemas/PidGains"
             - type: "null"
-          description: The gains it wrote; `null` unless it succeeded.
+          description: What it wrote as its relay's gains; `null` unless it succeeded.
         persisted:
           type: boolean
           description: >-

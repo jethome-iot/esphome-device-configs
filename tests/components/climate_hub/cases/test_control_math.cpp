@@ -199,14 +199,17 @@ TEST(HysteresisCore, HeatsBelowLowAndStopsAboveHigh) {
   EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::HEAT, 20.5f)) << "latched the other way";
 }
 
-TEST(HysteresisCore, HeatCoolIdlesBetweenThePoints) {
+// Both relays wired, a mode still latches its one direction between the points.
+TEST(HysteresisCore, BothRelaysLatchBetweenThePointsInEitherMode) {
   HysteresisCore hyst;
   hyst.set_setpoints(20.f, 22.f);
   hyst.set_directions(true, true);
 
-  EXPECT_EQ(HubAction::HEATING, hyst.update(HubMode::HEAT_COOL, 19.f));
-  EXPECT_EQ(HubAction::IDLE, hyst.update(HubMode::HEAT_COOL, 21.f));
-  EXPECT_EQ(HubAction::COOLING, hyst.update(HubMode::HEAT_COOL, 23.f));
+  EXPECT_EQ(HubAction::HEATING, hyst.update(HubMode::HEAT, 19.f));
+  EXPECT_EQ(HubAction::HEATING, hyst.update(HubMode::HEAT, 21.f)) << "latched, not idle";
+  hyst.reset();
+  EXPECT_EQ(HubAction::COOLING, hyst.update(HubMode::COOL, 23.f));
+  EXPECT_EQ(HubAction::COOLING, hyst.update(HubMode::COOL, 21.f)) << "latched, not idle";
 }
 
 TEST(HysteresisCore, CoolsAboveHighAndStopsBelowLow) {
@@ -253,9 +256,9 @@ TEST(HysteresisCore, AMissingSwitchingPointReportsOff) {
   HysteresisCore hyst;
   hyst.set_directions(true, true);
   hyst.set_setpoints(NAN, 21.f);
-  EXPECT_EQ(HubAction::OFF, hyst.update(HubMode::HEAT_COOL, 18.f));
+  EXPECT_EQ(HubAction::OFF, hyst.update(HubMode::HEAT, 18.f));
   hyst.set_setpoints(20.f, NAN);
-  EXPECT_EQ(HubAction::OFF, hyst.update(HubMode::HEAT_COOL, 18.f));
+  EXPECT_EQ(HubAction::OFF, hyst.update(HubMode::COOL, 18.f));
 }
 
 TEST(HysteresisCore, WithoutTheDirectionItOnlyIdles) {
@@ -271,8 +274,8 @@ TEST(HysteresisCore, NaNReportsOffNotIdle) {
   HysteresisCore hyst;
   hyst.set_setpoints(20.f, 21.f);
   hyst.set_directions(true, true);
-  hyst.update(HubMode::HEAT_COOL, 19.f);
-  EXPECT_EQ(HubAction::OFF, hyst.update(HubMode::HEAT_COOL, NAN));
+  hyst.update(HubMode::HEAT, 19.f);
+  EXPECT_EQ(HubAction::OFF, hyst.update(HubMode::HEAT, NAN));
 }
 
 // Seeded, the latch holds the seeded action until a switching point is crossed.

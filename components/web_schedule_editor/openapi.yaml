@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: web_schedule_editor HTTP API
-  version: 1.0.0
+  version: 1.0.1
   description: >-
     JSON/REST API of the `schedules` engine, served by the
     `web_schedule_editor` component on the device's own web server (default
@@ -1307,7 +1307,7 @@ components:
                 type: boolean
               mode:
                 type: string
-                enum: ["off", heat, cool, heat_cool]
+                enum: ["off", heat, cool]
               min_temperature:
                 type: number
               max_temperature:
@@ -1330,7 +1330,7 @@ components:
                       type: number
                     mode:
                       type: string
-                      enum: [keep, "off", heat, cool, heat_cool]
+                      enum: [keep, "off", heat, cool]
 
     ScheduleSchema:
       type: object

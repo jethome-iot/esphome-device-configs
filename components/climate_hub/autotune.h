@@ -3,6 +3,7 @@
 #include <cstdint>
 #include "enums.h"
 #include "pid_autotuner.h"
+#include "pid_core.h"
 
 namespace esphome::climate_hub {
 
@@ -17,18 +18,13 @@ static constexpr uint32_t AUTOTUNE_STALL_MS = 6u * 3600u * 1000u;
 /// upstream's symmetry check holds the half-periods to.
 static constexpr float AUTOTUNE_EVEN_RATIO = 0.66f;
 
-struct PidGains {
-  float kp{0.f};
-  float ki{0.f};
-  float kd{0.f};
-};
-
 /// One calibration of one thermostat. The hub keeps it from its start until the next start, a
 /// delete or a reboot; the thermostat's ControllerRuntime feeds it while it runs. Loop task only.
 /// Its clock is the hub's 64-bit one; the tuner's counts from the start.
 class AutotuneRun {
  public:
-  AutotuneRun(AutotuneDirection direction, AutotuneRule rule, const PidGains &gains, float setpoint, uint64_t now_ms);
+  /// `gains`: the ones the relay of `direction` ran on.
+  AutotuneRun(Direction direction, AutotuneRule rule, const PidGains &gains, float setpoint, uint64_t now_ms);
 
   /// One sample: whether the run's relay should be closed now. Only within 49.7 days of the start,
   /// which the caller keeps by ending the run on limit_reached() first: the tuner counts in 32 bits.
@@ -47,7 +43,7 @@ class AutotuneRun {
   AutotuneState state() const { return this->state_; }
   bool running() const { return this->state_ == AutotuneState::RUNNING; }
   AutotuneEnd reason() const { return this->reason_; }
-  AutotuneDirection direction() const { return this->direction_; }
+  Direction direction() const { return this->direction_; }
   AutotuneRule rule() const { return this->rule_; }
   /// The target it swings the room around, the thermostat's when it started: a later one ends it.
   float setpoint() const { return this->setpoint_; }
@@ -55,7 +51,7 @@ class AutotuneRun {
   uint64_t elapsed_ms(uint64_t now_ms) const;
   /// Its extremes' times are in ms since the start.
   const PidAutotuner &tuner() const { return this->tuner_; }
-  /// The gains in force when it started, and what it wrote in their place on success.
+  /// Its relay's gains when it started, and what it wrote in their place on success.
   const PidGains &old_gains() const { return this->old_gains_; }
   const PidGains &new_gains() const { return this->new_gains_; }
   /// The quality flags, set on success: they warn and never extend a run.
@@ -67,7 +63,7 @@ class AutotuneRun {
 
  protected:
   PidAutotuner tuner_;
-  AutotuneDirection direction_;
+  Direction direction_;
   AutotuneRule rule_;
   AutotuneState state_{AutotuneState::RUNNING};
   AutotuneEnd reason_{AutotuneEnd::NONE};
