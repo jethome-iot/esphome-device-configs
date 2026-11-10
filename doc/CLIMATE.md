@@ -104,7 +104,7 @@ What simulated rooms showed:
 - Some overshoot and No overshoot reach the target slowest, and in most rooms they overshot more
   than Ziegler–Nichols PI, not less.
 - Calibrate rather than keep the default gains: those keep most rooms swinging around the target.
-- Calibrate once, with the room near its target and in mild weather. On a cold day a floor heating
+- Calibrate with the room near its target, and a floor heating in mild weather: on a cold day it
   runs most of the time just to keep up, so the room may not cross the band in 6 hours, and the
   calibration ends with `no_switch`.
 - Right after a calibration the PID starts over, so the room dips one to two degrees below the
@@ -117,9 +117,9 @@ What simulated rooms showed:
 - Keep the relay's minimum on and off times under about a third of the PWM period (300 s by
   default): longer ones keep the relay from delivering the heat the PID asks for, and the room
   never settles.
-- A heating relay's gains hardly change with the season, unless the boiler's supply temperature
-  follows the weather. Then calibrate once in each season and keep a gain set for each, to apply
-  when the season turns.
+- A heating relay's gains hardly change with the season, so one calibration does for the year,
+  unless the boiler's supply temperature follows the weather. Then a calibration in each season,
+  each kept as a gain set, can be applied when the season turns.
 
 ## Saved gain sets
 
