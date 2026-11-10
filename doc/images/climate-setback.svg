@@ -659,16 +659,16 @@ L 142.5 12.4
 " style="fill: none; stroke: #eb6834; stroke-width: 1.6; stroke-linecap: round"/>
     </g>
     <g id="text_19">
-     <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif; text-anchor: start; fill: #1f2328" x="150.46" y="15.92" transform="rotate(-0 150.46 15.92)">Before the fix</text>
+     <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif; text-anchor: start; fill: #1f2328" x="150.46" y="15.92" transform="rotate(-0 150.46 15.92)">Plain PID</text>
     </g>
     <g id="line2d_29">
-     <path d="M 234.1 12.4
-L 246.1 12.4
-L 258.1 12.4
+     <path d="M 210.4 12.4
+L 222.4 12.4
+L 234.4 12.4
 " style="fill: none; stroke: #2a78d6; stroke-width: 1.6; stroke-linecap: round"/>
     </g>
     <g id="text_20">
-     <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif; text-anchor: start; fill: #1f2328" x="266.14" y="15.92" transform="rotate(-0 266.14 15.92)">Now</text>
+     <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif; text-anchor: start; fill: #1f2328" x="242.37" y="15.92" transform="rotate(-0 242.37 15.92)">This thermostat</text>
     </g>
    </g>
   </g>

@@ -21,10 +21,11 @@ at the next boot. The file format and the C++ API are in
   afresh on the other relay's gains; mode off in between keeps what it learnt for the relay it
   comes back to.
 
-  ![Room temperature over three days of a night setback to 18 °C, before the fix and now](images/climate-setback.svg)
+  ![Room temperature over three days of a night setback to 18 °C, on a plain PID and on this thermostat](images/climate-setback.svg)
 
-  Each step of a night setback used to carry the room 1.7 °C past the new target; now it is about
-  0.6 °C. In a modelled room with radiators.
+  A plain PID, which goes on learning while the relay is fully on or off, carries the room 1.7 °C
+  past each new target of a night setback; this thermostat about 0.6 °C. In a modelled room with
+  radiators.
 - **Modes**: off, heat or cool, as far as its relays allow. A thermostat with both a heating
   and a cooling relay runs one of them at a time, and is switched between heat and cool by
   hand, a preset, a rule or a schedule. Switched straight from one to the other, the new relay
@@ -104,8 +105,8 @@ status says which, and the thermostat goes back to its PID with the gains it had
 
 | Heating | Rule |
 | --- | --- |
-| Radiators or a floor heating sized for the room, or not sure | Ziegler–Nichols PI, the default |
-| An electric convector or panel heater | Pessen integral if the relay may switch about a third more often, Ziegler–Nichols PI otherwise |
+| Radiators, a floor heating or a convector sized for the room, or not sure | Ziegler–Nichols PI, the default |
+| A heater far larger than the room needs, on a sixth of the time or less once the room is warm | Ziegler–Nichols PID or Pessen integral if the relay may switch about a third more often, Ziegler–Nichols PI otherwise |
 | A heater that only just keeps the room warm in the cold | Pessen integral |
 
 ![Room temperature after the target goes from 18 to 21 °C, on the gains of Ziegler–Nichols PI, Pessen integral and No overshoot](images/climate-rules.svg)
@@ -115,28 +116,34 @@ Ziegler–Nichols PI's 0.6 °C; Pessen integral settles first. In a modelled roo
 
 What simulated rooms showed:
 
-- With radiators and floors sized for the room, Ziegler–Nichols PI held the target best of the
-  five rules and switched the relay least. The rules with a derivative term switched a floor's
-  relay almost twice as often for no better control.
-- Some overshoot and No overshoot reach the target slowest, and in most rooms they overshot more
+- With radiators, floors and convectors sized for the room, no rule held the target more than
+  about a tenth better than Ziegler–Nichols PI. The rules with a derivative term, Ziegler–Nichols
+  PID and Pessen integral, switched the relay a fifth to a third more often with radiators, and
+  twice as often on a floor, where they did worse.
+- A heater far larger than the room needs overshot by about a degree on Ziegler–Nichols PI, by
+  half that on Ziegler–Nichols PID or Pessen integral.
+- With a heater that only just keeps up, Pessen integral brought the room to the target in
+  two-thirds of Ziegler–Nichols PI's time after a start or a calibration, and did as well after a
+  change of target.
+- Some overshoot and No overshoot take longest to settle, and in most rooms they overshot more
   than Ziegler–Nichols PI, not less.
 - Calibrate rather than keep the default gains: those keep most rooms swinging around the target.
 - Calibrate with the room near its target, and a floor heating in mild weather: on a cold day it
   runs most of the time just to keep up, so the room may not cross the band in 6 hours, and the
   calibration ends with `no_switch`.
-- Right after a calibration the PID starts over, so the room dips one to two degrees below the
+- Right after a calibration the PID starts over, so the room dips up to two degrees below the
   target, more with a heater that only just keeps up. It is back at the target within an hour to
   a few with radiators, five to nine hours with a floor heating.
 - A probe whose readings jitter by more than about 0.1 °C spoils the gains while the calibration
   still succeeds: they come out far too sharp and the room swings. A DS18B20 read every 20 s is
   fine. When the result warns `uneven`, calibrate again, or apply the gain set an earlier
   calibration saved.
-- Keep the relay's minimum on and off times under about a third of the PWM period (300 s by
+- Keep the relay's minimum on and off times under about a fifth of the PWM period (300 s by
   default): longer ones keep the relay from delivering the heat the PID asks for, and the room
-  never settles.
-- A heating relay's gains hardly change with the season, so one calibration does for the year,
-  unless the boiler's supply temperature follows the weather. Then a calibration in each season,
-  each kept as a gain set, can be applied when the season turns.
+  settles late or never.
+- Gains calibrated in mild weather hold the room as well in the cold, so one calibration does for
+  the year, unless the boiler's supply temperature follows the weather. Then a calibration in
+  each season, each kept as a gain set, can be applied when the season turns.
 
 ![Three days of a night setback at −15 °C outside, on gains calibrated at −15 °C and at +8 °C, with a fixed supply temperature and with one that follows the weather](images/climate-seasons.svg)
 
