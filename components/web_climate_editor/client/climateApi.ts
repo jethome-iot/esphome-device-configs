@@ -5,7 +5,8 @@
 // base URL and its fetch wrapper through createClimateApi().
 //
 // Backend behaviour (web_climate_editor.cpp follows ./types.ts):
-//  - save, import, delete, enable, setpoint, preset and autotune answer POST only,
+//  - save, import, delete, enable, setpoint, preset, autotune, gains/add,
+//    gains/rename, gains/delete, gains/apply and gains/derive answer POST only,
 //    the rest GET only; a GET or POST to the wrong route, or an OPTIONS, is 405
 //    with an Allow header, and an unknown route is 404. The server answers PUT,
 //    DELETE, HEAD and PATCH with its own text 405 and closes the connection; this
@@ -21,6 +22,9 @@
 //    preset and last_on_mode kept, and answers as /save does. The body's
 //    `revision` is not read: a replaced thermostat's moves on, so a form read
 //    before the import is 409;
+//  - gains lists a thermostat's saved gain sets a page at a time (`after`,
+//    `limit`), oldest first; a set's number is never given twice. An applied set
+//    moves the revision on as a calibration does, and the answer says to what;
 //  - /ping returns {status:"ok"} (NOT the success envelope);
 //  - every route but /schema and /ping does its read or write on the device's main
 //    loop, so an answer describes what actually happened; 503 means the loop did not
@@ -38,7 +42,12 @@ import type {
   ControllersResponse,
   DeleteResponse,
   EnableResponse,
+  GainSetApplyResponse,
+  GainSetDeriveResponse,
+  GainSetResponse,
+  GainSetsResponse,
   PresetResponse,
+  RelayDirection,
   SaveResponse,
   StatusResponse,
   SuccessResponse
@@ -69,6 +78,27 @@ export interface AutotuneOptions {
   direction?: AutotuneDirection
   /** How Ku and Pu become gains; zn_pi when left out. */
   rule?: AutotuneRule
+}
+
+export interface GainSetPage {
+  /** Only the sets numbered above this one; 0 when left out. */
+  after?: number
+  /** At most this many, 1..GAIN_SET_PAGE_MAX; GAIN_SET_PAGE_MAX when left out. */
+  limit?: number
+}
+
+export interface AddGainSetOptions {
+  /** The relay whose gains to save; the one the thermostat's mode, or the mode it turns on in, drives when left out. */
+  direction?: RelayDirection
+  /** Left out or blank, the device names it. */
+  name?: string
+}
+
+export interface DeriveGainSetOptions {
+  /** Apply the new set at once, refused as /gains/apply would be before anything is added. */
+  apply?: boolean
+  /** Left out or blank, the device names it. */
+  name?: string
 }
 
 export interface ClimateApi {
@@ -111,6 +141,29 @@ export interface ClimateApi {
   startAutotune(id: string, options?: AutotuneOptions): Promise<SuccessResponse>
   /** POST /autotune?id=&value=false — end the calibration that runs; 409 when none does. */
   cancelAutotune(id: string): Promise<SuccessResponse>
+  /** GET /gains?id=[&after=][&limit=] — one page of the thermostat's saved gain sets, oldest first. */
+  listGainSets(id: string, page?: GainSetPage): Promise<GainSetsResponse>
+  /** POST /gains/add?id=[&direction=] — save a relay's gains as they are now as a set, named or not. */
+  addGainSet(id: string, options?: AddGainSetOptions): Promise<GainSetResponse>
+  /** POST /gains/rename?id=&set= — a set's new name. */
+  renameGainSet(id: string, n: number, name: string): Promise<GainSetResponse>
+  /** POST /gains/delete?id=&set= — remove a set; its number is not given again (no body). */
+  deleteGainSet(id: string, n: number): Promise<SuccessResponse>
+  /**
+   * POST /gains/apply?id=&set= — make a set's gains its relay's (no body). 409 while the
+   * thermostat calibrates; the answer's revision is the one a form Saves with next.
+   */
+  applyGainSet(id: string, n: number): Promise<GainSetApplyResponse>
+  /**
+   * POST /gains/derive?id=&set=&rule=[&apply=true] — a new set of another rule's gains for a set's
+   * Ku and Pu; 409 for a set without them.
+   */
+  deriveGainSet(
+    id: string,
+    n: number,
+    rule: AutotuneRule,
+    options?: DeriveGainSetOptions
+  ): Promise<GainSetDeriveResponse>
   /** GET /status[?id=] — live readings and the active preset; recomputed per request, nothing persisted. */
   status(id?: string): Promise<StatusResponse>
   /** GET /entities — bindable sensors and relays, with current relay owners. */
@@ -160,6 +213,9 @@ export function createClimateApi(options: ClimateApiOptions): ClimateApi {
 
   const q = encodeURIComponent
 
+  // No body is no name: the device gives the set one.
+  const nameBody = (name: string | undefined) => (name === undefined ? undefined : { name })
+
   function save(doc: ControllerSaveInput): Promise<SaveResponse> {
     return jpost<SaveResponse>('/save', doc)
   }
@@ -202,6 +258,29 @@ export function createClimateApi(options: ClimateApiOptions): ClimateApi {
     },
     cancelAutotune(id) {
       return jpost<SuccessResponse>(`/autotune?id=${q(id)}&value=false`)
+    },
+    listGainSets(id, page = {}) {
+      const after = page.after !== undefined ? `&after=${page.after}` : ''
+      const limit = page.limit !== undefined ? `&limit=${page.limit}` : ''
+      return jget<GainSetsResponse>(`/gains?id=${q(id)}${after}${limit}`)
+    },
+    addGainSet(id, options = {}) {
+      const direction = options.direction ? `&direction=${options.direction}` : ''
+      return jpost<GainSetResponse>(`/gains/add?id=${q(id)}${direction}`, nameBody(options.name))
+    },
+    renameGainSet(id, n, name) {
+      return jpost<GainSetResponse>(`/gains/rename?id=${q(id)}&set=${n}`, { name })
+    },
+    deleteGainSet(id, n) {
+      return jpost<SuccessResponse>(`/gains/delete?id=${q(id)}&set=${n}`)
+    },
+    applyGainSet(id, n) {
+      return jpost<GainSetApplyResponse>(`/gains/apply?id=${q(id)}&set=${n}`)
+    },
+    deriveGainSet(id, n, rule, options = {}) {
+      const apply = options.apply ? '&apply=true' : ''
+      const path = `/gains/derive?id=${q(id)}&set=${n}&rule=${rule}${apply}`
+      return jpost<GainSetDeriveResponse>(path, nameBody(options.name))
     },
     status(id) {
       return jget<StatusResponse>(id ? `/status?id=${q(id)}` : '/status')

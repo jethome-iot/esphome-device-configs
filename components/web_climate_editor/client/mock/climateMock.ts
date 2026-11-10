@@ -11,8 +11,9 @@
 // 404, the wrong method 405 (before any id is looked at), query parameters 400,
 // and only then the lookup (404) and the change itself. On the device a PUT,
 // DELETE, HEAD or PATCH, to any path, is ESP-IDF's text/html 405 without Allow;
-// here it is answered in JSON, as a GET or POST is. Only /save and /import read
-// a body, so only they can be 413; the body is read the way ArduinoJson reads it. A
+// here it is answered in JSON, as a GET or POST is. Only /save, /import and the
+// gain set routes that take a name read a body, so only they can be 413; the
+// body is read the way ArduinoJson reads it. A
 // document is merged over the defaults and clamped to the parameter table like
 // climate_hub's codec does, a name is checked like the hub checks it, a sensor
 // not in °C is 400, and a relay held by a running thermostat, or named by an
@@ -42,6 +43,12 @@
 // own gains it leaves out, and /get answers them as a copy of the gains of the relay a turn-on
 // goes to. A PID pass for the other relay than its state was built for starts it over on that
 // relay's gains.
+// Saved gain sets live per thermostat as its file does on the device: numbered from 1, a
+// number never given twice, gone with the thermostat and with a create under its id, kept
+// by an import. A calibration that succeeds saves one; an applied one moves the revision on
+// as a calibration does. A set is named and dated by now(), taken as the device's clock
+// once it is past 2019. The storage refusals (507, and 503 for a rewrite under a reader)
+// are the device's alone.
 // tests/components/web_climate_editor/contract.json lists the requests it must
 // answer as the device does.
 // /status reads a first-order room model per sensor, heated and cooled by the
@@ -66,6 +73,8 @@ import type {
   ControllerDocument,
   ControllerStatus,
   ControllerSummary,
+  GainSet,
+  GainSetRef,
   OutputConfig,
   ParamDesc,
   PidConfig,
@@ -79,11 +88,16 @@ import type {
 import {
   AUTOTUNE_NOISEBAND,
   AUTOTUNE_RULES,
+  CALIBRATION_RUNNING,
   CONFIG_MAX_BYTES,
   CONFIG_VERSION,
   ENTITY_ID_MAX_LENGTH,
+  GAIN_SET_NAME_MAX_LENGTH,
+  GAIN_SET_NOT_FOUND,
+  GAIN_SET_PAGE_MAX,
   NAME_MAX_LENGTH,
   NEWER_FILE,
+  NO_MEASUREMENT,
   PRESET_MAX_COUNT,
   STALE_DOCUMENT,
   STANDARD_PRESETS
@@ -344,8 +358,10 @@ export const seedControllers: ControllerDocument[] = [
 
 // ArduinoJson's default: the eleventh level of nesting is TooDeep.
 const NESTING_LIMIT = 10
+// A gain set route's: an object with a name in it, so the third level is TooDeep.
+const SET_NESTING_LIMIT = 2
 
-function readJson(body: string): { value: unknown } | { error: string } {
+function readJson(body: string, limit = NESTING_LIMIT): { value: unknown } | { error: string } {
   const nul = body.indexOf('\0')
   const text = nul < 0 ? body : body.slice(0, nul)
   let i = 0
@@ -394,7 +410,7 @@ function readJson(body: string): { value: unknown } | { error: string } {
   function value(depth: number) {
     const c = next()
     if (c === '{' || c === '[') {
-      if (depth >= NESTING_LIMIT) stop('TooDeep')
+      if (depth >= limit) stop('TooDeep')
       const close = c === '{' ? '}' : ']'
       i++
       blank()
@@ -735,6 +751,18 @@ const RULE_FACTORS: Record<AutotuneRule, [number, number, number]> = {
   some_overshoot: [0.333, 0.667, 0.111],
   no_overshoot: [0.2, 0.4, 0.0625]
 }
+// autotune.cpp's gains_for_rule: kp = f·Ku, ki = f·Ku/Pu, kd = f·Ku·Pu, each held in its range.
+function gainsForRule(ku: number, pu: number, rule: AutotuneRule): { gains: PidGains; clamped: boolean } {
+  const [kp, ki, kd] = RULE_FACTORS[rule]
+  let clamped = false
+  const gain = (key: string, raw: number) => {
+    const held = clampParam(key, raw)
+    if (!(held === raw)) clamped = true
+    return held
+  }
+  return { gains: { kp: gain('kp', kp * ku), ki: gain('ki', (ki * ku) / pu), kd: gain('kd', kd * ku * pu) }, clamped }
+}
+
 const AUTOTUNE_MAX_MS = 24 * 3600 * 1000
 const AUTOTUNE_STALL_MS = 6 * 3600 * 1000
 // PidAutotuner::MAX_INTERVALS: more crossings are noise around the target, and end the run.
@@ -846,6 +874,8 @@ interface Run {
   old: PidGains
   new: PidGains | null
   flags: AutotuneStatus['flags']
+  // The gain set a success went into, followed through a rename.
+  saved: GainSetRef | null
 }
 
 // What the device's file gives back for a gain: ArduinoJson writes a float to six decimals,
@@ -857,6 +887,55 @@ function asStored(value: number): number {
   const whole = v < 1 ? 1 : Math.floor(Math.log10(v)) + 1
   return Number(Math.fround(value).toFixed(7 - whole))
 }
+
+// --- Gain sets ---------------------------------------------------------------
+// gain_sets.cpp: the rules on a set's name and the name it gets when given none.
+
+// rule_label(): how a set's name says which rule made it.
+const RULE_LABEL: Record<AutotuneRule, string> = {
+  zn_pi: 'ZN PI',
+  zn_pid: 'ZN PID',
+  pessen: 'Pessen',
+  some_overshoot: 'Some overshoot',
+  no_overshoot: 'No overshoot'
+}
+const MANUAL_LABEL = 'manual'
+
+// validate_set_name() on the trimmed name, '' when it passes. A JS string is UTF-16, so the only
+// text that is not UTF-8 is a lone surrogate; the device finds one before it counts.
+function setNameError(trimmed: string): string {
+  if (trimmed === '') return 'Name is required'
+  let chars = 0
+  let control = false
+  for (const c of trimmed) {
+    const cp = c.codePointAt(0)!
+    if (cp >= 0xd800 && cp <= 0xdfff) return 'Name is not valid UTF-8'
+    control = control || cp < 0x20 || (cp >= 0x7f && cp <= 0x9f)
+    chars++
+  }
+  if (chars > GAIN_SET_NAME_MAX_LENGTH) return `Name is longer than ${GAIN_SET_NAME_MAX_LENGTH} characters`
+  return control ? 'Name cannot contain control characters' : ''
+}
+
+// ESPTime::is_valid(): a clock before 2019 has not been set yet.
+function clockAt(ms: number): Date | null {
+  const date = new Date(ms)
+  return date.getFullYear() >= 2019 ? date : null
+}
+
+// default_set_name(): the local time it was saved at, or without a clock its relay and number.
+function defaultSetName(clock: Date | null, direction: RelayDirection, label: string, n: number): string {
+  if (!clock) return `${direction === 'cool' ? 'Cool' : 'Heat'} ${label} #${n}`
+  const two = (value: number) => String(value).padStart(2, '0')
+  const day = `${String(clock.getFullYear()).padStart(4, '0')}-${two(clock.getMonth() + 1)}-${two(clock.getDate())}`
+  return `${day} ${two(clock.getHours())}:${two(clock.getMinutes())} ${label}`
+}
+
+// What a set holds besides what its file gives it: its number, its name and its time.
+type GainSetFields = Omit<GainSet, 'n' | 'name' | 'time'>
+
+// The device writes floats; a non-finite measurement is written null.
+const measured = (value: number) => (Number.isFinite(value) ? asStored(value) : null)
 
 // --- Stateful core -----------------------------------------------------------
 
@@ -888,7 +967,7 @@ export interface ClimateMockStore {
   /**
    * Dispatch one API call. `endpoint` is the path AFTER the api base, e.g.
    * '/list', '/get'. `method` must match the route, as on the device. `body` is
-   * the raw request body (read by /save only).
+   * the raw request body (read by /save, /import and the gain set routes that take a name).
    */
   handle(method: string, endpoint: string, search: URLSearchParams, body: string): MockResult
   /**
@@ -938,7 +1017,13 @@ const ROUTES = new Map<string, boolean>([
   ['enable', true],
   ['setpoint', true],
   ['preset', true],
-  ['autotune', true]
+  ['autotune', true],
+  ['gains', false],
+  ['gains/add', true],
+  ['gains/rename', true],
+  ['gains/delete', true],
+  ['gains/apply', true],
+  ['gains/derive', true]
 ])
 
 // The room model: every 2 s a closed heating relay adds 0.06 °C, a closed cooling one
@@ -1001,6 +1086,36 @@ function idParam(search: URLSearchParams): string | MockResult {
 // A number the whole way through, as strtof must consume it; nan and inf are not targets.
 const NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/
 
+// WebClimateEditor::read_count_: present, digits only and at most ten of them, in [min, max].
+function countParam(search: URLSearchParams, name: string, min: number, max: number): number | MockResult {
+  const raw = search.get(name)
+  if (raw === null) return fail(400, `Missing ${name} parameter`)
+  const value = Number(raw)
+  if (!/^[0-9]{1,10}$/.test(raw) || value < min || value > max) return fail(400, `Invalid ${name} parameter`)
+  return value
+}
+
+const COUNT_MAX = 0xffffffff
+
+// WebClimateEditor::read_set_name_: the body's name, '' for none; a rename needs a body.
+function setNameParam(body: string, required: boolean): string | MockResult {
+  if (new TextEncoder().encode(body).length > CONFIG_MAX_BYTES) return fail(413, 'Request body over 8 KiB')
+  if (!body) return required ? fail(400, 'Empty request body') : ''
+  const parsed = readJson(body, SET_NESTING_LIMIT)
+  if ('error' in parsed) return fail(400, `JSON parse error: ${parsed.error}`)
+  const root = objectOf(parsed.value)
+  if (!root) return fail(400, 'The body must be a JSON object')
+  if (root.name !== undefined && root.name !== null && typeof root.name !== 'string') {
+    return fail(400, 'name must be a string')
+  }
+  return textOf(root.name)
+}
+
+// ClimateHub's no_relay(): a set for a relay the thermostat does not have.
+function noRelay(direction: RelayDirection): MockResult {
+  return fail(409, `The thermostat has no ${direction === 'cool' ? 'cooling' : 'heating'} relay`)
+}
+
 /** Fresh, isolated mock state (seed is deep-copied, so instances never share state). */
 export function createClimateMockStore(options: ClimateMockStoreOptions = {}): ClimateMockStore {
   const maxControllers = options.maxControllers ?? MAX_CONTROLLERS
@@ -1015,6 +1130,9 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
   const waitReasons = new Map<string, string>()
   // ClimateHub::autotunes_: each thermostat's last calibration, by id, until a delete.
   const runs = new Map<string, Run>()
+  // Each thermostat's gain sets file, by id: its sets in file order, and the highest number it
+  // ever held, which a deleted set's number stays under.
+  const gainFiles = new Map<string, { last: number; sets: GainSet[] }>()
   const rooms = new Map<string, { temp: number | null; ambient: number }>()
   for (const [id, room] of Object.entries(seedRooms)) rooms.set(id, { temp: room.start, ambient: room.ambient })
   const startedAt = now()
@@ -1307,6 +1425,213 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     return doc.enabled && !running.has(doc.id) ? (waitReasons.get(doc.id) ?? '') : ''
   }
 
+  // ClimateHub::append_set_: the number after the highest the file held, the clock's time, and a
+  // name for one given none. Answers a copy, as the device answers what it wrote.
+  function appendSet(id: string, fields: GainSetFields, name: string, label: string, t: number): GainSet {
+    let file = gainFiles.get(id)
+    if (!file) gainFiles.set(id, (file = { last: 0, sets: [] }))
+    const n = ++file.last
+    const clock = clockAt(t)
+    const { direction, source, rule, ku, pu, kp, ki, kd, flags, from } = fields
+    // serialize_gain_set()'s key order.
+    const set: GainSet = {
+      n,
+      name: name || defaultSetName(clock, direction, label, n),
+      direction,
+      source,
+      rule,
+      ku,
+      pu,
+      kp,
+      ki,
+      kd,
+      flags: [...flags],
+      time: clock ? Math.floor(t / 1000) : null,
+      from
+    }
+    file.sets.push(set)
+    return structuredClone(set)
+  }
+
+  const findSet = (id: string, n: number) => gainFiles.get(id)?.sets.find((s) => s.n === n)
+
+  // ClimateHub::may_apply_: what a set's gains cannot go into the thermostat for.
+  function applyRefusal(doc: ControllerDocument, direction: RelayDirection): MockResult | undefined {
+    if (newer(doc)) return fail(409, NEWER_FILE)
+    if (!doc[direction].relay_id) return noRelay(direction)
+    return activeRun(doc) ? fail(409, CALIBRATION_RUNNING) : undefined
+  }
+
+  // ClimateHub::apply_set_: the gains held in range, the revision on, and a running thermostat
+  // restarted as after a Save, its PID keeping what it learnt.
+  function applySet(doc: ControllerDocument, set: GainSet): { revision: number; persisted: boolean } {
+    const { kp, ki, kd } = set
+    doc.pid[set.direction] = { kp: clampParam('kp', kp), ki: clampParam('ki', ki), kd: clampParam('kd', kd) }
+    // A form read before now would write the old gains back.
+    doc.revision++
+    const rt = running.get(doc.id)
+    if (rt) bind(doc, { doc, rt })
+    return { revision: doc.revision, persisted: true }
+  }
+
+  function listGainSets(search: URLSearchParams): MockResult {
+    const id = idParam(search)
+    if (typeof id !== 'string') return id
+    let after = 0
+    let limit = GAIN_SET_PAGE_MAX
+    if (search.has('after')) {
+      const value = countParam(search, 'after', 0, COUNT_MAX)
+      if (typeof value !== 'number') return value
+      after = value
+    }
+    if (search.has('limit')) {
+      const value = countParam(search, 'limit', 1, GAIN_SET_PAGE_MAX)
+      if (typeof value !== 'number') return value
+      limit = value
+    }
+    if (!find(id)) return fail(404, 'Thermostat not found')
+    const later = (gainFiles.get(id)?.sets ?? []).filter((s) => s.n > after)
+    const sets = structuredClone(later.slice(0, limit))
+    return { status: 200, body: { success: true, sets, more: later.length > limit } }
+  }
+
+  function addGainSet(search: URLSearchParams, body: string, t: number): MockResult {
+    const id = idParam(search)
+    if (typeof id !== 'string') return id
+    const rawDirection = search.get('direction')
+    if (rawDirection !== null && rawDirection !== 'heat' && rawDirection !== 'cool') {
+      return fail(400, 'Invalid direction parameter')
+    }
+    const name = setNameParam(body, false)
+    if (typeof name !== 'string') return name
+    // From here on the hub's: a blank name is none.
+    const trimmed = trimName(name)
+    const badName = trimmed && setNameError(trimmed)
+    if (badName) return fail(400, badName)
+    const doc = find(id)
+    if (!doc) return fail(404, 'Thermostat not found')
+    const direction = rawDirection ?? onDirection(doc)
+    if (!doc[direction].relay_id) return noRelay(direction)
+    const gains = doc.pid[direction]
+    const set = appendSet(
+      id,
+      {
+        direction,
+        source: 'manual',
+        rule: null,
+        ku: null,
+        pu: null,
+        kp: asStored(gains.kp),
+        ki: asStored(gains.ki),
+        kd: asStored(gains.kd),
+        flags: [],
+        from: null
+      },
+      trimmed,
+      MANUAL_LABEL,
+      t
+    )
+    return ok('Gain set saved', { set })
+  }
+
+  function renameGainSet(search: URLSearchParams, body: string): MockResult {
+    const id = idParam(search)
+    if (typeof id !== 'string') return id
+    const n = countParam(search, 'set', 1, COUNT_MAX)
+    if (typeof n !== 'number') return n
+    const name = setNameParam(body, true)
+    if (typeof name !== 'string') return name
+    const trimmed = trimName(name)
+    const badName = setNameError(trimmed)
+    if (badName) return fail(400, badName)
+    if (!find(id)) return fail(404, 'Thermostat not found')
+    const set = findSet(id, n)
+    if (!set) return fail(404, GAIN_SET_NOT_FOUND)
+    set.name = trimmed
+    const saved = runs.get(id)?.saved
+    if (saved?.n === n) saved.name = trimmed
+    return ok('Gain set renamed', { set: structuredClone(set) })
+  }
+
+  function deleteGainSet(search: URLSearchParams): MockResult {
+    const id = idParam(search)
+    if (typeof id !== 'string') return id
+    const n = countParam(search, 'set', 1, COUNT_MAX)
+    if (typeof n !== 'number') return n
+    if (!find(id)) return fail(404, 'Thermostat not found')
+    const sets = gainFiles.get(id)?.sets ?? []
+    const i = sets.findIndex((s) => s.n === n)
+    if (i < 0) return fail(404, GAIN_SET_NOT_FOUND)
+    sets.splice(i, 1)
+    const run = runs.get(id)
+    if (run?.saved?.n === n) run.saved = null
+    return ok('Gain set deleted')
+  }
+
+  function applyGainSet(search: URLSearchParams): MockResult {
+    const id = idParam(search)
+    if (typeof id !== 'string') return id
+    const n = countParam(search, 'set', 1, COUNT_MAX)
+    if (typeof n !== 'number') return n
+    const doc = find(id)
+    if (!doc) return fail(404, 'Thermostat not found')
+    const set = findSet(id, n)
+    if (!set) return fail(404, GAIN_SET_NOT_FOUND)
+    return applyRefusal(doc, set.direction) ?? ok('Gain set applied', applySet(doc, set))
+  }
+
+  function deriveGainSet(search: URLSearchParams, body: string, t: number): MockResult {
+    const id = idParam(search)
+    if (typeof id !== 'string') return id
+    const n = countParam(search, 'set', 1, COUNT_MAX)
+    if (typeof n !== 'number') return n
+    const rawRule = search.get('rule')
+    if (rawRule === null) return fail(400, 'Missing rule parameter')
+    const rule = AUTOTUNE_RULES.find((r) => r === rawRule)
+    if (!rule) return fail(400, 'Invalid rule parameter')
+    const rawApply = search.get('apply')
+    if (rawApply !== null && rawApply !== 'true' && rawApply !== 'false') return fail(400, 'Invalid apply parameter')
+    const apply = rawApply === 'true'
+    const name = setNameParam(body, false)
+    if (typeof name !== 'string') return name
+    const trimmed = trimName(name)
+    const badName = trimmed && setNameError(trimmed)
+    if (badName) return fail(400, badName)
+    const doc = find(id)
+    if (!doc) return fail(404, 'Thermostat not found')
+    const parent = findSet(id, n)
+    if (!parent) return fail(404, GAIN_SET_NOT_FOUND)
+    if (parent.ku === null || parent.pu === null) return fail(409, NO_MEASUREMENT)
+    // Nothing is added for a set that could not be applied.
+    const refusal = apply ? applyRefusal(doc, parent.direction) : undefined
+    if (refusal) return refusal
+    const { gains, clamped } = gainsForRule(parent.ku, parent.pu, rule)
+    const set = appendSet(
+      id,
+      {
+        direction: parent.direction,
+        source: 'derived',
+        rule,
+        ku: parent.ku,
+        pu: parent.pu,
+        kp: asStored(gains.kp),
+        ki: asStored(gains.ki),
+        kd: asStored(gains.kd),
+        // The measurement's warnings hold for any rule; clamping is the new rule's.
+        flags: [
+          ...(['asymmetric', 'uneven'] as const).filter((flag) => parent.flags.includes(flag)),
+          ...(clamped ? (['clamped'] as const) : [])
+        ],
+        from: parent.n
+      },
+      trimmed,
+      RULE_LABEL[rule],
+      t
+    )
+    if (!apply) return ok('Gain set derived', { set })
+    return ok('Gain set derived and applied', { set, ...applySet(doc, set) })
+  }
+
   // The calibration running on `doc`, if one does.
   function activeRun(doc: ControllerDocument): Run | undefined {
     const run = runs.get(doc.id)
@@ -1329,15 +1654,9 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       return false
     }
     if (!run.tuner.finished) return true
-    const [kp, ki, kd] = RULE_FACTORS[run.rule]
     const { ku, pu } = run.tuner
-    let clamped = false
-    const gain = (key: string, raw: number) => {
-      const held = clampParam(key, raw)
-      if (!(held === raw)) clamped = true
-      return asStored(held)
-    }
-    const gains = { kp: gain('kp', kp * ku), ki: gain('ki', (ki * ku) / pu), kd: gain('kd', kd * ku * pu) }
+    const { gains: held, clamped } = gainsForRule(ku, pu, run.rule)
+    const gains = { kp: asStored(held.kp), ki: asStored(held.ki), kd: asStored(held.kd) }
     // Only its relay's: the other one keeps what it had.
     doc.pid[run.direction] = { ...gains }
     // A form read before now would write the old gains back.
@@ -1351,6 +1670,24 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     run.state = 'succeeded'
     run.endedAt = t
     restartPid(doc, rt)
+    // ClimateHub::save_calibration_: the result is kept as a set too, named as one given none.
+    const set = appendSet(
+      doc.id,
+      {
+        direction: run.direction,
+        source: 'calibration',
+        rule: run.rule,
+        ku: measured(ku),
+        pu: measured(pu),
+        ...gains,
+        flags: [...run.flags],
+        from: null
+      },
+      '',
+      RULE_LABEL[run.rule],
+      t
+    )
+    run.saved = { n: set.n, name: set.name }
     return false
   }
 
@@ -1409,7 +1746,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       flags: [...run.flags],
       old: { ...run.old },
       new: run.new ? { ...run.new } : null,
-      persisted: true
+      persisted: true,
+      set: run.saved ? { ...run.saved } : null
     }
   }
 
@@ -1461,7 +1799,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       tuner: new Tuner(direction === 'cool'),
       old: { ...doc.pid[direction] },
       new: null,
-      flags: []
+      flags: [],
+      saved: null
     }
     runs.set(id, run)
     const temp = readingOf(doc.sensor_id)
@@ -1646,6 +1985,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       heat_relay_id: doc.heat.relay_id,
       cool_relay_id: doc.cool.relay_id,
       running: running.has(doc.id),
+      revision: doc.revision,
       waiting: waitingOf(doc),
       ...activePresetOf(doc)
     }
@@ -1750,6 +2090,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
     }
     const refusal = refusalOf(doc, stored)
     if (refusal) return refusal
+    // ClimateHub::create: sets left under this id are not the new thermostat's; an import keeps them.
+    if (!stored) gainFiles.delete(doc.id)
     return store(doc, stored, updating ? 'Thermostat updated' : 'Thermostat created')
   }
 
@@ -1939,6 +2281,8 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
         running.delete(id)
         waitReasons.delete(id)
         runs.delete(id)
+        // Its sets go with it, their numbers too.
+        gainFiles.delete(id)
         docs.splice(i, 1)
         return ok('Thermostat deleted' + startWaiters(before, ''), { persisted: true })
       }
@@ -1954,6 +2298,24 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
 
       case 'autotune':
         return autotune(search, t)
+
+      case 'gains':
+        return listGainSets(search)
+
+      case 'gains/add':
+        return addGainSet(search, body, t)
+
+      case 'gains/rename':
+        return renameGainSet(search, body)
+
+      case 'gains/delete':
+        return deleteGainSet(search)
+
+      case 'gains/apply':
+        return applyGainSet(search)
+
+      case 'gains/derive':
+        return deriveGainSet(search, body, t)
 
       default:
         return fail(404, 'Unknown endpoint')

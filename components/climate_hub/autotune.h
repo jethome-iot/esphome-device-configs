@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include "enums.h"
 #include "pid_autotuner.h"
 #include "pid_core.h"
@@ -17,6 +18,11 @@ static constexpr uint32_t AUTOTUNE_STALL_MS = 6u * 3600u * 1000u;
 /// A run whose smallest swing is under this share of its largest is flagged uneven: the ratio
 /// upstream's symmetry check holds the half-periods to.
 static constexpr float AUTOTUNE_EVEN_RATIO = 0.66f;
+
+/// The gains `rule` turns Ku and Pu (seconds) into, each held in its parameter's range;
+/// `clamped` says whether one had to be. A calibration writes these, and a saved set's Ku and Pu
+/// give them again for another rule.
+PidGains gains_for_rule(float ku, float pu, AutotuneRule rule, bool *clamped);
 
 /// One calibration of one thermostat. The hub keeps it from its start until the next start, a
 /// delete or a reboot; the thermostat's ControllerRuntime feeds it while it runs. Loop task only.
@@ -60,6 +66,13 @@ class AutotuneRun {
   bool clamped() const { return this->clamped_; }
   /// False when the gains run but did not reach the file, until the next write of it.
   bool persisted() const { return this->persisted_; }
+  /// The gain set the result was saved as, followed through a rename; n 0 for none.
+  void saved_as(uint32_t n, const std::string &name) {
+    this->saved_n_ = n;
+    this->saved_name_ = name;
+  }
+  uint32_t saved_n() const { return this->saved_n_; }
+  const std::string &saved_name() const { return this->saved_name_; }
 
  protected:
   PidAutotuner tuner_;
@@ -78,6 +91,8 @@ class AutotuneRun {
   bool uneven_{false};
   bool clamped_{false};
   bool persisted_{true};
+  uint32_t saved_n_{0};
+  std::string saved_name_;
 };
 
 }  // namespace esphome::climate_hub

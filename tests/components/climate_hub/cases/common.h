@@ -123,6 +123,10 @@ class TestHub : public ClimateHub {
   std::vector<std::string> undeletable;
   size_t max_file_bytes{CONFIG_MAX_BYTES};
   ArduinoJson::Allocator *json_allocator{nullptr};
+  // The device's clock: not set unless a case sets it.
+  ESPTime clock{};
+  // What the storage says is free; none, as the host's directory says nothing.
+  optional<size_t> free_bytes;
 
   uint64_t now_ms() const override { return this->ms; }
   bool run_on_loop(std::function<bool()> &&job) override {
@@ -171,6 +175,9 @@ class TestHub : public ClimateHub {
     this->max_file_bytes = CONFIG_MAX_BYTES;
     this->json_allocator = nullptr;
     this->ha_resync_delay_ms_ = 20;
+    this->clock = ESPTime{};
+    this->free_bytes.reset();
+    this->pending_sets_.clear();
   }
 
   void register_pool() { this->build_pool_(); }
@@ -191,6 +198,9 @@ class TestHub : public ClimateHub {
     return it == this->claims_.end() ? nullptr : it->second.get();
   }
   bool dirty(const std::string &id) const { return this->dirty_.count(id) != 0; }
+  std::string sets_path(const std::string &id) const { return this->gain_sets_path_(id); }
+  size_t pending_sets() const { return this->pending_sets_.size(); }
+  unsigned open_readers() const { return this->gain_readers_.load(); }
   // Every reason kept, stale or not: waiting_reason() would hide one the hub forgot to drop.
   size_t reasons_kept() const { return this->waiting_.size(); }
 
@@ -205,6 +215,13 @@ class TestHub : public ClimateHub {
         return false;
     }
     return ClimateHub::remove_file_(path);
+  }
+  ESPTime clock_now_() const override { return this->clock; }
+  filesystem_storage_abstract::StorageInfo storage_info_() const override {
+    filesystem_storage_abstract::StorageInfo info;
+    info.valid = this->free_bytes.has_value();
+    info.free_bytes = this->free_bytes.value_or(0);
+    return info;
   }
   EncodeError encode_(const ClimateConfig &config, std::string *json) const override {
     if (this->json_allocator == nullptr)
@@ -412,6 +429,9 @@ class HubTest : public ::testing::Test {
   void TearDown() override {
     hub().reset();
     storage().path = this->base_;
+    for (const std::string &name : list_dir(this->gains()))
+      ::remove((this->gains() + "/" + name).c_str());
+    rmdir(this->gains().c_str());
     for (const std::string &name : list_dir(this->folder()))
       ::remove((this->folder() + "/" + name).c_str());
     rmdir(this->folder().c_str());
@@ -434,6 +454,8 @@ class HubTest : public ::testing::Test {
 
   std::string folder() const { return this->base_ + "/climates"; }
   std::string file_of(const std::string &id) const { return this->folder() + "/" + id + ".json"; }
+  std::string gains() const { return this->folder() + "/gains"; }
+  std::string sets_of(const std::string &id) const { return this->gains() + "/" + id + ".jsonl"; }
 
   Result create(const ClimateConfig &config) {
     Result result = hub().create(config);

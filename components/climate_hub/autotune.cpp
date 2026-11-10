@@ -38,6 +38,17 @@ float clamp_gain(const char *key, float value, bool *clamped) {
 
 }  // namespace
 
+// The tuner's own formulas, kp = f·Ku, ki = f·Ku/Pu, kd = f·Ku·Pu, in its order of operations.
+PidGains gains_for_rule(float ku, float pu, AutotuneRule rule, bool *clamped) {
+  const RuleFactors f = factors_of(rule);
+  *clamped = false;
+  PidGains gains;
+  gains.kp = clamp_gain("kp", f.kp * ku, clamped);
+  gains.ki = clamp_gain("ki", f.ki * ku / pu, clamped);
+  gains.kd = clamp_gain("kd", f.kd * ku * pu, clamped);
+  return gains;
+}
+
 AutotuneRun::AutotuneRun(Direction direction, AutotuneRule rule, const PidGains &gains, float setpoint, uint64_t now_ms)
     : direction_(direction),
       rule_(rule),
@@ -75,14 +86,7 @@ AutotuneEnd AutotuneRun::limit_reached(uint64_t now_ms) const {
 }
 
 PidGains AutotuneRun::result(bool *clamped) const {
-  const RuleFactors f = factors_of(this->rule_);
-  const PidAutotuner::Gains raw = this->tuner_.gains(f.kp, f.ki, f.kd);
-  *clamped = false;
-  PidGains gains;
-  gains.kp = clamp_gain("kp", raw.kp, clamped);
-  gains.ki = clamp_gain("ki", raw.ki, clamped);
-  gains.kd = clamp_gain("kd", raw.kd, clamped);
-  return gains;
+  return gains_for_rule(this->tuner_.ku(), this->tuner_.pu(), this->rule_, clamped);
 }
 
 void AutotuneRun::succeed(const PidGains &gains, bool clamped, bool persisted, uint64_t now_ms) {

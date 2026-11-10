@@ -51,6 +51,7 @@ climate_hub:
 | `storage`         |            | A `filesystem_storage_abstract` backend, `littlefs_storage` on a device; required |
 | `folder_path`     | `climates` | The folder below the backend's base path that holds the thermostat files |
 | `max_controllers` | `8`        | 1 to 16: how many thermostats there can be, and how many climate entities are set aside for them |
+| `time_id`         |            | A `time` clock: it dates the [gain sets](#gain-sets) and names one saved without a name; without it they are named by number |
 | `web_server`      |            | `sorting_group_id` and `sorting_weight` for the web server's entity list, as on any entity |
 
 ESP32 and the host platform only. `web_server: include_internal: true` is refused next to the
@@ -222,7 +223,8 @@ asked for turns them into gains:
 
 Each gain is held in its range and written to the file as the file keeps it, as that relay's,
 `pid.heat` or `pid.cool`, and the `revision` moves on; the other relay keeps its own, and the
-thermostat goes on with them from a clean PID. Gains the file did not take run all
+thermostat goes on with them from a clean PID. The result is also saved as a
+[gain set](#gain-sets). Gains the file did not take run all
 the same and are written again with the next flush, three seconds later, or at shutdown, and once
 more when the next calibration starts; the run says `persisted()` false until a write of the
 thermostat succeeds. A room with radiators takes about an hour and a half, a floor heating eight
@@ -241,6 +243,47 @@ Ku, Pu, the gains it replaced and wrote, and its flags, until the next start, a 
 reboot. The flags warn and never extend a run: `asymmetric` (the shortest half-period under 0.66 of
 the longest), `uneven` (the smallest swing under 0.66 of the largest) and `clamped` (a gain held in
 its range).
+
+## Gain sets
+
+Each thermostat keeps any number of saved sets of its relays' gains in
+`<base_path>/<folder_path>/gains/<id>.jsonl`, one set per line, read a line at a time and never
+held whole in RAM:
+
+```json
+{"n":12,"name":"2026-10-26 14:05 ZN PI","direction":"heat","source":"calibration","rule":"zn_pi","ku":12.5,"pu":3600,"kp":5.625,"ki":0.001875,"kd":0,"flags":["uneven"],"time":1793023500,"from":null}
+```
+
+| Key         | Values |
+| ----------- | ------ |
+| `n`         | From 1, one more than the highest the file has held: a deleted set's number is never given again, a line `{"n":12}` keeping it when it was the highest |
+| `name`      | 1 to 48 characters in any script, trimmed, no control characters; two sets may share one. Without one, the local date and time and the rule (`2026-10-26 14:05 ZN PI`, `… manual`), or, with no `time_id` or a clock not set yet, the relay, the rule and the number (`Heat ZN PI #12`) |
+| `direction` | `heat` or `cool`: the relay whose gains they are |
+| `source`    | `calibration`, `derived` (another `rule` over a set's `ku` and `pu`, `from` that set's `n`) or `manual` (the gains a relay had) |
+| `rule`, `ku`, `pu` | The rule that made the gains and what the calibration measured, Pu in seconds; `null` for `manual` |
+| `kp`, `ki`, `kd` | The gains, as the thermostat's file keeps them |
+| `flags`     | The calibration's `asymmetric`, `uneven`, `clamped`; a derived set keeps the first two and has `clamped` for its own rule |
+| `time`      | When it was saved, UTC seconds, `null` without a clock |
+
+- A calibration that succeeds adds one. `add_gain_set()` adds the gains a relay has,
+  `derive_gain_set()` another rule's gains for a set's Ku and Pu, both refused with 507 when the
+  storage reports less than 64 KiB free; a calibration then adds none, logs why, and still writes
+  its gains into the thermostat.
+- `apply_gain_set()` writes a set's gains, held in their ranges, as its relay's and moves the
+  `revision` on, as a calibration does: a Save read before is refused. A running PID goes on as
+  after a Save, keeping what it learnt. Refused with 409 while the thermostat calibrates, for a
+  newer firmware's file and for a relay the thermostat no longer has.
+- A rename or a delete writes the file again beside itself and renames it over the old one.
+  Every line that is no set, a hand edit's, one a newer firmware wrote or one a power cut tore,
+  is kept as it is, and a renamed set's line keeps its other keys. A new set goes on a line of
+  its own after a torn one.
+- The thermostat's `remove()` deletes the file; `create()` deletes one a thermostat with that id
+  left behind, and `restore()` keeps it, so a backup's sets file written back before the restore
+  is the thermostat's again. The boot never reads the folder, and leaves the file of a
+  thermostat it refused alone.
+- While a listing reads the file on another task, nothing is written to it: a new set waits in
+  RAM until the reader is closed, and is written at shutdown at the latest, and a rename or a
+  delete is refused with 503.
 
 ## Relays
 
@@ -314,7 +357,8 @@ and any change to a thermostat that is not running cost none.
 One file per thermostat, `<base_path>/<folder_path>/<id>.json`, written beside the old one and
 renamed over it, so a failed write or a power cut leaves the previous file whole. A target or a
 mode set from Home Assistant is written at most three seconds later, so a dragged slider costs
-one write, and at shutdown.
+one write, and at shutdown. The [gain sets](#gain-sets) are in the folder's `gains/`, which the
+boot does not read.
 
 The folder is writable by hand, so what it holds is checked at boot:
 
@@ -379,7 +423,7 @@ got to it.
   `set_enabled(id, enabled, take_over)`, `set_setpoint(id, value)`, `apply_preset(id, key)`,
   `turn_off(id)`, `turn_on(id)`, `start_autotune(id, direction, rule)`, `cancel_autotune(id)`:
   each returns a `Result` — `ok`, the HTTP `code` that fits (400, 404, 409, 413 for a file that
-  would be over 8 KiB, 500, 507), an `error` sentence (the one the editor shows), the new `id`,
+  would be over 8 KiB, 500, 503, 507), an `error` sentence (the one the editor shows), the new `id`,
   the `holder` of a relay (running, or enabled and waiting), a `warning` when the thermostat was
   saved enabled but does not run (its sensor or a relay is not on the device, or no climate entity
   was free), `persisted`, false when the change is live but did not reach flash, the ids a
@@ -405,6 +449,12 @@ got to it.
   file, one calibrating already, mode off, a fault) or 400 (a direction that is not the mode's).
   `cancel_autotune()` is 409 when nothing runs. `autotune(id)`: the last run since boot,
   `nullptr` for none
+- `add_gain_set(id, direction, name, &added)`, `rename_gain_set(id, n, name)`,
+  `delete_gain_set(id, n)`, `apply_gain_set(id, n)`, `derive_gain_set(id, n, rule, apply, name,
+  &added)`: [Gain sets](#gain-sets), each a `Result` as above, `ok` with a set added, renamed,
+  deleted or applied, `persisted` false when an applied set did not reach the thermostat's file.
+  `open_gain_sets(id, &result)`: a reader a task other than the loop may read the sets with, in
+  file order, a set at a time; `nullptr` with a 404
 - `validate_name(name, &error)`, `is_name_taken(name, exclude_id, &error)`
 
 ## Testing

@@ -1,5 +1,6 @@
 // A calibration end to end: a room with dead time answers the relay, the hub swings it, and the
 // gains land in the thermostat's file; and every way a run can end before that.
+#include <cstring>
 #include <functional>
 #include "common.h"
 #include "esphome/components/climate_hub/param_table.h"
@@ -963,6 +964,72 @@ TEST(AutotuneRun, AGainPastItsRangeIsClampedAndFlagged) {
   AutotuneRun pi = slow_run(AutotuneRule::ZN_PI);
   pi.result(&clamped);
   EXPECT_FALSE(clamped) << "no kd to clamp";
+}
+
+namespace {
+
+// A run in `model` to its result, or to 48 hours without one.
+AutotuneRun run_in(const RoomModel &model, AutotuneRule rule) {
+  Room room(model);
+  AutotuneRun run(Direction::HEAT, rule, PidGains{}, 21.f, 0);
+  const auto step_ms = static_cast<uint64_t>(model.step_s * 1000.f);
+  float reading = room.reading();
+  for (uint64_t ms = 0; !run.found() && ms < 48ull * 3600000ull; ms += step_ms)
+    reading = room.step(run.feed(reading, ms));
+  return run;
+}
+
+// What result() was before gains_for_rule(): the tuner's own gains for the rule's factors, each
+// held in its range.
+PidGains tuner_result(const AutotuneRun &run, bool *clamped) {
+  struct Factors {
+    AutotuneRule rule;
+    float kp, ki, kd;
+  };
+  static const Factors FACTORS[] = {{AutotuneRule::ZN_PI, 0.45f, 0.54f, 0.0f},
+                                    {AutotuneRule::ZN_PID, 0.6f, 1.2f, 0.075f},
+                                    {AutotuneRule::PESSEN, 0.7f, 1.75f, 0.105f},
+                                    {AutotuneRule::SOME_OVERSHOOT, 0.333f, 0.667f, 0.111f},
+                                    {AutotuneRule::NO_OVERSHOOT, 0.2f, 0.4f, 0.0625f}};
+  const Factors *f = std::find_if(std::begin(FACTORS), std::end(FACTORS),
+                                  [&run](const Factors &factors) { return factors.rule == run.rule(); });
+  const PidAutotuner::Gains raw = run.tuner().gains(f->kp, f->ki, f->kd);
+  const PidGains held{clamp_param("kp", raw.kp), clamp_param("ki", raw.ki), clamp_param("kd", raw.kd)};
+  *clamped = !(held.kp == raw.kp && held.ki == raw.ki && held.kd == raw.kd);
+  return held;
+}
+
+}  // namespace
+
+// A saved set's Ku and Pu go through gains_for_rule() for another rule: bit for bit what a run
+// that measured them gives, clamped or not, and what it gave before it went through it too.
+TEST(AutotuneRun, GainsForRuleAreWhatTheRunGives) {
+  const AutotuneRule rules[] = {AutotuneRule::ZN_PI, AutotuneRule::ZN_PID, AutotuneRule::PESSEN,
+                                AutotuneRule::SOME_OVERSHOOT, AutotuneRule::NO_OVERSHOOT};
+  RoomModel noisy = radiator_room();
+  noisy.noise = 0.05f;
+  noisy.resolution = 0.0625f;
+  int clamped_runs = 0;
+  for (AutotuneRule rule : rules) {
+    SCOPED_TRACE(enums::autotune_rule_to_string(rule));
+    for (const AutotuneRun &run :
+         {run_in(radiator_room(), rule), run_in(floor_heating(), rule), run_in(noisy, rule), slow_run(rule)}) {
+      ASSERT_TRUE(run.found());
+      bool before = false;
+      bool by_run = false;
+      bool by_rule = true;
+      const PidGains want = tuner_result(run, &before);
+      const PidGains ran = run.result(&by_run);
+      const PidGains got = gains_for_rule(run.tuner().ku(), run.tuner().pu(), rule, &by_rule);
+      EXPECT_EQ(0, std::memcmp(&want, &got, sizeof(PidGains)))
+          << want.kp << " " << want.ki << " " << want.kd << " against " << got.kp << " " << got.ki << " " << got.kd;
+      EXPECT_EQ(0, std::memcmp(&want, &ran, sizeof(PidGains)));
+      EXPECT_EQ(before, by_rule);
+      EXPECT_EQ(before, by_run);
+      clamped_runs += by_rule ? 1 : 0;
+    }
+  }
+  EXPECT_GT(clamped_runs, 0) << "a clamped result is among them";
 }
 
 TEST(AutotuneRun, TheFlagsWarnOnSuccess) {
