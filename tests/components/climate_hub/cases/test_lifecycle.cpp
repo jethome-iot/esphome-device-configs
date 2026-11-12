@@ -134,12 +134,86 @@ TEST_F(HubTest, AnInternalYamlClimatesNameIsRefusedToo) {
 }
 
 TEST_F(HubTest, TheNameRulesHold) {
-  for (const char *bad : {"a/b", "a\\b", "", "Кухня"}) {
+  for (const char *bad : {"a/b", "a\\b", "", "Tab\there", "Kitchen\xd1"}) {
     Result result = hub().create(draft(bad));
     EXPECT_EQ(400, result.code) << bad;
   }
   Result trimmed = this->create(draft("  Porch  "));
   EXPECT_EQ("Porch", hub().store().get(trimmed.id)->name);
+}
+
+// A name in any script is the entity's whole; the id has nothing to slugify and falls back.
+TEST_F(HubTest, ANameInAnyScriptIsKeptWhole) {
+  Result kitchen = this->create(draft("Кухня", "relay_1"));
+  ASSERT_EQ("climate", kitchen.id);
+  EXPECT_EQ("Кухня", hub().store().get("climate")->name);
+  HubClimate *entity = hub().entity_of("climate");
+  ASSERT_NE(nullptr, entity);
+  EXPECT_STREQ("Кухня", entity->get_name().c_str());
+  EXPECT_EQ(fnv1_hash("__________"), entity->get_object_id_hash());
+  EXPECT_NE(std::string::npos, read_file(this->file_of("climate")).find("\"name\":\"Кухня\""));
+
+  // The longest, 96 bytes: the entity's buffer holds it all.
+  const std::string longest = repeat("ж", NAME_MAX_LENGTH);
+  Result hall = this->create(draft(longest, "relay_2"));
+  ASSERT_EQ("climate-2", hall.id) << "two names with nothing to slugify get distinct ids";
+  EXPECT_EQ(longest, std::string(hub().entity_of("climate-2")->get_name().c_str()));
+
+  Result accents = this->create(draft("Café crème", "relay_3"));
+  ASSERT_EQ("caf-cr-me", accents.id);
+  EXPECT_EQ("Café crème", hub().store().get("caf-cr-me")->name);
+}
+
+TEST_F(HubTest, ARenameToANameInAnyScriptKeepsTheId) {
+  this->create(draft("Boiler"));
+  HubClimate *entity = hub().entity_of("boiler");
+  ASSERT_TRUE(hub().update("boiler", draft("Котёл")).ok);
+  EXPECT_EQ("Котёл", hub().store().get("boiler")->name);
+  EXPECT_EQ(entity, hub().entity_of("boiler"));
+  EXPECT_STREQ("Котёл", entity->get_name().c_str());
+  EXPECT_EQ(fnv1_hash("__________"), entity->get_object_id_hash());
+  EXPECT_FALSE(file_exists(this->file_of("climate")));
+}
+
+// Home Assistant rebuilds the object id per character, so every Cyrillic letter there is one
+// '_': two names of as many letters are one entity to it, whatever they spell.
+TEST_F(HubTest, NamesHomeAssistantReadsAsOneAreRefusedWithAHint) {
+  this->create(draft("Кухня", "relay_1"));
+  Result clash = hub().create(draft("Ванна", "relay_2"));
+  EXPECT_EQ(409, clash.code);
+  EXPECT_EQ("\"Ванна\" is too close to \"Кухня\": both are _____ to Home Assistant, which reads every character "
+            "but a Latin letter, a digit, '-' or '_' as '_'; a digit or a Latin letter makes them distinct",
+            clash.error);
+  EXPECT_EQ(409, hub().create(draft("КУХНЯ", "relay_2")).code) << "_____ in any case";
+
+  EXPECT_TRUE(hub().update("climate", draft("Кухня 1", "relay_1")).ok);
+  Result apart = hub().create(draft("Ванна 2", "relay_2"));
+  EXPECT_TRUE(apart.ok) << apart.error;
+  EXPECT_EQ("2", apart.id);
+  EXPECT_EQ(409, hub().create(draft("Сауна 2", "relay_3")).code) << "______2 too";
+}
+
+// Neither id implies the other, and either clash drops one of the two entities.
+TEST_F(HubTest, AClashOfEitherObjectIdIsRefused) {
+  this->create(draft("Café", "relay_1"));
+
+  Result per_character = hub().create(draft("Caf_", "relay_2"));
+  EXPECT_EQ(409, per_character.code);
+  EXPECT_EQ("\"Caf_\" is too close to \"Café\": both are caf_ to Home Assistant, which reads every character but "
+            "a Latin letter, a digit, '-' or '_' as '_'; a digit or a Latin letter makes them distinct",
+            per_character.error);
+
+  // Home Assistant tells these apart (caf_ and caf__); the API's key, made per byte, does not.
+  Result per_byte = hub().create(draft("Caf__", "relay_2"));
+  EXPECT_EQ(409, per_byte.code);
+  EXPECT_EQ("\"Caf__\" is too close to \"Café\": both are caf__ to the device's API, which reads every byte of a "
+            "non-ASCII letter as '_'; a digit or a Latin letter makes them distinct",
+            per_byte.error);
+
+  // A clash an ASCII spelling makes needs no hint.
+  this->create(draft("Кухня 1", "relay_3"));
+  EXPECT_EQ("\"Кухня_1\" is too close to \"Кухня 1\": both are ______1 to Home Assistant",
+            hub().create(draft("Кухня_1", "relay_2")).error);
 }
 
 TEST_F(HubTest, DeleteRetiresTheEntityEverywhereItCanBeSeen) {

@@ -41,7 +41,7 @@ void HubClimate::rename_(const std::string &name, uint32_t entity_fields) {
   const uint8_t next = this->current_name_ ^ 1;
   char *buffer = this->names_[next];
   std::memset(buffer, 0, sizeof(this->names_[next]) - 1);
-  std::memcpy(buffer, name.data(), std::min(name.size(), NAME_MAX_LENGTH));
+  std::memcpy(buffer, name.data(), std::min(name.size(), NAME_MAX_BYTES));
   // Hash 0: derived from the name, as codegen does, so object-id-keyed records find it.
   this->configure_entity_(buffer, 0, entity_fields);
   this->current_name_ = next;
@@ -79,9 +79,9 @@ void HubClimate::set_presets(const std::vector<PresetConfig> &presets) {
       continue;
     // In place, the terminator untouched: a reader mid-copy sees a mix of names, never past the end.
     char *buffer = this->custom_presets_[custom.size()];
-    const size_t length = std::min(preset.name.size(), NAME_MAX_LENGTH);
+    const size_t length = std::min(preset.name.size(), NAME_MAX_BYTES);
     std::memcpy(buffer, preset.name.data(), length);
-    std::memset(buffer + length, 0, NAME_MAX_LENGTH - length);
+    std::memset(buffer + length, 0, NAME_MAX_BYTES - length);
     custom.push_back(buffer);
   }
   this->standard_presets_ = standard_presets;

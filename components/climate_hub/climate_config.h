@@ -25,8 +25,10 @@ static constexpr uint16_t CONFIG_VERSION = 5;
 static constexpr size_t PRESET_MAX_COUNT = 8;
 /// A preset's mode word for "leave the thermostat's mode as it is".
 static constexpr const char *PRESET_MODE_KEEP = "keep";
-/// Longest name a controller may have; its entity keeps it in a fixed buffer.
+/// Longest name a thermostat or a preset may have, in characters.
 static constexpr size_t NAME_MAX_LENGTH = 48;
+/// And in UTF-8 bytes, which the entity's fixed buffers hold: 48 letters of a two-byte script.
+static constexpr size_t NAME_MAX_BYTES = 96;
 /// Longest id; `<id>.json.tmp` has to stay inside LittleFS's 64-byte names.
 static constexpr size_t ID_MAX_LENGTH = 48;
 /// Longest sensor_id or relay_id: an object id has one character per byte of the entity's
@@ -206,12 +208,17 @@ std::string id_with_suffix(const std::string &base, unsigned n);
 /// The rules an id read from outside meets: present, and a slug.
 bool validate_id(const std::string &id, std::string *error);
 
-/// The name with surrounding ASCII whitespace removed.
+/// The name without the white space at its ends, ASCII's and Unicode's spaces alike.
 std::string trim_name(const std::string &name);
 
-/// The name rules on a trimmed name: 1..NAME_MAX_LENGTH printable ASCII characters, neither
-/// '/' (a web_server URL cannot carry it) nor '\' (a browser turns it into '/').
+/// The name rules on a trimmed name: UTF-8 text of 1..NAME_MAX_LENGTH characters and at most
+/// NAME_MAX_BYTES bytes, without control characters, neither '/' (a web_server URL cannot carry
+/// it) nor '\' (a browser turns it into '/').
 bool validate_name(const std::string &name, std::string *error);
+
+/// The longest start of `name` within `max_chars` characters and `max_bytes` bytes, never cut
+/// inside a character.
+std::string fit_name(const std::string &name, size_t max_chars, size_t max_bytes);
 
 /// The name as a person reads it: trimmed, inner whitespace collapsed, ASCII lowercased.
 std::string name_key(const std::string &name);
@@ -233,8 +240,16 @@ inline constexpr StandardPreset STANDARD_PRESETS[] = {
 /// has to be the built-in.
 bool standard_preset(const std::string &name, climate::ClimatePreset *out = nullptr);
 
-/// The object id ESPHome derives from an entity name: what Home Assistant and every
-/// object-id-keyed record in this repository know the entity by.
+/// The object id ESPHome derives from an entity name, one character per byte: what the API's
+/// key and every object-id-keyed record in this repository know the entity by.
 std::string object_id_of_name(const std::string &name);
+
+/// The object id Home Assistant rebuilds from the name, one character per code point: its
+/// entity's unique id comes from it.
+std::string ha_object_id_of_name(const std::string &name);
+
+/// Whether `a` and `b`, whose object ids clash, would not had their non-ASCII characters been
+/// kept as they are rather than turned into '_'.
+bool non_ascii_clash(const std::string &a, const std::string &b);
 
 }  // namespace esphome::climate_hub
