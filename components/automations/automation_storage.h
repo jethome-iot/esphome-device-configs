@@ -54,7 +54,8 @@ class AutomationStorage : public Component {
   /// Plays the rule's actions now, skipping its triggers and its condition, enabled or not, as
   /// its mode allows.
   RunResult run_automation(uint32_t id);
-  /// Names collide by sanitized filename; `exclude_id` never blocks itself.
+  /// Names collide by their key, the file name before it is cut to fit; `exclude_id` never
+  /// blocks itself.
   bool is_name_taken(const std::string &name, uint32_t exclude_id = 0) const;
   /// The names of the rules whose trigger or condition names the binary sensor `key` (its object
   /// id's fnv1 hash), built or not: one that found no such input still names it. Loop task, as
@@ -133,9 +134,9 @@ class AutomationStorage : public Component {
   void check_time_();
   virtual ESPTime clock_now_();
 
-  std::string sanitize_filename_(const std::string &name) const;
+  std::string name_key_(const std::string &name) const;
   std::string get_folder_path_() const;
-  std::string get_filepath_for_name_(const std::string &name) const;
+  std::string filename_for_(const std::string &name, uint32_t id) const;
   uint32_t allocate_id_();
   bool ensure_directory_exists_(const std::string &path);
   bool load_automation_from_file_(const std::string &filepath);

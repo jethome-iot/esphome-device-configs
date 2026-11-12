@@ -69,12 +69,12 @@ simply be made again.
 `save` reads a raw JSON body, so it needs a `Content-Type` that is not a form:
 `application/json`. A form-encoded body is parsed into fields by the server and answered
 `Empty request body`; a body over 16 KiB, the engine's own ceiling on a rule file, is `413`. A
-name another rule already owns — names collide by file name, so `Porch light` and `porch-LIGHT`
-are one — is refused with the reason. So is a rule that names something the device does not
-have, an entity, a thermostat or a preset key: `Action 1: thermostat "attic" not found`. The
-engine's other refusals (a rule limit reached, a file the loader had refused under that name, a
-call from inside a running rule) come back as `Failed to create automation` /
-`Failed to update automation`.
+name another rule already owns — names collide by the file name they spell before it is cut to
+fit, so `Porch light` and `porch-LIGHT` are one — is refused with the reason. So is a rule that
+names something the device does not have, an entity, a thermostat or a preset key:
+`Action 1: thermostat "attic" not found`. The engine's other refusals (a rule limit reached, a
+file the loader had refused under that name, a call from inside a running rule) come back as
+`Failed to create automation` / `Failed to update automation`.
 
 `run` is the editor's Run now. The run starts with no trigger state, so a `follow` has none to
 copy unless a trigger arrives while it plays, and the rule's mode decides as it does for a
