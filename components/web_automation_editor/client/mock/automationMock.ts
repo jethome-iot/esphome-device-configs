@@ -378,7 +378,7 @@ export function createAutomationMockStore(options: AutomationMockStoreOptions = 
         }
         // The device fills the defaults a client leaves out.
         const cfg: AutomationConfig = { ...parsed, id: parsed.id ?? 0, enabled: parsed.enabled ?? true, mode: parsed.mode ?? 'single' }
-        // Name clash by stored filename, as the backend checks it.
+        // Name clash by storage key, as the backend checks it.
         if (isNameTaken(cfg.name, cfg.id, automations)) {
           return {
             status: 400,
