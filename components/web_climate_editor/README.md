@@ -3,7 +3,8 @@
 The JSON/REST API of the `climate_hub` thermostats, served on the device's own web server under
 `/climate-editor/api/`. List, read, create, change, start, stop and delete thermostats, bring one
 back from a backup under its own id, edit and pick their presets, move a target, calibrate a PID
-thermostat, watch the control loop, and discover the sensors and relays a thermostat may name —
+thermostat and keep its relays' gains as saved sets, watch the control loop, and discover the
+sensors and relays a thermostat may name —
 everything a browser editor does, and everything `curl` can do without one.
 ESP-IDF only.
 
@@ -56,11 +57,12 @@ and the connection closed. Any other path under the prefix is `404`.
 Every route that touches the thermostats runs its whole read or write on the loop task, which
 owns them, and answers `503 Service Unavailable` when the loop does not get to it within five
 seconds. Nothing was read or written then, and the call can simply be made again. `schema` and
-`ping` answer from build-time data and never wait for the loop.
+`ping` answer from build-time data and never wait for the loop. `gains` opens the sets file on the
+loop task and reads it as the answer goes out, a set at a time.
 
 | Method | Path | |
 |---|---|---|
-| GET | `list` | `{"success": true, "count", "max_controllers", "controllers": [{"id", "name", "enabled", "kind", "mode", "sensor_id", "heat_relay_id", "cool_relay_id", "running", "waiting", "active_preset", "active_preset_name"}, ...]}`; `waiting` says why an enabled thermostat does not run, `""` when it runs or is disabled; `active_preset` is the key of the preset picked last and `active_preset_name` its name, both `""` for none |
+| GET | `list` | `{"success": true, "count", "max_controllers", "controllers": [{"id", "name", "enabled", "kind", "mode", "sensor_id", "heat_relay_id", "cool_relay_id", "running", "revision", "waiting", "active_preset", "active_preset_name"}, ...]}`; `revision` is the document's, so an open editor sees the device move it on; `waiting` says why an enabled thermostat does not run, `""` when it runs or is disabled; `active_preset` is the key of the preset picked last and `active_preset_name` its name, both `""` for none |
 | GET | `get?id=` | One thermostat, in the file format of [climate_hub](../climate_hub/README.md#a-thermostat), its presets included |
 | POST | `save` | A thermostat as a JSON body. `id` absent or `""` creates one, an existing `id` replaces that one, renamed or not. Answers `{"success": true, "message", "id"}`, and a `warning` when it was saved enabled but does not run |
 | POST | `import` | A thermostat as `get` answers it, `id` included, as a JSON body: the thermostat with that `id` is replaced, otherwise one is created under it, with its presets' keys and its active preset. Answers as `save` does; see [Import](#import) |
@@ -68,10 +70,16 @@ seconds. Nothing was read or written then, and the call can simply be made again
 | POST | `enable?id=&value=true\|false[&take_over=true]` | Starts or stops it and stores the flag. `{"success": true, "message", "persisted"}`; `persisted` is `false` when the change is live but the flag did not reach flash. A `warning` comes as from `save` when it was enabled but does not run |
 | POST | `setpoint?id=&value=` | Moves the target, clamped into the thermostat's range, whether it runs or not |
 | POST | `preset?id=&key=` | Picks the preset with that `key`, whether the thermostat runs or not: its target, its mode unless `keep`, and the label, as a pick from Home Assistant. A stopped thermostat keeps it and starts in it. `{"success": true, "message", "persisted"}`; `404` `Preset not found` for a key it has no preset under |
-| POST | `autotune?id=&value=true\|false[&direction=heat\|cool][&rule=]` | Starts or cancels the calibration of a running PID thermostat, below. `rule` is `zn_pi` (the default), `zn_pid`, `pessen`, `some_overshoot` or `no_overshoot` |
-| GET | `status[?id=]` | `{"success": true, "controllers": [...]}`: per thermostat whether it runs and the `waiting` of `list`, what its relays do (`off`, `idle`, `heating`, `cooling`), its fault, the room temperature and its age, the target, the active preset as `list` gives it, the range, the bang-bang switching points, the heat and cool duty and relay state, which minimum holds each relay away from where the thermostat wants it (`heat_relay_wait`, `cool_relay_wait`: `min_off` before it may close, `min_on` before it may open, `none` otherwise and while a relay switched from elsewhere waits to be put back), a running PID's terms, and its last calibration since boot as `autotune`. A stopped thermostat still reports its sensor's reading, its active preset and its last calibration |
+| POST | `autotune?id=&value=true\|false[&direction=heat\|cool][&rule=]` | Starts or cancels the calibration of a running PID thermostat, below. `direction` may be left out: it is always the mode's. `rule` is `zn_pi` (the default), `zn_pid`, `pessen`, `some_overshoot` or `no_overshoot` |
+| GET | `gains?id=[&after=][&limit=]` | The thermostat's [gain sets](#gain-sets), oldest first: `{"success": true, "sets": [...], "more"}`, those with an `n` above `after` (`0`), at most `limit` (1 to 200, `200`); `more` says others follow |
+| POST | `gains/add?id=[&direction=heat\|cool]` | Saves the gains the relay of `direction`, the mode's when left out, has now as a new set; an optional body `{"name"}`. `{"success": true, "message", "set"}` |
+| POST | `gains/rename?id=&set=` | Renames set `set`; a body `{"name"}`. Answers as `gains/add` |
+| POST | `gains/delete?id=&set=` | Deletes set `set`. `{"success": true, "message"}` |
+| POST | `gains/apply?id=&set=` | Puts set `set`'s gains into its relay and moves the `revision` on. `{"success": true, "message", "revision", "persisted"}` |
+| POST | `gains/derive?id=&set=&rule=[&apply=true]` | A new set of `rule`'s gains for set `set`'s Ku and Pu, applied too with `apply=true`; an optional body `{"name"}`. `{"success": true, "message", "set"}`, with `revision` and `persisted` when applied |
+| GET | `status[?id=]` | `{"success": true, "controllers": [...]}`: per thermostat whether it runs and the `waiting` of `list`, what its relays do (`off`, `idle`, `heating`, `cooling`), its fault, the room temperature and its age, the target, the active preset as `list` gives it, the range, the bang-bang switching points, the heat and cool duty and relay state, what holds each relay away from where the thermostat wants it (`heat_relay_wait`, `cool_relay_wait`: `min_off` before it may close, `min_on` before it may open, `other_relay` before it may close while the thermostat's other relay is still closed, `none` otherwise and while a relay switched from elsewhere waits to be put back), a running PID's terms with the relay whose gains they come from (`pid.direction`, `heat` or `cool`), and its last calibration since boot as `autotune`. A stopped thermostat still reports its sensor's reading, its active preset and its last calibration |
 | GET | `entities` | `{"success": true, "sensors": [{"object_id", "name", "unit"}], "switches": [{"object_id", "name", "claimed_by"}]}`; `claimed_by` is the id of the running thermostat that holds the relay, or `""`; an enabled one that waits reserves its relays all the same (`list` shows which). Internal entities and config switches are left out, and so is a sensor that does not report °C |
-| GET | `schema` | The kinds, modes and faults, `max_controllers`, `name_max_length`, `presets` (`{"max_count": 8, "modes": ["keep", "off", "heat", "cool", "heat_cool"], "standard": ["eco", "away", "boost", "comfort", "home", "sleep", "activity"]}`), and every tunable number with its label, unit, default, range, step and hint, grouped as a form shows them: the table the device clamps against |
+| GET | `schema` | The kinds, modes and faults, `max_controllers`, `name_max_length`, `presets` (`{"max_count": 8, "modes": ["keep", "off", "heat", "cool"], "standard": ["eco", "away", "boost", "comfort", "home", "sleep", "activity"]}`), and every tunable number with its label, unit, default, range, step and hint, grouped as a form shows them: the table the device clamps against |
 | GET | `ping` | `{"status": "ok"}` |
 
 `save` and `import` read a raw JSON body, so they need a `Content-Type` that is not a form:
@@ -88,8 +96,14 @@ Save keeps the key of every preset that comes back with it and makes one for a n
 form sends back the key it got and none for a new preset. `active_preset` is the thermostat's
 state, not the form's: a Save ignores it, keeps the active preset while its key is in the list,
 and applies that preset's new target and mode at once. So is `last_on_mode`, the mode an
-automation rule's turn-on goes back to: a Save ignores it, though a word that is not `heat`,
-`cool` or `heat_cool` is `400`, and a create starts it from its own mode.
+automation rule's turn-on goes back to: a Save ignores it, though a word that is not `heat` or
+`cool` is `400`, and a create starts it from its own mode. `heat_cool`, the mode an older
+firmware had, is `400` wherever a mode goes: `mode`, `last_on_mode` and a preset's `mode`.
+
+Each relay has its own gains, `pid.heat` and `pid.cool`. A form sends both; the bare `pid.kp`,
+`pid.ki` and `pid.kd` that `get` answers beside them are a copy of the gains of the relay the
+thermostat turns on in, for a firmware from before each relay had its own, and a Save reads them
+only for a relay whose own gains the body leaves out.
 
 A document carries a `revision`, `0` until a calibration writes new gains or an
 [import](#import) replaces the thermostat, the only things that move it on; a Save never does. A
@@ -166,14 +180,15 @@ A thermostat whose file a newer firmware wrote is listed, read and run like any 
 rest lasts until the next reboot. `enable` answers `"persisted": false` when it changed the flag
 or took a relay over; the thermostats it stopped, running or waiting, then stay enabled in their
 files. `preset` answers `"persisted": false` when the pick changed the target, the mode or the
-label. Its `version` in `get` is the file's own, higher than this firmware's `4`.
+label. Its `version` in `get` is the file's own, higher than this firmware's `5`.
 
 Every failure is `{"success": false, "error"}`, with the sentence an editor shows: `400` for a
 bad request, `404` for an unknown `id` or path, `405` for a `GET` or `POST` the route does not
 take, `409` for a name or a relay in use or reserved, a thermostat a newer firmware wrote or an id
 a file holds that the boot did not load, `413` for an oversized body or file, `500` when nothing
-could be written, `503` when the loop was busy and `507` at `max_controllers`. A `500` changed
-nothing: `The thermostat's file could not be written`, or `Thermostat storage is not available`
+could be written, `503` when the loop was busy and `507` at `max_controllers` or, for a new gain
+set, with less than 64 KiB free. A `500` changed nothing: `The thermostat's file could not be
+written`, or `Thermostat storage is not available`
 when the storage was not usable at boot — then every write gets it, a save or an import before
 its body is even read. The same contract,
 machine-readable: [openapi.yaml](openapi.yaml) (OpenAPI 3.1).
@@ -239,16 +254,16 @@ running thermostat holds, or one another enabled thermostat waits for, is `409`.
 
 ## Calibration
 
-`autotune?id=&value=true` calibrates a running PID thermostat. Its relay closes fully once the room
-is 0.25 °C under the target and opens 0.25 °C over it (a cooling relay the other way round), with
-its minimum on and off times and the cut-out temperature kept, and every reading feeds the run.
-After the sixth switch it has the room's ultimate gain and period, the `rule` turns them into kp,
-ki and kd, and the device writes them into the thermostat, moves its `revision` on and runs with
-them. A room with radiators takes about an hour and a half, a floor heating eight to ten hours;
-start near the target, since a floor that takes more than 6 hours to reach the band ends the run
-as `no_switch` before its first swing. `direction` picks the relay: required in `heat_cool`, where
-the other relay stays open, and the mode's otherwise. Home Assistant sees heating (cooling for a
-cool run) while the relay is closed, idle otherwise.
+`autotune?id=&value=true` calibrates a running PID thermostat. The relay of its mode closes fully
+once the room is 0.25 °C under the target and opens 0.25 °C over it (a cooling relay the other way
+round), the other relay held open, with its minimum on and off times and the cut-out temperature
+kept, and every reading feeds the run. After the sixth switch it has the room's ultimate gain and
+period, the `rule` turns them into kp, ki and kd, and the device writes them into the thermostat as
+that relay's gains, `pid.heat` or `pid.cool`, moves its `revision` on and runs with them; the other
+relay keeps its own. It also saves them as a [gain set](#gain-sets). A room with radiators takes about an hour and a half, a floor heating eight to
+ten hours; start near the target, since a floor that takes more than 6 hours to reach the band ends
+the run as `no_switch` before its first swing. A `direction` given has to be the mode's. Home
+Assistant sees heating (cooling for a cool run) while the relay is closed, idle otherwise.
 
 A run ends without gains on `value=false`, a target or a mode changed from anywhere, a Save or an
 import, the thermostat stopped or taken over, any fault, 24 hours in all, 6 hours without a relay
@@ -265,8 +280,10 @@ that switches the relay next, while it runs; `swings`, `elapsed_s`, the `extreme
 order (`at_s`, `temperature`), `ku` and `pu` (seconds) once it succeeded, the `flags` that warn
 about a result (`asymmetric`: the room rose and fell at very different rates; `uneven`: the swings
 differed, something else moved the room; `clamped`: a gain had to be held in its range), the
-gains it replaced as `old` and wrote as `new`, and `persisted`, false when they did not reach the
-file. The device writes them once more, within three seconds or at shutdown, whichever comes
+gains it replaced as `old` and wrote as `new`, `persisted`, false when they did not reach the
+file, and `set`, `{"n", "name"}` of the gain set it saved its result as, under the name the set has
+now; `null` while it runs, when it failed, when the storage had no room for a set, and once that
+set is deleted. The device writes them once more, within three seconds or at shutdown, whichever comes
 first; if that fails too, they wait for a later change of the thermostat or the start of its next
 calibration. `persisted` turns true once the thermostat's file is written, by that retry or by any
 later change.
@@ -274,8 +291,70 @@ later change.
 The parameters are read first: `400` for a missing or malformed `id` or `value`, or a `direction`
 or `rule` it does not know. A start is then `404`, `409` for a bang-bang or stopped thermostat,
 one whose file a newer firmware wrote, one calibrating already or one in mode off, `400` for a
-`direction` the mode does not drive or none in `heat_cool`, and `409` while it reports a fault. A
-cancel is `404`, or `409` `No calibration is running`.
+`direction` that is not the mode's
+(`direction 'cool' does not match mode heat: a calibration swings the relay of the current mode`),
+and `409` while it reports a fault. A cancel is `404`, or `409` `No calibration is running`.
+
+## Gain sets
+
+Every calibration that succeeds saves the gains it found as a set of the thermostat's, and a
+client may save the gains a relay has now, rename a set, delete it, put its gains back into its
+relay, or make another rule's gains from its Ku and Pu without calibrating again. A thermostat keeps
+any number of them. A set is:
+
+```json
+{"n": 12, "name": "2026-10-26 14:05 ZN PI", "direction": "heat", "source": "calibration",
+ "rule": "zn_pi", "ku": 12.5, "pu": 3600, "kp": 5.625, "ki": 0.001875, "kd": 0,
+ "flags": ["uneven"], "time": 1793023500, "from": null}
+```
+
+- `n`: its number, from 1; a deleted set's is never given again, so `set=` always means the one
+  it meant.
+- `source`: `calibration`, `derived` (another rule over a set's Ku and Pu; `from` is that set's
+  `n`) or `manual` (the gains a relay had); `rule`, `ku` and `pu` are `null` for a `manual` one.
+- `flags`: a calibration's warnings, as `status` words them; a derived set keeps its parent's
+  `asymmetric` and `uneven`, and has `clamped` when its own rule had to hold a gain in its range.
+- `time`: when it was saved, UTC seconds, `null` while the device's clock was not set.
+- `name`: 1 to 48 characters in any script, trimmed, no control characters; two sets may share
+  one. A set saved without one is named after the local date and time, `2026-11-06 14:05 manual`
+  or `… ZN PI` for a rule, and while the clock is not set after its relay and number,
+  `Heat manual #3`.
+
+`gains` answers oldest first, a page at a time: ask again with `after` set to the last `n` while
+`more` is true.
+
+`gains/apply` writes the set's gains as its relay's, `pid.heat` or `pid.cool`, the other relay
+keeping its own, and moves the `revision` on as a calibration does: an editor page opened before
+cannot Save the old gains back (`409`), and `list` shows the new revision. A running PID goes on
+with them from its next pass, as after a Save. The set stays. `persisted` is false when the
+thermostat's file did not take them; they run, and the device writes them again as it does a
+calibration's.
+
+The refusals, after the parameters (`Missing set parameter`, `Invalid set parameter`, a `direction`
+or `rule` it does not know, a body that is not a JSON object with a string `name`):
+
+- `400` for a name that breaks the rules: `Name is required` (a rename), `Name is longer than 48
+  characters`, `Name is not valid UTF-8`, `Name cannot contain control characters`;
+- `404` `Thermostat not found` or `Gain set not found`;
+- `409` for `gains/add` in a direction the thermostat has no relay for (`The thermostat has no
+  cooling relay`); for `gains/apply`, and `gains/derive` with `apply=true`, a thermostat whose file
+  a newer firmware wrote, one that no longer has the set's relay, and one that calibrates (`A
+  calibration is running; apply a gain set once it ends or is cancelled`); for `gains/derive`, a
+  set without Ku and Pu (`This set has no Ku and Pu`). A derive whose apply is refused adds
+  nothing;
+- `413` for a body over 8 KiB; `500` when the sets could not be written;
+- `507` for a new set, added or derived, when less than 64 KiB is free on the storage: `Less than
+  64 KiB is free on the storage; delete gain sets or files to make room for another`. A
+  calibration then saves no set, and its `set` stays `null`; its gains go into the thermostat all
+  the same.
+
+```sh
+curl $A 'http://<device>/climate-editor/api/gains?id=living-room'
+curl -X POST $A 'http://<device>/climate-editor/api/gains/add?id=living-room&direction=heat' \
+  -H 'Content-Type: application/json' -d '{"name": "Winter"}'
+curl -X POST $A 'http://<device>/climate-editor/api/gains/apply?id=living-room&set=12' -d ''
+curl -X POST $A 'http://<device>/climate-editor/api/gains/derive?id=living-room&set=12&rule=zn_pid' -d ''
+```
 
 ## client/
 
@@ -286,7 +365,9 @@ which key a preset gets), and `client/mock/climateMock.ts` a dependency-free in-
 implementation of the same routes, with a simulated room per sensor, on which a calibration takes
 minutes, for a dev server or unit tests; its `control()` sets a running thermostat's mode, target or preset by name the way Home
 Assistant does, and its `seed` option replaces the thermostats it starts with, one from a newer
-firmware among them if its `version` says so. They are the contract a browser client codes against
+firmware among them if its `version` says so. It keeps the gain sets in memory, dated by its own
+clock, and has no storage to run out of, so it never answers `507`. They are the contract a browser
+client codes against
 and they live here so they change with the C++ that they mirror. Nothing in this repository builds
 or type-checks them yet.
 

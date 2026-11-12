@@ -5,17 +5,25 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
+#include <memory>
+#include <new>
 #include <vector>
 #include "esphome/components/climate_hub/entity_lookup.h"
 #include "esphome/components/climate_hub/enums.h"
 #include "esphome/components/climate_hub/param_table.h"
 #include "esphome/core/application.h"
 #include "esphome/core/log.h"
+#ifdef USE_ESP32
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#endif
 
 namespace esphome::web_climate_editor {
 
 using climate_hub::ClimateConfig;
 using climate_hub::ControllerRuntime;
+using climate_hub::GainSet;
 using climate_hub::Result;
 
 static const char *const TAG = "web_climate_editor";
@@ -38,12 +46,18 @@ static const Route ROUTES[] = {
     {"setpoint", RouteId::SETPOINT, true},
     {"preset", RouteId::PRESET, true},
     {"autotune", RouteId::AUTOTUNE, true},
+    {"gains", RouteId::GAINS, false},
+    {"gains/add", RouteId::GAINS_ADD, true},
+    {"gains/rename", RouteId::GAINS_RENAME, true},
+    {"gains/delete", RouteId::GAINS_DELETE, true},
+    {"gains/apply", RouteId::GAINS_APPLY, true},
+    {"gains/derive", RouteId::GAINS_DERIVE, true},
 };
 // clang-format on
 
 // The modes /schema offers, for the thermostat and, after "keep", for a preset.
 static const climate_hub::HubMode MODES[] = {climate_hub::HubMode::OFF, climate_hub::HubMode::HEAT,
-                                             climate_hub::HubMode::COOL, climate_hub::HubMode::HEAT_COOL};
+                                             climate_hub::HubMode::COOL};
 
 // The preset picked last, by its key and by the name a client shows; both "" for none.
 static void set_active_preset(JsonObject obj, const ClimateConfig &config) {
@@ -103,14 +117,14 @@ static void set_autotune(JsonObject obj, const climate_hub::AutotuneRun &run, ui
   const float setpoint = run.setpoint();
   obj["state"] = climate_hub::enums::autotune_state_to_string(run.state());
   obj["reason"] = climate_hub::enums::autotune_end_to_string(run.reason());
-  obj["direction"] = climate_hub::enums::autotune_direction_to_string(run.direction());
+  obj["direction"] = climate_hub::enums::direction_to_string(run.direction());
   obj["rule"] = climate_hub::enums::autotune_rule_to_string(run.rule());
   obj["setpoint"] = setpoint;
   // Which way the relay goes now and the reading that turns it, while it runs and has a reading.
   const bool live = run.running() && tuner.started();
   if (live) {
     // Heating, the positive side closes the relay; cooling, the negative one.
-    const bool on = tuner.positive() == (run.direction() == climate_hub::AutotuneDirection::HEAT);
+    const bool on = tuner.positive() == (run.direction() == climate_hub::Direction::HEAT);
     obj["phase"] = on ? "on" : "off";
     obj["aim"] = setpoint - tuner.target_error();
   } else {
@@ -142,6 +156,61 @@ static void set_autotune(JsonObject obj, const climate_hub::AutotuneRun &run, ui
     obj["new"] = nullptr;
   }
   obj["persisted"] = run.persisted();
+  // The gain set the result went into, as it is named now; null before, and when none was saved.
+  if (run.saved_n() != 0) {
+    JsonObject set = obj["set"].to<JsonObject>();
+    set["n"] = run.saved_n();
+    set["name"] = run.saved_name();
+  } else {
+    obj["set"] = nullptr;
+  }
+}
+
+// The listing's JSON, a set at a time, so no more than one is held: the sets of a thermostat have
+// no limit. `pause` runs every few lines, to let the other tasks in.
+static bool write_sets(climate_hub::GainSetReader &reader, uint32_t after, uint32_t limit,
+                       const std::function<bool(const char *, size_t)> &put, const std::function<void()> &pause) {
+  static const char HEAD[] = R"({"success":true,"sets":[)";
+  if (!put(HEAD, sizeof(HEAD) - 1))
+    return false;
+  uint32_t count = 0;
+  uint32_t read = 0;
+  bool more = false;
+  GainSet set;
+  std::string piece;
+  while (reader.next(&set)) {
+    if (++read % 32 == 0)
+      pause();
+    if (set.n <= after)
+      continue;
+    if (count == limit) {
+      more = true;
+      break;
+    }
+    JsonDocument doc;
+    climate_hub::serialize_gain_set(doc.to<JsonObject>(), set);
+    piece.assign(count == 0 ? "" : ",");
+    std::string object;
+    serializeJson(doc, object);
+    piece += object;
+    if (!put(piece.data(), piece.size()))
+      return false;
+    count++;
+  }
+  const char *tail = more ? R"(],"more":true})" : R"(],"more":false})";
+  return put(tail, strlen(tail));
+}
+
+// What a gain set route answers: its message, and the set it made or changed.
+static std::string set_json(const char *message, const GainSet *set) {
+  JsonDocument doc;
+  doc["success"] = true;
+  doc["message"] = message;
+  if (set != nullptr)
+    climate_hub::serialize_gain_set(doc["set"].to<JsonObject>(), *set);
+  std::string json;
+  serializeJson(doc, json);
+  return json;
 }
 
 // `"Living Room" and "Floor"`: the thermostats by the names a person knows them by.
@@ -288,6 +357,24 @@ void WebClimateEditor::handleRequest(AsyncWebServerRequest *request) {
       case RouteId::AUTOTUNE:
         this->handle_autotune_(request);
         break;
+      case RouteId::GAINS:
+        this->handle_gains_(request);
+        break;
+      case RouteId::GAINS_ADD:
+        this->handle_gains_add_(request);
+        break;
+      case RouteId::GAINS_RENAME:
+        this->handle_gains_rename_(request);
+        break;
+      case RouteId::GAINS_DELETE:
+        this->handle_gains_delete_(request);
+        break;
+      case RouteId::GAINS_APPLY:
+        this->handle_gains_apply_(request);
+        break;
+      case RouteId::GAINS_DERIVE:
+        this->handle_gains_derive_(request);
+        break;
     }
   }
   this->reset_body_();
@@ -350,6 +437,60 @@ bool WebClimateEditor::read_number_(AsyncWebServerRequest *request, float &value
   return true;
 }
 
+// Digits and nothing else: no sign, no blanks, nothing strtoul would skip.
+bool WebClimateEditor::read_count_(AsyncWebServerRequest *request, const char *name, uint32_t min, uint32_t max,
+                                   uint32_t &value) {
+  if (!request->hasParam(name)) {
+    this->send_error_(request, std::string("Missing ") + name + " parameter");
+    return false;
+  }
+  const std::string &text = request->getParam(name)->value();
+  uint64_t parsed = 0;
+  bool valid = !text.empty() && text.size() <= 10;
+  for (char c : text) {
+    valid = valid && c >= '0' && c <= '9';
+    parsed = parsed * 10 + static_cast<uint64_t>(c - '0');
+  }
+  if (!valid || parsed < min || parsed > max) {
+    this->send_error_(request, std::string("Invalid ") + name + " parameter");
+    return false;
+  }
+  value = static_cast<uint32_t>(parsed);
+  return true;
+}
+
+// Parsed here, on the server task: one object with a string in it, which a nesting limit keeps
+// shallow on this task's small stack.
+bool WebClimateEditor::read_set_name_(AsyncWebServerRequest *request, bool required, std::string &name) {
+  name.clear();
+  if (this->body_too_large_) {
+    this->send_error_(request, "Request body over 8 KiB", 413);
+    return false;
+  }
+  if (this->body_.empty()) {
+    if (required)
+      this->send_error_(request, "Empty request body");
+    return !required;
+  }
+  JsonDocument doc;
+  const DeserializationError parsed = deserializeJson(doc, this->body_, DeserializationOption::NestingLimit(2));
+  if (parsed) {
+    this->send_error_(request, std::string("JSON parse error: ") + parsed.c_str());
+    return false;
+  }
+  if (!doc.is<JsonObject>()) {
+    this->send_error_(request, "The body must be a JSON object");
+    return false;
+  }
+  JsonVariantConst value = doc["name"];
+  if (!value.isNull() && !value.is<const char *>()) {
+    this->send_error_(request, "name must be a string");
+    return false;
+  }
+  name = value.isNull() ? "" : value.as<std::string>();
+  return true;
+}
+
 // --- Reads: each one a single job on the loop task, which owns the documents and the claims ---
 
 void WebClimateEditor::handle_list_(AsyncWebServerRequest *request) {
@@ -371,6 +512,9 @@ void WebClimateEditor::handle_list_(AsyncWebServerRequest *request) {
       row["heat_relay_id"] = config->heat.relay_id;
       row["cool_relay_id"] = config->cool.relay_id;
       row["running"] = this->hub_->is_running(config->id);
+      // An editor that has the document open sees the device move it on: a calibration, an
+      // applied gain set or an import.
+      row["revision"] = config->revision;
       // Why it waits, as the Save, the enable or the boot found it, for a client that was not there.
       row["waiting"] = this->hub_->waiting_reason(config->id);
       set_active_preset(row, *config);
@@ -458,6 +602,8 @@ void WebClimateEditor::handle_status_(AsyncWebServerRequest *request) {
           runtime != nullptr ? runtime->cool_relay_wait() : climate_hub::RelayWait::NONE);
       if (runtime != nullptr && config->kind == climate_hub::ControlKind::PID) {
         JsonObject pid = row["pid"].to<JsonObject>();
+        // Whose gains the terms come from.
+        pid["direction"] = climate_hub::enums::direction_to_string(runtime->pid_direction());
         set_or_null(pid, "error", runtime->pid().error());
         set_or_null(pid, "proportional", runtime->pid().proportional_term());
         set_or_null(pid, "integral", runtime->pid().integral_term());
@@ -761,10 +907,11 @@ void WebClimateEditor::handle_autotune_(AsyncWebServerRequest *request) {
   bool start = false;
   if (!this->read_bool_(request, "value", start))
     return;
-  optional<climate_hub::AutotuneDirection> direction;
+  // Optional: the mode's relay is the one a calibration swings.
+  optional<climate_hub::Direction> direction;
   if (request->hasParam("direction")) {
-    climate_hub::AutotuneDirection parsed;
-    if (!climate_hub::enums::autotune_direction_from_string(request->getParam("direction")->value(), &parsed)) {
+    climate_hub::Direction parsed;
+    if (!climate_hub::enums::direction_from_string(request->getParam("direction")->value(), &parsed)) {
       this->send_error_(request, "Invalid direction parameter");
       return;
     }
@@ -788,6 +935,259 @@ void WebClimateEditor::handle_autotune_(AsyncWebServerRequest *request) {
       return true;
     }
     json = success_json(start ? "Calibration started" : "Calibration cancelled");
+    return true;
+  });
+  this->answer_(request, ran, code, error, json);
+}
+
+// --- Gain sets ---
+
+// The file is opened on the loop task and read here, a set at a time: a thermostat's sets have no
+// limit, so the listing never holds them all.
+void WebClimateEditor::handle_gains_(AsyncWebServerRequest *request) {
+  std::string id;
+  if (!this->read_id_(request, id))
+    return;
+  uint32_t after = 0;
+  uint32_t limit = climate_hub::GAIN_SET_PAGE_MAX;
+  if (request->hasParam("after") && !this->read_count_(request, "after", 0, UINT32_MAX, after))
+    return;
+  if (request->hasParam("limit") && !this->read_count_(request, "limit", 1, climate_hub::GAIN_SET_PAGE_MAX, limit))
+    return;
+  std::unique_ptr<climate_hub::GainSetReader> reader;
+  std::string error;
+  int code = 200;
+  const bool ran = this->hub_->run_on_loop([&]() {
+    Result result;
+    reader = this->hub_->open_gain_sets(id, &result);
+    if (reader == nullptr) {
+      code = result.code;
+      error = result.error;
+    }
+    return true;
+  });
+  if (!ran || reader == nullptr) {
+    this->answer_(request, ran, code, error, "");
+    return;
+  }
+  this->send_sets_(request, *reader, after, limit);
+}
+
+void WebClimateEditor::send_sets_(AsyncWebServerRequest *request, climate_hub::GainSetReader &reader, uint32_t after,
+                                  uint32_t limit) {
+#ifdef USE_ESP32
+  // A fixed buffer, as web_file_browser's listing: nothing reaches the wire until it first fills,
+  // so a short listing still goes out whole, as any other answer.
+  static const size_t OUT_CHUNK = 4096;
+  auto buffer = std::unique_ptr<char[]>(new (std::nothrow) char[OUT_CHUNK + 1]);
+  if (buffer == nullptr) {
+    this->send_error_(request, "Out of memory", 500);
+    return;
+  }
+  char *out = buffer.get();
+  httpd_req_t *req = *request;
+  size_t used = 0;
+  bool sent = true;
+  bool streamed = false;
+  auto put = [&](const char *data, size_t len) {
+    while (sent && len > 0) {
+      const size_t room = std::min(OUT_CHUNK - used, len);
+      memcpy(out + used, data, room);
+      used += room;
+      data += room;
+      len -= room;
+      if (used == OUT_CHUNK) {
+        if (!streamed)
+          httpd_resp_set_type(req, "application/json");
+        sent = httpd_resp_send_chunk(req, out, used) == ESP_OK;
+        streamed = true;
+        used = 0;
+        vTaskDelay(1);
+      }
+    }
+    return sent;
+  };
+  write_sets(reader, after, limit, put, [] { vTaskDelay(1); });
+  if (!streamed) {
+    // No NUL inside: the serializer escapes control characters.
+    out[used] = '\0';
+    request->send(200, "application/json", out);
+    return;
+  }
+  // Once a chunk has gone out the answer cannot become an error: a cut one does not parse.
+  if (sent && used > 0)
+    httpd_resp_send_chunk(req, out, used);
+  httpd_resp_send_chunk(req, nullptr, 0);
+#else
+  std::string json;
+  write_sets(
+      reader, after, limit,
+      [&json](const char *data, size_t len) {
+        json.append(data, len);
+        return true;
+      },
+      [] {});
+  this->send_json_(request, 200, json);
+#endif
+}
+
+void WebClimateEditor::handle_gains_add_(AsyncWebServerRequest *request) {
+  std::string id;
+  if (!this->read_id_(request, id))
+    return;
+  optional<climate_hub::Direction> direction;
+  if (request->hasParam("direction")) {
+    climate_hub::Direction parsed;
+    if (!climate_hub::enums::direction_from_string(request->getParam("direction")->value(), &parsed)) {
+      this->send_error_(request, "Invalid direction parameter");
+      return;
+    }
+    direction = parsed;
+  }
+  std::string name;
+  if (!this->read_set_name_(request, false, name))
+    return;
+  std::string json;
+  std::string error;
+  int code = 400;
+  const bool ran = this->hub_->run_on_loop([&]() {
+    GainSet set;
+    const Result result = this->hub_->add_gain_set(id, direction, name, &set);
+    if (!result.ok) {
+      code = result.code;
+      error = result.error;
+      return true;
+    }
+    json = set_json("Gain set saved", &set);
+    return true;
+  });
+  this->answer_(request, ran, code, error, json);
+}
+
+void WebClimateEditor::handle_gains_rename_(AsyncWebServerRequest *request) {
+  std::string id;
+  uint32_t n = 0;
+  if (!this->read_id_(request, id) || !this->read_count_(request, "set", 1, UINT32_MAX, n))
+    return;
+  std::string name;
+  if (!this->read_set_name_(request, true, name))
+    return;
+  std::string json;
+  std::string error;
+  int code = 400;
+  const bool ran = this->hub_->run_on_loop([&]() {
+    GainSet set;
+    const Result result = this->hub_->rename_gain_set(id, n, name, &set);
+    if (!result.ok) {
+      code = result.code;
+      error = result.error;
+      return true;
+    }
+    json = set_json("Gain set renamed", &set);
+    return true;
+  });
+  this->answer_(request, ran, code, error, json);
+}
+
+void WebClimateEditor::handle_gains_delete_(AsyncWebServerRequest *request) {
+  std::string id;
+  uint32_t n = 0;
+  if (!this->read_id_(request, id) || !this->read_count_(request, "set", 1, UINT32_MAX, n))
+    return;
+  std::string json;
+  std::string error;
+  int code = 400;
+  const bool ran = this->hub_->run_on_loop([&]() {
+    const Result result = this->hub_->delete_gain_set(id, n);
+    if (!result.ok) {
+      code = result.code;
+      error = result.error;
+      return true;
+    }
+    json = set_json("Gain set deleted", nullptr);
+    return true;
+  });
+  this->answer_(request, ran, code, error, json);
+}
+
+// An applied set moves the revision as a calibration does; the answer says where to, so the page
+// that applied it can Save again without reloading.
+static void set_applied(JsonDocument &answer, const climate_hub::ClimateHub &hub, const std::string &id,
+                        const Result &result, const char *message) {
+  const ClimateConfig *config = hub.store().get(id);
+  // As a Save words it, in the rare case the thermostat could not go on.
+  std::string text = message + started_note(hub, result);
+  if (!result.warning.empty())
+    text += "; " + result.warning;
+  answer["message"] = text;
+  answer["revision"] = config != nullptr ? config->revision : 0;
+  answer["persisted"] = result.persisted;
+  if (!result.warning.empty())
+    answer["warning"] = result.warning;
+}
+
+void WebClimateEditor::handle_gains_apply_(AsyncWebServerRequest *request) {
+  std::string id;
+  uint32_t n = 0;
+  if (!this->read_id_(request, id) || !this->read_count_(request, "set", 1, UINT32_MAX, n))
+    return;
+  std::string json;
+  std::string error;
+  int code = 400;
+  const bool ran = this->hub_->run_on_loop([&]() {
+    const Result result = this->hub_->apply_gain_set(id, n);
+    if (!result.ok) {
+      code = result.code;
+      error = result.error;
+      return true;
+    }
+    JsonDocument answer;
+    answer["success"] = true;
+    set_applied(answer, *this->hub_, id, result, "Gain set applied");
+    serializeJson(answer, json);
+    return true;
+  });
+  this->answer_(request, ran, code, error, json);
+}
+
+void WebClimateEditor::handle_gains_derive_(AsyncWebServerRequest *request) {
+  std::string id;
+  uint32_t n = 0;
+  if (!this->read_id_(request, id) || !this->read_count_(request, "set", 1, UINT32_MAX, n))
+    return;
+  if (!request->hasParam("rule")) {
+    this->send_error_(request, "Missing rule parameter");
+    return;
+  }
+  climate_hub::AutotuneRule rule;
+  if (!climate_hub::enums::autotune_rule_from_string(request->getParam("rule")->value(), &rule)) {
+    this->send_error_(request, "Invalid rule parameter");
+    return;
+  }
+  bool apply = false;
+  if (request->hasParam("apply") && !this->read_bool_(request, "apply", apply))
+    return;
+  std::string name;
+  if (!this->read_set_name_(request, false, name))
+    return;
+  std::string json;
+  std::string error;
+  int code = 400;
+  const bool ran = this->hub_->run_on_loop([&]() {
+    GainSet set;
+    const Result result = this->hub_->derive_gain_set(id, n, rule, apply, name, &set);
+    if (!result.ok) {
+      code = result.code;
+      error = result.error;
+      return true;
+    }
+    JsonDocument answer;
+    answer["success"] = true;
+    answer["message"] = "Gain set derived";
+    climate_hub::serialize_gain_set(answer["set"].to<JsonObject>(), set);
+    if (apply)
+      set_applied(answer, *this->hub_, id, result, "Gain set derived and applied");
+    serializeJson(answer, json);
     return true;
   });
   this->answer_(request, ran, code, error, json);

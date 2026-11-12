@@ -153,6 +153,10 @@ class TestHub : public climate_hub::ClimateHub {
   int resyncs{0};
   bool refuse_remove{false};
   size_t max_file_bytes{climate_hub::CONFIG_MAX_BYTES};
+  // The device's clock, not set unless a case sets it, and what the storage says is free: none,
+  // as the host's directory says nothing.
+  ESPTime clock{};
+  optional<size_t> free_bytes;
 
   uint64_t now_ms() const override { return this->ms; }
   bool run_on_loop(std::function<bool()> &&job) override {
@@ -198,12 +202,25 @@ class TestHub : public climate_hub::ClimateHub {
     this->resyncs = 0;
     this->refuse_remove = false;
     this->max_file_bytes = climate_hub::CONFIG_MAX_BYTES;
+    this->clock = ESPTime{};
+    this->free_bytes.reset();
+    this->pending_sets_.clear();
   }
+
+  unsigned open_readers() const { return this->gain_readers_.load(); }
+  size_t pending_sets() const { return this->pending_sets_.size(); }
 
  protected:
   void resync_home_assistant_() override { this->resyncs++; }
   bool remove_file_(const std::string &path) override {
     return !this->refuse_remove && climate_hub::ClimateHub::remove_file_(path);
+  }
+  ESPTime clock_now_() const override { return this->clock; }
+  filesystem_storage_abstract::StorageInfo storage_info_() const override {
+    filesystem_storage_abstract::StorageInfo info;
+    info.valid = this->free_bytes.has_value();
+    info.free_bytes = this->free_bytes.value_or(0);
+    return info;
   }
   climate_hub::EncodeError encode_(const climate_hub::ClimateConfig &config, std::string *json) const override {
     return config.encode(json, this->max_file_bytes);
@@ -278,17 +295,27 @@ class Editor : public ::testing::Test {
   void TearDown() override {
     hub().reset();
     storage().set_base_path(this->base_path);
-    for (const std::string &name : this->files())
-      remove((this->folder() + "/" + name).c_str());
+    this->clear_folder();
     rmdir(this->folder().c_str());
     rmdir(this->base_path.c_str());
   }
 
   std::string folder() const { return this->base_path + "/climates"; }
+  std::string gains() const { return this->folder() + "/gains"; }
+  std::string sets_of(const std::string &id) const { return this->gains() + "/" + id + ".jsonl"; }
 
-  std::vector<std::string> files() const {
+  // Every file in the thermostat folder and in its sets folder, which stays.
+  void clear_folder() const {
+    for (const std::string &name : list(this->gains()))
+      remove((this->gains() + "/" + name).c_str());
+    rmdir(this->gains().c_str());
+    for (const std::string &name : this->files())
+      remove((this->folder() + "/" + name).c_str());
+  }
+
+  static std::vector<std::string> list(const std::string &path) {
     std::vector<std::string> names;
-    DIR *dir = opendir(this->folder().c_str());
+    DIR *dir = opendir(path.c_str());
     if (dir == nullptr)
       return names;
     while (struct dirent *entry = readdir(dir)) {
@@ -296,6 +323,14 @@ class Editor : public ::testing::Test {
         names.emplace_back(entry->d_name);
     }
     closedir(dir);
+    std::sort(names.begin(), names.end());
+    return names;
+  }
+
+  // The thermostat files: the sets folder beside them is not one.
+  std::vector<std::string> files() const {
+    std::vector<std::string> names = list(this->folder());
+    names.erase(std::remove(names.begin(), names.end(), "gains"), names.end());
     return names;
   }
 

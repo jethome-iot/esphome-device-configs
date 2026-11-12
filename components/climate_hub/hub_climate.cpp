@@ -110,8 +110,6 @@ climate::ClimateTraits HubClimate::traits() {
     traits.add_supported_mode(climate::CLIMATE_MODE_HEAT);
   if (this->cool_)
     traits.add_supported_mode(climate::CLIMATE_MODE_COOL);
-  if (this->heat_ && this->cool_)
-    traits.add_supported_mode(climate::CLIMATE_MODE_HEAT_COOL);
   traits.set_visual_min_temperature(this->min_temperature_);
   traits.set_visual_max_temperature(this->max_temperature_);
   traits.set_visual_target_temperature_step(this->step_);

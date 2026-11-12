@@ -60,6 +60,31 @@ class FolderPath(unittest.TestCase):
                 climate_hub.folder_name(value)
 
 
+class TimeId(unittest.TestCase):
+    def test_no_clock_by_default(self):
+        config = climate_hub.CONFIG_SCHEMA({"storage": "user_storage"})
+        self.assertNotIn("time_id", config)
+
+    def test_a_clock_is_named_by_its_id(self):
+        config = climate_hub.CONFIG_SCHEMA(
+            {"storage": "user_storage", "time_id": "pcf8563_time"}
+        )
+        self.assertEqual(config["time_id"].id, "pcf8563_time")
+        self.assertEqual(str(config["time_id"].type), "time::RealTimeClock")
+
+    def test_anything_but_an_id_is_refused(self):
+        for value, message in (
+            ("", "ID must not be empty"),
+            ("rtc time", "The character ' ' cannot be used"),
+            ("1rtc", "First character in ID cannot be a digit"),
+        ):
+            with (
+                self.subTest(value=value),
+                self.assertRaisesRegex(cv.Invalid, message),
+            ):
+                climate_hub.CONFIG_SCHEMA({"storage": "user_storage", "time_id": value})
+
+
 class MaxControllers(unittest.TestCase):
     def test_the_range_is_one_to_sixteen(self):
         for value in (1, 16):

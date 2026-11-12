@@ -20,7 +20,7 @@ TEST(Enums, ControlKindRejectsUnknown) {
 }
 
 TEST(Enums, ModeRoundTrips) {
-  for (HubMode mode : {HubMode::OFF, HubMode::HEAT, HubMode::COOL, HubMode::HEAT_COOL}) {
+  for (HubMode mode : {HubMode::OFF, HubMode::HEAT, HubMode::COOL}) {
     HubMode parsed;
     ASSERT_TRUE(enums::mode_from_string(enums::mode_to_string(mode), &parsed));
     EXPECT_EQ(mode, parsed);
@@ -30,6 +30,9 @@ TEST(Enums, ModeRoundTrips) {
 TEST(Enums, ModeRejectsUnknown) {
   HubMode parsed = HubMode::HEAT;
   EXPECT_FALSE(enums::mode_from_string("dry", &parsed));
+  EXPECT_EQ(HubMode::HEAT, parsed);
+  // Gone: a thermostat drives one relay at a time.
+  EXPECT_FALSE(enums::mode_from_string("heat_cool", &parsed));
   EXPECT_EQ(HubMode::HEAT, parsed);
 }
 
@@ -86,20 +89,21 @@ TEST(Enums, CalibrationRulesAndDirectionsRoundTrip) {
   EXPECT_FALSE(enums::autotune_rule_from_string("ziegler", &rule));
   EXPECT_EQ(AutotuneRule::PESSEN, rule);
 
-  for (AutotuneDirection direction : {AutotuneDirection::HEAT, AutotuneDirection::COOL}) {
-    AutotuneDirection parsed;
-    ASSERT_TRUE(enums::autotune_direction_from_string(enums::autotune_direction_to_string(direction), &parsed));
+  for (Direction direction : {Direction::HEAT, Direction::COOL}) {
+    Direction parsed;
+    ASSERT_TRUE(enums::direction_from_string(enums::direction_to_string(direction), &parsed));
     EXPECT_EQ(direction, parsed);
   }
-  AutotuneDirection direction = AutotuneDirection::COOL;
-  EXPECT_FALSE(enums::autotune_direction_from_string("heat_cool", &direction));
-  EXPECT_EQ(AutotuneDirection::COOL, direction);
+  Direction direction = Direction::COOL;
+  EXPECT_FALSE(enums::direction_from_string("heat_cool", &direction));
+  EXPECT_EQ(Direction::COOL, direction);
 }
 
 TEST(Enums, RelayWaitNamesAreStable) {
   EXPECT_STREQ("none", enums::relay_wait_to_string(RelayWait::NONE));
   EXPECT_STREQ("min_on", enums::relay_wait_to_string(RelayWait::MIN_ON));
   EXPECT_STREQ("min_off", enums::relay_wait_to_string(RelayWait::MIN_OFF));
+  EXPECT_STREQ("other_relay", enums::relay_wait_to_string(RelayWait::OTHER_RELAY));
 }
 
 }  // namespace esphome::climate_hub::testing

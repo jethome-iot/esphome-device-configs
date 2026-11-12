@@ -9,8 +9,11 @@
  */
 export type ControlKind = 'pid' | 'bang_bang'
 
-/** Requested operating mode. */
-export type ClimateHubMode = 'off' | 'heat' | 'cool' | 'heat_cool'
+/**
+ * Requested operating mode: one relay at a time. A thermostat with both relays switches between
+ * heat and cool by hand, a preset, a rule or a schedule; there is no mode that drives both.
+ */
+export type ClimateHubMode = 'off' | 'heat' | 'cool'
 
 /** A mode a thermostat is on in: what a turn-on goes back to. */
 export type ClimateHubOnMode = Exclude<ClimateHubMode, 'off'>
@@ -32,10 +35,12 @@ export type ClimateHubAction = 'off' | 'idle' | 'heating' | 'cooling'
 
 /**
  * What holds a relay away from where the thermostat wants it: `min_off` before it may
- * close, `min_on` before it may open. `none` otherwise, including while a relay switched
+ * close, `min_on` before it may open, `other_relay` before it may close while the
+ * thermostat's other relay is still closed (after a switch between heat and cool, until
+ * that one's `min_on` lets it open). `none` otherwise, including while a relay switched
  * from elsewhere waits to be put back: that wait is the switch's, not the thermostat's.
  */
-export type RelayWait = 'none' | 'min_on' | 'min_off'
+export type RelayWait = 'none' | 'min_on' | 'min_off' | 'other_relay'
 
 /**
  * What is wrong with a running controller. Never persisted. `sensor_stale` and
@@ -64,10 +69,29 @@ export interface SafetyConfig {
   max_temperature: number
 }
 
-export interface PidConfig {
+/** One relay's gains: what a PID runs on while the mode drives that relay. */
+export interface PidGains {
   kp: number
   ki: number
   kd: number
+}
+
+/** Which of a thermostat's relays: the heating or the cooling one. */
+export type RelayDirection = 'heat' | 'cool'
+
+/**
+ * The PID's settings. Each relay has its own gains, `heat` and `cool`; the rest is shared.
+ * The bare `kp`, `ki` and `kd` are for a firmware from before each relay had its own: /get
+ * answers them as a copy of the gains of the relay a turn-on goes to (`last_on_mode`'s), and
+ * /save and /import read them only for a relay whose own gains the body leaves out, as a file
+ * from such a firmware has them. A form sends `heat` and `cool` and may leave the bare ones out.
+ */
+export interface PidConfig {
+  heat: PidGains
+  cool: PidGains
+  kp?: number
+  ki?: number
+  kd?: number
   min_integral: number
   max_integral: number
   starting_integral_term: number
@@ -118,10 +142,10 @@ export interface ControllerDocument {
    */
   version: number
   /**
-   * Moves on when a calibration writes new gains and when an /import replaces the thermostat; a
-   * Save or any other write never moves it, and a new thermostat has 0. A Save that sends one other
-   * than the device's is 409 (STALE_DOCUMENT): the form was read before, and would write the old
-   * values back.
+   * Moves on when a calibration writes new gains, when a gain set is applied and when an /import
+   * replaces the thermostat; a Save or any other write never moves it, and a new thermostat has 0.
+   * A Save that sends one other than the device's is 409 (STALE_DOCUMENT): the form was read
+   * before, and would write the old values back.
    */
   revision: number
   /** Immutable slug and the document's file name; a rename never changes it. */
@@ -212,6 +236,8 @@ export interface ControllerSummary {
   cool_relay_id: string
   /** Enabled and bound to its sensor and relays. Enabled but not running, it waits: see `waiting`. */
   running: boolean
+  /** As ControllerDocument.revision, so an editor with the document open sees the device move it on. */
+  revision: number
   /**
    * Why an enabled thermostat does not run, the latest reason in a SaveResponse.warning's words
    * ("not started: sensor 'attic' not found"); "" when it runs or is disabled.
@@ -225,6 +251,11 @@ export interface ControllerSummary {
 
 /** Terms are `null` rather than NaN — JSON has no NaN and ArduinoJson emits null. */
 export interface PidTerms {
+  /**
+   * The relay whose gains the terms come from: the mode's, once a pass has run in it. A switch to
+   * the other relay starts the PID over on that relay's gains at its first pass.
+   */
+  direction: RelayDirection
   error: number | null
   proportional: number | null
   integral: number | null
@@ -261,8 +292,8 @@ export type AutotuneReason =
 /** The tuning rule that turns Ku and Pu into gains; `zn_pi` when a start names none. */
 export type AutotuneRule = 'zn_pi' | 'zn_pid' | 'pessen' | 'some_overshoot' | 'no_overshoot'
 
-/** The relay a calibration swings: one direction per run. */
-export type AutotuneDirection = 'heat' | 'cool'
+/** The relay a calibration swings: the one its mode drives. */
+export type AutotuneDirection = RelayDirection
 
 /**
  * What warns about a result; none ever makes a run longer. `asymmetric`: the room rose and fell at
@@ -271,12 +302,6 @@ export type AutotuneDirection = 'heat' | 'cool'
  * gain had to be held inside its range.
  */
 export type AutotuneFlag = 'asymmetric' | 'uneven' | 'clamped'
-
-export interface PidGains {
-  kp: number
-  ki: number
-  kd: number
-}
 
 /** The far end of one swing: the room's coldest or warmest in a relay phase, and when. */
 export interface AutotuneExtreme {
@@ -310,16 +335,95 @@ export interface AutotuneStatus {
   ku: number | null
   pu: number | null
   flags: AutotuneFlag[]
-  /** The gains in force when it started. */
+  /** Its relay's gains when it started. */
   old: PidGains
-  /** What it wrote in their place, null unless it succeeded. */
+  /** What it wrote in their place, as that relay's gains, null unless it succeeded. */
   new: PidGains | null
   /**
    * False when the gains run but did not reach the file, so a reboot loses them; true again once
    * the thermostat is written, by the device's retry or any later change.
    */
   persisted: boolean
+  /**
+   * The gain set a success was saved as, under its name now; null while it runs, after a failure,
+   * once that set is deleted, and when the set could not be written.
+   */
+  set: GainSetRef | null
 }
+
+/** Where a saved set's gains came from. A newer firmware's word comes as it is. */
+export type GainSetSource = 'calibration' | 'derived' | 'manual'
+
+/** A gain set by its number and its name, as /status names the one a calibration saved. */
+export interface GainSetRef {
+  n: number
+  name: string
+}
+
+/**
+ * One saved set of a relay's gains, keys in this order. A thermostat has any number; a delete
+ * takes them with it, an import keeps them.
+ */
+export interface GainSet {
+  /** From 1 within the thermostat, never given again there, a deleted set's included. */
+  n: number
+  /**
+   * 1..GAIN_SET_NAME_MAX_LENGTH characters in any script, no control characters; two sets may
+   * share one. A set given none is named for the local time it was saved at and how it was made
+   * ("2026-11-06 14:05 ZN PI"), or, while the device's clock is not set, for its relay, how it was
+   * made and its number ("Heat manual #3").
+   */
+  name: string
+  /** The relay whose gains these are; an apply writes them there. */
+  direction: RelayDirection
+  source: GainSetSource
+  /** The rule that turned Ku and Pu into the gains; null for a manual set. */
+  rule: AutotuneRule | null
+  /** What the calibration measured, Pu in seconds; null for a manual set, which cannot be derived from. */
+  ku: number | null
+  pu: number | null
+  kp: number
+  ki: number
+  kd: number
+  /** The calibration's warnings; a derived set keeps `asymmetric` and `uneven`, `clamped` is its own rule's. */
+  flags: AutotuneFlag[]
+  /** When it was saved, UTC seconds since the epoch; null while the device's clock was not set. */
+  time: number | null
+  /** The set a derived one was made from. */
+  from: number | null
+}
+
+/**
+ * GET /gains: the sets after `after`, oldest first, at most `limit` of them; `more` when the
+ * thermostat has others after the last one.
+ */
+export interface GainSetsResponse {
+  success: true
+  sets: GainSet[]
+  more: boolean
+}
+
+/** POST /gains/add and /gains/rename: the set as it is now. */
+export interface GainSetResponse extends SuccessResponse {
+  set: GainSet
+}
+
+/**
+ * POST /gains/apply: the set's gains are its relay's now, held in the parameters' ranges, and the
+ * thermostat's revision moved on to `revision`, so a form read before can take it and Save again.
+ * `persisted` is false when they run but did not reach the file. `warning` is there when the
+ * thermostat could not restart on them, and waits; worded as SaveResponse.warning.
+ */
+export interface GainSetApplyResponse extends SuccessResponse {
+  revision: number
+  persisted: boolean
+  warning?: string
+}
+
+/** POST /gains/derive: the new set; with apply=true what /gains/apply answers besides. */
+export interface GainSetDeriveResponse
+  extends GainSetResponse,
+    Partial<Omit<GainSetApplyResponse, 'success' | 'message'>> {}
 
 export interface ControllerStatus {
   id: string
@@ -483,20 +587,36 @@ export interface ErrorResponse {
   error: string
 }
 
-/** A save body larger than this is refused with 413 before it is parsed. */
+/** A body of /save, /import or a gain set route larger than this is refused with 413 before it is parsed. */
 export const CONFIG_MAX_BYTES = 8192
 
 /** The file format this contract describes; a document with a higher `version` came from a newer firmware. */
-export const CONFIG_VERSION = 4
+export const CONFIG_VERSION = 5
 
 /** The 409 error of a Save over a document whose `version` is above CONFIG_VERSION, in the device's words. */
 export const NEWER_FILE = 'A newer firmware wrote this thermostat; update the firmware to change it'
 
 /**
  * The 409 error of a Save whose `revision` is not the device's, in the device's words: the form
- * was read before a calibration wrote new gains, or before an import replaced the thermostat.
+ * was read before a calibration wrote new gains, a gain set was applied, or an import replaced
+ * the thermostat.
  */
 export const STALE_DOCUMENT = 'The device changed this thermostat since it was read; reload it'
+
+/** The 404 error of a gain set route whose `set` the thermostat does not have, in the device's words. */
+export const GAIN_SET_NOT_FOUND = 'Gain set not found'
+
+/** The 409 error of an apply, or a derive with apply=true, while the thermostat calibrates. */
+export const CALIBRATION_RUNNING = 'A calibration is running; apply a gain set once it ends or is cancelled'
+
+/** The 409 error of a derive from a set without Ku and Pu: a manual one. */
+export const NO_MEASUREMENT = 'This set has no Ku and Pu'
+
+/** Longest gain set name, in characters (code points). */
+export const GAIN_SET_NAME_MAX_LENGTH = 48
+
+/** Most sets one GET /gains answers with, and its default `limit`. */
+export const GAIN_SET_PAGE_MAX = 200
 
 /** The tuning rules, in the order the dashboard offers them; the first is the default. */
 export const AUTOTUNE_RULES: ReadonlyArray<AutotuneRule> = ['zn_pi', 'zn_pid', 'pessen', 'some_overshoot', 'no_overshoot']
