@@ -44,7 +44,8 @@ boundaries; everything else is local to its file.
 - `automations_engine` (`features/automations.yaml`) is the rule engine; `display/menu.yaml`
   reads `configs()` for the Automations rows and calls `set_enable_automation` from them.
 - `climates` (`features/climates.yaml`) is the `climate_hub` component: the thermostats, kept
-  on `user_storage` under `climates/`. A thermostat names its sensor and relays by object id,
+  on `user_storage` under `climates/`, and each one's saved gain sets under `climates/gains/`,
+  dated and named by `pcf8563_time`. A thermostat names its sensor and relays by object id,
   so renaming a relay in YAML, or a `Temp N` slot that stays empty, leaves it not running. The
   QEMU overlay `qemu/climate-plant.yaml` gives it a room to control. `web_climate_editor`
   (`features/climate-editor.yaml`) edits the thermostats under `/climate-editor/api`;

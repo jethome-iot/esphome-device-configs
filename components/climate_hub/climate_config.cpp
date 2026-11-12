@@ -110,6 +110,27 @@ void clamp_output(OutputConfig *out) {
   out->min_off_s = clamp_param("min_off_s", out->min_off_s);
 }
 
+void serialize_gains(JsonObject obj, const PidGains &gains) {
+  obj["kp"] = gains.kp;
+  obj["ki"] = gains.ki;
+  obj["kd"] = gains.kd;
+}
+
+// A relay without gains of its own, as in a file from before they were per relay, takes the bare
+// ones beside them.
+void deserialize_gains(JsonObjectConst pid, const char *relay, PidGains *out) {
+  JsonObjectConst from = pid[relay].is<JsonObjectConst>() ? pid[relay].as<JsonObjectConst>() : pid;
+  out->kp = from["kp"] | out->kp;
+  out->ki = from["ki"] | out->ki;
+  out->kd = from["kd"] | out->kd;
+}
+
+void clamp_gains(PidGains *gains) {
+  gains->kp = clamp_param("kp", gains->kp);
+  gains->ki = clamp_param("ki", gains->ki);
+  gains->kd = clamp_param("kd", gains->kd);
+}
+
 static_assert(ENTITY_ID_MAX_LENGTH == 120, "the sentences below name the limit");
 
 // The rules come in two runs because deserialize() checks the mode word between them: the
@@ -142,8 +163,6 @@ bool check_mode(const ClimateConfig &config, std::string *error) {
     return fail(error, "mode 'heat' needs heat.relay_id");
   if (config.mode == HubMode::COOL && !config.supports_cool())
     return fail(error, "mode 'cool' needs cool.relay_id");
-  if (config.mode == HubMode::HEAT_COOL && !(config.supports_heat() && config.supports_cool()))
-    return fail(error, "mode 'heat_cool' needs both relays");
   if (std::isnan(config.setpoint))
     return fail(error, "setpoint must be a number");
   return true;
@@ -168,9 +187,7 @@ bool check_preset_values(const ClimateConfig &config, std::string *error) {
     if (preset.mode.has_value() && !config.supports_mode(*preset.mode)) {
       // Off needs nothing, so it never gets here.
       const HubMode mode = *preset.mode;
-      const char *needs = mode == HubMode::HEAT   ? "heat.relay_id"
-                          : mode == HubMode::COOL ? "cool.relay_id"
-                                                  : "both relays";
+      const char *needs = mode == HubMode::HEAT ? "heat.relay_id" : "cool.relay_id";
       return fail(error, preset_at(i) + ": mode '" + enums::mode_to_string(mode) + "' needs " + needs);
     }
     if (preset.key.empty())
@@ -230,7 +247,7 @@ bool read_presets(JsonVariantConst value, std::vector<PresetConfig> *out, std::s
     if (!mode.isNull() && mode.as<std::string>() != PRESET_MODE_KEEP) {
       HubMode parsed;
       if (!enums::mode_from_string(mode.as<std::string>(), &parsed))
-        return fail(error, at + ": mode must be one of keep/off/heat/cool/heat_cool");
+        return fail(error, at + ": mode must be one of keep/off/heat/cool");
       preset.mode = parsed;
     }
     out->push_back(std::move(preset));
@@ -427,9 +444,11 @@ void ClimateConfig::serialize(JsonObject root) const {
   safety["max_temperature"] = this->safety.max_temperature;
 
   JsonObject pid = root["pid"].to<JsonObject>();
-  pid["kp"] = this->pid.kp;
-  pid["ki"] = this->pid.ki;
-  pid["kd"] = this->pid.kd;
+  serialize_gains(pid["heat"].to<JsonObject>(), this->pid.heat);
+  serialize_gains(pid["cool"].to<JsonObject>(), this->pid.cool);
+  // For a firmware from before each relay had its own, which reads these alone: the relay a
+  // turn-on goes to runs on its own gains there too.
+  serialize_gains(pid, this->pid.gains(this->on_direction()));
   pid["min_integral"] = this->pid.min_integral;
   pid["max_integral"] = this->pid.max_integral;
   pid["starting_integral_term"] = this->pid.starting_integral_term;
@@ -520,9 +539,8 @@ bool ClimateConfig::deserialize(const JsonObject &root, bool require_id, std::st
 
   JsonObject pid = root["pid"].as<JsonObject>();
   if (!pid.isNull()) {
-    this->pid.kp = pid["kp"] | this->pid.kp;
-    this->pid.ki = pid["ki"] | this->pid.ki;
-    this->pid.kd = pid["kd"] | this->pid.kd;
+    deserialize_gains(pid, "heat", &this->pid.heat);
+    deserialize_gains(pid, "cool", &this->pid.cool);
     this->pid.min_integral = pid["min_integral"] | this->pid.min_integral;
     this->pid.max_integral = pid["max_integral"] | this->pid.max_integral;
     this->pid.starting_integral_term = pid["starting_integral_term"] | this->pid.starting_integral_term;
@@ -546,13 +564,13 @@ bool ClimateConfig::deserialize(const JsonObject &root, bool require_id, std::st
   if (!check_wiring(*this, error))
     return false;
   if (!root["mode"].isNull() && !enums::mode_from_string(root["mode"].as<std::string>(), &this->mode))
-    return fail(error, "mode must be one of off/heat/cool/heat_cool");
+    return fail(error, "mode must be one of off/heat/cool");
   // State, like active_preset: one the relays no longer serve gives way in on_mode(). A word it
   // does not know is refused as any other is.
   if (!root["last_on_mode"].isNull() &&
       (!enums::mode_from_string(root["last_on_mode"].as<std::string>(), &this->last_on_mode) ||
        this->last_on_mode == HubMode::OFF))
-    return fail(error, "last_on_mode must be one of heat/cool/heat_cool");
+    return fail(error, "last_on_mode must be one of heat/cool");
   this->setpoint = root["setpoint"] | this->setpoint;
   if (!check_mode(*this, error) || !read_presets(root["presets"], &this->presets, error) ||
       !check_presets(*this, error) || !validate_name(this->name, error))
@@ -581,9 +599,8 @@ void ClimateConfig::clamp_numbers() {
   this->safety.sensor_timeout_s = clamp_param("sensor_timeout_s", this->safety.sensor_timeout_s);
   this->safety.max_temperature = clamp_param("safety_max_temperature", this->safety.max_temperature);
   PidParams &p = this->pid;
-  p.kp = clamp_param("kp", p.kp);
-  p.ki = clamp_param("ki", p.ki);
-  p.kd = clamp_param("kd", p.kd);
+  clamp_gains(&p.heat);
+  clamp_gains(&p.cool);
   p.min_integral = clamp_param("min_integral", p.min_integral);
   p.max_integral = clamp_param("max_integral", p.max_integral);
   p.starting_integral_term = clamp_param("starting_integral_term", p.starting_integral_term);
@@ -617,8 +634,6 @@ bool ClimateConfig::supports_mode(HubMode mode) const {
       return this->supports_heat();
     case HubMode::COOL:
       return this->supports_cool();
-    case HubMode::HEAT_COOL:
-      return this->supports_heat() && this->supports_cool();
   }
   return false;
 }

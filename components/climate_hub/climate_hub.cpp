@@ -11,6 +11,10 @@
 #include "esphome/core/application.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
+#include "param_table.h"
+#ifdef USE_TIME
+#include "esphome/components/time/real_time_clock.h"
+#endif
 #ifdef USE_API
 #include "esphome/components/api/api_connection.h"
 #include "esphome/components/api/api_server.h"
@@ -61,6 +65,14 @@ static const char *const HA_ID_CLASH = ", which reads every character but a Lati
                                        "a digit or a Latin letter makes them distinct";
 static const char *const API_ID_CLASH = ", which reads every byte of a non-ASCII letter as '_'; "
                                         "a digit or a Latin letter makes them distinct";
+static const char *const SET_NOT_FOUND = "Gain set not found";
+static const char *const SETS_NOT_WRITTEN = "The gain sets file could not be written";
+// Only a reader open on another task, which HTTP requests never overlap with: a lambda's call.
+static const char *const SETS_BEING_READ = "The gain sets are being read; try again";
+static const char *const LOW_SPACE =
+    "Less than 64 KiB is free on the storage; delete gain sets or files to make room for another";
+static const char *const CALIBRATING = "A calibration is running; apply a gain set once it ends or is cancelled";
+static_assert(GAIN_SET_MIN_FREE_BYTES == 64 * 1024, "LOW_SPACE names the limit");
 
 // A create or update whose file was not written: nothing changed.
 static Result not_saved(bool too_large) {
@@ -81,6 +93,15 @@ static Result success() {
   Result result;
   result.ok = true;
   return result;
+}
+
+static bool has_relay(const ClimateConfig &config, Direction direction) {
+  return direction == Direction::COOL ? config.supports_cool() : config.supports_heat();
+}
+
+static Result no_relay(Direction direction) {
+  return failure(
+      409, std::string("The thermostat has no ") + (direction == Direction::COOL ? "cooling" : "heating") + " relay");
 }
 
 #ifdef USE_SENSOR
@@ -348,9 +369,14 @@ void ClimateHub::loop() {
   }
   if (!this->dirty_.empty() && now - this->dirty_since_ms_ >= FLUSH_DEBOUNCE_MS)
     this->flush_dirty_();
+  if (!this->pending_sets_.empty() && this->gain_readers_.load() == 0)
+    this->flush_pending_sets_();
 }
 
-void ClimateHub::on_shutdown() { this->flush_dirty_(); }
+void ClimateHub::on_shutdown() {
+  this->flush_dirty_();
+  this->flush_pending_sets_();
+}
 
 void ClimateHub::dump_config() {
   ESP_LOGCONFIG(TAG, "Climate hub:");
@@ -515,6 +541,8 @@ Result ClimateHub::create(ClimateConfig draft) {
   bool too_large = false;
   if (!this->save_(draft, &too_large))
     return not_saved(too_large);
+  // A thermostat deleted under this id may have left its sets behind; a restore keeps them.
+  this->drop_gain_sets_(draft.id);
   return this->add_(draft, "Created");
 }
 
@@ -686,6 +714,7 @@ Result ClimateHub::remove(const std::string &id) {
   }
   result = success();
   result.persisted = this->delete_file_(id);
+  this->drop_gain_sets_(id);
   this->dirty_.erase(id);
   this->waiting_.erase(id);
   this->autotunes_.erase(id);
@@ -874,7 +903,7 @@ Result ClimateHub::set_mode_(const std::string &id, HubMode mode) {
   return result;
 }
 
-Result ClimateHub::start_autotune(const std::string &id, optional<AutotuneDirection> direction, AutotuneRule rule) {
+Result ClimateHub::start_autotune(const std::string &id, optional<Direction> direction, AutotuneRule rule) {
   Result result;
   if (this->refuse_if_failed_(&result))
     return result;
@@ -895,16 +924,11 @@ Result ClimateHub::start_autotune(const std::string &id, optional<AutotuneDirect
   const HubMode mode = stored->mode;
   if (mode == HubMode::OFF)
     return failure(409, "The thermostat is off: set it to heat or cool first");
-  if (!direction.has_value()) {
-    if (mode == HubMode::HEAT_COOL)
-      return failure(400, "In heat_cool, direction must say heat or cool");
-    direction = mode == HubMode::COOL ? AutotuneDirection::COOL : AutotuneDirection::HEAT;
-  }
-  const bool heat = *direction == AutotuneDirection::HEAT;
-  const HubMode own = heat ? HubMode::HEAT : HubMode::COOL;
-  if (mode != own && mode != HubMode::HEAT_COOL) {
-    const std::string word = enums::autotune_direction_to_string(*direction);
-    return failure(400, "direction '" + word + "' needs mode " + word + " or heat_cool");
+  // The mode's relay: one a client names besides has to be that one.
+  const Direction own = stored->on_direction();
+  if (direction.has_value() && *direction != own) {
+    return failure(400, std::string("direction '") + enums::direction_to_string(*direction) + "' does not match mode " +
+                            enums::mode_to_string(mode) + ": a calibration swings the relay of the current mode");
   }
   // It would end at the next pass, before a single swing.
   if (runtime.fault() != HubFault::NONE)
@@ -912,8 +936,7 @@ Result ClimateHub::start_autotune(const std::string &id, optional<AutotuneDirect
                             "; calibrate it once that clears");
 
   const uint64_t now = this->now_ms();
-  auto run = std::make_unique<AutotuneRun>(*direction, rule, PidGains{stored->pid.kp, stored->pid.ki, stored->pid.kd},
-                                           stored->setpoint, now);
+  auto run = std::make_unique<AutotuneRun>(own, rule, stored->pid.gains(own), stored->setpoint, now);
   AutotuneRun *running = run.get();
   // Gains the last one could not write would leave the status with it and come back as the old
   // ones at the next boot: they get another write.
@@ -923,7 +946,7 @@ Result ClimateHub::start_autotune(const std::string &id, optional<AutotuneDirect
   // The last one's numbers go: they stay until the next run.
   this->autotunes_[id] = std::move(run);
   runtime.begin_autotune(running, now);
-  ESP_LOGI(TAG, "'%s': calibration started, %s, rule %s", id.c_str(), enums::autotune_direction_to_string(*direction),
+  ESP_LOGI(TAG, "'%s': calibration started, %s, rule %s", id.c_str(), enums::direction_to_string(own),
            enums::autotune_rule_to_string(rule));
   return success();
 }
@@ -956,9 +979,8 @@ void ClimateHub::complete_autotune_(Slot *slot) {
   gains.kp = as_stored(gains.kp);
   gains.ki = as_stored(gains.ki);
   gains.kd = as_stored(gains.kd);
-  config->pid.kp = gains.kp;
-  config->pid.ki = gains.ki;
-  config->pid.kd = gains.kd;
+  // Only its relay's: the other one keeps what it had.
+  config->pid.gains(run->direction()) = gains;
   // A form read before now would write the old gains back.
   config->revision++;
   const bool persisted = this->save_(*config);
@@ -971,11 +993,338 @@ void ClimateHub::complete_autotune_(Slot *slot) {
   const uint64_t now = this->now_ms();
   run->succeed(gains, clamped, persisted, now);
   runtime.end_autotune(AutotuneEnd::NONE, now);
-  ESP_LOGI(TAG, "'%s': calibrated in %" PRIu64 " s: Ku %.5g, Pu %.0f s, rule %s: kp %.5g, ki %.5g, kd %.5g%s%s%s%s",
+  ESP_LOGI(TAG, "'%s': calibrated in %" PRIu64 " s: Ku %.5g, Pu %.0f s, rule %s: %s kp %.5g, ki %.5g, kd %.5g%s%s%s%s",
            config->id.c_str(), run->elapsed_ms(now) / 1000, run->tuner().ku(), run->tuner().pu(),
-           enums::autotune_rule_to_string(run->rule()), gains.kp, gains.ki, gains.kd,
-           run->asymmetric() ? ", asymmetric" : "", run->uneven() ? ", uneven" : "", clamped ? ", clamped" : "",
-           persisted ? "" : ", not written");
+           enums::autotune_rule_to_string(run->rule()), enums::direction_to_string(run->direction()), gains.kp,
+           gains.ki, gains.kd, run->asymmetric() ? ", asymmetric" : "", run->uneven() ? ", uneven" : "",
+           clamped ? ", clamped" : "", persisted ? "" : ", not written");
+  this->save_calibration_(config->id, run);
+}
+
+// --- Gain sets ---
+
+Result ClimateHub::add_gain_set(const std::string &id, optional<Direction> direction, const std::string &name,
+                                GainSet *added) {
+  Result result;
+  if (this->refuse_if_failed_(&result))
+    return result;
+  const std::string trimmed = trim_name(name);
+  std::string error;
+  if (!trimmed.empty() && !validate_set_name(trimmed, &error))
+    return failure(400, error);
+  const ClimateConfig *stored = this->store_.get(id);
+  if (stored == nullptr)
+    return failure(404, NOT_FOUND);
+  const Direction own = direction.has_value() ? *direction : stored->on_direction();
+  if (!has_relay(*stored, own))
+    return no_relay(own);
+  GainSet set;
+  set.direction = own;
+  set.source = GAIN_SET_MANUAL;
+  set.gains = stored->pid.gains(own);
+  result = success();
+  if (!this->append_set_(id, trimmed, GAIN_SET_MANUAL, &set, &result))
+    return result;
+  ESP_LOGI(TAG, "'%s': the %s relay's gains saved as set %" PRIu32 ", \"%s\"", id.c_str(),
+           enums::direction_to_string(own), set.n, set.name.c_str());
+  if (added != nullptr)
+    *added = std::move(set);
+  return result;
+}
+
+Result ClimateHub::rename_gain_set(const std::string &id, uint32_t n, const std::string &name, GainSet *renamed) {
+  Result result;
+  if (this->refuse_if_failed_(&result))
+    return result;
+  const std::string trimmed = trim_name(name);
+  std::string error;
+  if (!validate_set_name(trimmed, &error))
+    return failure(400, error);
+  if (this->store_.get(id) == nullptr)
+    return failure(404, NOT_FOUND);
+  if (!this->settle_sets_(&result))
+    return result;
+  GainSet set;
+  switch (rewrite_gain_sets(this->gain_sets_path_(id), n, &trimmed, &set)) {
+    case GainSetRewrite::NOT_FOUND:
+      return failure(404, SET_NOT_FOUND);
+    case GainSetRewrite::FAILED:
+      return failure(500, SETS_NOT_WRITTEN);
+    case GainSetRewrite::DONE:
+      break;
+  }
+  auto run = this->autotunes_.find(id);
+  if (run != this->autotunes_.end() && run->second->saved_n() == n)
+    run->second->saved_as(n, trimmed);
+  ESP_LOGD(TAG, "'%s': gain set %" PRIu32 " renamed \"%s\"", id.c_str(), n, trimmed.c_str());
+  if (renamed != nullptr)
+    *renamed = std::move(set);
+  return success();
+}
+
+Result ClimateHub::delete_gain_set(const std::string &id, uint32_t n) {
+  Result result;
+  if (this->refuse_if_failed_(&result))
+    return result;
+  if (this->store_.get(id) == nullptr)
+    return failure(404, NOT_FOUND);
+  if (!this->settle_sets_(&result))
+    return result;
+  switch (rewrite_gain_sets(this->gain_sets_path_(id), n, nullptr, nullptr)) {
+    case GainSetRewrite::NOT_FOUND:
+      return failure(404, SET_NOT_FOUND);
+    case GainSetRewrite::FAILED:
+      return failure(500, SETS_NOT_WRITTEN);
+    case GainSetRewrite::DONE:
+      break;
+  }
+  auto run = this->autotunes_.find(id);
+  if (run != this->autotunes_.end() && run->second->saved_n() == n)
+    run->second->saved_as(0, "");
+  ESP_LOGD(TAG, "'%s': gain set %" PRIu32 " deleted", id.c_str(), n);
+  return success();
+}
+
+Result ClimateHub::apply_gain_set(const std::string &id, uint32_t n) {
+  Result result;
+  if (this->refuse_if_failed_(&result))
+    return result;
+  ClimateConfig *stored = this->store_.get(id);
+  if (stored == nullptr)
+    return failure(404, NOT_FOUND);
+  GainSet set;
+  if (!this->find_set_(id, n, &set))
+    return failure(404, SET_NOT_FOUND);
+  if (!this->may_apply_(*stored, set.direction, &result))
+    return result;
+  return this->apply_set_(stored, set);
+}
+
+Result ClimateHub::derive_gain_set(const std::string &id, uint32_t n, AutotuneRule rule, bool apply,
+                                   const std::string &name, GainSet *added) {
+  Result result;
+  if (this->refuse_if_failed_(&result))
+    return result;
+  const std::string trimmed = trim_name(name);
+  std::string error;
+  if (!trimmed.empty() && !validate_set_name(trimmed, &error))
+    return failure(400, error);
+  ClimateConfig *stored = this->store_.get(id);
+  if (stored == nullptr)
+    return failure(404, NOT_FOUND);
+  GainSet parent;
+  if (!this->find_set_(id, n, &parent))
+    return failure(404, SET_NOT_FOUND);
+  if (!parent.has_measurement())
+    return failure(409, "This set has no Ku and Pu");
+  // Nothing is added for a set that could not be applied.
+  if (apply && !this->may_apply_(*stored, parent.direction, &result))
+    return result;
+  GainSet set;
+  set.direction = parent.direction;
+  set.source = GAIN_SET_DERIVED;
+  set.rule = enums::autotune_rule_to_string(rule);
+  set.ku = parent.ku;
+  set.pu = parent.pu;
+  bool clamped = false;
+  const PidGains gains = gains_for_rule(parent.ku, parent.pu, rule, &clamped);
+  set.gains = PidGains{as_stored(gains.kp), as_stored(gains.ki), as_stored(gains.kd)};
+  // The measurement's warnings hold for any rule; clamping is the new rule's.
+  for (const char *flag : {"asymmetric", "uneven"}) {
+    if (parent.has_flag(flag))
+      set.flags.emplace_back(flag);
+  }
+  if (clamped)
+    set.flags.emplace_back("clamped");
+  set.from = parent.n;
+  result = success();
+  if (!this->append_set_(id, trimmed, rule_label(rule), &set, &result))
+    return result;
+  ESP_LOGI(TAG, "'%s': set %" PRIu32 " derived from set %" PRIu32 " by rule %s, \"%s\"", id.c_str(), set.n, n,
+           set.rule.c_str(), set.name.c_str());
+  if (added != nullptr)
+    *added = set;
+  return apply ? this->apply_set_(stored, set) : result;
+}
+
+std::unique_ptr<GainSetReader> ClimateHub::open_gain_sets(const std::string &id, Result *result) {
+  if (this->store_.get(id) == nullptr) {
+    *result = failure(404, NOT_FOUND);
+    return nullptr;
+  }
+  // What waited for the last reader goes in first, so this one sees it.
+  if (this->gain_readers_.load() == 0)
+    this->flush_pending_sets_();
+  *result = success();
+  FILE *file = fopen(this->gain_sets_path_(id).c_str(), "r");
+  this->gain_readers_++;
+  return std::make_unique<GainSetReader>(file, &this->gain_readers_);
+}
+
+bool ClimateHub::append_set_(const std::string &id, const std::string &name, const char *label, GainSet *set,
+                             Result *result) {
+  const filesystem_storage_abstract::StorageInfo info = this->storage_info_();
+  if (info.valid && info.free_bytes < GAIN_SET_MIN_FREE_BYTES) {
+    *result = failure(507, LOW_SPACE);
+    return false;
+  }
+  const std::string path = this->gain_sets_path_(id);
+  uint32_t last = max_gain_set_n(path);
+  for (const PendingSets &pending : this->pending_sets_) {
+    if (pending.id == id)
+      last = pending.drop ? 0 : std::max(last, pending.set.n);
+  }
+  set->n = last + 1;
+  const ESPTime now = this->clock_now_();
+  if (now.is_valid())
+    set->time = static_cast<int64_t>(now.timestamp);
+  set->name = name.empty() ? default_set_name(now, set->direction, label, set->n) : name;
+  if (this->gain_readers_.load() != 0) {
+    this->pending_sets_.push_back(PendingSets{id, false, *set});
+    return true;
+  }
+  if (!this->ensure_gains_folder_() || !append_gain_set(path, *set)) {
+    ESP_LOGE(TAG, "Cannot write '%s'", path.c_str());
+    *result = failure(500, SETS_NOT_WRITTEN);
+    return false;
+  }
+  return true;
+}
+
+bool ClimateHub::find_set_(const std::string &id, uint32_t n, GainSet *set) {
+  if (this->gain_readers_.load() == 0)
+    this->flush_pending_sets_();
+  bool found = find_gain_set(this->gain_sets_path_(id), n, set);
+  for (const PendingSets &pending : this->pending_sets_) {
+    if (pending.id == id && pending.drop) {
+      found = false;
+    } else if (pending.id == id && pending.set.n == n && !found) {
+      *set = pending.set;
+      found = true;
+    }
+  }
+  return found;
+}
+
+bool ClimateHub::settle_sets_(Result *result) {
+  if (this->gain_readers_.load() != 0) {
+    *result = failure(503, SETS_BEING_READ);
+    return false;
+  }
+  this->flush_pending_sets_();
+  return true;
+}
+
+bool ClimateHub::may_apply_(const ClimateConfig &stored, Direction direction, Result *result) const {
+  // Its fields this firmware does not know would be lost.
+  if (stored.from_newer_firmware()) {
+    *result = failure(409, NEWER_FILE);
+    return false;
+  }
+  if (!has_relay(stored, direction)) {
+    *result = no_relay(direction);
+    return false;
+  }
+  Slot *slot = this->slot_for_(stored.id);
+  if (slot != nullptr && slot->runtime.autotune() != nullptr) {
+    *result = failure(409, CALIBRATING);
+    return false;
+  }
+  return true;
+}
+
+Result ClimateHub::apply_set_(ClimateConfig *stored, const GainSet &set) {
+  // Held in range, as a Save holds them: the file is writable by hand.
+  stored->pid.gains(set.direction) =
+      PidGains{clamp_param("kp", set.gains.kp), clamp_param("ki", set.gains.ki), clamp_param("kd", set.gains.kd)};
+  // A form read before now would write the old gains back, as after a calibration.
+  stored->revision++;
+  Result result = success();
+  result.persisted = this->save_(*stored);
+  // Tried again at the next flush or the shutdown, as a calibration's gains are.
+  if (result.persisted) {
+    this->dirty_.erase(stored->id);
+  } else {
+    this->mark_dirty_(stored->id);
+  }
+  ESP_LOGI(TAG, "'%s': gain set %" PRIu32 " applied to the %s relay: kp %.5g, ki %.5g, kd %.5g%s", stored->id.c_str(),
+           set.n, enums::direction_to_string(set.direction), stored->pid.gains(set.direction).kp,
+           stored->pid.gains(set.direction).ki, stored->pid.gains(set.direction).kd,
+           result.persisted ? "" : ", not written");
+  Slot *slot = this->slot_for_(stored->id);
+  std::string error;
+  // As after a Save: the PID keeps what it learnt, on the new gains of the relay it runs on.
+  if (slot != nullptr && !this->restart_(slot, stored->name, &error)) {
+    result.warning = this->note_waiting_(stored->id, error);
+    ESP_LOGW(TAG, "'%s' %s", stored->id.c_str(), result.warning.c_str());
+    this->schedule_ha_resync_();
+    this->start_waiters_(stored->id, &result);
+    this->announce_released_();
+  }
+  return result;
+}
+
+void ClimateHub::save_calibration_(const std::string &id, AutotuneRun *run) {
+  GainSet set;
+  set.direction = run->direction();
+  set.source = GAIN_SET_CALIBRATION;
+  set.rule = enums::autotune_rule_to_string(run->rule());
+  set.ku = run->tuner().ku();
+  set.pu = run->tuner().pu();
+  set.gains = run->new_gains();
+  if (run->asymmetric())
+    set.flags.emplace_back("asymmetric");
+  if (run->uneven())
+    set.flags.emplace_back("uneven");
+  if (run->clamped())
+    set.flags.emplace_back("clamped");
+  Result result;
+  if (!this->append_set_(id, "", rule_label(run->rule()), &set, &result)) {
+    ESP_LOGW(TAG, "'%s': the calibration was not saved as a gain set: %s", id.c_str(), result.error.c_str());
+    return;
+  }
+  run->saved_as(set.n, set.name);
+  ESP_LOGI(TAG, "'%s': the calibration saved as gain set %" PRIu32 ", \"%s\"", id.c_str(), set.n, set.name.c_str());
+}
+
+void ClimateHub::drop_gain_sets_(const std::string &id) {
+  if (this->gain_readers_.load() != 0) {
+    this->pending_sets_.push_back(PendingSets{id, true, GainSet{}});
+    return;
+  }
+  this->delete_gain_file_(id);
+}
+
+void ClimateHub::delete_gain_file_(const std::string &id) {
+  const std::string path = this->gain_sets_path_(id);
+  if (!this->remove_file_(path) && file_exists(path))
+    ESP_LOGW(TAG, "Cannot delete '%s'", path.c_str());
+}
+
+void ClimateHub::flush_pending_sets_() {
+  std::vector<PendingSets> pending;
+  pending.swap(this->pending_sets_);
+  for (const PendingSets &item : pending) {
+    if (item.drop) {
+      this->delete_gain_file_(item.id);
+      continue;
+    }
+    if (this->ensure_gains_folder_() && append_gain_set(this->gain_sets_path_(item.id), item.set))
+      continue;
+    ESP_LOGE(TAG, "'%s': gain set %" PRIu32 " was not written", item.id.c_str(), item.set.n);
+    // The calibration's status must not name a set that is not there.
+    auto run = this->autotunes_.find(item.id);
+    if (run != this->autotunes_.end() && run->second->saved_n() == item.set.n)
+      run->second->saved_as(0, "");
+  }
+}
+
+ESPTime ClimateHub::clock_now_() const {
+#ifdef USE_TIME
+  if (this->rtc_ != nullptr)
+    return this->rtc_->now();
+#endif
+  return ESPTime{};
 }
 
 // --- Running and stopping ---
@@ -1344,6 +1693,23 @@ void ClimateHub::on_control_(uint8_t index, const climate::ClimateCall &call) {
 std::string ClimateHub::folder_() const { return this->storage_->get_base_path() + "/" + this->folder_path_; }
 
 std::string ClimateHub::file_path_(const std::string &id) const { return this->folder_() + "/" + id + ".json"; }
+
+// A folder the loader does not read: it takes the *.json files only.
+std::string ClimateHub::gains_folder_() const { return this->folder_() + "/" + GAIN_SET_FOLDER; }
+
+std::string ClimateHub::gain_sets_path_(const std::string &id) const {
+  return this->gains_folder_() + "/" + id + ".jsonl";
+}
+
+bool ClimateHub::ensure_gains_folder_() {
+  if (!this->ensure_folder_())
+    return false;
+  const std::string path = this->gains_folder_();
+  struct stat st;
+  if (stat(path.c_str(), &st) == 0)
+    return S_ISDIR(st.st_mode);
+  return mkdir(path.c_str(), 0755) == 0;
+}
 
 bool ClimateHub::ensure_folder_() {
   const std::string path = this->folder_();

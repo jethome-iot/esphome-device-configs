@@ -25,7 +25,7 @@ TEST_F(Editor, SaveCreatesAThermostatTheOtherRoutesThenSee) {
   EXPECT_EQ(list.body, R"({"success":true,"count":1,"max_controllers":3,"controllers":[)"
                        R"({"id":"living-room","name":"Living Room","enabled":true,"kind":"pid","mode":"heat",)"
                        R"("sensor_id":"room","heat_relay_id":"relay_1","cool_relay_id":"","running":true,)"
-                       R"("waiting":"","active_preset":"","active_preset_name":""}]})");
+                       R"("revision":0,"waiting":"","active_preset":"","active_preset_name":""}]})");
 
   // The bare document, every key there, the same shape save takes back.
   Reply got = this->get("get?id=living-room");
@@ -113,7 +113,11 @@ TEST_F(Editor, SaveRefusesWhatItCannotRead) {
            // The codec's rules come first, the name's last.
            Case{R"({"name":"Up/down","heat":{"relay_id":"relay_1"}})", "application/json", "sensor_id is required"},
            Case{R"({"name":"A","sensor_id":"room","heat":{"relay_id":"relay_1"},"mode":"dry"})", "application/json",
-                "mode must be one of off/heat/cool/heat_cool"},
+                "mode must be one of off/heat/cool"},
+           // Gone, and not migrated: a thermostat drives one relay at a time.
+           Case{R"({"name":"A","sensor_id":"room","heat":{"relay_id":"relay_1"},"cool":{"relay_id":"relay_2"},)"
+                R"("mode":"heat_cool"})",
+                "application/json", "mode must be one of off/heat/cool"},
            // An entity named by a number is no entity: ArduinoJson would hand over its JSON text.
            Case{R"({"name":"A","sensor_id":5,"heat":{"relay_id":"relay_1"}})", "application/json",
                 "sensor_id is required"},
@@ -647,7 +651,7 @@ TEST_F(Editor, TakeOverIsReadStrictlyAndActsOnlyOnAStart) {
 
 static const char *const STUDIO =
     R"({"name":"Studio","enabled":false,"kind":"pid","sensor_id":"room","heat":{"relay_id":"relay_1"},)"
-    R"("cool":{"relay_id":"relay_2"},"mode":"heat_cool","setpoint":22})";
+    R"("cool":{"relay_id":"relay_2"},"mode":"heat","setpoint":22})";
 
 TEST_F(Editor, TakingTwoRelaysOverNamesEveryThermostatItStopped) {
   ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
@@ -886,7 +890,7 @@ TEST_F(Waiters, ASaveThatLeavesItWaitingNamesWhoStartedBeforeTheWarning) {
 // then who started after the one taking over.
 TEST_F(Waiters, ATakeOverNamesWhoStoppedThenWhoStarted) {
   this->boot_with({R"({"version":1,"id":"attic","name":"Attic","kind":"bang_bang","sensor_id":"room",)"
-                   R"("heat":{"relay_id":"relay_1"},"cool":{"relay_id":"relay_2"},"mode":"heat_cool"})",
+                   R"("heat":{"relay_id":"relay_1"},"cool":{"relay_id":"relay_2"},"mode":"heat"})",
                    R"({"version":1,"id":"den","name":"Den","kind":"bang_bang","sensor_id":"room",)"
                    R"("heat":{"relay_id":"relay_1"},"mode":"heat"})",
                    R"({"version":1,"id":"porch","name":"Porch","kind":"bang_bang","sensor_id":"floor",)"
@@ -1148,6 +1152,45 @@ TEST_F(Editor, StatusSaysWhichDwellHoldsARelay) {
   EXPECT_EQ(row["heat_relay_wait"].as<std::string>(), "min_on");
 }
 
+// Switched from heat to cool while min_on holds the heater closed, the cooler waits for it, and
+// says so beside the heater's own minimum: the two never run at once.
+TEST_F(Editor, StatusSaysTheOtherRelayHoldsOneOpen) {
+  ASSERT_EQ(this->create(R"({"name":"Floor","kind":"bang_bang","sensor_id":"floor",)"
+                         R"("heat":{"relay_id":"relay_1","min_on_s":60,"min_off_s":0},)"
+                         R"("cool":{"relay_id":"relay_2","min_on_s":0,"min_off_s":0},"mode":"heat","setpoint":24})"),
+            "floor");
+  entities().floor.publish_state(20.f);
+  hub().loop();
+  ASSERT_TRUE(entities().relay1.state);
+
+  entities().floor.publish_state(28.f);
+  climate::Climate *entity = hub().runtime("floor")->entity();
+  auto cool = entity->make_call();
+  cool.set_mode(climate::CLIMATE_MODE_COOL);
+  cool.perform();
+  hub().ms += 1000;
+  hub().loop();
+  Reply held = this->get("status?id=floor");
+  ASSERT_EQ(held.code, 200) << held.body;
+  JsonObject row = held["controllers"][0];
+  EXPECT_EQ(row["action"].as<std::string>(), "heating") << "the heater is closed until its min_on ends";
+  EXPECT_TRUE(row["heat_relay_on"].as<bool>());
+  EXPECT_FALSE(row["cool_relay_on"].as<bool>());
+  EXPECT_FLOAT_EQ(row["cool_duty"].as<float>(), 1.f);
+  EXPECT_EQ(row["heat_relay_wait"].as<std::string>(), "min_on");
+  EXPECT_EQ(row["cool_relay_wait"].as<std::string>(), "other_relay");
+
+  hub().ms += 60000;
+  hub().loop();
+  Reply cooling = this->get("status?id=floor");
+  row = cooling["controllers"][0];
+  EXPECT_EQ(row["action"].as<std::string>(), "cooling");
+  EXPECT_FALSE(row["heat_relay_on"].as<bool>());
+  EXPECT_TRUE(row["cool_relay_on"].as<bool>());
+  EXPECT_EQ(row["heat_relay_wait"].as<std::string>(), "none");
+  EXPECT_EQ(row["cool_relay_wait"].as<std::string>(), "none");
+}
+
 // A stopped thermostat still shows its room, read off the sensor itself.
 TEST_F(Editor, StatusOfAStoppedThermostat) {
   ASSERT_EQ(this->create(with(LIVING_ROOM, R"("enabled":false)").c_str()), "living-room");
@@ -1242,7 +1285,7 @@ TEST_F(Editor, SchemaIsTheParameterTable) {
   EXPECT_EQ(words, R"(["pid","bang_bang"])");
   words.clear();
   serializeJson(reply["modes"], words);
-  EXPECT_EQ(words, R"(["off","heat","cool","heat_cool"])");
+  EXPECT_EQ(words, R"(["off","heat","cool"])");
   words.clear();
   serializeJson(reply["faults"], words);
   EXPECT_EQ(words, R"(["none","sensor_stale","overtemp","relay_contested"])");

@@ -1479,6 +1479,7 @@ web_climate_editor: null
 climate_hub:
   id: climates
   storage: user_storage
+  time_id: pcf8563_time
   web_server:
     sorting_group_id: group_climate
 crash_report:

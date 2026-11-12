@@ -10,16 +10,17 @@
 #include "esphome/components/climate/climate_mode.h"
 #include "esphome/core/entity_base.h"
 #include "esphome/core/optional.h"
+#include "pid_core.h"
 
 namespace esphome::climate_hub {
 
 /// A document larger than this is refused before it is parsed.
 static constexpr size_t CONFIG_MAX_BYTES = 8192;
 /// The file format this firmware writes: 2 brought presets, 3 the revision and calibrated gains
-/// past 2's ranges, 4 the mode a turn-on goes back to. A file with a higher one came from a newer
-/// firmware: it is read as far as this one understands it and never written back, so an older
-/// firmware cannot clamp those gains into it.
-static constexpr uint16_t CONFIG_VERSION = 4;
+/// past 2's ranges, 4 the mode a turn-on goes back to, 5 each relay's own gains and no heat_cool.
+/// A file with a higher one came from a newer firmware: it is read as far as this one understands
+/// it and never written back, so an older firmware cannot clamp those gains into it.
+static constexpr uint16_t CONFIG_VERSION = 5;
 /// Presets per thermostat.
 static constexpr size_t PRESET_MAX_COUNT = 8;
 /// A preset's mode word for "leave the thermostat's mode as it is".
@@ -58,10 +59,13 @@ struct SafetyConfig {
   float max_temperature{60.f};
 };
 
+/// The gains of a thermostat that has had none set: the param table's defaults.
+inline constexpr PidGains DEFAULT_PID_GAINS{0.6f, 0.0025f, 0.f};
+
 struct PidParams {
-  float kp{0.6f};
-  float ki{0.0025f};
-  float kd{0.f};
+  /// Each relay's own: a heating and a cooling relay move a room at different rates.
+  PidGains heat{DEFAULT_PID_GAINS};
+  PidGains cool{DEFAULT_PID_GAINS};
   float min_integral{-1.f};
   float max_integral{1.f};
   float starting_integral_term{0.f};
@@ -73,6 +77,9 @@ struct PidParams {
   float deadband_ki_multiplier{0.f};
   float deadband_kd_multiplier{0.f};
   float deadband_output_samples{1.f};
+
+  PidGains &gains(Direction direction) { return direction == Direction::COOL ? this->cool : this->heat; }
+  const PidGains &gains(Direction direction) const { return direction == Direction::COOL ? this->cool : this->heat; }
 };
 
 /// The band around the target, as deviations rather than absolute points: the controller
@@ -171,6 +178,8 @@ struct ClimateConfig {
   /// The mode a turn-on goes to: the mode while it is not off, else the last one before off
   /// that the relays still serve, else heat, or cool for a cooling-only thermostat.
   HubMode on_mode() const;
+  /// The relay on_mode() drives: whose gains a PID runs on, and the file's bare ones copy.
+  Direction on_direction() const { return this->on_mode() == HubMode::COOL ? Direction::COOL : Direction::HEAT; }
 
   /// Written by a newer firmware: this one must not write it back.
   bool from_newer_firmware() const { return this->version > CONFIG_VERSION; }
