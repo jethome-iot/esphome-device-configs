@@ -112,9 +112,11 @@ paths:
         existing `id` replaces that rule, renamed or not, and answers without one.
         The body is read raw, so the request needs a `Content-Type` that is not a
         form: a form-encoded body is parsed into fields by the server and answered
-        `Empty request body`. Names collide by the file name they spell before it
-        is cut to fit (`Porch light` and `porch-LIGHT` are one), and a name another rule owns is refused with the
-        reason. So is a rule that names what the device does not have: an
+        `Empty request body`. A name is any text without control characters.
+        Names collide by the file name they spell before it is cut to fit
+        (`Porch light` and `porch-LIGHT` are one), and a name another rule owns,
+        or one with a control character, is refused with the reason. So is a
+        rule that names what the device does not have: an
         entity, a thermostat, or a preset key the thermostat lacks
         (`Action 1: thermostat "attic" not found`). The engine's other refusals
         — the rule limit, a file the loader had refused under that name, a call
