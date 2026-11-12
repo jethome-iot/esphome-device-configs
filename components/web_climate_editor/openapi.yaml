@@ -1271,6 +1271,10 @@ components:
               value:
                 success: false
                 error: '"Room_1" is too close to "Room 1": both are room_1 to Home Assistant'
+            entityIdInAnotherScript:
+              value:
+                success: false
+                error: '"Ванна" is too close to "Кухня": both are _____ to Home Assistant, which reads every character but a Latin letter, a digit, ''-'' or ''_'' as ''_''; a digit or a Latin letter makes them distinct'
             relay:
               value:
                 success: false
@@ -1444,9 +1448,10 @@ components:
     Name:
       type: string
       description: >-
-        The climate entity's name: 1 to 48 printable ASCII characters, neither
-        `/` nor `\`, surrounding blanks trimmed. Home Assistant knows the entity
-        by it, so a rename is a new entity there.
+        The climate entity's name: 1 to 48 characters in any script and at most
+        96 bytes of UTF-8, no control characters, neither `/` nor `\`,
+        surrounding blanks trimmed. Home Assistant knows the entity by it, so a
+        rename is a new entity there.
       minLength: 1
       maxLength: 48
       example: Living Room

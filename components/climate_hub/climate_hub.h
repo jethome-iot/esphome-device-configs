@@ -208,9 +208,9 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   static bool validate_name(const std::string &name, std::string *error) {
     return climate_hub::validate_name(name, error);
   }
-  /// Whether `name` is taken, by another thermostat (same name_key() or same object id, which
-  /// Home Assistant would call a duplicate) or by a climate declared in YAML (the web server
-  /// matches climates by name). `exclude_id` never blocks itself.
+  /// Whether `name` is taken, by another thermostat (same name_key(), or the same object id by
+  /// ESPHome's count or Home Assistant's, which it would call a duplicate) or by a climate
+  /// declared in YAML (the web server matches climates by name). `exclude_id` never blocks itself.
   bool is_name_taken(const std::string &name, const std::string &exclude_id, std::string *error) const;
 
   /// The loop task's clock, millis_64(): a thermostat measures a silence of any length on it.
@@ -287,7 +287,8 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// Whether `id`'s last start found no free climate entity.
   bool waits_for_entity_(const std::string &id) const;
   Slot *slot_for_(const std::string &id) const;
-  /// The hidden slot that carries `name`, else one with its object id; free_.end() for none.
+  /// The hidden slot that carries `name`, else one with its object id by ESPHome's count or Home
+  /// Assistant's; free_.end() for none.
   std::deque<Slot *>::iterator free_slot_like_(const std::string &name);
   /// free_slot_like_(), so a thermostat back under its name gets back its key; otherwise the
   /// one freed longest ago. Only while one is free.

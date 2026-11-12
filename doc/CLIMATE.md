@@ -287,12 +287,15 @@ and the log says why.
 
 ## Home Assistant
 
-- Home Assistant knows an entity by its name, so **renaming a thermostat makes a new entity
-  there** and Home Assistant removes the old one: what names it there (automations, scripts,
-  dashboards) has to be pointed at the new one, what was set for it there (name, icon, area) does
-  not follow, and its history stays under the old entity id. A thermostat that stops, or that a
-  boot leaves waiting, is removed there the same way; whenever one runs again under that name, it
-  comes back as the same entity, with what was set for it in Home Assistant.
+- Home Assistant knows an entity by an id it makes from the name (see below), so **renaming a
+  thermostat makes a new entity there** and Home Assistant removes the old one: what names it
+  there (automations, scripts, dashboards) has to be pointed at the new one, what was set for it
+  there (name, icon, area) does not follow, and its history stays under the old entity id. A
+  rename between two names that give the same id, `Кухня` to `Ванна` say, keeps the entity. A
+  thermostat that stops, or that a boot leaves waiting, is removed there the same way; whenever
+  one runs again under a name that gives that id, it comes back as the same entity, with what was
+  set for it in Home Assistant, and so does a new thermostat whose name gives the id of one
+  removed.
 - Home Assistant reconnects to see the change when a thermostat starts or stops (removing a
   running one stops it), and when a running one is renamed, gains or loses its heating or
   cooling relay, gets a new temperature range or step, gains or loses one of Home Assistant's
@@ -304,8 +307,12 @@ and the log says why.
 - A preset named like one of Home Assistant's own (eco, away, boost, comfort, home, sleep,
   activity, in any case) is that preset there, translated in its interface; any other name is
   shown as it is. `none` is Home Assistant's word for no preset and cannot be a name.
-- Names are unique on the device: two thermostats cannot share one, nor two names that give the
-  same entity id (`Room 1` and `Room_1`), nor a thermostat and a climate from the YAML.
+- A name may be in any script. Names are unique on the device: two thermostats cannot share one,
+  nor two names that give the same entity id (`Room 1` and `Room_1`), nor a thermostat and a
+  climate from the YAML. Home Assistant tells entities apart by an id that keeps only the name's
+  Latin letters, digits, `-` and `_`, every other character one `_`, a space and punctuation
+  too, so `Кухня` and `Ванна` clash; a digit or a Latin letter tells them apart (`Кухня 1`,
+  `Ванна 2`).
 - The room temperature is shown to a tenth of a degree; the target moves in the thermostat's
   own step.
 - A running thermostat shows as heating or cooling while that relay is closed, a PID also
