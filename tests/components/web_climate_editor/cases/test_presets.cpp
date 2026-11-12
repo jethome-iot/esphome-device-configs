@@ -12,11 +12,11 @@ namespace {
 const char *const STUDIO = R"({"name":"Studio","kind":"bang_bang","sensor_id":"room","heat":{"relay_id":"relay_1"},)"
                            R"("cool":{"relay_id":"relay_2"},"mode":"heat","setpoint":21,"presets":[)"
                            R"({"name":"Eco","setpoint":18},{"name":" away ","setpoint":12,"mode":"off"},)"
-                           R"({"name":"Night  Time","setpoint":19.5,"mode":"heat_cool"}]})";
+                           R"({"name":"Night  Time","setpoint":19.5,"mode":"cool"}]})";
 
 const char *const STUDIO_PRESETS =
     R"([{"key":"eco","name":"Eco","setpoint":18,"mode":"keep"},{"key":"away","name":"away","setpoint":12,"mode":"off"},)"
-    R"({"key":"night-time","name":"Night  Time","setpoint":19.5,"mode":"heat_cool"}])";
+    R"({"key":"night-time","name":"Night  Time","setpoint":19.5,"mode":"cool"}])";
 
 std::string text_of(JsonVariant value) {
   std::string out;
@@ -80,10 +80,10 @@ TEST_F(Editor, APresetPickedOverHttpReachesTheEntityAndTheFile) {
   EXPECT_EQ(picked.body, R"({"success":true,"message":"Preset applied","persisted":true})");
   EXPECT_EQ(label(entity), "Night  Time");
   EXPECT_FLOAT_EQ(entity->target_temperature, 19.5f);
-  EXPECT_EQ(entity->mode, climate::CLIMATE_MODE_HEAT_COOL);
+  EXPECT_EQ(entity->mode, climate::CLIMATE_MODE_COOL);
   flush();
   const std::string file = this->file("studio.json");
-  EXPECT_NE(file.find(R"("mode":"heat_cool")"), std::string::npos) << file;
+  EXPECT_NE(file.find(R"("mode":"cool")"), std::string::npos) << file;
   EXPECT_NE(file.find(R"("setpoint":19.5,"presets")"), std::string::npos) << file;
   EXPECT_NE(file.find(R"("active_preset":"night-time"})"), std::string::npos) << file;
 
@@ -131,14 +131,14 @@ TEST_F(Editor, APresetPickedFromHomeAssistantShowsInListAndStatus) {
   Reply list = this->get("list");
   EXPECT_EQ(list["controllers"][0]["active_preset"].as<std::string>(), "night-time");
   EXPECT_EQ(list["controllers"][0]["active_preset_name"].as<std::string>(), "Night  Time");
-  EXPECT_EQ(list["controllers"][0]["mode"].as<std::string>(), "heat_cool");
+  EXPECT_EQ(list["controllers"][0]["mode"].as<std::string>(), "cool");
 }
 
 // The limits a form keeps to, and the words it may send: each one goes through a Save as it is.
 TEST_F(Editor, SchemaDescribesThePresets) {
   Reply reply = this->get("schema");
   ASSERT_EQ(reply.code, 200);
-  EXPECT_EQ(text_of(reply["presets"]), R"({"max_count":8,"modes":["keep","off","heat","cool","heat_cool"],)"
+  EXPECT_EQ(text_of(reply["presets"]), R"({"max_count":8,"modes":["keep","off","heat","cool"],)"
                                        R"("standard":["eco","away","boost","comfort","home","sleep","activity"]})");
   EXPECT_EQ(reply["presets"]["max_count"].as<size_t>(), climate_hub::PRESET_MAX_COUNT);
   size_t i = 0;

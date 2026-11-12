@@ -1,8 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include "enums.h"
 #include "pid_autotuner.h"
+#include "pid_core.h"
 
 namespace esphome::climate_hub {
 
@@ -17,18 +19,18 @@ static constexpr uint32_t AUTOTUNE_STALL_MS = 6u * 3600u * 1000u;
 /// upstream's symmetry check holds the half-periods to.
 static constexpr float AUTOTUNE_EVEN_RATIO = 0.66f;
 
-struct PidGains {
-  float kp{0.f};
-  float ki{0.f};
-  float kd{0.f};
-};
+/// The gains `rule` turns Ku and Pu (seconds) into, each held in its parameter's range;
+/// `clamped` says whether one had to be. A calibration writes these, and a saved set's Ku and Pu
+/// give them again for another rule.
+PidGains gains_for_rule(float ku, float pu, AutotuneRule rule, bool *clamped);
 
 /// One calibration of one thermostat. The hub keeps it from its start until the next start, a
 /// delete or a reboot; the thermostat's ControllerRuntime feeds it while it runs. Loop task only.
 /// Its clock is the hub's 64-bit one; the tuner's counts from the start.
 class AutotuneRun {
  public:
-  AutotuneRun(AutotuneDirection direction, AutotuneRule rule, const PidGains &gains, float setpoint, uint64_t now_ms);
+  /// `gains`: the ones the relay of `direction` ran on.
+  AutotuneRun(Direction direction, AutotuneRule rule, const PidGains &gains, float setpoint, uint64_t now_ms);
 
   /// One sample: whether the run's relay should be closed now. Only within 49.7 days of the start,
   /// which the caller keeps by ending the run on limit_reached() first: the tuner counts in 32 bits.
@@ -47,7 +49,7 @@ class AutotuneRun {
   AutotuneState state() const { return this->state_; }
   bool running() const { return this->state_ == AutotuneState::RUNNING; }
   AutotuneEnd reason() const { return this->reason_; }
-  AutotuneDirection direction() const { return this->direction_; }
+  Direction direction() const { return this->direction_; }
   AutotuneRule rule() const { return this->rule_; }
   /// The target it swings the room around, the thermostat's when it started: a later one ends it.
   float setpoint() const { return this->setpoint_; }
@@ -55,7 +57,7 @@ class AutotuneRun {
   uint64_t elapsed_ms(uint64_t now_ms) const;
   /// Its extremes' times are in ms since the start.
   const PidAutotuner &tuner() const { return this->tuner_; }
-  /// The gains in force when it started, and what it wrote in their place on success.
+  /// Its relay's gains when it started, and what it wrote in their place on success.
   const PidGains &old_gains() const { return this->old_gains_; }
   const PidGains &new_gains() const { return this->new_gains_; }
   /// The quality flags, set on success: they warn and never extend a run.
@@ -64,10 +66,17 @@ class AutotuneRun {
   bool clamped() const { return this->clamped_; }
   /// False when the gains run but did not reach the file, until the next write of it.
   bool persisted() const { return this->persisted_; }
+  /// The gain set the result was saved as, followed through a rename; n 0 for none.
+  void saved_as(uint32_t n, const std::string &name) {
+    this->saved_n_ = n;
+    this->saved_name_ = name;
+  }
+  uint32_t saved_n() const { return this->saved_n_; }
+  const std::string &saved_name() const { return this->saved_name_; }
 
  protected:
   PidAutotuner tuner_;
-  AutotuneDirection direction_;
+  Direction direction_;
   AutotuneRule rule_;
   AutotuneState state_{AutotuneState::RUNNING};
   AutotuneEnd reason_{AutotuneEnd::NONE};
@@ -82,6 +91,8 @@ class AutotuneRun {
   bool uneven_{false};
   bool clamped_{false};
   bool persisted_{true};
+  uint32_t saved_n_{0};
+  std::string saved_name_;
 };
 
 }  // namespace esphome::climate_hub

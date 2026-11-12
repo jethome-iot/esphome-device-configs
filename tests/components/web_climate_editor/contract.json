@@ -80,8 +80,20 @@
       "cool": {
         "relay_id": "relay_2"
       },
-      "mode": "heat_cool",
-      "setpoint": 22
+      "mode": "cool",
+      "setpoint": 22,
+      "pid": {
+        "heat": {
+          "kp": 1.5,
+          "ki": 0.25,
+          "kd": 2
+        },
+        "cool": {
+          "kp": 0.75,
+          "ki": 0.5,
+          "kd": 0
+        }
+      }
     },
     "attic": {
       "name": "Attic",
@@ -125,7 +137,7 @@
       "cool": {
         "relay_id": "relay_9"
       },
-      "mode": "heat_cool",
+      "mode": "heat",
       "setpoint": 20
     },
     "uptime-room": {
@@ -262,8 +274,7 @@
         "modes": [
           "off",
           "heat",
-          "cool",
-          "heat_cool"
+          "cool"
         ],
         "faults": [
           "none",
@@ -279,8 +290,7 @@
             "keep",
             "off",
             "heat",
-            "cool",
-            "heat_cool"
+            "cool"
           ],
           "standard": [
             "eco",
@@ -344,7 +354,7 @@
       "body": null,
       "status": 200,
       "expect": {
-        "version": 4,
+        "version": 5,
         "id": "living-room",
         "name": "Living Room",
         "enabled": true,
@@ -356,10 +366,343 @@
         "visual.min_temperature": 5,
         "visual.max_temperature": 45,
         "presets": [],
-        "active_preset": ""
+        "active_preset": "",
+        "pid.heat": {
+          "kp": 0.6,
+          "ki": 0.0025,
+          "kd": 0
+        },
+        "pid.cool": {
+          "kp": 0.6,
+          "ki": 0.0025,
+          "kd": 0
+        },
+        "pid.kp": 0.6
       },
       "absent": [
         "success"
+      ]
+    },
+    {
+      "name": "Get answers each relay's gains, and beside them a copy of the gains of the relay a turn-on goes to",
+      "setup": [
+        "studio"
+      ],
+      "method": "GET",
+      "path": "get?id=studio",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "pid.heat": {
+          "kp": 1.5,
+          "ki": 0.25,
+          "kd": 2
+        },
+        "pid.cool": {
+          "kp": 0.75,
+          "ki": 0.5,
+          "kd": 0
+        },
+        "pid.kp": 0.75,
+        "pid.ki": 0.5,
+        "pid.kd": 0
+      }
+    },
+    {
+      "name": "The bare gains follow the relay a turn-on goes to: the heating one once the mode is heat",
+      "setup": [
+        "studio"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "id": "studio",
+        "name": "Studio",
+        "enabled": false,
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "off",
+        "pid": {
+          "heat": {
+            "kp": 1.5,
+            "ki": 0.25,
+            "kd": 2
+          },
+          "cool": {
+            "kp": 0.75,
+            "ki": 0.5,
+            "kd": 0
+          }
+        },
+        "setpoint": 22
+      },
+      "status": 200,
+      "expect": {
+        "success": true
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "mode": "off",
+            "last_on_mode": "cool",
+            "pid.kp": 0.75
+          }
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "id": "studio",
+            "name": "Studio",
+            "enabled": false,
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "cool": {
+              "relay_id": "relay_2"
+            },
+            "mode": "heat",
+            "pid": {
+              "heat": {
+                "kp": 1.5,
+                "ki": 0.25,
+                "kd": 2
+              },
+              "cool": {
+                "kp": 0.75,
+                "ki": 0.5,
+                "kd": 0
+              }
+            },
+            "setpoint": 22
+          },
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "get?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "pid.kp": 1.5,
+            "pid.ki": 0.25,
+            "pid.kd": 2,
+            "pid.cool.kp": 0.75
+          }
+        }
+      ]
+    },
+    {
+      "name": "One set of gains, as a firmware before each relay had its own wrote them, is both relays'",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Studio",
+        "enabled": false,
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "pid": {
+          "kp": 1.5,
+          "ki": 0.25,
+          "kd": 2
+        },
+        "setpoint": 22
+      },
+      "status": 200,
+      "expect": {
+        "success": true,
+        "id": "studio"
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "version": 5,
+            "pid.heat": {
+              "kp": 1.5,
+              "ki": 0.25,
+              "kd": 2
+            },
+            "pid.cool": {
+              "kp": 1.5,
+              "ki": 0.25,
+              "kd": 2
+            },
+            "pid.kp": 1.5
+          }
+        }
+      ]
+    },
+    {
+      "name": "Beside a relay's own gains the bare ones are not read",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Studio",
+        "enabled": false,
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat",
+        "pid": {
+          "heat": {
+            "kp": 1.5,
+            "ki": 0.25,
+            "kd": 2
+          },
+          "cool": {
+            "kp": 0.75,
+            "ki": 0.5,
+            "kd": 0
+          },
+          "kp": 9,
+          "ki": 8,
+          "kd": 7
+        },
+        "setpoint": 22
+      },
+      "status": 200,
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "pid.heat": {
+              "kp": 1.5,
+              "ki": 0.25,
+              "kd": 2
+            },
+            "pid.cool": {
+              "kp": 0.75,
+              "ki": 0.5,
+              "kd": 0
+            },
+            "pid.kp": 1.5,
+            "pid.ki": 0.25,
+            "pid.kd": 2
+          }
+        }
+      ]
+    },
+    {
+      "name": "A relay without gains of its own takes the bare ones, and a gain they leave out its default",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Studio",
+        "enabled": false,
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "cool",
+        "pid": {
+          "heat": {
+            "kp": 1.5
+          },
+          "kp": 3,
+          "ki": 0.125
+        },
+        "setpoint": 22
+      },
+      "status": 200,
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "pid.heat": {
+              "kp": 1.5,
+              "ki": 0.0025,
+              "kd": 0
+            },
+            "pid.cool": {
+              "kp": 3,
+              "ki": 0.125,
+              "kd": 0
+            },
+            "pid.kp": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "Each relay's gains are clamped into the schema's range",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Studio",
+        "enabled": false,
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "cool",
+        "pid": {
+          "heat": {
+            "kp": -3,
+            "ki": 5000
+          },
+          "cool": {
+            "kp": 2000,
+            "kd": 20000
+          }
+        },
+        "setpoint": 22
+      },
+      "status": 200,
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "pid.heat.kp": 0,
+            "pid.heat.ki": 1000,
+            "pid.cool.kp": 1000,
+            "pid.cool.kd": 10000
+          }
+        }
       ]
     },
     {
@@ -770,7 +1113,7 @@
         "heat": {
           "relay_id": "relay_1"
         },
-        "mode": "heat_cool",
+        "mode": "heat",
         "setpoint": 22,
         "cool": {
           "relay_id": "relay_1"
@@ -811,7 +1154,7 @@
         "setpoint": 22
       },
       "status": 400,
-      "error": "mode must be one of off/heat/cool/heat_cool"
+      "error": "mode must be one of off/heat/cool"
     },
     {
       "name": "A mode its relays cannot serve is 400",
@@ -829,6 +1172,69 @@
       },
       "status": 400,
       "error": "mode 'cool' needs cool.relay_id"
+    },
+    {
+      "name": "Heat and cool is no mode: a Save in it is 400, with both relays too",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Studio",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat_cool",
+        "setpoint": 22
+      },
+      "status": 400,
+      "error": "mode must be one of off/heat/cool",
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "count": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "An import in heat and cool is 400 and brings nothing back",
+      "method": "POST",
+      "path": "import",
+      "body": {
+        "id": "studio",
+        "name": "Studio",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "heat_cool",
+        "setpoint": 22
+      },
+      "status": 400,
+      "error": "mode must be one of off/heat/cool",
+      "then": [
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "count": 0
+          }
+        }
+      ]
     },
     {
       "name": "A range that ends below where it starts is 400",
@@ -1802,7 +2208,7 @@
         ]
       },
       "status": 400,
-      "error": "Preset 1: mode must be one of keep/off/heat/cool/heat_cool"
+      "error": "Preset 1: mode must be one of keep/off/heat/cool"
     },
     {
       "name": "A preset mode word in capitals is 400",
@@ -1826,7 +2232,7 @@
         ]
       },
       "status": 400,
-      "error": "Preset 1: mode must be one of keep/off/heat/cool/heat_cool"
+      "error": "Preset 1: mode must be one of keep/off/heat/cool"
     },
     {
       "name": "A preset mode that is a number is 400",
@@ -1850,7 +2256,7 @@
         ]
       },
       "status": 400,
-      "error": "Preset 1: mode must be one of keep/off/heat/cool/heat_cool"
+      "error": "Preset 1: mode must be one of keep/off/heat/cool"
     },
     {
       "name": "A preset without a target is 400",
@@ -1922,7 +2328,7 @@
       "error": "Preset 1: mode 'cool' needs cool.relay_id"
     },
     {
-      "name": "A preset that heats and cools on a thermostat with one relay is 400",
+      "name": "A preset in heat and cool is 400, as a mode word the device does not know",
       "method": "POST",
       "path": "save",
       "body": {
@@ -1940,10 +2346,13 @@
             "setpoint": 18,
             "mode": "heat_cool"
           }
-        ]
+        ],
+        "cool": {
+          "relay_id": "relay_2"
+        }
       },
       "status": 400,
-      "error": "Preset 1: mode 'heat_cool' needs both relays"
+      "error": "Preset 1: mode must be one of keep/off/heat/cool"
     },
     {
       "name": "A preset that heats on a thermostat with no heating relay is 400",
@@ -2316,7 +2725,7 @@
             ]
           },
           "status": 400,
-          "error": "Preset 2: mode must be one of keep/off/heat/cool/heat_cool"
+          "error": "Preset 2: mode must be one of keep/off/heat/cool"
         },
         {
           "method": "POST",
@@ -2483,7 +2892,7 @@
           "body": null,
           "status": 200,
           "expect": {
-            "version": 4,
+            "version": 5,
             "id": "lounge",
             "name": "Living Room",
             "setpoint": 20.5,
@@ -2678,7 +3087,7 @@
           "body": null,
           "status": 200,
           "expect": {
-            "version": 4
+            "version": 5
           }
         }
       ]
@@ -3633,7 +4042,7 @@
           "relay_id": "relay_2"
         },
         "mode": "off",
-        "last_on_mode": "cool",
+        "last_on_mode": "heat",
         "setpoint": 22
       },
       "status": 200,
@@ -3648,7 +4057,7 @@
           "status": 200,
           "expect": {
             "mode": "off",
-            "last_on_mode": "heat_cool"
+            "last_on_mode": "cool"
           }
         }
       ]
@@ -3706,7 +4115,7 @@
         "setpoint": 22
       },
       "status": 400,
-      "error": "last_on_mode must be one of heat/cool/heat_cool",
+      "error": "last_on_mode must be one of heat/cool",
       "then": [
         {
           "method": "GET",
@@ -3735,7 +4144,28 @@
         "setpoint": 22
       },
       "status": 400,
-      "error": "last_on_mode must be one of heat/cool/heat_cool"
+      "error": "last_on_mode must be one of heat/cool"
+    },
+    {
+      "name": "A last_on_mode of heat and cool is 400",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Studio",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "cool": {
+          "relay_id": "relay_2"
+        },
+        "mode": "off",
+        "last_on_mode": "heat_cool",
+        "setpoint": 22
+      },
+      "status": 400,
+      "error": "last_on_mode must be one of heat/cool"
     },
     {
       "name": "An import takes the mode a thermostat goes back on in from the backup, not from the thermostat it replaces",
@@ -3758,7 +4188,7 @@
         },
         "mode": "off",
         "setpoint": 22,
-        "last_on_mode": "cool"
+        "last_on_mode": "heat"
       },
       "status": 200,
       "expect": {
@@ -3774,7 +4204,7 @@
           "status": 200,
           "expect": {
             "mode": "off",
-            "last_on_mode": "cool"
+            "last_on_mode": "heat"
           }
         }
       ]
@@ -4696,6 +5126,37 @@
       ]
     },
     {
+      "name": "Status names the relay whose gains a running PID runs on",
+      "setup": [
+        "living-room",
+        "studio"
+      ],
+      "method": "GET",
+      "path": "status?id=living-room",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "controllers.0.pid.direction": "heat"
+      },
+      "then": [
+        {
+          "method": "POST",
+          "path": "enable?id=studio&value=true&take_over=true",
+          "body": null,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "status?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.pid.direction": "cool"
+          }
+        }
+      ]
+    },
+    {
       "name": "Status has no calibration before the first one",
       "setup": [
         "living-room"
@@ -4709,7 +5170,7 @@
       ]
     },
     {
-      "name": "Autotune takes the rule and the direction it is given",
+      "name": "Autotune takes the rule it is given, and a direction that is the mode's",
       "setup": [
         "living-room"
       ],
@@ -4835,7 +5296,7 @@
       "error": "The thermostat is off: set it to heat or cool first"
     },
     {
-      "name": "Autotune with a direction the mode does not drive is 400",
+      "name": "Autotune with a direction other than the mode's is 400",
       "setup": [
         "living-room"
       ],
@@ -4843,7 +5304,7 @@
       "path": "autotune?id=living-room&value=true&direction=cool",
       "body": null,
       "status": 400,
-      "error": "direction 'cool' needs mode cool or heat_cool",
+      "error": "direction 'cool' does not match mode heat: a calibration swings the relay of the current mode",
       "then": [
         {
           "method": "GET",
@@ -4857,7 +5318,7 @@
       ]
     },
     {
-      "name": "Autotune in heat_cool needs a direction",
+      "name": "Autotune swings the relay of the mode, and starts from that relay's gains",
       "setup": [
         "studio"
       ],
@@ -4870,8 +5331,41 @@
           "method": "POST",
           "path": "autotune?id=studio&value=true",
           "body": null,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "status?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.autotune.direction": "cool",
+            "controllers.0.autotune.old": {
+              "kp": 0.75,
+              "ki": 0.5,
+              "kd": 0
+            },
+            "controllers.0.heat_duty": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "With both relays a direction other than the mode's is 400 too",
+      "setup": [
+        "studio"
+      ],
+      "method": "POST",
+      "path": "enable?id=studio&value=true",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "autotune?id=studio&value=true&direction=heat",
+          "body": null,
           "status": 400,
-          "error": "In heat_cool, direction must say heat or cool"
+          "error": "direction 'heat' does not match mode cool: a calibration swings the relay of the current mode"
         },
         {
           "method": "POST",
@@ -4885,8 +5379,7 @@
           "body": null,
           "status": 200,
           "expect": {
-            "controllers.0.autotune.direction": "cool",
-            "controllers.0.heat_duty": 0
+            "controllers.0.autotune.direction": "cool"
           }
         }
       ]
@@ -5398,6 +5891,1327 @@
           "status": 200,
           "expect": {
             "revision": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gains lists no set for a thermostat that has none",
+      "setup": [
+        "living-room"
+      ],
+      "method": "GET",
+      "path": "gains?id=living-room",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "success": true,
+        "sets": [],
+        "more": false
+      }
+    },
+    {
+      "name": "Gains of an unknown thermostat is 404",
+      "method": "GET",
+      "path": "gains?id=attic",
+      "body": null,
+      "status": 404,
+      "error": "Thermostat not found"
+    },
+    {
+      "name": "Gains without an id is 400",
+      "method": "GET",
+      "path": "gains",
+      "body": null,
+      "status": 400,
+      "error": "Missing id parameter"
+    },
+    {
+      "name": "Gains with an after that is not a count is 400",
+      "method": "GET",
+      "path": "gains?id=living-room&after=-1",
+      "body": null,
+      "status": 400,
+      "error": "Invalid after parameter",
+      "then": [
+        {
+          "method": "GET",
+          "path": "gains?id=living-room&after=",
+          "body": null,
+          "status": 400,
+          "error": "Invalid after parameter"
+        }
+      ]
+    },
+    {
+      "name": "Gains with a limit of 0 or over 200 is 400",
+      "method": "GET",
+      "path": "gains?id=living-room&limit=0",
+      "body": null,
+      "status": 400,
+      "error": "Invalid limit parameter",
+      "then": [
+        {
+          "method": "GET",
+          "path": "gains?id=living-room&limit=201",
+          "body": null,
+          "status": 400,
+          "error": "Invalid limit parameter"
+        },
+        {
+          "method": "GET",
+          "path": "gains?id=living-room&limit=1x",
+          "body": null,
+          "status": 400,
+          "error": "Invalid limit parameter"
+        }
+      ]
+    },
+    {
+      "name": "Gains answers GET only",
+      "method": "POST",
+      "path": "gains?id=living-room",
+      "body": null,
+      "status": 405,
+      "error": "Method not allowed",
+      "headers": {
+        "Allow": "GET"
+      }
+    },
+    {
+      "name": "Gains pages by after and limit, oldest first",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "gains/add?id=living-room",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "gains/add?id=living-room",
+          "body": null,
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "gains/add?id=living-room",
+          "body": null,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "gains?id=living-room&limit=2",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "sets.0.n": 1,
+            "sets.1.n": 2,
+            "more": true
+          },
+          "absent": [
+            "sets.2"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "gains?id=living-room&after=2",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "sets.0.n": 3,
+            "more": false
+          },
+          "absent": [
+            "sets.1"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "gains?id=living-room&after=3&limit=1",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "sets": [],
+            "more": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gains is 503 while the loop is busy",
+      "setup": [
+        "living-room"
+      ],
+      "device_only": "loop_busy",
+      "method": "GET",
+      "path": "gains?id=living-room",
+      "body": null,
+      "status": 503,
+      "error": "Device busy"
+    },
+    {
+      "name": "Gains lists a calibration's set as the file holds it",
+      "setup": [
+        "living-room"
+      ],
+      "device_only": "calibrated",
+      "method": "GET",
+      "path": "gains?id=living-room",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "sets": [
+          {
+            "n": 1,
+            "name": "Measured",
+            "direction": "heat",
+            "source": "calibration",
+            "rule": "zn_pi",
+            "ku": 10,
+            "pu": 1200,
+            "kp": 4.5,
+            "ki": 0.0045,
+            "kd": 0,
+            "flags": [
+              "uneven"
+            ],
+            "time": 1793973900,
+            "from": null
+          }
+        ],
+        "more": false
+      }
+    },
+    {
+      "name": "Gains/add saves the gains of the mode's relay as a set",
+      "setup": [
+        "studio"
+      ],
+      "method": "POST",
+      "path": "gains/add?id=studio",
+      "body": {
+        "name": "Summer"
+      },
+      "status": 200,
+      "expect": {
+        "success": true,
+        "message": "Gain set saved",
+        "set": {
+          "n": 1,
+          "name": "Summer",
+          "direction": "cool",
+          "source": "manual",
+          "rule": null,
+          "ku": null,
+          "pu": null,
+          "kp": 0.75,
+          "ki": 0.5,
+          "kd": 0,
+          "flags": [],
+          "time": null,
+          "from": null
+        }
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "gains?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "sets.0": {
+              "n": 1,
+              "name": "Summer",
+              "direction": "cool",
+              "source": "manual",
+              "rule": null,
+              "ku": null,
+              "pu": null,
+              "kp": 0.75,
+              "ki": 0.5,
+              "kd": 0,
+              "flags": [],
+              "time": null,
+              "from": null
+            },
+            "more": false
+          },
+          "absent": [
+            "sets.1"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "get?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gains/add names a set given no name after its relay and its number",
+      "setup": [
+        "studio"
+      ],
+      "method": "POST",
+      "path": "gains/add?id=studio&direction=heat",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "set": {
+          "n": 1,
+          "name": "Heat manual #1",
+          "direction": "heat",
+          "source": "manual",
+          "rule": null,
+          "ku": null,
+          "pu": null,
+          "kp": 1.5,
+          "ki": 0.25,
+          "kd": 2,
+          "flags": [],
+          "time": null,
+          "from": null
+        }
+      },
+      "then": [
+        {
+          "method": "POST",
+          "path": "gains/add?id=studio",
+          "body": {
+            "name": "   "
+          },
+          "status": 200,
+          "expect": {
+            "set.n": 2,
+            "set.name": "Cool manual #2",
+            "set.direction": "cool"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gains/add takes a name of up to 48 characters in any script, and two sets may share one",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "gains/add?id=living-room",
+      "body": {
+        "name": "яяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяя"
+      },
+      "status": 200,
+      "expect": {
+        "set.name": "яяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяя"
+      },
+      "then": [
+        {
+          "method": "POST",
+          "path": "gains/add?id=living-room",
+          "body": {
+            "name": "яяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяя"
+          },
+          "status": 200,
+          "expect": {
+            "set.n": 2,
+            "set.name": "яяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяя"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gains/add for a relay the thermostat does not have is 409",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "gains/add?id=living-room&direction=cool",
+      "body": null,
+      "status": 409,
+      "error": "The thermostat has no cooling relay"
+    },
+    {
+      "name": "Gains/add with an unknown direction is 400",
+      "method": "POST",
+      "path": "gains/add?id=living-room&direction=both",
+      "body": null,
+      "status": 400,
+      "error": "Invalid direction parameter"
+    },
+    {
+      "name": "Gains/add with a name over 48 characters or with a control character is 400",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "gains/add?id=living-room",
+      "body": {
+        "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "status": 400,
+      "error": "Name is longer than 48 characters",
+      "then": [
+        {
+          "method": "POST",
+          "path": "gains/add?id=living-room",
+          "body": {
+            "name": "a\u0007b"
+          },
+          "status": 400,
+          "error": "Name cannot contain control characters"
+        },
+        {
+          "method": "GET",
+          "path": "gains?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "sets": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gains/add with a name that is not a string is 400",
+      "method": "POST",
+      "path": "gains/add?id=living-room",
+      "body": {
+        "name": 5
+      },
+      "status": 400,
+      "error": "name must be a string"
+    },
+    {
+      "name": "Gains/add with a body that is not a JSON object is 400",
+      "method": "POST",
+      "path": "gains/add?id=living-room",
+      "body": "{",
+      "status": 400,
+      "error_prefix": "JSON parse error: ",
+      "then": [
+        {
+          "method": "POST",
+          "path": "gains/add?id=living-room",
+          "body": [
+            1
+          ],
+          "status": 400,
+          "error": "The body must be a JSON object"
+        }
+      ]
+    },
+    {
+      "name": "Gains/add without an id is 400",
+      "method": "POST",
+      "path": "gains/add",
+      "body": null,
+      "status": 400,
+      "error": "Missing id parameter"
+    },
+    {
+      "name": "Gains/add of an unknown thermostat is 404",
+      "method": "POST",
+      "path": "gains/add?id=attic",
+      "body": null,
+      "status": 404,
+      "error": "Thermostat not found"
+    },
+    {
+      "name": "Gains/add answers POST only",
+      "method": "GET",
+      "path": "gains/add?id=living-room",
+      "body": null,
+      "status": 405,
+      "error": "Method not allowed",
+      "headers": {
+        "Allow": "POST"
+      }
+    },
+    {
+      "name": "Gains/add below 64 KiB free is 507",
+      "setup": [
+        "living-room"
+      ],
+      "device_only": "low_space",
+      "method": "POST",
+      "path": "gains/add?id=living-room",
+      "body": null,
+      "status": 507,
+      "error": "Less than 64 KiB is free on the storage; delete gain sets or files to make room for another",
+      "then": [
+        {
+          "method": "GET",
+          "path": "gains?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "sets": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gains/add is 503 while the loop is busy",
+      "setup": [
+        "living-room"
+      ],
+      "device_only": "loop_busy",
+      "method": "POST",
+      "path": "gains/add?id=living-room",
+      "body": null,
+      "status": 503,
+      "error": "Device busy"
+    },
+    {
+      "name": "Gains/add on storage that failed is 500",
+      "setup": [
+        "living-room"
+      ],
+      "device_only": "storage_failed",
+      "method": "POST",
+      "path": "gains/add?id=living-room",
+      "body": null,
+      "status": 500,
+      "error": "Thermostat storage is not available"
+    },
+    {
+      "name": "Gains/rename renames a set",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "gains/add?id=living-room",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "gains/rename?id=living-room&set=1",
+          "body": {
+            "name": "  Winter  "
+          },
+          "status": 200,
+          "expect": {
+            "success": true,
+            "message": "Gain set renamed",
+            "set": {
+              "n": 1,
+              "name": "Winter",
+              "direction": "heat",
+              "source": "manual",
+              "rule": null,
+              "ku": null,
+              "pu": null,
+              "kp": 0.6,
+              "ki": 0.0025,
+              "kd": 0,
+              "flags": [],
+              "time": null,
+              "from": null
+            }
+          }
+        },
+        {
+          "method": "GET",
+          "path": "gains?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "sets.0.name": "Winter"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gains/rename without a name is 400",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "gains/add?id=living-room",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "gains/rename?id=living-room&set=1",
+          "body": {},
+          "status": 400,
+          "error": "Name is required"
+        },
+        {
+          "method": "POST",
+          "path": "gains/rename?id=living-room&set=1",
+          "body": {
+            "name": "  "
+          },
+          "status": 400,
+          "error": "Name is required"
+        },
+        {
+          "method": "POST",
+          "path": "gains/rename?id=living-room&set=1",
+          "body": null,
+          "status": 400,
+          "error": "Empty request body"
+        },
+        {
+          "method": "POST",
+          "path": "gains/rename?id=living-room&set=1",
+          "body": {
+            "name": [
+              1
+            ]
+          },
+          "status": 400,
+          "error": "name must be a string"
+        }
+      ]
+    },
+    {
+      "name": "Gains/rename of a set that is not there is 404",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "gains/rename?id=living-room&set=3",
+      "body": {
+        "name": "x"
+      },
+      "status": 404,
+      "error": "Gain set not found"
+    },
+    {
+      "name": "Gains/rename of an unknown thermostat is 404",
+      "method": "POST",
+      "path": "gains/rename?id=attic&set=1",
+      "body": {
+        "name": "x"
+      },
+      "status": 404,
+      "error": "Thermostat not found"
+    },
+    {
+      "name": "Gains/rename without a set number is 400",
+      "method": "POST",
+      "path": "gains/rename?id=living-room",
+      "body": {
+        "name": "x"
+      },
+      "status": 400,
+      "error": "Missing set parameter",
+      "then": [
+        {
+          "method": "POST",
+          "path": "gains/rename?id=living-room&set=0",
+          "body": {
+            "name": "x"
+          },
+          "status": 400,
+          "error": "Invalid set parameter"
+        },
+        {
+          "method": "POST",
+          "path": "gains/rename?id=living-room&set=1.5",
+          "body": {
+            "name": "x"
+          },
+          "status": 400,
+          "error": "Invalid set parameter"
+        },
+        {
+          "method": "POST",
+          "path": "gains/rename?id=living-room&set=-1",
+          "body": {
+            "name": "x"
+          },
+          "status": 400,
+          "error": "Invalid set parameter"
+        },
+        {
+          "method": "POST",
+          "path": "gains/rename?id=living-room&set=4294967296",
+          "body": {
+            "name": "x"
+          },
+          "status": 400,
+          "error": "Invalid set parameter"
+        }
+      ]
+    },
+    {
+      "name": "Gains/rename answers POST only",
+      "method": "GET",
+      "path": "gains/rename?id=living-room&set=1",
+      "body": null,
+      "status": 405,
+      "error": "Method not allowed",
+      "headers": {
+        "Allow": "POST"
+      }
+    },
+    {
+      "name": "Gains/delete removes a set, and its number is never given again",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "gains/add?id=living-room",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "gains/add?id=living-room",
+          "body": null,
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "gains/delete?id=living-room&set=2",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "success": true,
+            "message": "Gain set deleted"
+          },
+          "absent": [
+            "set"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "gains/add?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "set.n": 3,
+            "set.name": "Heat manual #3"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "gains?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "sets.0.n": 1,
+            "sets.1.n": 3
+          },
+          "absent": [
+            "sets.2"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "gains/delete?id=living-room&set=2",
+          "body": null,
+          "status": 404,
+          "error": "Gain set not found"
+        }
+      ]
+    },
+    {
+      "name": "Gains/delete of a set that is not there is 404",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "gains/delete?id=living-room&set=1",
+      "body": null,
+      "status": 404,
+      "error": "Gain set not found"
+    },
+    {
+      "name": "Gains/delete of an unknown thermostat is 404",
+      "method": "POST",
+      "path": "gains/delete?id=attic&set=1",
+      "body": null,
+      "status": 404,
+      "error": "Thermostat not found"
+    },
+    {
+      "name": "Gains/delete without a set number is 400",
+      "method": "POST",
+      "path": "gains/delete?id=living-room",
+      "body": null,
+      "status": 400,
+      "error": "Missing set parameter"
+    },
+    {
+      "name": "Gains/delete answers POST only",
+      "method": "GET",
+      "path": "gains/delete?id=living-room&set=1",
+      "body": null,
+      "status": 405,
+      "error": "Method not allowed",
+      "headers": {
+        "Allow": "POST"
+      }
+    },
+    {
+      "name": "Gains/apply makes a set's gains its relay's and moves the revision on",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "gains/add?id=living-room",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "id": "living-room",
+            "name": "Living Room",
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 22,
+            "pid": {
+              "heat": {
+                "kp": 2,
+                "ki": 0.001,
+                "kd": 5
+              }
+            }
+          },
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "gains/apply?id=living-room&set=1",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "success": true,
+            "message": "Gain set applied",
+            "revision": 1,
+            "persisted": true
+          },
+          "absent": [
+            "warning",
+            "set"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 1,
+            "pid.heat": {
+              "kp": 0.6,
+              "ki": 0.0025,
+              "kd": 0
+            }
+          }
+        },
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.id=living-room.revision": 1
+          }
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "id": "living-room",
+            "name": "Living Room",
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 22,
+            "revision": 0
+          },
+          "status": 409,
+          "error": "The device changed this thermostat since it was read; reload it"
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "id": "living-room",
+            "name": "Living Room",
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 22,
+            "revision": 1
+          },
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "gains?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "sets.0.n": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gains/apply waits for a calibration to end",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "gains/add?id=living-room",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "autotune?id=living-room&value=true",
+          "body": null,
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "gains/apply?id=living-room&set=1",
+          "body": null,
+          "status": 409,
+          "error": "A calibration is running; apply a gain set once it ends or is cancelled"
+        },
+        {
+          "method": "GET",
+          "path": "status?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.autotune.state": "running",
+            "controllers.0.autotune.set": null
+          }
+        },
+        {
+          "method": "POST",
+          "path": "autotune?id=living-room&value=false",
+          "body": null,
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "gains/apply?id=living-room&set=1",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 1
+          }
+        },
+        {
+          "method": "GET",
+          "path": "status?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.autotune.state": "failed",
+            "controllers.0.autotune.set": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gains/apply of a set for a relay the thermostat no longer has is 409",
+      "setup": [
+        "studio"
+      ],
+      "method": "POST",
+      "path": "gains/add?id=studio",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "set.direction": "cool"
+      },
+      "then": [
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "id": "studio",
+            "name": "Studio",
+            "enabled": false,
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 22
+          },
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "gains/apply?id=studio&set=1",
+          "body": null,
+          "status": 409,
+          "error": "The thermostat has no cooling relay"
+        },
+        {
+          "method": "GET",
+          "path": "get?id=studio",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gains/apply of a set that is not there is 404",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "gains/apply?id=living-room&set=1",
+      "body": null,
+      "status": 404,
+      "error": "Gain set not found"
+    },
+    {
+      "name": "Gains/apply of an unknown thermostat is 404",
+      "method": "POST",
+      "path": "gains/apply?id=attic&set=1",
+      "body": null,
+      "status": 404,
+      "error": "Thermostat not found"
+    },
+    {
+      "name": "Gains/apply without a set number is 400",
+      "method": "POST",
+      "path": "gains/apply?id=living-room&set=",
+      "body": null,
+      "status": 400,
+      "error": "Invalid set parameter"
+    },
+    {
+      "name": "Gains/apply answers POST only",
+      "method": "GET",
+      "path": "gains/apply?id=living-room&set=1",
+      "body": null,
+      "status": 405,
+      "error": "Method not allowed",
+      "headers": {
+        "Allow": "POST"
+      }
+    },
+    {
+      "name": "Gains/derive gives another rule's gains for a calibration's Ku and Pu",
+      "setup": [
+        "living-room"
+      ],
+      "device_only": "calibrated",
+      "method": "POST",
+      "path": "gains/derive?id=living-room&set=1&rule=zn_pid",
+      "body": null,
+      "status": 200,
+      "expect": {
+        "success": true,
+        "message": "Gain set derived",
+        "set": {
+          "n": 2,
+          "name": "Heat ZN PID #2",
+          "direction": "heat",
+          "source": "derived",
+          "rule": "zn_pid",
+          "ku": 10,
+          "pu": 1200,
+          "kp": 6,
+          "ki": 0.01,
+          "kd": 900,
+          "flags": [
+            "uneven"
+          ],
+          "time": null,
+          "from": 1
+        }
+      },
+      "absent": [
+        "revision",
+        "persisted"
+      ],
+      "then": [
+        {
+          "method": "GET",
+          "path": "gains?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "sets.0.name": "Measured",
+            "sets.1.n": 2,
+            "sets.1.from": 1
+          }
+        },
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 0,
+            "pid.heat.kp": 0.6
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gains/derive with apply=true applies the new set at once",
+      "setup": [
+        "living-room"
+      ],
+      "device_only": "calibrated",
+      "method": "POST",
+      "path": "gains/derive?id=living-room&set=1&rule=no_overshoot&apply=true",
+      "body": {
+        "name": "Gentle"
+      },
+      "status": 200,
+      "expect": {
+        "message": "Gain set derived and applied",
+        "set.n": 2,
+        "set.name": "Gentle",
+        "set.kp": 2,
+        "set.kd": 750,
+        "revision": 1,
+        "persisted": true
+      },
+      "then": [
+        {
+          "method": "GET",
+          "path": "get?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "revision": 1,
+            "pid.heat.kp": 2,
+            "pid.heat.kd": 750
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gains/derive with apply=true while a calibration runs is 409, and adds nothing",
+      "setup": [
+        "living-room"
+      ],
+      "device_only": "calibrated",
+      "method": "POST",
+      "path": "autotune?id=living-room&value=true",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "gains/derive?id=living-room&set=1&rule=zn_pid&apply=true",
+          "body": null,
+          "status": 409,
+          "error": "A calibration is running; apply a gain set once it ends or is cancelled"
+        },
+        {
+          "method": "GET",
+          "path": "gains?id=living-room",
+          "body": null,
+          "status": 200,
+          "absent": [
+            "sets.1"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Gains/derive of a set without Ku and Pu is 409",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "gains/add?id=living-room",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "gains/derive?id=living-room&set=1&rule=zn_pid",
+          "body": null,
+          "status": 409,
+          "error": "This set has no Ku and Pu"
+        },
+        {
+          "method": "GET",
+          "path": "gains?id=living-room",
+          "body": null,
+          "status": 200,
+          "absent": [
+            "sets.1"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Gains/derive without a rule, or with one it does not know, is 400",
+      "method": "POST",
+      "path": "gains/derive?id=living-room&set=1",
+      "body": null,
+      "status": 400,
+      "error": "Missing rule parameter",
+      "then": [
+        {
+          "method": "POST",
+          "path": "gains/derive?id=living-room&set=1&rule=ziegler",
+          "body": null,
+          "status": 400,
+          "error": "Invalid rule parameter"
+        },
+        {
+          "method": "POST",
+          "path": "gains/derive?id=living-room&set=1&rule=zn_pid&apply=yes",
+          "body": null,
+          "status": 400,
+          "error": "Invalid apply parameter"
+        }
+      ]
+    },
+    {
+      "name": "Gains/derive of a set that is not there is 404",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "gains/derive?id=living-room&set=4&rule=zn_pi",
+      "body": null,
+      "status": 404,
+      "error": "Gain set not found"
+    },
+    {
+      "name": "Gains/derive answers POST only",
+      "method": "GET",
+      "path": "gains/derive?id=living-room&set=1&rule=zn_pi",
+      "body": null,
+      "status": 405,
+      "error": "Method not allowed",
+      "headers": {
+        "Allow": "POST"
+      }
+    },
+    {
+      "name": "A deleted thermostat takes its sets with it",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "gains/add?id=living-room",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "delete?id=living-room",
+          "body": null,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "gains?id=living-room",
+          "body": null,
+          "status": 404,
+          "error": "Thermostat not found"
+        },
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "Living Room",
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 22
+          },
+          "status": 200,
+          "expect": {
+            "id": "living-room"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "gains?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "sets": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "An import keeps the thermostat's sets",
+      "setup": [
+        "living-room"
+      ],
+      "method": "POST",
+      "path": "gains/add?id=living-room",
+      "body": null,
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "import",
+          "body": {
+            "id": "living-room",
+            "name": "Living Room",
+            "kind": "pid",
+            "sensor_id": "temp_1",
+            "heat": {
+              "relay_id": "relay_1"
+            },
+            "mode": "heat",
+            "setpoint": 22
+          },
+          "status": 200,
+          "expect": {
+            "message": "Thermostat replaced"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "gains?id=living-room",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "sets.0.n": 1
+          }
+        },
+        {
+          "method": "GET",
+          "path": "list",
+          "body": null,
+          "status": 200,
+          "expect": {
+            "controllers.0.revision": 1
           }
         }
       ]

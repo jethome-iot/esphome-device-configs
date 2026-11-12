@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <deque>
 #include <functional>
 #include <map>
@@ -15,18 +16,24 @@
 #include "esphome/components/switch_hold/switch_hold.h"
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
+#include "esphome/core/time.h"
+#include "gain_sets.h"
 #include "hub_climate.h"
 #include "relay_claim.h"
 #ifdef USE_WEBSERVER_SORTING
 #include "esphome/components/web_server/web_server.h"
 #endif
 
+namespace esphome::time {
+class RealTimeClock;
+}  // namespace esphome::time
+
 namespace esphome::climate_hub {
 
 /// What a mutator did, for a caller that answers over HTTP.
 struct Result {
   bool ok{false};
-  /// The status that fits: 200, or 400, 404, 409, 413, 500 or 507 on failure.
+  /// The status that fits: 200, or 400, 404, 409, 413, 500, 503 or 507 on failure.
   uint16_t code{200};
   /// On failure, the sentence the editor shows.
   std::string error;
@@ -71,6 +78,8 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   void set_folder_path(const std::string &path) { this->folder_path_ = path; }
   void set_max_controllers(uint8_t count) { this->max_controllers_ = count; }
   void set_icon_index(uint8_t index) { this->entity_fields_ = static_cast<uint32_t>(index) << ENTITY_FIELD_ICON_SHIFT; }
+  /// The clock a saved gain set's date and default name come from.
+  void set_time_source(time::RealTimeClock *rtc) { this->rtc_ = rtc; }
 #ifdef USE_WEBSERVER_SORTING
   void set_web_server_sorting(web_server::WebServer *server, uint64_t group, float weight);
 #endif
@@ -157,18 +166,43 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
     this->change_callback_.add(std::forward<F>(callback));
   }
 
-  /// Calibrates a running PID thermostat: the relay in `direction` goes full below the target
-  /// and off above it, AUTOTUNE_NOISEBAND either side, the other one held open, until the
-  /// swings give Ku and Pu. `rule` turns them into kp, ki and kd, which the thermostat then runs
-  /// with and its file keeps, its revision moved on. No `direction` takes the mode's, which
-  /// heat_cool has none of. 404, or 409 for a bang-bang or stopped thermostat, a newer
-  /// firmware's file, one calibrating already, in mode off or with a fault; 400 for a direction
-  /// the mode does not drive, or none in heat_cool.
-  Result start_autotune(const std::string &id, optional<AutotuneDirection> direction, AutotuneRule rule);
+  /// Calibrates a running PID thermostat: the relay of its mode goes full below the target and
+  /// off above it, AUTOTUNE_NOISEBAND either side, the other one held open, until the swings
+  /// give Ku and Pu. `rule` turns them into kp, ki and kd, which that relay then runs on and the
+  /// file keeps as its gains, the revision moved on. 404, or 409 for a bang-bang or stopped
+  /// thermostat, a newer firmware's file, one calibrating already, in mode off or with a fault;
+  /// 400 for a `direction`, when one is given, that is not the mode's.
+  Result start_autotune(const std::string &id, optional<Direction> direction, AutotuneRule rule);
   /// Ends the running calibration as cancelled: 404, or 409 when none runs.
   Result cancel_autotune(const std::string &id);
   /// The thermostat's last calibration since boot, running or ended, nullptr for none.
   const AutotuneRun *autotune(const std::string &id) const;
+
+  /// Saves the gains `direction`'s relay has, the mode's relay when none is given, as a new set
+  /// in the thermostat's sets file; a calibration that succeeds saves its own. `name`, trimmed,
+  /// meets validate_set_name(), "" for the local date and time. 400 for a name, 404, 409 for a
+  /// direction without a relay, 507 below GAIN_SET_MIN_FREE_BYTES free, 500 when not written.
+  /// `added` gets the set.
+  Result add_gain_set(const std::string &id, optional<Direction> direction, const std::string &name,
+                      GainSet *added = nullptr);
+  /// Renames set `n`, the rest of its line kept: 400, 404 for the thermostat or the set, 500.
+  Result rename_gain_set(const std::string &id, uint32_t n, const std::string &name, GainSet *renamed = nullptr);
+  /// Removes set `n`; its number is never given again. 404 for the thermostat or the set, 500.
+  Result delete_gain_set(const std::string &id, uint32_t n);
+  /// Makes set `n`'s gains its relay's and moves the revision on, as a calibration does; a
+  /// running PID goes on with them as after a Save. 404 for the thermostat or the set, 409 while
+  /// it calibrates, for a newer firmware's file, or a relay the thermostat no longer has.
+  /// `persisted` false when the file is still to be written.
+  Result apply_gain_set(const std::string &id, uint32_t n);
+  /// Adds a set of `rule`'s gains for set `n`'s Ku and Pu, `from` it, and applies it as
+  /// apply_gain_set() with `apply`, whose refusals then come before anything is added. 409 for a
+  /// set without Ku and Pu, otherwise as add_gain_set().
+  Result derive_gain_set(const std::string &id, uint32_t n, AutotuneRule rule, bool apply, const std::string &name,
+                         GainSet *added = nullptr);
+  /// The thermostat's sets for a listing on another task, read there; nullptr with a 404. While
+  /// it is open the hub writes nothing to that file: what it adds waits in RAM until the reader
+  /// is gone, and a rename or a delete is 503.
+  std::unique_ptr<GainSetReader> open_gain_sets(const std::string &id, Result *result);
 
   /// The name rules on a trimmed name, with the sentence that says which one broke.
   static bool validate_name(const std::string &name, std::string *error) {
@@ -285,6 +319,35 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
 
   void mark_dirty_(const std::string &id);
   void flush_dirty_();
+
+  /// A set to add, or a sets file to delete, once no reader has the file open.
+  struct PendingSets {
+    std::string id;
+    bool drop;
+    GainSet set;
+  };
+  std::string gains_folder_() const;
+  std::string gain_sets_path_(const std::string &id) const;
+  bool ensure_gains_folder_();
+  /// Numbers `set`, dates it, names it `name` or by its `label`, and adds it: false with
+  /// `result` set when it was refused.
+  bool append_set_(const std::string &id, const std::string &name, const char *label, GainSet *set, Result *result);
+  /// The set `n`, the ones waiting in RAM too.
+  bool find_set_(const std::string &id, uint32_t n, GainSet *set);
+  /// A rename or a delete rewrites the file: none while a reader has it open, 503 then.
+  bool settle_sets_(Result *result);
+  /// apply_gain_set()'s 409s.
+  bool may_apply_(const ClimateConfig &stored, Direction direction, Result *result) const;
+  Result apply_set_(ClimateConfig *stored, const GainSet &set);
+  /// Saves a calibration's result as a set, and logs why when it cannot.
+  void save_calibration_(const std::string &id, AutotuneRun *run);
+  /// Deletes the thermostat's sets file, once no reader has it open.
+  void drop_gain_sets_(const std::string &id);
+  void delete_gain_file_(const std::string &id);
+  void flush_pending_sets_();
+  // Seams: tests set the clock and the free space.
+  virtual ESPTime clock_now_() const;
+  virtual filesystem_storage_abstract::StorageInfo storage_info_() const { return this->storage_->get_storage_info(); }
   /// After a thermostat appeared, went, or changed its name or traits: Home Assistant lists
   /// entities only when it connects. Named, so a burst of edits costs one reconnect.
   void schedule_ha_resync_();
@@ -322,6 +385,11 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
 
   std::set<std::string> dirty_;
   uint64_t dirty_since_ms_{0};
+  time::RealTimeClock *rtc_{nullptr};
+  // Loop task only; flushed by the loop once no reader is open, and at shutdown.
+  std::vector<PendingSets> pending_sets_;
+  // Readers open on the web server's task, which closes them.
+  std::atomic<uint8_t> gain_readers_{0};
   uint32_t ha_resync_delay_ms_{2000};
   loop_job::LoopDispatcher dispatcher_;
 #ifdef USE_WEBSERVER_SORTING

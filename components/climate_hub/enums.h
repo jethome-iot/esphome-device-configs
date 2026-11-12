@@ -11,12 +11,11 @@ enum class ControlKind : uint8_t {
   BANG_BANG,
 };
 
-/// Requested operating mode: climate::ClimateMode minus what a relay pair cannot do.
+/// Requested operating mode: one relay at a time, the heating or the cooling one.
 enum class HubMode : uint8_t {
   OFF = 0,
   HEAT,
   COOL,
-  HEAT_COOL,
 };
 
 /// What the controller is doing right now.
@@ -70,19 +69,21 @@ enum class AutotuneRule : uint8_t {
   NO_OVERSHOOT,
 };
 
-/// The relay a calibration swings: one direction per run.
-enum class AutotuneDirection : uint8_t {
+/// One of a thermostat's two relays by what it does: the one a mode drives, whose own gains a
+/// PID runs on and a calibration writes.
+enum class Direction : uint8_t {
   HEAT = 0,
   COOL,
 };
 
 /// What holds a relay away from where its thermostat wants it: the relay's own minimum on time
-/// before it may open, or minimum off time before it may close. Reported over HTTP, never
-/// persisted.
+/// before it may open, or minimum off time before it may close, or the thermostat's other relay,
+/// which has to open before this one may close. Reported over HTTP, never persisted.
 enum class RelayWait : uint8_t {
   NONE = 0,
   MIN_ON,
   MIN_OFF,
+  OTHER_RELAY,
 };
 
 namespace enums {
@@ -103,8 +104,8 @@ const char *autotune_end_to_string(AutotuneEnd v);
 AutotuneEnd autotune_end_of(HubFault fault);
 const char *autotune_rule_to_string(AutotuneRule v);
 bool autotune_rule_from_string(const std::string &s, AutotuneRule *out);
-const char *autotune_direction_to_string(AutotuneDirection v);
-bool autotune_direction_from_string(const std::string &s, AutotuneDirection *out);
+const char *direction_to_string(Direction v);
+bool direction_from_string(const std::string &s, Direction *out);
 
 }  // namespace enums
 

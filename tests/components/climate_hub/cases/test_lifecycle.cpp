@@ -534,7 +534,7 @@ TEST_F(HubTest, ASaveOntoAMissingSensorStopsTheThermostatAndKeepsIt) {
 TEST_F(HubTest, AThermostatThatOnlyWaitsLeavesARelayItNeverHeldAlone) {
   ClimateConfig porch = draft("Porch", "relay_2");
   porch.cool.relay_id = "relay_9";
-  porch.mode = HubMode::HEAT_COOL;
+  porch.mode = HubMode::HEAT;
   entities().relay2.turn_on();  // an automation, or Home Assistant
   const int writes = entities().relay2.writes;
 
@@ -558,7 +558,7 @@ TEST_F(HubTest, ASaveThatLeavesAThermostatWaitingOpensOnlyTheRelayItHeld) {
 
   ClimateConfig moved = draft("Boiler", "relay_2");
   moved.cool.relay_id = "relay_9";
-  moved.mode = HubMode::HEAT_COOL;
+  moved.mode = HubMode::HEAT;
   Result result = hub().update("boiler", moved);
   ASSERT_TRUE(result.ok) << result.error;
   EXPECT_EQ("not started: relay 'relay_9' not found", result.warning);
@@ -598,7 +598,7 @@ TEST_F(HubTest, AMissingSensorRefusesATakeOverBeforeItStopsTheHolder) {
 
   ClimateConfig porch = draft("Porch", "relay_1");
   porch.cool.relay_id = "relay_9";
-  porch.mode = HubMode::HEAT_COOL;
+  porch.mode = HubMode::HEAT;
   porch.enabled = false;
   this->create(porch);
   result = hub().set_enabled("porch", true, true);
@@ -635,7 +635,8 @@ TEST_F(HubTest, MaxControllersCapsCreation) {
 TEST_F(HubTest, ThermostatsReloadFromDiskWithTheirSettings) {
   ClimateConfig config = draft("Boiler");
   config.setpoint = 23.5f;
-  config.pid.kp = 1.25f;
+  config.pid.heat.kp = 1.25f;
+  config.pid.cool.kp = 0.75f;
   this->create(config);
 
   this->reboot();
@@ -643,7 +644,8 @@ TEST_F(HubTest, ThermostatsReloadFromDiskWithTheirSettings) {
   ASSERT_NE(nullptr, back);
   EXPECT_EQ("Boiler", back->name);
   EXPECT_FLOAT_EQ(23.5f, back->setpoint);
-  EXPECT_FLOAT_EQ(1.25f, back->pid.kp);
+  EXPECT_FLOAT_EQ(1.25f, back->pid.heat.kp);
+  EXPECT_FLOAT_EQ(0.75f, back->pid.cool.kp) << "each relay's own";
   EXPECT_TRUE(hub().is_running("boiler"));
 }
 
@@ -700,10 +702,10 @@ TEST_F(HubTest, NumbersFromCppAreClampedLikeTheFileFormat) {
   EXPECT_FLOAT_EQ(3.f, stored->pid.output_samples);
 
   config.safety.sensor_timeout_s = NAN;
-  config.pid.kp = -1.f;
+  config.pid.heat.kp = -1.f;
   ASSERT_TRUE(hub().update("boiler", config).ok);
   EXPECT_FLOAT_EQ(300.f, stored->safety.sensor_timeout_s);
-  EXPECT_FLOAT_EQ(0.f, stored->pid.kp);
+  EXPECT_FLOAT_EQ(0.f, stored->pid.heat.kp);
   EXPECT_NE(std::string::npos, read_file(this->file_of("boiler")).find("\"sensor_timeout_s\":300"));
   hub().loop();
 }
@@ -854,7 +856,7 @@ TEST_F(HubTest, HomeAssistantReconnectsOncePerBurstOfStructuralChanges) {
 
   ASSERT_TRUE(hub().set_setpoint("boiler", 25.f).ok);
   ClimateConfig gains = draft("Hot Water");
-  gains.pid.kp = 2.f;
+  gains.pid.heat.kp = 2.f;
   ASSERT_TRUE(hub().update("boiler", gains).ok);
   pass_resync_delay();
   EXPECT_EQ(1, hub().resyncs) << "a target or new gains are no news to Home Assistant";

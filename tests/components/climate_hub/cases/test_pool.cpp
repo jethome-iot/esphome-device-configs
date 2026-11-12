@@ -507,6 +507,44 @@ TEST_F(HubTest, BootRefusesABrokenDocumentAndLeavesIt) {
   EXPECT_EQ(not_json, read_file(this->file_of("broken")));
 }
 
+// A file an older firmware wrote in heat and cool mode is not migrated: refused as any word this
+// firmware does not know is, left as it is, its relays untouched and its id kept from a create.
+TEST_F(HubTest, BootRefusesAHeatAndCoolFileAndLeavesIt) {
+  const std::string porch =
+      R"({"version":4,"id":"porch","name":"Porch","kind":"pid","sensor_id":"room",)"
+      R"("heat":{"relay_id":"relay_1"},"cool":{"relay_id":"relay_2"},"mode":"heat_cool","setpoint":21})";
+  const std::string attic =
+      R"({"version":4,"id":"attic","name":"Attic","kind":"pid","sensor_id":"room",)"
+      R"("heat":{"relay_id":"relay_1"},"cool":{"relay_id":"relay_3"},"mode":"off","last_on_mode":"heat_cool"})";
+  write_file(this->file_of("porch"), porch);
+  write_file(this->file_of("attic"), attic);
+  LogCapture::instance().clear();
+  this->reboot();
+
+  EXPECT_EQ(0u, hub().store().size());
+  EXPECT_EQ(porch, read_file(this->file_of("porch"))) << "left byte for byte";
+  EXPECT_EQ(attic, read_file(this->file_of("attic")));
+  EXPECT_TRUE(LogCapture::instance().has("porch.json' refused: mode must be one of off/heat/cool"));
+  EXPECT_TRUE(LogCapture::instance().has("attic.json' refused: last_on_mode must be one of heat/cool"));
+  EXPECT_EQ("", hub().claimed_by("relay_1"));
+  EXPECT_EQ(0, entities().relay1.writes + entities().relay2.writes + entities().relay3.writes);
+  EXPECT_EQ("porch-2", this->create(draft("Porch")).id) << "its id stays taken";
+}
+
+// Deleted by hand, over the file API say, the refused file frees its id at once, without a
+// reboot: the thermostat is made again under it.
+TEST_F(HubTest, ARefusedHeatAndCoolFileFreesItsIdOnceDeleted) {
+  write_file(this->file_of("porch"),
+             R"({"version":4,"id":"porch","name":"Porch","kind":"pid","sensor_id":"room",)"
+             R"("heat":{"relay_id":"relay_1"},"cool":{"relay_id":"relay_2"},"mode":"heat_cool","setpoint":21})");
+  this->reboot();
+  ASSERT_EQ(0u, hub().store().size());
+  EXPECT_EQ(404, hub().remove("porch").code) << "no thermostat to delete";
+
+  ASSERT_EQ(0, ::remove(this->file_of("porch").c_str()));
+  EXPECT_EQ("porch", this->create(draft("Porch")).id);
+}
+
 // The dashboard's editor opens a blank form at /climate/new, so a file with that id could never
 // be edited: refused, and left.
 TEST_F(HubTest, BootRefusesTheIdNew) {
@@ -593,7 +631,7 @@ TEST_F(HubTest, BootLeavesTheOtherRelayOfOneThatWaitsAlone) {
   write_file(this->file_of("summer"), doc("summer", "Summer"));
   write_file(this->file_of("winter"),
              R"({"version":1,"id":"winter","name":"Winter","kind":"bang_bang","sensor_id":"room",)"
-             R"("heat":{"relay_id":"relay_2"},"cool":{"relay_id":"relay_1"},"mode":"heat_cool"})");
+             R"("heat":{"relay_id":"relay_2"},"cool":{"relay_id":"relay_1"},"mode":"heat"})");
   hub().reset();
   reset_entities();
   entities().relay2.turn_on();  // restored on, or closed by a binding, before the hub sets up
@@ -611,7 +649,7 @@ TEST_F(HubTest, BootLeavesTheOtherRelayOfOneThatWaitsAlone) {
 TEST_F(HubTest, BootKeepsAThermostatWhoseSensorOrRelayIsGone) {
   const std::string attic = doc("attic", "Attic", "relay_1", true, "gone");
   const std::string porch = R"({"version":1,"id":"porch","name":"Porch","kind":"bang_bang","sensor_id":"room",)"
-                            R"("heat":{"relay_id":"relay_1"},"cool":{"relay_id":"relay_9"},"mode":"heat_cool"})";
+                            R"("heat":{"relay_id":"relay_1"},"cool":{"relay_id":"relay_9"},"mode":"heat"})";
   write_file(this->file_of("attic"), attic);
   write_file(this->file_of("porch"), porch);
   LogCapture::instance().clear();
@@ -841,7 +879,7 @@ TEST_F(HubTest, ATakeOverHandsTheEntityItDoesNotNeedToTheThermostatThatWaitsForO
   ASSERT_EQ(NO_FREE_ENTITY, this->create(draft("Porch", "relay_3")).warning);
   ClimateConfig house = draft("House", "relay_1");
   house.cool.relay_id = "relay_2";
-  house.mode = HubMode::HEAT_COOL;
+  house.mode = HubMode::HEAT;
   house.enabled = false;
   this->create(house);
 

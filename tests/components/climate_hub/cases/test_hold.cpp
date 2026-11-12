@@ -102,7 +102,7 @@ TEST_F(HoldTest, ATakeOverHandsTheHoldToTheTaker) {
 TEST_F(HoldTest, StoppingOrRemovingAThermostatAnnouncesItsRelaysOnceFree) {
   ClimateConfig both = draft("Both", "relay_1");
   both.cool.relay_id = "relay_2";
-  both.mode = HubMode::HEAT_COOL;
+  both.mode = HubMode::HEAT;
   this->create(both);
   ASSERT_TRUE(hub().set_enabled("both", false).ok);
   ASSERT_EQ(2u, releases().size());
@@ -124,7 +124,7 @@ TEST_F(HoldTest, StoppingOrRemovingAThermostatAnnouncesItsRelaysOnceFree) {
 TEST_F(HoldTest, ASaveThatDisablesAThermostatAnnouncesItsRelays) {
   ClimateConfig both = draft("Both", "relay_1");
   both.cool.relay_id = "relay_2";
-  both.mode = HubMode::HEAT_COOL;
+  both.mode = HubMode::HEAT;
   this->create(both);
   both.enabled = false;
   ASSERT_TRUE(hub().update("both", both).ok);
@@ -139,7 +139,7 @@ TEST_F(HoldTest, ASaveThatDisablesAThermostatAnnouncesItsRelays) {
 TEST_F(HoldTest, ASaveThatDropsARelayAnnouncesThatOneOnly) {
   ClimateConfig both = draft("Both", "relay_1");
   both.cool.relay_id = "relay_2";
-  both.mode = HubMode::HEAT_COOL;
+  both.mode = HubMode::HEAT;
   this->create(both);
   ASSERT_TRUE(hub().update("both", draft("Both", "relay_1")).ok);
   ASSERT_EQ(1u, releases().size());
@@ -151,7 +151,7 @@ TEST_F(HoldTest, ASaveThatDropsARelayAnnouncesThatOneOnly) {
 TEST_F(HoldTest, ATakeOverAnnouncesOnlyWhatTheTakerLeft) {
   ClimateConfig winter = draft("Winter", "relay_1");
   winter.cool.relay_id = "relay_2";
-  winter.mode = HubMode::HEAT_COOL;
+  winter.mode = HubMode::HEAT;
   this->create(winter);
   ClimateConfig summer = draft("Summer", "relay_1");
   summer.enabled = false;
