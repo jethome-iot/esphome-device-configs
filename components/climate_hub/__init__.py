@@ -4,9 +4,11 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 import esphome.final_validate as fv
 from esphome.components import filesystem_storage_abstract, web_server
+from esphome.components import time as time_
 from esphome.const import (
     CONF_ID,
     CONF_INCLUDE_INTERNAL,
+    CONF_TIME_ID,
     CONF_WEB_SERVER,
     CONF_WEB_SERVER_ID,
     PLATFORM_ESP32,
@@ -46,6 +48,8 @@ CONFIG_SCHEMA = cv.All(
                 filesystem_storage_abstract.FilesystemStorageAbstract
             ),
             cv.Optional(CONF_FOLDER_PATH, default="climates"): folder_name,
+            # Dates a saved gain set and names one given no name.
+            cv.Optional(CONF_TIME_ID): cv.use_id(time_.RealTimeClock),
             # Both the documents and the climate entities codegen reserves.
             cv.Optional(CONF_MAX_CONTROLLERS, default=8): cv.int_range(min=1, max=16),
         }
@@ -88,6 +92,9 @@ async def to_code(config):
     cg.add(var.set_max_controllers(config[CONF_MAX_CONTROLLERS]))
     cg.add_define("USE_ENTITY_ICON")
     cg.add(var.set_icon_index(register_icon(ICON)))
+    if CONF_TIME_ID in config:
+        rtc = await cg.get_variable(config[CONF_TIME_ID])
+        cg.add(var.set_time_source(rtc))
 
     # Same group hash as web_server.add_entity_config() computes for YAML entities.
     sorting = config.get(CONF_WEB_SERVER)

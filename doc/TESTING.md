@@ -107,9 +107,12 @@ the files on disk, the log, a job reaching the loop task, the relays' states.
   - `name`: a sentence, unique.
   - `setup`: fixture names, optional.
   - `device_only`: a state only the device can be put in: `loop_busy`, `storage_failed`,
-    `storage_unwritable`, `file_cap`, `no_free_entity`, `file_stays`, or `newer_file`, where a
-    newer firmware wrote the files of the `setup`, as version 9, and the device booted on them.
-    The mock skips the case. The state holds for the case's own request, not for `then`.
+    `storage_unwritable`, `file_cap`, `no_free_entity`, `file_stays`, `newer_file`, where a
+    newer firmware wrote the files of the `setup`, as version 9, and the device booted on them,
+    `calibrated`, where every thermostat of the `setup` has a calibration's result as its gain set
+    1 (heat, `zn_pi`, Ku 10, Pu 1200, kp 4.5, ki 0.0045, kd 0, `uneven`, named `Measured`), or
+    `low_space`, where the storage has less than 64 KiB free. The mock skips the case. The state
+    holds for the case's own request, not for `then`; `calibrated`'s set stays.
   - `method`, `path`: `GET`, `POST` or `OPTIONS`, and the route below `<url_prefix>/api/` with
     its query, sent as written.
   - `body`: `null` for none, a string as written, anything else as its JSON.

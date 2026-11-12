@@ -26,6 +26,10 @@ const std::set<std::string> STEP_KEYS{"method", "path",         "body",    "pad_
                                       "error",  "error_prefix", "headers", "expect", "absent"};
 // What `newer_file` writes: a literal the contract can expect, far enough ahead to outlast bumps.
 constexpr unsigned NEWER_VERSION = 9;
+// What `calibrated` writes: Ku 10 and Pu 1200 give round gains for every rule.
+constexpr const char *CALIBRATED_SET =
+    R"({"n":1,"name":"Measured","direction":"heat","source":"calibration","rule":"zn_pi","ku":10,"pu":1200,)"
+    R"("kp":4.5,"ki":0.0045,"kd":0,"flags":["uneven"],"time":1793973900,"from":null})";
 static_assert(climate_hub::CONFIG_VERSION < NEWER_VERSION, "newer_file must stay newer than this firmware");
 
 const std::set<std::string> CASE_KEYS = [] {
@@ -153,8 +157,7 @@ class Contract : public Editor {
   void fresh() {
     hub().reset();
     storage().set_base_path(this->base_path);
-    for (const std::string &name : this->files())
-      remove((this->folder() + "/" + name).c_str());
+    this->clear_folder();
     reset_entities();
     hub().setup();
   }
@@ -177,6 +180,13 @@ class Contract : public Editor {
         chmod((this->folder() + "/" + name).c_str(), 0444);
     } else if (state == "newer_file") {
       this->reboot_with_version(NEWER_VERSION);
+    } else if (state == "calibrated") {
+      // Every thermostat of the setup has a calibration's result as its set 1.
+      mkdir(this->gains().c_str(), 0755);
+      for (const auto &config : hub().store().all())
+        std::ofstream(this->sets_of(config->id)) << CALIBRATED_SET << "\n";
+    } else if (state == "low_space") {
+      hub().free_bytes = climate_hub::GAIN_SET_MIN_FREE_BYTES - 1;
     } else {
       ADD_FAILURE() << "unknown device_only: " << state;
     }
@@ -191,6 +201,7 @@ class Contract : public Editor {
     if (state == "no_free_entity")
       hub().free_idle_slots();
     hub().refuse_remove = false;
+    hub().free_bytes.reset();
     if (state == "newer_file")
       this->reboot_with_version(climate_hub::CONFIG_VERSION);
   }
@@ -298,12 +309,18 @@ TEST_F(Contract, TheContractCoversEveryStatusAndEveryRoute) {
     statuses.insert(c["status"].as<int>());
     if (c["status"].as<int>() == 200)
       answered.insert(route_of(c["path"].as<std::string>()));
+    // A set to rename, delete or apply comes from a request before it.
+    for (JsonObjectConst then : c["then"].as<JsonArrayConst>()) {
+      if (then["status"].as<int>() == 200)
+        answered.insert(route_of(then["path"].as<std::string>()));
+    }
     EXPECT_TRUE(names.insert(c["name"].as<std::string>()).second) << "twice: " << c["name"].as<std::string>();
   }
   for (int status : {400, 404, 405, 409, 413, 500, 503, 507})
     EXPECT_EQ(statuses.count(status), 1u) << status;
-  for (const char *route : {"list", "get", "status", "entities", "schema", "ping", "save", "import", "delete", "enable",
-                            "setpoint", "preset", "autotune"})
+  for (const char *route :
+       {"list", "get", "status", "entities", "schema", "ping", "save", "import", "delete", "enable", "setpoint",
+        "preset", "autotune", "gains", "gains/add", "gains/rename", "gains/delete", "gains/apply", "gains/derive"})
     EXPECT_EQ(answered.count(route), 1u) << route;
 }
 
