@@ -10,8 +10,10 @@
 //     has_heap_room(more)             whether a change may take `more` PSRAM first and keep the reserves
 //     target_name(target)             a relay's or a thermostat's name, its id when it is not there
 //     status(id)                      ScheduleStatus: state, reason, note, and the issues of its actions
+//     state(id)                       the state alone, for a caller that asks often (the display)
 //     now_and_next(config, &a, &b)    the points in force and next, false while the clock is not valid;
 //                                     a PointRef's point names its mode by index in config.modes
+//     clock_minute(&minute)           the minute of the week those two read, false while not valid
 //     clock_text(&day, &time)         the device's local "wed", "10:15:42", false while not valid
 //     relay_targets(), thermostat_targets()   what an action may drive, who holds and who schedules it
 //     scheduled_by(type, id)          the enabled schedule that drives a relay or a thermostat
@@ -226,11 +228,16 @@ class ScheduleEngine : public Component {
   bool has_heap_room(size_t more = 0) const;
   /// Where the schedule stands, checked now.
   ScheduleStatus status(std::string_view id) const;
+  /// status(id).state without the issues it collects; DISABLED for an unknown id.
+  ScheduleState state(std::string_view id) const;
   /// The relay's or the thermostat's name; its id when it is not on the device.
   std::string target_name(const Target &target) const;
   /// The point in force and the next one, the next even with the same mode. False while the
   /// clock has not been valid yet.
   bool now_and_next(const ScheduleConfig &config, PointRef *now, PointRef *next) const;
+  /// The minute of the week now_and_next() reads, Monday 00:00 being 0. False while the clock
+  /// has not been valid yet.
+  bool clock_minute(uint16_t *minute_of_week) const;
   /// The device's local day ("wed") and time ("10:15:42"); false while the clock is not valid.
   bool clock_text(std::string *day, std::string *time);
   /// Every visible switch.
@@ -336,6 +343,7 @@ class ScheduleEngine : public Component {
   /// The actions of `config` the device would skip now; `switches` as Entry's.
   std::vector<Issue> issues_(const ScheduleConfig &config, const PsramVector<switch_::Switch *> &switches) const;
   Entry *find_(std::string_view id) const;
+  ScheduleState state_(const Entry &entry) const;
   bool refuse_if_failed_(Result *result) const;
   /// 507 for a schedule under a new id while files wait on flash: the next boot could load it
   /// in place of one of them, which the list never showed.

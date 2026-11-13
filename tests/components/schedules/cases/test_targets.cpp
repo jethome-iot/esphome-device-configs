@@ -437,6 +437,32 @@ TEST_F(Targets, TwoEnabledFromFilesTheFirstByIdDrives) {
   EXPECT_EQ(ScheduleState::RUNNING, this->state("b"));
 }
 
+// The display asks for the state alone on every redraw; it is the one status() gives.
+TEST_F(Targets, TheStateAloneIsTheStatusState) {
+  this->write("a", file_doc("a", "A"));
+  this->write("b", off_file("b", "B"));
+  this->write("c", off_file("c", "C", false));
+  this->boot();
+  auto expect = [this](const char *id, ScheduleState state) {
+    EXPECT_EQ(state, this->engine->state(id)) << id;
+    EXPECT_EQ(state, this->engine->status(id).state) << id;
+  };
+  expect("a", ScheduleState::WAITING_FOR_CLOCK);
+  expect("b", ScheduleState::WAITING_FOR_CLOCK);
+  expect("c", ScheduleState::DISABLED);
+
+  this->engine->local = at_local(0, 9, 0);
+  this->engine->tick();
+  expect("a", ScheduleState::RUNNING);
+  expect("b", ScheduleState::CONFLICT);
+  expect("c", ScheduleState::DISABLED);
+
+  ASSERT_TRUE(this->engine->set_enabled("a", false).ok);
+  expect("a", ScheduleState::DISABLED);
+  expect("b", ScheduleState::RUNNING);
+  expect("gone", ScheduleState::DISABLED);
+}
+
 // Taken by id: one that waits drives none of its targets, so a later one has the others. Once
 // the one in its way goes it runs, and the later one that shares a target with it waits.
 TEST_F(Targets, OneThatWaitsLeavesItsOtherTargetsToTheNext) {

@@ -72,6 +72,20 @@ TEST(WeekClock, HhmmIsTheTwentyFourHourClock) {
   EXPECT_EQ("23:59", format_hhmm(1439));
 }
 
+// The display's Next row: the day only when the point is not later today.
+TEST(WeekClock, APointLaterTodayIsItsTimeAnyOtherCarriesItsDay) {
+  EXPECT_EQ("22:00", point_when(wm(2, 10, 15), wm(2, 22, 0)));
+  EXPECT_EQ("10:16", point_when(wm(2, 10, 15), wm(2, 10, 16))) << "the next minute";
+  EXPECT_EQ("23:59", point_when(wm(6, 0, 0), wm(6, 23, 59))) << "Sunday's last minute";
+  EXPECT_EQ("Thu 06:30", point_when(wm(2, 23, 0), wm(3, 6, 30))) << "the next day";
+  EXPECT_EQ("Thu 00:00", point_when(wm(2, 23, 59), wm(3, 0, 0))) << "midnight is the next day's";
+  EXPECT_EQ("Mon 08:00", point_when(wm(6, 21, 0), wm(0, 8, 0))) << "round into next week";
+  EXPECT_EQ("Mon 00:00", point_when(wm(6, 23, 59), wm(0, 0, 0)));
+  EXPECT_EQ("Wed 06:30", point_when(wm(2, 10, 15), wm(2, 6, 30))) << "the same weekday a week on";
+  EXPECT_EQ("Wed 10:15", point_when(wm(2, 10, 15), wm(2, 10, 15))) << "a week of one point, at that point";
+  EXPECT_EQ("Sun 23:59", point_when(wm(0, 0, 0), wm(6, 23, 59)));
+}
+
 TEST(WeekClock, DayNamesAreMondayFirst) {
   EXPECT_STREQ("mon", DAY_NAMES[0]);
   EXPECT_STREQ("sun", DAY_NAMES[6]);

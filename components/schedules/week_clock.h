@@ -28,5 +28,8 @@ uint16_t week_minute_of(int64_t local_minute);
 bool parse_hhmm(const char *text, uint16_t *minutes);
 /// Minutes since midnight as "HH:MM".
 std::string format_hhmm(uint16_t minutes);
+/// When a point comes, seen from `now`, both in minutes of the week: "06:30" later the same day,
+/// "Tue 06:30" on another, the same weekday a week on included.
+std::string point_when(uint16_t now, uint16_t point);
 
 }  // namespace esphome::schedules

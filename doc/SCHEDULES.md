@@ -167,6 +167,24 @@ can no longer save over it: its Save is refused with `The device changed this sc
 was read; reload it` until it reloads, so it never undoes what another page, a phone or a
 restore did. A Save without a revision, from `curl` say, is not checked.
 
+## On the display
+
+**Schedules** in the display menu of `jxd-r6-e1eth-lcd` lists the schedules the device booted
+with, each with `(On)` or `(Off)` for whether it is switched on; one created later shows after a
+reboot, and one deleted since says `--`. A row opens its name, then:
+
+- **State**: `Running`; `Paused`, switched off; `Conflict`, a schedule before it drives a relay or
+  a thermostat it names ([above](#one-schedule-per-relay-or-thermostat)); `No clock`, the device
+  has no valid time yet.
+- **Mode**: the mode the week puts in force now, for a paused schedule too.
+- **Next**: the next switch point's mode, and on the row below its time, with the day when it is
+  not later today: `22:00`, `Tue 06:30`.
+- **Enabled**: switches it on or off as the dashboard's switch does, never taking a relay or a
+  thermostat over: an On that another schedule's relay or thermostat refuses stays Off, and the
+  log says why.
+
+Mode and Next say `--` until the device has a valid time.
+
 ## Testing without hardware
 
 ```bash
