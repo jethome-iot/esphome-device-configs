@@ -2266,14 +2266,14 @@ graphical_display_menu:
               return str_sprintf("%s: --", s->get_name().c_str());
             return str_sprintf("%s: %.1f°C", s->get_name().c_str(), s->state);
     - type: menu
+      text: Automations
+      id: automations_menu
+    - type: menu
       text: Thermostats
       id: thermostats_menu
     - type: menu
       text: Schedules
       id: schedules_menu
-    - type: menu
-      text: Automations
-      id: automations_menu
     - type: menu
       text: Info
       id: info_submenu
