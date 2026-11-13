@@ -40,7 +40,8 @@ boundaries; everything else is local to its file.
   submenu only names the slot and says `Free slot`.
   `automations_menu` is filled at boot with a row per loaded rule, or one `No automations` row.
   `thermostats_menu` is filled at boot with a submenu per loaded thermostat, or one
-  `No thermostats` row.
+  `No thermostats` row, and `schedules_menu` with a submenu per loaded schedule, or one
+  `No schedules` row.
 - `automations_engine` (`features/automations.yaml`) is the rule engine; `display/menu.yaml`
   reads `configs()` for the Automations rows and calls `set_enable_automation` from them.
 - `climates` (`features/climates.yaml`) is the `climate_hub` component: the thermostats, kept
@@ -62,14 +63,15 @@ boundaries; everything else is local to its file.
   `features/climates.yaml`, `automations.yaml`, `entity-settings.yaml` and `schedules.yaml` load
   `switch_hold`; `display/buttons.yaml` and `features/modbus-server.yaml` call `switch_hold::`
   without loading it, so they count on one of those being in the same firmware, as
-  `display/menu.yaml` counts on the first three.
+  `display/menu.yaml` counts on all four.
 - `schedules_engine` (`features/schedules.yaml`) is the `schedules` component: the weekly
   schedules, kept on `user_storage` under `schedules/` and read against `pcf8563_time` in local
   time. The id cannot be `schedules`, the component's C++ namespace. A schedule's actions name
   relays by object id and thermostats by their `climates` id, so renaming a relay in YAML leaves
   the actions on it skipped; `climates` tells it when a thermostat is created or removed or its
   presets change. `web_schedule_editor` (`features/schedule-editor.yaml`) edits the schedules
-  under `/schedule-editor/api`.
+  under `/schedule-editor/api`; `display/menu.yaml` reads `schedules()`, `get()`,
+  `state()`, `now_and_next()` and `clock_minute()` for the Schedules rows and calls `set_enabled` from them.
 - `${link_icon}` is a substitution holding a C++ expression, defined in `features/network.yaml`
   and expanded inside the main-page lambda in `display/display.yaml`. Package substitutions share
   one namespace with the device config's.
@@ -150,7 +152,7 @@ boundaries; everything else is local to its file.
 | 599.25 | `bindings` sets up and drives the `Follow` relays once, skipping those a thermostat claimed at 599.5 |
 | 599 | `automations` sets up: it resolves every rule's entity reference, so it has to stay below the 600 where the `Temp N` sensors are created, and every thermostat a rule names, so below the hub (`DATA - 1` against `DATA - 0.5`). The hub tells the engine of a thermostat only when one is created, restored or removed or a Save or a restore changes its presets, never at load: a rule built ahead of the hub would stay unbuilt until then. `board_info` reads the EEPROM here too, once `eeprom_cpu` (600) has answered |
 | 598.5 | `schedules` sets up: it loads the schedules and finds the relays and thermostats they name, so it sits below the hub (`DATA - 1.5` against `DATA - 0.5`), whose changes it then hears of. It runs nothing at setup: the lists of the modes in force run once `pcf8563_time` reads valid, on a loop pass |
-| 500 | add a `Temp N` submenu per bound slot to the Temperatures menu; add a row per loaded rule to the Automations menu; add a submenu per loaded thermostat to the Thermostats menu |
+| 500 | add a `Temp N` submenu per bound slot to the Temperatures menu; add a row per loaded rule to the Automations menu; add a submenu per loaded thermostat to the Thermostats menu, and one per loaded schedule to the Schedules menu |
 | 200 | `apply_network_mode`, then `network_mode_applied = true`; the select's `on_value` is a no-op before that flag, because the restored value fires before the interfaces exist |
 | -100 | on a device that has its API key, which `api_server` loaded at its setup at `AFTER_WIFI`, mark `provisioning`'s network source provisioned (`boards/jxd-cpu-e1eth.yaml`), so the window never closes on that key however late the network comes up |
 

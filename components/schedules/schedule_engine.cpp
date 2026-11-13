@@ -902,28 +902,27 @@ ScheduleStatus ScheduleEngine::status(std::string_view id) const {
   if (entry == nullptr)
     return status;
   status.issues = this->issues_(entry->config, entry->switches);
-  if (!entry->config.enabled)
-    return status;
-  // Before anything else: nothing runs without the clock, and the editor's order says so first.
-  if (!this->clock_valid_) {
-    status.state = ScheduleState::WAITING_FOR_CLOCK;
-    status.reason = "Waiting for the clock";
-    return status;
-  }
-  if (!entry->active) {
-    status.state = ScheduleState::CONFLICT;
-    // The one in its way is before it by id; one after it drives a shared target only because
-    // this one waits.
-    for (const Target &target : entry->config.targets) {
-      const Entry *holder = this->holder_(target);
-      if (holder != nullptr && holder->config.id < entry->config.id) {
-        status.reason = "Schedule \"" + std::string(holder->config.name) + "\" drives " + this->target_name(target);
-        break;
+  status.state = this->state_(*entry);
+  switch (status.state) {
+    case ScheduleState::DISABLED:
+      return status;
+    case ScheduleState::WAITING_FOR_CLOCK:
+      status.reason = "Waiting for the clock";
+      return status;
+    case ScheduleState::CONFLICT:
+      // The one in its way is before it by id; one after it drives a shared target only because
+      // this one waits.
+      for (const Target &target : entry->config.targets) {
+        const Entry *holder = this->holder_(target);
+        if (holder != nullptr && holder->config.id < entry->config.id) {
+          status.reason = "Schedule \"" + std::string(holder->config.name) + "\" drives " + this->target_name(target);
+          break;
+        }
       }
-    }
-    return status;
+      return status;
+    case ScheduleState::RUNNING:
+      break;
   }
-  status.state = ScheduleState::RUNNING;
 #ifdef USE_CLIMATE_HUB
   // Switched off, not merely waiting for its sensor or a relay: that one runs once they come.
   for (const Target &target : entry->config.targets) {
@@ -938,6 +937,20 @@ ScheduleStatus ScheduleEngine::status(std::string_view id) const {
   }
 #endif
   return status;
+}
+
+ScheduleState ScheduleEngine::state(std::string_view id) const {
+  const Entry *entry = this->find_(id);
+  return entry == nullptr ? ScheduleState::DISABLED : this->state_(*entry);
+}
+
+ScheduleState ScheduleEngine::state_(const Entry &entry) const {
+  if (!entry.config.enabled)
+    return ScheduleState::DISABLED;
+  // Before anything else: nothing runs without the clock, and the editor's order says so first.
+  if (!this->clock_valid_)
+    return ScheduleState::WAITING_FOR_CLOCK;
+  return entry.active ? ScheduleState::RUNNING : ScheduleState::CONFLICT;
 }
 
 std::string ScheduleEngine::target_name(const Target &target) const {
@@ -975,6 +988,13 @@ bool ScheduleEngine::now_and_next(const ScheduleConfig &config, PointRef *now, P
   };
   *now = place(in_force);
   *next = place(after);
+  return true;
+}
+
+bool ScheduleEngine::clock_minute(uint16_t *minute_of_week) const {
+  if (!this->clock_valid_)
+    return false;
+  *minute_of_week = week_minute_of(this->mark_.minute);
   return true;
 }
 

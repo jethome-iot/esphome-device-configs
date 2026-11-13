@@ -176,11 +176,14 @@ not be read; every change is then refused with 500.
   `issues`, each action of each mode the device would skip now — its mode and action index,
   `kind` (`missing_relay`, `missing_thermostat`, `missing_preset`, `no_thermostats`, `held`;
   `issue_kind_to_string()`), `text` (`Relay "relay_7" is not on this device`,
-  `Thermostat "Floor" drives Relay 3`) and `held_by`
+  `Thermostat "Floor" drives Relay 3`) and `held_by`; `state(id)`: that `state` alone, without
+  the issues, for a caller that asks often
 - `target_name(target)`: the relay's or the thermostat's name, its id when it is not there
 - `now_and_next(config, &now, &next)`: the point in force and the next one, as a day (0 is
   Monday), minutes since midnight and the `Point`, whose `mode` indexes `config.modes`; false
-  until the clock has been valid
+  until the clock has been valid. `clock_minute(&minute)`: the minute of the week it reads, Monday
+  00:00 being 0, and `point_when(minute, point.minute_of_week)` when that point comes: `06:30`
+  later the same day, `Tue 06:30` on another, the same weekday a week on included
 - `clock_text(&day, &time)`: the device's local day (`wed`) and time (`10:15:42`)
 - `relay_targets()`: every visible switch but a config one, with the thermostat that holds it
   (`held_by`) and the schedule that drives it (`scheduled_by`); `thermostat_targets()`: every

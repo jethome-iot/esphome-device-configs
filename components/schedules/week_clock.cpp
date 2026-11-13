@@ -56,4 +56,12 @@ std::string format_hhmm(uint16_t minutes) {
   return text;
 }
 
+std::string point_when(uint16_t now, uint16_t point) {
+  const unsigned day = (point / MINUTES_PER_DAY) % 7;
+  const std::string time = format_hhmm(point % MINUTES_PER_DAY);
+  if (day == now / MINUTES_PER_DAY && point > now)
+    return time;
+  return std::string(DAY_TITLES[day]) + " " + time;
+}
+
 }  // namespace esphome::schedules

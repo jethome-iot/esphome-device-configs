@@ -203,6 +203,37 @@ TEST_F(Tick, NowAndNextAreThereForADisabledScheduleToo) {
   EXPECT_EQ(ScheduleState::DISABLED, this->state("porch"));
 }
 
+// The minute now_and_next() reads, which tells the display's Next row whether a point is today.
+TEST_F(Tick, TheClockMinuteIsTheOneNowAndNextRead) {
+  this->boot();
+  this->create(daily());
+  uint16_t minute = 7;
+  EXPECT_FALSE(this->engine->clock_minute(&minute));
+  EXPECT_EQ(7, minute) << "left alone";
+
+  this->engine->local = at_local(0, 19, 59, 42);
+  this->engine->tick();
+  ASSERT_TRUE(this->engine->clock_minute(&minute));
+  EXPECT_EQ(wm(0, 19, 59), minute);
+  const ScheduleConfig &config = *this->engine->get("porch");
+  PointRef now;
+  PointRef next;
+  ASSERT_TRUE(this->engine->now_and_next(config, &now, &next));
+  EXPECT_EQ("20:00", point_when(minute, next.point->minute_of_week));
+
+  this->engine->run(18);
+  ASSERT_TRUE(this->engine->clock_minute(&minute));
+  EXPECT_EQ(wm(0, 20, 0), minute);
+  ASSERT_TRUE(this->engine->now_and_next(config, &now, &next));
+  EXPECT_EQ("Tue 08:00", point_when(minute, next.point->minute_of_week));
+
+  this->engine->jump_to(at_local(6, 21, 0));
+  ASSERT_TRUE(this->engine->clock_minute(&minute));
+  EXPECT_EQ(wm(6, 21, 0), minute);
+  ASSERT_TRUE(this->engine->now_and_next(config, &now, &next));
+  EXPECT_EQ("Mon 08:00", point_when(minute, next.point->minute_of_week));
+}
+
 TEST_F(Tick, TheClockTextIsTheDevicesLocalTime) {
   this->boot(at_local(2, 10, 15, 42));
   std::string day;
