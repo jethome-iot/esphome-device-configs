@@ -1267,14 +1267,6 @@ components:
               value:
                 success: false
                 error: '"living room" is already used by another thermostat'
-            entityId:
-              value:
-                success: false
-                error: '"Room_1" is too close to "Room 1": both are room_1 to Home Assistant'
-            entityIdInAnotherScript:
-              value:
-                success: false
-                error: '"Ванна" is too close to "Кухня": both are _____ to Home Assistant, which reads every character but a Latin letter, a digit, ''-'' or ''_'' as ''_''; a digit or a Latin letter makes them distinct'
             relay:
               value:
                 success: false

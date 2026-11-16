@@ -218,8 +218,6 @@ TEST_F(Editor, SaveRefusesANameAnotherClimateAnswersTo) {
   };
   for (const Case &c : {
            Case{"living  ROOM", "\"living  ROOM\" is already used by another thermostat"},
-           Case{"Living_Room",
-                "\"Living_Room\" is too close to \"Living Room\": both are living_room to Home Assistant"},
            // The web server finds a climate by name, the YAML's first.
            Case{"Hall", "\"Hall\" is already used by another thermostat"},
        }) {

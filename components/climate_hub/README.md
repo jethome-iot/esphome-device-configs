@@ -330,27 +330,28 @@ relay before `bindings` hears of it, which then never does.
 
 ## Names and Home Assistant
 
-A thermostat's name is its entity's name. No two thermostats may share a name, compared without
-case and extra spaces, or two names that give the same entity id (`Room 1` and `Room_1`), and a
-thermostat may not take the name of a climate declared in YAML, `internal: true` or not. Home
-Assistant tells entities apart by an id that keeps only the name's Latin letters, digits, `_`
-and `-`, every other character one `_`: `Кухня` and `Ванна` are both `_____` there, so they
-clash, and a digit or a Latin letter tells such names apart (`Кухня 1`, `Ванна 2`). Two names
-the device's API would key alike clash too, though Home Assistant tells them apart (`Café` and
-`Caf__`).
+A thermostat's name is its entity's name, in any script. No two thermostats may share a name,
+compared without case and extra spaces, and a thermostat may not take the name of a climate
+declared in YAML, `internal: true` or not. Only Latin letters are compared without case: `Кухня`
+and `КУХНЯ` are two names.
 
-Home Assistant knows an entity by the id it makes from the name. Renaming a thermostat
-therefore shows up there as a new entity, and Home Assistant removes the old one when it lists
-the entities again; a rename between two names with the same id (`Кухня` to `Ванна`) keeps the
-entity. A thermostat that stops or is removed drops out of the entity lists, and so out of Home
-Assistant; one that runs again under a name with that id gets that entity back there, with what
-was set for it in Home Assistant, and so does a new thermostat whose name has the id of one
-removed.
+Home Assistant 2026.8 and later tells entities apart by their whole names, so `Кухня` and
+`Ванна`, or `Room 1` and `Room_1`, are two entities there. Older versions keep only a name's
+Latin letters, digits, `_` and `-`, every other character one `_`, and show one entity for two
+names that come out alike (`Кухня` and `Ванна` are both `_____`); a digit or a Latin letter that
+differs tells them apart there (`Кухня 1`, `Ванна 2`).
+
+Home Assistant knows an entity by its name. Renaming a thermostat therefore shows up there as a
+new entity, and Home Assistant removes the old one when it lists the entities again; from Home
+Assistant 2026.9, a rename between two names with the same object id (`Кухня` to `Ванна`) keeps
+the entity, unless a stopped or removed thermostat had the new name. A thermostat that stops or is removed drops out of the entity lists, and so out of
+Home Assistant; one that runs again under its name gets that entity back there, with what was set
+for it in Home Assistant, and so does a new thermostat under the name of one removed.
 
 On the device, the entity of a thermostat that stops keeps its name, and the web server still
 answers that name with a stopped state, as it does for any `internal: true` entity, until
-another thermostat takes it. A running thermostat renamed onto that name, or onto a name with
-the same entity id, leaves its old name answering so instead. A command sent to such a name is
+another thermostat takes it. A running thermostat renamed onto that name leaves its old name
+answering so instead. A command sent to such a name is
 accepted and does nothing. One that starts again under that name gets its entity back.
 
 The device asks Home Assistant to reconnect, so that it lists the entities again, when a

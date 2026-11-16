@@ -70,23 +70,6 @@ bool is_edge_space(uint32_t c) {
          c == 0x2028 || c == 0x2029 || c == 0x202F || c == 0x205F || c == 0x3000 || c == 0xFEFF;
 }
 
-// ESPHome's object id taken per character rather than per byte: a non-ASCII one becomes one
-// '_', or stays as it is with `keep_non_ascii`.
-std::string object_id_per_character(const std::string &name, bool keep_non_ascii) {
-  std::string out;
-  out.reserve(name.size());
-  for (char c : name) {
-    if (static_cast<uint8_t>(c) < 0x80) {
-      out += to_sanitized_char(to_snake_case_char(c));
-    } else if (keep_non_ascii) {
-      out += c;
-    } else if (!is_continuation(c)) {
-      out += '_';
-    }
-  }
-  return out;
-}
-
 void serialize_output(JsonObject obj, const OutputConfig &out) {
   obj["relay_id"] = out.relay_id;
   obj["period_s"] = out.period_s;
@@ -392,20 +375,6 @@ bool standard_preset(const std::string &name, climate::ClimatePreset *out) {
     }
   }
   return false;
-}
-
-std::string object_id_of_name(const std::string &name) {
-  std::string out;
-  out.reserve(name.size());
-  for (char c : name)
-    out += to_sanitized_char(to_snake_case_char(c));
-  return out;
-}
-
-std::string ha_object_id_of_name(const std::string &name) { return object_id_per_character(name, false); }
-
-bool non_ascii_clash(const std::string &a, const std::string &b) {
-  return object_id_per_character(a, true) != object_id_per_character(b, true);
 }
 
 std::string fit_name(const std::string &name, size_t max_chars, size_t max_bytes) {

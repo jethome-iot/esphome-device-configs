@@ -74,8 +74,7 @@ TEST_F(HubTest, RenameKeepsTheIdTheFileAndTheRelay) {
   EXPECT_EQ(claim, hub().claim("relay_1"));
 }
 
-// Two thermostats must not share a name: compared as a person reads it, and as the entity id
-// ESPHome derives from it, which Home Assistant keys the entity on.
+// Two thermostats must not share a name, compared as a person reads it.
 TEST_F(HubTest, CreateRefusesANameAnotherThermostatUses) {
   this->create(draft("Living Room"));
 
@@ -83,24 +82,28 @@ TEST_F(HubTest, CreateRefusesANameAnotherThermostatUses) {
   EXPECT_FALSE(same.ok);
   EXPECT_EQ(409, same.code);
   EXPECT_EQ("\"living   room\" is already used by another thermostat", same.error);
-
-  Result collides = hub().create(draft("Living_Room", "relay_2"));
-  EXPECT_EQ(409, collides.code);
-  EXPECT_EQ("\"Living_Room\" is too close to \"Living Room\": both are living_room to Home Assistant", collides.error);
   EXPECT_EQ(1u, hub().store().size());
 
   this->create(draft("Bathroom", "relay_2"));
 }
 
-TEST_F(HubTest, ObjectIdCollisionsAreRefused) {
-  this->create(draft("Room 1"));
-  for (const char *name : {"Room_1", "Room.1", "room 1", "ROOM-1"}) {
-    Result result = hub().create(draft(name, "relay_2"));
-    if (std::string(name) == "ROOM-1") {
-      EXPECT_TRUE(result.ok) << "'-' survives into the id, so room-1 is its own";
-      continue;
-    }
-    EXPECT_EQ(409, result.code) << name;
+// Names one object id apart are two names: Home Assistant tells entities apart by the whole
+// name, and the API by a key that the hub keeps distinct.
+TEST_F(HubTest, NamesAlikeInTheirObjectIdAreEachTheirOwn) {
+  this->create(draft("Room 1", "relay_1"));
+  HubClimate *first = hub().entity_of("room-1");
+  this->create(draft("Room_1", "relay_2"));
+  this->create(draft("Room.1", "relay_3"));
+  EXPECT_EQ(409, hub().create(draft("room 1", "relay_4")).code);
+
+  EXPECT_EQ(fnv1_hash("room_1"), first->get_object_id_hash()) << "the first keeps the key its name gives";
+  std::set<uint32_t> keys;
+  for (const char *id : {"room-1", "room-1-2", "room-1-3"}) {
+    HubClimate *entity = hub().entity_of(id);
+    ASSERT_NE(nullptr, entity) << id;
+    EXPECT_FALSE(entity->is_internal()) << id;
+    EXPECT_TRUE(keys.insert(entity->get_object_id_hash()).second) << id << "'s key twice";
+    EXPECT_EQ(entity, App.get_climate_by_key(entity->get_object_id_hash())) << id;
   }
 }
 
@@ -123,7 +126,7 @@ TEST_F(HubTest, AYamlClimatesNameIsRefused) {
   Result result = hub().create(draft("Hall"));
   EXPECT_EQ(409, result.code);
   EXPECT_EQ("\"Hall\" is already used by another thermostat", result.error);
-  EXPECT_EQ(409, hub().create(draft("HALL")).code) << "same entity id";
+  EXPECT_EQ(409, hub().create(draft("HALL")).code) << "in any case";
 }
 
 // internal: true hides a climate from the lists, not from the web server's name match.
@@ -175,45 +178,58 @@ TEST_F(HubTest, ARenameToANameInAnyScriptKeepsTheId) {
   EXPECT_FALSE(file_exists(this->file_of("climate")));
 }
 
-// Home Assistant rebuilds the object id per character, so every Cyrillic letter there is one
-// '_': two names of as many letters are one entity to it, whatever they spell.
-TEST_F(HubTest, NamesHomeAssistantReadsAsOneAreRefusedWithAHint) {
+// Every Cyrillic letter is '_' in an object id, so two names of as many letters give one key.
+// The second takes one from its id: Home Assistant 2026.8 and later, which tells entities apart
+// by the whole name, then shows both.
+TEST_F(HubTest, NamesAlikeOutsideLatinGetTwoKeys) {
   this->create(draft("Кухня", "relay_1"));
-  Result clash = hub().create(draft("Ванна", "relay_2"));
-  EXPECT_EQ(409, clash.code);
-  EXPECT_EQ("\"Ванна\" is too close to \"Кухня\": both are _____ to Home Assistant, which reads every character "
-            "but a Latin letter, a digit, '-' or '_' as '_'; a digit or a Latin letter makes them distinct",
-            clash.error);
-  EXPECT_EQ(409, hub().create(draft("КУХНЯ", "relay_2")).code) << "_____ in any case";
+  Result bath = this->create(draft("Ванна", "relay_2"));
+  ASSERT_EQ("climate-2", bath.id);
+  HubClimate *kitchen = hub().entity_of("climate");
+  HubClimate *bathroom = hub().entity_of("climate-2");
+  EXPECT_EQ(fnv1_hash("__________"), kitchen->get_object_id_hash());
+  EXPECT_EQ(fnv1_hash("climate_hub/climate-2"), bathroom->get_object_id_hash());
+  EXPECT_EQ(kitchen, App.get_climate_by_key(kitchen->get_object_id_hash()));
+  EXPECT_EQ(bathroom, App.get_climate_by_key(bathroom->get_object_id_hash()));
+  EXPECT_EQ(kitchen, web_server_match("Кухня"));
+  EXPECT_EQ(bathroom, web_server_match("Ванна"));
+  // As for schedules and rules, only ASCII letters are compared without case.
+  EXPECT_TRUE(this->create(draft("КУХНЯ", "relay_3")).ok);
+  ASSERT_TRUE(hub().remove("climate-3").ok);
 
-  EXPECT_TRUE(hub().update("climate", draft("Кухня 1", "relay_1")).ok);
-  Result apart = hub().create(draft("Ванна 2", "relay_2"));
-  EXPECT_TRUE(apart.ok) << apart.error;
-  EXPECT_EQ("2", apart.id);
-  EXPECT_EQ(409, hub().create(draft("Сауна 2", "relay_3")).code) << "______2 too";
+  // A stop and a start give the same key again.
+  const uint32_t key = bathroom->get_object_id_hash();
+  ASSERT_TRUE(hub().set_enabled("climate-2", false).ok);
+  ASSERT_TRUE(hub().set_enabled("climate-2", true).ok);
+  EXPECT_EQ(bathroom, hub().entity_of("climate-2"));
+  EXPECT_EQ(key, bathroom->get_object_id_hash());
+  // The first, started again, takes one from its id too: which has the name's key never hangs on
+  // which started first.
+  ASSERT_TRUE(hub().set_enabled("climate", false).ok);
+  ASSERT_TRUE(hub().set_enabled("climate", true).ok);
+  EXPECT_EQ(fnv1_hash("climate_hub/climate"), kitchen->get_object_id_hash());
+
+  // A rename onto a name whose key another holds takes one from the id too.
+  this->create(draft("Kettle", "relay_3"));
+  ASSERT_TRUE(hub().update("kettle", draft("Сауна", "relay_3")).ok);
+  EXPECT_EQ(fnv1_hash("climate_hub/kettle"), hub().entity_of("kettle")->get_object_id_hash());
 }
 
-// Neither id implies the other, and either clash drops one of the two entities.
-TEST_F(HubTest, AClashOfEitherObjectIdIsRefused) {
-  this->create(draft("Café", "relay_1"));
+// A key a hidden slot still has is not a key to give: a listing queued before it was hidden
+// sends it.
+TEST_F(HubTest, AKeyFromTheIdSkipsOneAHiddenSlotHas) {
+  this->create(draft("Кухня", "relay_1"));
+  this->create(draft("Ванна", "relay_2"));
+  HubClimate *bathroom = hub().entity_of("climate-2");
+  ASSERT_EQ(fnv1_hash("climate_hub/climate-2"), bathroom->get_object_id_hash());
+  ASSERT_TRUE(hub().remove("climate-2").ok);
 
-  Result per_character = hub().create(draft("Caf_", "relay_2"));
-  EXPECT_EQ(409, per_character.code);
-  EXPECT_EQ("\"Caf_\" is too close to \"Café\": both are caf_ to Home Assistant, which reads every character but "
-            "a Latin letter, a digit, '-' or '_' as '_'; a digit or a Latin letter makes them distinct",
-            per_character.error);
-
-  // Home Assistant tells these apart (caf_ and caf__); the API's key, made per byte, does not.
-  Result per_byte = hub().create(draft("Caf__", "relay_2"));
-  EXPECT_EQ(409, per_byte.code);
-  EXPECT_EQ("\"Caf__\" is too close to \"Café\": both are caf__ to the device's API, which reads every byte of a "
-            "non-ASCII letter as '_'; a digit or a Latin letter makes them distinct",
-            per_byte.error);
-
-  // A clash an ASCII spelling makes needs no hint.
-  this->create(draft("Кухня 1", "relay_3"));
-  EXPECT_EQ("\"Кухня_1\" is too close to \"Кухня 1\": both are ______1 to Home Assistant",
-            hub().create(draft("Кухня_1", "relay_2")).error);
+  Result sauna = this->create(draft("Сауна", "relay_2"));
+  ASSERT_EQ("climate-2", sauna.id) << "the id the removed one had";
+  HubClimate *entity = hub().entity_of("climate-2");
+  ASSERT_NE(bathroom, entity) << "no hidden slot has its name or its key";
+  EXPECT_EQ(fnv1_hash("climate_hub/climate-2"), bathroom->get_object_id_hash());
+  EXPECT_EQ(fnv1_hash("climate_hub/climate-2/2"), entity->get_object_id_hash());
 }
 
 TEST_F(HubTest, DeleteRetiresTheEntityEverywhereItCanBeSeen) {
