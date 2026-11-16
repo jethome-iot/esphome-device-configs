@@ -2,358 +2,106 @@
 
 ![ESPHome](https://img.shields.io/badge/ESPHome-2026.9.1-blue)
 
-This repository contains ESPHome configurations for various automation devices. These are **open-source firmware configurations** that you can customize and build yourself.
+Open-source ESPHome firmware for the JetHome JXD DIN-rail controllers, to build, change and flash
+yourself. For JetHome's proprietary firmware, with more features and support, see the
+[JetHome website](https://jethome.com/).
 
-## Supported Devices
+| Device | Config |
+| --- | --- |
+| **JXD-R6-E1ETH-LCD**, with a 128x64 OLED, a menu and front-panel buttons | `devices/JXD/jxd-r6-e1eth-lcd.yaml` |
+| **JXD-R6-E1ETH**, the same controller without the display | `devices/JXD/jxd-r6-e1eth.yaml` |
 
-### JXD-R6-E1ETH-LCD
+## Hardware
 
-JetHome DIN-rail automation controller with display. For a proprietary firmware version with additional features and support, visit [JetHome official website](https://jethome.com/).
+- ESP32 with 16 MB flash and PSRAM
+- 6 relays and 6 digital inputs
+- Ethernet (LAN8720) and WiFi
+- PCF8563 RTC with battery backup
+- Onboard TMP102 and up to 16 Dallas DS18B20 on a 1-Wire bus
+- Input voltage measurement
+- 2 UARTs for add-on modules; Modbus RTU runs on the RS-485 connector JXM2
+- SSD1306/SH1106 128x64 OLED on the LCD variant
 
-**Configuration file**: `devices/JXD/jxd-r6-e1eth-lcd.yaml`
+## What it does
 
-### JXD-R6-E1ETH
+- **Home Assistant**: native ESPHome API; Home Assistant discovers the device and adds it
+  ([Home Assistant](doc/HOME_ASSISTANT.md))
+- **Web dashboard** at `http://<device>/`: entities and their settings, automations, thermostats,
+  schedules, the log, files and the device settings ([details](components/web_device_dashboard/README.md))
+- **Thermostats**: hysteresis or PID control of a relay from any temperature sensor, each a climate
+  entity in Home Assistant ([Thermostats](doc/CLIMATE.md))
+- **Schedules**: switch points through the week, each starting a mode: a list of relay and
+  thermostat actions
+  ([Schedules](doc/SCHEDULES.md))
+- **Automations**: rules kept on the device and changed without a recompile
+  ([Automations](doc/AUTOMATIONS.md))
+- **Relay and input settings**: inversion, start mode, an input bound to a relay, labels, and
+  virtual inputs with on and off delays ([Entity settings](doc/ENTITY_SETTINGS.md))
+- **Dallas sensors**: found at boot, numbered once and kept across reboots, with an offset and a
+  label per slot ([1-Wire sensors](doc/ONEWIRE_WORKFLOW.md))
+- **Modbus RTU server**: relays, inputs and temperatures for a PLC or SCADA ([map](#modbus-rtu-server))
+- **Time**: the RTC set from Home Assistant, NTP or by hand ([Time](doc/TIME.md))
+- **Display**: status, clock and a settings menu on the LCD variant ([Display](doc/DISPLAY.md))
+- **Firmware updates**: the firmware checks fw.jethome.com for a newer build and installs it on
+  request, with a rollback to the previous one ([details](doc/RELEASE.md#updates-on-the-device))
+- **Files and crash reports**: a 4 MB user partition, kept across updates and served over HTTP;
+  after a crash the device saves a report there ([files](components/web_file_browser/README.md),
+  [crash reports](components/crash_report/README.md))
 
-The same controller without the OLED display: everything the LCD variant carries except the display, its pages and menu, and the front-panel buttons.
+## Getting started
 
-**Configuration file**: `devices/JXD/jxd-r6-e1eth.yaml`
+### Build and flash
 
-## JXD-R6-E1ETH-LCD Features
-
-The JXD-R6-E1ETH-LCD is a powerful DIN-rail automation controller with the following capabilities:
-
-### Hardware
-
-- **ESP32** microcontroller with 16MB flash and PSRAM
-- **6 Relay outputs** via PCA9554 I/O expander
-- **6 Digital inputs** via PCA9554 I/O expander
-- **OLED Display**: SSD1306/SH1106 128x64 pixels with interactive menu
-- **RTC**: PCF8563 hardware real-time clock with battery backup
-- **Temperature monitoring**: Onboard TMP102 sensor + up to sixteen Dallas DS18B20 over a DS2484 I²C-to-1-Wire bridge
-- **Connectivity**: LAN8720 Ethernet and WiFi (ESP32 built-in)
-- **Voltage monitoring**: Input voltage measurement
-- **RS485/Modbus**: 2x UART interfaces for Modbus RTU communication and for add-on and custom expansion modules
-
-### Software Features
-
-- **RTC Time Synchronization**: Hardware RTC with battery backup, synced from Home Assistant or NTP; the timezone follows Home Assistant's or is set on the dashboard ([details](#timezone))
-- **Modbus RTU Server**: Acts as Modbus slave, mapping relays to coils, digital inputs to discrete inputs and temperatures to holding registers
-- **Home Assistant Integration**: Native ESPHome API with automatic entity discovery and OTA updates; Home Assistant adds the device in the first 15 minutes after a boot ([details](#home-assistant))
-- **Web dashboard** at `http://<device>/`: overview, live entities and their settings, automations, the device log, the file manager and the device settings, served from the firmware ([details](components/web_device_dashboard/README.md))
-- **Firmware updates**: a firmware released from this repository polls fw.jethome.com for the
-  latest build of its channel (`release` or `nightly`) and installs it on request; a config
-  imported into the ESPHome Builder is yours to update ([details](doc/RELEASE.md#updates-on-the-device))
-- **Display Control**: Interactive OLED menu with status, time, relay control, input monitoring, and settings
-- **Dallas Temperature Sensors**: a sensor per DS18B20 found at boot, numbered once and kept across reboots, with an offset and a label of your own per slot, the label shown on the panel and the dashboard ([details](doc/ONEWIRE_WORKFLOW.md))
-- **User Storage**: a 4 MB LittleFS partition mounted at `/littlefs`, kept across OTA updates, served over HTTP as a JSON file API under `/files` ([details](components/web_file_browser/README.md))
-- **Crash reports**: after a panic or a watchdog reset the device saves what ESPHome recorded
-  about the crash on that partition, to fetch under `/files` and decode against the build's
-  `firmware.elf` ([details](components/crash_report/README.md))
-- **Runtime Automations**: rules stored on that partition as JSON, loaded at boot and editable without a recompile, over HTTP under `/automation-editor/api` ([details](doc/AUTOMATIONS.md))
-- **Thermostats**: hysteresis or PID control of a relay from any temperature sensor, stored on that partition as JSON and run without a recompile, editable over HTTP under `/climate-editor/api`; each one is a climate entity in Home Assistant ([details](doc/CLIMATE.md))
-- **Schedules**: modes picked by switch points through the week, each mode a list of relay and
-  thermostat actions with waits between them, stored on that partition as JSON and run without a
-  recompile, editable over HTTP under `/schedule-editor/api` ([details](doc/SCHEDULES.md))
-- **Per-entity settings**: each relay's inversion, start mode and the input bound to it, and each
-  input's inversion, set from the display menu and kept on that partition
-  ([details](doc/ENTITY_SETTINGS.md))
-- **Password-protected web server**: `admin` / `admin` out of the factory, changed from the
-  dashboard and kept across reboots ([details](components/web_auth/README.md))
-- **Status LED**: the LED on the CPU board blinks a code when the device has no network, a sensor gives no readings or a reboot is due, several codes in turn ([details](#status-led))
-- **Locked ESPHome OTA**: the ESPHome Builder and `esphome run --device` install only while
-  **Allow uploads from ESPHome** is on — in Home Assistant, on the dashboard's **Settings →
-  Security** or **Settings → ESPHome OTA** on the display. It turns itself off 30 minutes after
-  it was turned on, so on a slow build turn it on while the build runs, and at every reboot,
-  except into safe mode, where the port stays open as the way back without USB. Until Home
-  Assistant has set the API key, or once it is cleared, anyone on the network can turn the switch
-  on over the API, but only in the first 15 minutes after a boot; the switch turns off when those
-  15 minutes run out, however it was turned on, and whenever the key is set or cleared. Firmware
-  updates from JetHome, an upload encrypted with that key, and one through the dashboard behind
-  the web password do not need it
-- **Factory reset**: **Settings → Factory reset** on the display, the dashboard, or the FN button
-  on the CPU board held for 10 seconds on a running device — the LED then blinks fast, red and
-  green, for 5 seconds before the device resets; the button works without the display and without the web
-  password
-
-## Repository Layout
-
-```
-devices/JXD/
-  jxd-r6-e1eth-lcd.yaml     # device config, OLED variant
-  jxd-r6-e1eth.yaml         # device config, displayless variant
-  packages/                 # boards, features, display, qemu
-assets/
-  fonts/  res/
-components/                 # external components
-tests/                      # Google Test suites, one per component under tests/components/
-```
-
-Each device config sets `assets: ../../assets`, `components: ../../components`,
-`boards: packages/boards` and `features: packages/features`, all relative to the device
-config; display-carrying ones add `display: packages/display`. It lists its packages as
-`!include ${features}/…`, and the
-packages reference fonts and icons as `${assets}/fonts/…` and external components as
-`source: ${components}`.
-
-The device configs are thin: they set substitutions and list the packages that make up
-the device. Those packages live under the family's `packages/`, split by role:
-
-| Directory            | Contents |
-| -------------------- | -------- |
-| `packages/boards/`   | Platform and the chips sitting on each board — `jxd-cpu-e1eth.yaml` (ESP32, api/provisioning/ota/logger/web_server, TMP102, LED, FN button, the identity EEPROM) and `jxd-d6-r6-rev1.2.yaml` (PCA9554 expander, 6 relays, 6 inputs, DS2484 1-Wire bridge) |
-| `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `entity-settings`, `factory-reset`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network`, `reboot-required`, `status-led`, `web-auth`, `web-device-dashboard`, `web-file-browser`, `automations`, `automation-editor`, `climates`, `climate-editor`, `schedules`, `schedule-editor`, `crash-report`, `firmware-update` |
-| `packages/display/`  | Display, pages, menu and buttons — `display.yaml`, `menu.yaml`, `buttons.yaml`, `menu-items-network.yaml`, `menu-serial.yaml`, `menu-timezone.yaml`, `menu-firmware.yaml`, `firmware-page.yaml` |
-| `packages/qemu/`     | Overlays that `scripts/qemu.sh` layers over the real config to run it in the emulator — never part of a firmware build |
-
-Shared code and tooling stay at the repository root:
-
-| Directory  | Contents |
-| ---------- | -------- |
-| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `climate_hub` (the thermostats, each a climate entity), `schedules` (the weekly schedules whose modes run lists of relay and thermostat actions), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `web_climate_editor` (the thermostat API of `climate_hub`), `web_schedule_editor` (the schedule API of `schedules`), `crash_report` (the last panic's record, written to that partition at the next boot), `web_device_dashboard` (the web UI at `/` and its device API), `modbus_map` (the Modbus ranges' names that the dashboard lists, checked against the server at build time), `web_auth` (the web server's credentials, changeable at runtime), `web_origin_guard` (the cross-origin refusal every handler on that server answers with), `loop_job` (what a web handler hands the loop task so it does not edit its state from the server's), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), `entity_config` (the per-entity settings) with the `config_base` / `config_json` it is built on, `bindings` (an input driving a relay), `virtual_inputs` (inputs that follow a physical one through an on and an off delay, set up at run time), `switch_hold` (who holds a relay, a running thermostat; the panel, Modbus, the rules, the bindings, the schedules and the relay settings ask it before they move one), `jethome_update` (the firmware update entity) over the `jethome_manifest` parser of the firmware server's answer, `firmware_rollback` (booting the firmware in the other app slot, for the dashboard and the display menu), `status_indicator` (the CPU board's LED: on, off, blinking, pulses, and signals that pick one by condition or take turns), `timezone_settings` (the zone in effect: Home Assistant's, the compiled one or one set on the dashboard), `ntp_servers` (the NTP servers the device asks, set on the dashboard), `panel_text` (text fitted to a row of the display menu, and the rules a label follows), and `display_menu_base` with `graphical_display_menu` (upstream's, with the menu options `packages/display/menu.yaml` needs) |
-| `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `firmware-matrix.py`, `modbus_probe.py`, `device-files.py` (the `web_file_browser` API from a terminal), `qemu.sh` (the emulator), `qemu-climate-smoke.py` (the thermostats checked in it), `setup.sh` / `setup.bat` |
-| `dist/`    | Generated self-contained configs the ESPHome Builder imports |
-| `doc/`     | Guides, plus the README's UI mockups in `doc/images/` |
-| `.github/` | The workflows of [doc/RELEASE.md](doc/RELEASE.md), and the issue and pull request templates of [doc/DEVELOPMENT.md](doc/DEVELOPMENT.md) |
-| `tests/`   | `tests/components/<name>/` is that component's Google Test suite, built for the ESPHome `host` platform and run by `python tests/run.py`; `tests/harness/` is what every suite shares |
-
-The BDF display fonts in `assets/fonts/` come from [IT-Studio-Rech/bdf-fonts](https://github.com/IT-Studio-Rech/bdf-fonts).
-
-The firmwares this repository builds are listed in `firmwares.yaml` — the single
-source of truth for CI and for the release pipeline, with a per-firmware flag
-for publishing to [fw.jethome.com](https://fw.jethome.com). See the
-[Release Workflow](doc/RELEASE.md). A weekly check compiles the firmwares
-against new upstream ESPHome releases and opens an issue with the results.
-
-### Generated icons (`assets/res/`)
-
-The main page's status icons. Each one is a 16x16 pixel map in `scripts/build-icons.py`
-and a set of filled rects in the SVG, so nothing is edited by hand here either:
+You need Python 3.12, 3.13 or 3.14 and, for the first flash, a USB cable or a serial adapter. The
+setup script installs ESPHome 2026.9.1, the version these configs are pinned to. On Windows run
+`scripts\setup.bat`, then `.venv\Scripts\activate`.
 
 ```bash
-python scripts/build-icons.py           # regenerate assets/res/
-python scripts/build-icons.py --check   # fail if stale (pre-commit and CI run this)
+git clone https://github.com/jethome-iot/esphome-device-configs.git
+cd esphome-device-configs
+./scripts/setup.sh && source .venv/bin/activate
+esphome run devices/JXD/jxd-r6-e1eth-lcd.yaml   # first flash, over USB
 ```
 
-### Generated configs (`dist/`)
-
-`dist/` is what the ESPHome Builder add-on imports; build and flash locally from the
-device configs under `devices/`. Nothing here is edited by hand — regenerate and
-commit it after changing anything a device config pulls in:
-
-```bash
-python scripts/build-dist.py           # regenerate
-python scripts/build-dist.py --check   # fail if stale (pre-commit and CI run this)
-```
-
-## Quick Start
-
-### Requirements
-
-- **Python 3.12, 3.13 or 3.14** (ESPHome 2026.9.1 requires `>=3.12,<3.15`)
-- **ESPHome 2026.9.1** (pinned version for compatibility)
-- USB cable or serial adapter for initial flashing
-- Network connection for OTA updates
-
-### Installation
-
-1. **Clone this repository**:
-
-   ```bash
-   git clone <repository-url>
-   cd esphome-device-configs
-   ```
-
-2. **Set up the Python environment.** Linux/macOS:
-
-   ```bash
-   ./scripts/setup.sh
-   source .venv/bin/activate
-   ```
-
-   Windows:
-
-   ```cmd
-   scripts\setup.bat
-   .venv\Scripts\activate
-   ```
-
-### Network
-
-The firmware drives both the LAN8720 Ethernet controller and the ESP32's WiFi. The
-link is picked by **Settings → Network** on the display or the dashboard, or by the
-`Network mode` entity:
-
-- `Ethernet` (default) and `WiFi` run one link and keep the other off; the change
-  applies at once and survives reboots
-- `Auto` keeps both up; Ethernet carries the traffic while its cable is in, WiFi takes
-  over when it is not
-
-The firmware ships without WiFi credentials. Once WiFi is switched on it raises a
-fallback access point, named after the device with a password derived from its MAC,
-and is provisioned through the captive portal, see [WiFi Setup](doc/WIFI_SETUP.md). On a
-device not yet added to Home Assistant, the access point is there only in the first 15
-minutes after a boot.
-
-### Home Assistant
-
-Home Assistant discovers the device and adds it through its ESPHome integration, which
-writes the device's API encryption key as it does; from then on only that key connects. That
-has to happen in the first 15 minutes after power-on or a reboot. After that, a device not yet
-added turns every API connection away, and its WiFi setup access point goes down, until the
-next reboot: to add it later, reboot it first — from **Settings → Reboot device** on the
-display, from the dashboard, or by power. A device already added is not affected, whenever its
-network comes up. A key cleared later — by Forget HA below, or from Home Assistant's side, as
-deleting the device there may do — leaves the device to be added again within 15 minutes of a
-boot: reboot it to add it later.
-
-**Settings → Forget HA → Confirm** on the display, or **Forget Home Assistant key** under
-**Settings → Security** on the dashboard, clears that key and reboots, so the device can be added
-again, to the same Home Assistant or another, without a factory reset; the settings and files
-stay. Over the network it is `POST /api/device/system/forget-api-key`
-([details](components/web_device_dashboard/README.md#system-actions)). The Home Assistant that
-held the key can no longer connect with it and asks to re-authenticate the device; do that, or
-delete the device there and add it again, within 15 minutes of the reboot. A factory reset
-clears the key as well.
-
-### Timezone
-
-The device follows Home Assistant's timezone: it takes the zone on connect and keeps it
-across reboots. Until it is paired it runs on the zone compiled into the firmware, `UTC`
-by default.
-
-On the dashboard, **Settings → Date & Time** switches the device from Home Assistant's zone
-to one picked there, and back; the choice is kept across reboots. The display shows the zone
-in effect under **Info → Timezone**.
-
-A device with neither internet nor Home Assistant has nothing to set its clock from but the
-RTC; the same screen sets the date and time by hand, into the RTC as well, so they survive a
-reboot. NTP or Home Assistant, once either can reach the device, sets the time again as
-usual.
-
-A site with an NTP server of its own, such as its router or a domain controller, sets up to
-three servers on the same screen; they are asked ahead of `pool.ntp.org`, which can be turned
-off, and the screen shows when the time came last and from which server. See
-[ntp_servers](components/ntp_servers/README.md).
-
-The compiled zone is the one to set for a device that runs standalone from its first boot:
-
-```bash
-esphome -s timezone Europe/Berlin run devices/JXD/jxd-r6-e1eth-lcd.yaml
-```
-
-or per device in the device config:
-
-```yaml
-substitutions:
-  timezone: Europe/Berlin
-```
-
-Both IANA names (`Europe/Berlin`) and POSIX TZ strings (`CET-1CEST,M3.5.0,M10.5.0/3`)
-are accepted. POSIX strings per zone: [posix_tz_db](https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv).
-How the zone in effect is chosen: [timezone_settings](components/timezone_settings/README.md).
-
-### First Flash
-
-For the first flash, connect via USB:
-
-```bash
-esphome run devices/JXD/jxd-r6-e1eth-lcd.yaml
-```
-
-Subsequent updates can be done over-the-air (OTA), once **Allow uploads from ESPHome** is on. A
-change to the partition table (for example, the size of the storage partition) needs a USB
-flash: OTA keeps the table it finds.
+Later builds go over the network while **Allow uploads from ESPHome** is on
+([Uploads from ESPHome](doc/HOME_ASSISTANT.md#uploads-from-esphome)). A change to the partition
+table, such as the size of the storage partition, still needs USB: OTA keeps the table it finds.
 
 ```bash
 esphome run devices/JXD/jxd-r6-e1eth-lcd.yaml --device <IP_ADDRESS>
 ```
 
-## Display UI Overview
+The ESPHome Builder add-on imports these configs from `dist/`. A firmware built there is yours to
+update: it gets no updates from JetHome.
 
-Five pages plus a menu. The main page is what you get at boot and after HOME; everything
-else is one button away from it, except the firmware install page, which the device puts up
-on its own.
+### First steps
 
-### Main Page
+1. **Connect it.** Ethernet works out of the box. For WiFi, switch **Settings → Network** on the
+   display or the dashboard to `WiFi` or `Auto`, then give the device your network through its
+   access point ([WiFi Setup](doc/WIFI_SETUP.md)).
+2. **Add it to Home Assistant within 15 minutes of power-on.** Home Assistant discovers it through
+   the ESPHome integration. Missed the window: reboot the device and add it then
+   ([Home Assistant](doc/HOME_ASSISTANT.md)).
+3. **Change the web password.** The dashboard at `http://<device>/` takes `admin` / `admin` out of
+   the factory; set your own under **Settings → Security**.
+
+### Factory reset
+
+**Settings → Factory reset** on the display, **Settings → System** on the dashboard, or the FN
+button on the CPU board held for 10 seconds on a running device clears the settings, the WiFi
+network, the Home Assistant key and the user partition, and puts the web password back to the
+factory one. FN needs neither the display nor the password, so it is the way back from a forgotten
+one. After FN the LED blinks fast for 5 seconds before the reset; letting go does not stop it,
+cutting the power does.
+
+## Display
 
 <img src="doc/images/jxd-r6-main-page-ui.svg" width="400" alt="Main Page">
 
-Shows device name, IP address, uptime and input voltage. Two icons in the bottom-right
-corner report the link (Ethernet or WiFi, whichever carries the traffic) and the Home
-Assistant API connection; a crossed-out icon means that connection is down. While the
-fallback access point is up and no link carries traffic, the WiFi icon is shown and the
-address is the access point's.
-
-**Getting here**: HOME from anywhere, or BACK from another page.
-
-### Status Page
-
-<img src="doc/images/jxd-r6-status-page-ui.svg" width="400" alt="Status Page">
-
-Relay states, digital input states and temperature readings, each slot by its label when it has
-one, at a glance, and it switches the relays: LEFT and RIGHT move the selection along the relay
-row — the selected number is drawn inverted on the device — and CENTER toggles that relay,
-unless a running thermostat drives it: then the press changes nothing, and the log names the
-thermostat. UP and DOWN scroll the temperature column.
-
-**Getting here**: LEFT from the main page.
-
-### Time Page
-
-<img src="doc/images/jxd-r6-time-page-ui.svg" width="400" alt="Time Page">
-
-Current date and time from the hardware RTC.
-
-**Getting here**: RIGHT from the main page.
-
-### Firmware Install Page
-
-<img src="doc/images/jxd-r6-firmware-page-ui.svg" width="400" alt="Firmware Install Page">
-
-Up while a firmware image is being written, whatever asked for it — the menu, Home Assistant
-or the dashboard: the version being installed, how far it has got and a progress bar. The
-screen does not blank while an install runs, and the device reboots into the new firmware as
-soon as the image is in. An install that fails says so instead and leaves the running firmware
-untouched; any button then takes the page away, and it leaves on its own after half a minute.
-
-**Getting here**: no button leads here; an install starting puts it up.
-
-### Menu
-
-<img src="doc/images/jxd-r6-menu-ui.svg" width="400" alt="Menu">
-
-- **Relays** - a submenu per relay: toggle it, and set its inversion, start mode and bound input; a relay a running thermostat drives neither toggles nor changes its inversion, and the log names the thermostat
-- **Inputs** - a submenu per input: live state and inversion
-- **Temperatures** - temperature sensor readings, each slot by its label when it has one; a DS18B20 row opens its slot: its label or name, `Slot N`, the reading, the ROM address, the offset and a forget command
-- **Thermostats** - a row per thermostat with what its sensor reads; it opens the thermostat's name, the reading, what it is doing (heating, idle, waiting, a fault), the target, the preset and Enabled. The list is the one the device booted with: a thermostat created later shows after a reboot
-- **Schedules** - a row per schedule with whether it is switched on; it opens the schedule's name, its state, the mode in force, the next mode and when it comes, and Enabled. The list is the one the device booted with: a schedule created later shows after a reboot ([details](doc/SCHEDULES.md#on-the-display))
-- **Automations** - a row per rule that switches it on or off; the list is the one the device booted with
-- **Info** - network information (Ethernet and WiFi IP and MAC addresses, access point password), the timezone in effect (the city of a zone chosen on the dashboard, else its offset from UTC, as `UTC+3`), then the serial number from the CPU board's EEPROM (`--` when it holds none)
-- **Settings** - display auto-off timer, ESPHome OTA (the **Allow uploads from ESPHome** switch), Modbus settings, firmware updates (the running and the offered version, the release channel, a check, an install, and a rollback row that says whether there is a firmware to go back to; after a rollback the same row goes forward again), temperature slots, network mode, WiFi credential reset, Forget HA (clears the API key Home Assistant set and reboots, see [Home Assistant](#home-assistant)), reboot; a factory reset clears the stored preferences (WiFi credentials, settings) and formats the user partition, taking the temperature slot table, the automation rules and uploaded files with it
-
-CENTER opens a setting, LEFT and RIGHT pick its value, and the device applies it when CENTER or
-BACK closes the row; leaving the menu while a row is open applies it as well.
-
-**Getting here**: CENTER from the main page.
-
-### Blank Screen
-
-The display blanks after the inactivity timeout (**Settings → Display off**: 5, 10 or 15
-minutes, or never). Any button wakes it — LEFT lands on the status page, RIGHT on the time
-page, anything else on the main page.
-
-**Getting here**: BACK from the main page, or wait out the timer.
-
-### Buttons
-
-| Button      | Effect                                                                                    |
-| ----------- | ----------------------------------------------------------------------------------------- |
-| `HOME`      | Main page, from anywhere                                                                  |
-| `BACK`      | Main page; from the main page blanks the screen; in the menu goes up one level, then exits |
-| `LEFT`      | Main page → status page; on the status page selects the previous relay; adjusts menu values |
-| `RIGHT`     | Main page → time page; on the status page selects the next relay; adjusts menu values      |
-| `CENTER`    | Main page → menu; on the status page toggles the selected relay unless a running thermostat drives it; in the menu enters |
-| `UP` `DOWN` | Move through the menu; on the status page scroll the temperatures                          |
+The LCD variant boots into the main page: name, address, uptime, input voltage, and the network and
+Home Assistant icons. LEFT shows the relays, inputs and temperatures, RIGHT the clock, CENTER opens
+the menu, and HOME comes back from anywhere. Every page, the menu and the buttons:
+[Display](doc/DISPLAY.md).
 
 ## Status LED
 
@@ -370,47 +118,59 @@ fast blink of a factory reset shows alone.
 | 3 | A Dallas sensor or PCB Temp has given no readings for a minute, or a running thermostat has lost its sensor's readings | Check the Dallas sensor and its wiring; the code goes at its next reading. For a sensor taken away for good, forget its slot and reboot |
 | 4 | A saved change waits for a reboot, such as a temperature slot assigned or forgotten | Reboot the device: **Settings → Reboot device** on the display, or **Reboot now** on the dashboard |
 
-## Documentation
-
-- **[Entity Settings](doc/ENTITY_SETTINGS.md)**: What a relay and an input remember across reboots, and where it is kept
-- **[Runtime Automations](doc/AUTOMATIONS.md)**: Rules stored on the device, what they can do and how to test them
-- **[Thermostats](doc/CLIMATE.md)**: Thermostats stored on the device, what they do, how to edit them over HTTP and what Home Assistant sees of them
-- **[OneWire Temperature Sensors](doc/ONEWIRE_WORKFLOW.md)**: How DS18B20 sensors get their slots, and how to reassign them
-- **[WiFi Setup](doc/WIFI_SETUP.md)**: Provisioning WiFi through the captive portal
-- **[Release Workflow](doc/RELEASE.md)**: CI, channels, firmware versioning, and publishing to fw.jethome.com
-- **[QEMU](doc/QEMU.md)**: Running a device config in the emulator, with the screen and joystick in a browser
-
 ## Modbus RTU Server
 
-The device can act as a Modbus RTU server (slave) for integration with PLCs, SCADA systems, and other industrial automation equipment:
+The device answers as a Modbus RTU slave on RS-485: address 1 at 9600 8N1 by default. Address, baud
+rate, parity and stop bits are set in **Settings → Modbus** on the display or the dashboard, or
+through the `Modbus …` entities in Home Assistant, and take effect at once. The dashboard's tab also
+shows the map.
 
-- **Slave Address**: 1 by default
-- **Serial**: 9600 8N1 by default
-- **Coils** `0x0000`-`0x0005` (FC 0x01/0x05/0x0F): read/write relay 1-6. A write that would move a relay a running thermostat drives answers exception `0x04`; writing the state it already has is accepted, and FC 0x0F writes the coils before a refused one
-- **Discrete Inputs** `0x0010`-`0x0015` (FC 0x02): read digital input 1-6
-- **Holding Registers** `0x0000`-`0x000F` (FC 0x03/0x04): temperature 1-16, signed, 0.1 °C; `0x8000` = no reading
-- **Other registers**: a courtesy response answers `0` instead of an exception
+| Table | Addresses | Function codes | Content |
+| --- | --- | --- | --- |
+| Coils | `0x0000`–`0x0005` | `0x01`, `0x05`, `0x0F` | Relays 1–6, read/write |
+| Discrete inputs | `0x0010`–`0x0015` | `0x02` | Inputs 1–6 |
+| Holding registers | `0x0000`–`0x000F` | `0x03`, `0x04` | Temperatures 1–16, signed, 0.1 °C; `0x8000` = no reading |
 
-Address, baud rate, parity and stop bits are set in **Settings → Modbus** on the display or
-the dashboard, or through the `Modbus …` entities in Home Assistant, and take effect at once.
-The dashboard's tab also shows the map above.
+Any other register answers `0` instead of an exception. A write that would move a relay a running
+thermostat drives answers exception `0x04`; writing the state it already has is accepted, and FC
+`0x0F` writes the coils before a refused one.
 
-`modbus_server` keeps coils and discrete inputs in one bit address space (hence
-the offsets) and holding and input registers in one table (hence FC 0x03/0x04 alike).
+RS-485 connector JXM2: pins 1 and 3 are B, pins 2 and 4 are A.
 
-**RS-485 Connector (JXM2)**:
+## Documentation
 
-- Pin 1: B
-- Pin 2: A
-- Pin 3: B
-- Pin 4: A
+Using the device:
 
-The map is defined in `devices/JXD/packages/features/modbus-server.yaml`. `scripts/modbus_probe.py` walks the
-whole map over RS485 for a quick check:
+- [WiFi Setup](doc/WIFI_SETUP.md): the network mode and the captive portal
+- [Home Assistant](doc/HOME_ASSISTANT.md): adding the device, moving it, uploads from ESPHome
+- [Display](doc/DISPLAY.md): pages, menu and buttons
+- [Time](doc/TIME.md): timezone, NTP and setting the clock
+- [Entity Settings](doc/ENTITY_SETTINGS.md): what a relay and an input remember, and virtual inputs
+- [OneWire Temperature Sensors](doc/ONEWIRE_WORKFLOW.md): how DS18B20 sensors get their slots
+- [Runtime Automations](doc/AUTOMATIONS.md), [Thermostats](doc/CLIMATE.md), [Schedules](doc/SCHEDULES.md)
 
-```bash
-.venv/bin/python scripts/modbus_probe.py --port /dev/ttyUSB2 probe
+Working on the firmware:
+
+- [Development](doc/DEVELOPMENT.md): setup, commands, checks and the rules
+- [Architecture](doc/ARCHITECTURE.md): how the packages fit together, and what every directory holds
+- [Testing](doc/TESTING.md), [QEMU](doc/QEMU.md), [Release Workflow](doc/RELEASE.md),
+  [dist/ and new devices](doc/DIST.md)
+
+## Repository Layout
+
 ```
+devices/JXD/      device configs and their packages
+components/       external components
+scripts/          generators and tools
+tests/            Google Test suites, one per component
+doc/              guides
+dist/             generated configs the ESPHome Builder imports
+assets/           fonts and generated icons
+firmwares.yaml    the firmwares CI builds and releases
+```
+
+What each directory, package and component holds: [Architecture](doc/ARCHITECTURE.md#layout). The
+BDF display fonts in `assets/fonts/` come from [IT-Studio-Rech/bdf-fonts](https://github.com/IT-Studio-Rech/bdf-fonts).
 
 ## Contributing
 

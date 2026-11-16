@@ -9,7 +9,17 @@ A device on Ethernet needs none of this. Note that in `Auto` mode the access poi
 comes up and stays up until WiFi is provisioned, cable or not — on a device not yet added to
 Home Assistant, only in the first 15 minutes after power-on or a reboot. In any mode, such a
 device then takes the access point down, the captive portal with it, until a reboot brings
-it back. See [Home Assistant](../README.md#home-assistant).
+it back. See [Home Assistant](HOME_ASSISTANT.md#adding-the-device).
+
+## Network mode
+
+**Settings → Network** on the display or the dashboard, or the `Network mode` entity, picks the
+link:
+
+- `Ethernet` (default) and `WiFi` run one link and keep the other off; the change applies at once
+  and survives reboots
+- `Auto` keeps both up; Ethernet carries the traffic while its cable is in, WiFi takes over when it
+  is not
 
 ## Initial setup
 

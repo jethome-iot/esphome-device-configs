@@ -1,7 +1,7 @@
 # Architecture
 
-How a device config and its packages form one firmware. The tree itself is in the README,
-"Repository Layout".
+How a device config and its packages form one firmware. The top-level tree is in the README,
+"Repository Layout"; what each directory holds is under [Layout](#layout).
 
 A device config (`devices/<family>/<device>.yaml`) holds substitutions and a `packages:` list,
 nothing else. The path substitutions (`assets`, `components`, `boards`, `features`, `display`) are
@@ -11,6 +11,29 @@ relative to that file; packages use them as `!include ${features}/…`, `${asset
 ESPHome merges every package into one config, so ids, globals, substitutions and
 `esphome.on_boot` entries from different files form one program. The contracts below cross file
 boundaries; everything else is local to its file.
+
+## Layout
+
+A family's device configs live in `devices/<family>/`, its packages under `packages/`, split by
+role:
+
+| Directory            | Contents |
+| -------------------- | -------- |
+| `packages/boards/`   | Platform and the chips sitting on each board — `jxd-cpu-e1eth.yaml` (ESP32, api/provisioning/ota/logger/web_server, TMP102, LED, FN button, the identity EEPROM) and `jxd-d6-r6-rev1.2.yaml` (PCA9554 expander, 6 relays, 6 inputs, DS2484 1-Wire bridge) |
+| `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `entity-settings`, `factory-reset`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network`, `reboot-required`, `status-led`, `web-auth`, `web-device-dashboard`, `web-file-browser`, `web-server-idf-backport`, `automations`, `automation-editor`, `climates`, `climate-editor`, `schedules`, `schedule-editor`, `virtual-inputs`, `crash-report`, `firmware-update` |
+| `packages/display/`  | Display, pages, menu and buttons — `display.yaml`, `menu.yaml`, `buttons.yaml`, `menu-items-network.yaml`, `menu-serial.yaml`, `menu-timezone.yaml`, `menu-firmware.yaml`, `firmware-page.yaml`, `status-page.yaml`, `time-page.yaml`, `blank-page.yaml`, `network-icons.yaml` |
+| `packages/qemu/`     | Overlays that `scripts/qemu.sh` layers over the real config to run it in the emulator — never part of a firmware build |
+
+Shared code and tooling stay at the repository root:
+
+| Directory  | Contents |
+| ---------- | -------- |
+| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `climate_hub` (the thermostats, each a climate entity), `schedules` (the weekly schedules whose modes run lists of relay and thermostat actions), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `web_climate_editor` (the thermostat API of `climate_hub`), `web_schedule_editor` (the schedule API of `schedules`), `crash_report` (the last panic's record, written to that partition at the next boot), `web_device_dashboard` (the web UI at `/` and its device API), `modbus_map` (the Modbus ranges' names that the dashboard lists, checked against the server at build time), `web_auth` (the web server's credentials, changeable at runtime), `web_origin_guard` (the cross-origin refusal every handler on that server answers with), `loop_job` (what a web handler hands the loop task so it does not edit its state from the server's), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), `entity_config` (the per-entity settings) with the `config_base` / `config_json` it is built on, `bindings` (an input driving a relay), `virtual_inputs` (inputs that follow a physical one through an on and an off delay, set up at run time), `switch_hold` (who holds a relay, a running thermostat; the panel, Modbus, the rules, the bindings, the schedules and the relay settings ask it before they move one), `jethome_update` (the firmware update entity) over the `jethome_manifest` parser of the firmware server's answer, `firmware_rollback` (booting the firmware in the other app slot, for the dashboard and the display menu), `status_indicator` (the CPU board's LED: on, off, blinking, pulses, and signals that pick one by condition or take turns), `timezone_settings` (the zone in effect: Home Assistant's, the compiled one or one set on the dashboard), `ntp_servers` (the NTP servers the device asks, set on the dashboard), `panel_text` (text fitted to a row of the display menu, and the rules a label follows), `display_menu_base` with `graphical_display_menu` (upstream's, with the menu options `packages/display/menu.yaml` needs), and `web_server_idf` (upstream's, with a fix backported ahead of its release; temporary) |
+| `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `build-timezones.py`, `firmware-matrix.py`, `release-version.py`, `vendored-diff.py`, `modbus_probe.py`, `device-files.py` (the `web_file_browser` API from a terminal), `qemu.sh` (the emulator), `qemu-climate-smoke.py` (the thermostats checked in it), `setup.sh` / `setup.bat` |
+| `dist/`    | Generated self-contained configs the ESPHome Builder imports |
+| `doc/`     | Guides, and their images in `doc/images/` |
+| `.github/` | The workflows of [RELEASE.md](RELEASE.md), and the issue and pull request templates of [DEVELOPMENT.md](DEVELOPMENT.md) |
+| `tests/`   | `tests/components/<name>/` is that component's Google Test suite, built for the ESPHome `host` platform and run by `python tests/run.py`; `tests/harness/` is what every suite shares |
 
 ## Shared ids
 

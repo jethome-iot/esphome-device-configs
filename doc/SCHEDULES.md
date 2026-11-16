@@ -28,7 +28,7 @@ the thermostat runs, as a change from Home Assistant does
 ([Thermostats](CLIMATE.md#calibrating-a-pid-thermostat)). A mode with no actions does nothing.
 
 Times are the device's local time, in the timezone it has from Home Assistant or the firmware
-([Timezone](../README.md#timezone)).
+([Timezone](TIME.md#timezone)).
 
 ## When a list runs
 
