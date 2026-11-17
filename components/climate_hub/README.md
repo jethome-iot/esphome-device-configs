@@ -332,8 +332,8 @@ relay before `bindings` hears of it, which then never does.
 
 A thermostat's name is its entity's name, in any script. No two thermostats may share a name,
 compared without case and extra spaces, and a thermostat may not take the name of a climate
-declared in YAML, `internal: true` or not. Only Latin letters are compared without case: `Кухня`
-and `КУХНЯ` are two names.
+declared in YAML, `internal: true` or not. Latin, Greek and Cyrillic letters are compared without
+case, so `Кухня` and `КУХНЯ` are one name; any other script is compared as written.
 
 Home Assistant 2026.8 and later tells entities apart by their whole names, so `Кухня` and
 `Ванна`, or `Room 1` and `Room_1`, are two entities there. Older versions keep only a name's

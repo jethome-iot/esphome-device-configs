@@ -307,7 +307,7 @@ TEST_F(Storage, FilenamesAreSanitized) {
     twenty_three += "ф";  // 46 bytes and the id's "-4": the 48, and no character cut in half
   // Four bytes each: a twelfth would pass the 46 left beside "-5".
   ASSERT_EQ(engine->add_automation(rule(startup_rule(repeat("🔥", 13)).c_str())), 5u);
-  std::vector<std::string> expected = {"hello_world.json", "Кухня_свет.json", "automation.json",
+  std::vector<std::string> expected = {"hello_world.json", "кухня_свет.json", "automation.json",
                                        twenty_three + "-4.json", repeat("🔥", 11) + "-5.json"};
   std::sort(expected.begin(), expected.end());
   EXPECT_EQ(files(), expected);
@@ -367,9 +367,9 @@ TEST_F(Storage, LongNamesThatStartAlikeAreTwoRules) {
   ASSERT_EQ(engine->add_automation(rule(startup_rule(weekdays).c_str())), 1u);
   EXPECT_FALSE(engine->is_name_taken(weekends));
   ASSERT_EQ(engine->add_automation(rule(startup_rule(weekends).c_str())), 2u);
-  const std::vector<std::string> expected = {"Свет_на_кухне_по_вечерам-1.json", "Свет_на_кухне_по_вечерам-2.json"};
+  const std::vector<std::string> expected = {"свет_на_кухне_по_вечерам-1.json", "свет_на_кухне_по_вечерам-2.json"};
   EXPECT_EQ(files(), expected);
-  EXPECT_NE(read("Свет_на_кухне_по_вечерам-2.json").find(weekends), std::string::npos);
+  EXPECT_NE(read("свет_на_кухне_по_вечерам-2.json").find(weekends), std::string::npos);
 
   reboot();
   EXPECT_EQ(names(), (std::vector<std::string>{weekdays, weekends}));
@@ -491,6 +491,49 @@ TEST_F(Storage, CaseFoldsInALongNameToo) {
   // Past the 48 bytes a file name holds, the rest of the name still tells two apart.
   EXPECT_FALSE(engine->is_name_taken("Pump the basement dry every evening after the rain starts"));
   EXPECT_EQ(files(), (std::vector<std::string>{"pump.json", "pump_the_basement_dry_every_evening_after_the-2.json"}));
+}
+
+// Latin, Greek and Cyrillic alike, and the file is named in the folded case.
+TEST_F(Storage, CaseFoldsInEveryScript) {
+  boot();
+  for (const char *name : {"Кухня свет", "Café", "Οδός"})
+    ASSERT_NE(engine->add_automation(rule(startup_rule(name).c_str())), 0u) << name;
+  for (const char *name : {"КУХНЯ СВЕТ", "кухня-свет", "CAFÉ", "café", "ΟΔΌΣ", "οδός"}) {
+    EXPECT_TRUE(engine->is_name_taken(name)) << name;
+    std::string error;
+    EXPECT_EQ(engine->add_automation(rule(startup_rule(name).c_str()), &error), 0u) << name;
+  }
+  // Outside those scripts a letter is compared as it is.
+  EXPECT_FALSE(engine->is_name_taken("Ⴀ"));
+  ASSERT_NE(engine->add_automation(rule(startup_rule("Ⴀ").c_str())), 0u);
+  EXPECT_FALSE(engine->is_name_taken("ⴀ"));
+  EXPECT_FALSE(engine->is_name_taken("Οδος")) << "a letter with an accent is another letter";
+  EXPECT_EQ(files(), (std::vector<std::string>{"café.json", "οδόσ.json", "кухня_свет.json", "Ⴀ.json"}));
+  EXPECT_TRUE(engine->update_automation(1, rule(startup_rule("КУХНЯ СВЕТ").c_str()))) << "its own name is no clash";
+  EXPECT_EQ(names(), (std::vector<std::string>{"КУХНЯ СВЕТ", "Café", "Οδός", "Ⴀ"}));
+}
+
+// A file an older firmware named after the name as written moves to the folded one, and two
+// rules whose names are one in the folded case are told apart.
+TEST_F(Storage, NamesAlikeButForCaseAreToldApartAtBoot) {
+  write("Свет.json", R"({"id":1,"name":"Свет","triggers":[{"source":"startup"}]})");
+  write("СВЕТ.json", R"({"id":2,"name":"СВЕТ","triggers":[{"source":"startup"}]})");
+  write("Кухня_свет.json", R"({"id":3,"name":"Кухня свет","triggers":[{"source":"startup"}]})");
+  boot();
+  std::vector<std::string> got = names();
+  std::sort(got.begin(), got.end());
+  // Which of the two keeps its name is the order the folder lists them in.
+  EXPECT_TRUE(got == (std::vector<std::string>{"Кухня свет", "СВЕТ", "Свет 2"}) ||
+              got == (std::vector<std::string>{"Кухня свет", "СВЕТ 2", "Свет"}))
+      << got[1] << ", " << got[2];
+  EXPECT_EQ(files(), (std::vector<std::string>{"кухня_свет.json", "свет.json", "свет_2.json"}));
+  EXPECT_TRUE(log().has(log().warnings, "Two automations named"));
+
+  reboot();
+  std::vector<std::string> again = names();
+  std::sort(again.begin(), again.end());
+  EXPECT_EQ(again, got);
+  EXPECT_EQ(files(), (std::vector<std::string>{"кухня_свет.json", "свет.json", "свет_2.json"}));
 }
 
 TEST_F(Storage, RulesRunThroughTheEntityCallback) {

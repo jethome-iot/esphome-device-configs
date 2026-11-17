@@ -2,6 +2,7 @@
 // from one. climate_hub follows these rules byte for byte — the device is the
 // authority, this is what lets a client say so before the round trip.
 
+import { foldCase } from '../../case_fold/client/caseFold'
 import type { StandardPresetName } from './types'
 import { NAME_MAX_BYTES, NAME_MAX_LENGTH, STANDARD_PRESETS } from './types'
 
@@ -19,10 +20,10 @@ export function trimName(name: string): string {
   return name.replace(EDGES, '')
 }
 
-/// The name as a person reads it: trimmed, inner whitespace collapsed, ASCII
-/// lowercased. Non-ASCII is left alone, exactly as the firmware leaves it.
+/// The name as a person reads it: trimmed, inner whitespace collapsed, case folded
+/// as the firmware folds it (caseFold.ts).
 export function nameKey(name: string): string {
-  return trimName(name.replace(ASCII_SPACE, ' ')).replace(/[A-Z]/g, (c) => c.toLowerCase())
+  return foldCase(trimName(name.replace(ASCII_SPACE, ' ')))
 }
 
 /// The id the device derives from a name at creation: lowercased ASCII

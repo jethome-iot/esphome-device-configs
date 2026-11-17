@@ -1485,6 +1485,26 @@
       }
     },
     {
+      "name": "A name another thermostat has, in another case of another script, is 409",
+      "setup": [
+        "kitchen"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "КУХНЯ",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 409,
+      "error": "\"КУХНЯ\" is already used by another thermostat"
+    },
+    {
       "name": "A climate's name from the YAML is 409",
       "method": "POST",
       "path": "save",

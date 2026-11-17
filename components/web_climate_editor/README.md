@@ -121,7 +121,8 @@ The refusals come in this order, and the first one a document meets is the answe
    (`A newer firmware wrote this thermostat; update the firmware to change it`), `409` for a
    `revision` that is not the thermostat's, or `507` when a create would pass `max_controllers`;
 3. `409` for a name another thermostat or a YAML climate answers to, compared without case and
-   extra spaces (`Room 1` and `Room_1` are two names, and so are `Кухня` and `Ванна`), and on a
+   extra spaces (`Кухня` and `КУХНЯ` are one name; `Room 1` and `Room_1` are two, and so are
+   `Кухня` and `Ванна`), and on a
    create for a name whose every id is taken by a file in the folder;
 4. for an enabled thermostat, `400` when its sensor does not report °C
    (`"Uptime" reports s, not °C`), then `409` when a running thermostat holds its relay:

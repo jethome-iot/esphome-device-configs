@@ -23,6 +23,7 @@ esphome -s version 2026.9.1.0 -s timezone Europe/Berlin compile <config>   # sub
 
 python scripts/build-dist.py  [--check]    # regenerate / verify dist/ (imports esphome: use the venv)
 python scripts/build-icons.py [--check]    # regenerate / verify assets/res/
+python scripts/build-case-fold.py [--check] # regenerate / verify the case-fold tables
 python scripts/firmware-matrix.py build    # CI matrix from firmwares.yaml; also validates the file
 python scripts/vendored-diff.py            # what components/ changed in the ESPHome components it shadows
 python scripts/vendored-diff.py --check    # and whether every hunk of that is still marked
@@ -87,6 +88,11 @@ requires.
   every IANA name with the POSIX string ESPHome compiles for it. The `build-timezones` hook pins
   ESPHome and tzdata, so the table changes only when those pins do; a new tzdata release reaches
   it by moving the hook's `tzdata` pin and regenerating.
+- `components/case_fold/case_fold_table.h`, `components/case_fold/client/caseFoldTable.ts` and
+  `tests/components/case_fold/fold_cases.tsv` — `scripts/build-case-fold.py`, from the Unicode
+  data of the Python running it. The device and the dashboard compare names with these two
+  tables, so they are regenerated together; the `build-case-fold` hook and the `case_fold` suite
+  fail when one is stale.
 
 `firmwares.yaml` must list every device config (`build-dist.py` refuses to run otherwise); it is
 the only input to the Build and Release matrices.

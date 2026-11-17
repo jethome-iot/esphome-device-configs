@@ -3,6 +3,7 @@
 // — the device is the authority, this is what lets a client say so before the round
 // trip, in the device's own words.
 
+import { foldCase } from '../../case_fold/client/caseFold'
 import type {
   ColorKey,
   Day,
@@ -149,12 +150,12 @@ export function trimName(name: string): string {
 }
 
 /**
- * The name as a person reads it: trimmed, inner whitespace collapsed, ASCII lowercased.
- * Non-ASCII is left alone, exactly as the firmware leaves it. Two schedules may not share one,
- * nor two modes of one schedule.
+ * The name as a person reads it: trimmed, inner whitespace collapsed, case folded as the
+ * firmware folds it (caseFold.ts). Two schedules may not share one, nor two modes of one
+ * schedule.
  */
 export function nameKey(name: string): string {
-  return trimName(name.replace(ASCII_SPACE, ' ')).replace(/[A-Z]/g, (c) => c.toLowerCase())
+  return foldCase(trimName(name.replace(ASCII_SPACE, ' ')))
 }
 
 /**

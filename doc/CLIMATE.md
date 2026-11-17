@@ -308,8 +308,9 @@ and the log says why.
   activity, in any case) is that preset there, translated in its interface; any other name is
   shown as it is. `none` is Home Assistant's word for no preset and cannot be a name.
 - A name may be in any script. Names are unique on the device: two thermostats cannot share one,
-  compared without case and extra spaces, nor a thermostat and a climate from the YAML. Only
-  Latin letters are compared without case, so `Кухня` and `КУХНЯ` are two names. Home Assistant
+  compared without case and extra spaces, nor a thermostat and a climate from the YAML. Latin,
+  Greek and Cyrillic letters are compared without case, so `Кухня` and `КУХНЯ` are one name; any
+  other script is compared as written. Home Assistant
   2026.8 and later shows `Кухня` and `Ванна`, or `Room 1` and `Room_1`, as two entities. Older
   versions keep only a name's Latin letters, digits, `-` and `_`, every other character one `_`,
   a space and punctuation too, and show one entity for such a pair; a digit or a Latin letter

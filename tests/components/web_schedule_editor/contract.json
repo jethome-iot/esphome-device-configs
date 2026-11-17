@@ -4954,6 +4954,45 @@
       "error": "Two modes are called \"ON\""
     },
     {
+      "name": "Two modes of one name in another script are 400, in any case",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Porch",
+        "enabled": true,
+        "modes": [
+          {
+            "id": "on",
+            "name": "День",
+            "color": "green",
+            "actions": [
+              {
+                "type": "relay",
+                "id": "relay_3",
+                "value": {
+                  "type": "on"
+                }
+              }
+            ]
+          },
+          {
+            "id": "on-2",
+            "name": "ДЕНЬ"
+          }
+        ],
+        "week": {
+          "mon": [
+            {
+              "at": "19:00",
+              "mode": "on"
+            }
+          ]
+        }
+      },
+      "status": 400,
+      "error": "Two modes are called \"ДЕНЬ\""
+    },
+    {
       "name": "A mode without an id is 400",
       "method": "POST",
       "path": "save",
@@ -6581,6 +6620,232 @@
       },
       "status": 409,
       "error": "\"LIVING  room week\" is already used by another schedule"
+    },
+    {
+      "name": "A name another schedule has in another case of another script is 409",
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "Неделя",
+        "enabled": false,
+        "modes": [
+          {
+            "id": "on",
+            "name": "On",
+            "color": "green",
+            "actions": [
+              {
+                "type": "relay",
+                "id": "relay_3",
+                "value": {
+                  "type": "on"
+                }
+              }
+            ]
+          },
+          {
+            "id": "off",
+            "name": "Off",
+            "color": "grey",
+            "actions": [
+              {
+                "type": "relay",
+                "id": "relay_3",
+                "value": {
+                  "type": "off"
+                }
+              }
+            ]
+          }
+        ],
+        "week": {
+          "mon": [
+            {
+              "at": "19:00",
+              "mode": "on"
+            },
+            {
+              "at": "23:30",
+              "mode": "off"
+            }
+          ],
+          "tue": [
+            {
+              "at": "19:00",
+              "mode": "on"
+            },
+            {
+              "at": "23:30",
+              "mode": "off"
+            }
+          ],
+          "wed": [
+            {
+              "at": "19:00",
+              "mode": "on"
+            },
+            {
+              "at": "23:30",
+              "mode": "off"
+            }
+          ],
+          "thu": [
+            {
+              "at": "19:00",
+              "mode": "on"
+            },
+            {
+              "at": "23:30",
+              "mode": "off"
+            }
+          ],
+          "fri": [
+            {
+              "at": "19:00",
+              "mode": "on"
+            },
+            {
+              "at": "23:30",
+              "mode": "off"
+            }
+          ],
+          "sat": [
+            {
+              "at": "19:00",
+              "mode": "on"
+            },
+            {
+              "at": "23:30",
+              "mode": "off"
+            }
+          ],
+          "sun": [
+            {
+              "at": "19:00",
+              "mode": "on"
+            },
+            {
+              "at": "23:30",
+              "mode": "off"
+            }
+          ]
+        }
+      },
+      "status": 200,
+      "then": [
+        {
+          "method": "POST",
+          "path": "save",
+          "body": {
+            "name": "НЕДЕЛЯ",
+            "enabled": false,
+            "modes": [
+              {
+                "id": "on",
+                "name": "On",
+                "color": "green",
+                "actions": [
+                  {
+                    "type": "relay",
+                    "id": "relay_3",
+                    "value": {
+                      "type": "on"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "off",
+                "name": "Off",
+                "color": "grey",
+                "actions": [
+                  {
+                    "type": "relay",
+                    "id": "relay_3",
+                    "value": {
+                      "type": "off"
+                    }
+                  }
+                ]
+              }
+            ],
+            "week": {
+              "mon": [
+                {
+                  "at": "19:00",
+                  "mode": "on"
+                },
+                {
+                  "at": "23:30",
+                  "mode": "off"
+                }
+              ],
+              "tue": [
+                {
+                  "at": "19:00",
+                  "mode": "on"
+                },
+                {
+                  "at": "23:30",
+                  "mode": "off"
+                }
+              ],
+              "wed": [
+                {
+                  "at": "19:00",
+                  "mode": "on"
+                },
+                {
+                  "at": "23:30",
+                  "mode": "off"
+                }
+              ],
+              "thu": [
+                {
+                  "at": "19:00",
+                  "mode": "on"
+                },
+                {
+                  "at": "23:30",
+                  "mode": "off"
+                }
+              ],
+              "fri": [
+                {
+                  "at": "19:00",
+                  "mode": "on"
+                },
+                {
+                  "at": "23:30",
+                  "mode": "off"
+                }
+              ],
+              "sat": [
+                {
+                  "at": "19:00",
+                  "mode": "on"
+                },
+                {
+                  "at": "23:30",
+                  "mode": "off"
+                }
+              ],
+              "sun": [
+                {
+                  "at": "19:00",
+                  "mode": "on"
+                },
+                {
+                  "at": "23:30",
+                  "mode": "off"
+                }
+              ]
+            }
+          },
+          "status": 409,
+          "error": "\"НЕДЕЛЯ\" is already used by another schedule"
+        }
+      ]
     },
     {
       "name": "A schedule keeps its own name in another case",

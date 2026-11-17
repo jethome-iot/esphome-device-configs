@@ -29,6 +29,7 @@ external_components:
   - source: ../../../components
     components:
       - filesystem_storage_abstract
+      - case_fold
       - config_base
       - config_json
       - entity_config

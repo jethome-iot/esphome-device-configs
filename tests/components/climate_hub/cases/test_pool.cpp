@@ -828,6 +828,20 @@ TEST_F(HubTest, ANameTakenTwiceAtBootCountsOn) {
   EXPECT_EQ("boiler 3", hub().store().get("c")->name);
 }
 
+// Two names alike but for case, which a firmware that compared only Latin letters so let be.
+TEST_F(HubTest, NamesAlikeButForCaseInAnyScriptAreRenamedAtBoot) {
+  write_file(this->file_of("a"), doc("a", "Свет", "relay_1", false));
+  write_file(this->file_of("b"), doc("b", "СВЕТ", "relay_2", false));
+  write_file(this->file_of("c"), doc("c", "ΟΔΌΣ", "relay_3", false));
+  write_file(this->file_of("d"), doc("d", "οδός", "relay_3", false));
+  this->reboot();
+  EXPECT_EQ("Свет", hub().store().get("a")->name);
+  EXPECT_EQ("СВЕТ 2", hub().store().get("b")->name);
+  EXPECT_NE(std::string::npos, read_file(this->file_of("b")).find("\"name\":\"СВЕТ 2\""));
+  EXPECT_EQ("ΟΔΌΣ", hub().store().get("c")->name);
+  EXPECT_EQ("οδός 2", hub().store().get("d")->name);
+}
+
 // The suffix fits the limits in characters and in bytes, and never splits a letter.
 TEST_F(HubTest, ANameInAnyScriptTakenAtBootIsRenamedWithinTheLimits) {
   const std::string longest = repeat("ж", NAME_MAX_LENGTH);

@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <dirent.h>
 #include <sys/stat.h>
+#include "esphome/components/case_fold/case_fold.h"
 #include "esphome/components/time/real_time_clock.h"
 #include "esphome/core/application.h"
 #include "esphome/core/hal.h"
@@ -619,7 +620,7 @@ void AutomationStorage::reset_all_() {
 std::string AutomationStorage::name_key_(const std::string &name) const {
   std::string result;
   result.reserve(name.length());
-  for (char c : name) {
+  for (char c : case_fold::fold_case(name)) {
     auto byte = static_cast<unsigned char>(c);
     // Non-ASCII passes through: dropped, every Cyrillic name would map to the same file.
     if (byte >= 0x80) {
