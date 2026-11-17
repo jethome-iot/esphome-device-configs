@@ -176,6 +176,7 @@ void AutomationStorage::setup() {
 #endif
 
   if (this->rtc_ != nullptr) {
+    this->restore_hold_();
     this->set_interval(1000, [this]() { this->check_time_(); });
   } else {
     ESP_LOGW(TAG, "No time source: cron triggers are disabled");
@@ -311,6 +312,11 @@ void AutomationStorage::check_time_() {
   if (!now.is_valid())
     return;
   const int64_t now_local = local_seconds(now);
+  if (!this->last_check_.has_value() && this->stored_hold_.has_value()) {
+    if (now.timestamp < this->stored_hold_->expires && now_local <= this->stored_hold_->held_until)
+      this->held_until_ = this->stored_hold_->held_until;
+    this->stored_hold_.reset();
+  }
   auto fire = [this](const ESPTime &time, int64_t local) {
     if (this->held_until_.has_value() && local <= *this->held_until_) {
       this->dispatch_time_(time, CronTriggers::EVERY_HOUR);
@@ -331,10 +337,10 @@ void AutomationStorage::check_time_() {
       return;
     }
     if (shift != 0)
-      this->held_until_.reset();
+      this->drop_hold_();
     if (last > now && last.timestamp - now.timestamp > MAX_TIMESTAMP_DRIFT) {
       ESP_LOGW(TAG, "Time has jumped back");
-      this->held_until_.reset();
+      this->drop_hold_();
     } else if (last >= now) {
       return;
     } else if (elapsed > MAX_TIMESTAMP_DRIFT) {
@@ -388,7 +394,9 @@ void AutomationStorage::cross_dst_(ESPTime last, int64_t last_local, const ESPTi
     if (now_local > ran)
       this->held_until_.reset();
   } else {
-    this->held_until_ = std::max(this->held_until_.value_or(last_local), last_local);
+    const int64_t held = std::max(this->held_until_.value_or(last_local), last_local);
+    this->held_until_ = held;
+    this->store_hold_({held, now.timestamp + held - now_local + 1});
   }
   while (true) {
     last.increment_second();
@@ -397,6 +405,28 @@ void AutomationStorage::cross_dst_(ESPTime last, int64_t last_local, const ESPTi
     this->dispatch_time_(last, CronTriggers::EVERY_HOUR);
   }
   this->dispatch_time_(now, this->held_until_.has_value() ? CronTriggers::EVERY_HOUR : CronTriggers::ALL);
+}
+
+void AutomationStorage::restore_hold_() {
+  this->hold_pref_ = global_preferences->make_preference<StoredHold>(this->preference_hash_, true);
+  StoredHold hold{};
+  if (this->hold_pref_.load(&hold) && hold.expires != 0)
+    this->stored_hold_ = hold;
+}
+
+// save() only queues the record on ESP32: sync() is what reaches NVS, and a restart soon after
+// the switch is what the record is for.
+void AutomationStorage::store_hold_(const StoredHold &hold) {
+  if (!this->hold_pref_.save(&hold) || !global_preferences->sync())
+    ESP_LOGW(TAG, "Cannot store the DST hold: a restart in the repeated hour runs its rules again");
+}
+
+// A hold a jump or a new zone ends early: its record must not bring it back after a restart.
+void AutomationStorage::drop_hold_() {
+  if (!this->held_until_.has_value())
+    return;
+  this->held_until_.reset();
+  this->store_hold_({0, 0});
 }
 
 // --- Mutators: any task in, loop task does the work ---

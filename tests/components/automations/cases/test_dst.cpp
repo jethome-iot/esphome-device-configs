@@ -70,7 +70,7 @@ class Dst : public ::testing::Test {
   // The local clock as "02:30:00 CEST".
   std::string reading() const {
     const ESPTime t = ESPTime::from_epoch_utc(engine.now + engine.offset);
-    const char *zone = engine.offset == CET ? "CET" : engine.offset == CEST ? "CEST" : "?";
+    const char *zone = engine.offset == CET ? "CET" : engine.offset == CEST ? "CEST" : engine.offset == 0 ? "UTC" : "?";
     char text[32];
     snprintf(text, sizeof(text), "%02d:%02d:%02d %s", t.hour, t.minute, t.second, zone);
     return text;
@@ -317,6 +317,57 @@ TEST_F(Dst, AJumpAheadInTheHeldHourKeepsTheHold) {
   tick_across(engine, AUTUMN, AUTUMN.at - 3600, AUTUMN.at + 600);
   tick_across(engine, AUTUMN, AUTUMN.at + 1501, AUTUMN.at + 3600);
   EXPECT_EQ(runs1, (Runs{"02:45:00 CEST"}));
+}
+
+// A restart at 02:20 CET: the record of the switch keeps 02:30 from running a second time,
+// and 03:00 runs once the clock is past the hour.
+TEST_F(Dst, ARestartInTheRepeatedHourKeepsTheHold) {
+  add_toggle("relay_1", "0 30 2 * * *");
+  add_toggle("relay_2", "0 0 3 * * *");
+  tick_across(engine, AUTUMN, AUTUMN.at - 3600, AUTUMN.at + 1200);
+  engine.restart();
+  tick_across(engine, AUTUMN, AUTUMN.at + 1260, AUTUMN.at + 3700);
+  EXPECT_EQ(runs1, (Runs{"02:30:00 CEST"}));
+  EXPECT_EQ(runs2, (Runs{"03:00:00 CET"}));
+}
+
+// A restart in spring has nothing to read back: the skipped hour ran at the switch.
+TEST_F(Dst, ARestartAfterTheSpringSwitchHoldsNothing) {
+  add_toggle("relay_1", "0 30 3 * * *");
+  tick_across(engine, SPRING, SPRING.at - 600, SPRING.at + 600);
+  engine.restart();
+  tick_across(engine, SPRING, SPRING.at + 660, SPRING.at + 2000);
+  EXPECT_EQ(runs1, (Runs{"03:30:00 CEST"}));
+}
+
+// The record is for that night: a restart at the same hour a day later holds nothing.
+TEST_F(Dst, ARecordOfTheSwitchHoldsNothingTheNextNight) {
+  add_toggle("relay_1", "0 30 2 * * *");
+  tick_across(engine, AUTUMN, AUTUMN.at - 3600, AUTUMN.at + 1200);
+  engine.restart();
+  tick_across(engine, AUTUMN, AUTUMN.at + 86400 + 1200, AUTUMN.at + 86400 + 1900);
+  EXPECT_EQ(runs1, (Runs{"02:30:00 CEST", "02:30:00 CET"}));
+}
+
+// Back at 02:30 UTC, in a zone picked while it was off: its clock reads the repeated hour
+// again, but the hour is over by the real time, so nothing is held.
+TEST_F(Dst, ARecordOfTheSwitchEndsWithItsHourInAnyZone) {
+  add_toggle("relay_1", "0 35 2 * * *");
+  tick_across(engine, AUTUMN, AUTUMN.at - 3600, AUTUMN.at + 1200);
+  engine.restart();
+  tick_across(engine, Shift{0, 0, 0}, AUTUMN.at + 5400, AUTUMN.at + 6000);
+  EXPECT_EQ(runs1, (Runs{"02:35:00 CEST", "02:35:00 UTC"}));
+}
+
+// A sync that pulls the clock back over 15 minutes ends the hold, and a restart after it does
+// not bring the hold back.
+TEST_F(Dst, ARestartAfterAJumpBackHoldsNothing) {
+  add_toggle("relay_1", "0 30 2 * * *");
+  tick_across(engine, AUTUMN, AUTUMN.at - 3600, AUTUMN.at + 1200);
+  tick_at(engine, AUTUMN, AUTUMN.at + 200);
+  engine.restart();
+  tick_across(engine, AUTUMN, AUTUMN.at + 201, AUTUMN.at + 1900);
+  EXPECT_EQ(runs1, (Runs{"02:30:00 CEST", "02:30:00 CET"}));
 }
 
 // Other zones and other offsets.
