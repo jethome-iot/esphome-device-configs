@@ -313,8 +313,11 @@ void AutomationStorage::check_time_() {
     return;
   const int64_t now_local = local_seconds(now);
   if (!this->last_check_.has_value() && this->stored_hold_.has_value()) {
-    if (now.timestamp < this->stored_hold_->expires && now_local <= this->stored_hold_->held_until)
-      this->held_until_ = this->stored_hold_->held_until;
+    // held_until is a reading in the offset the record was written in; another zone's clock
+    // never read it.
+    const StoredHold &hold = *this->stored_hold_;
+    if (now.timestamp < hold.expires && now_local - now.timestamp == hold.held_until + 1 - hold.expires)
+      this->held_until_ = hold.held_until;
     this->stored_hold_.reset();
   }
   auto fire = [this](const ESPTime &time, int64_t local) {
@@ -410,23 +413,25 @@ void AutomationStorage::cross_dst_(ESPTime last, int64_t last_local, const ESPTi
 void AutomationStorage::restore_hold_() {
   this->hold_pref_ = global_preferences->make_preference<StoredHold>(this->preference_hash_, true);
   StoredHold hold{};
-  if (this->hold_pref_.load(&hold) && hold.expires != 0)
+  this->hold_stored_ = this->hold_pref_.load(&hold) && hold.expires != 0;
+  if (this->hold_stored_)
     this->stored_hold_ = hold;
 }
 
 // save() only queues the record on ESP32: sync() is what reaches NVS, and a restart soon after
 // the switch is what the record is for.
 void AutomationStorage::store_hold_(const StoredHold &hold) {
+  this->hold_stored_ = hold.expires != 0;
   if (!this->hold_pref_.save(&hold) || !global_preferences->sync())
     ESP_LOGW(TAG, "Cannot store the DST hold: a restart in the repeated hour runs its rules again");
 }
 
-// A hold a jump or a new zone ends early: its record must not bring it back after a restart.
+// A jump or a new zone ends the hold: its record, even one whose hold already ran out, must
+// not bring it back after a restart.
 void AutomationStorage::drop_hold_() {
-  if (!this->held_until_.has_value())
-    return;
   this->held_until_.reset();
-  this->store_hold_({0, 0});
+  if (this->hold_stored_)
+    this->store_hold_({0, 0});
 }
 
 // --- Mutators: any task in, loop task does the work ---

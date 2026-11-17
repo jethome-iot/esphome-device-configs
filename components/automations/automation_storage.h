@@ -181,6 +181,8 @@ class AutomationStorage : public Component {
   // Read at boot, for the first tick with a valid time to take up.
   optional<StoredHold> stored_hold_;
   ESPPreferenceObject hold_pref_;
+  // The record on flash still holds something.
+  bool hold_stored_{false};
   uint32_t preference_hash_{0};
   loop_job::LoopDispatcher dispatcher_;
   // Above zero while a rule is being driven: an edit then would pull the rule from under it.

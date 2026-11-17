@@ -370,6 +370,27 @@ TEST_F(Dst, ARestartAfterAJumpBackHoldsNothing) {
   EXPECT_EQ(runs1, (Runs{"02:30:00 CEST", "02:30:00 CET"}));
 }
 
+// Back at 01:20 UTC, inside the hour, but in New York's zone: its clock read none of the
+// held seconds, so its 21:00 runs.
+TEST_F(Dst, ARestartInAnotherZoneHoldsNothing) {
+  add_toggle("relay_1", "0 0 21 * * *");
+  tick_across(engine, AUTUMN, AUTUMN.at - 3600, AUTUMN.at + 1200);
+  engine.restart();
+  tick_across(engine, Shift{0, -5 * 3600, -5 * 3600}, AUTUMN.at + 1260, AUTUMN.at + 3700);
+  EXPECT_EQ(e.relay1.writes, 1);
+}
+
+// The hold ran out at 03:00 CET; a sync then pulls the clock back into the repeated hour,
+// which runs again, and a restart there does not bring the old hold back.
+TEST_F(Dst, AJumpBackAfterTheHoldRanOutClearsItsRecord) {
+  add_toggle("relay_1", "0 30 2 * * *");
+  tick_across(engine, AUTUMN, AUTUMN.at - 3600, AUTUMN.at + 3900);
+  tick_at(engine, AUTUMN, AUTUMN.at + 1200);
+  engine.restart();
+  tick_across(engine, AUTUMN, AUTUMN.at + 1201, AUTUMN.at + 1900);
+  EXPECT_EQ(runs1, (Runs{"02:30:00 CEST", "02:30:00 CET"}));
+}
+
 // Other zones and other offsets.
 
 // The missing hour is Sunday's 00:00 to 00:59:59, not Saturday's.
