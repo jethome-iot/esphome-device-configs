@@ -298,14 +298,19 @@ server.
   thermostat that starts takes a slot, one that stops gives it back, internal again but under
   its own name. It leans on:
   - `EntityBase::configure_entity_` staying protected and callable from a subclass with this
-    signature: the entity calls it again to rename a slot, show it or hide it, with hash 0 so
-    the object id derives from the name. Upstream keeps a pointer to the name, not a copy.
+    signature: the entity calls it again to rename a slot, show it or hide it, with the key the
+    hub picks. Upstream keeps a pointer to the name, not a copy.
+  - The API key being what `fnv1_hash_object_id` gives, as codegen's is: a thermostat gets the
+    one its name gives unless another thermostat's name gives it too, another climate has it or
+    another name had it since boot, else one hashed from its id. Upstream means to hash keys from the raw name instead (its
+    PR #18361 reverted that for 2026.8); a bump that brings it rekeys every YAML entity and
+    leaves the thermostats on this one until `key_for_` follows.
   - `is_internal()` being read when the API and the web server list and push, not cached at
     setup (MQTT caches it, which is one reason the component has no MQTT support). The API
     reads it when it queues an entity for a client but reads the name and key only when it
     encodes it, so hiding a slot changes the internal bit alone, and a slot once shown never
-    goes back under the placeholder: a hidden one whose name or object id a running thermostat
-    is renamed to takes that thermostat's old name.
+    goes back under the placeholder: a hidden one whose name a running thermostat is renamed to
+    takes that thermostat's old name and key.
   - `web_server` matching a climate by name on its own task, first match wins, hidden or not,
     and a `/` never reaching a URL segment, which keeps an unused slot unaddressable. The name
     and the traits change only on the loop task, the panel's menu included, so that task may be

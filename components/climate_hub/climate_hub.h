@@ -208,9 +208,8 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   static bool validate_name(const std::string &name, std::string *error) {
     return climate_hub::validate_name(name, error);
   }
-  /// Whether `name` is taken, by another thermostat (same name_key(), or the same object id by
-  /// ESPHome's count or Home Assistant's, which it would call a duplicate) or by a climate
-  /// declared in YAML (the web server matches climates by name). `exclude_id` never blocks itself.
+  /// Whether `name` is taken, by another thermostat (same name_key()) or by a climate declared in
+  /// YAML (the web server matches climates by name). `exclude_id` never blocks itself.
   bool is_name_taken(const std::string &name, const std::string &exclude_id, std::string *error) const;
 
   /// The loop task's clock, millis_64(): a thermostat measures a silence of any length on it.
@@ -287,17 +286,20 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// Whether `id`'s last start found no free climate entity.
   bool waits_for_entity_(const std::string &id) const;
   Slot *slot_for_(const std::string &id) const;
-  /// The hidden slot that carries `name`, else one with its object id by ESPHome's count or Home
-  /// Assistant's; free_.end() for none.
+  /// The hidden slot that carries `name`; free_.end() for none.
   std::deque<Slot *>::iterator free_slot_like_(const std::string &name);
   /// free_slot_like_(), so a thermostat back under its name gets back its key; otherwise the
   /// one freed longest ago. Only while one is free.
   Slot *take_free_slot_(const std::string &name);
-  /// Before `renamed`, running, shows `name`: free_slot_like_() takes the name `renamed` leaves.
-  /// The web server answers the first climate by a name, and a listing queued before the slot
-  /// was hidden sends its key, so neither may stay with it. Never the placeholder: an API client
-  /// may still be encoding that slot.
-  void give_way_(const std::string &name, const Slot *renamed);
+  /// Before `renamed`, running, shows `name`: free_slot_like_() takes the name and the key
+  /// `renamed` leaves, and the answer is whether one did. The web server answers the first climate
+  /// by a name, so the hidden slot may not keep it. Never the placeholder: an API client may still
+  /// be encoding that slot.
+  bool give_way_(const std::string &name, const Slot *renamed);
+  /// The API key thermostat `id` shows under `name` on `self`: the name's, as codegen's, while
+  /// no other thermostat's name gives it, else one from the id, so no two climates share a key and
+  /// no key goes to two names in a boot.
+  uint32_t key_for_(const std::string &name, const std::string &id, const HubClimate *self);
   SensorSubscription *subscribe_(sensor::Sensor *sensor);
   void on_sample_(SensorSubscription *sub, float value);
   void on_control_(uint8_t index, const climate::ClimateCall &call);
@@ -366,6 +368,8 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   // First in, first out: a web server call resolved just before a slot was freed is unlikely
   // to find it taken again.
   std::deque<Slot *> free_;
+  // The name each key went to since boot.
+  std::map<uint32_t, std::string> given_keys_;
   // Keyed on the relay's object id; the owner is the id of the running thermostat.
   ClaimMap claims_;
   // Each relay's last switching once its claim is gone, by object id: the next claim on it

@@ -59,12 +59,6 @@ static const char *const RESERVED_ID = "new";
 // Why a start found every climate entity in use; a stop that frees one tries it again.
 static const char *const NO_FREE_ENTITY = "no free climate entity";
 static const char *const NOT_STARTED = "not started: ";
-// The end of a name clash that exists only because non-ASCII letters become '_': in Home
-// Assistant's id, then in ESPHome's, which the API's key is a hash of.
-static const char *const HA_ID_CLASH = ", which reads every character but a Latin letter, a digit, '-' or '_' as '_'; "
-                                       "a digit or a Latin letter makes them distinct";
-static const char *const API_ID_CLASH = ", which reads every byte of a non-ASCII letter as '_'; "
-                                        "a digit or a Latin letter makes them distinct";
 static const char *const SET_NOT_FOUND = "Gain set not found";
 static const char *const SETS_NOT_WRITTEN = "The gain sets file could not be written";
 // Only a reader open on another task, which HTTP requests never overlap with: a lambda's call.
@@ -209,6 +203,7 @@ void ClimateHub::setup() {
     return;
   }
   this->build_pool_();
+  this->given_keys_.clear();
   if (!this->load_())
     this->mark_failed();
 }
@@ -479,23 +474,38 @@ bool ClimateHub::is_name_taken(const std::string &name, const std::string &exclu
       return true;
     }
   }
-  // Home Assistant keys an entity on the id it rebuilds per character, the API on a hash of
-  // ESPHome's per byte; a clash in either loses one of the two.
-  const std::string ha_id = ha_object_id_of_name(name);
-  const std::string object_id = object_id_of_name(name);
-  for (const std::string &other : others) {
-    const bool by_ha = ha_id == ha_object_id_of_name(other);
-    if (!by_ha && object_id != object_id_of_name(other))
-      continue;
-    if (error != nullptr) {
-      *error = "\"" + name + "\" is too close to \"" + other + "\": both are " + (by_ha ? ha_id : object_id) +
-               (by_ha ? " to Home Assistant" : " to the device's API");
-      if (non_ascii_clash(name, other))
-        *error += by_ha ? HA_ID_CLASH : API_ID_CLASH;
-    }
-    return true;
-  }
   return false;
+}
+
+uint32_t ClimateHub::key_for_(const std::string &name, const std::string &id, const HubClimate *self) {
+  // Free: no other climate has it, and it went to no other name since boot. Home Assistant 2026.9
+  // takes a key that moves to a new name for a rename, so a key never changes hands.
+  auto free = [this, self, &name](uint32_t key) {
+    const auto &climates = App.get_climates();
+    auto given = this->given_keys_.find(key);
+    return key != 0 && (given == this->given_keys_.end() || given->second == name) &&
+           std::none_of(climates.begin(), climates.end(), [self, key](const climate::Climate *climate) {
+             return climate != self && climate->get_object_id_hash() == key;
+           });
+  };
+  auto alike = [this, &id](uint32_t key) {
+    const auto &all = this->store_.all();
+    return std::any_of(all.begin(), all.end(), [&id, key](const auto &config) {
+      return config->id != id && fnv1_hash_object_id(config->name.c_str(), config->name.size()) == key;
+    });
+  };
+  // The name's own key, as codegen gives one, while no other thermostat's name gives it, else one
+  // from the id: names alike in their object id (Кухня, Ванна) then reach Home Assistant as two
+  // entities, under the same keys whichever starts first or waits at boot.
+  uint32_t key = fnv1_hash_object_id(name.c_str(), name.size());
+  if (alike(key) || !free(key)) {
+    const std::string seed = "climate_hub/" + id;
+    key = fnv1_hash(seed);
+    for (unsigned n = 2; !free(key); n++)
+      key = fnv1_hash(seed + "/" + std::to_string(n));
+  }
+  this->given_keys_[key] = name;
+  return key;
 }
 
 // --- Mutators ---
@@ -1419,17 +1429,9 @@ Result ClimateHub::relay_held_(const std::string &relay_id, const std::string &h
 }
 
 std::deque<ClimateHub::Slot *>::iterator ClimateHub::free_slot_like_(const std::string &name) {
-  // The exact name first: the web server matches that, so no hidden slot is left answering it.
-  auto it = std::find_if(this->free_.begin(), this->free_.end(), [&name](const Slot *slot) {
+  // The web server matches the exact name, so no hidden slot is left answering it.
+  return std::find_if(this->free_.begin(), this->free_.end(), [&name](const Slot *slot) {
     return slot->entity.is_named() && name == slot->entity.get_name().c_str();
-  });
-  if (it != this->free_.end())
-    return it;
-  const std::string object_id = object_id_of_name(name);
-  const std::string ha_id = ha_object_id_of_name(name);
-  return std::find_if(this->free_.begin(), this->free_.end(), [&object_id, &ha_id](const Slot *slot) {
-    return slot->entity.is_named() &&
-           (object_id_of(slot->entity) == object_id || ha_object_id_of_name(slot->entity.get_name().c_str()) == ha_id);
   });
 }
 
@@ -1442,10 +1444,12 @@ ClimateHub::Slot *ClimateHub::take_free_slot_(const std::string &name) {
   return slot;
 }
 
-void ClimateHub::give_way_(const std::string &name, const Slot *renamed) {
+bool ClimateHub::give_way_(const std::string &name, const Slot *renamed) {
   auto it = this->free_slot_like_(name);
-  if (it != this->free_.end())
-    (*it)->entity.hide_as(renamed->entity.get_name().c_str(), this->entity_fields_);
+  if (it == this->free_.end())
+    return false;
+  (*it)->entity.hide_as(renamed->entity.get_name().c_str(), renamed->entity.get_object_id_hash(), this->entity_fields_);
+  return true;
 }
 
 bool ClimateHub::acquire_claims_(const ClimateConfig &config, RelayClaim **heat, RelayClaim **cool,
@@ -1588,7 +1592,7 @@ bool ClimateHub::start_(ClimateConfig *config, std::string *error) {
   Slot *slot = this->take_free_slot_(config->name);
   const SensorSubscription *sub = this->subscribe_(sensor);
   slot->runtime.start(config, sensor, heat, cool, this->now_ms(), sub != nullptr ? sub->last : Reading{});
-  slot->entity.show(config->name, this->entity_fields_);
+  slot->entity.show(config->name, this->key_for_(config->name, config->id, &slot->entity), this->entity_fields_);
   slot->entity.publish_state();
   this->waiting_.erase(config->id);
   ESP_LOGD(TAG, "'%s' running as climate '%s'", config->id.c_str(), config->name.c_str());
@@ -1621,8 +1625,16 @@ bool ClimateHub::restart_(Slot *slot, const std::string &previous_name, std::str
   const SensorSubscription *sub = this->subscribe_(sensor);
   slot->runtime.start(config, sensor, heat, cool, now, sub != nullptr ? sub->last : Reading{});
   if (config->name != previous_name) {
-    this->give_way_(config->name, slot);
-    slot->entity.show(config->name, this->entity_fields_);
+    const uint32_t key = slot->entity.get_object_id_hash();
+    // Within one object id a rename keeps the key, which Home Assistant 2026.9 follows; unless a
+    // hidden slot took the key with the name this one left.
+    const bool same_object_id = fnv1_hash_object_id(previous_name.c_str(), previous_name.size()) ==
+                                fnv1_hash_object_id(config->name.c_str(), config->name.size());
+    const bool keep = !this->give_way_(config->name, slot) && same_object_id;
+    if (keep)
+      this->given_keys_[key] = config->name;
+    slot->entity.show(config->name, keep ? key : this->key_for_(config->name, config->id, &slot->entity),
+                      this->entity_fields_);
   }
   slot->entity.publish_state();
   return true;

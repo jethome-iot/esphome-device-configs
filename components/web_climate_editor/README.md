@@ -62,7 +62,7 @@ loop task and reads it as the answer goes out, a set at a time.
 
 | Method | Path | |
 |---|---|---|
-| GET | `list` | `{"success": true, "count", "max_controllers", "controllers": [{"id", "name", "enabled", "kind", "mode", "sensor_id", "heat_relay_id", "cool_relay_id", "running", "revision", "waiting", "active_preset", "active_preset_name"}, ...]}`; `revision` is the document's, so an open editor sees the device move it on; `waiting` says why an enabled thermostat does not run, `""` when it runs or is disabled; `active_preset` is the key of the preset picked last and `active_preset_name` its name, both `""` for none |
+| GET | `list` | `{"success": true, "count", "max_controllers", "controllers": [{"id", "name", "enabled", "kind", "mode", "sensor_id", "heat_relay_id", "cool_relay_id", "running", "revision", "waiting", "active_preset", "active_preset_name"}, ...], "home_assistant": ["2026.7.3"]}`; `home_assistant` gives the version of each Home Assistant connection open now; `revision` is the document's, so an open editor sees the device move it on; `waiting` says why an enabled thermostat does not run, `""` when it runs or is disabled; `active_preset` is the key of the preset picked last and `active_preset_name` its name, both `""` for none |
 | GET | `get?id=` | One thermostat, in the file format of [climate_hub](../climate_hub/README.md#a-thermostat), its presets included |
 | POST | `save` | A thermostat as a JSON body. `id` absent or `""` creates one, an existing `id` replaces that one, renamed or not. Answers `{"success": true, "message", "id"}`, and a `warning` when it was saved enabled but does not run |
 | POST | `import` | A thermostat as `get` answers it, `id` included, as a JSON body: the thermostat with that `id` is replaced, otherwise one is created under it, with its presets' keys and its active preset. Answers as `save` does; see [Import](#import) |
@@ -121,10 +121,8 @@ The refusals come in this order, and the first one a document meets is the answe
    (`A newer firmware wrote this thermostat; update the firmware to change it`), `409` for a
    `revision` that is not the thermostat's, or `507` when a create would pass `max_controllers`;
 3. `409` for a name another thermostat or a YAML climate answers to, compared without case and
-   extra spaces or by the entity id both would get (`Room 1` and `Room_1`; `Кухня` and `Ванна`,
-   which Home Assistant reads as `_____`, the sentence then saying that a digit or a Latin
-   letter tells them apart) or by the key the device's API would give both (`Café` and
-   `Caf__`), and on a create for a name whose every id is taken by a file in the folder;
+   extra spaces (`Room 1` and `Room_1` are two names, and so are `Кухня` and `Ванна`), and on a
+   create for a name whose every id is taken by a file in the folder;
 4. for an enabled thermostat, `400` when its sensor does not report °C
    (`"Uptime" reports s, not °C`), then `409` when a running thermostat holds its relay:
    `"Relay 1" is already driven by "Living Room"`, and then when another enabled thermostat that
