@@ -13,7 +13,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [filesystem_storage_abstract, littlefs_storage, climate_hub, loop_job, switch_hold]
+    components: [filesystem_storage_abstract, littlefs_storage, case_fold, climate_hub, loop_job, switch_hold]
 
 littlefs_storage:
   id: user_storage

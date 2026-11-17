@@ -337,7 +337,7 @@ export function conflictReason(holder: string, target: string): string {
   return `Schedule "${holder}" drives ${target}`
 }
 
-/** The 409 of a name another schedule has, ignoring ASCII case and runs of spaces. */
+/** The 409 of a name another schedule has, ignoring runs of spaces and the case of Latin, Greek and Cyrillic letters. */
 export function nameTakenError(name: string): string {
   return `"${name}" is already used by another schedule`
 }

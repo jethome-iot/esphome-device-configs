@@ -13,7 +13,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [filesystem_storage_abstract, littlefs_storage, schedules, loop_job, switch_hold]
+    components: [filesystem_storage_abstract, littlefs_storage, case_fold, schedules, loop_job, switch_hold]
 
 littlefs_storage:
   id: user_storage
@@ -61,7 +61,8 @@ without it an action on a thermostat is kept but skipped.
 
 - `modes`: 1 to 8. A mode's `id` is 1 to 24 of `a-z`, `0-9` and `-`, unique in the schedule;
   points name the mode by it, so a rename keeps it. Its `name` is 1 to 24 characters, any
-  language, no control characters, unique in the schedule whatever the case and spacing.
+  language, no control characters, unique in the schedule whatever the spacing and the case of
+  Latin, Greek and Cyrillic letters.
   `color` is optional, one of `red`, `orange`, `amber`, `yellow`, `lime`, `green`, `teal`,
   `cyan`, `blue`, `indigo`, `violet`, `pink`, `grey`. `actions`: 0 to 12, in order; left out
   reads as none.
@@ -74,7 +75,7 @@ without it an action on a thermostat is kept but skipped.
   Before a week's first point, the week's last one holds: Sunday evening carries into Monday
   morning.
 - `name`: 1 to 48 characters, any language, no control characters, neither `/` nor `\`; unique
-  on the device whatever the case and spacing.
+  on the device whatever the spacing and the case of Latin, Greek and Cyrillic letters.
 - `id`: made from the name at creation (`schedule`, `schedule-2` for a name with no Latin letters
   or digits), never `new`, kept through a rename.
 - `revision`: `0` when created, and one more at every change of the document: an `update()`, a
