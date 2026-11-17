@@ -1,4 +1,5 @@
 #include "common.h"
+#include "esphome/components/api/api_server.h"
 #include "esphome/components/climate_hub/param_table.h"
 
 // Every route's answer, and its refusals in the order client/mock/climateMock.ts gives them:
@@ -11,7 +12,27 @@ namespace esphome::web_climate_editor::testing {
 TEST_F(Editor, AnEmptyHubListsNothing) {
   Reply reply = this->get("list");
   ASSERT_EQ(reply.code, 200);
-  EXPECT_EQ(reply.body, R"({"success":true,"count":0,"max_controllers":3,"controllers":[]})");
+  EXPECT_EQ(reply.body, R"({"success":true,"count":0,"max_controllers":3,"controllers":[],"home_assistant":[]})");
+}
+
+TEST(HomeAssistantVersion, ComesFromHomeAssistantsHelloOnly) {
+  EXPECT_EQ(home_assistant_version("Home Assistant 2026.7.3"), "2026.7.3");
+  EXPECT_EQ(home_assistant_version("Home Assistant 2026.10.0.dev20260901"), "2026.10.0.dev20260901");
+  EXPECT_EQ(home_assistant_version("Home Assistant 2026.8.0b0 (x)"), "2026.8.0b0");
+  for (const char *other : {"aioesphomeapi", "Home Assistant", "Home Assistant ", "Home Assistant beta",
+                            "home assistant 2026.7.3", "Home Assistant\t2026.7.3", "192.168.1.2", ""})
+    EXPECT_EQ(home_assistant_version(other), "") << other;
+  EXPECT_EQ(home_assistant_version(nullptr), "");
+}
+
+// No client has said hello to a server that never set up, so the list names no Home Assistant.
+TEST_F(Editor, AListBesideAnApiServerWithNoClientsNamesNoHomeAssistant) {
+  auto server = std::make_unique<api::APIServer>();
+  Reply reply = this->get("list");
+  api::global_api_server = nullptr;
+  ASSERT_EQ(reply.code, 200);
+  EXPECT_EQ(reply["home_assistant"].as<JsonArrayConst>().size(), 0U);
+  EXPECT_TRUE(reply["home_assistant"].is<JsonArrayConst>());
 }
 
 TEST_F(Editor, SaveCreatesAThermostatTheOtherRoutesThenSee) {
@@ -22,10 +43,11 @@ TEST_F(Editor, SaveCreatesAThermostatTheOtherRoutesThenSee) {
   EXPECT_TRUE(hub().is_running("living-room"));
 
   Reply list = this->get("list");
-  EXPECT_EQ(list.body, R"({"success":true,"count":1,"max_controllers":3,"controllers":[)"
-                       R"({"id":"living-room","name":"Living Room","enabled":true,"kind":"pid","mode":"heat",)"
-                       R"("sensor_id":"room","heat_relay_id":"relay_1","cool_relay_id":"","running":true,)"
-                       R"("revision":0,"waiting":"","active_preset":"","active_preset_name":""}]})");
+  EXPECT_EQ(list.body,
+            R"({"success":true,"count":1,"max_controllers":3,"controllers":[)"
+            R"({"id":"living-room","name":"Living Room","enabled":true,"kind":"pid","mode":"heat",)"
+            R"("sensor_id":"room","heat_relay_id":"relay_1","cool_relay_id":"","running":true,)"
+            R"("revision":0,"waiting":"","active_preset":"","active_preset_name":""}],"home_assistant":[]})");
 
   // The bare document, every key there, the same shape save takes back.
   Reply got = this->get("get?id=living-room");

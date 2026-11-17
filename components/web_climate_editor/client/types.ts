@@ -527,6 +527,11 @@ export interface ControllersResponse {
   count: number
   max_controllers: number
   controllers: ControllerSummary[]
+  /**
+   * The version of each Home Assistant connection open now ("2026.7.3"), in no order; absent on a
+   * firmware that does not report them.
+   */
+  home_assistant?: string[]
 }
 
 export interface StatusResponse {

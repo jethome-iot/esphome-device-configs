@@ -326,7 +326,8 @@
         "success": true,
         "count": 0,
         "max_controllers": 3,
-        "controllers": []
+        "controllers": [],
+        "home_assistant": []
       }
     },
     {

@@ -1,6 +1,7 @@
 #include "web_climate_editor.h"
 #include <ArduinoJson.h>
 #include <algorithm>
+#include <cctype>
 #include <cfloat>
 #include <cmath>
 #include <cstdlib>
@@ -17,6 +18,9 @@
 #ifdef USE_ESP32
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#endif
+#ifdef USE_API
+#include "esphome/components/api/api_server.h"
 #endif
 
 namespace esphome::web_climate_editor {
@@ -251,6 +255,34 @@ static const char *status_line(int code) {
     default:
       return nullptr;
   }
+}
+
+std::string home_assistant_version(const char *client_info) {
+  static const char PREFIX[] = "Home Assistant ";
+  if (client_info == nullptr || strncmp(client_info, PREFIX, sizeof(PREFIX) - 1) != 0)
+    return "";
+  const char *version = client_info + sizeof(PREFIX) - 1;
+  if (std::isdigit(static_cast<unsigned char>(*version)) == 0)
+    return "";
+  size_t length = 0;
+  while (std::isalnum(static_cast<unsigned char>(version[length])) != 0 || version[length] == '.')
+    length++;
+  return std::string(version, length);
+}
+
+// The versions of the Home Assistant instances connected now.
+static void add_home_assistant_versions(JsonArray versions) {
+#ifdef USE_API
+  if (api::global_api_server == nullptr)
+    return;
+  for (const auto &client : api::global_api_server->active_clients()) {
+    if (client->is_marked_for_removal() || !client->is_authenticated())
+      continue;
+    const std::string version = home_assistant_version(client->get_name());
+    if (!version.empty())
+      versions.add(version);
+  }
+#endif
 }
 
 void WebClimateEditor::setup() {
@@ -519,6 +551,12 @@ void WebClimateEditor::handle_list_(AsyncWebServerRequest *request) {
       row["waiting"] = this->hub_->waiting_reason(config->id);
       set_active_preset(row, *config);
     }
+    // Home Assistant 2026.7 and older shows thermostats alike in their object id as one entity,
+    // which the editor warns of while one is connected. A failed hub runs this off the loop, where
+    // the API's clients are not safe to read, and has no thermostat to warn of.
+    JsonArray versions = doc["home_assistant"].to<JsonArray>();
+    if (!this->hub_->is_failed())
+      add_home_assistant_versions(versions);
     serializeJson(doc, json);
     return true;
   });

@@ -92,6 +92,60 @@ export function nameError(name: string, id: string, existing: ReadonlyArray<Name
   return ''
 }
 
+// One character of the object id Home Assistant 2026.7 and older rebuilds from a name
+// (aioesphomeapi's compute_object_id): a space is '_', A-Z is lowercased, and anything else
+// outside [a-z0-9_-] is '_'.
+function legacyIdChar(c: string): string {
+  const lower = c === ' ' ? '_' : c.replace(/[A-Z]/, (u) => u.toLowerCase())
+  return /^[a-z0-9_-]$/.test(lower) ? lower : '_'
+}
+
+/// The object id Home Assistant 2026.7 and older gives a thermostat, and its entity's unique id
+/// with it: one character per code point, so "Кухня" and "Ванна" are both "_____".
+export function legacyObjectIdOf(name: string): string {
+  let out = ''
+  for (const c of name) out += legacyIdChar(c)
+  return out
+}
+
+/// The first of `versions` older than Home Assistant 2026.8, which is the first to tell
+/// thermostats apart by the whole name, or '' when none is.
+export function legacyHomeAssistant(versions: ReadonlyArray<string> | undefined): string {
+  for (const version of versions ?? []) {
+    const parts = /^(\d+)\.(\d+)/.exec(version)
+    if (!parts) continue
+    const year = Number(parts[1])
+    if (year < 2026 || (year === 2026 && Number(parts[2]) < 8)) return version
+  }
+  return ''
+}
+
+/// The name of the first thermostat in `existing` (not `id` itself) that Home Assistant 2026.7
+/// and older would show as one with `name`, or '' when there is none. A name the device takes
+/// for the same one is nameError's, not this.
+export function legacyLookalike(name: string, id: string, existing: ReadonlyArray<Named>): string {
+  const trimmed = trimName(name)
+  const key = nameKey(trimmed)
+  const objectId = legacyObjectIdOf(trimmed)
+  const other = existing.find(
+    (o) => o.id !== id && nameKey(o.name) !== key && legacyObjectIdOf(trimName(o.name)) === objectId
+  )
+  return other ? trimName(other.name) : ''
+}
+
+/// The names in `existing` that Home Assistant 2026.7 and older shows as one thermostat, in
+/// groups of two or more, each group and its names in `existing`'s order.
+export function legacyLookalikeGroups(existing: ReadonlyArray<Named>): string[][] {
+  const groups = new Map<string, string[]>()
+  for (const other of existing) {
+    const name = trimName(other.name)
+    const group = groups.get(legacyObjectIdOf(name))
+    if (group) group.push(name)
+    else groups.set(legacyObjectIdOf(name), [name])
+  }
+  return [...groups.values()].filter((group) => group.length > 1)
+}
+
 // A string holds no bytes that are not UTF-8; a lone surrogate, which JSON would carry
 // garbled, is refused in their place.
 const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/
