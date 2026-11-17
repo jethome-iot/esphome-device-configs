@@ -3,11 +3,14 @@
 // automations/automation_storage.cpp — the firmware is the authority, this is what
 // lets a client say so before the round trip.
 
-/// The key the device stores an automation under: lowercased ASCII alphanumerics,
-/// space/-/_ folded to one underscore, non-ASCII kept. A key too long for a file
-/// name is cut on the device, but two names collide only when their whole keys do.
+import { foldCase } from '../../case_fold/client/caseFold'
+
+/// The key the device stores an automation under: the name case folded as the
+/// firmware folds it (caseFold.ts), ASCII alphanumerics kept, space/-/_ folded to one
+/// underscore, other ASCII dropped, non-ASCII kept. A key too long for a file name is
+/// cut on the device, but two names collide only when their whole keys do.
 export function storageKey(name: string): string {
-  const folded = Array.from(name)
+  const folded = Array.from(foldCase(name))
     .map((c) =>
       (c.codePointAt(0) ?? 0) >= 0x80
         ? c

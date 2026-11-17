@@ -220,7 +220,7 @@ bool validate_name(const std::string &name, std::string *error);
 /// inside a character.
 std::string fit_name(const std::string &name, size_t max_chars, size_t max_bytes);
 
-/// The name as a person reads it: trimmed, inner whitespace collapsed, ASCII lowercased.
+/// The name as a person reads it: trimmed, inner whitespace collapsed, case folded (case_fold).
 std::string name_key(const std::string &name);
 
 /// Home Assistant's built-in presets, by the name a preset takes to be one.

@@ -48,7 +48,9 @@ A timetable, what relays and thermostats do by the time of day and the day of th
 
 Rules are `/littlefs/automations/<name>.json` on the LittleFS partition from
 `features/storage.yaml`, one file per rule, named after the rule. Two rules cannot share a
-name. OTA updates keep the files; a factory reset — **Settings → Factory reset → Confirm** on
+name, whatever the spacing and the case of Latin, Greek and Cyrillic letters: `Свет на кухне`
+and `СВЕТ НА КУХНЕ` are one. OTA updates keep the files; a factory reset —
+**Settings → Factory reset → Confirm** on
 the display, the FN button held for 10 seconds, or `POST /api/device/system/factory-reset` —
 formats the partition, so the rules go with it.
 

@@ -114,7 +114,8 @@ paths:
         form: a form-encoded body is parsed into fields by the server and answered
         `Empty request body`. A name is any text without control characters.
         Names collide by the file name they spell before it is cut to fit
-        (`Porch light` and `porch-LIGHT` are one), and a name another rule owns,
+        (`Porch light` and `porch-LIGHT` are one, and so are `Свет` and
+        `СВЕТ`), and a name another rule owns,
         or one with a control character, is refused with the reason. So is a
         rule that names what the device does not have: an
         entity, a thermostat, or a preset key the thermostat lacks

@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cmath>
 #include <strings.h>
+#include "esphome/components/case_fold/case_fold.h"
 #include "esphome/core/helpers.h"
 #include "param_table.h"
 
@@ -352,7 +353,6 @@ std::string name_key(const std::string &name) {
   out.reserve(name.size());
   bool pending_space = false;
   for (char c : name) {
-    auto u = static_cast<unsigned char>(c);
     if (is_ascii_space(c)) {
       pending_space = !out.empty();
       continue;
@@ -361,9 +361,9 @@ std::string name_key(const std::string &name) {
       out += ' ';
       pending_space = false;
     }
-    out += u < 0x80 ? static_cast<char>(std::tolower(u)) : c;
+    out += c;
   }
-  return out;
+  return case_fold::fold_case(out);
 }
 
 bool standard_preset(const std::string &name, climate::ClimatePreset *out) {

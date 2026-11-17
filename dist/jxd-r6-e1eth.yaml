@@ -322,6 +322,7 @@ external_components:
       path: components
     components:
       - automations
+      - case_fold
       - loop_job
       - switch_hold
   - source:
@@ -340,6 +341,7 @@ external_components:
       path: components
     components:
       - climate_hub
+      - case_fold
       - loop_job
       - switch_hold
   - source:
@@ -390,6 +392,7 @@ external_components:
       path: components
     components:
       - schedules
+      - case_fold
       - loop_job
       - switch_hold
   - source:

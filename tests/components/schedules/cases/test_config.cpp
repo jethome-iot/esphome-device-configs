@@ -325,6 +325,9 @@ TEST(ScheduleConfig, EveryBrokenRuleHasItsSentence) {
       {with_mode(R"({"id":"off","name":"A\u0001"})"), "Mode 2: name cannot contain control characters"},
       {with_mode(R"({"id":"off","name":" on "})"), "Two modes are called \"on\""},
       {with_mode(R"({"id":"off","name":"ON"})"), "Two modes are called \"ON\""},
+      {doc_of(R"([{"id":"day","name":"День"},{"id":"night","name":"ДЕНЬ"}])",
+              R"({"mon":[{"at":"06:00","mode":"day"}]})"),
+       "Two modes are called \"ДЕНЬ\""},
       {with_mode(R"({"name":"Off"})"), "Mode \"Off\": id is required"},
       {with_mode(R"({"id":"","name":"Off"})"), "Mode \"Off\": id is required"},
       {with_mode(R"({"id":5,"name":"Off"})"), "Mode \"Off\": id is required"},
@@ -652,8 +655,12 @@ TEST(Names, TrimAndKey) {
   EXPECT_EQ("Porch light", trim_name(" \t Porch light \n"));
   EXPECT_EQ("", trim_name("   "));
   EXPECT_EQ(name_key("Porch  Light"), name_key("porch light"));
-  EXPECT_EQ("котёл утро", name_key("котёл   утро")) << "only ASCII is folded";
-  EXPECT_NE(name_key("Котёл"), name_key("котёл"));
+  // Latin, Greek and Cyrillic letters are compared without case, as the dashboard compares them.
+  EXPECT_EQ("котёл утро", name_key("КОТЁЛ   Утро"));
+  EXPECT_EQ(name_key("Café"), name_key("CAFÉ"));
+  EXPECT_EQ(name_key("Οδός"), name_key("ΟΔΌΣ"));
+  EXPECT_NE(name_key("Котёл"), name_key("Котел")) << "Ё is a letter of its own";
+  EXPECT_NE(name_key("Ⴀ"), name_key("ⴀ")) << "any other script as it is";
 }
 
 TEST(Names, CutCharsNeverSplitsACharacter) {
