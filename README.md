@@ -39,7 +39,7 @@ yourself. For JetHome's proprietary firmware, with more features and support, se
   virtual inputs with on and off delays ([Entity settings](doc/ENTITY_SETTINGS.md))
 - **Dallas sensors**: found at boot, numbered once and kept across reboots, with an offset and a
   label per slot ([1-Wire sensors](doc/ONEWIRE_WORKFLOW.md))
-- **Modbus RTU server**: relays, inputs and temperatures for a PLC or SCADA ([map](#modbus-rtu-server))
+- **Modbus RTU server**: relays, inputs and temperatures for a PLC or SCADA ([Modbus](doc/MODBUS.md))
 - **Time**: the RTC set from Home Assistant, NTP or by hand ([Time](doc/TIME.md))
 - **Display**: status, clock and a settings menu on the LCD variant ([Display](doc/DISPLAY.md))
 - **Firmware updates**: the firmware checks fw.jethome.com for a newer build and installs it on
@@ -103,40 +103,6 @@ Home Assistant icons. LEFT shows the relays, inputs and temperatures, RIGHT the 
 the menu, and HOME comes back from anywhere. Every page, the menu and the buttons:
 [Display](doc/DISPLAY.md).
 
-## Status LED
-
-The LED on the CPU board is green while all is well. Otherwise it blinks red: a code is that many
-blinks and a 2-second pause. Several codes take turns, from the lowest, and after the last a
-4-second pause marks where they start again: no network and a due reboot show as 1, 4, 1, 4. The
-fast blink of a factory reset shows alone.
-
-| Blinks | Meaning | What to do |
-| ------ | ------- | ---------- |
-| Fast, nonstop | The FN button was held for 10 seconds: a factory reset in 5 seconds | Letting go of FN does not stop it; only cutting the power within those 5 seconds does |
-| 1 | No network for 30 seconds: no address over Ethernet or WiFi | Check the cable or the WiFi network; the code goes once the device has an address |
-| 2 | No network for 30 seconds, and the WiFi access point is up to set the device up from | As for 1; to set or change the WiFi network, join that access point ([WiFi Setup](doc/WIFI_SETUP.md)) |
-| 3 | A Dallas sensor or PCB Temp has given no readings for a minute, or a running thermostat has lost its sensor's readings | Check the Dallas sensor and its wiring; the code goes at its next reading. For a sensor taken away for good, forget its slot and reboot |
-| 4 | A saved change waits for a reboot, such as a temperature slot assigned or forgotten | Reboot the device: **Settings → Reboot device** on the display, or **Reboot now** on the dashboard |
-
-## Modbus RTU Server
-
-The device answers as a Modbus RTU slave on RS-485: address 1 at 9600 8N1 by default. Address, baud
-rate, parity and stop bits are set in **Settings → Modbus** on the display or the dashboard, or
-through the `Modbus …` entities in Home Assistant, and take effect at once. The dashboard's tab also
-shows the map.
-
-| Table | Addresses | Function codes | Content |
-| --- | --- | --- | --- |
-| Coils | `0x0000`–`0x0005` | `0x01`, `0x05`, `0x0F` | Relays 1–6, read/write |
-| Discrete inputs | `0x0010`–`0x0015` | `0x02` | Inputs 1–6 |
-| Holding registers | `0x0000`–`0x000F` | `0x03`, `0x04` | Temperatures 1–16, signed, 0.1 °C; `0x8000` = no reading |
-
-Any other register answers `0` instead of an exception. A write that would move a relay a running
-thermostat drives answers exception `0x04`; writing the state it already has is accepted, and FC
-`0x0F` writes the coils before a refused one.
-
-RS-485 connector JXM2: pins 1 and 3 are B, pins 2 and 4 are A.
-
 ## Documentation
 
 Using the device:
@@ -145,6 +111,7 @@ Using the device:
 - [Home Assistant](doc/HOME_ASSISTANT.md): adding the device, moving it, uploads from ESPHome
 - [Display](doc/DISPLAY.md): pages, menu and buttons
 - [Time](doc/TIME.md): timezone, NTP and setting the clock
+- [Modbus](doc/MODBUS.md): connecting a PLC or SCADA
 - [Entity Settings](doc/ENTITY_SETTINGS.md): what a relay and an input remember, and virtual inputs
 - [OneWire Temperature Sensors](doc/ONEWIRE_WORKFLOW.md): how DS18B20 sensors get their slots
 - [Runtime Automations](doc/AUTOMATIONS.md), [Thermostats](doc/CLIMATE.md), [Schedules](doc/SCHEDULES.md)

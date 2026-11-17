@@ -232,8 +232,7 @@ at `0x0010`. A coil's `write_lambda` returns `false`, which `modbus_server` answ
 `0x04`, when the write would move a relay a thermostat holds. The ranges' names live in
 `modbus_map:` next to the server in `features/modbus-server.yaml`, and the build checks them against
 it: a range left unnamed, or a name on an address the server does not serve, fails the build. The
-dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` and the README in step with the
-server.
+dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step with the server.
 
 ## Coupled to upstream internals
 

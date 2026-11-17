@@ -87,7 +87,7 @@ after a reboot.
 - **Network** — `Ethernet`, `WiFi` or `Auto` ([Network mode](WIFI_SETUP.md#network-mode))
 - **ESPHome OTA** — the **Allow uploads from ESPHome** switch
   ([Uploads from ESPHome](HOME_ASSISTANT.md#uploads-from-esphome))
-- **Modbus** — address, baud rate, parity and stop bits ([Modbus](../README.md#modbus-rtu-server))
+- **Modbus** — address, baud rate, parity and stop bits ([Modbus](MODBUS.md))
 - **Firmware** — the running and the offered version, the channel, a check, an install, and a
   rollback row that says whether there is a firmware to go back to; after a rollback the same row
   goes forward again ([updates](RELEASE.md#updates-on-the-device))
