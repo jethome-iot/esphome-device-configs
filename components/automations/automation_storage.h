@@ -9,6 +9,7 @@
 #include "esphome/components/loop_job/loop_job.h"
 #include "esphome/core/component.h"
 #include "esphome/core/optional.h"
+#include "esphome/core/preferences.h"
 #include "esphome/core/time.h"
 #include "runtime_automation.h"
 
@@ -86,6 +87,7 @@ class AutomationStorage : public Component {
   virtual bool run_on_loop(std::function<bool()> &&job);
 
   void set_time_source(time::RealTimeClock *rtc) { this->rtc_ = rtc; }
+  void set_preference_hash(uint32_t hash) { this->preference_hash_ = hash; }
   void set_folder_path(const std::string &path) { this->folder_path_ = path; }
   void set_storage(filesystem_storage_abstract::FilesystemStorageAbstract *storage) {
     this->storage_backend_ = storage;
@@ -135,6 +137,17 @@ class AutomationStorage : public Component {
   /// Builds or drops, to match, each rule `names` picks; `what` is what came back, for the log.
   void rebuild_rules_(std::function<bool(const AutomationConfig &)> names, std::string what);
   void check_time_();
+  void dispatch_time_(const ESPTime &time, CronTriggers which);
+  void cross_dst_(ESPTime last, int64_t last_local, const ESPTime &now, int64_t now_local);
+  // A DST hold as it outlives a restart: the local second it holds to, and the UTC moment the
+  // local clock passes it, after which the record means nothing.
+  struct StoredHold {
+    int64_t held_until;
+    int64_t expires;
+  };
+  void restore_hold_();
+  void store_hold_(const StoredHold &hold);
+  void drop_hold_();
   virtual ESPTime clock_now_();
 
   std::string name_key_(const std::string &name) const;
@@ -162,6 +175,15 @@ class AutomationStorage : public Component {
   uint32_t next_id_{1};
   time::RealTimeClock *rtc_{nullptr};
   optional<ESPTime> last_check_;
+  // Set when the clocks went back for DST: the local second up to which rules at given hours
+  // have already run, so the repeated hour does not run them again.
+  optional<int64_t> held_until_;
+  // Read at boot, for the first tick with a valid time to take up.
+  optional<StoredHold> stored_hold_;
+  ESPPreferenceObject hold_pref_;
+  // The record on flash still holds something.
+  bool hold_stored_{false};
+  uint32_t preference_hash_{0};
   loop_job::LoopDispatcher dispatcher_;
   // Above zero while a rule is being driven: an edit then would pull the rule from under it.
   uint8_t dispatching_{0};

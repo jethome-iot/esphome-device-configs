@@ -31,6 +31,9 @@ static const size_t MAX_FILENAME_BYTES = 48;
 static const size_t MAX_FILE_BYTES = 16384;
 // A cron tick further away than this from the previous one is a clock jump, not elapsed time.
 static const time_t MAX_TIMESTAMP_DRIFT = 900;
+// A local offset that moves by more than the drift and at most this, while time runs on, is a
+// DST switch; a larger move is a new zone and is taken as a jump.
+static const int64_t MAX_DST_SHIFT = 3600;
 
 // The code point at `i`, moving past it; false where the bytes are not UTF-8.
 static bool next_code_point(const std::string &text, size_t *i, uint32_t *out) {
@@ -173,6 +176,7 @@ void AutomationStorage::setup() {
 #endif
 
   if (this->rtc_ != nullptr) {
+    this->restore_hold_();
     this->set_interval(1000, [this]() { this->check_time_(); });
   } else {
     ESP_LOGW(TAG, "No time source: cron triggers are disabled");
@@ -289,34 +293,145 @@ void AutomationStorage::dispatch_sensor_(sensor::Sensor *entity, float value) {
                 [=](RuntimeAutomation &rule) { rule.on_sensor(entity, value); });
 }
 
-// Same catch-up and clock-jump handling as the core cron trigger, for all rules at once.
+// The local clock in seconds, read from the fields: a DST switch moves it, not the timestamp.
+static int64_t local_seconds(const ESPTime &time) {
+  ESPTime copy = time;
+  copy.recalc_timestamp_utc(false);
+  return copy.timestamp;
+}
+
+void AutomationStorage::dispatch_time_(const ESPTime &time, CronTriggers which) {
+  for_each_rule(this->dispatching_, this->automations_,
+                [&time, which](RuntimeAutomation &rule) { rule.on_time(time, which); });
+}
+
+// Same catch-up and clock-jump handling as the core cron trigger, for all rules at once, except
+// across a DST switch, which the core trigger takes for an ordinary second.
 void AutomationStorage::check_time_() {
   ESPTime now = this->clock_now_();
   if (!now.is_valid())
     return;
-  auto fire = [this](const ESPTime &time) {
-    for_each_rule(this->dispatching_, this->automations_, [&time](RuntimeAutomation &rule) { rule.on_time(time); });
+  const int64_t now_local = local_seconds(now);
+  if (!this->last_check_.has_value() && this->stored_hold_.has_value()) {
+    // held_until is a reading in the offset the record was written in; another zone's clock
+    // never read it.
+    const StoredHold &hold = *this->stored_hold_;
+    if (now.timestamp < hold.expires && now_local - now.timestamp == hold.held_until + 1 - hold.expires)
+      this->held_until_ = hold.held_until;
+    this->stored_hold_.reset();
+  }
+  auto fire = [this](const ESPTime &time, int64_t local) {
+    if (this->held_until_.has_value() && local <= *this->held_until_) {
+      this->dispatch_time_(time, CronTriggers::EVERY_HOUR);
+      return;
+    }
+    this->held_until_.reset();
+    this->dispatch_time_(time, CronTriggers::ALL);
   };
   if (this->last_check_.has_value()) {
     ESPTime &last = *this->last_check_;
+    int64_t local = local_seconds(last);
+    const int64_t elapsed = now.timestamp - last.timestamp;
+    const int64_t shift = now_local - local - elapsed;
+    const int64_t moved = shift < 0 ? -shift : shift;
+    if (elapsed > 0 && elapsed <= MAX_TIMESTAMP_DRIFT && moved > MAX_TIMESTAMP_DRIFT && moved <= MAX_DST_SHIFT) {
+      this->cross_dst_(last, local, now, now_local);
+      this->last_check_ = now;
+      return;
+    }
+    if (shift != 0)
+      this->drop_hold_();
     if (last > now && last.timestamp - now.timestamp > MAX_TIMESTAMP_DRIFT) {
       ESP_LOGW(TAG, "Time has jumped back");
+      this->drop_hold_();
     } else if (last >= now) {
       return;
-    } else if (now.timestamp - last.timestamp > MAX_TIMESTAMP_DRIFT) {
+    } else if (elapsed > MAX_TIMESTAMP_DRIFT) {
       ESP_LOGW(TAG, "Time has jumped ahead");
       this->last_check_ = now;
       return;
     }
     while (true) {
       last.increment_second();
+      local++;
       if (last >= now)
         break;
-      fire(last);
+      fire(last, local);
     }
   }
   this->last_check_ = now;
-  fire(now);
+  fire(now, now_local);
+}
+
+static bool runs_at_hours(const RuntimeAutomation &rule) {
+  for (const auto &trigger : rule.get_triggers()) {
+    if (trigger.source == SourceTrigger::CRON && !trigger.every_hour())
+      return true;
+  }
+  return false;
+}
+
+// A rule that runs every hour keeps to the seconds that passed. One at given hours follows the
+// local clock: forward, it runs once for the times skipped; back, not again for the repeated ones.
+void AutomationStorage::cross_dst_(ESPTime last, int64_t last_local, const ESPTime &now, int64_t now_local) {
+  const bool forward = now_local > last_local;
+  ESP_LOGI(TAG, "Clocks went %s for DST", forward ? "forward" : "back");
+  if (forward) {
+    // Seconds a hold still covers ran before the clocks went back.
+    const int64_t ran = std::max(last_local, this->held_until_.value_or(last_local));
+    std::vector<bool> done(this->automations_.size());
+    for (size_t i = 0; i < this->automations_.size(); i++)
+      done[i] = this->automations_[i] == nullptr || !runs_at_hours(*this->automations_[i]);
+    ESPTime wall = last;
+    this->dispatching_++;
+    for (int64_t s = last_local + 1; s < now_local; s++) {
+      wall.increment_second();
+      if (s <= ran)
+        continue;
+      for (size_t i = 0; i < this->automations_.size(); i++) {
+        if (!done[i])
+          done[i] = this->automations_[i]->on_time(wall, CronTriggers::AT_HOURS);
+      }
+    }
+    this->dispatching_--;
+    if (now_local > ran)
+      this->held_until_.reset();
+  } else {
+    const int64_t held = std::max(this->held_until_.value_or(last_local), last_local);
+    this->held_until_ = held;
+    this->store_hold_({held, now.timestamp + held - now_local + 1});
+  }
+  while (true) {
+    last.increment_second();
+    if (last >= now)
+      break;
+    this->dispatch_time_(last, CronTriggers::EVERY_HOUR);
+  }
+  this->dispatch_time_(now, this->held_until_.has_value() ? CronTriggers::EVERY_HOUR : CronTriggers::ALL);
+}
+
+void AutomationStorage::restore_hold_() {
+  this->hold_pref_ = global_preferences->make_preference<StoredHold>(this->preference_hash_, true);
+  StoredHold hold{};
+  this->hold_stored_ = this->hold_pref_.load(&hold) && hold.expires != 0;
+  if (this->hold_stored_)
+    this->stored_hold_ = hold;
+}
+
+// save() only queues the record on ESP32: sync() is what reaches NVS, and a restart soon after
+// the switch is what the record is for.
+void AutomationStorage::store_hold_(const StoredHold &hold) {
+  this->hold_stored_ = hold.expires != 0;
+  if (!this->hold_pref_.save(&hold) || !global_preferences->sync())
+    ESP_LOGW(TAG, "Cannot store the DST hold: a restart in the repeated hour runs its rules again");
+}
+
+// A jump or a new zone ends the hold: its record, even one whose hold already ran out, must
+// not bring it back after a restart.
+void AutomationStorage::drop_hold_() {
+  this->held_until_.reset();
+  if (this->hold_stored_)
+    this->store_hold_({0, 0});
 }
 
 // --- Mutators: any task in, loop task does the work ---

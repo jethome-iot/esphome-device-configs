@@ -13,6 +13,9 @@ On the dashboard, **Settings → Date & Time** switches the device from Home Ass
 picked there, and back; the choice is kept across reboots. The display shows the zone in effect
 under **Info → Timezone**. How that zone is chosen: [timezone_settings](../components/timezone_settings/README.md).
 
+Rules and schedules run by the local time. How they take a DST switch: [rules](AUTOMATIONS.md),
+[schedules](SCHEDULES.md).
+
 ## Setting the clock by hand
 
 A device with neither internet nor Home Assistant has nothing to set its clock from but the RTC.
