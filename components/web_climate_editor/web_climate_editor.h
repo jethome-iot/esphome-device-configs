@@ -39,6 +39,10 @@ struct Route {
   bool mutating;
 };
 
+/// The version in a Home Assistant API client's hello ("Home Assistant 2026.7.3" gives
+/// "2026.7.3"); "" for any other client.
+std::string home_assistant_version(const char *client_info);
+
 // JSON API for the climate_hub thermostats at <url_prefix>/api/*. The dashboard's editor is
 // its client; the TS contract lives in client/.
 class WebClimateEditor : public AsyncWebHandler, public Component {

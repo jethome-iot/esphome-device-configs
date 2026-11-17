@@ -998,9 +998,11 @@ export interface ClimateMockStoreOptions {
   now?: () => number
   /**
    * Names of the device's own climates, from its YAML. A thermostat may not take
-   * one, by name or by the entity id both would get: 409, as on the device.
+   * one's name: 409, as on the device.
    */
   otherClimates?: string[]
+  /** The versions of the Home Assistant instances connected, as /list reports them. Default none. */
+  homeAssistant?: string[]
 }
 
 // GET routes read, POST routes change something.
@@ -1123,6 +1125,7 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
   const now = options.now ?? (() => Date.now())
   // Under ids no slug can be, so no thermostat is ever taken for one of them.
   const yamlClimates = (options.otherClimates ?? []).map((name, n) => ({ id: `yaml/${n}`, name }))
+  const homeAssistant = [...(options.homeAssistant ?? [])]
   const docs: ControllerDocument[] = structuredClone(options.seed ?? seedControllers).map(ownGains)
   docs.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const running = new Map<string, Runtime>()
@@ -2244,7 +2247,13 @@ export function createClimateMockStore(options: ClimateMockStoreOptions = {}): C
       case 'list':
         return {
           status: 200,
-          body: { success: true, count: docs.length, max_controllers: maxControllers, controllers: docs.map(summaryOf) }
+          body: {
+            success: true,
+            count: docs.length,
+            max_controllers: maxControllers,
+            controllers: docs.map(summaryOf),
+            home_assistant: [...homeAssistant]
+          }
         }
 
       case 'get': {

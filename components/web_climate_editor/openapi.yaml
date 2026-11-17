@@ -2073,7 +2073,7 @@ components:
 
     ControllersResponse:
       type: object
-      required: [success, count, max_controllers, controllers]
+      required: [success, count, max_controllers, controllers, home_assistant]
       properties:
         success:
           type: boolean
@@ -2087,6 +2087,16 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ControllerSummary"
+        home_assistant:
+          type: array
+          description: >-
+            The version of each Home Assistant connection open now, in no
+            order; empty when there is none. Home Assistant 2026.7 and older
+            shows two thermostats as one when their names come out alike with
+            every character but a Latin letter, a digit, `-` and `_` read as `_`.
+          items:
+            type: string
+            example: 2026.7.3
       example:
         success: true
         count: 1
@@ -2104,6 +2114,7 @@ components:
             waiting: ""
             active_preset: eco
             active_preset_name: Eco
+        home_assistant: ["2026.10.1"]
 
     Waiting:
       type: string

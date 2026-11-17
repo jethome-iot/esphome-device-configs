@@ -313,7 +313,9 @@ and the log says why.
   2026.8 and later shows `Кухня` and `Ванна`, or `Room 1` and `Room_1`, as two entities. Older
   versions keep only a name's Latin letters, digits, `-` and `_`, every other character one `_`,
   a space and punctuation too, and show one entity for such a pair; a digit or a Latin letter
-  that differs tells them apart there (`Кухня 1`, `Ванна 2`).
+  that differs tells them apart there (`Кухня 1`, `Ванна 2`). While such a version is connected,
+  the dashboard says so when a name comes out alike with another, and the thermostat list names
+  each group of such names.
 - The room temperature is shown to a tenth of a degree; the target moves in the thermostat's
   own step.
 - A running thermostat shows as heating or cooling while that relay is closed, a PID also
