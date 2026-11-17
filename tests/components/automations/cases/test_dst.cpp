@@ -118,6 +118,13 @@ TEST_F(Dst, ADailyRuleAtTheNewTimeRunsOnce) {
   EXPECT_EQ(runs1, (Runs{"03:00:00 CEST"}));
 }
 
+// 02:00 is skipped, 03:00:00 is the clock's own reading: two runs, as 02:00 and 03:00 on any day.
+TEST_F(Dst, AnHourRangeRunsForTheSkippedHourAndForThree) {
+  add_toggle("relay_1", "0 0 1-6 * * *");
+  tick_across(engine, SPRING, SPRING.at - 600, SPRING.at + 600);
+  EXPECT_EQ(runs1, (Runs{"03:00:00 CEST", "03:00:00 CEST"}));
+}
+
 TEST_F(Dst, ARuleTheMissingHourMatchesOftenRunsOnce) {
   add_toggle("relay_1", "0 */10 2 * * *");
   add_toggle("relay_2", "0 15 2 * * *", "0 45 2 * * *");
@@ -337,6 +344,21 @@ TEST_F(Dst, AHalfHourSwitchBackHoldsTheRepeatedTime) {
   add_toggle("relay_1", "0 45 1 * * *");
   tick_across(engine, LORD_HOWE_BACK, LORD_HOWE_BACK.at - 1800, LORD_HOWE_BACK.at + 3600);
   EXPECT_EQ(e.relay1.writes, 1);
+}
+
+// A zone an hour west picked at 14:20 CET and taken back two minutes later: 13:30 ran already
+// and does not run again, while 14:21, which neither zone's clock read, runs at the undo.
+TEST_F(Dst, AZoneTakenBackRunsNothingTwice) {
+  add_toggle("relay_1", "0 30 13 * * *");
+  add_toggle("relay_2", "0 21 14 * * *");
+  const time_t away = MOVE + 12 * 3600 + 20 * 60;
+  for (time_t t = away - 3600; t <= away + 600; t++) {
+    engine.now = t;
+    engine.offset = t >= away && t < away + 120 ? 0 : CET;
+    engine.tick();
+  }
+  EXPECT_EQ(runs1, (Runs{"13:30:00 CET"}));
+  EXPECT_EQ(runs2, (Runs{"14:22:00 CET"}));
 }
 
 // Two hours is a new zone, not a DST switch: the times in between are lost, as in a jump ahead.

@@ -83,8 +83,8 @@ passes again fire a second time.
 
 A DST switch, the local offset moving by more than 15 minutes and at most an hour while the
 time runs on, is not a jump. A `cron` trigger whose hours field is `*` keeps to the time that
-passes; one at given hours fires once, at the switch, for the times the clocks skip forward,
-and not again for the times they repeat going back.
+passes. A rule's triggers at given hours run it once, at the switch, for the times the clocks
+skip forward, and not again for the times they repeat going back.
 
 ## Thermostat actions
 

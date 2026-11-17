@@ -353,22 +353,39 @@ void AutomationStorage::check_time_() {
   fire(now, now_local);
 }
 
+static bool runs_at_hours(const RuntimeAutomation &rule) {
+  for (const auto &trigger : rule.get_triggers()) {
+    if (trigger.source == SourceTrigger::CRON && !trigger.every_hour())
+      return true;
+  }
+  return false;
+}
+
 // A rule that runs every hour keeps to the seconds that passed. One at given hours follows the
 // local clock: forward, it runs once for the times skipped; back, not again for the repeated ones.
 void AutomationStorage::cross_dst_(ESPTime last, int64_t last_local, const ESPTime &now, int64_t now_local) {
-  ESP_LOGI(TAG, "Clocks went %s for DST", now_local > last_local ? "forward" : "back");
-  if (now_local > last_local) {
+  const bool forward = now_local > last_local;
+  ESP_LOGI(TAG, "Clocks went %s for DST", forward ? "forward" : "back");
+  if (forward) {
+    // Seconds a hold still covers ran before the clocks went back.
+    const int64_t ran = std::max(last_local, this->held_until_.value_or(last_local));
     std::vector<bool> done(this->automations_.size());
+    for (size_t i = 0; i < this->automations_.size(); i++)
+      done[i] = this->automations_[i] == nullptr || !runs_at_hours(*this->automations_[i]);
     ESPTime wall = last;
     this->dispatching_++;
-    for (int64_t s = last_local; s < now_local; s++) {
+    for (int64_t s = last_local + 1; s < now_local; s++) {
       wall.increment_second();
+      if (s <= ran)
+        continue;
       for (size_t i = 0; i < this->automations_.size(); i++) {
-        if (this->automations_[i] != nullptr && !done[i])
+        if (!done[i])
           done[i] = this->automations_[i]->on_time(wall, CronTriggers::AT_HOURS);
       }
     }
     this->dispatching_--;
+    if (now_local > ran)
+      this->held_until_.reset();
   } else {
     this->held_until_ = std::max(this->held_until_.value_or(last_local), last_local);
   }
@@ -378,7 +395,7 @@ void AutomationStorage::cross_dst_(ESPTime last, int64_t last_local, const ESPTi
       break;
     this->dispatch_time_(last, CronTriggers::EVERY_HOUR);
   }
-  this->dispatch_time_(now, CronTriggers::EVERY_HOUR);
+  this->dispatch_time_(now, this->held_until_.has_value() ? CronTriggers::EVERY_HOUR : CronTriggers::ALL);
 }
 
 // --- Mutators: any task in, loop task does the work ---

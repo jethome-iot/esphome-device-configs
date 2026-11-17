@@ -44,8 +44,8 @@ one fires nothing until the clock is back where it was.
 A DST switch is not a jump. A cron time whose hour field is `*` (every hour, every few minutes)
 keeps to the time that passes. One at given hours (daily, weekly, monthly) runs once for the
 hour the clocks skip, right after they go forward, and does not run again in the hour they
-repeat when they go back. A new time zone up to an hour away counts as a DST switch, one further
-away as a jump.
+repeat when they go back. A new time zone more than 15 minutes and up to an hour away counts as
+a DST switch, one further away as a jump.
 
 A timetable, what relays and thermostats do by the time of day and the day of the week, is a
 [schedule](SCHEDULES.md) rather than a rule.
