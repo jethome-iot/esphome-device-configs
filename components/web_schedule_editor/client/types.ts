@@ -98,7 +98,7 @@ export type ActionType = ModeAction['type']
 export interface Mode {
   /** [a-z0-9-], 1 to 24, unique in the schedule; points name the mode by it, so a rename keeps it. */
   id: string
-  /** 1 to 24 characters, unique in the schedule ignoring ASCII case and runs of spaces. */
+  /** 1 to 24 characters, unique in the schedule ignoring runs of spaces and Latin, Greek and Cyrillic case. */
   name: string
   /** Absent: the editor shows a palette colour no other mode has, far in hue from theirs (modeColors()). */
   color?: ColorKey
@@ -143,7 +143,7 @@ export interface ScheduleDocument {
   revision: number
   /** Immutable slug and the document's file name; a rename never changes it. */
   id: string
-  /** 1 to 48 characters, unique among the schedules ignoring ASCII case and runs of spaces. */
+  /** 1 to 48 characters, unique among the schedules ignoring runs of spaces and Latin, Greek and Cyrillic case. */
   name: string
   enabled: boolean
   /** 1 to 8. */

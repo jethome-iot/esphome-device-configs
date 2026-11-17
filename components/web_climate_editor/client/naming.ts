@@ -2,6 +2,7 @@
 // from one. climate_hub follows these rules byte for byte — the device is the
 // authority, this is what lets a client say so before the round trip.
 
+import { foldCase } from '../../case_fold/client/caseFold'
 import type { StandardPresetName } from './types'
 import { NAME_MAX_BYTES, NAME_MAX_LENGTH, STANDARD_PRESETS } from './types'
 
@@ -19,50 +20,11 @@ export function trimName(name: string): string {
   return name.replace(EDGES, '')
 }
 
-/// The name as a person reads it: trimmed, inner whitespace collapsed, ASCII
-/// lowercased. Non-ASCII is left alone, exactly as the firmware leaves it.
+/// The name as a person reads it: trimmed, inner whitespace collapsed, case folded
+/// as the firmware folds it (caseFold.ts).
 export function nameKey(name: string): string {
-  return trimName(name.replace(ASCII_SPACE, ' ')).replace(/[A-Z]/g, (c) => c.toLowerCase())
+  return foldCase(trimName(name.replace(ASCII_SPACE, ' ')))
 }
-
-// One ASCII character of an object id: a space becomes '_', A-Z is lowercased, and
-// anything outside [a-z0-9_-] is '_'.
-function idChar(c: string): string {
-  const lower = c === ' ' ? '_' : c.replace(/[A-Z]/, (u) => u.toLowerCase())
-  return /^[a-z0-9_-]$/.test(lower) ? lower : '_'
-}
-
-/// The object id ESPHome derives from an entity name, and so the id the API's key
-/// and the device's own lookups know the entity by: one character per UTF-8 byte.
-export function objectIdOf(name: string): string {
-  let out = ''
-  // The device writes it into a 128-byte buffer.
-  for (const byte of new TextEncoder().encode(name).subarray(0, 127)) out += idChar(String.fromCharCode(byte))
-  return out
-}
-
-/// The object id Home Assistant rebuilds from the name, which its entity's unique
-/// id comes from: one character per code point, so a non-ASCII letter is one '_'.
-export function haObjectIdOf(name: string): string {
-  let out = ''
-  for (const c of name) out += idChar(c)
-  return out
-}
-
-/// Whether `a` and `b`, whose object ids clash, would not had their non-ASCII
-/// characters been kept as they are rather than turned into '_'.
-export function nonAsciiClash(a: string, b: string): boolean {
-  const readable = (name: string) => [...name].map((c) => (c.codePointAt(0)! < 0x80 ? idChar(c) : c)).join('')
-  return readable(a) !== readable(b)
-}
-
-/// What the device adds to a clash that only non-ASCII letters make: in Home
-/// Assistant's object id, and in ESPHome's, which the API's key is a hash of.
-export const HA_ID_CLASH =
-  ", which reads every character but a Latin letter, a digit, '-' or '_' as '_'; " +
-  'a digit or a Latin letter makes them distinct'
-export const API_ID_CLASH =
-  ", which reads every byte of a non-ASCII letter as '_'; a digit or a Latin letter makes them distinct"
 
 /// The id the device derives from a name at creation: lowercased ASCII
 /// alphanumerics, every other run folded to a single dash, at most 48 characters,
@@ -111,35 +73,11 @@ function firstFree(base: string, free: (candidate: string) => boolean): string {
 
 type Named = { id: string; name: string }
 
-// The other thermostat (or YAML climate) this name collides with, and how: by
-// name, else by Home Assistant's object id, else by ESPHome's, the id shared.
-function clashOf(
-  name: string,
-  id: string,
-  existing: ReadonlyArray<Named>
-): { by: 'name' } | { by: 'ha_id' | 'api_id'; other: Named; objectId: string } | null {
-  const key = nameKey(name)
-  for (const other of existing) {
-    if (other.id === id) continue
-    if (nameKey(other.name) === key) return { by: 'name' }
-  }
-  const trimmed = trimName(name)
-  const haId = haObjectIdOf(trimmed)
-  const objectId = objectIdOf(trimmed)
-  for (const other of existing) {
-    if (other.id === id) continue
-    const otherName = trimName(other.name)
-    if (haObjectIdOf(otherName) === haId) return { by: 'ha_id', other, objectId: haId }
-    if (objectIdOf(otherName) === objectId) return { by: 'api_id', other, objectId }
-  }
-  return null
-}
-
-/// Whether another controller already answers to `name`, by its name or by an
-/// object id both would get, ESPHome's or Home Assistant's. `id` is the controller
-/// being saved ('' for a new one), which never blocks itself.
+/// Whether another controller already answers to `name`, as a person reads it. `id`
+/// is the controller being saved ('' for a new one), which never blocks itself.
 export function isNameTaken(name: string, id: string, existing: ReadonlyArray<Named>): boolean {
-  return clashOf(name, id, existing) !== null
+  const key = nameKey(name)
+  return existing.some((other) => other.id !== id && nameKey(other.name) === key)
 }
 
 /// Why the device would refuse `name`, in its own words, or '' when it would take
@@ -150,16 +88,62 @@ export function nameError(name: string, id: string, existing: ReadonlyArray<Name
   const trimmed = trimName(name)
   const broken = nameRuleError(trimmed)
   if (broken) return broken
-  const clash = clashOf(trimmed, id, existing)
-  if (clash?.by === 'name') return `"${trimmed}" is already used by another thermostat`
-  if (clash) {
-    const other = trimName(clash.other.name)
-    const byHa = clash.by === 'ha_id'
-    const hint = nonAsciiClash(trimmed, other) ? (byHa ? HA_ID_CLASH : API_ID_CLASH) : ''
-    const to = byHa ? 'Home Assistant' : "the device's API"
-    return `"${trimmed}" is too close to "${other}": both are ${clash.objectId} to ${to}${hint}`
+  if (isNameTaken(trimmed, id, existing)) return `"${trimmed}" is already used by another thermostat`
+  return ''
+}
+
+// One character of the object id Home Assistant 2026.7 and older rebuilds from a name
+// (aioesphomeapi's compute_object_id): a space is '_', A-Z is lowercased, and anything else
+// outside [a-z0-9_-] is '_'.
+function legacyIdChar(c: string): string {
+  const lower = c === ' ' ? '_' : c.replace(/[A-Z]/, (u) => u.toLowerCase())
+  return /^[a-z0-9_-]$/.test(lower) ? lower : '_'
+}
+
+/// The object id Home Assistant 2026.7 and older gives a thermostat, and its entity's unique id
+/// with it: one character per code point, so "Кухня" and "Ванна" are both "_____".
+export function legacyObjectIdOf(name: string): string {
+  let out = ''
+  for (const c of name) out += legacyIdChar(c)
+  return out
+}
+
+/// The first of `versions` older than Home Assistant 2026.8, which is the first to tell
+/// thermostats apart by the whole name, or '' when none is.
+export function legacyHomeAssistant(versions: ReadonlyArray<string> | undefined): string {
+  for (const version of versions ?? []) {
+    const parts = /^(\d+)\.(\d+)/.exec(version)
+    if (!parts) continue
+    const year = Number(parts[1])
+    if (year < 2026 || (year === 2026 && Number(parts[2]) < 8)) return version
   }
   return ''
+}
+
+/// The name of the first thermostat in `existing` (not `id` itself) that Home Assistant 2026.7
+/// and older would show as one with `name`, or '' when there is none. A name the device takes
+/// for the same one is nameError's, not this.
+export function legacyLookalike(name: string, id: string, existing: ReadonlyArray<Named>): string {
+  const trimmed = trimName(name)
+  const key = nameKey(trimmed)
+  const objectId = legacyObjectIdOf(trimmed)
+  const other = existing.find(
+    (o) => o.id !== id && nameKey(o.name) !== key && legacyObjectIdOf(trimName(o.name)) === objectId
+  )
+  return other ? trimName(other.name) : ''
+}
+
+/// The names in `existing` that Home Assistant 2026.7 and older shows as one thermostat, in
+/// groups of two or more, each group and its names in `existing`'s order.
+export function legacyLookalikeGroups(existing: ReadonlyArray<Named>): string[][] {
+  const groups = new Map<string, string[]>()
+  for (const other of existing) {
+    const name = trimName(other.name)
+    const group = groups.get(legacyObjectIdOf(name))
+    if (group) group.push(name)
+    else groups.set(legacyObjectIdOf(name), [name])
+  }
+  return [...groups.values()].filter((group) => group.length > 1)
 }
 
 // A string holds no bytes that are not UTF-8; a lone surrogate, which JSON would carry

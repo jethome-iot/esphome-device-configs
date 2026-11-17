@@ -189,7 +189,7 @@ std::string trim_name(std::string_view name);
 /// The name rules on a trimmed name: 1..NAME_MAX_LENGTH characters of valid UTF-8, no control
 /// characters, neither '/' nor '\'.
 bool validate_name(std::string_view name, std::string *error);
-/// The name as a person reads it: inner whitespace collapsed, ASCII lowercased.
+/// The name as a person reads it: inner whitespace collapsed, case folded (case_fold).
 std::string name_key(std::string_view name);
 /// At most `chars` characters of valid UTF-8 `text`, never half of one.
 std::string cut_chars(std::string_view text, size_t chars);

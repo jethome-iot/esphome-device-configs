@@ -36,7 +36,9 @@ class Defaults(unittest.TestCase):
 
     def test_climate_hub_is_not_pulled_in(self):
         # Without it an action on a thermostat is skipped, which the engine reports.
-        self.assertEqual(schedules.AUTO_LOAD, ["json", "loop_job", "switch_hold"])
+        self.assertEqual(
+            schedules.AUTO_LOAD, ["case_fold", "json", "loop_job", "switch_hold"]
+        )
         self.assertEqual(
             schedules.DEPENDENCIES, ["filesystem_storage_abstract", "time"]
         )

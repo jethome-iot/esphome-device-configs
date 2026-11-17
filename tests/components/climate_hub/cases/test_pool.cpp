@@ -66,14 +66,12 @@ void expect_names_unique(const char *step) {
   }
 }
 
-// What the listing sends: never the placeholder, and no name, key or Home Assistant id twice.
+// What the listing sends: never the placeholder, and no name or key twice.
 void expect_listing_sound(const ApiListing &listing, const std::string &step) {
   std::set<std::string> names;
-  std::set<std::string> ha_ids;
   for (const std::string &name : listing.encode()) {
     EXPECT_NE(FREE_SLOT_NAME, name) << step;
     EXPECT_TRUE(names.insert(name).second) << step << ": \"" << name << "\" twice";
-    EXPECT_TRUE(ha_ids.insert(ha_object_id_of_name(name)).second) << step << ": \"" << name << "\"'s id twice";
   }
   std::set<uint32_t> keys;
   for (uint32_t key : listing.keys())
@@ -149,8 +147,7 @@ TEST_F(HubTest, ThePlaceholderSitsInABufferAsLongAsAName) {
   }
 }
 
-// Hash 0 at registration: the object id hash comes from the name, as codegen's does, so a record
-// keyed by fnv1_hash(object id) finds the thermostat.
+// The key comes from the name, as codegen's does, while no other climate has it.
 TEST_F(HubTest, AStartedSlotIsVisibleWithTheNameDerivedHash) {
   this->create(draft("Living Room"));
   HubClimate *entity = hub().entity_of("living-room");
@@ -272,11 +269,12 @@ TEST_F(HubTest, TheSameNameComesBackOnTheSameSlot) {
   ASSERT_TRUE(hub().set_enabled("boiler", true).ok);
   EXPECT_EQ(boiler, hub().entity_of("boiler"));
 
-  // The same object id is the same entity to Home Assistant, whatever the spelling.
+  // Another spelling is another name: another slot, and a key of its own.
   ASSERT_TRUE(hub().remove("boiler").ok);
   this->create(draft("BOILER", "relay_1"));
-  EXPECT_EQ(boiler, hub().entity_of("boiler"));
-  EXPECT_STREQ("BOILER", boiler->get_name().c_str());
+  EXPECT_NE(boiler, hub().entity_of("boiler"));
+  EXPECT_STREQ("Boiler", boiler->get_name().c_str());
+  EXPECT_EQ(fnv1_hash("climate_hub/boiler"), hub().entity_of("boiler")->get_object_id_hash());
 }
 
 // #89: Home Assistant lists the entities while a thermostat runs, the thermostat is removed, and
@@ -309,9 +307,9 @@ TEST_F(HubTest, ARenameOntoAHiddenSlotsNameSwapsTheNames) {
   EXPECT_EQ(kettle, web_server_match("Kettle"));
 }
 
-// A name that only spells the hidden one's entity id another way is its key all the same: the
-// hidden slot takes the name the rename leaves too, or a listing would send room_1 twice.
-TEST_F(HubTest, ARenameOntoAHiddenSlotsEntityIdSwapsTheNames) {
+// A name that only spells the hidden one's object id another way is another name: the hidden slot
+// keeps its own, and its key with it, so the rename takes one from the id.
+TEST_F(HubTest, ARenameOntoAHiddenSlotsObjectIdLeavesThatSlotItsName) {
   this->create(draft("Room 1", "relay_1"));
   this->create(draft("Kettle", "relay_2"));
   HubClimate *hidden = hub().entity_of("room-1");
@@ -321,26 +319,106 @@ TEST_F(HubTest, ARenameOntoAHiddenSlotsEntityIdSwapsTheNames) {
   ASSERT_TRUE(hub().remove("room-1").ok);
   ASSERT_TRUE(hub().update("kettle", draft("Room_1", "relay_2")).ok);
   expect_listing_sound(listing, "rename");
-  EXPECT_STREQ("Kettle", hidden->get_name().c_str());
-  EXPECT_EQ(fnv1_hash("kettle"), hidden->get_object_id_hash());
-  EXPECT_TRUE(hidden->is_internal());
-  EXPECT_TRUE(hidden->is_free());
+  EXPECT_STREQ("Room 1", hidden->get_name().c_str());
+  EXPECT_EQ(fnv1_hash("room_1"), hidden->get_object_id_hash());
+  EXPECT_EQ(fnv1_hash("climate_hub/kettle"), kettle->get_object_id_hash());
   EXPECT_EQ(kettle, web_server_match("Room_1"));
-  EXPECT_EQ(hidden, web_server_match("Kettle"));
-  EXPECT_EQ(nullptr, web_server_match("Room 1"));
-  EXPECT_EQ(kettle, App.get_climate_by_key(fnv1_hash("room_1"), true)) << "no hidden slot ahead of it under room_1";
+  EXPECT_EQ(hidden, web_server_match("Room 1"));
 
-  // Stopped and started again, it comes back on its own slot.
+  // Stopped and started again, it comes back on its own slot, under its key.
   ASSERT_TRUE(hub().set_enabled("kettle", false).ok);
   ASSERT_TRUE(hub().set_enabled("kettle", true).ok);
   EXPECT_EQ(kettle, hub().entity_of("kettle"));
-  EXPECT_STREQ("Kettle", hidden->get_name().c_str());
+  EXPECT_EQ(fnv1_hash("climate_hub/kettle"), kettle->get_object_id_hash());
   expect_names_unique("restart");
 }
 
-// Home Assistant's id, per character, can be the hidden one's while ESPHome's, per byte, is not:
-// the hidden slot takes the name the rename leaves all the same.
-TEST_F(HubTest, ARenameOntoAHiddenSlotsHomeAssistantIdSwapsTheNames) {
+// Home Assistant 2026.9 takes a key it knew under a new name for a rename: a key never goes to
+// another name in a boot, not even once the thermostat that had it is gone.
+TEST_F(HubTest, AKeyNeverGoesToAnotherName) {
+  this->create(draft("Зима", "relay_1"));
+  HubClimate *winter = hub().entity_of("climate");
+  const uint32_t key = winter->get_object_id_hash();
+  ASSERT_EQ(fnv1_hash("________"), key) << "no lookalike yet";
+  ClimateConfig summer = draft("Лето", "relay_1");
+  summer.enabled = false;
+  this->create(summer);
+
+  // A take-over and back: with a lookalike stored, each starts under a key from its id.
+  ASSERT_TRUE(hub().set_enabled("climate-2", true, true).ok);
+  EXPECT_EQ(fnv1_hash("climate_hub/climate-2"), hub().entity_of("climate-2")->get_object_id_hash());
+  ASSERT_TRUE(hub().set_enabled("climate", true, true).ok);
+  EXPECT_EQ(winter, hub().entity_of("climate"));
+  EXPECT_EQ(fnv1_hash("climate_hub/climate"), winter->get_object_id_hash());
+
+  // Removed, then its slot the first free one when the summer takes the relay over: no lookalike
+  // is stored and no climate has the name's key, but it went to the winter.
+  ASSERT_TRUE(hub().remove("climate").ok);
+  this->create(draft("Porch", "relay_2"));
+  this->create(draft("Hall 2", "relay_3"));
+  this->create(draft("Attic", "relay_1"));
+  ASSERT_TRUE(hub().set_enabled("climate-2", true, true).ok);
+  ASSERT_EQ(winter, hub().entity_of("climate-2"));
+  EXPECT_EQ(fnv1_hash("climate_hub/climate-2"), winter->get_object_id_hash());
+
+  this->reboot();
+  EXPECT_EQ(key, hub().entity_of("climate-2")->get_object_id_hash()) << "a boot starts afresh";
+}
+
+// Within one object id a rename keeps the key, whichever it is, so Home Assistant 2026.9 keeps the
+// entity; unless a hidden slot had the new name, and took the key with the name this one left.
+TEST_F(HubTest, ARenameWithinOneObjectIdKeepsTheKey) {
+  this->create(draft("Boiler", "relay_1"));
+  this->create(draft("Кухня", "relay_2"));
+  this->create(draft("Ванна", "relay_3"));
+  HubClimate *boiler = hub().entity_of("boiler");
+  HubClimate *bathroom = hub().entity_of("climate-2");
+  const uint32_t from_id = bathroom->get_object_id_hash();
+  ASSERT_EQ(fnv1_hash("climate_hub/climate-2"), from_id);
+
+  ASSERT_TRUE(hub().update("boiler", draft("BOILER", "relay_1")).ok);
+  EXPECT_EQ(fnv1_hash("boiler"), boiler->get_object_id_hash());
+  ASSERT_TRUE(hub().update("climate-2", draft("Сауна", "relay_3")).ok);
+  EXPECT_EQ(from_id, bathroom->get_object_id_hash());
+  ASSERT_TRUE(hub().set_enabled("climate-2", false).ok);
+  ASSERT_TRUE(hub().set_enabled("climate-2", true).ok);
+  EXPECT_EQ(from_id, bathroom->get_object_id_hash()) << "the key went to the new name with it";
+
+  ApiListing listing;
+  ASSERT_TRUE(hub().remove("climate").ok);
+  ASSERT_TRUE(hub().update("climate-2", draft("Кухня", "relay_3")).ok);
+  expect_listing_sound(listing, "rename onto a hidden name");
+  HubClimate *hidden = hub().slot_entity(1);
+  EXPECT_STREQ("Сауна", hidden->get_name().c_str());
+  EXPECT_EQ(from_id, hidden->get_object_id_hash());
+  EXPECT_EQ(fnv1_hash("__________"), bathroom->get_object_id_hash()) << "the key that went to that name";
+}
+
+// The slot that gives way takes the key the rename leaves, one from the id too: the name's own
+// key is the other running one's, and a listing queued before would send it twice.
+TEST_F(HubTest, ASlotThatGivesWayTakesTheKeyTheRenameLeaves) {
+  this->create(draft("Кухня", "relay_1"));
+  this->create(draft("Ванна", "relay_2"));
+  this->create(draft("Kettle", "relay_3"));
+  HubClimate *kitchen = hub().entity_of("climate");
+  HubClimate *bathroom = hub().entity_of("climate-2");
+  HubClimate *hidden = hub().entity_of("kettle");
+  const uint32_t left = bathroom->get_object_id_hash();
+  ASSERT_EQ(fnv1_hash("climate_hub/climate-2"), left);
+  ApiListing listing;
+
+  ASSERT_TRUE(hub().remove("kettle").ok);
+  ASSERT_TRUE(hub().update("climate-2", draft("Kettle", "relay_2")).ok);
+  expect_listing_sound(listing, "rename");
+  EXPECT_STREQ("Ванна", hidden->get_name().c_str());
+  EXPECT_EQ(left, hidden->get_object_id_hash());
+  EXPECT_EQ(fnv1_hash("kettle"), bathroom->get_object_id_hash());
+  EXPECT_EQ(fnv1_hash("__________"), kitchen->get_object_id_hash());
+}
+
+// A name with another key than the hidden one's leaves that slot its name, however alike the two
+// read (one '_' per letter, as Home Assistant 2026.7 and older count).
+TEST_F(HubTest, ARenameOntoAHiddenSlotsLookalikeLeavesThatSlotItsName) {
   this->create(draft("Café", "relay_1"));
   this->create(draft("Kettle", "relay_2"));
   HubClimate *hidden = hub().entity_of("caf");
@@ -351,10 +429,10 @@ TEST_F(HubTest, ARenameOntoAHiddenSlotsHomeAssistantIdSwapsTheNames) {
   ASSERT_TRUE(hub().remove("caf").ok);
   ASSERT_TRUE(hub().update("kettle", draft("Caf_", "relay_2")).ok);
   expect_listing_sound(listing, "rename");
-  EXPECT_STREQ("Kettle", hidden->get_name().c_str());
+  EXPECT_STREQ("Café", hidden->get_name().c_str());
   EXPECT_TRUE(hidden->is_free());
   EXPECT_EQ(kettle, web_server_match("Caf_"));
-  EXPECT_EQ(nullptr, web_server_match("Café"));
+  EXPECT_EQ(hidden, web_server_match("Café"));
 }
 
 // A start under a name that differs from the hidden one's only in case and spacing has another
@@ -378,7 +456,9 @@ TEST_F(HubTest, AStartUnderAHiddenSlotsNameInOtherSpacingLeavesThatSlotItsName) 
 // between a listing being queued and encoded: none ever encodes the placeholder or one key twice,
 // and the web server always reaches a running thermostat under its name.
 TEST_F(HubTest, NoListingSendsThePlaceholderWhateverTheThermostatsDo) {
-  const char *const names[] = {"Room 1", "Room_1", "room  1", "ROOM 1", "Kettle", "kettle", "Porch"};
+  const char *const names[] = {"Room 1", "Room_1", "room  1", "ROOM 1", "Kettle", "kettle",
+                               "Porch",  "Кухня",  "Ванна",   "КУХНЯ",  "Café",   "Caf__"};
+  const size_t name_count = sizeof(names) / sizeof(names[0]);
   const char *const relays[] = {"relay_1", "relay_2", "relay_3"};
   uint32_t seed = 89;
   auto next = [&seed](size_t bound) {
@@ -391,7 +471,7 @@ TEST_F(HubTest, NoListingSendsThePlaceholderWhateverTheThermostatsDo) {
       ids.push_back(config->id);
     const size_t op = ids.empty() ? 0 : next(4);
     if (op == 0) {
-      ClimateConfig config = draft(names[next(7)], relays[next(3)]);
+      ClimateConfig config = draft(names[next(name_count)], relays[next(3)]);
       config.enabled = next(4) != 0;
       hub().create(config);
       return;
@@ -401,7 +481,7 @@ TEST_F(HubTest, NoListingSendsThePlaceholderWhateverTheThermostatsDo) {
       hub().remove(id);
     } else if (op == 2) {
       ClimateConfig config = *hub().store().get(id);
-      config.name = names[next(7)];
+      config.name = names[next(name_count)];
       hub().update(id, config);
     } else {
       hub().set_enabled(id, next(2) != 0, next(2) != 0);
@@ -417,8 +497,17 @@ TEST_F(HubTest, NoListingSendsThePlaceholderWhateverTheThermostatsDo) {
     ASSERT_FALSE(HasFailure()) << at;
     for (const auto &config : hub().store().all()) {
       HubClimate *entity = hub().entity_of(config->id);
-      if (entity != nullptr)
-        ASSERT_EQ(entity, web_server_match(config->name)) << at << ", " << config->name;
+      if (entity == nullptr)
+        continue;
+      ASSERT_EQ(entity, web_server_match(config->name)) << at << ", " << config->name;
+      ASSERT_EQ(entity, App.get_climate_by_key(entity->get_object_id_hash())) << at << ", " << config->name;
+    }
+    expect_listing_sound(ApiListing(), at + ", listed afresh");
+    // Hidden ones too: a listing queued before one was hidden sends its key.
+    std::set<uint32_t> keys;
+    for (auto *climate : App.get_climates()) {
+      if (std::string(FREE_SLOT_NAME) != climate->get_name().c_str())
+        ASSERT_TRUE(keys.insert(climate->get_object_id_hash()).second) << at << ", " << climate->get_name().c_str();
     }
   }
 }
@@ -739,28 +828,45 @@ TEST_F(HubTest, ANameTakenTwiceAtBootCountsOn) {
   EXPECT_EQ("boiler 3", hub().store().get("c")->name);
 }
 
+// Two names alike but for case, which a firmware that compared only Latin letters so let be.
+TEST_F(HubTest, NamesAlikeButForCaseInAnyScriptAreRenamedAtBoot) {
+  write_file(this->file_of("a"), doc("a", "Свет", "relay_1", false));
+  write_file(this->file_of("b"), doc("b", "СВЕТ", "relay_2", false));
+  write_file(this->file_of("c"), doc("c", "ΟΔΌΣ", "relay_3", false));
+  write_file(this->file_of("d"), doc("d", "οδός", "relay_3", false));
+  this->reboot();
+  EXPECT_EQ("Свет", hub().store().get("a")->name);
+  EXPECT_EQ("СВЕТ 2", hub().store().get("b")->name);
+  EXPECT_NE(std::string::npos, read_file(this->file_of("b")).find("\"name\":\"СВЕТ 2\""));
+  EXPECT_EQ("ΟΔΌΣ", hub().store().get("c")->name);
+  EXPECT_EQ("οδός 2", hub().store().get("d")->name);
+}
+
 // The suffix fits the limits in characters and in bytes, and never splits a letter.
 TEST_F(HubTest, ANameInAnyScriptTakenAtBootIsRenamedWithinTheLimits) {
   const std::string longest = repeat("ж", NAME_MAX_LENGTH);
-  write_file(this->file_of("a"), doc("a", "Кухня", "relay_1", false));
-  write_file(this->file_of("b"), doc("b", "Ванна", "relay_1", false));
   write_file(this->file_of("c"), doc("c", longest.c_str(), "relay_1", false));
   write_file(this->file_of("d"), doc("d", longest.c_str(), "relay_1", false));
   this->reboot();
-  ASSERT_EQ(4u, hub().store().size());
-  EXPECT_EQ("Кухня", hub().store().get("a")->name);
-  EXPECT_EQ("Ванна 2", hub().store().get("b")->name) << "_____ to Home Assistant, like Кухня";
+  ASSERT_EQ(2u, hub().store().size());
   EXPECT_EQ(longest, hub().store().get("c")->name);
   EXPECT_EQ(repeat("ж", NAME_MAX_LENGTH - 2) + " 2", hub().store().get("d")->name);
   std::string error;
   EXPECT_TRUE(validate_name(hub().store().get("d")->name, &error)) << error;
 }
 
-TEST_F(HubTest, ANameThatIsTheSameEntityIdAtBootIsRenamedToo) {
-  write_file(this->file_of("a"), doc("a", "Room 1", "relay_1", false));
-  write_file(this->file_of("b"), doc("b", "Room_1", "relay_1", false));
+// Names one object id apart keep their names at boot, and each takes a key from its id, whichever
+// starts first.
+TEST_F(HubTest, NamesAlikeInTheirObjectIdKeepTheirNamesAtBoot) {
+  write_file(this->file_of("a"), doc("a", "Кухня", "relay_1"));
+  write_file(this->file_of("b"), doc("b", "Ванна", "relay_2"));
+  write_file(this->file_of("c"), doc("c", "Room 1", "relay_3", false));
+  write_file(this->file_of("d"), doc("d", "Room_1", "relay_3", false));
   this->reboot();
-  EXPECT_EQ("Room_1 2", hub().store().get("b")->name) << "room_1 to Home Assistant, like Room 1";
+  EXPECT_EQ("Ванна", hub().store().get("b")->name);
+  EXPECT_EQ("Room_1", hub().store().get("d")->name);
+  EXPECT_EQ(fnv1_hash("climate_hub/a"), hub().entity_of("a")->get_object_id_hash());
+  EXPECT_EQ(fnv1_hash("climate_hub/b"), hub().entity_of("b")->get_object_id_hash());
 }
 
 // The rename holds for this boot even when it cannot be written back; the log says so, and the

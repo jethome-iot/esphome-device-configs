@@ -531,6 +531,10 @@ TEST(PresetRules, TheNameRulesHoldForEveryPreset) {
                          &error, false));
   EXPECT_EQ("Preset 2: \"day time\" is already used by Preset 1", error);
 
+  EXPECT_FALSE(
+      from_json(doc_with(R"([{"name":"Ночь","setpoint":18},{"name":"НОЧЬ","setpoint":18}])"), &parsed, &error, false));
+  EXPECT_EQ("Preset 2: \"НОЧЬ\" is already used by Preset 1", error) << "in any script";
+
   ASSERT_TRUE(from_json(doc_with(R"([{"name":"  Night \t","setpoint":18}])"), &parsed, &error, false)) << error;
   EXPECT_EQ("Night", parsed.presets[0].name) << "trimmed, as a thermostat's name is";
 }
@@ -1147,49 +1151,6 @@ TEST(ClimateConfigJson, ANumberIsNoName) {
   EXPECT_EQ("", parsed.id);
 }
 
-// What Home Assistant and every object-id-keyed record know the entity by.
-TEST(NameRules, TheObjectIdIsWhatESPHomeDerives) {
-  EXPECT_EQ("living_room", object_id_of_name("Living Room"));
-  EXPECT_EQ("room_1", object_id_of_name("Room 1"));
-  EXPECT_EQ("room_1", object_id_of_name("Room_1"));
-  EXPECT_EQ("room_1", object_id_of_name("Room.1"));
-  EXPECT_EQ(fnv1_hash_object_id("Room 1", 6), fnv1_hash(object_id_of_name("Room 1")));
-  // One '_' per byte: a Cyrillic letter is two.
-  EXPECT_EQ("__________", object_id_of_name("Кухня"));
-  EXPECT_EQ(fnv1_hash_object_id("Кухня", 10), fnv1_hash(object_id_of_name("Кухня")));
-}
-
-// aioesphomeapi's compute_object_id(), which Home Assistant keys the entity on: one '_' per
-// code point. The expected ids are what it gives for these names.
-TEST(NameRules, HomeAssistantsObjectIdIsPerCharacter) {
-  const std::pair<const char *, const char *> cases[] = {
-      {"Living Room", "living_room"},
-      {"Room.1", "room_1"},
-      {"ROOM-1", "room-1"},
-      {"Кухня", "_____"},
-      {"Кухня 1", "______1"},
-      {"Café", "caf_"},
-      {"Café crème", "caf__cr_me"},
-      {"Ёлка \U0001F384", "______"},
-      {"€", "_"},
-  };
-  for (const auto &c : cases)
-    EXPECT_EQ(c.second, ha_object_id_of_name(c.first)) << c.first;
-  // Neither id implies the other.
-  EXPECT_EQ(ha_object_id_of_name("Café"), ha_object_id_of_name("Caf_"));
-  EXPECT_NE(object_id_of_name("Café"), object_id_of_name("Caf_"));
-  EXPECT_NE(ha_object_id_of_name("Café"), ha_object_id_of_name("Caf__"));
-  EXPECT_EQ(object_id_of_name("Café"), object_id_of_name("Caf__"));
-}
-
-// A clash the non-ASCII letters make, as against one an ASCII spelling makes.
-TEST(NameRules, AClashOfNonAsciiLettersIsToldApart) {
-  EXPECT_TRUE(non_ascii_clash("Кухня", "Ванна"));
-  EXPECT_TRUE(non_ascii_clash("Café", "Caf_"));
-  EXPECT_FALSE(non_ascii_clash("Room 1", "Room_1"));
-  EXPECT_FALSE(non_ascii_clash("Кухня 1", "Кухня_1")) << "the space makes this one, not the letters";
-}
-
 TEST(NameRules, AFittedNameNeverEndsInsideACharacter) {
   EXPECT_EQ("Boil", fit_name("Boiler", 4, 96));
   EXPECT_EQ("Кух", fit_name("Кухня", 3, 96));
@@ -1203,8 +1164,14 @@ TEST(NameRules, TheKeyIsTheNameAsAPersonReadsIt) {
   EXPECT_EQ("living room", name_key("  Living   Room "));
   EXPECT_EQ(name_key("LIVING ROOM"), name_key("living room"));
   EXPECT_NE(name_key("Room 1"), name_key("Room_1"));
-  // A YAML climate's name may be anything; its non-ASCII bytes are compared as they are.
-  EXPECT_EQ("\xd0\x9a\xd1\x83\xd1\x85\xd0\xbd\xd1\x8f 1", name_key("\xd0\x9a\xd1\x83\xd1\x85\xd0\xbd\xd1\x8f  1"));
+  // Latin, Greek and Cyrillic letters are compared without case, as the dashboard compares them.
+  EXPECT_EQ("кухня 1", name_key("КУХНЯ  1"));
+  EXPECT_EQ(name_key("Café crème"), name_key("CAFÉ CRÈME"));
+  EXPECT_EQ(name_key("Οδός"), name_key("ΟΔΌΣ"));
+  EXPECT_NE(name_key("Οδός"), name_key("Οδος")) << "an accent makes another letter";
+  // Any other script, and a YAML climate's bytes that are not UTF-8, are compared as they are.
+  EXPECT_NE(name_key("Ⴀ"), name_key("ⴀ"));
+  EXPECT_EQ("\xd0 \xff", name_key("\xd0  \xff"));
 }
 
 TEST(SlugifyId, ReducesToASafeStem) {

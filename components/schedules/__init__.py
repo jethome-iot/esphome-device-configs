@@ -11,7 +11,7 @@ from esphome.core import CORE
 CODEOWNERS = ["@jethome-iot"]
 DEPENDENCIES = ["filesystem_storage_abstract", "time"]
 # climate_hub stays optional: without it an action on a thermostat is skipped and reported.
-AUTO_LOAD = ["json", "loop_job", "switch_hold"]
+AUTO_LOAD = ["case_fold", "json", "loop_job", "switch_hold"]
 
 CONF_STORAGE = "storage"
 CONF_FOLDER_PATH = "folder_path"

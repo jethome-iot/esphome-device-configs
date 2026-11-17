@@ -220,7 +220,7 @@ bool validate_name(const std::string &name, std::string *error);
 /// inside a character.
 std::string fit_name(const std::string &name, size_t max_chars, size_t max_bytes);
 
-/// The name as a person reads it: trimmed, inner whitespace collapsed, ASCII lowercased.
+/// The name as a person reads it: trimmed, inner whitespace collapsed, case folded (case_fold).
 std::string name_key(const std::string &name);
 
 /// Home Assistant's built-in presets, by the name a preset takes to be one.
@@ -239,17 +239,5 @@ inline constexpr StandardPreset STANDARD_PRESETS[] = {
 /// string to the built-in preset before it looks at the custom ones, so a preset by that name
 /// has to be the built-in.
 bool standard_preset(const std::string &name, climate::ClimatePreset *out = nullptr);
-
-/// The object id ESPHome derives from an entity name, one character per byte: what the API's
-/// key and every object-id-keyed record in this repository know the entity by.
-std::string object_id_of_name(const std::string &name);
-
-/// The object id Home Assistant rebuilds from the name, one character per code point: its
-/// entity's unique id comes from it.
-std::string ha_object_id_of_name(const std::string &name);
-
-/// Whether `a` and `b`, whose object ids clash, would not had their non-ASCII characters been
-/// kept as they are rather than turned into '_'.
-bool non_ascii_clash(const std::string &a, const std::string &b);
 
 }  // namespace esphome::climate_hub

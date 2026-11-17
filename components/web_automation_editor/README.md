@@ -12,7 +12,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [filesystem_storage_abstract, littlefs_storage, automations, loop_job, switch_hold, web_origin_guard, web_automation_editor]
+    components: [filesystem_storage_abstract, littlefs_storage, case_fold, automations, loop_job, switch_hold, web_origin_guard, web_automation_editor]
 
 web_server:
   port: 80
@@ -70,9 +70,9 @@ simply be made again.
 `application/json`. A form-encoded body is parsed into fields by the server and answered
 `Empty request body`; a body over 16 KiB, the engine's own ceiling on a rule file, is `413`. A
 name another rule already owns — names collide by the file name they spell before it is cut to
-fit, so `Porch light` and `porch-LIGHT` are one — is refused with the reason, and so is a name
-with a control character in it. So is a rule that names something the device does not have,
-an entity, a thermostat or a preset key: `Action 1: thermostat "attic" not found`. The engine's other refusals (a rule limit reached, a
+fit, so `Porch light` and `porch-LIGHT` are one, and so are `Свет` and `СВЕТ` — is refused with the
+reason, and so is a name with a control character in it. So is a rule that names something the
+device does not have, an entity, a thermostat or a preset key: `Action 1: thermostat "attic" not found`. The engine's other refusals (a rule limit reached, a
 file the loader had refused under that name, a call from inside a running rule) come back as
 `Failed to create automation` / `Failed to update automation`.
 

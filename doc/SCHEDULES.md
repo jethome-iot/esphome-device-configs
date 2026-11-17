@@ -119,10 +119,9 @@ and since when, and its next switch point, for one switched off too.
 - 8 modes a schedule, 12 actions a mode, a wait of 1 second to 24 hours.
 - 12 switch points a day, and at least one in the week.
 - A schedule's name: 1 to 48 characters, in any language, unique on the device whatever the
-  case and spacing. The id is made from the name when the schedule is created; a rename keeps
-  it.
-- A mode's name: 1 to 24 characters, in any language, unique in its schedule whatever the case
-  and spacing.
+  spacing and the case of Latin, Greek and Cyrillic letters. The id is made from the name when
+  the schedule is created; a rename keeps it.
+- A mode's name: 1 to 24 characters, in any language, unique in its schedule the same way.
 - A schedule's file: 16 KiB.
 - The device's free memory. A Save or an import that would leave too little is refused with
   `Not enough free memory on the device to save this schedule`, and nothing changes; an edit

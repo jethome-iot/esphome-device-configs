@@ -326,7 +326,8 @@
         "success": true,
         "count": 0,
         "max_controllers": 3,
-        "controllers": []
+        "controllers": [],
+        "home_assistant": []
       }
     },
     {
@@ -1419,7 +1420,7 @@
       "error": "\"living  ROOM\" is already used by another thermostat"
     },
     {
-      "name": "A name Home Assistant would take for another is 409",
+      "name": "A name one object id from another's is its own",
       "setup": [
         "living-room"
       ],
@@ -1435,11 +1436,13 @@
         "mode": "heat",
         "setpoint": 24
       },
-      "status": 409,
-      "error": "\"Living_Room\" is too close to \"Living Room\": both are living_room to Home Assistant"
+      "status": 200,
+      "expect": {
+        "id": "living-room-2"
+      }
     },
     {
-      "name": "Two names Home Assistant reads as one in another script are 409, saying what tells them apart",
+      "name": "Two names alike in another script are two thermostats",
       "setup": [
         "kitchen"
       ],
@@ -1455,11 +1458,13 @@
         "mode": "heat",
         "setpoint": 22
       },
-      "status": 409,
-      "error": "\"Ванна\" is too close to \"Кухня\": both are _____ to Home Assistant, which reads every character but a Latin letter, a digit, '-' or '_' as '_'; a digit or a Latin letter makes them distinct"
+      "status": 200,
+      "expect": {
+        "id": "climate-2"
+      }
     },
     {
-      "name": "A digit tells two names in another script apart",
+      "name": "A name in another script with a digit takes the digit as its id",
       "setup": [
         "kitchen"
       ],
@@ -1479,6 +1484,26 @@
       "expect": {
         "id": "2"
       }
+    },
+    {
+      "name": "A name another thermostat has, in another case of another script, is 409",
+      "setup": [
+        "kitchen"
+      ],
+      "method": "POST",
+      "path": "save",
+      "body": {
+        "name": "КУХНЯ",
+        "kind": "pid",
+        "sensor_id": "temp_1",
+        "heat": {
+          "relay_id": "relay_1"
+        },
+        "mode": "heat",
+        "setpoint": 22
+      },
+      "status": 409,
+      "error": "\"КУХНЯ\" is already used by another thermostat"
     },
     {
       "name": "A climate's name from the YAML is 409",
