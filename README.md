@@ -6,6 +6,10 @@ Open-source ESPHome firmware for the JetHome JXD DIN-rail controllers, to build,
 yourself. For JetHome's proprietary firmware, with more features and support, see the
 [JetHome website](https://jethome.com/).
 
+The main point is what the controller does on its own: automations, thermostats and weekly
+schedules are made in its web dashboard and run on the device itself, with no Home Assistant and
+no recompile.
+
 | Device | Config |
 | --- | --- |
 | **JXD-R6-E1ETH-LCD**, with a 128x64 OLED, a menu and front-panel buttons | `devices/JXD/jxd-r6-e1eth-lcd.yaml` |
@@ -24,17 +28,16 @@ yourself. For JetHome's proprietary firmware, with more features and support, se
 
 ## What it does
 
-- **Home Assistant**: native ESPHome API; Home Assistant discovers the device and adds it
-  ([Home Assistant](doc/HOME_ASSISTANT.md))
+- **Automations**: rules that drive relays and thermostats from inputs, sensors, relays or the
+  clock, kept and run on the device ([Automations](doc/AUTOMATIONS.md))
+- **Thermostats**: hysteresis or PID control of a relay from any temperature sensor, run on the
+  device; each is also a climate entity in Home Assistant ([Thermostats](doc/CLIMATE.md))
+- **Schedules**: switch points through the week, each starting a mode: a list of relay and
+  thermostat actions ([Schedules](doc/SCHEDULES.md))
 - **Web dashboard** at `http://<device>/`: entities and their settings, automations, thermostats,
   schedules, the log, files and the device settings ([details](components/web_device_dashboard/README.md))
-- **Thermostats**: hysteresis or PID control of a relay from any temperature sensor, each a climate
-  entity in Home Assistant ([Thermostats](doc/CLIMATE.md))
-- **Schedules**: switch points through the week, each starting a mode: a list of relay and
-  thermostat actions
-  ([Schedules](doc/SCHEDULES.md))
-- **Automations**: rules kept on the device and changed without a recompile
-  ([Automations](doc/AUTOMATIONS.md))
+- **Home Assistant**: native ESPHome API; Home Assistant discovers the device and adds it
+  ([Home Assistant](doc/HOME_ASSISTANT.md))
 - **Relay and input settings**: inversion, start mode, an input bound to a relay, labels, and
   virtual inputs with on and off delays ([Entity settings](doc/ENTITY_SETTINGS.md))
 - **Dallas sensors**: found at boot, numbered once and kept across reboots, with an offset and a
