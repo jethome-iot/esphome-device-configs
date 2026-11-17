@@ -793,6 +793,17 @@ TEST_F(Storage, TwoFilesUnderOneNameAreToldApartAtBoot) {
   EXPECT_EQ(std::string(46, 'x') + " 2", this->engine->get("d")->name) << "cut to stay within 48 characters";
 }
 
+// Two names alike but for case, which a firmware that compared only Latin letters so let be.
+TEST_F(Storage, NamesAlikeButForCaseInAnyScriptAreToldApartAtBoot) {
+  this->write("a.json", file_doc("a", "Свет", "relay_1", false));
+  this->write("b.json", file_doc("b", "СВЕТ", "relay_2", false));
+  this->boot();
+  EXPECT_EQ("Свет", this->engine->get("a")->name);
+  EXPECT_EQ("СВЕТ 2", this->engine->get("b")->name);
+  EXPECT_NE(std::string::npos, read_file(this->file_of("b")).find(R"("name":"СВЕТ 2")")) << "written back";
+  EXPECT_EQ(409, this->engine->create(daily("свет", "relay_1", false)).code);
+}
+
 TEST_F(Storage, ARenameAtBootOfANewerFileStaysInMemory) {
   this->write("a.json", file_doc("a", "Porch", "relay_1", false));
   this->write("b.json", file_doc("b", "Porch", "relay_2", false, 2));

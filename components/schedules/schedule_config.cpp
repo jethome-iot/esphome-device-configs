@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include "esphome/components/case_fold/case_fold.h"
 #include "week_clock.h"
 
 namespace esphome::schedules {
@@ -428,7 +429,6 @@ std::string name_key(std::string_view name) {
   out.reserve(name.size());
   bool pending_space = false;
   for (char c : name) {
-    auto u = static_cast<unsigned char>(c);
     if (is_ascii_space(c)) {
       pending_space = !out.empty();
       continue;
@@ -437,9 +437,9 @@ std::string name_key(std::string_view name) {
       out += ' ';
       pending_space = false;
     }
-    out += u < 0x80 ? static_cast<char>(std::tolower(u)) : c;
+    out += c;
   }
-  return out;
+  return case_fold::fold_case(out);
 }
 
 std::string cut_chars(std::string_view text, size_t chars) {

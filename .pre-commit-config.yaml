@@ -73,6 +73,15 @@ repos:
         pass_filenames: false
         files: ^(scripts/build-timezones\.py|components/web_device_dashboard/client/device/timezones\.ts)$
 
+      # Rewrites the case-fold tables of the device and the dashboard, so a stale copy fails the
+      # commit until it is staged.
+      - id: build-case-fold
+        name: regenerate the case-fold tables
+        entry: python scripts/build-case-fold.py
+        language: python
+        pass_filenames: false
+        files: ^(scripts/build-case-fold\.py|components/case_fold/(case_fold_table\.h|client/caseFoldTable\.ts)|tests/components/case_fold/fold_cases\.tsv)$
+
       # The components that shadow ESPHome's own are not reached by a version bump.
       # Every hunk against the installed copy has to carry a JetHome marker, so an
       # unmarked one means the copy is stale. Keep the pin in step with the others.

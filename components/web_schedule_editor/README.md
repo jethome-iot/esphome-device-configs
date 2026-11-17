@@ -13,7 +13,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [filesystem_storage_abstract, littlefs_storage, schedules, loop_job, switch_hold, web_origin_guard, web_schedule_editor]
+    components: [filesystem_storage_abstract, littlefs_storage, case_fold, schedules, loop_job, switch_hold, web_origin_guard, web_schedule_editor]
 
 web_server:
   port: 80

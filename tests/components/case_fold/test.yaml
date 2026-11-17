@@ -1,0 +1,29 @@
+# Google Test binary for components/case_fold, built through esphome compile by tests/run.py.
+# The harness main.cpp replaces the generated one, so nothing declared here is ever set up:
+# the block exists to get the sources compiled. The cases hold the table to fold_cases.tsv,
+# which the dashboard holds its own copy to as well.
+esphome:
+  name: case-fold-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../../components
+    components: [case_fold]
+
+case_fold:

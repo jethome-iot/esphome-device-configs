@@ -37,6 +37,9 @@ tests/
     automations_no_climate/   # automations and web_automation_editor on a firmware without
                               # climate_hub; their own suites build with it
     bindings/               # the same layout, one suite per component
+    case_fold/                # fold_cases.tsv: every code point the table folds, and some it must
+                              # not, which the dashboard holds the clients' table to as well;
+                              # written by scripts/build-case-fold.py
     climate_hub/
     config_json/
     crash_report/

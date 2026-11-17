@@ -159,8 +159,8 @@ paths:
         whose file a newer firmware wrote, `409` when the body's `revision` is
         not the schedule's, `507` for a create past
         `max_schedules` or while `/list` counts schedules `not_loaded`; `409`
-        for a name another schedule has, ignoring ASCII
-        case and runs of spaces, or on a create for a name whose every id is
+        for a name another schedule has, ignoring case and runs of spaces, or
+        on a create for a name whose every id is
         taken by a file in the folder; `409` for an enabled schedule whose modes
         name a target another enabled schedule drives, naming the first such
         target; `413` when the file would be over 16 KiB. While the schedule
@@ -750,7 +750,8 @@ components:
       description: >-
         1 to 48 characters (code points, so Cyrillic counts one each), no
         control characters, neither `/` nor `\`, surrounding blanks trimmed.
-        Unique among the schedules, ignoring ASCII case and runs of spaces.
+        Unique among the schedules, ignoring runs of spaces and the case of
+        Latin, Greek and Cyrillic letters.
       minLength: 1
       maxLength: 48
       example: Living room week
@@ -865,8 +866,8 @@ components:
       type: string
       description: >-
         1 to 24 characters, no control characters, surrounding blanks
-        trimmed; unique in the schedule, ignoring ASCII case and runs of
-        spaces.
+        trimmed; unique in the schedule, ignoring runs of spaces and the case
+        of Latin, Greek and Cyrillic letters.
       minLength: 1
       maxLength: 24
       example: Day

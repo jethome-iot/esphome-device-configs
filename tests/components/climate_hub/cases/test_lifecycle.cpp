@@ -193,9 +193,12 @@ TEST_F(HubTest, NamesAlikeOutsideLatinGetTwoKeys) {
   EXPECT_EQ(bathroom, App.get_climate_by_key(bathroom->get_object_id_hash()));
   EXPECT_EQ(kitchen, web_server_match("Кухня"));
   EXPECT_EQ(bathroom, web_server_match("Ванна"));
-  // As for schedules and rules, only ASCII letters are compared without case.
-  EXPECT_TRUE(this->create(draft("КУХНЯ", "relay_3")).ok);
-  ASSERT_TRUE(hub().remove("climate-3").ok);
+  // Alike but for case is one name, in Cyrillic as in Latin, and as for schedules and rules.
+  Result upper = hub().create(draft("КУХНЯ", "relay_3"));
+  EXPECT_EQ(409, upper.code);
+  EXPECT_EQ("\"КУХНЯ\" is already used by another thermostat", upper.error);
+  EXPECT_EQ(409, hub().update("climate-2", draft("кухня", "relay_2")).code);
+  EXPECT_EQ("Ванна", hub().store().get("climate-2")->name);
 
   // A stop and a start give the same key again.
   const uint32_t key = bathroom->get_object_id_hash();

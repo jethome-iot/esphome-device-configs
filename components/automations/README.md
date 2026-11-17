@@ -11,7 +11,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [filesystem_storage_abstract, littlefs_storage, automations, loop_job, switch_hold]
+    components: [filesystem_storage_abstract, littlefs_storage, case_fold, automations, loop_job, switch_hold]
 
 i2c:
   sda: 5
@@ -113,9 +113,10 @@ rule with such an action is never built there.
 
 ## Storage
 
-One file per rule, `<base_path>/<folder_path>/<name>.json`, the name lower-cased with runs of
-spaces, dashes and underscores collapsed into one `_`; past 48 bytes it is cut and ends in
-`-<id>`. Two rules cannot have names that come out the same before that cut.
+One file per rule, `<base_path>/<folder_path>/<name>.json`, the name case-folded (its Latin, Greek
+and Cyrillic letters) with runs of spaces, dashes and underscores collapsed into one `_`; past 48
+bytes it is cut and ends in `-<id>`. Two rules cannot have names that come out the same before
+that cut.
 
 The folder is meant to be writable by hand, so what it holds is repaired at boot: a rule in a
 file named after something else is moved to its own file, a missing or repeated `id` is

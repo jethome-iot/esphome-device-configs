@@ -531,6 +531,10 @@ TEST(PresetRules, TheNameRulesHoldForEveryPreset) {
                          &error, false));
   EXPECT_EQ("Preset 2: \"day time\" is already used by Preset 1", error);
 
+  EXPECT_FALSE(
+      from_json(doc_with(R"([{"name":"Ночь","setpoint":18},{"name":"НОЧЬ","setpoint":18}])"), &parsed, &error, false));
+  EXPECT_EQ("Preset 2: \"НОЧЬ\" is already used by Preset 1", error) << "in any script";
+
   ASSERT_TRUE(from_json(doc_with(R"([{"name":"  Night \t","setpoint":18}])"), &parsed, &error, false)) << error;
   EXPECT_EQ("Night", parsed.presets[0].name) << "trimmed, as a thermostat's name is";
 }
@@ -1160,8 +1164,14 @@ TEST(NameRules, TheKeyIsTheNameAsAPersonReadsIt) {
   EXPECT_EQ("living room", name_key("  Living   Room "));
   EXPECT_EQ(name_key("LIVING ROOM"), name_key("living room"));
   EXPECT_NE(name_key("Room 1"), name_key("Room_1"));
-  // A YAML climate's name may be anything; its non-ASCII bytes are compared as they are.
-  EXPECT_EQ("\xd0\x9a\xd1\x83\xd1\x85\xd0\xbd\xd1\x8f 1", name_key("\xd0\x9a\xd1\x83\xd1\x85\xd0\xbd\xd1\x8f  1"));
+  // Latin, Greek and Cyrillic letters are compared without case, as the dashboard compares them.
+  EXPECT_EQ("кухня 1", name_key("КУХНЯ  1"));
+  EXPECT_EQ(name_key("Café crème"), name_key("CAFÉ CRÈME"));
+  EXPECT_EQ(name_key("Οδός"), name_key("ΟΔΌΣ"));
+  EXPECT_NE(name_key("Οδός"), name_key("Οδος")) << "an accent makes another letter";
+  // Any other script, and a YAML climate's bytes that are not UTF-8, are compared as they are.
+  EXPECT_NE(name_key("Ⴀ"), name_key("ⴀ"));
+  EXPECT_EQ("\xd0 \xff", name_key("\xd0  \xff"));
 }
 
 TEST(SlugifyId, ReducesToASafeStem) {
