@@ -135,6 +135,8 @@ class AutomationStorage : public Component {
   /// Builds or drops, to match, each rule `names` picks; `what` is what came back, for the log.
   void rebuild_rules_(std::function<bool(const AutomationConfig &)> names, std::string what);
   void check_time_();
+  void dispatch_time_(const ESPTime &time, CronTriggers which);
+  void cross_dst_(ESPTime last, int64_t last_local, const ESPTime &now, int64_t now_local);
   virtual ESPTime clock_now_();
 
   std::string name_key_(const std::string &name) const;
@@ -162,6 +164,9 @@ class AutomationStorage : public Component {
   uint32_t next_id_{1};
   time::RealTimeClock *rtc_{nullptr};
   optional<ESPTime> last_check_;
+  // Set when the clocks went back for DST: the local second up to which rules at given hours
+  // have already run, so the repeated hour does not run them again.
+  optional<int64_t> held_until_;
   loop_job::LoopDispatcher dispatcher_;
   // Above zero while a rule is being driven: an edit then would pull the rule from under it.
   uint8_t dispatching_{0};

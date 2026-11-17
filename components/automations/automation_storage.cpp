@@ -30,6 +30,9 @@ static const size_t MAX_FILENAME_BYTES = 48;
 static const size_t MAX_FILE_BYTES = 16384;
 // A cron tick further away than this from the previous one is a clock jump, not elapsed time.
 static const time_t MAX_TIMESTAMP_DRIFT = 900;
+// A local offset that moves by more than the drift and at most this, while time runs on, is a
+// DST switch; a larger move is a new zone and is taken as a jump.
+static const int64_t MAX_DST_SHIFT = 3600;
 
 // The code point at `i`, moving past it; false where the bytes are not UTF-8.
 static bool next_code_point(const std::string &text, size_t *i, uint32_t *out) {
@@ -288,34 +291,94 @@ void AutomationStorage::dispatch_sensor_(sensor::Sensor *entity, float value) {
                 [=](RuntimeAutomation &rule) { rule.on_sensor(entity, value); });
 }
 
-// Same catch-up and clock-jump handling as the core cron trigger, for all rules at once.
+// The local clock in seconds, read from the fields: a DST switch moves it, not the timestamp.
+static int64_t local_seconds(const ESPTime &time) {
+  ESPTime copy = time;
+  copy.recalc_timestamp_utc(false);
+  return copy.timestamp;
+}
+
+void AutomationStorage::dispatch_time_(const ESPTime &time, CronTriggers which) {
+  for_each_rule(this->dispatching_, this->automations_,
+                [&time, which](RuntimeAutomation &rule) { rule.on_time(time, which); });
+}
+
+// Same catch-up and clock-jump handling as the core cron trigger, for all rules at once, except
+// across a DST switch, which the core trigger takes for an ordinary second.
 void AutomationStorage::check_time_() {
   ESPTime now = this->clock_now_();
   if (!now.is_valid())
     return;
-  auto fire = [this](const ESPTime &time) {
-    for_each_rule(this->dispatching_, this->automations_, [&time](RuntimeAutomation &rule) { rule.on_time(time); });
+  const int64_t now_local = local_seconds(now);
+  auto fire = [this](const ESPTime &time, int64_t local) {
+    if (this->held_until_.has_value() && local <= *this->held_until_) {
+      this->dispatch_time_(time, CronTriggers::EVERY_HOUR);
+      return;
+    }
+    this->held_until_.reset();
+    this->dispatch_time_(time, CronTriggers::ALL);
   };
   if (this->last_check_.has_value()) {
     ESPTime &last = *this->last_check_;
+    int64_t local = local_seconds(last);
+    const int64_t elapsed = now.timestamp - last.timestamp;
+    const int64_t shift = now_local - local - elapsed;
+    const int64_t moved = shift < 0 ? -shift : shift;
+    if (elapsed > 0 && elapsed <= MAX_TIMESTAMP_DRIFT && moved > MAX_TIMESTAMP_DRIFT && moved <= MAX_DST_SHIFT) {
+      this->cross_dst_(last, local, now, now_local);
+      this->last_check_ = now;
+      return;
+    }
+    if (shift != 0)
+      this->held_until_.reset();
     if (last > now && last.timestamp - now.timestamp > MAX_TIMESTAMP_DRIFT) {
       ESP_LOGW(TAG, "Time has jumped back");
+      this->held_until_.reset();
     } else if (last >= now) {
       return;
-    } else if (now.timestamp - last.timestamp > MAX_TIMESTAMP_DRIFT) {
+    } else if (elapsed > MAX_TIMESTAMP_DRIFT) {
       ESP_LOGW(TAG, "Time has jumped ahead");
       this->last_check_ = now;
       return;
     }
     while (true) {
       last.increment_second();
+      local++;
       if (last >= now)
         break;
-      fire(last);
+      fire(last, local);
     }
   }
   this->last_check_ = now;
-  fire(now);
+  fire(now, now_local);
+}
+
+// A rule that runs every hour keeps to the seconds that passed. One at given hours follows the
+// local clock: forward, it runs once for the times skipped; back, not again for the repeated ones.
+void AutomationStorage::cross_dst_(ESPTime last, int64_t last_local, const ESPTime &now, int64_t now_local) {
+  ESP_LOGI(TAG, "Clocks went %s for DST", now_local > last_local ? "forward" : "back");
+  if (now_local > last_local) {
+    std::vector<bool> done(this->automations_.size());
+    ESPTime wall = last;
+    this->dispatching_++;
+    for (int64_t s = last_local; s < now_local; s++) {
+      wall.increment_second();
+      for (size_t i = 0; i < this->automations_.size(); i++) {
+        if (this->automations_[i] != nullptr && !done[i])
+          done[i] = this->automations_[i]->on_time(wall, CronTriggers::AT_HOURS);
+      }
+    }
+    this->dispatching_--;
+  } else {
+    this->held_until_ = std::max(this->held_until_.value_or(last_local), last_local);
+  }
+  while (true) {
+    last.increment_second();
+    if (last >= now)
+      break;
+    this->dispatch_time_(last, CronTriggers::EVERY_HOUR);
+  }
+  this->dispatch_time_(now, CronTriggers::EVERY_HOUR);
 }
 
 // --- Mutators: any task in, loop task does the work ---

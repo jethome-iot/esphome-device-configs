@@ -95,7 +95,7 @@ class FakeClock : public time::RealTimeClock {
 
 // Holds the delays instead of handing them to the scheduler, so a test fires them itself, and
 // takes its clocks from the test: `ms` for click timing, `uptime` for when a run started, `now`
-// (epoch seconds, 0 = not set) for cron.
+// (epoch seconds, 0 = not set) and `offset` (seconds the local clock is ahead of UTC) for cron.
 class FakeEngine : public AutomationStorage {
  public:
   struct Delay {
@@ -107,6 +107,7 @@ class FakeEngine : public AutomationStorage {
   uint32_t ms{0};
   uint64_t uptime{0};
   time_t now{0};
+  int32_t offset{0};
 
   uint32_t now_ms() const override { return this->ms; }
   uint64_t uptime_ms() const override { return this->uptime; }
@@ -159,7 +160,13 @@ class FakeEngine : public AutomationStorage {
     return AutomationStorage::remove_file_(filepath);
   }
 
-  ESPTime clock_now_() override { return this->now == 0 ? ESPTime{} : ESPTime::from_epoch_utc(this->now); }
+  ESPTime clock_now_() override {
+    if (this->now == 0)
+      return ESPTime{};
+    ESPTime time = ESPTime::from_epoch_utc(this->now + this->offset);
+    time.timestamp = this->now;
+    return time;
+  }
   FakeClock clock_;
 };
 

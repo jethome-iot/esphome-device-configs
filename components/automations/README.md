@@ -81,6 +81,11 @@ is rejected.
 A jump of the `time_id` clock back by more than 15 minutes is not handled: the moments it
 passes again fire a second time.
 
+A DST switch, the local offset moving by more than 15 minutes and at most an hour while the
+time runs on, is not a jump. A `cron` trigger whose hours field is `*` keeps to the time that
+passes; one at given hours fires once, at the switch, for the times the clocks skip forward,
+and not again for the times they repeat going back.
+
 ## Thermostat actions
 
 A `climate` action acts on a [`climate_hub`](../climate_hub/README.md) thermostat, running or

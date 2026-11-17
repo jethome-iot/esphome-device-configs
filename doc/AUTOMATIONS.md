@@ -41,6 +41,12 @@ minutes fires every cron time it skipped at once, and a longer one skips them; a
 more than 15 minutes fires the times in between again as the clock passes them, and a shorter
 one fires nothing until the clock is back where it was.
 
+A DST switch is not a jump. A cron time whose hour field is `*` (every hour, every few minutes)
+keeps to the time that passes. One at given hours (daily, weekly, monthly) runs once for the
+hour the clocks skip, right after they go forward, and does not run again in the hour they
+repeat when they go back. A new time zone up to an hour away counts as a DST switch, one further
+away as a jump.
+
 A timetable, what relays and thermostats do by the time of day and the day of the week, is a
 [schedule](SCHEDULES.md) rather than a rule.
 
@@ -84,7 +90,7 @@ python tests/run.py automations_no_climate
 Builds the engine for the host platform into a Google Test binary and runs
 `tests/components/automations/cases/`:
 the JSON and cron parsers, rules driven by hand with every delay held back until the test fires
-it, the cron tick against a clock the test moves, and the whole component over a directory that
+it, the cron tick against a clock the test moves and switches for DST, and the whole component over a directory that
 stands in for the flash. The second suite drives every HTTP route through the handler, over the
 real engine and a stand-in for the web server. The third builds both on a firmware without
 thermostats. How to add a case: [TESTING.md](TESTING.md).

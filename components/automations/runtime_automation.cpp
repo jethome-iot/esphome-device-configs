@@ -417,11 +417,19 @@ void RuntimeAutomation::on_sensor(sensor::Sensor *entity, float value) {
   }
 }
 
-void RuntimeAutomation::on_time(const ESPTime &time) {
+bool RuntimeAutomation::on_time(const ESPTime &time, CronTriggers which) {
+  bool matched = false;
   for (const auto &trigger : this->triggers_) {
-    if (trigger.source == SourceTrigger::CRON && trigger.cron_matches(time))
+    if (trigger.source != SourceTrigger::CRON)
+      continue;
+    if (which != CronTriggers::ALL && trigger.every_hour() != (which == CronTriggers::EVERY_HOUR))
+      continue;
+    if (trigger.cron_matches(time)) {
+      matched = true;
       this->fire_(false, false);
+    }
   }
+  return matched;
 }
 
 void RuntimeAutomation::on_startup() {
