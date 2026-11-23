@@ -113,6 +113,10 @@ rule with such an action is never built there.
   actions after it in the run follow on that pass. A rule restarted or stopped before then does
   not move it.
 
+A switch action calls the rules that trigger on that switch before it returns. Such calls are
+cut 8 deep: the event that would go deeper reaches no rule, and a warning names the innermost
+rule.
+
 ## Storage
 
 One file per rule, `<base_path>/<folder_path>/<name>.json`, the name case-folded (its Latin, Greek

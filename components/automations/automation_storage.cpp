@@ -34,6 +34,9 @@ static const time_t MAX_TIMESTAMP_DRIFT = 900;
 // A local offset that moves by more than the drift and at most this, while time runs on, is a
 // DST switch; a larger move is a new zone and is taken as a jump.
 static const int64_t MAX_DST_SHIFT = 3600;
+// A switch an action drives calls back in synchronously: rules that trigger each other would
+// otherwise recurse until the loop task's stack runs out. Eight levels fit its 8 KiB.
+static const uint8_t MAX_DISPATCH_DEPTH = 8;
 
 // The code point at `i`, moving past it; false where the bytes are not UTF-8.
 static bool next_code_point(const std::string &text, size_t *i, uint32_t *out) {
@@ -107,15 +110,21 @@ ESPTime AutomationStorage::clock_now_() { return this->rtc_->now(); }
 
 // --- Setup and runtime ---
 
-// Drives every built rule, and marks the engine as dispatching for as long as it does.
-template<typename F>
-static void for_each_rule(uint8_t &depth, std::vector<std::unique_ptr<RuntimeAutomation>> &rules, F call) {
-  depth++;
-  for (size_t i = 0; i < rules.size(); i++) {
-    if (rules[i] != nullptr)
-      call(*rules[i]);
+// Drives every built rule in turn.
+template<typename F> void AutomationStorage::each_rule_(F call) {
+  for (size_t i = 0; i < this->automations_.size(); i++) {
+    RuntimeAutomation *rule = this->automations_[i].get();
+    if (rule != nullptr)
+      this->drive(*rule, [&]() { call(*rule); });
   }
-  depth--;
+}
+
+bool AutomationStorage::too_deep_() {
+  if (this->driving_.size() < MAX_DISPATCH_DEPTH)
+    return false;
+  ESP_LOGW(TAG, "Automation '%s': events nested %u deep, dropping the next; do rules trigger each other in a loop?",
+           this->driving_.back()->get_name().c_str(), static_cast<unsigned>(this->driving_.size()));
+  return true;
 }
 
 void AutomationStorage::setup() {
@@ -182,9 +191,7 @@ void AutomationStorage::setup() {
     ESP_LOGW(TAG, "No time source: cron triggers are disabled");
   }
   // Startup triggers fire once every component has finished setting up.
-  this->defer([this]() {
-    for_each_rule(this->dispatching_, this->automations_, [](RuntimeAutomation &rule) { rule.on_startup(); });
-  });
+  this->defer([this]() { this->each_rule_([](RuntimeAutomation &rule) { rule.on_startup(); }); });
 }
 
 template<typename E, typename F>
@@ -245,7 +252,7 @@ void AutomationStorage::on_climate_change_(const std::string &climate_id) {
 void AutomationStorage::rebuild_rules_(std::function<bool(const AutomationConfig &)> names, std::string what) {
   // A lambda behind a rule's own switch action may have made the change: rebuilding now would
   // pull that rule from under its run.
-  if (this->dispatching_ > 0) {
+  if (!this->driving_.empty()) {
     this->defer([this, names = std::move(names), what = std::move(what)]() { this->rebuild_rules_(names, what); });
     return;
   }
@@ -279,18 +286,18 @@ void AutomationStorage::expect_level(binary_sensor::BinarySensor *entity) {
 }
 
 void AutomationStorage::dispatch_binary_sensor_(binary_sensor::BinarySensor *entity, bool state, bool level) {
-  for_each_rule(this->dispatching_, this->automations_,
-                [=](RuntimeAutomation &rule) { rule.on_binary_sensor(entity, state, level); });
+  if (!this->too_deep_())
+    this->each_rule_([=](RuntimeAutomation &rule) { rule.on_binary_sensor(entity, state, level); });
 }
 
 void AutomationStorage::dispatch_switch_(switch_::Switch *entity, bool state) {
-  for_each_rule(this->dispatching_, this->automations_,
-                [=](RuntimeAutomation &rule) { rule.on_switch(entity, state); });
+  if (!this->too_deep_())
+    this->each_rule_([=](RuntimeAutomation &rule) { rule.on_switch(entity, state); });
 }
 
 void AutomationStorage::dispatch_sensor_(sensor::Sensor *entity, float value) {
-  for_each_rule(this->dispatching_, this->automations_,
-                [=](RuntimeAutomation &rule) { rule.on_sensor(entity, value); });
+  if (!this->too_deep_())
+    this->each_rule_([=](RuntimeAutomation &rule) { rule.on_sensor(entity, value); });
 }
 
 // The local clock in seconds, read from the fields: a DST switch moves it, not the timestamp.
@@ -301,8 +308,7 @@ static int64_t local_seconds(const ESPTime &time) {
 }
 
 void AutomationStorage::dispatch_time_(const ESPTime &time, CronTriggers which) {
-  for_each_rule(this->dispatching_, this->automations_,
-                [&time, which](RuntimeAutomation &rule) { rule.on_time(time, which); });
+  this->each_rule_([&time, which](RuntimeAutomation &rule) { rule.on_time(time, which); });
 }
 
 // Same catch-up and clock-jump handling as the core cron trigger, for all rules at once, except
@@ -383,17 +389,17 @@ void AutomationStorage::cross_dst_(ESPTime last, int64_t last_local, const ESPTi
     for (size_t i = 0; i < this->automations_.size(); i++)
       done[i] = this->automations_[i] == nullptr || !runs_at_hours(*this->automations_[i]);
     ESPTime wall = last;
-    this->dispatching_++;
     for (int64_t s = last_local + 1; s < now_local; s++) {
       wall.increment_second();
       if (s <= ran)
         continue;
       for (size_t i = 0; i < this->automations_.size(); i++) {
-        if (!done[i])
-          done[i] = this->automations_[i]->on_time(wall, CronTriggers::AT_HOURS);
+        if (done[i])
+          continue;
+        RuntimeAutomation &rule = *this->automations_[i];
+        this->drive(rule, [&]() { done[i] = rule.on_time(wall, CronTriggers::AT_HOURS); });
       }
     }
-    this->dispatching_--;
     if (now_local > ran)
       this->held_until_.reset();
   } else {
@@ -470,7 +476,7 @@ bool AutomationStorage::run_on_loop_(std::function<bool()> &&job) {
     return false;
   }
   if (this->dispatcher_.on_loop_task()) {
-    if (this->dispatching_ > 0) {
+    if (!this->driving_.empty()) {
       ESP_LOGE(TAG, "Rules cannot be edited from inside a rule's own action");
       return false;
     }
@@ -701,7 +707,7 @@ RunResult AutomationStorage::run_automation_(uint32_t id) {
   }
   // As a trigger would: an edit from inside its actions is refused, not run under it.
   bool started = false;
-  this->drive([&]() { started = rule->run_now(); });
+  this->drive(*rule, [&]() { started = rule->run_now(); });
   if (!started)
     ESP_LOGI(TAG, "Automation '%s' is already running", rule->get_name().c_str());
   return started ? RunResult::STARTED : RunResult::ALREADY_RUNNING;
