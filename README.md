@@ -144,7 +144,7 @@ BDF display fonts in `assets/fonts/` come from [IT-Studio-Rech/bdf-fonts](https:
 
 ## Contributing
 
-Contributions are welcome, as an issue, a pull request, or both; a pull request for an issue
+Contributions are welcome. Every change starts as an issue: open one, then a pull request that
 says `Closes #N` or `Part of #N`. Most pull requests target `dev`, where development happens;
 `master` is the source of truth a release is built from, and only the release machinery and the
 rules go straight there. Issues, pull requests, commit messages and documentation are in
