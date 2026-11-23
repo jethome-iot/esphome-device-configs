@@ -1,5 +1,6 @@
 <!--
-If this pull request is for an issue, keep one of the two lines below; otherwise delete both.
+Every pull request opens on an issue. Keep one of the two lines below and delete the other; a
+merge of master into dev deletes both.
 No pull request opens on an issue carrying status:needs-decision: the decision goes into the
 issue first. The rules are in doc/DEVELOPMENT.md, "Issues and pull requests". In English.
 -->
