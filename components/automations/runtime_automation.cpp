@@ -499,7 +499,7 @@ void RuntimeAutomation::step_(uint32_t token, bool scheduled) {
       if (!wait_for_loop)
         run->cursor++;
       this->engine_->schedule_delay(this->timer_id_(run->seq), wait_for_loop ? 0 : action.delay_ms, [this, token]() {
-        this->engine_->drive([this, token]() { this->step_(token, true); });
+        this->engine_->drive(*this, [this, token]() { this->step_(token, true); });
       });
       return;
     }

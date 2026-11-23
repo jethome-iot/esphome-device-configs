@@ -101,10 +101,10 @@ class AutomationStorage : public Component {
   virtual void cancel_delay(uint32_t id) { this->cancel_timeout(id); }
   virtual uint32_t now_ms() const;
   // Runs a rule's own step, so an edit from inside it is refused as from any other dispatch.
-  template<typename F> void drive(F &&step) {
-    this->dispatching_++;
+  template<typename F> void drive(RuntimeAutomation &rule, F &&step) {
+    this->driving_.push_back(&rule);
     step();
-    this->dispatching_--;
+    this->driving_.pop_back();
   }
 
   template<typename E> struct Subscription {
@@ -136,6 +136,8 @@ class AutomationStorage : public Component {
   void on_climate_change_(const std::string &climate_id);
   /// Builds or drops, to match, each rule `names` picks; `what` is what came back, for the log.
   void rebuild_rules_(std::function<bool(const AutomationConfig &)> names, std::string what);
+  template<typename F> void each_rule_(F call);
+  bool too_deep_();
   void check_time_();
   void dispatch_time_(const ESPTime &time, CronTriggers which);
   void cross_dst_(ESPTime last, int64_t last_local, const ESPTime &now, int64_t now_local);
@@ -185,8 +187,9 @@ class AutomationStorage : public Component {
   bool hold_stored_{false};
   uint32_t preference_hash_{0};
   loop_job::LoopDispatcher dispatcher_;
-  // Above zero while a rule is being driven: an edit then would pull the rule from under it.
-  uint8_t dispatching_{0};
+  // The rules being driven, innermost last. An edit while any is would pull it from under it,
+  // and how many there are is how deeply dispatches nest, which too_deep_() bounds.
+  std::vector<RuntimeAutomation *> driving_;
 
   // One subscription per entity, kept for the life of the device.
   std::vector<std::unique_ptr<Subscription<binary_sensor::BinarySensor>>> binary_sensor_subs_;
