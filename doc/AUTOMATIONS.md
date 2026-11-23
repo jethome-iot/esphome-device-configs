@@ -32,6 +32,11 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
   run is under way. A follow has no trigger state to copy unless a trigger arrives while the
   run plays. A rule that is not built cannot run.
 
+Rules that keep setting each other off, such as one toggling the switch that triggers it, are
+cut 8 nested events deep: the next event is dropped, with a warning naming the rule, and the
+switches stay where the loop left them until something sets it off again, which is cut the same
+way.
+
 A sensor is any numeric one that is not internal, not only a temperature, and its thresholds
 are in its own unit. A switch is any but the device's own settings, such as **Allow ESPHome
 updates**: a rule naming one is not built.

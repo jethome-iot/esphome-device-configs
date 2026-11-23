@@ -921,6 +921,42 @@ TEST_F(Storage, StopsAt255Rules) {
   EXPECT_EQ(files().size(), 255u);
 }
 
+// The switch a rule toggles calls back into the engine from inside the action: a rule
+// triggered by that switch restarts itself on every toggle, and only the bound ends it.
+TEST_F(Storage, ARuleTogglingItsOwnTriggerStopsAtTheBound) {
+  boot();
+  ASSERT_NE(
+      engine->add_automation(rule(
+          R"({"name":"Self toggle","mode":"restart","triggers":[{"source":"switch","type":"state_change","object_id":"relay_1"}],"actions":[{"source":"switch","type":"toggle","object_id":"relay_1"}]})")),
+      0u);
+  e.relay1.turn_on();
+  // The test's own write, then one toggle from each of the 8 dispatches the bound lets in.
+  EXPECT_EQ(e.relay1.writes, 9);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_TRUE(log().has(log().warnings, "Automation 'Self toggle': events nested 8 deep"));
+  EXPECT_FALSE(engine->rule(0)->is_running());
+}
+
+// Two rules each toggling the other's trigger take turns down the same stack; once the cut
+// unwinds, nothing is left driving, so the rules can be edited again.
+TEST_F(Storage, RulesTriggeringEachOtherStopAtTheBound) {
+  boot();
+  ASSERT_NE(
+      engine->add_automation(rule(
+          R"({"name":"Ping","mode":"restart","triggers":[{"source":"switch","type":"state_change","object_id":"relay_1"}],"actions":[{"source":"switch","type":"toggle","object_id":"relay_2"}]})")),
+      0u);
+  ASSERT_NE(
+      engine->add_automation(rule(
+          R"({"name":"Pong","mode":"restart","triggers":[{"source":"switch","type":"state_change","object_id":"relay_2"}],"actions":[{"source":"switch","type":"toggle","object_id":"relay_1"}]})")),
+      0u);
+  e.relay1.turn_on();
+  // Ping toggles at levels 1, 3, 5 and 7, Pong at 2, 4, 6 and 8.
+  EXPECT_EQ(e.relay1.writes, 5);
+  EXPECT_EQ(e.relay2.writes, 4);
+  EXPECT_TRUE(log().has(log().warnings, "Automation 'Pong': events nested 8 deep"));
+  EXPECT_NE(engine->add_automation(rule(R"({"name":"After","triggers":[{"source":"startup"}]})")), 0u);
+}
+
 // --- run now, and when a rule last ran ---
 
 // Relay 1 on, a delay, relay 2 on; behind a condition that is false, with relay 2 on at once
