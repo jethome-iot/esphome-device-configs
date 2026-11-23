@@ -1,5 +1,5 @@
-# A blank issue is still an issue: the rule is that work is tracked, not that it is tracked on a
-# form. The templates make the usual kinds easy; they do not gate the unusual one.
+# A blank issue is still an issue: the templates make the usual kinds easy; they do not gate the
+# unusual one.
 blank_issues_enabled: true
 contact_links:
   - name: Hardware, or the proprietary firmware
