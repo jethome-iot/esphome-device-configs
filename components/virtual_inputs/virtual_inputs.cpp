@@ -371,8 +371,8 @@ void VirtualInputs::schedule_ha_resync_() {
   this->set_timeout("ha_resync", this->ha_resync_delay_ms_, [this]() { this->resync_home_assistant_(); });
 }
 
-// Upstream's own way of making clients reconnect (it does the same after a new API key). A
-// client that cannot take the request is dropped, which Home Assistant answers the same way.
+// Upstream's own way of asking clients to reconnect, the request it sends when the provisioning
+// window closes. A client that cannot take it is dropped, which Home Assistant answers the same way.
 void VirtualInputs::resync_home_assistant_() {
 #ifdef USE_API
   if (api::global_api_server == nullptr)

@@ -20,7 +20,7 @@ role:
 | Directory            | Contents |
 | -------------------- | -------- |
 | `packages/boards/`   | Platform and the chips sitting on each board — `jxd-cpu-e1eth.yaml` (ESP32, api/provisioning/ota/logger/web_server, TMP102, LED, FN button, the identity EEPROM) and `jxd-d6-r6-rev1.2.yaml` (PCA9554 expander, 6 relays, 6 inputs, DS2484 1-Wire bridge) |
-| `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `entity-settings`, `factory-reset`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network`, `reboot-required`, `status-led`, `web-auth`, `web-device-dashboard`, `web-file-browser`, `web-server-idf-backport`, `automations`, `automation-editor`, `climates`, `climate-editor`, `schedules`, `schedule-editor`, `virtual-inputs`, `crash-report`, `firmware-update` |
+| `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `entity-settings`, `factory-reset`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network`, `reboot-required`, `status-led`, `web-auth`, `web-device-dashboard`, `web-file-browser`, `automations`, `automation-editor`, `climates`, `climate-editor`, `schedules`, `schedule-editor`, `virtual-inputs`, `crash-report`, `firmware-update` |
 | `packages/display/`  | Display, pages, menu and buttons — `display.yaml`, `menu.yaml`, `buttons.yaml`, `menu-items-network.yaml`, `menu-serial.yaml`, `menu-timezone.yaml`, `menu-firmware.yaml`, `firmware-page.yaml`, `status-page.yaml`, `time-page.yaml`, `blank-page.yaml`, `network-icons.yaml` |
 | `packages/qemu/`     | Overlays that `scripts/qemu.sh` layers over the real config to run it in the emulator — never part of a firmware build |
 
@@ -28,7 +28,7 @@ Shared code and tooling stay at the repository root:
 
 | Directory  | Contents |
 | ---------- | -------- |
-| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `climate_hub` (the thermostats, each a climate entity), `schedules` (the weekly schedules whose modes run lists of relay and thermostat actions), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `web_climate_editor` (the thermostat API of `climate_hub`), `web_schedule_editor` (the schedule API of `schedules`), `crash_report` (the last panic's record, written to that partition at the next boot), `web_device_dashboard` (the web UI at `/` and its device API), `modbus_map` (the Modbus ranges' names that the dashboard lists, checked against the server at build time), `web_auth` (the web server's credentials, changeable at runtime), `web_origin_guard` (the cross-origin refusal every handler on that server answers with), `loop_job` (what a web handler hands the loop task so it does not edit its state from the server's), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), `entity_config` (the per-entity settings) with the `config_base` / `config_json` it is built on, `bindings` (an input driving a relay), `virtual_inputs` (inputs that follow a physical one through an on and an off delay, set up at run time), `switch_hold` (who holds a relay, a running thermostat; the panel, Modbus, the rules, the bindings, the schedules and the relay settings ask it before they move one), `jethome_update` (the firmware update entity) over the `jethome_manifest` parser of the firmware server's answer, `firmware_rollback` (booting the firmware in the other app slot, for the dashboard and the display menu), `status_indicator` (the CPU board's LED: on, off, blinking, pulses, and signals that pick one by condition or take turns), `timezone_settings` (the zone in effect: Home Assistant's, the compiled one or one set on the dashboard), `ntp_servers` (the NTP servers the device asks, set on the dashboard), `panel_text` (text fitted to a row of the display menu, and the rules a label follows), `case_fold` (how the thermostats, the schedules and the rules compare names without case, the same table the dashboard's editors use), `display_menu_base` with `graphical_display_menu` (upstream's, with the menu options `packages/display/menu.yaml` needs), and `web_server_idf` (upstream's, with a fix backported ahead of its release; temporary) |
+| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `climate_hub` (the thermostats, each a climate entity), `schedules` (the weekly schedules whose modes run lists of relay and thermostat actions), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `web_climate_editor` (the thermostat API of `climate_hub`), `web_schedule_editor` (the schedule API of `schedules`), `crash_report` (the last panic's record, written to that partition at the next boot), `web_device_dashboard` (the web UI at `/` and its device API), `modbus_map` (the Modbus ranges' names that the dashboard lists, checked against the server at build time), `web_auth` (the web server's credentials, changeable at runtime), `web_origin_guard` (the cross-origin refusal every handler on that server answers with), `loop_job` (what a web handler hands the loop task so it does not edit its state from the server's), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), `entity_config` (the per-entity settings) with the `config_base` / `config_json` it is built on, `bindings` (an input driving a relay), `virtual_inputs` (inputs that follow a physical one through an on and an off delay, set up at run time), `switch_hold` (who holds a relay, a running thermostat; the panel, Modbus, the rules, the bindings, the schedules and the relay settings ask it before they move one), `jethome_update` (the firmware update entity) over the `jethome_manifest` parser of the firmware server's answer, `firmware_rollback` (booting the firmware in the other app slot, for the dashboard and the display menu), `status_indicator` (the CPU board's LED: on, off, blinking, pulses, and signals that pick one by condition or take turns), `timezone_settings` (the zone in effect: Home Assistant's, the compiled one or one set on the dashboard), `ntp_servers` (the NTP servers the device asks, set on the dashboard), `panel_text` (text fitted to a row of the display menu, and the rules a label follows), `case_fold` (how the thermostats, the schedules and the rules compare names without case, the same table the dashboard's editors use), and `display_menu_base` with `graphical_display_menu` (upstream's, with the menu options `packages/display/menu.yaml` needs) |
 | `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `build-timezones.py`, `build-case-fold.py`, `firmware-matrix.py`, `release-version.py`, `vendored-diff.py`, `modbus_probe.py`, `device-files.py` (the `web_file_browser` API from a terminal), `qemu.sh` (the emulator), `qemu-climate-smoke.py` (the thermostats checked in it), `setup.sh` / `setup.bat` |
 | `dist/`    | Generated self-contained configs the ESPHome Builder imports |
 | `doc/`     | Guides, and their images in `doc/images/` |
@@ -249,19 +249,18 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
   `provisioning: on_timeout:`, that `on_loop:` when the key it reads through
   `NoiseContext::load_psk()` changes, the menu's Forget HA and `web_device_dashboard`'s
   forget-api-key drop every client in `active_clients()` through
-  `APIConnection::on_fatal_error()`: upstream only sends them a `DisconnectRequest`, which a
-  client can ignore and keep its session.
+  `APIConnection::on_fatal_error()`: when the window closes upstream only sends them a
+  `DisconnectRequest`, which a client can ignore and keep its session. Since 2026.10 it closes
+  them itself when a key it makes active takes effect, 100 ms after the change; forget-api-key
+  drops them before that, and the `on_loop:` drop only repeats upstream's.
 - `components/display_menu_base` and `components/graphical_display_menu` are copies of
   upstream's, carrying `right_for_menu_enter`, the `display_menu.back` action, `fill_row`,
-  item `weight` and submenus that may be empty;
-  naming them in `external_components` shadows the built-in ones. Every changed hunk is marked
+  item `weight`, submenus that may be empty and select and number rows that apply their value
+  when the edit ends; naming them in `external_components` shadows the built-in ones.
+  `display_menu.back` is one more `automation.register_apply_action` entry beside upstream's own
+  menu actions, which have had no C++ class since 2026.10. Every changed hunk is marked
   `JetHome:` and `scripts/vendored-diff.py` prints the whole patch against the pinned ESPHome.
   Dropping the two names from `external_components` builds the upstream components instead.
-- `components/web_server_idf` is a copy of upstream's carrying one backported commit, ESPHome
-  PR #17800, which is not in the pinned release: a stalled `/events` client had its session
-  freed while `esp_http_server` still held the pointer. Every hunk is marked `JetHome:` and
-  `scripts/vendored-diff.py` prints the patch. It exists only until the pin catches up —
-  dropping `web_server_idf` from `external_components` builds the upstream component instead.
 - `components/dallas_scan` creates entities at runtime: codegen reserves their places in the
   entity tables (`CORE.register_platform_component`) and registers the device class and unit
   strings, C++ then calls the four-argument `App.register_sensor` and
@@ -344,8 +343,9 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
     buffers, rewritten in place, so `web_server` reading it on its own task never follows a
     freed pointer.
   - `api::APIServer::active_clients()`, `APIConnection::send_message(DisconnectRequest)` and
-    `on_fatal_error()`: after a structural change the component makes Home Assistant reconnect
-    the way upstream does after a new API key, since a client lists entities only on connect.
+    `on_fatal_error()`: after a structural change the component asks Home Assistant to
+    reconnect with the request upstream sends when the provisioning window closes, and drops a
+    client that cannot take it, since a client lists entities only on connect.
 - `components/virtual_inputs` registers its pool the way `climate_hub` does: codegen reserves
   `max_inputs` places (`CORE.register_platform_component`, before any `await` in `to_code`), and
   `setup()` registers every slot through the four-argument `App.register_binary_sensor`,
