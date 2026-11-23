@@ -279,7 +279,7 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
   `web_file_browser`, `web_automation_editor`, `web_climate_editor` and `web_schedule_editor`
   out of `CORE.config` to report their prefixes, the id of a `modbus_map` to report the map,
   and the id of a `timezone_settings` to serve `/api/device/time`, with an `ntp_servers`
-  beside it.
+  beside it, and of a `virtual_inputs` to serve its routes.
 - `components/modbus_map` derives its ranges from the validated `modbus_server` config: each
   `bits:` and `registers:` entry's `address`, `value_type` and whether it has a `write_lambda`,
   `courtesy_response`, and a value's width from `TYPE_REGISTER_MAP` in `modbus/helpers.py`. Final
@@ -323,9 +323,10 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
     hub picks. Upstream keeps a pointer to the name, not a copy.
   - The API key being what `fnv1_hash_object_id` gives, as codegen's is: a thermostat gets the
     one its name gives unless another thermostat's name gives it too, another climate has it or
-    another name had it since boot, else one hashed from its id. Upstream means to hash keys from the raw name instead (its
-    PR #18361 reverted that for 2026.8); a bump that brings it rekeys every YAML entity and
-    leaves the thermostats on this one until `key_for_` follows.
+    another name had it since boot, else one hashed from its id. Upstream means to hash keys
+    from the raw name instead (its partial revert `add18d4e3` put that off for 2026.8); a bump
+    that brings it rekeys every YAML entity and leaves the thermostats on this one until
+    `key_for_` follows.
   - `is_internal()` being read when the API and the web server list and push, not cached at
     setup (MQTT caches it, which is one reason the component has no MQTT support). The API
     reads it when it queues an entity for a client but reads the name and key only when it
