@@ -38,8 +38,8 @@ switches stay where the loop left them until something sets it off again, which 
 way.
 
 A sensor is any numeric one that is not internal, not only a temperature, and its thresholds
-are in its own unit. A switch is any but the device's own settings, such as **Allow ESPHome
-updates**: a rule naming one is not built.
+are in its own unit. A switch is any but the device's own settings, such as **Allow uploads
+from ESPHome**: a rule naming one is not built.
 
 Cron follows the device's clock, wherever its time comes from. A jump forward of up to 15
 minutes fires every cron time it skipped at once, and a longer one skips them; a jump back of
