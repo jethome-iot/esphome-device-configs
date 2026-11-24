@@ -53,6 +53,11 @@ With the default prefix `jxd-r6-e1eth-lcd-5c8214`:
 | `<prefix>/<domain>/<object id>/command` | Commands, for what can be commanded: Relay 1–6 and, on JetHome's builds, Check for updates |
 | `<prefix>/status` | `online` while connected, `offline` otherwise (retained) |
 
+A relay that a running thermostat drives refuses a command that would move it: the device log
+names the thermostat and the state topic gets the state the relay kept
+([CLIMATE.md](CLIMATE.md#a-running-thermostats-relays)). The thermostats and the virtual inputs
+are not on MQTT yet ([#146](https://github.com/jethome-iot/esphome-device-configs/issues/146)).
+
 The temperature probes (`Temp N`) publish like any other sensor. There is no log topic and no
 `esphome/discover`. The client connects with a clean session, so the broker keeps no
 subscriptions of this device between connections.

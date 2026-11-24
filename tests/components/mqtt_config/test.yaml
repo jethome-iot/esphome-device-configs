@@ -34,7 +34,7 @@ network:
 
 external_components:
   - source: ../../../components
-    components: [mqtt_config]
+    components: [mqtt_config, switch_hold]
   - source: ../../harness/components
     components: [mqtt]
 

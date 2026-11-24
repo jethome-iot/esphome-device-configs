@@ -11,6 +11,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <utility>
 
@@ -83,6 +84,12 @@
 
 namespace esphome::mqtt {
 
+// As upstream's: which topics a component's discovery payload names.
+struct SendDiscoveryConfig {
+  bool state_topic{true};
+  bool command_topic{true};
+};
+
 class MQTTComponent : public Component {
  public:
   // As upstream: the internal flag is decided once, here, and an internal component neither
@@ -98,6 +105,16 @@ class MQTTComponent : public Component {
   virtual const char *component_type() const = 0;
   // Upstream publishes the entity's state; the stand-ins have none of their own to send.
   virtual bool send_initial_state() { return true; }
+  // What a component adds to its discovery payload; the stand-in's payload carries none of it.
+  virtual void send_discovery(JsonObject root, SendDiscoveryConfig &config) {}
+
+  // As upstream's: with the component's QoS and retain flag, and a subscription on the client.
+  bool publish(const std::string &topic, const char *payload) {
+    return global_mqtt_client->publish(topic, payload, std::strlen(payload), this->qos_, this->retain_);
+  }
+  void subscribe(const std::string &topic, mqtt_callback_t callback, uint8_t qos = 0) {
+    global_mqtt_client->subscribe(topic, std::move(callback), qos);
+  }
 
   bool is_internal() const { return this->is_internal_; }
 
@@ -148,9 +165,18 @@ class MQTTComponent : public Component {
       return *this->custom_state_topic_;
     return global_mqtt_client->get_topic_prefix() + "/" + this->component_type() + "/" + this->object_id_() + "/state";
   }
+  // `<topic prefix>/<type>/<object_id>/command` unless a custom one is set.
+  std::string command_topic() const {
+    if (this->custom_command_topic_.has_value())
+      return *this->custom_command_topic_;
+    return global_mqtt_client->get_topic_prefix() + "/" + this->component_type() + "/" + this->object_id_() +
+           "/command";
+  }
 
  protected:
   virtual const EntityBase *get_entity() const = 0;
+  std::string get_state_topic_() const { return this->state_topic(); }
+  std::string get_command_topic_() const { return this->command_topic(); }
 
   std::string object_id_() const {
     char buf[OBJECT_ID_MAX_LEN];

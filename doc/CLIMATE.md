@@ -181,6 +181,7 @@ What everything else that switches a relay does with one a running thermostat dr
 | --- | --- |
 | The panel: CENTER on the status page, **Relays → Relay N → State** | leave it alone; the log names the thermostat |
 | Modbus coils `0x0000`–`0x0005` | a write that would move it answers exception `0x04`; writing the state it already has is accepted |
+| MQTT, the relay's command topic | a command that would move it is refused: the log names the thermostat and the state topic gets the state the relay kept; a command for the state it already has is accepted |
 | Automation rules, `switch` actions | leave it alone and log the rule and the thermostat; the rest of the rule runs |
 | Input bindings, Toggle and Follow | leave it alone; once the thermostat frees it, a Follow relay takes its input's state at once, unless a thermostat that waited for the relay starts on it |
 | Schedules | skip the action, and the schedule's status lists it with the thermostat's name; once the thermostat frees it, the relay takes the last action on it the list of the mode in force has passed |

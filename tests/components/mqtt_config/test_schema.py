@@ -289,5 +289,32 @@ class EntityWalk(unittest.TestCase):
         self.assertEqual(list(mqtt_config.mqtt_entities({"esphome": {}})), [])
 
 
+class HeldSwitches(unittest.TestCase):
+    """Which switches get a HoldAwareSwitch in place of upstream's component."""
+
+    def test_every_switch_upstream_would_serve(self):
+        config = {
+            "switch": [
+                {"id": _id("relay_1"), "mqtt_id": _id("relay_1_mqtt")},
+                # state_topic: null validates to "", which is how a switch is kept off MQTT.
+                {"id": _id("ota"), "mqtt_id": _id("ota_mqtt"), "state_topic": ""},
+                {"id": _id("cmd"), "mqtt_id": _id("cmd_mqtt"), "command_topic": ""},
+                {"id": _id("inner"), "mqtt_id": _id("inner_mqtt"), "internal": True},
+                {
+                    "id": _id("custom"),
+                    "mqtt_id": _id("custom_mqtt"),
+                    "state_topic": "a/b",
+                },
+                # No mqtt: in the config, so no MQTT component at all.
+                {"id": _id("plain")},
+            ]
+        }
+        held = [conf["id"].id for conf in mqtt_config.held_switches(config)]
+        self.assertEqual(held, ["relay_1", "custom"])
+
+    def test_no_switches(self):
+        self.assertEqual(list(mqtt_config.held_switches({})), [])
+
+
 if __name__ == "__main__":
     unittest.main()

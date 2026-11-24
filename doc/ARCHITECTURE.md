@@ -78,13 +78,14 @@ Shared code and tooling stay at the repository root:
 - `climates` is also the firmware's `switch_hold` holder: `switch_hold::holder(id(relay_N))`
   names the running thermostat that drives a relay, `""` when none does. Everything that moves
   a relay on its own asks it first — the status page's CENTER (`display/buttons.yaml`), the
-  menu's State and Inverted rows (`display/menu.yaml`), the Modbus coils, `automations`,
-  `bindings`, `schedules` and the `switch_settings` Inverted field — and `bindings` and
+  menu's State and Inverted rows (`display/menu.yaml`), the Modbus coils, the MQTT command
+  topics (`mqtt_config`), `automations`, `bindings`, `schedules` and the `switch_settings`
+  Inverted field — and `bindings` and
   `schedules` hear from it when a relay is freed. Home Assistant and the web server's REST do
   not ask; the thermostat puts the relay back. The list of writers and what each gets is in
   [CLIMATE.md](CLIMATE.md#a-running-thermostats-relays); a new writer of a relay asks too.
-  `features/climates.yaml`, `automations.yaml`, `entity-settings.yaml` and `schedules.yaml` load
-  `switch_hold`; `display/buttons.yaml` and `features/modbus-server.yaml` call `switch_hold::`
+  `features/climates.yaml`, `automations.yaml`, `entity-settings.yaml`, `schedules.yaml` and
+  `mqtt.yaml` load `switch_hold`; `display/buttons.yaml` and `features/modbus-server.yaml` call `switch_hold::`
   without loading it, so they count on one of those being in the same firmware, as
   `display/menu.yaml` counts on all four.
 - `schedules_engine` (`features/schedules.yaml`) is the `schedules` component: the weekly
@@ -481,6 +482,11 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
     broker; final_validate requires `true`. The client reserves the whole announced length of an
     inbound message before it matches the topic, which with exceptions off can abort the device;
     that is what the crash guard counts.
+  - Upstream's `MQTTSwitchComponent` is `final`, so a switch's commands cannot be checked against
+    `switch_hold` inside it. Codegen gives every visible switch a `HoldAwareSwitch` with the same
+    options instead, whose setup, discovery and state copy upstream's, and `setup()` sets an
+    empty state topic on upstream's own, which makes it internal at its later setup: it neither
+    subscribes nor publishes. A change to upstream's switch component is copied there.
   - final_validate requires `idf_send_async: true` on ESP32: the client then publishes from a
     task of its own through a queue of 29, so a broker that stops reading blocks that task, not
     the loop. A publish that finds the queue full is dropped; a component's resend, discovery

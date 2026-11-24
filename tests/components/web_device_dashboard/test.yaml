@@ -45,6 +45,7 @@ external_components:
       - dallas_scan
       - modbus_map
       - mqtt_config
+      - switch_hold
       - panel_text
       - timezone_settings
       - ntp_servers

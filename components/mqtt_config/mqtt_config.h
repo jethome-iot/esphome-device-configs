@@ -16,6 +16,7 @@
 #include "esphome/components/sensor/sensor.h"
 #endif
 #include "crash_guard.h"
+#include "hold_aware_switch.h"
 #include "mqtt_record.h"
 
 namespace esphome::mqtt_config {
@@ -75,6 +76,10 @@ class MqttConfig : public Component {
   // Sensors created at run time (dallas_scan's Temp N), which codegen gave no MQTT component.
   using SensorSource = std::function<std::vector<sensor::Sensor *>()>;
   void add_runtime_sensors(SensorSource &&source) { this->sensor_sources_.push_back(std::move(source)); }
+#endif
+#ifdef USE_SWITCH
+  // A switch whose commands `held` takes in place of upstream's `stock`, which goes quiet at setup.
+  void hold_switch(mqtt::MQTTComponent *stock, HoldAwareSwitch *held, const switch_::Switch *a_switch);
 #endif
 
   // --- Device API, loop task ---
@@ -216,6 +221,9 @@ class MqttConfig : public Component {
   std::vector<Walked> entities_;
 #ifdef USE_SENSOR
   std::vector<SensorSource> sensor_sources_;
+#endif
+#ifdef USE_SWITCH
+  std::vector<mqtt::MQTTComponent *> silenced_;
 #endif
   std::vector<Waiter> waiters_;
 };

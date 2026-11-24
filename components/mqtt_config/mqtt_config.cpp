@@ -40,6 +40,13 @@ void MqttConfig::add_entity(mqtt::MQTTComponent *component, const EntityBase *en
   this->entities_.push_back(Walked{component, entity});
 }
 
+#ifdef USE_SWITCH
+void MqttConfig::hold_switch(mqtt::MQTTComponent *stock, HoldAwareSwitch *held, const switch_::Switch *a_switch) {
+  this->silenced_.push_back(stock);
+  this->add_entity(held, a_switch);
+}
+#endif
+
 void MqttConfig::setup() {
   // What was compiled, before anything here changes it. The client has no getter for its
   // default id, so it is rebuilt the way its constructor builds it.
@@ -55,6 +62,13 @@ void MqttConfig::setup() {
 
   this->held_back_ = this->crash_streak() >= HOLD_MQTT_AT;
   this->load_();
+
+#ifdef USE_SWITCH
+  // An empty state topic makes upstream's component internal at its own setup, below this one,
+  // so it neither subscribes nor publishes: the HoldAwareSwitch in its place does.
+  for (mqtt::MQTTComponent *stock : this->silenced_)
+    stock->set_custom_state_topic("");
+#endif
 
   // Topics apply even with MQTT off: entity components build theirs from the prefix at their
   // own setup, and a first start later in this boot keeps them. The empty check value never

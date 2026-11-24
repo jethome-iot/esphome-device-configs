@@ -68,10 +68,17 @@ over MQTT gets `state_topic: null`: no state topic, no command topic and no disc
 native API and the web server keep it. Entities created at run time by `dallas_scan` (the
 `Temp N` sensors) get an MQTT component from this one.
 
+## Switches a thermostat holds
+
+A switch's command topic is served by this component's `HoldAwareSwitch` in place of the stock
+one: a command that would move a switch a running thermostat holds (`switch_hold`) is refused,
+the log names the thermostat, and the state topic gets the state the switch kept. A command for
+the state it already has is accepted, as Modbus accepts one.
+
 ## Tests
 
 `tests/components/mqtt_config/` covers the refused `mqtt:` blocks and the entity walk from
 Python and, over the harness's `mqtt` stand-in, the stored record and its validation, what a
 boot applies, the first start in a boot, the later changes that wait for a reboot, the removal of
-Home Assistant entries, the connection states and their causes, the crash guard and the `Temp N`
-bridge. NVS, the RTC memory and esp-mqtt itself are ESP-IDF only and out of the host's reach.
+Home Assistant entries, the connection states and their causes, the crash guard, the `Temp N`
+bridge and the commands to a held switch. NVS, the RTC memory and esp-mqtt itself are ESP-IDF only and out of the host's reach.

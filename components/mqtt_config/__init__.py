@@ -17,12 +17,14 @@ from esphome.const import (
     CONF_CLIENT_CERTIFICATE,
     CONF_CLIENT_CERTIFICATE_KEY,
     CONF_CLIENT_ID,
+    CONF_COMMAND_TOPIC,
     CONF_DISCOVER_IP,
     CONF_DISCOVERY,
     CONF_DISCOVERY_RETAIN,
     CONF_DISCOVERY_UNIQUE_ID_GENERATOR,
     CONF_ENABLE_ON_BOOT,
     CONF_ID,
+    CONF_INTERNAL,
     CONF_LOG_TOPIC,
     CONF_MQTT_ID,
     CONF_PAYLOAD,
@@ -30,6 +32,7 @@ from esphome.const import (
     CONF_REBOOT_TIMEOUT,
     CONF_RETAIN,
     CONF_SHUTDOWN_MESSAGE,
+    CONF_STATE_TOPIC,
     CONF_TOPIC,
     CONF_TOPIC_PREFIX,
     CONF_WILL_MESSAGE,
@@ -41,16 +44,18 @@ from esphome.helpers import fnv1_hash
 
 CODEOWNERS = ["@jethome-iot"]
 DEPENDENCIES = ["mqtt"]
-AUTO_LOAD = ["json"]
+AUTO_LOAD = ["json", "switch_hold"]
 
 CONF_MQTT_PARENT_ID = "mqtt_parent_id"
 CONF_WAIT_FOR_CONNECTION = "wait_for_connection"
 CONF_IDF_SEND_ASYNC = "idf_send_async"
 CONF_MQTT = "mqtt"
 CONF_DALLAS_SCAN = "dallas_scan"
+CONF_SWITCH = "switch"
 
 mqtt_config_ns = cg.esphome_ns.namespace("mqtt_config")
 MqttConfig = mqtt_config_ns.class_("MqttConfig", cg.Component)
+HoldAwareSwitch = mqtt_config_ns.class_("HoldAwareSwitch", mqtt.MQTTComponent)
 
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
@@ -146,6 +151,20 @@ def _final_validate(config):
 FINAL_VALIDATE_SCHEMA = _final_validate
 
 
+def held_switches(config):
+    """The switch configs whose MQTT component takes commands: every one but those kept off MQTT."""
+    for conf in config.get(CONF_SWITCH) or []:
+        if CONF_MQTT_ID not in conf or conf.get(CONF_INTERNAL):
+            continue
+        # state_topic: null or command_topic: null makes upstream's component internal.
+        if any(
+            key in conf and not conf[key]
+            for key in (CONF_STATE_TOPIC, CONF_COMMAND_TOPIC)
+        ):
+            continue
+        yield conf
+
+
 def mqtt_entities(node):
     """(mqtt_id, entity id) of every entity that has an MQTT component, in config order."""
     if isinstance(node, dict):
@@ -185,12 +204,28 @@ async def to_code(config):
 
     # Hidden ones too: the C++ skips what the client keeps internal.
     entities = list(mqtt_entities(CORE.config))
-    cg.add(var.reserve_entities(len(entities)))
+    switches = list(held_switches(CORE.config))
+    cg.add(var.reserve_entities(len(entities) + len(switches)))
     for mqtt_id, entity_id in entities:
         cg.add(
             var.add_entity(
                 await cg.get_variable(mqtt_id), await cg.get_variable(entity_id)
             )
+        )
+
+    # A command to a switch a running thermostat holds is refused, as Modbus and the rules refuse
+    # it. Upstream's component is final, so another takes its place, with the same options.
+    for conf in switches:
+        a_switch = await cg.get_variable(conf[CONF_ID])
+        held_id = ID(
+            f"{conf[CONF_MQTT_ID].id}_held", is_declaration=True, type=HoldAwareSwitch
+        )
+        # register_component() takes only ids config validation declared; this one it never saw.
+        CORE.component_ids.add(held_id.id)
+        held = cg.new_Pvariable(held_id, a_switch)
+        await mqtt.register_mqtt_component(held, conf)
+        cg.add(
+            var.hold_switch(await cg.get_variable(conf[CONF_MQTT_ID]), held, a_switch)
         )
 
     # Temp N are created at setup, with no MQTT component of their own.
