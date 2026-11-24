@@ -79,6 +79,8 @@ class TestEngine : public automations::AutomationStorage {
     return automations::AutomationStorage::run_on_loop(std::move(job));
   }
   uint64_t uptime_ms() const override { return this->uptime; }
+  // The startup event setup() defers.
+  void startup() { this->startup_(); }
 };
 
 // The hub, its loop jobs counted and refused at will, as TestEngine's are.
@@ -182,6 +184,8 @@ class Editor : public ::testing::Test {
     this->engine->set_storage(&this->backend);
     this->engine->setup();
     ASSERT_FALSE(this->engine->is_failed());
+    // The device has booted: a request arrives long after the startup event.
+    this->engine->startup();
     this->editor = std::make_unique<TestEditor>(&this->base, this->engine);
     this->editor->setup();
   }

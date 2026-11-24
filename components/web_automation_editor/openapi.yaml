@@ -119,7 +119,9 @@ paths:
         or one with a control character, is refused with the reason. So is a
         rule that names what the device does not have: an
         entity, a thermostat, or a preset key the thermostat lacks
-        (`Action 1: thermostat "attic" not found`). The engine's other refusals
+        (`Action 1: thermostat "attic" not found`), and one with a `condition`
+        trigger and no condition (`Trigger 1: no condition to watch`). The
+        engine's other refusals
         — the rule limit, a file the loader had refused under that name, a call
         from inside a running rule — come back as `Failed to create automation`
         / `Failed to update automation`.
@@ -186,7 +188,9 @@ paths:
         Runs the rule's `actions` at once, skipping its triggers and its
         condition, whether the rule is enabled or not. The run starts with no
         trigger state, so a `follow` action has none to copy unless a trigger
-        arrives while it plays. The rule's mode
+        arrives while it plays. A rule with a `condition` trigger plays the
+        branch its condition gives now instead, `actions` or `else_actions`,
+        carrying that result as the trigger does. The rule's mode
         decides as it does for a trigger: `single` refuses while a run is under
         way, `restart` starts over, `parallel` adds a copy up to 8. The answer
         comes once the run has started; a delay in it plays on afterwards, and
@@ -546,7 +550,11 @@ components:
       properties:
         source:
           type: string
-          enum: [input, switch, temperature, cron, startup]
+          enum: [input, switch, temperature, cron, startup, condition]
+          description: >-
+            `condition` takes no other field: it fires when the result of the
+            rule's `condition` changes, and once when the rule starts watching,
+            carrying the result. A rule with it and no `condition` is refused.
         type:
           type: string
           description: >-

@@ -111,6 +111,30 @@ export const seedAutomations: AutomationConfig[] = [
     triggers: [{ source: 'input', type: 'press', object_id: 'motion' }],
     condition: { type: 'switch', object_id: 'fan', state: 'false' },
     actions: [{ source: 'switch', type: 'turn_on', object_id: 'relay_3' }]
+  },
+  // A latch: the rule follows its condition. The door turns the porch light on, the light holds
+  // itself on, motion lets it go.
+  {
+    id: 6,
+    name: 'Porch light latches on the door',
+    enabled: true,
+    mode: 'restart',
+    triggers: [{ source: 'condition' }],
+    condition: {
+      type: 'or',
+      conditions: [
+        { type: 'input', object_id: 'front_door', state: 'true' },
+        {
+          type: 'and',
+          conditions: [
+            { type: 'switch', object_id: 'porch_light', state: 'true' },
+            { type: 'input', object_id: 'motion', state: 'false' }
+          ]
+        }
+      ]
+    },
+    actions: [{ source: 'switch', type: 'turn_on', object_id: 'porch_light' }],
+    else_actions: [{ source: 'switch', type: 'turn_off', object_id: 'porch_light' }]
   }
 ]
 
@@ -149,7 +173,8 @@ export const seedSchema: AutomationSchema = {
     { type: 'temperature', subtypes: ['above', 'below', 'range'] },
     { type: 'cron', subtypes: [] },
     { type: 'startup', subtypes: [] },
-    { type: 'switch', subtypes: ['turn_on', 'turn_off', 'state_change'] }
+    { type: 'switch', subtypes: ['turn_on', 'turn_off', 'state_change'] },
+    { type: 'condition', subtypes: [] }
   ],
   conditions: [
     { type: 'input' },
@@ -205,9 +230,12 @@ function validClimateAction(a: AutomationAction): boolean {
   )
 }
 
-// RuntimeAutomation::build's refusal for what the mock knows: a thermostat or a preset key
-// that /entities does not list. "" when the rule builds.
+// RuntimeAutomation::build's refusal for what the mock knows: a condition trigger with no
+// condition to watch, a thermostat or a preset key that /entities does not list. "" when the
+// rule builds.
 function buildError(cfg: AutomationSaveInput): string {
+  const watching = cfg.triggers.findIndex((t) => t.source === 'condition')
+  if (watching >= 0 && !cfg.condition) return `Trigger ${watching + 1}: no condition to watch`
   const lists: Array<[string, AutomationAction[]]> = [
     ['Action', cfg.actions],
     ['Else action', cfg.else_actions ?? []]
@@ -450,7 +478,9 @@ export function createAutomationMockStore(options: AutomationMockStoreOptions = 
         if (!rule) return { status: 404, body: { success: false, error: 'Automation not found' } }
         const missing = buildError(rule)
         if (missing) return { status: 409, body: { success: false, error: `Automation cannot run: ${missing}` } }
-        // Enabled or not, and whatever the condition says: the actions, as the mode allows.
+        // Enabled or not, and whatever the condition says: the actions, as the mode allows. A
+        // rule with a condition trigger plays the branch its condition gives on the device; with
+        // no entity states here, the mock times it on the actions.
         let underWay = runsUnderWay(id)
         if (underWay.length > 0 && rule.mode === 'single') {
           return { status: 409, body: { success: false, error: 'Automation is already running' } }
