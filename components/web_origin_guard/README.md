@@ -15,7 +15,22 @@ external_components:
     components: [web_origin_guard, web_file_browser]
 ```
 
-The rule is `web_server`'s own, so every handler on the port answers the same way:
+First the `Host` the request was sent to has to name this device, or the answer is `403
+Forbidden` whatever the `Origin`. It names the device when it is
+
+- an IP literal, IPv4 or IPv6 in brackets;
+- the node name, `<name>.local`, or any `<name>.<domain>`, such as the name a router's DNS gives
+  the device (`<name>.lan`, `<name>.fritz.box`);
+
+each with or without a port, case aside. A request with no `Host` passes this step: a browser
+always sends one. While the captive portal runs it answers every host, because a phone finds it
+by probing its vendor's own, so the step is skipped then.
+
+This is what stops DNS rebinding: a page on `attacker.example` whose name is made to resolve to
+the device's address is same-origin to the browser, so its requests carry `Host:
+attacker.example` and an `Origin` that matches it, or none at all.
+
+Then the rule is `web_server`'s own, so every handler on the port answers the same way:
 
 - no `Origin` header — allowed. `curl`, a script, a Home Assistant `rest_command` and any other
   non-browser client send none.
@@ -51,6 +66,9 @@ outright, not answered with a challenge that makes the browser ask the person fo
 
 ## Where this differs from `web_server`'s own check
 
+- **`Host` is checked.** Upstream's check reads `Origin` alone, so a rebound page passes it. An
+  ESPHome bump that moves the origin check into `web_server_base` for every handler keeps
+  `host_names_device()` in front of it.
 - **`allowed_origins` is not consulted.** Upstream's rule also accepts any origin listed in the
   `web_server:` `allowed_origins:` option. This does not read it, so a firmware that ever sets
   that option would have upstream's routes honour the list and these refuse it.
@@ -62,6 +80,9 @@ outright, not answered with a challenge that makes the browser ask the person fo
   through `httpd_resp_*` directly.
 
 ## What this breaks
+
+Reaching the device through a name that is not its own: a DNS alias, or a reverse proxy that
+forwards the browser's `Host` unchanged. Use its IP, its name, or a name under it.
 
 A browser-based development server proxying to a real device. The dashboard's dev server sends
 `Origin: http://localhost:5173` with `Host` rewritten to the device, so every mutating call
@@ -76,7 +97,8 @@ do not go through this server at all.
 ## Tests
 
 `tests/components/web_origin_guard/` drives both halves over the harness's `web_server_base`
-stand-in: which origins pass, which are refused, that a refused request reaches the wrapped
+stand-in: which hosts name the device and which are refused, with and without an `Origin`, that
+the captive portal lifts the `Host` step and only that, which origins pass, which are refused, that a refused request reaches the wrapped
 handler on none of `handleRequest`, `handleBody` and `handleUpload`, and that the catch-all
 refuses a request bound for a handler it knows nothing about while leaving an allowed one
 unclaimed. `test_schema.py` covers the configuration.

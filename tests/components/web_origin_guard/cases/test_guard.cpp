@@ -3,10 +3,17 @@
 #include <string>
 #include <utility>
 #include "esphome/components/web_origin_guard/web_origin_guard.h"
+#include "esphome/core/application.h"
 
 namespace esphome::web_origin_guard::testing {
 
 static const char *const REFUSED = "Cross-origin request refused";
+
+// The node name the cases' device.local names.
+static void name_the_device() {
+  static const bool named = (App.pre_setup("device", 6, "", 0), true);
+  (void) named;
+}
 
 // The handler behind the guard: it answers what it is given and records every entry point it
 // was reached on, so a case can say the guard stopped a request rather than only that the
@@ -55,6 +62,7 @@ struct Reply {
 class Guard : public ::testing::Test {
  protected:
   void SetUp() override {
+    name_the_device();
     this->base.init();
     this->base.add_handler(&this->guard);
   }
@@ -254,6 +262,82 @@ TEST_F(Guard, JudgesARequestWithoutWrappingIt) {
   EXPECT_TRUE(allowed(&bare));
 }
 
+// --- the Host: a page that points its own name at the device's address (#107) ---
+
+TEST(HostNamesDevice, TakesEveryIpLiteralWithOrWithoutAPort) {
+  // Rebinding needs a DNS name, so no literal can be one.
+  for (const char *host :
+       {"192.168.1.50", "192.168.1.50:8080", "10.0.2.15", "[fe80::1]", "[fe80::1]:80", "[::ffff:192.168.1.50]"}) {
+    EXPECT_TRUE(host_names_device(host, "device")) << host;
+  }
+}
+
+TEST(HostNamesDevice, TakesTheNameAndAnyDomainUnderIt) {
+  // mDNS, and the names a router's DNS gives a DHCP client.
+  for (const char *host : {"device", "device.local", "DEVICE.Local", "device.local:8080", "device.lan",
+                           "device.fritz.box", "device.local.", "device:80"}) {
+    EXPECT_TRUE(host_names_device(host, "device")) << host;
+  }
+}
+
+TEST(HostNamesDevice, RefusesEveryOtherName) {
+  for (const char *host : {"attacker.example", "attacker.example:80", "device-2.local", "mydevice.local", "devicex",
+                           "x.device.local", "local", "256.1.1.1", "1.2.3", "1.2.3.4.5", "1234.1.1.1"}) {
+    EXPECT_FALSE(host_names_device(host, "device")) << host;
+  }
+}
+
+TEST(HostNamesDevice, RefusesWhatIsNoHostAtAll) {
+  for (const char *host : {"", ":80", ".", "device:http", "device:123456", "[fe80::1", "[fe80::1]x", "[fe80::1]:", "[]",
+                           "[evil.example]"}) {
+    EXPECT_FALSE(host_names_device(host, "device")) << host;
+  }
+}
+
+TEST(HostNamesDevice, WithoutANameOnlyLiteralsPass) {
+  EXPECT_TRUE(host_names_device("10.0.0.1", ""));
+  EXPECT_FALSE(host_names_device("device.local", ""));
+}
+
+TEST_F(Guard, RefusesAHostThatNamesAnotherSiteWithOrWithoutAnOrigin) {
+  // The browser treats the rebound page as its own origin: a POST carries an Origin equal to
+  // the Host, a GET none at all.
+  const Reply post = this->call(HTTP_POST, "/mine/write", "http://attacker.example", "attacker.example", "hello");
+  EXPECT_EQ(post.code, 403);
+  EXPECT_EQ(post.body, REFUSED);
+  const Reply get = this->call(HTTP_GET, "/mine/list", nullptr, "attacker.example");
+  EXPECT_EQ(get.code, 403);
+  this->expect_untouched();
+}
+
+TEST_F(Guard, ServesTheNameARoutersDnsGivesTheDevice) {
+  const Reply reply = this->call(HTTP_POST, "/mine/write", "http://device.fritz.box", "device.fritz.box", "hello");
+  EXPECT_EQ(reply.code, 200);
+  EXPECT_EQ(this->inner.requests, 1);
+}
+
+TEST_F(Guard, ServesARequestThatCarriesNoHost) {
+  // Not a browser: one always sends it. The Origin rule still needs one to compare.
+  const Reply reply = this->call(HTTP_GET, "/mine/list", nullptr, nullptr);
+  EXPECT_EQ(reply.code, 200);
+}
+
+TEST_F(Guard, AnswersEveryHostWhileTheCaptivePortalRuns) {
+  // A phone finds the portal by probing its vendor's host, which the portal has to answer.
+  AsyncWebServerRequest probe(HTTP_GET, "/generate_204");
+  probe.set_header("Host", "connectivitycheck.gstatic.com");
+  EXPECT_FALSE(allowed(&probe, false));
+  EXPECT_TRUE(allowed(&probe, true));
+  // The Origin rule holds all the same.
+  AsyncWebServerRequest cross(HTTP_POST, "/wifisave");
+  cross.set_header("Host", "192.168.4.1");
+  cross.set_header("Origin", "http://evil.example");
+  EXPECT_FALSE(allowed(&cross, true));
+  // No captive portal in this build: the one-argument form judges as with the portal down.
+  EXPECT_FALSE(captive_portal_active());
+  EXPECT_FALSE(allowed(&probe));
+}
+
 // --- the catch-all ---
 
 // What the refuser stands in front of: a handler it does not wrap and cannot reach into --
@@ -261,6 +345,7 @@ TEST_F(Guard, JudgesARequestWithoutWrappingIt) {
 class Refuser : public ::testing::Test {
  protected:
   void SetUp() override {
+    name_the_device();
     this->refuser.setup();
     // After it, as every handler-registering component is: the refuser sets up at
     // setup_priority::WIFI and they are all below it.
@@ -268,9 +353,9 @@ class Refuser : public ::testing::Test {
   }
 
   Reply call(http_method method, const std::string &target, const char *origin, const std::string &body = "",
-             const char *upload = nullptr) {
+             const char *upload = nullptr, const char *host = "device.local") {
     AsyncWebServerRequest request(method, target, body, "multipart/form-data");
-    request.set_header("Host", "device.local");
+    request.set_header("Host", host);
     if (origin != nullptr)
       request.set_header("Origin", origin);
     if (upload != nullptr)
@@ -325,6 +410,15 @@ TEST_F(Refuser, ClaimsNothingItIsNotRefusing) {
   const Reply bare = this->call(HTTP_POST, "/mine/write", nullptr, "hello");
   EXPECT_EQ(bare.code, 200);
   EXPECT_EQ(this->other.requests, 1);
+}
+
+TEST_F(Refuser, RefusesAForeignHostAheadOfEveryHandler) {
+  // What reaches web_server's REST and /update through a rebound name, with no Origin at all.
+  const Reply reply = this->call(HTTP_POST, "/mine/update", nullptr, "", "firmware bytes", "attacker.example");
+  EXPECT_TRUE(reply.claimed);
+  EXPECT_EQ(reply.code, 403);
+  EXPECT_EQ(this->other.requests, 0);
+  EXPECT_EQ(this->other.uploads, 0);
 }
 
 TEST_F(Refuser, LeavesAnAllowedRequestForNobodyUnclaimed) {

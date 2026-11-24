@@ -76,6 +76,9 @@ const char *const PORCH_LIGHT =
 class NoClimate : public ::testing::Test {
  protected:
   void SetUp() override {
+    // web_origin_guard serves a Host only when it names this device, as device.local does (#107).
+    static const bool named = (App.pre_setup("device", 6, "", 0), true);
+    (void) named;
     entities();
     mkdir(".storage", 0755);
     char folder[] = ".storage/XXXXXX";
