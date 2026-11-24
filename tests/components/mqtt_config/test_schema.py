@@ -315,6 +315,22 @@ class HeldSwitches(unittest.TestCase):
     def test_no_switches(self):
         self.assertEqual(list(mqtt_config.held_switches({})), [])
 
+    def test_final_validate_declares_their_components(self):
+        # App's component table is sized from the declared ids before to_code adds these.
+        on_esp32()
+        block = mqtt.CONFIG_SCHEMA(shipped_block())
+        switches = [
+            {"id": _id("relay_1"), "mqtt_id": _id("relay_1_mqtt")},
+            {"id": _id("ota"), "mqtt_id": _id("ota_mqtt"), "state_topic": ""},
+        ]
+        token = fv.full_config.set({"mqtt": block, "switch": switches})
+        try:
+            mqtt_config.FINAL_VALIDATE_SCHEMA({})
+        finally:
+            fv.full_config.reset(token)
+        self.assertIn("relay_1_mqtt_held", CORE.component_ids)
+        self.assertNotIn("ota_mqtt_held", CORE.component_ids)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -143,8 +143,14 @@ def _check_mqtt_block(conf):
 
 
 def _final_validate(config):
-    if (fault := _check_mqtt_block(fv.full_config.get()[CONF_MQTT])) is not None:
+    full = fv.full_config.get()
+    if (fault := _check_mqtt_block(full[CONF_MQTT])) is not None:
         raise cv.Invalid(fault, path=[CONF_MQTT])
+    # App's component table is sized from the ids validation declared, before any to_code runs,
+    # and drops a registration past it without a word: the HoldAwareSwitch each held switch
+    # gets in to_code is declared here, or the last components registered never set up.
+    for conf in held_switches(full):
+        CORE.component_ids.add(held_switch_id(conf))
     return config
 
 
@@ -163,6 +169,11 @@ def held_switches(config):
         ):
             continue
         yield conf
+
+
+def held_switch_id(conf):
+    """The id of the HoldAwareSwitch that takes a switch's commands."""
+    return f"{conf[CONF_MQTT_ID].id}_held"
 
 
 def mqtt_entities(node):
@@ -217,11 +228,7 @@ async def to_code(config):
     # it. Upstream's component is final, so another takes its place, with the same options.
     for conf in switches:
         a_switch = await cg.get_variable(conf[CONF_ID])
-        held_id = ID(
-            f"{conf[CONF_MQTT_ID].id}_held", is_declaration=True, type=HoldAwareSwitch
-        )
-        # register_component() takes only ids config validation declared; this one it never saw.
-        CORE.component_ids.add(held_id.id)
+        held_id = ID(held_switch_id(conf), is_declaration=True, type=HoldAwareSwitch)
         held = cg.new_Pvariable(held_id, a_switch)
         await mqtt.register_mqtt_component(held, conf)
         cg.add(
