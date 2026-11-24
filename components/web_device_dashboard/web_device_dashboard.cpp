@@ -66,6 +66,9 @@ static const Route ROUTES[] = {
 #ifdef USE_MQTT_CONFIG
     {"mqtt", RouteId::MQTT, true, true},
 #endif
+#ifdef USE_MQTT_SUBSCRIPTIONS
+    {"mqtt/subscriptions", RouteId::MQTT_SUBSCRIPTIONS, true, true},
+#endif
     {"capabilities", RouteId::CAPABILITIES, true, false},
     {"system/reboot", RouteId::SYSTEM_REBOOT, false, true},
     {"system/factory-reset", RouteId::SYSTEM_FACTORY_RESET, false, true},
@@ -192,6 +195,15 @@ void WebDeviceDashboard::handleRequest(AsyncWebServerRequest *request) {
           this->handle_mqtt_set_(request);
         } else {
           this->handle_mqtt_get_(request);
+        }
+        break;
+#endif
+#ifdef USE_MQTT_SUBSCRIPTIONS
+      case RouteId::MQTT_SUBSCRIPTIONS:
+        if (request->method() == HTTP_POST) {
+          this->handle_mqtt_subscriptions_set_(request);
+        } else {
+          this->handle_mqtt_subscriptions_get_(request);
         }
         break;
 #endif
@@ -522,6 +534,7 @@ void WebDeviceDashboard::handle_status_(AsyncWebServerRequest *request) {
     if (this->temperature_slots_ != nullptr && this->temperature_slots_->reboot_required())
       reasons.add("temperature_slots");
 #endif
+    bool mqtt_waits = false;
 #ifdef USE_MQTT_CONFIG
     // One snapshot, so the state, the error and the reboot flag never disagree.
     if (auto *mqtt = mqtt_config::global_mqtt_config; mqtt != nullptr) {
@@ -536,10 +549,16 @@ void WebDeviceDashboard::handle_status_(AsyncWebServerRequest *request) {
       } else {
         out["last_error"] = nullptr;
       }
-      if (live.reboot_required)
-        reasons.add("mqtt");
+      mqtt_waits = live.reboot_required;
     }
 #endif
+#ifdef USE_MQTT_SUBSCRIPTIONS
+    // Saved slots that differ from what runs, under the same reason: one notice covers both.
+    if (auto *subs = mqtt_subscriptions::global_mqtt_subscriptions; subs != nullptr)
+      mqtt_waits = mqtt_waits || subs->reboot_required();
+#endif
+    if (mqtt_waits)
+      reasons.add("mqtt");
     root["reboot_required"] = reasons.size() != 0;
     if (reasons.size() == 0)
       root.remove("reboot_reasons");
@@ -745,6 +764,73 @@ void WebDeviceDashboard::handle_mqtt_set_(AsyncWebServerRequest *request) {
 }
 #endif  // USE_MQTT_CONFIG
 
+#ifdef USE_MQTT_SUBSCRIPTIONS
+// GET /api/device/mqtt/subscriptions: every slot as saved, with what runs. Built on the loop
+// task, which reads the file and owns the slots.
+void WebDeviceDashboard::handle_mqtt_subscriptions_get_(AsyncWebServerRequest *request) {
+  auto *subs = mqtt_subscriptions::global_mqtt_subscriptions;
+  if (subs == nullptr) {
+    this->send_error_(request, 503, "MQTT subscriptions not available");
+    return;
+  }
+  std::string json;
+  const bool read = this->run_on_loop_([&]() {
+    JsonDocument doc;
+    subs->write_api_json(doc.to<JsonObject>());
+    serializeJson(doc, json);
+    return true;
+  });
+  if (!read) {
+    this->send_error_(request, 503, "Device busy");
+    return;
+  }
+  request->send(200, "application/json", json.c_str());
+}
+
+// POST /api/device/mqtt/subscriptions: saves or clears one slot. Read, judge and write are one
+// job on the loop task, so a file restored meanwhile is what the change applies to.
+void WebDeviceDashboard::handle_mqtt_subscriptions_set_(AsyncWebServerRequest *request) {
+  if (!this->require_json_(request))
+    return;
+  if (this->body_too_large_) {
+    this->send_error_(request, 413, "Request body over 4 KiB");
+    return;
+  }
+  auto *subs = mqtt_subscriptions::global_mqtt_subscriptions;
+  if (subs == nullptr) {
+    this->send_error_(request, 503, "MQTT subscriptions not available");
+    return;
+  }
+  JsonDocument doc = json::parse_json(this->body_);
+  if (doc.isNull() || !doc.is<JsonObject>()) {
+    this->send_error_(request, 400, "Invalid JSON");
+    return;
+  }
+  using Result = mqtt_subscriptions::MqttSubscriptions::Result;
+  Result result = Result::OK;
+  std::string message;
+  bool reboot_required = false;
+  const bool ran = this->run_on_loop_([&]() {
+    result = subs->post(doc.as<JsonObjectConst>(), &message, &reboot_required);
+    return true;
+  });
+  if (!ran) {
+    this->send_error_(request, 503, "Device busy");
+    return;
+  }
+  if (const int code = mqtt_subscriptions::MqttSubscriptions::http_status(result); code != 200) {
+    this->send_error_(request, code, message.c_str());
+    return;
+  }
+  auto body = json::build_json([&](JsonObject root) {
+    root["success"] = true;
+    root["message"] = message;
+    root["reboot_required"] = reboot_required;
+  });
+  request->send(200, "application/json", body.c_str());
+}
+#endif  // USE_MQTT_SUBSCRIPTIONS
+
 // GET /api/device/capabilities: what this firmware has, so the page knows which screens to
 // draw and which routes exist. A key is present only when the capability is; one that has no
 // detail to carry is `true`.
@@ -823,6 +909,10 @@ void WebDeviceDashboard::handle_capabilities_(AsyncWebServerRequest *request) {
 #ifdef USE_MQTT_CONFIG
     if (mqtt_config::global_mqtt_config != nullptr)
       root["mqtt"] = true;
+#endif
+#ifdef USE_MQTT_SUBSCRIPTIONS
+    if (auto *subs = mqtt_subscriptions::global_mqtt_subscriptions; subs != nullptr)
+      root["mqtt_subscriptions"]["max_slots"] = subs->max_slots();
 #endif
   });
   request->send(200, "application/json", body.c_str());

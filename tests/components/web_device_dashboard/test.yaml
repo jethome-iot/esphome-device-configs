@@ -5,7 +5,7 @@
 # exactly as a request off the socket would reach it.
 esphome:
   name: web-device-dashboard-test
-  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, ../../harness/entity_tables.h, cases]
   libraries: ["google/googletest@^1.15.2"]
   platformio_options:
     build_type: debug
@@ -45,6 +45,7 @@ external_components:
       - dallas_scan
       - modbus_map
       - mqtt_config
+      - mqtt_subscriptions
       - switch_hold
       - panel_text
       - timezone_settings
@@ -178,6 +179,15 @@ mqtt:
 
 mqtt_config:
   id: mqtt_settings
+
+# Sets USE_MQTT_SUBSCRIPTIONS, which compiles /mqtt/subscriptions, and reserves sixteen places in
+# each of the sensor, binary sensor and text sensor lists for the slots the cases create: as
+# many as the devices have, for the read at its largest.
+mqtt_subscriptions:
+  id: mqtt_subs
+  storage: test_storage
+  max_slots: 16
+  units: ["°C"]
 
 # encryption: with no key is what compiles the forget-api-key route in; the cases stand in for
 # the key the API server would clear. The server is never set up, so the log listener slot it

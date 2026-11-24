@@ -1,7 +1,7 @@
 // The firmware's MQTT settings rules (mqtt_config's validate() and parse_patch(), and the
 // messages a save answers with), with its messages verbatim, so a form can refuse what the
 // device would before the round trip. The device stays the authority: keep the two in step.
-import type { MqttDiscoveryCleanup, MqttSettingsUpdate } from './types'
+import type { MqttDiscoveryCleanup, MqttReservedNames, MqttSettingsUpdate, MqttSlotFields, MqttSlotKind } from './types'
 
 /** Size limits in UTF-8 bytes. broker and client_id take ASCII only, so their bytes are characters. */
 export const MQTT_LIMITS = { broker: 128, username: 64, password: 128, client_id: 64, topic_prefix: 64 } as const
@@ -184,4 +184,256 @@ export function saveMessage(r: {
   if (r.discovery_cleanup === 'pending' && !r.enabled) return S.entriesStayUntilOn
   if (r.discovery_cleanup === 'pending') return S.cleaningPending
   return S.saved
+}
+
+// --- Subscription slots (mqtt_subscriptions: read_slot(), validate_slot(), post()) ---
+
+/** Size limits in UTF-8 bytes; `json_path_keys` keys at most, `decimals` 0 to `decimals`. */
+export const SLOT_LIMITS = { name: 32, topic: 128, json_path: 64, json_path_keys: 6, payload: 32, decimals: 4 } as const
+
+export const SLOT_KINDS: readonly MqttSlotKind[] = ['sensor', 'binary_sensor', 'text_sensor']
+
+/** A new slot, and what a save fills in for a field it leaves out. */
+export const SLOT_DEFAULTS: Readonly<MqttSlotFields> = {
+  enabled: false,
+  name: '',
+  topic: '',
+  kind: 'sensor',
+  json_path: '',
+  unit: '',
+  decimals: 1,
+  payload_on: 'ON',
+  payload_off: 'OFF'
+}
+
+/** validate_slot()'s messages, in its order: the first rule that fails is the answer. */
+export const SLOT_MESSAGES = {
+  nameRequired: "'name' is required",
+  nameTooLong: "'name' is over 32 bytes",
+  nameText: "'name' must be text without control characters",
+  nameSlash: "'name' cannot contain '/'",
+  topicRequired: "'topic' is required",
+  topicTooLong: "'topic' is over 128 bytes",
+  topicText: "'topic' must be text without control characters",
+  topicSpace: "'topic' cannot start or end with a space",
+  topicWildcard: "'topic' cannot contain '+' or '#': a slot takes one topic",
+  jsonPathTooLong: "'json_path' is over 64 bytes",
+  jsonPathText: "'json_path' must be text without control characters",
+  jsonPathKeys: "'json_path' must be up to 6 keys separated by '.'",
+  unitUnknown: "'unit' is not one this firmware offers",
+  decimalsRange: "'decimals' must be a whole number from 0 to 4",
+  payloadOnLength: "'payload_on' must be 1 to 32 bytes",
+  payloadOnText: "'payload_on' must be text without control characters",
+  payloadOffLength: "'payload_off' must be 1 to 32 bytes",
+  payloadOffText: "'payload_off' must be text without control characters",
+  payloadsEqual: "'payload_on' and 'payload_off' must differ"
+} as const
+
+/** The names the device checks against what else it has, after validate_slot(). */
+export const SLOT_NAME_MESSAGES = {
+  otherSubscription: (name: string): string =>
+    `'name' gives the same id as the subscription '${name}'; add a Latin letter or a digit`,
+  entity: (name: string): string => `'name' gives the same id as the entity '${name}'`,
+  probe: (name: string): string => `'name' gives the same id as '${name}', which a temperature probe takes`
+} as const
+
+type SlotStringKey = 'name' | 'topic' | 'json_path' | 'unit' | 'payload_on' | 'payload_off'
+
+/** read_slot() and post()'s messages: the slot number, the action, a key or a type. */
+export const SLOT_BODY_MESSAGES = {
+  slotRange: (maxSlots: number): string => `'slot' must be a whole number from 1 to ${maxSlots}`,
+  action: "'action' must be 'clear'",
+  unknownKey: (key: string): string => `'${key}' is not a slot field`,
+  notString: (key: SlotStringKey): string => `'${key}' must be a string`,
+  notBoolean: "'enabled' must be true or false",
+  kind: "'kind' must be 'sensor', 'binary_sensor' or 'text_sensor'"
+} as const
+
+/** A 200's `message`. */
+export const SLOT_SAVE_MESSAGES = {
+  savedForReboot: 'Saved; applies after a reboot',
+  saved: 'Saved',
+  unchanged: 'Nothing changed',
+  clearedForReboot: 'Cleared; its entity goes after a reboot',
+  cleared: 'Cleared'
+} as const
+
+/** The 503s a save can answer besides `Device busy`. */
+export const SLOT_STORAGE_UNAVAILABLE = 'Storage unavailable'
+export const SLOT_NEWER_FILE = 'The subscriptions file was written by newer firmware; it is left as it is'
+
+const SLOT_STRING_KEYS: ReadonlySet<string> = new Set(['name', 'topic', 'json_path', 'unit', 'payload_on', 'payload_off'])
+const SLOT_ECHO_KEYS: ReadonlySet<string> = new Set(['slot', 'pending', 'status', 'entity'])
+const SM = SLOT_MESSAGES
+
+// ASCII only, as the device compares.
+const asciiLower = (s: string): string => s.replace(/[A-Z]/g, (c) => c.toLowerCase())
+const ASCII_SPACE = /^[ \t\n\r\f\v]+|[ \t\n\r\f\v]+$/g
+// int64_t on the device: a JSON integer it can hold.
+const isWhole = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && Math.abs(v) < 2 ** 63
+
+/** EntityBase's object id: per UTF-8 byte, A–Z lowered, a space and every byte outside
+ *  [a-z0-9_-] made `_`, so two Cyrillic names of the same byte length come out alike. */
+export function slotObjectId(name: string): string {
+  let id = ''
+  for (const byte of encoder.encode(name)) {
+    const c = byte >= 0x41 && byte <= 0x5a ? byte + 0x20 : byte
+    const keep = (c >= 0x61 && c <= 0x7a) || (c >= 0x30 && c <= 0x39) || c === 0x2d || c === 0x5f
+    id += keep ? String.fromCharCode(c) : '_'
+  }
+  return id
+}
+
+/** 1 to SLOT_LIMITS.json_path_keys non-empty keys separated by '.'. */
+export function jsonPathValid(path: string): boolean {
+  const keys = path.split('.')
+  return keys.length <= SLOT_LIMITS.json_path_keys && keys.every((key) => key !== '')
+}
+
+/** validate_slot(): the slot's own rules, in the device's order; null when it breaks none.
+ *  Names other entities already have are slotNameConflict()'s. */
+export function validateSlot(slot: MqttSlotFields, units: readonly string[]): string | null {
+  if (slot.name === '') return SM.nameRequired
+  if (utf8Bytes(slot.name) > SLOT_LIMITS.name) return SM.nameTooLong
+  if (!isText(slot.name)) return SM.nameText
+  if (slot.name.includes('/')) return SM.nameSlash
+  const topic = slot.topic
+  if (topic === '') return SM.topicRequired
+  if (utf8Bytes(topic) > SLOT_LIMITS.topic) return SM.topicTooLong
+  if (!isText(topic)) return SM.topicText
+  if (topic.startsWith(' ') || topic.endsWith(' ')) return SM.topicSpace
+  if (topic.includes('+') || topic.includes('#')) return SM.topicWildcard
+  if (slot.json_path !== '') {
+    if (utf8Bytes(slot.json_path) > SLOT_LIMITS.json_path) return SM.jsonPathTooLong
+    if (!isText(slot.json_path)) return SM.jsonPathText
+    if (!jsonPathValid(slot.json_path)) return SM.jsonPathKeys
+  }
+  if (slot.kind === 'sensor') {
+    if (slot.unit !== '' && !units.includes(slot.unit)) return SM.unitUnknown
+    if (!isWhole(slot.decimals) || slot.decimals < 0 || slot.decimals > SLOT_LIMITS.decimals) return SM.decimalsRange
+  }
+  if (slot.kind === 'binary_sensor') {
+    for (const [key, length, text] of [
+      ['payload_on', SM.payloadOnLength, SM.payloadOnText],
+      ['payload_off', SM.payloadOffLength, SM.payloadOffText]
+    ] as const) {
+      const bytes = utf8Bytes(slot[key])
+      if (bytes === 0 || bytes > SLOT_LIMITS.payload) return length
+      if (!isText(slot[key])) return text
+    }
+    if (asciiLower(slot.payload_on) === asciiLower(slot.payload_off)) return SM.payloadsEqual
+  }
+  return null
+}
+
+/** What the device stores: the fields the kind does not use back at their defaults, and an
+ *  empty slot (no topic) all defaults. */
+export function normalizeSlot(slot: MqttSlotFields): MqttSlotFields {
+  if (slot.topic === '') return { ...SLOT_DEFAULTS }
+  const out = { ...slot }
+  if (out.kind !== 'sensor') {
+    out.unit = SLOT_DEFAULTS.unit
+    out.decimals = SLOT_DEFAULTS.decimals
+  }
+  if (out.kind !== 'binary_sensor') {
+    out.payload_on = SLOT_DEFAULTS.payload_on
+    out.payload_off = SLOT_DEFAULTS.payload_off
+  }
+  return out
+}
+
+const SLOT_FIELD_KEYS = Object.keys(SLOT_DEFAULTS) as (keyof MqttSlotFields)[]
+export function sameSlot(a: MqttSlotFields, b: MqttSlotFields): boolean {
+  return SLOT_FIELD_KEYS.every((key) => a[key] === b[key])
+}
+
+/** The device's `pending`: the saved slot changes what the next boot runs. `runs` says the slot
+ *  has an entity this boot; one that runs nothing and is not enabled in `saved` stays as it is. */
+export function slotPending(saved: MqttSlotFields, running: MqttSlotFields, runs: boolean): boolean {
+  return !sameSlot(saved, running) && (saved.enabled || runs)
+}
+
+/** An entity the device already has, for slotNameConflict(). */
+export interface SlotNamedEntity {
+  domain: string
+  name: string
+}
+
+/**
+ * The device's name check after validateSlot(): another saved slot (`others`, by index, empty
+ * ones skipped), then another entity of the slot's kind, then (a sensor) a temperature probe's
+ * name, `<prefix> 1` … `<prefix> <count>`. `index` is the slot's own, 0-based.
+ *
+ * `entities` must leave out the entities the slots run as (`MqttSlot.entity`), as the device
+ * does: the saved slots in `others` stand for them. `probes` is GET's `reserved_names`, null on
+ * a firmware without temperature probes.
+ */
+export function slotNameConflict(
+  index: number,
+  slot: MqttSlotFields,
+  others: readonly MqttSlotFields[],
+  entities: readonly SlotNamedEntity[],
+  probes: MqttReservedNames | null
+): string | null {
+  const id = slotObjectId(slot.name)
+  for (let j = 0; j < others.length; j++) {
+    const other = others[j]!
+    if (j !== index && other.topic !== '' && slotObjectId(other.name) === id) return SLOT_NAME_MESSAGES.otherSubscription(other.name)
+  }
+  const taken = entities.find((e) => e.domain === slot.kind && slotObjectId(e.name) === id)
+  if (taken) return SLOT_NAME_MESSAGES.entity(taken.name)
+  if (slot.kind === 'sensor' && probes) {
+    for (let n = 1; n <= probes.count; n++) {
+      const probe = `${probes.prefix} ${n}`
+      if (slotObjectId(probe) === id) return SLOT_NAME_MESSAGES.probe(probe)
+    }
+  }
+  return null
+}
+
+export type SlotBodyResult =
+  | { ok: true; slot: number; clear: true }
+  | { ok: true; slot: number; clear: false; fields: MqttSlotFields }
+  | { ok: false; error: string }
+
+/**
+ * post() up to the file, on a body already known to be a JSON object: the slot number, then
+ * `action`, then read_slot()'s types in the body's key order (an unknown key refused, the keys
+ * a GET answers with skipped), then validate_slot(). The fields come back normalized.
+ */
+export function parseSlotBody(body: Record<string, unknown>, maxSlots: number, units: readonly string[]): SlotBodyResult {
+  const B = SLOT_BODY_MESSAGES
+  const number = body.slot
+  if (!isWhole(number) || number < 1 || number > maxSlots) return { ok: false, error: B.slotRange(maxSlots) }
+  if (Object.prototype.hasOwnProperty.call(body, 'action')) {
+    return body.action === 'clear' ? { ok: true, slot: number, clear: true } : { ok: false, error: B.action }
+  }
+  const fields: MqttSlotFields = { ...SLOT_DEFAULTS }
+  let hasEnabled = false
+  let hasKind = false
+  for (const [key, value] of Object.entries(body)) {
+    if (SLOT_ECHO_KEYS.has(key)) continue
+    if (SLOT_STRING_KEYS.has(key)) {
+      if (typeof value !== 'string') return { ok: false, error: B.notString(key as SlotStringKey) }
+      ;(fields as unknown as Record<string, unknown>)[key] = value
+    } else if (key === 'enabled') {
+      if (typeof value !== 'boolean') return { ok: false, error: B.notBoolean }
+      fields.enabled = value
+      hasEnabled = true
+    } else if (key === 'kind') {
+      if (typeof value !== 'string' || !SLOT_KINDS.includes(value as MqttSlotKind)) return { ok: false, error: B.kind }
+      fields.kind = value as MqttSlotKind
+      hasKind = true
+    } else if (key === 'decimals') {
+      if (!isWhole(value)) return { ok: false, error: SM.decimalsRange }
+      fields.decimals = value
+    } else {
+      return { ok: false, error: B.unknownKey(key) }
+    }
+  }
+  if (!hasEnabled) return { ok: false, error: B.notBoolean }
+  if (!hasKind) return { ok: false, error: B.kind }
+  fields.name = fields.name.replace(ASCII_SPACE, '')
+  const invalid = validateSlot(fields, units)
+  return invalid ? { ok: false, error: invalid } : { ok: true, slot: number, clear: false, fields: normalizeSlot(fields) }
 }

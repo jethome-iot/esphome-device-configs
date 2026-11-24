@@ -19,6 +19,9 @@
 #ifdef USE_MQTT_CONFIG
 #include "esphome/components/mqtt_config/mqtt_config.h"
 #endif
+#ifdef USE_MQTT_SUBSCRIPTIONS
+#include "esphome/components/mqtt_subscriptions/mqtt_subscriptions.h"
+#endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_STORAGE
 #include "esphome/components/filesystem_storage_abstract/filesystem_storage_abstract.h"
 #endif
@@ -54,6 +57,9 @@ enum class RouteId : uint8_t {
 #ifdef USE_MQTT_CONFIG
   MQTT,
 #endif
+#ifdef USE_MQTT_SUBSCRIPTIONS
+  MQTT_SUBSCRIPTIONS,
+#endif
   CAPABILITIES,
   SYSTEM_REBOOT,
   SYSTEM_FACTORY_RESET,
@@ -86,7 +92,8 @@ enum class RouteId : uint8_t {
 struct Route {
   const char *name;
   RouteId id;
-  /// Reads answer GET, writes POST; auth, entity-settings, time and mqtt read on GET and write on POST.
+  /// Reads answer GET, writes POST; auth, entity-settings, time, mqtt and mqtt/subscriptions read
+  /// on GET and write on POST.
   bool get;
   bool post;
 };
@@ -96,10 +103,11 @@ using firmware_rollback::RollbackTarget;
 // The dashboard page at / and the device API under /api/device/: info (with the board's
 // EEPROM identity when jethome_board_info is wired in), status, network, what the firmware
 // can do, the system actions, with web_auth the HTTP credentials, with mqtt_config the MQTT
-// client's settings, with dallas_scan the temperature slots, forgetting and assigning them, their
-// offsets and labels, with config_json the entity index, the entity settings and their form
-// fields, with timezone_settings the clock and the zone, and with virtual_inputs the virtual
-// inputs. A modbus_map is reported in /capabilities.
+// client's settings, with mqtt_subscriptions its subscription slots, with dallas_scan the
+// temperature slots, forgetting and assigning them, their offsets and labels, with config_json
+// the entity index, the entity settings and their form fields, with timezone_settings the clock
+// and the zone, and with virtual_inputs the virtual inputs. A modbus_map is reported in
+// /capabilities.
 class WebDeviceDashboard : public AsyncWebHandler, public Component {
  public:
   explicit WebDeviceDashboard(web_server_base::WebServerBase *base) : base_(base) {}
@@ -160,6 +168,10 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #ifdef USE_MQTT_CONFIG
   void handle_mqtt_get_(AsyncWebServerRequest *request);
   void handle_mqtt_set_(AsyncWebServerRequest *request);
+#endif
+#ifdef USE_MQTT_SUBSCRIPTIONS
+  void handle_mqtt_subscriptions_get_(AsyncWebServerRequest *request);
+  void handle_mqtt_subscriptions_set_(AsyncWebServerRequest *request);
 #endif
   void handle_capabilities_(AsyncWebServerRequest *request);
   void handle_reboot_(AsyncWebServerRequest *request);
