@@ -7,9 +7,13 @@
 
 /** Error thrown by every device API call on a non-2xx response. */
 export class ApiError extends Error {
-  constructor(message: string, public readonly status: number) {
+  // A plain field, not a parameter property: node's type stripping refuses those.
+  readonly status: number
+
+  constructor(message: string, status: number) {
     super(message)
     this.name = 'ApiError'
+    this.status = status
   }
 }
 

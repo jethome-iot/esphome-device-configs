@@ -66,15 +66,15 @@ run by hand, opens the same change as a pull request.
 
 ## REST
 
-Reads answer GET and writes POST, `entity-settings` both; the wrong method is `405` with an
-`Allow` header, an unknown route under `/api/device/` `404`, a body over 4 KiB `413`, and every
-failure `{"success": false, "error"}`. The same contract, machine-readable:
+Reads answer GET and writes POST, `auth`, `entity-settings`, `time` and `mqtt` both; the wrong
+method is `405` with an `Allow` header, an unknown route under `/api/device/` `404`, a body over 4 KiB
+`413`, and every failure `{"success": false, "error"}`. The same contract, machine-readable:
 [openapi.yaml](openapi.yaml) (OpenAPI 3.1).
 
 | Method | Path | |
 |---|---|---|
 | GET | `/api/device/info` | `{"name", "base_mac_address", "mac_address", "version"}`; with `board_info_id` also `serial_number`, `device_model`, `hw_revision` and `board` — what `jethome_board_info` read, verbatim, plus the chip's eFuses |
-| GET | `/api/device/status` | `{"ha_connected", "uptime_s", "reset_reason", "connection_type", "rssi", "ip_address", "reboot_required", "reboot_reasons"}`: `reboot_reasons` names what waits for a restart — `temperature_slots` after a forget or an assign — and is absent when nothing does |
+| GET | `/api/device/status` | `{"ha_connected", "uptime_s", "reset_reason", "connection_type", "rssi", "ip_address", "reboot_required", "reboot_reasons"}`: `reboot_reasons` names what waits for a restart — `temperature_slots` after a forget or an assign, `mqtt` while a saved MQTT setting waits — and is absent when nothing does; with an `mqtt_config` also the client's `mqtt` block |
 | GET | `/api/device/network` | `{"hostname", "connection_type", "ip_address", "gateway", "subnet", "dns1", "dns2", "ssid", "rssi", "ethernet_connected"}` |
 | GET | `/api/device/capabilities` | what this firmware has, below |
 | POST | `/api/device/system/reboot` | restart, nothing cleared; what waits for a restart applies |
@@ -95,8 +95,9 @@ other slot is the *newer* firmware. It is there when
 after a serial flash, a failed or interrupted update, a rollback the bootloader did itself, or while
 a switch waits for its reboot. `forget_api_key` is there when the firmware keeps the key Home
 Assistant sets — `api: encryption:` with no `key:` — rather than one compiled in. `storage`, `files`,
-`automations`, `climates`, `entity_settings`, `board_info`, `temperature_slots`, `modbus`, `time`
-and `virtual_inputs` follow the components the firmware was built with.
+`automations`, `climates`, `entity_settings`, `board_info`, `temperature_slots`, `modbus`, `time`,
+`virtual_inputs` and `mqtt` follow the components the firmware was built with; `mqtt` is `true`
+and draws **Settings → MQTT**.
 `storage` says what the mount is, not how full it is: usage is live and this route is not polled,
 so the byte counts stay in the file API's own `info`. `modbus` is the Modbus server's address map
 as a `modbus_map` names it: the bit and register ranges, each with its first and last address, how
@@ -125,7 +126,10 @@ can address the device can spell it. It is there so a single stray POST does not
 device; what keeps other sites out is the `web_server:` `auth:` block and
 [`web_origin_guard`](../web_origin_guard/README.md).
 
-Each answers before it restarts, so the caller gets its answer. A factory reset does what
+Each answers before it restarts, so the caller gets its answer. With an `mqtt_config`, a
+removal of this device's Home Assistant entries that is going out gets up to five seconds to
+finish first, and a factory reset with discovery on removes them while the broker is connected.
+A factory reset does what
 **Settings → Factory reset** on the display does, in the same order; the files it takes are
 gone once the device is back, not when it answers. A rollback selects the
 other app slot, checking the image while the request is still open — a slot that is not whole
@@ -205,6 +209,14 @@ of the spaces at both ends; empty clears it. The meta describes it as a `string`
 `max_length: 24`. A bad one is the `400` `Failed to update settings record`, and an update that
 leaves it out keeps it. The name, the object id and `web_server`'s routes do not change.
 
+With an [`mqtt_config`](../mqtt_config/README.md), the MQTT client's settings; without one these
+routes are `404`. Behaviour for a user: [doc/MQTT.md](../../doc/MQTT.md).
+
+| Method | Path | |
+|---|---|---|
+| GET | `/api/device/mqtt` | the stored settings, never the password (`password_set` instead), the defaults for an empty `client_id` and `topic_prefix`, the client's `state` and `last_error`, what runs this boot (`running`), and whether a save applies now (`apply_now`), a change waits for a restart (`reboot_required`) and the Home Assistant entries are being removed (`discovery_cleanup`). Read on the loop task: `503` when it does not get to it |
+| POST | `/api/device/mqtt` | a partial update of `enabled`, `broker`, `port`, `username`, `password` (`""` clears it), `client_id`, `topic_prefix` and `discovery`. The first enable in a boot connects at once, unless the effective topic prefix differs from the one this boot started with; later changes wait for a restart. Answers `{"success", "message", "reboot_required", "started", "discovery_cleanup"}`; `400` with the rule a value breaks, `500` when flash refused it, `503` when the loop task did not take it. Needs `Content-Type: application/json` |
+
 ## client/
 
 `client/device` is the TypeScript client for these routes and `client/rest` the client for
@@ -229,8 +241,11 @@ temperature slots listed, forgotten and assigned and their offsets and labels se
 `dallas_scan` over the harness's 1-Wire bus, with `/status` reporting what waits, booted again to
 see what the table kept, the time route over a real `timezone_settings` on a clock the cases
 set and a real `ntp_servers`, every body it takes and refuses, and the virtual input routes over a real `virtual_inputs`
-whose file sits in a directory, every body they take and refuse. Out of reach there is the ESP-IDF half — the `Allow` header, URL
+whose file sits in a directory, every body they take and refuse, and the MQTT routes over the
+harness's `mqtt` stand-in, the system actions waiting for its Home Assistant cleanup included.
+Out of reach there is the ESP-IDF half — the `Allow` header, URL
 decoding, the reset reason and the IP lookups, the eFuse block, a live WiFi or Ethernet link, the
 real reboot, the LittleFS format, and the rollback's reads and switch, which the tests stand
 in for; the rule that decides is covered by [`firmware_rollback`](../firmware_rollback/README.md)'s
-own suite.
+own suite. The MQTT client's own connection, NVS and the RTC memory are
+[`mqtt_config`](../mqtt_config/README.md)'s to cover.
