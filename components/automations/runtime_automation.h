@@ -6,6 +6,7 @@
 #include <vector>
 #include "automation_config.h"
 #include "entity_lookup.h"
+#include "esphome/core/optional.h"
 #include "esphome/core/time.h"
 
 namespace esphome::automations {
@@ -89,14 +90,32 @@ class RuntimeAutomation {
   uint32_t get_id() const { return this->id_; }
   const std::string &get_name() const { return this->name_; }
   bool is_enabled() const { return this->enabled_; }
+  /// Disabling stops the runs and the watch of a condition trigger; enabling does not start it
+  /// again: the engine calls watch_condition().
   void set_enabled(bool enabled);
   bool is_running() const { return !this->runs_.empty(); }
   void stop();
   /// Plays the actions now, skipping the triggers and the condition, enabled or not. The run
   /// starts with no trigger state: a follow has none to copy unless a trigger arrives while it
-  /// runs. False when the mode refuses it: single while a run is under way, parallel with every
-  /// copy running.
+  /// runs. A rule with a condition trigger plays the branch its condition gives now, carrying
+  /// that result as the trigger would. False when the mode refuses it: single while a run is
+  /// under way, parallel with every copy running.
   bool run_now();
+
+  /// Whether it has a condition trigger.
+  bool watches_condition() const { return this->watches_condition_; }
+  /// Whether a condition trigger is watching: it has fired with a result and acts on changes.
+  bool is_watching() const { return this->result_.has_value(); }
+  /// A condition trigger starts watching, enabled rules only: it fires once with the current
+  /// result, then on each change.
+  void watch_condition();
+  /// Fires a condition trigger if the result moved since it last acted on it.
+  void recheck_condition();
+  /// Takes the current result as acted on, without firing.
+  void resync_condition();
+  /// A thermostat let go of `sw`: a watching condition trigger whose branch for the current
+  /// result drives it plays that branch again.
+  void on_released(switch_::Switch *sw);
 
   void on_binary_sensor(binary_sensor::BinarySensor *entity, bool state, bool level = false);
   void on_switch(switch_::Switch *entity, bool state);
@@ -106,6 +125,7 @@ class RuntimeAutomation {
   void on_startup();
 
   const std::vector<CompiledTrigger> &get_triggers() const { return this->triggers_; }
+  const CompiledCondition *get_condition() const { return this->condition_.get(); }
 
  protected:
   struct Run {
@@ -120,7 +140,8 @@ class RuntimeAutomation {
   RuntimeAutomation(AutomationStorage *engine, const AutomationConfig &config);
 
   void fire_(bool has_state, bool state);
-  // Starts a run unless the mode refuses it; `forced`, a run now, skips the condition.
+  // Starts a run unless the mode refuses it; `forced`, a run now, skips the condition unless the
+  // rule has a condition trigger.
   bool start_(bool has_state, bool state, bool forced);
   // `scheduled`: entered from the scheduler, a delay or a wait for the loop, rather than from the
   // callback that fired the rule.
@@ -143,6 +164,9 @@ class RuntimeAutomation {
   std::vector<CompiledAction> else_;
   std::vector<std::unique_ptr<Run>> runs_;
   uint32_t next_token_{0};
+  bool watches_condition_{false};
+  // The result a condition trigger last acted on; empty while it is not watching.
+  optional<bool> result_;
 };
 
 // Timer ids carry the run sequence in their low 4 bits, so a rule id has to fit the rest.

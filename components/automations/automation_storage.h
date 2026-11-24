@@ -112,6 +112,8 @@ class AutomationStorage : public Component {
     E *entity;
     // The next state is a level, not an edge (expect_level()).
     bool level_only{false};
+    // Also told the states the plain callback leaves out (watch_every_state_()).
+    bool every_state{false};
   };
   // The next state from this input is a level, not an edge: a flipped inversion re-emits the
   // sensor's state, which conditions may read but press, release, change and click must not act
@@ -131,6 +133,18 @@ class AutomationStorage : public Component {
   bool run_on_loop_(std::function<bool()> &&job);
 
   void subscribe_(const RuntimeAutomation &automation);
+  void subscribe_(const CompiledCondition &condition);
+  void subscribe_to_(binary_sensor::BinarySensor *entity);
+  void subscribe_to_(switch_::Switch *entity);
+  void subscribe_to_(sensor::Sensor *entity);
+  void watch_every_state_(binary_sensor::BinarySensor *entity);
+  void recheck_conditions_();
+  /// The startup event, every component set up.
+  void startup_();
+  /// A condition trigger starts watching once the startup event has passed; before it, that
+  /// event starts it.
+  void start_watching_(RuntimeAutomation &rule);
+  void on_released_(switch_::Switch *sw);
   /// climate_hub created, removed or re-keyed the presets of a thermostat: the rules that name
   /// it are built or dropped to match.
   void on_climate_change_(const std::string &climate_id);
@@ -190,6 +204,9 @@ class AutomationStorage : public Component {
   // The rules being driven, innermost last. An edit while any is would pull it from under it,
   // and how many there are is how deeply dispatches nest, which too_deep_() bounds.
   std::vector<RuntimeAutomation *> driving_;
+  // The startup event has been dispatched: every component has set up, so a condition reads
+  // the states the device boots with.
+  bool started_{false};
 
   // One subscription per entity, kept for the life of the device.
   std::vector<std::unique_ptr<Subscription<binary_sensor::BinarySensor>>> binary_sensor_subs_;

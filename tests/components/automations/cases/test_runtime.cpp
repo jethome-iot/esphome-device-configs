@@ -67,6 +67,129 @@ TEST_F(Runtime, BuildRefusesAConfigSwitchAsAMissingOne) {
   EXPECT_TRUE(e.relay1.state);
 }
 
+TEST_F(Runtime, AConditionTriggerNeedsACondition) {
+  for (const char *json : {R"({"name":"Nothing to watch","triggers":[{"source":"condition"}],
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})",
+                           R"({"name":"Nothing to watch","triggers":[{"source":"startup"},{"source":"condition"}],
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})"}) {
+    AutomationConfig config;
+    ASSERT_TRUE(load(json, config));
+    std::string error;
+    EXPECT_EQ(RuntimeAutomation::build(&engine, config, &error), nullptr);
+    EXPECT_EQ(error, "Trigger " + std::to_string(config.triggers.size()) + ": no condition to watch");
+  }
+}
+
+static const char *const MIRROR = R"({"name":"Mirror","triggers":[{"source":"condition"}],
+    "condition":{"type":"input","object_id":"in_1"},
+    "actions":[{"source":"switch","type":"follow","object_id":"relay_1"}],
+    "else_actions":[{"source":"switch","type":"follow","object_id":"relay_1"},
+                    {"source":"switch","type":"follow","object_id":"relay_2","invert":true}]})";
+
+TEST_F(Runtime, AConditionTriggerWaitsForTheStartupEvent) {
+  auto rule = build_rule(engine, MIRROR);
+  ASSERT_NE(rule, nullptr);
+  EXPECT_TRUE(rule->watches_condition());
+  EXPECT_FALSE(rule->is_watching());
+  e.in1.publish_state(true);
+  rule->on_binary_sensor(&e.in1, true);
+  EXPECT_EQ(e.relay1.writes, 0);
+
+  rule->on_startup();
+  EXPECT_TRUE(rule->is_watching());
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 1);
+  rule->on_startup();  // watching already: nothing new to say
+  EXPECT_EQ(e.relay1.writes, 1);
+}
+
+// The run carries the result: a follow under either branch copies it.
+TEST_F(Runtime, FollowMirrorsTheConditionResult) {
+  auto rule = build_rule(engine, MIRROR);
+  ASSERT_NE(rule, nullptr);
+  rule->watch_condition();
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_TRUE(e.relay2.state);  // the else branch carries false, inverted
+  e.in1.publish_state(true);
+  rule->on_binary_sensor(&e.in1, true);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay2.writes, 1);
+  e.in1.publish_state(false);
+  rule->on_binary_sensor(&e.in1, false);
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 3);
+}
+
+// An input whose inversion flipped re-emits its state as a level: no press, but a new state
+// for whatever reads it.
+TEST_F(Runtime, AConditionTriggerSeesALevel) {
+  auto rule = build_rule(engine, MIRROR);
+  ASSERT_NE(rule, nullptr);
+  rule->watch_condition();
+  e.in1.publish_state(true);
+  rule->on_binary_sensor(&e.in1, true, true);
+  EXPECT_TRUE(e.relay1.state);
+}
+
+// Disabling ends the watch; enabling leaves the new start to the engine.
+TEST_F(Runtime, AConditionTriggerIsQuietWhileDisabled) {
+  auto rule = build_rule(engine, MIRROR);
+  ASSERT_NE(rule, nullptr);
+  rule->watch_condition();
+  EXPECT_EQ(e.relay1.writes, 1);
+  rule->set_enabled(false);
+  EXPECT_FALSE(rule->is_watching());
+  e.in1.publish_state(true);
+  rule->on_binary_sensor(&e.in1, true);
+  EXPECT_EQ(e.relay1.writes, 1);
+  rule->watch_condition();  // a disabled rule does not start watching
+  EXPECT_EQ(e.relay1.writes, 1);
+
+  rule->set_enabled(true);
+  EXPECT_EQ(e.relay1.writes, 1);
+  rule->watch_condition();
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 2);
+}
+
+TEST_F(Runtime, AStartupRuleWithNoConditionTriggerWatchesNothing) {
+  auto rule = build_rule(engine, R"({"name":"Gate","triggers":[{"source":"startup"}],
+      "condition":{"type":"input","object_id":"in_1"},
+      "actions":[{"source":"switch","type":"toggle","object_id":"relay_1"}]})");
+  ASSERT_NE(rule, nullptr);
+  EXPECT_FALSE(rule->watches_condition());
+  rule->on_startup();
+  EXPECT_FALSE(rule->is_watching());
+  EXPECT_EQ(e.relay1.writes, 0);  // in_1 is off: the else branch is empty
+  e.in1.publish_state(true);
+  rule->on_binary_sensor(&e.in1, true);
+  EXPECT_EQ(e.relay1.writes, 0);
+}
+
+// A thermostat let go of a relay: only the branch for the current result, and only when it
+// drives that relay, plays again.
+TEST_F(Runtime, ARelayLetGoReplaysTheBranchThatDrivesIt) {
+  auto rule = build_rule(engine, R"({"name":"Half","triggers":[{"source":"condition"}],
+      "condition":{"type":"input","object_id":"in_1"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],
+      "else_actions":[{"source":"switch","type":"toggle","object_id":"relay_2"}]})");
+  ASSERT_NE(rule, nullptr);
+  rule->on_released(&e.relay1);  // not watching yet
+  EXPECT_EQ(e.relay2.writes, 0);
+  rule->watch_condition();
+  EXPECT_EQ(e.relay2.writes, 1);
+  rule->on_released(&e.relay1);  // false: the else branch does not drive relay_1
+  rule->on_released(&e.boiler);
+  EXPECT_EQ(e.relay2.writes, 1);
+  e.in1.publish_state(true);
+  rule->on_binary_sensor(&e.in1, true);
+  EXPECT_EQ(e.relay1.writes, 1);
+  e.relay1.turn_off();
+  rule->on_released(&e.relay1);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 3);
+}
+
 TEST_F(Runtime, SwitchConditionReadsTheSwitch) {
   ConditionConfig config;
   ASSERT_TRUE(load(R"({"type":"switch","object_id":"relay_1","state":"false"})", config));

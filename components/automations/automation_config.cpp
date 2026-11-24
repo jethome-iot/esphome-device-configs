@@ -242,8 +242,9 @@ void TriggerConfig::serialize(JsonObject &obj) const {
         obj["cron_preset"] = EnumUtils::cron_preset_to_string(*cron_preset);
       break;
     case SourceTrigger::STARTUP:
+    case SourceTrigger::CONDITION:
     default:
-      // Startup carries no extra parameters.
+      // Startup and condition carry no extra parameters.
       break;
   }
 }
@@ -341,9 +342,8 @@ bool TriggerConfig::deserialize(const JsonObject &obj) {
       }
       break;
     }
-    case SourceTrigger::STARTUP: {
-      break;
-    }
+    case SourceTrigger::STARTUP:
+    case SourceTrigger::CONDITION:
     default:
       break;
   }

@@ -7,6 +7,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include "esphome/components/case_fold/case_fold.h"
+#include "esphome/components/switch_hold/switch_hold.h"
 #include "esphome/components/time/real_time_clock.h"
 #include "esphome/core/application.h"
 #include "esphome/core/hal.h"
@@ -125,6 +126,10 @@ bool AutomationStorage::too_deep_() {
     return false;
   ESP_LOGW(TAG, "Automation '%s': events nested %u deep, dropping the next; do rules trigger each other in a loop?",
            this->driving_.back()->get_name().c_str(), static_cast<unsigned>(this->driving_.size()));
+  // The rules being driven remember a result from before the event dropped here: the next event
+  // they see, however unrelated, would set the loop off again.
+  for (RuntimeAutomation *rule : this->driving_)
+    rule->resync_condition();
   return true;
 }
 
@@ -191,8 +196,16 @@ void AutomationStorage::setup() {
   } else {
     ESP_LOGW(TAG, "No time source: cron triggers are disabled");
   }
-  // Startup triggers fire once every component has finished setting up.
-  this->defer([this]() { this->each_rule_([](RuntimeAutomation &rule) { rule.on_startup(); }); });
+  // A thermostat that lets a relay go hands it back to the rules that follow a condition.
+  switch_hold::add_on_release_callback([this](switch_::Switch *sw) { this->on_released_(sw); });
+  // Once every component has finished setting up.
+  this->defer([this]() { this->startup_(); });
+}
+
+// Startup triggers fire, and condition triggers start watching.
+void AutomationStorage::startup_() {
+  this->started_ = true;
+  this->each_rule_([](RuntimeAutomation &rule) { rule.on_startup(); });
 }
 
 template<typename E, typename F>
@@ -212,36 +225,97 @@ static void ensure_subscription(std::vector<std::unique_ptr<AutomationStorage::S
 void AutomationStorage::subscribe_(const RuntimeAutomation &automation) {
   for (const auto &trigger : automation.get_triggers()) {
     switch (trigger.source) {
-#ifdef USE_BINARY_SENSOR
       case SourceTrigger::INPUT:
-        ensure_subscription(this->binary_sensor_subs_, this, trigger.binary_sensor,
-                            [](Subscription<binary_sensor::BinarySensor> *sub) {
-                              sub->entity->add_on_state_callback([sub](bool state) {
-                                const bool level = sub->level_only;
-                                sub->level_only = false;
-                                sub->engine->dispatch_binary_sensor_(sub->entity, state, level);
-                              });
-                            });
+        this->subscribe_to_(trigger.binary_sensor);
         break;
-#endif
-#ifdef USE_SWITCH
       case SourceTrigger::SWITCH:
-        ensure_subscription(this->switch_subs_, this, trigger.sw, [](Subscription<switch_::Switch> *sub) {
-          sub->entity->add_on_state_callback([sub](bool state) { sub->engine->dispatch_switch_(sub->entity, state); });
-        });
+        this->subscribe_to_(trigger.sw);
         break;
-#endif
-#ifdef USE_SENSOR
       case SourceTrigger::TEMPERATURE:
-        ensure_subscription(this->sensor_subs_, this, trigger.sensor, [](Subscription<sensor::Sensor> *sub) {
-          sub->entity->add_on_state_callback([sub](float value) { sub->engine->dispatch_sensor_(sub->entity, value); });
-        });
+        this->subscribe_to_(trigger.sensor);
         break;
-#endif
+      case SourceTrigger::CONDITION:
+        // build() refuses a condition trigger without a condition.
+        this->subscribe_(*automation.get_condition());
+        break;
       default:
         break;
     }
   }
+}
+
+// Every entity the condition reads, so a change to any of them reaches the rule.
+void AutomationStorage::subscribe_(const CompiledCondition &condition) {
+  switch (condition.type) {
+    case ConditionType::INPUT:
+      this->subscribe_to_(condition.binary_sensor);
+      this->watch_every_state_(condition.binary_sensor);
+      break;
+    case ConditionType::SWITCH:
+      this->subscribe_to_(condition.sw);
+      break;
+    case ConditionType::TEMPERATURE:
+      this->subscribe_to_(condition.sensor);
+      break;
+    case ConditionType::AND:
+    case ConditionType::OR:
+    case ConditionType::XOR:
+      for (const auto &sub : condition.subs)
+        this->subscribe_(sub);
+      break;
+    default:
+      break;
+  }
+}
+
+void AutomationStorage::subscribe_to_(binary_sensor::BinarySensor *entity) {
+#ifdef USE_BINARY_SENSOR
+  ensure_subscription(this->binary_sensor_subs_, this, entity, [](Subscription<binary_sensor::BinarySensor> *sub) {
+    sub->entity->add_on_state_callback([sub](bool state) {
+      const bool level = sub->level_only;
+      sub->level_only = false;
+      sub->engine->dispatch_binary_sensor_(sub->entity, state, level);
+    });
+  });
+#endif
+}
+
+// The plain callback leaves out an input's first state when it does not trigger on it, and every
+// loss of state; a condition reads both.
+void AutomationStorage::watch_every_state_(binary_sensor::BinarySensor *entity) {
+#ifdef USE_BINARY_SENSOR
+  for (const auto &sub : this->binary_sensor_subs_) {
+    if (sub->entity != entity || sub->every_state)
+      continue;
+    sub->every_state = true;
+    entity->add_full_state_callback([this](optional<bool> previous, optional<bool> current) {
+      // A change from one state to another comes through the plain callback.
+      if (!previous.has_value() || !current.has_value())
+        this->recheck_conditions_();
+    });
+  }
+#endif
+}
+
+void AutomationStorage::subscribe_to_(switch_::Switch *entity) {
+#ifdef USE_SWITCH
+  ensure_subscription(this->switch_subs_, this, entity, [](Subscription<switch_::Switch> *sub) {
+    sub->entity->add_on_state_callback([sub](bool state) { sub->engine->dispatch_switch_(sub->entity, state); });
+  });
+#endif
+}
+
+void AutomationStorage::subscribe_to_(sensor::Sensor *entity) {
+#ifdef USE_SENSOR
+  ensure_subscription(this->sensor_subs_, this, entity, [](Subscription<sensor::Sensor> *sub) {
+    sub->entity->add_on_state_callback([sub](float value) { sub->engine->dispatch_sensor_(sub->entity, value); });
+  });
+#endif
+}
+
+void AutomationStorage::start_watching_(RuntimeAutomation &rule) {
+  if (this->started_ && rule.watches_condition())
+    this->drive(rule, [&rule]() { rule.watch_condition(); });
 }
 
 void AutomationStorage::on_climate_change_(const std::string &climate_id) {
@@ -275,6 +349,7 @@ void AutomationStorage::rebuild_rules_(std::function<bool(const AutomationConfig
       config->build_error.clear();
       this->subscribe_(*rebuilt);
       this->automations_[i] = std::move(rebuilt);
+      this->start_watching_(*this->automations_[i]);
     }
   }
 }
@@ -299,6 +374,16 @@ void AutomationStorage::dispatch_switch_(switch_::Switch *entity, bool state) {
 void AutomationStorage::dispatch_sensor_(sensor::Sensor *entity, float value) {
   if (!this->too_deep_())
     this->each_rule_([=](RuntimeAutomation &rule) { rule.on_sensor(entity, value); });
+}
+
+void AutomationStorage::recheck_conditions_() {
+  if (!this->too_deep_())
+    this->each_rule_([](RuntimeAutomation &rule) { rule.recheck_condition(); });
+}
+
+void AutomationStorage::on_released_(switch_::Switch *sw) {
+  if (!this->too_deep_())
+    this->each_rule_([sw](RuntimeAutomation &rule) { rule.on_released(sw); });
 }
 
 // The local clock in seconds, read from the fields: a DST switch moves it, not the timestamp.
@@ -586,6 +671,7 @@ uint32_t AutomationStorage::add_automation_(const AutomationConfig &config, std:
   if (!this->save_automation_to_file_(cfg))
     ESP_LOGW(TAG, "Automation '%s' (id=%u) created but not saved", cfg.name.c_str(), static_cast<unsigned>(cfg.id));
   ESP_LOGD(TAG, "Added automation '%s' id=%u", cfg.name.c_str(), static_cast<unsigned>(cfg.id));
+  this->start_watching_(*this->automations_.back());
   return cfg.id;
 }
 
@@ -649,6 +735,7 @@ bool AutomationStorage::update_automation_(uint32_t id, const AutomationConfig &
     this->delete_file_(old_file);
   }
   ESP_LOGD(TAG, "Updated automation '%s' id=%u", cfg.name.c_str(), static_cast<unsigned>(id));
+  this->start_watching_(*this->automations_[index]);
   return true;
 }
 
@@ -677,8 +764,10 @@ bool AutomationStorage::set_enable_automation_(uint32_t id, bool enable, bool *p
     return false;
   }
   auto index = static_cast<size_t>(found);
-  if (this->automations_[index] != nullptr)
-    this->automations_[index]->set_enabled(enable);
+  RuntimeAutomation *rule = this->automations_[index].get();
+  const bool enabling = rule != nullptr && enable && !rule->is_enabled();
+  if (rule != nullptr)
+    rule->set_enabled(enable);
   AutomationConfig *config = this->config_storage_.get_config(static_cast<uint8_t>(index));
   // The write can fail on its own: the rule is live either way, but the caller has to be able
   // to say whether the change survives a reboot.
@@ -692,6 +781,8 @@ bool AutomationStorage::set_enable_automation_(uint32_t id, bool enable, bool *p
   if (!written)
     ESP_LOGW(TAG, "Automation id=%u %s, but the change was not saved", static_cast<unsigned>(id),
              enable ? "enabled" : "disabled");
+  if (enabling)
+    this->start_watching_(*rule);
   return true;
 }
 
@@ -1214,6 +1305,9 @@ void AutomationStorage::print_trigger_info_(const TriggerConfig &trigger, int in
       break;
     case SourceTrigger::STARTUP:
       ESP_LOGCONFIG(TAG, "%sTrigger: startup", pad.c_str());
+      break;
+    case SourceTrigger::CONDITION:
+      ESP_LOGCONFIG(TAG, "%sTrigger: condition", pad.c_str());
       break;
     default:
       ESP_LOGCONFIG(TAG, "%sTrigger: none", pad.c_str());

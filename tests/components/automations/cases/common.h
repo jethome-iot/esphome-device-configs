@@ -55,9 +55,10 @@ class LogCapture {
     this->warnings.clear();
     this->lines.clear();
   }
-  bool has(const std::vector<std::string> &lines, const char *needle) const {
-    return std::any_of(lines.begin(), lines.end(),
-                       [needle](const std::string &line) { return line.find(needle) != std::string::npos; });
+  bool has(const std::vector<std::string> &lines, const char *needle) const { return count(lines, needle) > 0; }
+  size_t count(const std::vector<std::string> &lines, const char *needle) const {
+    return std::count_if(lines.begin(), lines.end(),
+                         [needle](const std::string &line) { return line.find(needle) != std::string::npos; });
   }
 
  protected:
@@ -125,6 +126,8 @@ class FakeEngine : public AutomationStorage {
   uint64_t uptime_ms() const override { return this->uptime; }
   // One cron tick, as the engine's one-second interval would run it.
   void tick() { this->check_time_(); }
+  // The startup event setup() defers.
+  void startup() { this->startup_(); }
   // A rule that runs inside this engine without going through the storage.
   void adopt(std::unique_ptr<RuntimeAutomation> rule) { this->automations_.push_back(std::move(rule)); }
   RuntimeAutomation *rule(size_t index) {
@@ -246,6 +249,7 @@ inline Entities &entities() {
 // Back to the state a fresh boot would have, as far as a test can tell.
 inline void reset_entities() {
   Entities &e = entities();
+  e.in1.set_trigger_on_initial_state(true);
   e.in1.publish_state(false);
   e.in2.publish_state(false);
   e.temp.state = NAN;

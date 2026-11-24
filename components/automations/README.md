@@ -66,7 +66,7 @@ object id. Any trigger fires the rule; the condition, when there is one, picks `
 
 | Key                 | Values                                                                      |
 | ------------------- | --------------------------------------------------------------------------- |
-| `triggers[].source` | `input` (`press`, `release`, `click`, `state_change`), `switch` (`turn_on`, `turn_off`, `state_change`), `temperature` — any numeric sensor, despite the key (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`, in the sensor's unit), `cron`, `startup` |
+| `triggers[].source` | `input` (`press`, `release`, `click`, `state_change`), `switch` (`turn_on`, `turn_off`, `state_change`), `temperature` — any numeric sensor, despite the key (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`, in the sensor's unit), `cron`, `startup`, `condition` |
 | `condition.type`    | `input` and `switch` with `state` (`"true"` when absent), `temperature` with `temperature_type` — any numeric sensor, as for the trigger (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`), and `and` / `or` / `xor` over a `conditions` list, nested freely |
 | `actions[].source`  | `switch` (`turn_on`, `turn_off`, `toggle`, `follow` with `invert`), `delay` with `delay_ms`, `climate` with `climate` (`turn_on`, `turn_off`, `set_preset` with `preset`, `set_target` with `target`, `follow` with `on` and `off`) |
 | `mode`              | `single` ignores a trigger while the rule runs, `restart` starts over, `parallel` runs up to 8 copies |
@@ -95,6 +95,46 @@ passes. A rule's triggers at given hours run it once, at the switch, for the tim
 skip forward, and not again for the times they repeat going back. What has run is kept in one
 preference record, written when the clocks go back, so a restart inside the repeated hour keeps
 it; a device off at the switch has no record and runs the repeated times again.
+
+## Condition triggers
+
+A `condition` trigger takes no parameters and makes the rule a state rather than an event. It
+fires whenever the condition's result changes, and once with the current result when the rule
+starts watching: at the startup event, when it is added, updated or enabled after it, and when
+it is built again because an input or a thermostat it names came back. `actions` run on true and
+`else_actions` on false, the result being the state the run carries, so a switch that mirrors
+the condition is a `turn_on` in one and a `turn_off` in the other, and a `follow` in each copies
+the result. The engine watches every entity the condition reads, an input's first state and its
+loss included; an input with no state reads as off, and a sensor with no reading is outside
+every range. A rule with this trigger and no `condition` is not built (`Trigger 1: no condition
+to watch`). Give it `restart`: in `single`, a change that comes while a delay runs is ignored.
+
+Run now plays the branch the condition gives at that moment. When a running thermostat lets a
+relay go, a watching rule whose branch for the current result drives that relay plays it again.
+
+A condition may read the switch the rule drives. Input 1 turns relay 1 on, the relay holds itself
+on, input 2 lets it go:
+
+```json
+{
+  "name": "Latch",
+  "mode": "restart",
+  "triggers": [{"source": "condition"}],
+  "condition": {"type": "or", "conditions": [
+    {"type": "input", "object_id": "input_1", "state": "true"},
+    {"type": "and", "conditions": [
+      {"type": "switch", "object_id": "relay_1", "state": "true"},
+      {"type": "input", "object_id": "input_2", "state": "false"}
+    ]}
+  ]},
+  "actions": [{"source": "switch", "type": "turn_on", "object_id": "relay_1"}],
+  "else_actions": [{"source": "switch", "type": "turn_off", "object_id": "relay_1"}]
+}
+```
+
+A rule whose result its own actions keep flipping, `relay_1 = NOT relay_1`, is cut at the
+nesting bound like any other loop; the rules on that chain take the result they stop at as seen,
+so only a real change sets the loop off again.
 
 ## Thermostat actions
 

@@ -10,7 +10,14 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
 
 - **Triggers** (any of them fires the rule): input press / release / click / state change,
   switch turn on / off / state change, a sensor above / below / in range (fires on the
-  crossing, once), cron (six fields, seconds first), startup.
+  crossing, once), cron (six fields, seconds first), startup, and condition change.
+- **Condition change** makes the rule a state rather than an event: "relay 1 is on while
+  (input 1 and input 2) or not input 3" is one rule. It fires whenever the condition's result
+  changes, running the actions on true and the `else` actions on false, and once with the
+  current result when the rule starts watching: at boot, when it is added, changed or enabled,
+  and when it is built again because an input or a thermostat it names came back. An input
+  with no state yet reads as off, and a sensor with no reading as outside every range. A rule with this trigger needs a
+  condition, and wants mode `restart`: in `single`, a change while a delay runs is ignored.
 - **Condition** (optional): input is on/off, switch is on/off, a sensor above / below / in
   range (`above` and `below` are strict, a range includes both ends), and `and` / `or` / `xor`
   groups of those, nested. When false, the `else` actions run. A switch condition reads any
@@ -21,7 +28,9 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
 - **Actions**: switch turn on / off / toggle / follow (copies the state the trigger
   carried, optionally inverted), delay. A switch action on a relay a running thermostat drives
   does nothing; the log names the rule and the thermostat, and the rest of the rule runs
-  ([Thermostats](CLIMATE.md#a-running-thermostats-relays)).
+  ([Thermostats](CLIMATE.md#a-running-thermostats-relays)). When the thermostat lets the relay
+  go, a rule with a condition trigger whose branch for the current result drives that relay
+  plays the branch again, so the relay goes where the condition says.
 - **Thermostat actions**: turn off, turn on (back in the mode it was in before it went off),
   pick a preset, set the target, and follow: one preset or on/off while the trigger's state is
   on, another while it is off. A preset that keeps the mode does not turn an off thermostat on:
@@ -34,7 +43,8 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
 - **Run now**: plays a rule's actions at once, skipping its triggers and its condition, even
   while the rule is disabled; the mode applies as for a trigger, so `single` refuses while a
   run is under way. A follow has no trigger state to copy unless a trigger arrives while the
-  run plays. A rule that is not built cannot run.
+  run plays. A rule with a condition trigger plays the branch its condition gives now instead,
+  as the trigger would. A rule that is not built cannot run.
 
 Rules that keep setting each other off, such as one toggling the switch that triggers it, are
 cut 8 nested events deep: the next event is dropped, with a warning naming the rule, and the
