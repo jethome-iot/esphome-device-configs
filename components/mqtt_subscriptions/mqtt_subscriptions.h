@@ -47,6 +47,8 @@ class MqttSubscriptions : public Component {
   void add_unit(const char *unit, uint8_t uom_index);
   // "<prefix> 1" … "<prefix> <count>": the names temperature probes take after this setup.
   void reserve_sensor_names(const char *prefix, uint8_t count);
+  // The same for the virtual inputs' pool, registered after this setup with its free slots hidden.
+  void reserve_binary_sensor_names(const char *prefix, uint8_t count);
 #ifdef USE_WEBSERVER_SORTING
   void set_web_server_sorting(web_server::WebServer *server, uint64_t group, float weight);
 #endif
@@ -165,6 +167,8 @@ class MqttSubscriptions : public Component {
   std::vector<uint8_t> unit_indices_;
   std::string reserved_prefix_;
   uint8_t reserved_count_{0};
+  std::string reserved_binary_prefix_;
+  uint8_t reserved_binary_count_{0};
 #ifdef USE_WEBSERVER_SORTING
   web_server::WebServer *web_server_{nullptr};
   uint64_t sorting_group_{0};

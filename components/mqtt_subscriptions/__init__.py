@@ -28,6 +28,9 @@ CONF_FOLDER_PATH = "folder_path"
 CONF_MAX_SLOTS = "max_slots"
 CONF_UNITS = "units"
 CONF_DALLAS_SCAN = "dallas_scan"
+CONF_VIRTUAL_INPUTS = "virtual_inputs"
+# virtual_inputs' NAME_PREFIX: its pool is registered after this setup, a free slot hidden.
+VIRTUAL_INPUT_PREFIX = "Virtual input"
 
 MAX_SLOTS = 16
 MAX_UNITS = 32
@@ -153,6 +156,13 @@ def probe_names(full_config):
     return scan["name_prefix"], scan["max_sensors"]
 
 
+def virtual_input_names(full_config):
+    """(name prefix, max_inputs) of virtual_inputs, whose pool comes after the slots; None without it."""
+    if (pool := full_config.get(CONF_VIRTUAL_INPUTS)) is None:
+        return None
+    return VIRTUAL_INPUT_PREFIX, pool["max_inputs"]
+
+
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     # The entities are registered at run time: reserve their places in App's tables before any
@@ -176,6 +186,8 @@ async def to_code(config):
         cg.add(var.add_unit(unit, register_unit_of_measurement(unit)))
     if (names := probe_names(CORE.config)) is not None:
         cg.add(var.reserve_sensor_names(*names))
+    if (names := virtual_input_names(CORE.config)) is not None:
+        cg.add(var.reserve_binary_sensor_names(*names))
 
     # Same group hash as web_server.add_entity_config() computes for YAML entities.
     if sorting := config.get(CONF_WEB_SERVER):

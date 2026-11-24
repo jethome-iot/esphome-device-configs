@@ -137,9 +137,10 @@ The entity's id comes from its name: Latin letters, digits, `-` and `_` stay, a 
 everything else become `_`.
 Two names giving the same id cannot be used together, so two Cyrillic names of the same length
 clash with each other; adding a Latin letter or a digit tells them apart. A subscription cannot
-take the id of another subscription, of another entity of the same kind on the device, or of a
-temperature probe: `Temp 1` … `Temp 16` are kept for Number subscriptions even while fewer probes
-are attached.
+take the id of another subscription, of another entity of the same kind on the device, of a
+temperature probe or of a virtual input: `Temp 1` … `Temp 16` are kept for Number subscriptions
+even while fewer probes are attached, and `Virtual input 1` … `Virtual input 16` for On/Off ones
+even while no virtual input is set up.
 
 Renaming a subscription makes a new entity: Home Assistant and the automations that used the old
 one lose it.

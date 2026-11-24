@@ -230,6 +230,22 @@ TEST_F(NamesTest, ANameAProbeWillTakeIsRefusedOnSave) {
             "Saved; applies after a reboot");
 }
 
+TEST_F(NamesTest, ANameAVirtualInputTakesIsRefusedOnSave) {
+  this->boot([](TestSubscriptions &s) { s.reserve_binary_sensor_names("Virtual input", 3); });
+  EXPECT_EQ(
+      this->post(R"({"slot":1,"enabled":true,"name":"Virtual input 2","topic":"a","kind":"binary_sensor"})").message,
+      "'name' gives the same id as 'Virtual input 2', which a virtual input takes");
+  EXPECT_EQ(
+      this->post(R"({"slot":1,"enabled":true,"name":"virtual_input_3","topic":"a","kind":"binary_sensor"})").message,
+      "'name' gives the same id as 'Virtual input 3', which a virtual input takes");
+  EXPECT_EQ(
+      this->post(R"({"slot":1,"enabled":true,"name":"Virtual input 4","topic":"a","kind":"binary_sensor"})").result,
+      MqttSubscriptions::Result::OK);
+  // Virtual inputs are binary sensors only.
+  EXPECT_EQ(this->post(R"({"slot":2,"enabled":true,"name":"Virtual input 2","topic":"a","kind":"sensor"})").result,
+            MqttSubscriptions::Result::OK);
+}
+
 // At boot no probe exists yet, so only the reservation keeps the slot from taking the name.
 TEST_F(NamesTest, ANameAProbeWillTakeDoesNotRunAtBoot) {
   this->plant({slot_of("temp_3", "a"), slot_of("Temp 3", "b", SlotKind::TEXT_SENSOR)});

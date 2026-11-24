@@ -25,6 +25,11 @@ void MqttSubscriptions::add_unit(const char *unit, uint8_t uom_index) {
   this->unit_indices_.push_back(uom_index);
 }
 
+void MqttSubscriptions::reserve_binary_sensor_names(const char *prefix, uint8_t count) {
+  this->reserved_binary_prefix_ = prefix;
+  this->reserved_binary_count_ = count;
+}
+
 void MqttSubscriptions::reserve_sensor_names(const char *prefix, uint8_t count) {
   this->reserved_prefix_ = prefix;
   this->reserved_count_ = count;
@@ -226,6 +231,14 @@ std::string MqttSubscriptions::name_conflict_(size_t index, const SlotConfig &sl
       const std::string probe = this->reserved_prefix_ + " " + std::to_string(n);
       if (object_id_of(probe) == id)
         return "'name' gives the same id as '" + probe + "', which a temperature probe takes";
+    }
+  }
+  // Nor do the virtual inputs, and a free one is hidden, so the walk above would miss it anyway.
+  if (slot.kind == SlotKind::BINARY_SENSOR) {
+    for (unsigned n = 1; n <= this->reserved_binary_count_; n++) {
+      const std::string input = this->reserved_binary_prefix_ + " " + std::to_string(n);
+      if (object_id_of(input) == id)
+        return "'name' gives the same id as '" + input + "', which a virtual input takes";
     }
   }
   return "";

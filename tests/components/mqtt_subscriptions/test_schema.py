@@ -222,6 +222,17 @@ class Codegen(unittest.TestCase):
             ("T", 2),
         )
 
+    def test_the_names_virtual_inputs_take_are_reserved(self):
+        lines = self.emit({"virtual_inputs": {"max_inputs": 8}})
+        self.assertIn(
+            'mqtt_subs->reserve_binary_sensor_names("Virtual input", 8);', lines
+        )
+        self.assertIsNone(subs.virtual_input_names({}))
+        # The pool names its slots with this prefix; the two must not drift apart.
+        from esphome.components import virtual_inputs
+
+        self.assertEqual(subs.VIRTUAL_INPUT_PREFIX, virtual_inputs.NAME_PREFIX)
+
     def test_without_probes_nothing_is_reserved(self):
         lines = self.emit({})
         self.assertFalse([line for line in lines if "reserve_sensor_names" in line])
