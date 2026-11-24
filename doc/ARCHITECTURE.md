@@ -302,6 +302,11 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
   `bits:` and `registers:` entry's `address`, `value_type` and whether it has a `write_lambda`,
   `courtesy_response`, and a value's width from `TYPE_REGISTER_MAP` in `modbus/helpers.py`. Final
   validation keeps nothing, so `to_code` derives them again out of `CORE.config`.
+- `components/modbus_tcp` calls `modbus_server`'s public handlers (`on_read_coils`,
+  `on_write_registers`, …) and restates for TCP the request parsing upstream's RTU hub keeps
+  protected (`ModbusServerHub::process_modbus_client_frame_`), with the hub's length rule
+  `client_pdu_length()`. On an ESPHome bump, diff that function: a function code, limit or
+  exception the hub changes has to change in `mbap.cpp` too.
 - `components/firmware_rollback`, behind the dashboard's `/api/device/system/rollback` and the
   display's Rollback row, reads otadata the way the bootloader does: the other slot is a target
   only when its entry is one `bootloader_common_ota_select_valid` would boot, so an entry marked

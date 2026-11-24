@@ -1,0 +1,46 @@
+# Google Test binary for components/modbus_tcp, built through esphome compile by tests/run.py.
+# The harness main.cpp replaces the generated one, so nothing declared here is ever set up: the
+# sections exist to get modbus_server and modbus_tcp compiled. The cases build the relay board's
+# server themselves and put requests to it the way a client's bytes reach it off the socket.
+esphome:
+  name: modbus-tcp-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../../components
+    components: [modbus_tcp]
+
+# The bus is only there for the server to hang off: nothing opens the port.
+uart:
+  id: modbus_uart
+  port: /dev/null
+  baud_rate: 9600
+
+modbus:
+  uart_id: modbus_uart
+  role: server
+
+modbus_server:
+  - id: modbus_server1
+    bits:
+      - address: 0x0000
+        read_lambda: 'return false;'
+
+modbus_tcp:
+  modbus_server_id: modbus_server1

@@ -4,6 +4,9 @@ Names the address ranges a `modbus_server` serves, for
 [`web_device_dashboard`](../web_device_dashboard/README.md) to list on its **Settings → Modbus**
 tab. The dashboard picks it up on its own; there is nothing to wire.
 
+The map belongs to the server, not to a transport: a [`modbus_tcp`](../modbus_tcp/README.md) that
+serves the same server answers by the same map.
+
 ```yaml
 external_components:
   - source:
