@@ -1308,12 +1308,14 @@ TEST_F(Storage, AConditionTriggerStartsOverWhenUpdatedOrEnabled) {
   EXPECT_EQ(e.relay2.writes, 3);
 }
 
-// start OR (relay AND NOT stop): the relay holds itself on after start is let go.
+// (start OR relay) AND NOT stop: the relay holds itself on after start is let go, and stop
+// turns it off even while start is held.
 TEST_F(Storage, ALatchHoldsItself) {
   start();
   ASSERT_NE(engine->add_automation(rule(R"({"name":"Latch","triggers":[{"source":"condition"}],
-      "condition":{"type":"or","conditions":[{"type":"input","object_id":"in_1"},
-        {"type":"and","conditions":[{"type":"switch","object_id":"relay_1"},{"type":"input","object_id":"in_2","state":"false"}]}]},
+      "condition":{"type":"and","conditions":[
+        {"type":"or","conditions":[{"type":"input","object_id":"in_1"},{"type":"switch","object_id":"relay_1"}]},
+        {"type":"input","object_id":"in_2","state":"false"}]},
       "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],
       "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_1"}]})")),
             0u);
@@ -1329,6 +1331,17 @@ TEST_F(Storage, ALatchHoldsItself) {
   e.in2.publish_state(false);
   EXPECT_FALSE(e.relay1.state);
   EXPECT_EQ(e.relay1.writes, 3);
+
+  // Stop wins over a start held down; let go, the held start turns the relay on again.
+  e.in1.publish_state(true);
+  EXPECT_TRUE(e.relay1.state);
+  e.in2.publish_state(true);
+  EXPECT_FALSE(e.relay1.state);
+  e.in2.publish_state(false);
+  EXPECT_TRUE(e.relay1.state);
+  e.in1.publish_state(false);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 6);
   EXPECT_TRUE(log().warnings.empty());
 }
 

@@ -112,20 +112,21 @@ to watch`). Give it `restart`: in `single`, a change that comes while a delay ru
 Run now plays the branch the condition gives at that moment. When a running thermostat lets a
 relay go, a watching rule whose branch for the current result drives that relay plays it again.
 
-A condition may read the switch the rule drives. Input 1 turns relay 1 on, the relay holds itself
-on, input 2 lets it go:
+A condition may read the switch the rule drives. Input 1, start, turns relay 1 on and the relay
+holds itself on; input 2, stop, turns it off, input 1 held or not, as a motor's stop button wins
+over its start button:
 
 ```json
 {
   "name": "Latch",
   "mode": "restart",
   "triggers": [{"source": "condition"}],
-  "condition": {"type": "or", "conditions": [
-    {"type": "input", "object_id": "input_1", "state": "true"},
-    {"type": "and", "conditions": [
-      {"type": "switch", "object_id": "relay_1", "state": "true"},
-      {"type": "input", "object_id": "input_2", "state": "false"}
-    ]}
+  "condition": {"type": "and", "conditions": [
+    {"type": "or", "conditions": [
+      {"type": "input", "object_id": "input_1", "state": "true"},
+      {"type": "switch", "object_id": "relay_1", "state": "true"}
+    ]},
+    {"type": "input", "object_id": "input_2", "state": "false"}
   ]},
   "actions": [{"source": "switch", "type": "turn_on", "object_id": "relay_1"}],
   "else_actions": [{"source": "switch", "type": "turn_off", "object_id": "relay_1"}]

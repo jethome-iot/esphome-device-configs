@@ -113,7 +113,7 @@ export const seedAutomations: AutomationConfig[] = [
     actions: [{ source: 'switch', type: 'turn_on', object_id: 'relay_3' }]
   },
   // A latch: the rule follows its condition. The door turns the porch light on, the light holds
-  // itself on, motion lets it go.
+  // itself on, motion turns it off, the door open or not.
   {
     id: 6,
     name: 'Porch light latches on the door',
@@ -121,16 +121,16 @@ export const seedAutomations: AutomationConfig[] = [
     mode: 'restart',
     triggers: [{ source: 'condition' }],
     condition: {
-      type: 'or',
+      type: 'and',
       conditions: [
-        { type: 'input', object_id: 'front_door', state: 'true' },
         {
-          type: 'and',
+          type: 'or',
           conditions: [
-            { type: 'switch', object_id: 'porch_light', state: 'true' },
-            { type: 'input', object_id: 'motion', state: 'false' }
+            { type: 'input', object_id: 'front_door', state: 'true' },
+            { type: 'switch', object_id: 'porch_light', state: 'true' }
           ]
-        }
+        },
+        { type: 'input', object_id: 'motion', state: 'false' }
       ]
     },
     actions: [{ source: 'switch', type: 'turn_on', object_id: 'porch_light' }],
