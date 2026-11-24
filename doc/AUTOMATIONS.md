@@ -56,6 +56,10 @@ hour away counts as a DST switch, one further away as a jump.
 A timetable, what relays and thermostats do by the time of day and the day of the week, is a
 [schedule](SCHEDULES.md) rather than a rule.
 
+MQTT subscriptions ([MQTT.md](MQTT.md#subscriptions)) work like the device's own entities: a
+Number subscription is a temperature and an On/Off subscription an input. The first value an
+On/Off subscription gets after a start is its state, not a press or a release.
+
 ## Storage
 
 Rules are `/littlefs/automations/<name>.json` on the LittleFS partition from

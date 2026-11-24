@@ -32,6 +32,7 @@ packages:
   modbus: !include ${features}/modbus-server.yaml
   mqtt: !include ${features}/mqtt.yaml
   mqtt_firmware: !include ${features}/mqtt-firmware.yaml
+  mqtt_subscriptions: !include ${features}/mqtt-subscriptions.yaml
   network: !include ${features}/network.yaml
   reboot_required: !include ${features}/reboot-required.yaml
   rtc_time: !include ${features}/rtc-time.yaml

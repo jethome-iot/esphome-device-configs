@@ -66,7 +66,7 @@ export const MQTT_MOCK_UNITS = [
 ]
 
 /** The web_server sorting group the slots' entities sit in. */
-export const MQTT_SORTING_GROUP = { name: 'MQTT', sorting_weight: 35 } as const
+export const MQTT_SORTING_GROUP = { name: 'MQTT', sorting_weight: 37 } as const
 
 /** A running slot as web_server's REST and /events carry it. */
 export interface MqttSlotEntityState {

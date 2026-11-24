@@ -19,7 +19,7 @@ web_server:
   sorting_groups:
     - id: group_mqtt
       name: "MQTT"
-      sorting_weight: 35
+      sorting_weight: 37
 
 mqtt_subscriptions:
   id: mqtt_subs
