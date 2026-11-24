@@ -952,6 +952,20 @@ switch:
       number: 5
       mode:
         output: true
+  - platform: template
+    name: Modbus TCP
+    id: modbus_tcp_enabled
+    icon: mdi:lan-connect
+    web_server:
+      sorting_group_id: group_modbus_tcp
+      sorting_weight: 1
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    turn_on_action:
+      - lambda: id(modbus_tcp_server).set_enabled(true);
+    turn_off_action:
+      - lambda: id(modbus_tcp_server).set_enabled(false);
 preferences:
   flash_write_interval: 5s
 external_components:
@@ -1032,6 +1046,13 @@ external_components:
       path: components
     components:
       - modbus_map
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - modbus_tcp
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -1146,6 +1167,9 @@ web_server:
     - id: group_modbus
       name: Modbus
       sorting_weight: 40
+    - id: group_modbus_tcp
+      name: Modbus TCP
+      sorting_weight: 45
     - id: group_network
       name: Network
       sorting_weight: 50
@@ -1783,6 +1807,38 @@ number:
     step: 1
     on_value:
       - lambda: id(modbus_server1).set_address((uint8_t) x);
+  - platform: template
+    name: Modbus TCP port
+    id: modbus_tcp_port
+    web_server:
+      sorting_group_id: group_modbus_tcp
+      sorting_weight: 2
+    entity_category: config
+    mode: box
+    optimistic: true
+    restore_value: true
+    initial_value: 502
+    min_value: 1
+    max_value: 65535
+    step: 1
+    on_value:
+      - lambda: id(modbus_tcp_server).set_port((uint16_t) x);
+  - platform: template
+    name: Modbus TCP unit ID
+    id: modbus_tcp_unit_id
+    web_server:
+      sorting_group_id: group_modbus_tcp
+      sorting_weight: 3
+    entity_category: config
+    mode: box
+    optimistic: true
+    restore_value: true
+    initial_value: 1
+    min_value: 1
+    max_value: 247
+    step: 1
+    on_value:
+      - lambda: id(modbus_tcp_server).set_unit_id((uint8_t) x);
 modbus_server:
   - id: modbus_server1
     modbus_id: modbus_bus
@@ -1980,6 +2036,9 @@ modbus_map:
       scale: 0.1
       unit: °C
       no_value: 32768
+modbus_tcp:
+  id: modbus_tcp_server
+  modbus_server_id: modbus_server1
 network:
   priority:
     - ethernet

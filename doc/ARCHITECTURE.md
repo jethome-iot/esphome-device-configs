@@ -234,6 +234,12 @@ at `0x0010`. A coil's `write_lambda` returns `false`, which `modbus_server` answ
 it: a range left unnamed, or a name on an address the server does not serve, fails the build. The
 dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step with the server.
 
+`modbus_tcp` (`features/modbus-tcp.yaml`) serves the same `modbus_server1` over Modbus TCP: it hands
+each request to the server's own handlers, so the map, the exceptions and the thermostat's `0x04`
+are the RTU ones. It is off until the `Modbus TCP` switch turns it on; the switch, port and unit ID
+apply at once, in the component's next `loop()`, so the entities restore in any order. Each client
+it allows is a socket it declares to ESPHome, which sizes `CONFIG_LWIP_MAX_SOCKETS` from that.
+
 ## Coupled to upstream internals
 
 - `boards/jxd-cpu-e1eth.yaml` gives the loop task 12288 B (`loop_task_stack_size`) because
