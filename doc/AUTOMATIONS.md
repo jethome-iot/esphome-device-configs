@@ -11,9 +11,10 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
 - **Triggers** (any of them fires the rule): input press / release / click / state change,
   switch turn on / off / state change, a sensor above / below / in range (fires on the
   crossing, once), cron (six fields, seconds first), startup.
-- **Condition** (optional): input is on/off, a sensor above / below / in range (`above` and
-  `below` are strict, a range includes both ends), and `and` / `or` / `xor` groups of those,
-  nested. When false, the `else` actions run.
+- **Condition** (optional): input is on/off, switch is on/off, a sensor above / below / in
+  range (`above` and `below` are strict, a range includes both ends), and `and` / `or` / `xor`
+  groups of those, nested. When false, the `else` actions run. A switch condition reads any
+  switch, the one the rule drives included: "only while relay 1 is off" is an interlock.
 - **Actions**: switch turn on / off / toggle / follow (copies the state the trigger
   carried, optionally inverted), delay. A switch action on a relay a running thermostat drives
   does nothing; the log names the rule and the thermostat, and the rest of the rule runs

@@ -21,15 +21,21 @@ TEST_F(Runtime, BuildRefusesWhatItCannotResolve) {
       "condition":{"type":"input","object_id":"no_such"}})"),
             nullptr);
   EXPECT_EQ(build_rule(engine, R"({"name":"No clock","triggers":[{"source":"cron","cron":"* * * * * *"}]})"), nullptr);
+  EXPECT_EQ(build_rule(engine, R"({"name":"Orphan switch","triggers":[{"source":"startup"}],
+      "condition":{"type":"switch","object_id":"no_such"}})"),
+            nullptr);
 }
 
-// A config switch is the device's own setting: a rule naming it, as its action or its trigger,
-// is refused as one naming a switch that is not there, and the same rule on a relay builds.
+// A config switch is the device's own setting: a rule naming it, as its action, its trigger or
+// its condition, is refused as one naming a switch that is not there, and the same rule on a
+// relay builds.
 TEST_F(Runtime, BuildRefusesAConfigSwitchAsAMissingOne) {
   static const char *const UNLOCK =
       R"({"name":"Unlock","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"%s"}]})";
   static const char *const WATCH =
       R"({"name":"Watch","triggers":[{"source":"switch","type":"turn_on","object_id":"%s"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})";
+  static const char *const GATE =
+      R"({"name":"Gate","triggers":[{"source":"startup"}],"condition":{"type":"switch","object_id":"%s"},"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})";
   auto naming = [](std::string json, const char *object_id) {
     json.replace(json.find("%s"), 2, object_id);
     AutomationConfig config;
@@ -42,6 +48,8 @@ TEST_F(Runtime, BuildRefusesAConfigSwitchAsAMissingOne) {
     EXPECT_EQ(error, "Action 1: switch not found") << object_id;
     EXPECT_EQ(RuntimeAutomation::build(&engine, naming(WATCH, object_id), &error), nullptr) << object_id;
     EXPECT_EQ(error, "Trigger 1: switch not found") << object_id;
+    EXPECT_EQ(RuntimeAutomation::build(&engine, naming(GATE, object_id), &error), nullptr) << object_id;
+    EXPECT_EQ(error, "Condition: switch not found") << object_id;
   }
 
   auto unlock = RuntimeAutomation::build(&engine, naming(UNLOCK, "relay_2"));
@@ -52,6 +60,62 @@ TEST_F(Runtime, BuildRefusesAConfigSwitchAsAMissingOne) {
   ASSERT_NE(watch, nullptr);
   watch->on_switch(&e.relay2, true);
   EXPECT_TRUE(e.relay1.state);
+  e.relay1.turn_off();
+  auto gate = RuntimeAutomation::build(&engine, naming(GATE, "relay_2"));
+  ASSERT_NE(gate, nullptr);
+  gate->on_startup();
+  EXPECT_TRUE(e.relay1.state);
+}
+
+TEST_F(Runtime, SwitchConditionReadsTheSwitch) {
+  ConditionConfig config;
+  ASSERT_TRUE(load(R"({"type":"switch","object_id":"relay_1","state":"false"})", config));
+  CompiledCondition c;
+  ASSERT_TRUE(compile_condition(config, c));
+  EXPECT_TRUE(c.check());
+  e.relay1.turn_on();
+  EXPECT_FALSE(c.check());
+  e.relay1.turn_off();
+  EXPECT_TRUE(c.check());
+}
+
+// An interlock: In 1 turns relay 2 on only while relay 1 is off, and the else branch says so.
+static const char *const INTERLOCK = R"({"name":"Interlock",
+    "triggers":[{"source":"input","type":"press","object_id":"in_1"}],
+    "condition":{"type":"switch","object_id":"relay_1","state":"false"},
+    "actions":[{"source":"switch","type":"turn_on","object_id":"relay_2"}],
+    "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_2"}]})";
+
+TEST_F(Runtime, ASwitchConditionInterlocksTwoRelays) {
+  auto rule = build_rule(engine, INTERLOCK);
+  ASSERT_NE(rule, nullptr);
+  e.relay1.turn_on();
+  rule->on_binary_sensor(&e.in1, true);
+  EXPECT_FALSE(e.relay2.state);
+  EXPECT_EQ(e.relay2.writes, 1);
+
+  e.relay1.turn_off();
+  rule->on_binary_sensor(&e.in1, true);
+  EXPECT_TRUE(e.relay2.state);
+}
+
+// A rule may read the switch its own trigger watches: the condition sees the state the switch
+// is in now, the one the trigger carries.
+static const char *const OWN_SWITCH = R"({"name":"Echo",
+    "triggers":[{"source":"switch","type":"state_change","object_id":"relay_1"}],
+    "condition":{"type":"switch","object_id":"relay_1"},
+    "actions":[{"source":"switch","type":"turn_on","object_id":"relay_2"}],
+    "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_2"}]})";
+
+TEST_F(Runtime, ASwitchConditionReadsTheStateItsTriggerCarries) {
+  auto rule = build_rule(engine, OWN_SWITCH);
+  ASSERT_NE(rule, nullptr);
+  e.relay1.turn_on();
+  rule->on_switch(&e.relay1, true);
+  EXPECT_TRUE(e.relay2.state);
+  e.relay1.turn_off();
+  rule->on_switch(&e.relay1, false);
+  EXPECT_FALSE(e.relay2.state);
 }
 
 TEST_F(Runtime, PressTurnsTheRelayOn) {

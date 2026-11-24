@@ -52,10 +52,11 @@ TEST(Enums, ClimateActionTypeRoundTrip) {
 }
 
 TEST(Enums, ConditionTypeRoundTrip) {
-  for (auto v :
-       {ConditionType::AND, ConditionType::OR, ConditionType::XOR, ConditionType::INPUT, ConditionType::TEMPERATURE})
+  for (auto v : {ConditionType::AND, ConditionType::OR, ConditionType::XOR, ConditionType::INPUT,
+                 ConditionType::TEMPERATURE, ConditionType::SWITCH})
     EXPECT_EQ(string_to_condition_type(condition_type_to_string(v)), v);
   EXPECT_EQ(string_to_condition_type("nand"), ConditionType::NONE);
+  EXPECT_EQ(string_to_condition_type("swich"), ConditionType::NONE);
 }
 
 TEST(Enums, TemperatureConditionTypeRoundTrip) {

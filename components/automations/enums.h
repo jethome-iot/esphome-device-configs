@@ -49,7 +49,7 @@ enum class TypeClimateAction : uint8_t {
   FOLLOW,
 };
 
-enum class ConditionType : uint8_t { NONE = 0, AND, OR, XOR, INPUT, TEMPERATURE };
+enum class ConditionType : uint8_t { NONE = 0, AND, OR, XOR, INPUT, TEMPERATURE, SWITCH };
 
 enum class InputConditionState : uint8_t {
   FALSE = 0,

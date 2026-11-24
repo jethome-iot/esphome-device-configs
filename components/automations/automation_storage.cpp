@@ -905,6 +905,8 @@ static bool entity_missing(const ConditionConfig &condition) {
   switch (condition.type) {
     case ConditionType::INPUT:
       return find_binary_sensor(condition.sensor_id) == nullptr;
+    case ConditionType::SWITCH:
+      return find_switch(condition.sensor_id) == nullptr;
     case ConditionType::TEMPERATURE:
       return find_sensor(condition.sensor_id) == nullptr;
     case ConditionType::AND:
@@ -1224,6 +1226,10 @@ void AutomationStorage::print_condition_info_(const ConditionConfig &condition, 
   switch (condition.type) {
     case ConditionType::INPUT:
       ESP_LOGCONFIG(TAG, "%sCondition: input 0x%08X is %s", pad.c_str(), static_cast<unsigned>(condition.sensor_id),
+                    EnumUtils::input_condition_state_to_string(condition.state));
+      break;
+    case ConditionType::SWITCH:
+      ESP_LOGCONFIG(TAG, "%sCondition: switch 0x%08X is %s", pad.c_str(), static_cast<unsigned>(condition.sensor_id),
                     EnumUtils::input_condition_state_to_string(condition.state));
       break;
     case ConditionType::TEMPERATURE:
