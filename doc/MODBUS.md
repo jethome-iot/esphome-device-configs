@@ -7,8 +7,9 @@ the dashboard, or through the `Modbus …` entities in Home Assistant, and take 
 The register map is on the same dashboard tab: the relays are coils, the inputs discrete inputs and
 the temperatures holding registers.
 
-A write that would move a relay a running thermostat drives answers exception `0x04`. An address
-outside the map answers `0` instead of an exception.
+A write that would move a relay a running thermostat drives answers exception `0x04`. A register
+outside the map reads `0` instead of an exception; a coil or discrete input outside the map
+answers exception `0x02`, so read the relays and the inputs in separate requests.
 
 ## Connector
 
