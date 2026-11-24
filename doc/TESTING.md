@@ -19,6 +19,8 @@ tests/
   harness/
     main.cpp                # upstream's tests/components/main.cpp: runs the tests instead of setup()
     environment.cpp         # constructs App, which that setup would have done
+    entity_tables.h         # puts App's entity lists back to a length, for components that
+                            # register entities at setup
     components/
       dir_storage           # test-only storage backend: a directory on the host
       display_menu_host     # test-only key that pulls display_menu_base into a host build
@@ -60,6 +62,7 @@ tests/
     modbus_map/               # test_schema.py alone: the class only holds what the build derived,
                               # and web_device_dashboard's suite reads one
     mqtt_config/
+    mqtt_subscriptions/
     ntp_servers/
     panel_text/
     schedules/
@@ -181,7 +184,9 @@ What it checks and its options are in [QEMU.md](QEMU.md#the-thermostat-smoke-che
   the generated setup, and `environment.cpp` constructs `App` because that setup would have.
   The YAML only pulls the sources in and sets the `USE_*` defines.
 - `App` sizes its entity lists from the YAML and silently drops a registration past that. A new
-  entity in the cases needs a matching declaration in the YAML.
+  entity in the cases needs a matching declaration in the YAML. A component that creates its
+  entities at setup is booted again and again in one process, so its suite puts the lists back
+  to their length before each boot with `harness/entity_tables.h`, listed in its `includes:`.
 - A component that subscribed to an entity has to outlive the process: the entity keeps a
   callback into it. Keep such objects alive across tests instead of destroying them.
 - Nothing runs the scheduler, so a `set_timeout`, `set_interval` or `defer` never fires unless a
@@ -197,9 +202,10 @@ What it checks and its options are in [QEMU.md](QEMU.md#the-thermostat-smoke-che
 - The host preferences keep no record over 255 bytes. A component that stores a larger one
   (`mqtt_config`) reads and writes it through a virtual seam the tests override.
 - A suite that needs `mqtt:` loads the `mqtt` stand-in from `tests/harness/components`. Every
-  entity then gets a stand-in MQTT component, as on a device; `connect_for_test()`,
-  `drop_for_test()`, `deliver_for_test()` and `process_resends_for_test()` on the client play
-  the broker, and `published` holds what went out.
+  entity then gets a stand-in MQTT component, as on a device; `connect_for_test()` (or its two
+  halves, `backend_connect_for_test()` and `take_connection_for_test()`), `drop_for_test()`,
+  `deliver_for_test()` and `process_resends_for_test()` on the client play the broker, and
+  `published` and `sent_subscribes` hold what went out.
 - An I2C component validates on the host only with an `i2c:` bus that names a `device:`;
   nothing opens it. The suite drives the component over a fake `i2c::I2CBus` of its own.
 - A 1-Wire component needs `one_wire: - platform: one_wire_host` from the harness: upstream's
