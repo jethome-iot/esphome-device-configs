@@ -962,6 +962,8 @@ switch:
       number: 5
       mode:
         output: true
+  - id: !extend 'esphome_ota_allowed'
+    state_topic: null
 preferences:
   flash_write_interval: 5s
 external_components:

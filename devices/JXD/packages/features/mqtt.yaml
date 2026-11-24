@@ -19,6 +19,11 @@ mqtt:
 mqtt_config:
   id: mqtt_settings
 
+# Kept off MQTT: it lets anyone upload firmware for 30 minutes.
+switch:
+  - id: !extend esphome_ota_allowed
+    state_topic: null
+
 # Kept off MQTT: they cut the device off its network or its field bus.
 select:
   - id: !extend network_mode

@@ -59,9 +59,9 @@ subscriptions of this device between connections.
 
 ## Kept off MQTT
 
-Firmware update, Firmware channel, Network mode, and the Modbus address, baud rate, parity and
-stop bits are never on MQTT: no state, no command, no discovery. They cut the device off its
-network or its field bus, or install firmware. The dashboard, the display and the native API
+Firmware update, Firmware channel, Allow uploads from ESPHome, Network mode, and the Modbus
+address, baud rate, parity and stop bits are never on MQTT: no state, no command, no discovery.
+They cut the device off its network or its field bus, or install firmware. The dashboard, the display and the native API
 still have them.
 
 ## Home Assistant discovery
