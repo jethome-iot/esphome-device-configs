@@ -6,5 +6,12 @@ binary_sensor:
   - platform: template
     id: reboot_required
     internal: true
-    # Temperature slots assigned or forgotten since boot.
-    lambda: return id(temps)->reboot_required();
+    lambda: |-
+      // Temperature slots assigned or forgotten since boot.
+      bool waits = id(temps)->reboot_required();
+      #ifdef USE_MQTT_CONFIG
+      // A saved MQTT setting, or MQTT held back after repeated crashes.
+      if (mqtt_config::global_mqtt_config != nullptr)
+        waits = waits || mqtt_config::global_mqtt_config->reboot_required();
+      #endif
+      return waits;

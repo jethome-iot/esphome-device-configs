@@ -1,0 +1,34 @@
+# MQTT client, set up from the dashboard (Settings → MQTT) and idle until then.
+# Details: doc/MQTT.md
+external_components:
+  - source: ${components}
+    components: [mqtt_config]
+
+mqtt:
+  id: mqtt_client
+  broker: ""
+  enable_on_boot: false
+  reboot_timeout: 0s
+  clean_session: true  # no broker-side subscriptions left over from removed topics
+  discovery: true  # what the device can turn on; the stored setting decides
+  discovery_retain: true
+  discovery_unique_id_generator: mac
+  discover_ip: false
+  log_topic: null
+
+mqtt_config:
+  id: mqtt_settings
+
+# Kept off MQTT: they cut the device off its network or its field bus.
+select:
+  - id: !extend network_mode
+    state_topic: null
+  - id: !extend modbus_baud_rate
+    state_topic: null
+  - id: !extend modbus_parity
+    state_topic: null
+  - id: !extend modbus_stop_bits
+    state_topic: null
+number:
+  - id: !extend modbus_address
+    state_topic: null
