@@ -264,7 +264,31 @@ TEST_F(Editor, AConfigSwitchIsNeitherListedNorTaken) {
       R"({"name":"Unlock","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"config_switch"}]})");
   EXPECT_EQ(reply.code, 400);
   EXPECT_EQ(reply.error(), "Action 1: switch not found");
+  reply = this->post(
+      "save",
+      R"({"name":"Peek","triggers":[{"source":"startup"}],"condition":{"type":"switch","object_id":"config_switch"},"actions":[]})");
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "Condition: switch not found");
   EXPECT_TRUE(this->files().empty());
+}
+
+// The state comes back as the device writes it: a string, "true" when the request left it out.
+TEST_F(Editor, SaveRoundTripsASwitchCondition) {
+  static const char *const GATE =
+      R"({"name":"Gate","enabled":true,"mode":"single","triggers":[{"source":"input","type":"press","object_id":"in_1"}],)"
+      R"("condition":{"type":"switch","object_id":"relay_1","state":"false"},)"
+      R"("actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})";
+  const uint32_t id = this->create(GATE);
+  ASSERT_GT(id, 0u);
+  std::string expected = GATE;
+  expected.replace(1, 0, "\"id\":" + std::to_string(id) + ",");
+  EXPECT_EQ(this->get("get?id=" + std::to_string(id)).body, expected);
+
+  std::string bare = expected;
+  bare.replace(bare.find(R"(,"state":"false")"), 16, "");
+  Reply reply = this->post("save", bare);
+  ASSERT_EQ(reply.code, 200) << reply.body;
+  EXPECT_EQ(this->get("get?id=" + std::to_string(id))["condition"]["state"].as<std::string>(), "true");
 }
 
 // By the hub's id, which a rule names, running or not; the presets by the key a rule names.
@@ -387,6 +411,8 @@ TEST_F(Editor, SchemaOffersOnlyWhatTheEngineParses) {
     const std::string type = entry["type"];
     if (type == "input") {
       EXPECT_TRUE(condition(R"({"type":"input","object_id":"in_1","state":"true"})"));
+    } else if (type == "switch") {
+      EXPECT_TRUE(condition(R"({"type":"switch","object_id":"relay_1","state":"false"})"));
     } else if (type == "temperature") {
       for (std::string subtype : entry["subtypes"].as<JsonArray>()) {
         EXPECT_TRUE(condition(R"({"type":"temperature","object_id":"temp","temperature_type":")" + subtype + "\"" +
@@ -422,7 +448,7 @@ TEST_F(Editor, SchemaOffersOnlyWhatTheEngineParses) {
     words++;
   }
   // Every word above was checked, not an empty schema.
-  EXPECT_EQ(words, 36);
+  EXPECT_EQ(words, 37);
 }
 
 // --- run now ---

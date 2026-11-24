@@ -42,6 +42,7 @@ static const char *const SCHEMA = R"({
   ],
   "conditions": [
     {"type": "input"},
+    {"type": "switch"},
     {"type": "temperature", "subtypes": ["above", "below", "range"]},
     {"type": "and"},
     {"type": "or"},
