@@ -3,6 +3,11 @@ pca9554:
     pin_count: 16
     address: 0x22
 
+external_components:
+  # Upstream's ds2484 with a status wait that outlasts a 1-Wire reset; see its README.
+  - source: ${components}
+    components: [ds2484]
+
 one_wire:
   - platform: ds2484
     id: one_wire_bus

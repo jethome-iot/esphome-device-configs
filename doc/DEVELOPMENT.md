@@ -111,12 +111,12 @@ The pin appears in these files; Dependabot bumps only the first:
 After a bump, re-check every entry under "Coupled to upstream internals" in
 [ARCHITECTURE.md](ARCHITECTURE.md): that list is the one that grows, this one would go stale.
 
-`components/display_menu_base` and `components/graphical_display_menu` replace the ESPHome
-components of those names, so a bump does not reach them. Before changing the pin, save
-`scripts/vendored-diff.py` output; after it, copy both directories from the new ESPHome and
-re-apply that patch. Every hunk it prints is marked `JetHome:` in the source, which is what the
-`vendored-diff` pre-commit hook checks — it fails on the un-re-copied tree, so the pin in that
-hook has to move with the others.
+`components/display_menu_base`, `components/graphical_display_menu` and `components/ds2484`
+replace the ESPHome components of those names, so a bump does not reach them. Before changing
+the pin, save `scripts/vendored-diff.py` output; after it, copy the directories from the new
+ESPHome and re-apply that patch. Every hunk it prints is marked `JetHome:` in the source, which
+is what the `vendored-diff` pre-commit hook checks — it fails on the un-re-copied tree, so the
+pin in that hook has to move with the others.
 
 Also re-sync `.clang-format` and the `mirrors-clang-format` rev in `.pre-commit-config.yaml` with
 upstream's: a bump can change either the style config or the version it formats with.

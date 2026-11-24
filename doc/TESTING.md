@@ -45,6 +45,7 @@ tests/
     crash_report/
     dallas_scan/
     display_menu_base/
+    ds2484/                   # the status wait, over a fake DS2484 whose busy bit lasts a set time
     entity_config/
     firmware_rollback/
     i2c_eeprom/
