@@ -45,6 +45,7 @@ AUTO_LOAD = ["json"]
 
 CONF_MQTT_PARENT_ID = "mqtt_parent_id"
 CONF_WAIT_FOR_CONNECTION = "wait_for_connection"
+CONF_IDF_SEND_ASYNC = "idf_send_async"
 CONF_MQTT = "mqtt"
 CONF_DALLAS_SCAN = "dallas_scan"
 
@@ -111,6 +112,12 @@ def _check_mqtt_block(conf):
         return (
             "'wait_for_connection' would hold the boot until a broker nobody may have "
             "set answers"
+        )
+    # Only ESP32 has the key; the host builds the test suites.
+    if CORE.is_esp32 and not conf.get(CONF_IDF_SEND_ASYNC):
+        return (
+            "set 'idf_send_async: true': a broker that stops reading would stall the loop, "
+            "and the relays and Modbus with it, for up to 10 s a message"
         )
     if conf.get(CONF_TOPIC_PREFIX) != CORE.name:
         return "the topic prefix is set on the device: leave 'topic_prefix' out"

@@ -153,6 +153,22 @@ class FinalValidate(unittest.TestCase):
             wait_for_connection=True,
         )
 
+    def test_publishing_from_the_loop_task_is_refused(self):
+        message = (
+            "set 'idf_send_async: true': a broker that stops reading would stall the loop, "
+            "and the relays and Modbus with it, for up to 10 s a message"
+        )
+        self.assert_refused(message, idf_send_async=False)
+        # Upstream's default on ESP32 is off.
+        self.assert_refused(message, idf_send_async=...)
+
+    def test_the_host_has_no_send_task_to_ask_for(self):
+        # Upstream's schema refuses the host outright, so the block is validated as ESP32's.
+        block = self.mqtt_block()
+        del block["idf_send_async"]
+        CORE.data[KEY_CORE][KEY_TARGET_PLATFORM] = PLATFORM_HOST
+        self.final_validate(block)
+
     def test_a_topic_prefix_in_yaml_is_refused(self):
         self.assert_refused(
             "the topic prefix is set on the device: leave 'topic_prefix' out",

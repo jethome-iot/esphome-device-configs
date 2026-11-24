@@ -15,6 +15,8 @@ mqtt:
   discovery_unique_id_generator: mac
   discover_ip: false
   log_topic: null
+  # Publishes from a task of its own: a broker that stops reading stalled the loop for 21 s.
+  idf_send_async: true
 
 mqtt_config:
   id: mqtt_settings

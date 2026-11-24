@@ -1157,6 +1157,7 @@ mqtt:
   discovery_unique_id_generator: mac
   discover_ip: false
   log_topic: null
+  idf_send_async: true
 mqtt_config:
   id: mqtt_settings
 network:

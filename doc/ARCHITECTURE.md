@@ -481,6 +481,10 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
     broker; final_validate requires `true`. The client reserves the whole announced length of an
     inbound message before it matches the topic, which with exceptions off can abort the device;
     that is what the crash guard counts.
+  - final_validate requires `idf_send_async: true` on ESP32: the client then publishes from a
+    task of its own through a queue of 29, so a broker that stops reading blocks that task, not
+    the loop. A publish that finds the queue full is dropped; a component's resend, discovery
+    included, comes back on the next loop pass, a state change in between does not.
 - `tests/harness/components/mqtt` stands in for upstream's `mqtt` on the host: its schema and
   codegen are upstream's own module, its C++ copies the client's setters, topic prefix rule,
   discovery info and resend pass. A signature drift shows in the ESP32 builds; a behaviour drift
