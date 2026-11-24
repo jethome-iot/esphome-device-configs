@@ -139,7 +139,14 @@ class TestConfig : public MqttConfig {
     this->cancel_timeout("mqtt-guard");
     this->cancel_interval("mqtt-cleanup");
   }
-  void run_loop() { this->loop(); }
+  // One pass of the device's loop: this component's, then the client's, which hands it the
+  // broker's echo of a cleanup probe the pass sent.
+  void run_loop() {
+    this->loop();
+    this->client_->deliver_echoes_for_test();
+  }
+  // This component's pass alone, the echo still on its way.
+  void run_own_loop() { this->loop(); }
 
  protected:
   bool load_record_(StoredMqttV1 &out) override { return this->board_->read(out); }

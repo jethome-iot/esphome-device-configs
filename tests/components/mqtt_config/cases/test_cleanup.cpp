@@ -207,6 +207,89 @@ TEST_F(CleanupTest, AFailedPublishKeepsTheCleanupRunning) {
 }
 
 // The cleanup finished, but the flag could not be cleared: the next boot runs the fallback.
+// --- the probe: with idf_send_async a publish is only queued, so the removals count as gone
+// once the broker has echoed a message sent after them ---
+
+static const std::string PROBE = std::string(NODE_PREFIX) + "/mqtt_config/cleanup";
+
+static size_t probes(const mqtt::MQTTClientComponent &client) {
+  return std::count_if(client.published.begin(), client.published.end(),
+                       [](const mqtt::MQTTClientComponent::Published &p) { return p.topic == PROBE; });
+}
+
+TEST_F(CleanupTest, TheRemovalsCountOnlyOnceTheBrokerEchoesTheProbe) {
+  TestConfig &c = this->announced();
+  this->save(patch_of([](MqttPatch &p) { p.discovery = false; }));
+  this->settle();
+  EXPECT_EQ(this->cleaned_topics().size(), 3u);
+  EXPECT_EQ(probes(*this->client), 0u);
+
+  c.run_own_loop();
+  ASSERT_EQ(probes(*this->client), 1u);
+  EXPECT_EQ(this->client->published.back().topic, PROBE);
+  EXPECT_FALSE(this->client->published.back().retain);
+  EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::RUNNING);
+  EXPECT_TRUE(from_stored(this->board.record()).clean_pending);
+  // No second probe while one is on its way.
+  c.run_own_loop();
+  EXPECT_EQ(probes(*this->client), 1u);
+
+  this->client->deliver_echoes_for_test();
+  EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::NONE);
+  EXPECT_FALSE(from_stored(this->board.record()).clean_pending);
+}
+
+// The client's send queue goes with the connection: the removals are sent again on the
+// reconnect, and only a probe after them counts.
+TEST_F(CleanupTest, ADropBeforeTheEchoSendsTheProbeAgainAfterTheResends) {
+  TestConfig &c = this->announced();
+  this->save(patch_of([](MqttPatch &p) { p.discovery = false; }));
+  this->settle();
+  c.run_own_loop();
+  ASSERT_EQ(probes(*this->client), 1u);
+  this->client->drop_for_test(mqtt::MQTTClientDisconnectReason::TCP_DISCONNECTED);
+  this->client->published.clear();
+
+  this->client->connect_for_test();
+  c.run_own_loop();
+  EXPECT_EQ(probes(*this->client), 0u);  // the removals first
+  this->settle();
+  EXPECT_EQ(this->cleaned_topics().size(), 3u);
+  c.run_own_loop();
+  ASSERT_EQ(probes(*this->client), 1u);
+  // The first probe's echo, late: it proves nothing about the removals sent since.
+  this->client->deliver_for_test(PROBE, "1");
+  EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::RUNNING);
+  this->client->deliver_for_test(PROBE, this->client->published.back().payload);
+  EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::NONE);
+}
+
+TEST_F(CleanupTest, AProbeThatCannotBeSentIsTriedOnTheNextPass) {
+  TestConfig &c = this->announced();
+  this->save(patch_of([](MqttPatch &p) { p.discovery = false; }));
+  this->settle();
+  this->client->fail_publishes = true;
+  c.run_loop();
+  EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::RUNNING);
+  this->client->fail_publishes = false;
+  c.run_loop();
+  EXPECT_EQ(probes(*this->client), 1u);
+  EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::NONE);
+}
+
+// A cleanup an earlier boot left runs to the same end.
+TEST_F(CleanupTest, TheBootsOwnCleanupWaitsForTheEchoToo) {
+  MqttRecord stored = enabled_record();
+  stored.clean_pending = true;
+  this->plant(stored);
+  TestConfig &c = this->boot();
+  this->connect_and_settle();
+  c.run_own_loop();
+  EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::RUNNING);
+  this->client->deliver_echoes_for_test();
+  EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::NONE);
+}
+
 TEST_F(CleanupTest, AFailedFlagWriteLeavesTheFallbackForTheNextBoot) {
   TestConfig &c = this->announced();
   this->save(patch_of([](MqttPatch &p) { p.discovery = false; }));
@@ -263,6 +346,10 @@ TEST_F(CleanupTest, AfterCleanupWaitsForTheCleanupToFinish) {
   advance(150);
   EXPECT_EQ(ran, 0);
   this->settle();
+  // The removals are out; this poll sends the probe, and its echo lets the wait end.
+  advance(150);
+  EXPECT_EQ(ran, 0);
+  this->settle();
   advance(150);
   EXPECT_EQ(ran, 1);
   advance(150);
@@ -280,6 +367,8 @@ TEST_F(CleanupTest, AfterCleanupGivesUpAfterItsTimeout) {
   EXPECT_EQ(first, 1);
   EXPECT_EQ(second, 0);
   EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::RUNNING);
+  this->settle();
+  advance(150);
   this->settle();
   advance(150);
   EXPECT_EQ(second, 1);
@@ -306,6 +395,9 @@ TEST_F(CleanupTest, AFactoryResetRemovesTheEntriesFirst) {
   EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::RUNNING);
   this->settle();
   EXPECT_EQ(this->cleaned_topics().size(), 3u);
+  advance(150);
+  EXPECT_EQ(wiped, 0);
+  this->settle();
   advance(150);
   EXPECT_EQ(wiped, 1);
 }

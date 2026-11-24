@@ -469,9 +469,12 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
     component. The `Temp N` bridge creates `MQTTSensorComponent`s itself and calls their
     `call_setup()`.
   - Removing Home Assistant entries is the client's own clean mode (`set_discovery_info(…,
-    clean=true)`) plus `schedule_resend_state()` on every component; it is finished once the
-    client is connected and no component `is_resend_pending()`, which holds because
-    `is_connected()` turns true in the same loop pass that schedules the resends.
+    clean=true)`) plus `schedule_resend_state()` on every component. Once the client is
+    connected and no component `is_resend_pending()` (which never reads true early, because
+    `is_connected()` turns true in the same loop pass that schedules the resends), a probe goes
+    to `<prefix>/mqtt_config/cleanup`, which the client subscribes to, and its echo finishes
+    the cleanup. It leans on the broker passing a client's messages on in the order they came,
+    and on the client's async send task keeping that order.
   - Why a connection failed comes from the ESP32 backend's log lines under the tag `mqtt`,
     `Connection refused error: 0x%x` and `socket errno:`, read through a logger listener; a
     reworded line degrades the reason to "unreachable". `set_on_connect` and

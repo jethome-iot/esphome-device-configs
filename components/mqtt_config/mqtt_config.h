@@ -168,7 +168,14 @@ class MqttConfig : public Component {
   void push_credentials_(const MqttRecord &record);
   void restore_discovery_(bool clean);
   void start_cleanup_();
+  // Clean mode is on already; this runs the cleanup until the broker has the removals.
+  void begin_cleanup_();
   void check_cleanup_();
+  // The cleanup's last message, published after every removal to a topic this client
+  // subscribes to. With idf_send_async a publish is only queued, and the queue is dropped on a
+  // disconnect, so the broker's echo of it is what proves the removals reached the broker.
+  std::string cleanup_probe_topic_() const;
+  void on_cleanup_probe_(const std::string &payload);
   void finish_cleanup_();
   void poll_waiters_();
 #ifdef USE_SENSOR
@@ -198,6 +205,9 @@ class MqttConfig : public Component {
   std::string stored_notice_;
   bool held_back_{false};
   bool cleanup_active_{false};
+  bool probe_subscribed_{false};
+  bool probe_out_{false};  // the probe numbered probe_seq_ is on its way and has not come back
+  uint32_t probe_seq_{0};
 
   // Loop task only; other tasks read them through status_.
   bool started_{false};

@@ -561,6 +561,10 @@ TEST_F(MqttDashboard, ARebootWaitsForTheEntriesToLeave) {
 
   this->settle();
   EXPECT_EQ(this->removals(), 2u);
+  // The next poll sends the cleanup's probe; the broker's echo of it lets the restart go.
+  advance(150);
+  EXPECT_EQ(this->dashboard->restarts, 0);
+  this->settle();
   advance(150);
   EXPECT_EQ(this->dashboard->restarts, 1);
 }
@@ -587,6 +591,9 @@ TEST_F(MqttDashboard, ARollbackWaitsToo) {
   EXPECT_EQ(this->dashboard->restarts, 0);
   this->settle();
   advance(150);
+  EXPECT_EQ(this->dashboard->restarts, 0);
+  this->settle();
+  advance(150);
   EXPECT_EQ(this->dashboard->restarts, 1);
 }
 
@@ -602,6 +609,10 @@ TEST_F(MqttDashboard, AFactoryResetRemovesTheEntriesFirst) {
 
   this->settle();
   EXPECT_EQ(this->removals(), 2u);
+  // The next poll sends the cleanup's probe; the broker's echo of it lets the restart go.
+  advance(150);
+  EXPECT_EQ(this->dashboard->restarts, 0);
+  this->settle();
   advance(150);
   EXPECT_EQ(this->dashboard->restarts, 1);
   EXPECT_EQ(this->storage.format_requests, 1);

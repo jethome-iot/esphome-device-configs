@@ -333,6 +333,7 @@ inline void MQTTClientComponent::connect_for_test(bool session_present) {
 }
 
 inline size_t MQTTClientComponent::process_resends_for_test() {
+  const size_t echoed = this->deliver_echoes_for_test();
   size_t count = 0;
   for (MQTTComponent *child : this->children_) {
     if (!child->is_resend_pending())
@@ -341,7 +342,7 @@ inline size_t MQTTClientComponent::process_resends_for_test() {
     if (++count >= 8)
       break;
   }
-  return count;
+  return echoed + count;
 }
 
 }  // namespace esphome::mqtt

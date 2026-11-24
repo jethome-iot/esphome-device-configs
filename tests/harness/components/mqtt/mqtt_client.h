@@ -213,6 +213,13 @@ class MQTTClientComponent : public Component {
     if (!this->is_connected() || this->fail_publishes)
       return false;
     this->published.push_back(Published{topic, std::string(payload, payload_length), qos, retain});
+    // A broker hands a client its own message on a topic it subscribes to.
+    for (const auto &subscription : this->subscriptions_) {
+      if (topic_match(topic, subscription.topic.c_str())) {
+        this->echoes_.push_back(this->published.back());
+        break;
+      }
+    }
     return true;
   }
   bool publish(const std::string &topic, const std::string &payload, uint8_t qos = 0, bool retain = false) {
@@ -278,6 +285,7 @@ class MQTTClientComponent : public Component {
   // The connection went, or never came: each disconnect callback hears the reason once.
   void drop_for_test(MQTTClientDisconnectReason reason) {
     this->connected_ = false;
+    this->echoes_.clear();
     for (auto &callback : this->on_disconnect_)
       callback(reason);
   }
@@ -288,7 +296,16 @@ class MQTTClientComponent : public Component {
         subscription.callback(topic, payload);
     }
   }
-  // One loop pass of upstream's resend work: at most 8 children. Returns how many it ran.
+  // The echoes the broker owes, delivered as the loop delivers inbound messages. Returns how many.
+  size_t deliver_echoes_for_test() {
+    std::vector<Published> due;
+    due.swap(this->echoes_);
+    for (const Published &message : due)
+      this->deliver_for_test(message.topic, message.payload);
+    return due.size();
+  }
+  // One loop pass: the echoes due, then upstream's resend work for at most 8 children. Returns
+  // how many of both it ran.
   size_t process_resends_for_test();
 
   // --- Read-backs ---
@@ -331,6 +348,7 @@ class MQTTClientComponent : public Component {
   MQTTMessage shutdown_message_{};
   MQTTMessage log_message_{};
   Availability availability_{};
+  std::vector<Published> echoes_;
   // Upstream's defaults, before codegen sets them.
   MQTTDiscoveryInfo discovery_info_{
       .prefix = "homeassistant",

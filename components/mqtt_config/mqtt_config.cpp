@@ -85,7 +85,7 @@ void MqttConfig::setup() {
   } else if (start && this->stored_.clean_pending) {
     // The fallback for a cleanup an earlier boot did not finish.
     this->restore_discovery_(true);
-    this->cleanup_active_ = true;
+    this->begin_cleanup_();
   } else {
     this->client_->disable_discovery();
   }
@@ -314,21 +314,46 @@ void MqttConfig::start_cleanup_() {
     if (!walked.component->is_internal())
       walked.component->schedule_resend_state();
   }
+  this->begin_cleanup_();
+}
+
+void MqttConfig::begin_cleanup_() {
+  if (!this->probe_subscribed_) {
+    this->client_->subscribe(
+        this->cleanup_probe_topic_(),
+        [this](const std::string & /*topic*/, const std::string &payload) { this->on_cleanup_probe_(payload); });
+    this->probe_subscribed_ = true;
+  }
+  this->probe_out_ = false;
   this->cleanup_active_ = true;
   this->enable_loop();
 }
 
-// Done once the client is connected and no component waits for its resend. is_connected()
-// turns true in the same client pass that schedules the resends, so "connected, nothing
-// pending" is never seen before they exist.
+// Once the client is connected and no component waits for its resend, the probe goes out after
+// the removals; its echo finishes the cleanup. is_connected() turns true in the same client pass
+// that schedules the resends, so "connected, nothing pending" is never seen before they exist.
 void MqttConfig::check_cleanup_() {
   if (!this->cleanup_active_ || !this->client_->is_connected())
     return;
   for (const Walked &walked : this->entities_) {
-    if (!walked.component->is_internal() && walked.component->is_resend_pending())
+    if (!walked.component->is_internal() && walked.component->is_resend_pending()) {
+      // Removals sent again after a probe, on a reconnect: the next probe has to follow them.
+      this->probe_out_ = false;
       return;
+    }
   }
-  this->finish_cleanup_();
+  if (this->probe_out_)
+    return;
+  this->probe_out_ = this->client_->publish(this->cleanup_probe_topic_(), std::to_string(++this->probe_seq_), 0, false);
+}
+
+std::string MqttConfig::cleanup_probe_topic_() const { return this->applied_.topic_prefix + "/mqtt_config/cleanup"; }
+
+// The broker hands a client's messages on in the order it sent them: an echo of the latest probe
+// comes after every removal queued before it.
+void MqttConfig::on_cleanup_probe_(const std::string &payload) {
+  if (this->cleanup_active_ && this->probe_out_ && payload == std::to_string(this->probe_seq_))
+    this->finish_cleanup_();
 }
 
 // Clean mode stays on for the rest of the boot: every later resend clears again.
@@ -443,6 +468,8 @@ void MqttConfig::on_disconnect_(mqtt::MQTTClientDisconnectReason reason) {
   using Reason = mqtt::MQTTClientDisconnectReason;
   const bool was_connected = this->connected_;
   this->connected_ = false;
+  // The client's send queue goes with the connection, the probe in it or not.
+  this->probe_out_ = false;
   this->cancel_timeout("mqtt-guard");
   MqttError error;
   switch (reason) {
