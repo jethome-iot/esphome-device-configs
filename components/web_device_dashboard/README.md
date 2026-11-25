@@ -224,7 +224,7 @@ route is `404`.
 
 | Method | Path | |
 |---|---|---|
-| GET | `/api/device/mqtt/subscriptions` | every slot, `1` to `max_slots`, as saved (an empty one has `topic: ""`), with `pending` when it differs from what runs, the entity it runs as (`entity`, `null` when none) and its `status`: `state`, `value`, the start of the last message (`raw`), why it could not be read (`error`) and `age_s`. Also `max_slots`, `units`, `reboot_required`, `suspended` and `file_error`. Read on the loop task, from the file each time: `503` when it does not get to it |
+| GET | `/api/device/mqtt/subscriptions` | every slot, `1` to `max_slots`, as saved (an empty one has `topic: ""`), with `pending` when it differs from what runs, the entity it runs as (`entity`, `null` when none) and its `status`: `state`, `value`, the start of the last message (`raw`), why it could not be read (`error`) and `age_s`. Also `max_slots`, `units`, `reserved_names`, `reboot_required`, `suspended` and `file_error`. Read on the loop task, from the file each time: `503` when it does not get to it |
 | POST | `/api/device/mqtt/subscriptions` | `{"slot", "enabled", "name", "topic", "kind", ...}` saves one slot, `{"slot", "action": "clear"}` empties it; saved slots apply after a restart. Answers `{"success", "message", "reboot_required"}`; `400` with the rule a value breaks, `503` when the storage is unavailable, the file is newer firmware's, or the loop task did not take it. Needs `Content-Type: application/json` |
 
 ## client/
