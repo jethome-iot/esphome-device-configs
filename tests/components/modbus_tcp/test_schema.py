@@ -83,14 +83,15 @@ class Schema(unittest.TestCase):
     def test_it_refuses_port_0(self):
         self.assertRefused("value must be at least 1", port=0)
 
-    def test_it_declares_a_socket_per_client_and_the_listener(self):
+    # One more than the clients: a connection past the limit is accepted to be closed.
+    def test_it_declares_a_socket_per_client_one_to_refuse_and_the_listener(self):
         validate(max_clients=3)
         counts = socket.get_socket_counts()
-        self.assertEqual(CORE.data[socket.KEY_SOCKET_CONSUMERS_TCP], {"modbus_tcp": 3})
+        self.assertEqual(CORE.data[socket.KEY_SOCKET_CONSUMERS_TCP], {"modbus_tcp": 4})
         self.assertEqual(
             CORE.data[socket.KEY_SOCKET_CONSUMERS_TCP_LISTEN], {"modbus_tcp": 1}
         )
-        self.assertEqual((counts.tcp, counts.tcp_listen), (3, 1))
+        self.assertEqual((counts.tcp, counts.tcp_listen), (4, 1))
 
 
 if __name__ == "__main__":

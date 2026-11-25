@@ -73,6 +73,7 @@ class ModbusTcpServer : public Component {
   // The last attempt to listen failed; the next waits for RETRY_INTERVAL_MS after last_start_.
   bool start_failed_{false};
   uint32_t last_start_{0};
+  bool accept_failing_{false};
 };
 
 }  // namespace esphome::modbus_tcp

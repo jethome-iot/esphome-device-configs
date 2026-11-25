@@ -31,8 +31,9 @@ def _unit_id(value):
 
 
 def _consume_sockets(config):
-    # Each client holds a socket for as long as it stays connected, beside the listener.
-    socket.consume_sockets(config[CONF_MAX_CLIENTS], "modbus_tcp")(config)
+    # Each client holds a socket for as long as it stays connected, beside the listener; one more
+    # takes the connection past the limit just long enough to close it.
+    socket.consume_sockets(config[CONF_MAX_CLIENTS] + 1, "modbus_tcp")(config)
     socket.consume_sockets(1, "modbus_tcp", socket.SocketType.TCP_LISTEN)(config)
     return config
 

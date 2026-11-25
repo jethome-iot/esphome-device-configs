@@ -107,10 +107,15 @@ void ModbusTcpServer::accept_() {
     socklen_t length = sizeof(address);
     auto sock = this->listener_->accept_loop_monitored((struct sockaddr *) &address, &length);
     if (sock == nullptr) {
-      if (!would_block(errno))
+      // The connection stays queued and ready() stays true, so a failure that lasts would repeat
+      // every loop pass: it is said once, until an accept succeeds again.
+      if (!would_block(errno) && !this->accept_failing_) {
         ESP_LOGW(TAG, "Accept failed: errno %d", errno);
+        this->accept_failing_ = true;
+      }
       return;
     }
+    this->accept_failing_ = false;
     char peer[socket::SOCKADDR_STR_LEN];
     sock->getpeername_to(peer);
     if (this->clients_.size() >= this->max_clients_) {

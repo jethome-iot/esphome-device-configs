@@ -238,7 +238,8 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
 each request to the server's own handlers, so the map, the exceptions and the thermostat's `0x04`
 are the RTU ones. It is off until the `Modbus TCP` switch turns it on; the switch, port and unit ID
 apply at once, in the component's next `loop()`, so the entities restore in any order. Each client
-it allows is a socket it declares to ESPHome, which sizes `CONFIG_LWIP_MAX_SOCKETS` from that.
+it allows is a socket it declares to ESPHome, which sizes `CONFIG_LWIP_MAX_SOCKETS` from that, and
+so are its listener and the one that turns away a client past the limit.
 
 ## Coupled to upstream internals
 
