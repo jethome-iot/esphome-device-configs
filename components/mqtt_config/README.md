@@ -13,7 +13,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [mqtt_config]
+    components: [mqtt_config, switch_hold]
 
 mqtt:
   id: mqtt_client

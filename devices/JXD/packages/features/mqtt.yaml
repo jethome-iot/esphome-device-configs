@@ -2,7 +2,7 @@
 # Details: doc/MQTT.md
 external_components:
   - source: ${components}
-    components: [mqtt_config]
+    components: [mqtt_config, switch_hold]
 
 mqtt:
   id: mqtt_client
