@@ -29,8 +29,9 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
   carried, optionally inverted), delay. A switch action on a relay a running thermostat drives
   does nothing; the log names the rule and the thermostat, and the rest of the rule runs
   ([Thermostats](CLIMATE.md#a-running-thermostats-relays)). When the thermostat lets the relay
-  go, a rule with a condition trigger whose branch for the current result drives that relay
-  plays the branch again, so the relay goes where the condition says.
+  go, a rule with a condition trigger sets it where its branch for the current result leaves
+  it (the last turn on, turn off or follow on it; a toggle sets nothing), so the relay goes
+  where the condition says.
 - **Thermostat actions**: turn off, turn on (back in the mode it was in before it went off),
   pick a preset, set the target, and follow: one preset or on/off while the trigger's state is
   on, another while it is off. A preset that keeps the mode does not turn an off thermostat on:

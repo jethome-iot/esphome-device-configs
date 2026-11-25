@@ -379,17 +379,22 @@ void RuntimeAutomation::resync_condition() {
 }
 
 void RuntimeAutomation::on_released(switch_::Switch *sw) {
-  if (!this->result_.has_value())
+  // A change of the result still on its way plays the whole branch when it arrives.
+  if (!this->result_.has_value() || this->condition_->check() != *this->result_)
     return;
-  const bool result = this->condition_->check();
-  for (const CompiledAction &action : result ? this->then_ : this->else_) {
-    if (action.source == SourceAction::SWITCH && action.target == sw) {
-      this->result_ = result;
-      this->fire_(true, result);
-      return;
-    }
+  // Where the branch for the result leaves the relay: its last step that sets it. A toggle sets
+  // nothing of its own, and the rest of the branch has already played.
+  const CompiledAction *last = nullptr;
+  for (const CompiledAction &action : *this->result_ ? this->then_ : this->else_) {
+    if (action.source == SourceAction::SWITCH && action.target == sw && action.type != TypeSwitchAction::TOGGLE)
+      last = &action;
   }
-  // Otherwise the result is left as acted on: a change still on its way fires when it arrives.
+  if (last == nullptr)
+    return;
+  Run run{};
+  run.has_state = true;  // a follow copies the result, as the trigger hands it
+  run.state = *this->result_;
+  this->play_switch_(*last, run);
 }
 
 void RuntimeAutomation::stop() {

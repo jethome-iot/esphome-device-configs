@@ -168,7 +168,7 @@ TEST_F(Runtime, AStartupRuleWithNoConditionTriggerWatchesNothing) {
 
 // A thermostat let go of a relay: only the branch for the current result, and only when it
 // drives that relay, plays again.
-TEST_F(Runtime, ARelayLetGoReplaysTheBranchThatDrivesIt) {
+TEST_F(Runtime, ARelayLetGoIsSetByTheBranchThatDrivesIt) {
   auto rule = build_rule(engine, R"({"name":"Half","triggers":[{"source":"condition"}],
       "condition":{"type":"input","object_id":"in_1"},
       "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],
@@ -180,6 +180,7 @@ TEST_F(Runtime, ARelayLetGoReplaysTheBranchThatDrivesIt) {
   EXPECT_EQ(e.relay2.writes, 1);
   rule->on_released(&e.relay1);  // false: the else branch does not drive relay_1
   rule->on_released(&e.boiler);
+  rule->on_released(&e.relay2);  // a toggle sets nothing: it would flip the relay on every let-go
   EXPECT_EQ(e.relay2.writes, 1);
   e.in1.publish_state(true);
   rule->on_binary_sensor(&e.in1, true);
@@ -188,6 +189,34 @@ TEST_F(Runtime, ARelayLetGoReplaysTheBranchThatDrivesIt) {
   rule->on_released(&e.relay1);
   EXPECT_TRUE(e.relay1.state);
   EXPECT_EQ(e.relay1.writes, 3);
+}
+
+// A relay let go goes where the branch leaves it, its last step on it, a follow carrying the
+// result; the rest of the branch, delays included, does not play again.
+TEST_F(Runtime, ARelayLetGoGoesWhereTheBranchLeavesIt) {
+  auto rule = build_rule(engine, R"({"name":"Pulse","triggers":[{"source":"condition"}],
+      "condition":{"type":"input","object_id":"in_1"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_2"},
+                 {"source":"switch","type":"turn_on","object_id":"relay_1"},
+                 {"source":"delay","delay_ms":500},
+                 {"source":"switch","type":"turn_off","object_id":"relay_1"}],
+      "else_actions":[{"source":"switch","type":"follow","object_id":"relay_1","invert":true}]})");
+  ASSERT_NE(rule, nullptr);
+  rule->watch_condition();
+  EXPECT_TRUE(e.relay1.state);  // false, inverted
+  e.relay1.turn_off();
+  rule->on_released(&e.relay1);
+  EXPECT_TRUE(e.relay1.state);
+  e.in1.publish_state(true);
+  rule->on_binary_sensor(&e.in1, true);
+  ASSERT_TRUE(engine.fire_next());
+  EXPECT_FALSE(e.relay1.state);
+  const int relay2_writes = e.relay2.writes;
+  e.relay1.turn_on();
+  rule->on_released(&e.relay1);
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_EQ(e.relay2.writes, relay2_writes);
+  EXPECT_TRUE(engine.delays.empty());
 }
 
 // A change of the condition the rule has not been handed yet is not taken as acted on when a

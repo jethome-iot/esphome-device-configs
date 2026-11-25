@@ -110,7 +110,9 @@ every range. A rule with this trigger and no `condition` is not built (`Trigger 
 to watch`). Give it `restart`: in `single`, a change that comes while a delay runs is ignored.
 
 Run now plays the branch the condition gives at that moment. When a running thermostat lets a
-relay go, a watching rule whose branch for the current result drives that relay plays it again.
+relay go, a watching rule sets it where its branch for the current result leaves it, the last
+`turn_on`, `turn_off` or `follow` on that relay, as a binding's `follow` does; a `toggle` sets
+nothing, and the rest of the branch does not play again.
 
 A condition may read the switch the rule drives. Input 1, start, turns relay 1 on and the relay
 holds itself on; input 2, stop, turns it off, input 1 held or not, as a motor's stop button wins
