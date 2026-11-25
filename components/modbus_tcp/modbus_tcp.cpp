@@ -52,9 +52,8 @@ void ModbusTcpServer::loop() {
   if (this->listener_ == nullptr)
     return;
 
-  if (this->listener_->ready())
-    this->accept_(now);
-
+  // Clients that left go before new ones come in, so one that reconnects within a pass gets its
+  // own slot back instead of a refusal.
   for (auto it = this->clients_.begin(); it != this->clients_.end();) {
     if (this->serve_(**it, now)) {
       ++it;
@@ -63,6 +62,9 @@ void ModbusTcpServer::loop() {
       it = this->clients_.erase(it);
     }
   }
+
+  if (this->listener_->ready())
+    this->accept_(now);
 }
 
 bool ModbusTcpServer::start_() {
