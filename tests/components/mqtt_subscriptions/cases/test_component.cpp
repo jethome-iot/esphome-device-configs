@@ -219,6 +219,17 @@ TEST_F(ComponentTest, TheSecondCrashInARowSuspendsTheSlots) {
   EXPECT_TRUE(this->client->sent_subscribes.empty());
 }
 
+// The same streak with no slot running holds nothing back, so it asks for no restart.
+TEST_F(ComponentTest, TheSecondCrashSuspendsNothingWithoutSlots) {
+  this->board.rtc = armed_streak(1);
+  this->board.panic = true;
+  TestSubscriptions &s = this->boot();
+  EXPECT_EQ(this->config->crash_streak(), 2);
+  EXPECT_FALSE(s.suspended());
+  EXPECT_FALSE(s.reboot_required());
+  EXPECT_EQ(this->get()["suspended"], false);
+}
+
 TEST_F(ComponentTest, TheFirstCrashLeavesThemRunning) {
   this->plant({slot_of("Outdoor", "t")});
   this->board.rtc = armed_streak(0);

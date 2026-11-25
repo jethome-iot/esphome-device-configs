@@ -403,6 +403,8 @@ TEST_F(SlotsDashboard, StatusNamesMqttWhileASlotWaits) {
 
 // The second crash in a row: a restart is what retries the subscriptions.
 TEST_F(SlotsDashboard, StatusNamesMqttWhileTheSlotsAreSuspended) {
+  this->plant(R"({"version":1,"slots":[{"slot":1,"enabled":true,"name":"Outdoor","topic":"t","kind":"sensor",)"
+              R"("unit":"°C"}]})");
   this->slots_board.rtc = mqtt_config::CrashGuardRecord{mqtt_config::CRASH_GUARD_MAGIC, 1, 1, {0, 0}};
   this->slots_board.panic = true;
   this->boot();

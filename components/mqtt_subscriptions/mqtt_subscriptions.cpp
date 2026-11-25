@@ -67,6 +67,10 @@ void MqttSubscriptions::setup() {
 
   for (size_t i = 0; i < this->max_slots_; i++)
     this->start_slot_(i);
+  // With no slot running the streak holds nothing back, and a restart would retry nothing.
+  if (std::none_of(this->running_.begin(), this->running_.end(),
+                   [](const Running &run) { return run.entity != nullptr; }))
+    this->suspended_ = false;
 
   mqtt::MQTTClientComponent *client = this->config_ != nullptr ? this->config_->client() : nullptr;
   if (this->suspended_) {

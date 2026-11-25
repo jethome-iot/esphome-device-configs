@@ -656,6 +656,8 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
   if (fileError !== null && fileError !== 'unreadable') savedSlots = savedSlots.map(() => ({ ...SLOT_DEFAULTS }))
   bootSlots()
   if (fileError === 'unreadable') savedSlots = savedSlots.map(() => ({ ...SLOT_DEFAULTS }))
+  // As on the device: with no slot running the streak holds nothing back.
+  slotsSuspended = slotsSuspended && runningSlots.some((_, i) => slotRuns(i))
   boot()
   // A seeded device has been up a while: its first attempt is over.
   if (attemptSince !== null) endAttempt()
