@@ -1,12 +1,15 @@
 #include "common.h"
 #include "esphome/components/automations/automation_storage.h"
 #include "esphome/components/bindings/bindings.h"
+#include "esphome/components/config_json/config_json.h"
+#include "esphome/components/virtual_inputs/virtual_inputs.h"
 
 namespace esphome::mqtt_subscriptions::testing {
 
 // A Number slot is a "Temperature" to the rule engine and an On/Off slot an "Input"; an On/Off
-// slot can be a relay's bound input. Each runs here in boot order: the slots at 803, the
-// binding the switch settings set at 801, bindings at 600, the engine at 599.
+// slot can be a relay's bound input and a virtual input's source. Each runs here in boot order:
+// the slots at 803, the virtual inputs at 802, the binding the switch settings set at 801,
+// bindings at 600, the engine at 599.
 class SlotsDriveTest : public SlotsTest {
  protected:
   void SetUp() override {
@@ -30,7 +33,28 @@ class SlotsDriveTest : public SlotsTest {
     engine->setup();
     return *engine;
   }
+
+  // The virtual inputs over the same storage, after the slots. Never freed: App keeps the pool's
+  // entities, and a slot's entity its callback into the pool.
+  virtual_inputs::VirtualInputs &pool() {
+    auto *keeper = new config_json::ConfigJsonKeeper();
+    keeper->set_storage(&this->storage);
+    keeper->setup();
+    auto *pool = new virtual_inputs::VirtualInputs();
+    pool->set_max_inputs(1);
+    pool->set_keeper(keeper);
+    pool->setup();
+    return *pool;
+  }
 };
+
+static binary_sensor::BinarySensor *virtual_input_1() {
+  for (auto *sensor : App.get_binary_sensors()) {
+    if (sensor->get_object_id_hash() == fnv1_hash("virtual_input_1"))
+      return sensor;
+  }
+  return nullptr;
+}
 
 TEST_F(SlotsDriveTest, ANumberSlotIsATemperatureTrigger) {
   this->rule("warm.json",
@@ -77,6 +101,33 @@ TEST_F(SlotsDriveTest, AnOnOffSlotIsABoundInput) {
   this->deliver("z2m/door", "OFF");
   EXPECT_FALSE(entities().relay2.state);
   bindings->remove_binding(fnv1_hash("relay_2"));
+}
+
+// The pool finds the slot it loads as its source at boot, before the slot has a value; the
+// slot's first value and one after a message it could not read reach it all the same.
+TEST_F(SlotsDriveTest, AnOnOffSlotIsAVirtualInputsSource) {
+  this->plant({slot_of("Door", "z2m/door", SlotKind::BINARY_SENSOR)});
+  this->boot();
+  virtual_inputs::InputConfig follow;
+  follow.source = "door";
+  ASSERT_TRUE(this->pool().save(0, follow));
+
+  this->reboot();
+  ASSERT_TRUE(this->pool().configured(0));
+  binary_sensor::BinarySensor *input = virtual_input_1();
+  ASSERT_NE(input, nullptr);
+  EXPECT_FALSE(input->is_internal());
+  EXPECT_FALSE(input->has_state());
+  this->online();
+  // The retained state on connect.
+  this->deliver("z2m/door", "ON");
+  EXPECT_TRUE(input->state);
+  this->deliver("z2m/door", "OFF");
+  EXPECT_FALSE(input->state);
+  this->deliver("z2m/door", "open");
+  EXPECT_FALSE(this->subs->binary(0)->has_state());
+  this->deliver("z2m/door", "ON");
+  EXPECT_TRUE(input->state);
 }
 
 }  // namespace esphome::mqtt_subscriptions::testing

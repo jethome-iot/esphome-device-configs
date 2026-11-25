@@ -37,7 +37,7 @@ external_components:
   - source: ../../../components
     components:
       [mqtt_config, mqtt_subscriptions, filesystem_storage_abstract, case_fold, automations, loop_job,
-       bindings, switch_hold]
+       bindings, switch_hold, config_base, config_json, virtual_inputs]
   - source: ../../harness/components
     components: [mqtt, dir_storage]
 
@@ -80,6 +80,14 @@ automations:
   time_id: host_time
 
 bindings:
+
+# An On/Off slot as a virtual input's source: reserves the pool the case registers, whose
+# max_inputs must match.
+config_json:
+  storage: test_storage
+
+virtual_inputs:
+  max_inputs: 1
 
 # App sizes its entity lists from what is declared here and silently drops a registration past
 # that, so this is at least what cases/common.h registers: names a slot cannot take, and the
