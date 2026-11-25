@@ -686,7 +686,14 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
         const text = slotValueText(i)
         const base = { name: slot.name, sorting_group: MQTT_SORTING_GROUP.name, sorting_weight: i + 1 }
         if (slot.kind === 'sensor')
-          out.push({ ...base, domain: 'sensor', state: text || 'NA', value: value === null ? null : floatJson(value as number), uom: slot.unit })
+          out.push({
+            ...base,
+            domain: 'sensor',
+            state: text || 'NA',
+            value: value === null ? null : floatJson(value as number),
+            // web_server leaves the key out for a sensor without a unit.
+            ...(slot.unit !== '' ? { uom: slot.unit } : {})
+          })
         else if (slot.kind === 'binary_sensor')
           out.push({ ...base, domain: 'binary_sensor', state: runs[i]!.level ? 'ON' : 'OFF', value: runs[i]!.level })
         else out.push({ ...base, domain: 'text_sensor', state: text, value: text })
