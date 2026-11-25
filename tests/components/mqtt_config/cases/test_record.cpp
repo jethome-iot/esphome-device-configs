@@ -168,6 +168,20 @@ TEST_F(RecordStorageTest, NewerFirmwaresRecordIsNeitherAppliedNorWrittenImplicit
   EXPECT_EQ(c.stores, 0);
 }
 
+// The fields show the defaults, so a save of exactly those still has to replace the record.
+TEST_F(RecordStorageTest, ASaveOfTheDefaultsReplacesNewerFirmwaresRecordToo) {
+  StoredMqttV1 planted = record_of(enabled_record());
+  planted.min_reader = 2;
+  this->board.write(planted);
+  TestConfig &c = this->boot();
+  const auto result = this->save(patch_of([](MqttPatch &p) { p.enabled = false; }));
+  EXPECT_EQ(result.code, 200);
+  EXPECT_STRNE(result.message, "Nothing changed");
+  EXPECT_EQ(c.stores, 1);
+  EXPECT_EQ(this->board.record().min_reader, 1);
+  EXPECT_TRUE(this->settings_json()["stored_notice"].isNull());
+}
+
 TEST_F(RecordStorageTest, AnExplicitSaveReplacesNewerFirmwaresRecordWithAFreshOne) {
   StoredMqttV1 planted = record_of(enabled_record());
   planted.min_reader = 2;

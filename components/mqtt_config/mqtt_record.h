@@ -73,6 +73,11 @@ struct MqttPatch {
   optional<std::string> topic_prefix;
 
   void apply_to(MqttRecord &record) const;
+  // No key named: `{}`.
+  bool empty() const {
+    return !enabled.has_value() && !discovery.has_value() && !port.has_value() && !broker.has_value() &&
+           !username.has_value() && !password.has_value() && !client_id.has_value() && !topic_prefix.has_value();
+  }
 };
 
 // The first rule the record breaks, nullptr when it breaks none. `ipv6` is what the build was

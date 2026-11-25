@@ -186,7 +186,9 @@ const std::string &MqttConfig::effective_client_id_(const MqttRecord &record) co
 MqttConfig::UpdateResult MqttConfig::update(const MqttPatch &patch) {
   MqttRecord merged = this->stored_;
   patch.apply_to(merged);
-  if (merged.same_settings(this->stored_))
+  // Newer firmware's record shows as the defaults: a save naming any key replaces it, even one
+  // that matches them.
+  if ((!this->foreign_ || patch.empty()) && merged.same_settings(this->stored_))
     return this->result_(200, "Nothing changed", false);
   if (const char *error = validate(merged, BUILD_HAS_IPV6); error != nullptr)
     return this->result_(400, error, false);
