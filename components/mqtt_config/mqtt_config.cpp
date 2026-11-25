@@ -1,5 +1,6 @@
 #include "mqtt_config.h"
 #include <algorithm>
+#include <cinttypes>
 #include <cstring>
 #include <string_view>
 #include <utility>
@@ -320,6 +321,8 @@ void MqttConfig::start_cleanup_() {
 }
 
 void MqttConfig::begin_cleanup_() {
+  if (this->probe_token_ == 0)
+    this->probe_token_ = random_uint32() | 1u;
   if (!this->probe_subscribed_) {
     this->client_->subscribe(
         this->cleanup_probe_topic_(),
@@ -354,8 +357,13 @@ void MqttConfig::check_cleanup_() {
       this->probe_warned_ = true;
     }
   }
-  this->probe_out_ = this->client_->publish(this->cleanup_probe_topic_(), std::to_string(++this->probe_seq_), 0, false);
+  this->probe_out_ =
+      this->client_->publish(this->cleanup_probe_topic_(), this->probe_payload_(++this->probe_seq_), 0, false);
   this->probe_sent_ms_ = millis();
+}
+
+std::string MqttConfig::probe_payload_(uint32_t seq) const {
+  return str_sprintf("%08" PRIx32 "-%" PRIu32, this->probe_token_, seq);
 }
 
 std::string MqttConfig::cleanup_probe_topic_() const { return this->applied_.topic_prefix + "/mqtt_config/cleanup"; }
@@ -363,7 +371,7 @@ std::string MqttConfig::cleanup_probe_topic_() const { return this->applied_.top
 // The broker hands a client's messages on in the order it sent them: an echo of the latest probe
 // comes after every removal queued before it.
 void MqttConfig::on_cleanup_probe_(const std::string &payload) {
-  if (this->cleanup_active_ && this->probe_out_ && payload == std::to_string(this->probe_seq_))
+  if (this->cleanup_active_ && this->probe_out_ && payload == this->probe_payload_(this->probe_seq_))
     this->finish_cleanup_();
 }
 

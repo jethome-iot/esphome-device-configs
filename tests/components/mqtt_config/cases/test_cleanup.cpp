@@ -247,6 +247,7 @@ TEST_F(CleanupTest, ADropBeforeTheEchoSendsTheProbeAgainAfterTheResends) {
   this->settle();
   c.run_own_loop();
   ASSERT_EQ(probes(*this->client), 1u);
+  const std::string first = this->client->published.back().payload;
   this->client->drop_for_test(mqtt::MQTTClientDisconnectReason::TCP_DISCONNECTED);
   this->client->published.clear();
 
@@ -258,7 +259,7 @@ TEST_F(CleanupTest, ADropBeforeTheEchoSendsTheProbeAgainAfterTheResends) {
   c.run_own_loop();
   ASSERT_EQ(probes(*this->client), 1u);
   // The first probe's echo, late: it proves nothing about the removals sent since.
-  this->client->deliver_for_test(PROBE, "1");
+  this->client->deliver_for_test(PROBE, first);
   EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::RUNNING);
   this->client->deliver_for_test(PROBE, this->client->published.back().payload);
   EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::NONE);
@@ -286,6 +287,7 @@ TEST_F(CleanupTest, AProbeTheBrokerNeverHandsBackIsSentAgainWithAWarning) {
   this->settle();
   c.run_own_loop();
   ASSERT_EQ(probes(*this->client), 1u);
+  const std::string first = this->client->published.back().payload;
   c.run_own_loop();
   EXPECT_EQ(probes(*this->client), 1u);
   LogCapture::instance().clear();
@@ -303,9 +305,27 @@ TEST_F(CleanupTest, AProbeTheBrokerNeverHandsBackIsSentAgainWithAWarning) {
             1);
   EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::RUNNING);
   // The latest one's echo ends it; an older one's would not.
-  this->client->deliver_for_test(PROBE, "1");
+  this->client->deliver_for_test(PROBE, first);
   EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::RUNNING);
-  this->client->deliver_for_test(PROBE, "3");
+  this->client->deliver_for_test(PROBE, this->client->published.back().payload);
+  EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::NONE);
+}
+
+// Another device on the same prefix probes the same topic with its own numbers: only this boot's
+// token counts.
+TEST_F(CleanupTest, AnotherDevicesProbeOnTheSamePrefixFinishesNothing) {
+  TestConfig &c = this->announced();
+  this->save(patch_of([](MqttPatch &p) { p.discovery = false; }));
+  this->settle();
+  c.run_own_loop();
+  ASSERT_EQ(probes(*this->client), 1u);
+  const std::string mine = this->client->published.back().payload;
+  const size_t dash = mine.find('-');
+  ASSERT_NE(dash, std::string::npos);
+  this->client->deliver_for_test(PROBE, "00000001" + mine.substr(dash));
+  this->client->deliver_for_test(PROBE, mine.substr(dash + 1));
+  EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::RUNNING);
+  this->client->deliver_for_test(PROBE, mine);
   EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::NONE);
 }
 

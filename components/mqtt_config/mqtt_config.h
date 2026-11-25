@@ -177,6 +177,9 @@ class MqttConfig : public Component {
   // subscribes to. With idf_send_async a publish is only queued, and the queue is dropped on a
   // disconnect, so the broker's echo of it is what proves the removals reached the broker.
   std::string cleanup_probe_topic_() const;
+  // This boot's token and the probe's number: another device on the same prefix, or anyone
+  // else publishing there, cannot hand back the one this device waits for.
+  std::string probe_payload_(uint32_t seq) const;
   void on_cleanup_probe_(const std::string &payload);
   void finish_cleanup_();
   void poll_waiters_();
@@ -210,6 +213,7 @@ class MqttConfig : public Component {
   bool probe_subscribed_{false};
   bool probe_out_{false};  // the probe numbered probe_seq_ is on its way and has not come back
   uint32_t probe_seq_{0};
+  uint32_t probe_token_{0};
   uint32_t probe_sent_ms_{0};
   uint32_t probe_retry_ms_{PROBE_RETRY_MS};
   bool probe_warned_{false};
