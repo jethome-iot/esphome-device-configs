@@ -5,6 +5,9 @@
 
 #ifdef USE_WIFI_AP
 #include "esphome/components/wifi/wifi_component.h"
+#ifdef USE_ESP32
+#include <esp_netif.h>
+#endif
 #endif
 
 #include <cerrno>
@@ -105,7 +108,7 @@ void ModbusTcpServer::accept_() {
       sock->close();
       continue;
     }
-    if (!this->serve_wifi_ap_ && this->through_wifi_ap_(*sock)) {
+    if (!this->serve_wifi_ap_ && this->through_wifi_ap_(address)) {
       ESP_LOGW(TAG, "Refused %s: it came through the WiFi access point", peer);
       sock->close();
       continue;
@@ -126,19 +129,32 @@ void ModbusTcpServer::accept_() {
   }
 }
 
-bool ModbusTcpServer::through_wifi_ap_(socket::Socket &sock) {
-#ifdef USE_WIFI_AP
+bool ModbusTcpServer::through_wifi_ap_(const struct sockaddr_storage &peer) {
+#if defined(USE_WIFI_AP) && defined(USE_ESP32)
   auto *wifi = wifi::global_wifi_component;
   if (wifi == nullptr || !wifi->is_ap_active())
     return false;
-  char local[socket::SOCKADDR_STR_LEN];
-  sock.getsockname_to(local);
-  char ap[network::IP_ADDRESS_BUFFER_SIZE];
-  wifi->wifi_soft_ap_ip().str_to(ap);
-  // An IPv6 socket shows an IPv4 peer's address in its mapped form.
-  static constexpr const char *MAPPED = "::ffff:";
-  const char *address = strncmp(local, MAPPED, strlen(MAPPED)) == 0 ? local + strlen(MAPPED) : local;
-  return strcmp(address, ap) == 0;
+  // By the peer's address, not the one it connected to: lwIP takes a packet for any of the
+  // device's addresses on any interface, so a client of the access point can reach Ethernet's.
+  esp_netif_t *ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+  esp_netif_ip_info_t info;
+  if (ap == nullptr || esp_netif_get_ip_info(ap, &info) != ESP_OK)
+    return true;  // the access point is up and its subnet unknown: refuse rather than guess
+  uint32_t address;
+  if (peer.ss_family == AF_INET) {
+    address = reinterpret_cast<const struct sockaddr_in &>(peer).sin_addr.s_addr;
+#if USE_NETWORK_IPV6
+  } else if (peer.ss_family == AF_INET6) {
+    // An IPv4 client of an IPv6 listener shows up as ::ffff:a.b.c.d.
+    const auto &in6 = reinterpret_cast<const struct sockaddr_in6 &>(peer).sin6_addr;
+    if (!IN6_IS_ADDR_V4MAPPED(&in6))
+      return false;
+    std::memcpy(&address, &in6.s6_addr[12], sizeof(address));
+#endif
+  } else {
+    return false;
+  }
+  return (address & info.netmask.addr) == (info.ip.addr & info.netmask.addr);
 #else
   return false;
 #endif
