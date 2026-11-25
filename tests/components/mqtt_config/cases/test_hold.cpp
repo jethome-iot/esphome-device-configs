@@ -1,4 +1,5 @@
 #include "common.h"
+#include "esphome/components/mqtt/mqtt_const.h"
 #include "esphome/components/switch_hold/switch_hold.h"
 
 namespace esphome::mqtt_config::testing {
@@ -119,6 +120,23 @@ TEST_F(HoldTest, AnUnknownPayloadChangesNothing) {
   EXPECT_FALSE(entities().relay1.state);
   EXPECT_TRUE(LogCapture::instance().has("'Relay 1': Received unknown status payload: maybe"));
   EXPECT_TRUE(this->states_published().empty());
+}
+
+// Upstream's discovery for a switch: optimistic when the switch only assumes its state.
+TEST(HoldAwareSwitchDiscovery, AnAssumedStateSwitchIsOptimistic) {
+  class AssumedSwitch : public FakeSwitch {
+   public:
+    bool assumed_state() override { return true; }
+  };
+  AssumedSwitch assumed;
+  FakeSwitch known;
+  mqtt::SendDiscoveryConfig config;
+  JsonDocument doc;
+  HoldAwareSwitch(&assumed).send_discovery(doc.to<JsonObject>(), config);
+  EXPECT_TRUE(doc[mqtt::MQTT_OPTIMISTIC].as<bool>());
+  doc.clear();
+  HoldAwareSwitch(&known).send_discovery(doc.to<JsonObject>(), config);
+  EXPECT_TRUE(doc[mqtt::MQTT_OPTIMISTIC].isUnbound());
 }
 
 TEST_F(HoldTest, TheHeldSwitchIsAnnouncedAndCleanedInPlaceOfUpstreams) {

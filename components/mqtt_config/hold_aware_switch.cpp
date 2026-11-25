@@ -2,6 +2,7 @@
 
 #ifdef USE_SWITCH
 
+#include "esphome/components/mqtt/mqtt_const.h"
 #include "esphome/components/switch_hold/switch_hold.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
@@ -28,7 +29,7 @@ const char *HoldAwareSwitch::component_type() const { return "switch"; }
 void HoldAwareSwitch::send_discovery(JsonObject root, mqtt::SendDiscoveryConfig & /*config*/) {
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks) false positive with ArduinoJson, as upstream's
   if (this->switch_->assumed_state())
-    root["optimistic"] = true;
+    root[mqtt::MQTT_OPTIMISTIC] = true;
 }
 
 bool HoldAwareSwitch::send_initial_state() { return this->publish_state(this->switch_->state); }
