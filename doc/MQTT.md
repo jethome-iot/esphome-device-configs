@@ -161,8 +161,8 @@ one lose it.
   API. They are never published back over MQTT.
 - In automations a Number subscription works as a temperature and an On/Off subscription as an
   input ([AUTOMATIONS.md](AUTOMATIONS.md)). An On/Off subscription can also be a relay's Bound
-  input ([ENTITY_SETTINGS.md](ENTITY_SETTINGS.md)): then whoever can publish to that topic
-  switches the relay.
+  input or a virtual input's Source ([ENTITY_SETTINGS.md](ENTITY_SETTINGS.md)): then whoever can
+  publish to that topic switches the relay.
 - The first value an On/Off subscription gets after a start, usually the retained message, sets
   its state without counting as a press or a release. A Follow binding takes it all the same.
 
