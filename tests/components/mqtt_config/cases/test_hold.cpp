@@ -69,6 +69,23 @@ TEST_F(HoldTest, UpstreamsComponentGoesQuietAndTheHeldOneTakesItsTopics) {
   EXPECT_EQ(c.walked(), 5u);
 }
 
+// Upstream's component is silenced, so this is the one path a relay's state takes to the broker.
+TEST_F(HoldTest, TheStateGoesOutOnConnectAndOnEveryChange) {
+  Entities &e = entities();
+  this->held = new HoldAwareSwitch(&e.relay1);  // NOLINT(cppcoreguidelines-owning-memory)
+  this->boot([this, &e](TestConfig &c) { c.hold_switch(this->relay1.get(), this->held, &e.relay1); });
+  this->held->call_setup();
+  this->client->connect_for_test();
+  this->settle();
+  EXPECT_EQ(this->states_published(), std::vector<std::string>{"OFF"});
+  this->client->published.clear();
+  e.relay1.turn_on();
+  App.scheduler.call(millis());  // the publish is deferred to the loop, as upstream's is
+  const std::vector<std::string> states = this->states_published();
+  ASSERT_FALSE(states.empty());
+  EXPECT_EQ(std::count(states.begin(), states.end(), "OFF"), 0);
+}
+
 TEST_F(HoldTest, ACommandMovesASwitchNobodyHolds) {
   this->boot_held();
   this->command("ON");
