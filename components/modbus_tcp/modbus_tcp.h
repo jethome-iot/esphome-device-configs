@@ -78,6 +78,8 @@ class ModbusTcpServer : public Component {
   bool start_failed_{false};
   uint32_t last_start_{0};
   bool accept_failing_{false};
+  // accept_() stopped at its per-pass limit with connections still queued.
+  bool accept_pending_{false};
   // When a client's refusal or misbehaviour last made a warning, once one has.
   bool client_warned_{false};
   uint32_t last_client_warning_{0};

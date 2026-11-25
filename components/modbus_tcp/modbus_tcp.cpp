@@ -19,6 +19,8 @@ static const char *const TAG = "modbus_tcp";
 
 // A client that keeps sending would otherwise keep the loop here: the rest wait for the next pass.
 static constexpr uint8_t MAX_REQUESTS_PER_LOOP = 4;
+// Likewise for a stream of connections: the rest are taken in the next passes.
+static constexpr uint8_t MAX_ACCEPTS_PER_LOOP = 4;
 
 // A client that keeps reconnecting past a refusal, or keeps sending what is not Modbus, would
 // otherwise put a warning in the log on each attempt: one goes out per this interval, the rest at
@@ -66,7 +68,7 @@ void ModbusTcpServer::loop() {
     }
   }
 
-  if (this->listener_->ready())
+  if (this->accept_pending_ || this->listener_->ready())
     this->accept_(now);
 }
 
@@ -98,8 +100,9 @@ void ModbusTcpServer::stop_() {
   for (auto &client : this->clients_)
     client->sock->close();
   this->clients_.clear();
-  // A new listener's first failure is news again.
+  // A new listener's first failure is news again, and it has nothing queued yet.
   this->accept_failing_ = false;
+  this->accept_pending_ = false;
   if (this->listener_ != nullptr) {
     this->listener_->close();
     this->listener_.reset();
@@ -108,8 +111,10 @@ void ModbusTcpServer::stop_() {
 }
 
 void ModbusTcpServer::accept_(uint32_t now) {
-  // ready() promises nothing more until the listener is drained.
-  while (true) {
+  // ready() promises nothing more until the listener is drained, so stopping short of that leaves
+  // accept_pending_ to come back without it.
+  this->accept_pending_ = true;
+  for (uint8_t i = 0; i < MAX_ACCEPTS_PER_LOOP; i++) {
     struct sockaddr_storage address;
     socklen_t length = sizeof(address);
     auto sock = this->listener_->accept_loop_monitored((struct sockaddr *) &address, &length);
@@ -120,6 +125,7 @@ void ModbusTcpServer::accept_(uint32_t now) {
         ESP_LOGW(TAG, "Accept failed: errno %d", errno);
         this->accept_failing_ = true;
       }
+      this->accept_pending_ = false;
       return;
     }
     this->accept_failing_ = false;

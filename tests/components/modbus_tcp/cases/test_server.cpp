@@ -172,6 +172,24 @@ TEST_F(Sockets, RefusesAClientPastTheLimit) {
   EXPECT_EQ(this->receive(first, 10), relays_answer(1, 0));
 }
 
+// A burst of connections is taken a few per pass, so it cannot hold the loop, and none is lost.
+TEST_F(Sockets, TakesABurstOfConnectionsAFewPerPass) {
+  this->tcp.set_max_clients(8);
+  this->tcp.set_enabled(true);
+  this->pump();
+  int fds[8];
+  for (int &fd : fds)
+    fd = this->connect();
+  this->pump();
+  EXPECT_EQ(this->tcp.client_count(), 4u);
+  this->pump();
+  EXPECT_EQ(this->tcp.client_count(), 8u);
+  for (uint16_t i = 0; i < 8; i++) {
+    send_all(fds[i], read_relays(i));
+    EXPECT_EQ(this->receive(fds[i], 10), relays_answer(i, 0));
+  }
+}
+
 // The one slot is taken by a client that leaves and comes back before the next pass.
 TEST_F(Sockets, GivesADepartedClientsSlotBack) {
   this->tcp.set_max_clients(1);
