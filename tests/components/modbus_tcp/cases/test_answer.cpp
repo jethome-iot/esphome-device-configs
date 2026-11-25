@@ -131,3 +131,74 @@ TEST_F(Server, AnswersAnotherUnitAsAGatewayWithNoTarget) {
 }
 
 }  // namespace esphome::modbus_tcp::testing
+
+namespace esphome::modbus_tcp::testing {
+
+// A refused write answers its exception, and the read after it is not made.
+TEST_F(Server, SkipsTheReadOfARefusedReadWrite) {
+  EXPECT_EQ(this->request({0x17, 0x00, 0x20, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x02, 0x00, 0x2A}),
+            (Bytes{0x97, 0x02}));
+}
+
+TEST_F(Server, RefusesReadWriteCountsOutOfRange) {
+  // No read, too long a read, no write, and a write count that disagrees with its bytes.
+  EXPECT_EQ(this->request({0x17, 0x00, 0x20, 0x00, 0x00, 0x00, 0x20, 0x00, 0x01, 0x02, 0x00, 0x2A}),
+            (Bytes{0x97, 0x03}));
+  EXPECT_EQ(this->request({0x17, 0x00, 0x20, 0x00, 0x7E, 0x00, 0x20, 0x00, 0x01, 0x02, 0x00, 0x2A}),
+            (Bytes{0x97, 0x03}));
+  EXPECT_EQ(this->request({0x17, 0x00, 0x20, 0x00, 0x01, 0x00, 0x20, 0x00, 0x00, 0x00}), (Bytes{0x97, 0x03}));
+  EXPECT_EQ(this->request({0x17, 0x00, 0x20, 0x00, 0x01, 0x00, 0x20, 0x00, 0x02, 0x02, 0x00, 0x2A}),
+            (Bytes{0x97, 0x03}));
+  EXPECT_EQ(this->setpoint, 0);
+}
+
+// The limits are the RTU hub's: up to them a request reaches the map, past them it is 03. The
+// relay board maps too little for the largest requests to succeed, so they end in 02 there.
+TEST_F(Server, TakesBitReadsUpTo2000) {
+  EXPECT_EQ(this->request({0x01, 0x00, 0x00, 0x07, 0xD0}), (Bytes{0x81, 0x02}));
+  EXPECT_EQ(this->request({0x01, 0x00, 0x00, 0x07, 0xD1}), (Bytes{0x81, 0x03}));
+}
+
+TEST_F(Server, TakesCoilWritesUpTo1968) {
+  Bytes most = {0x0F, 0x00, 0x00, 0x07, 0xB0, 246};
+  most.resize(most.size() + 246, 0x00);
+  EXPECT_EQ(this->request(most), (Bytes{0x8F, 0x02}));
+  Bytes over = {0x0F, 0x00, 0x00, 0x07, 0xB1, 247};
+  over.resize(over.size() + 247, 0x00);
+  EXPECT_EQ(this->request(over), (Bytes{0x8F, 0x03}));
+}
+
+TEST_F(Server, TakesRegisterWritesUpTo123) {
+  Bytes most = {0x10, 0x00, 0x00, 0x00, 0x7B, 246};
+  most.resize(most.size() + 246, 0x00);
+  EXPECT_EQ(this->request(most), (Bytes{0x90, 0x02}));
+  Bytes over = {0x10, 0x00, 0x00, 0x00, 0x7C, 248};
+  over.resize(over.size() + 248 - 1, 0x00);  // 253 bytes: the most a PDU holds
+  EXPECT_EQ(this->request(over), (Bytes{0x90, 0x03}));
+}
+
+// A device whose register read hands back fewer values than asked for: the hub answers 04.
+class ShortDevice : public modbus::ModbusServerDevice {
+ public:
+  modbus::ResponseStatus on_read_registers(uint16_t, uint16_t count, modbus::RegisterValues &registers) override {
+    for (uint16_t i = 0; i + 1 < count; i++)
+      registers.push_back(i);
+    return {};
+  }
+  modbus::ResponseStatus on_write_registers(uint16_t, const modbus::RegisterValues &) override { return {}; }
+};
+
+TEST(ShortRead, AnswersDeviceFailure) {
+  ShortDevice device;
+  std::array<uint8_t, modbus::MAX_PDU_SIZE> out{};
+  const Bytes read = {0x03, 0x00, 0x00, 0x00, 0x02};
+  ASSERT_EQ(answer_pdu(device, read, out), 2u);
+  EXPECT_EQ(out[0], 0x83);
+  EXPECT_EQ(out[1], 0x04);
+  const Bytes read_write = {0x17, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x02, 0x00, 0x01};
+  ASSERT_EQ(answer_pdu(device, read_write, out), 2u);
+  EXPECT_EQ(out[0], 0x97);
+  EXPECT_EQ(out[1], 0x04);
+}
+
+}  // namespace esphome::modbus_tcp::testing
