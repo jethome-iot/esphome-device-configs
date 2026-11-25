@@ -76,6 +76,9 @@ class ModbusTcpServer : public Component {
   bool start_failed_{false};
   uint32_t last_start_{0};
   bool accept_failing_{false};
+  // When a refused connection last made a warning, once one has.
+  bool refusal_warned_{false};
+  uint32_t last_refusal_warning_{0};
 };
 
 }  // namespace esphome::modbus_tcp

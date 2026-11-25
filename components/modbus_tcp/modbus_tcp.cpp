@@ -20,6 +20,10 @@ static const char *const TAG = "modbus_tcp";
 // A client that keeps sending would otherwise keep the loop here: the rest wait for the next pass.
 static constexpr uint8_t MAX_REQUESTS_PER_LOOP = 4;
 
+// A client that keeps reconnecting past a refusal would otherwise put a warning in the log on each
+// attempt: one goes out per this interval, the rest at verbose.
+static constexpr uint32_t REFUSAL_WARN_INTERVAL_MS = 10000;
+
 static bool would_block(int err) { return err == EWOULDBLOCK || err == EAGAIN; }
 
 void ModbusTcpServer::set_enabled(bool enabled) {
@@ -118,14 +122,21 @@ void ModbusTcpServer::accept_(uint32_t now) {
     this->accept_failing_ = false;
     char peer[socket::SOCKADDR_STR_LEN];
     sock->getpeername_to(peer);
+    const char *refusal = nullptr;
     if (this->clients_.size() >= this->max_clients_) {
-      // Closed at once, so the client sees a refusal instead of waiting for an answer.
-      ESP_LOGW(TAG, "Refused %s: %u clients already connected", peer, this->max_clients_);
-      sock->close();
-      continue;
+      refusal = "the clients allowed are connected";
+    } else if (!this->serve_wifi_ap_ && this->through_wifi_ap_(address)) {
+      refusal = "it came through the WiFi access point";
     }
-    if (!this->serve_wifi_ap_ && this->through_wifi_ap_(address)) {
-      ESP_LOGW(TAG, "Refused %s: it came through the WiFi access point", peer);
+    if (refusal != nullptr) {
+      // Closed at once, so the client sees a refusal instead of waiting for an answer.
+      if (!this->refusal_warned_ || now - this->last_refusal_warning_ >= REFUSAL_WARN_INTERVAL_MS) {
+        this->refusal_warned_ = true;
+        this->last_refusal_warning_ = now;
+        ESP_LOGW(TAG, "Refused %s: %s", peer, refusal);
+      } else {
+        ESP_LOGV(TAG, "Refused %s: %s", peer, refusal);
+      }
       sock->close();
       continue;
     }
