@@ -20,9 +20,10 @@ static const char *const TAG = "modbus_tcp";
 // A client that keeps sending would otherwise keep the loop here: the rest wait for the next pass.
 static constexpr uint8_t MAX_REQUESTS_PER_LOOP = 4;
 
-// A client that keeps reconnecting past a refusal would otherwise put a warning in the log on each
-// attempt: one goes out per this interval, the rest at verbose.
-static constexpr uint32_t REFUSAL_WARN_INTERVAL_MS = 10000;
+// A client that keeps reconnecting past a refusal, or keeps sending what is not Modbus, would
+// otherwise put a warning in the log on each attempt: one goes out per this interval, the rest at
+// verbose.
+static constexpr uint32_t CLIENT_WARN_INTERVAL_MS = 10000;
 
 static bool would_block(int err) { return err == EWOULDBLOCK || err == EAGAIN; }
 
@@ -132,9 +133,7 @@ void ModbusTcpServer::accept_(uint32_t now) {
     }
     if (refusal != nullptr) {
       // Closed at once, so the client sees a refusal instead of waiting for an answer.
-      if (!this->refusal_warned_ || now - this->last_refusal_warning_ >= REFUSAL_WARN_INTERVAL_MS) {
-        this->refusal_warned_ = true;
-        this->last_refusal_warning_ = now;
+      if (this->client_warning_due_(now)) {
         ESP_LOGW(TAG, "Refused %s: %s", peer, refusal);
       } else {
         ESP_LOGV(TAG, "Refused %s: %s", peer, refusal);
@@ -202,7 +201,11 @@ bool ModbusTcpServer::serve_(Client &client, uint32_t now) {
   while (client.tx_len == 0 && answered < MAX_REQUESTS_PER_LOOP) {
     const Frame frame = find_frame(std::span<const uint8_t>(client.rx.data(), client.rx_len));
     if (frame.status == FrameStatus::INVALID) {
-      ESP_LOGW(TAG, "Client %s sent a malformed header; disconnecting", client.peer);
+      if (this->client_warning_due_(now)) {
+        ESP_LOGW(TAG, "Client %s sent a header that is not Modbus; disconnecting", client.peer);
+      } else {
+        ESP_LOGV(TAG, "Client %s sent a header that is not Modbus; disconnecting", client.peer);
+      }
       return false;
     }
     if (frame.status == FrameStatus::COMPLETE) {
@@ -240,6 +243,14 @@ bool ModbusTcpServer::serve_(Client &client, uint32_t now) {
     ESP_LOGD(TAG, "Client %s idle for %" PRIu32 " s; disconnecting", client.peer, this->idle_timeout_ms_ / 1000);
     return false;
   }
+  return true;
+}
+
+bool ModbusTcpServer::client_warning_due_(uint32_t now) {
+  if (this->client_warned_ && now - this->last_client_warning_ < CLIENT_WARN_INTERVAL_MS)
+    return false;
+  this->client_warned_ = true;
+  this->last_client_warning_ = now;
   return true;
 }
 

@@ -59,6 +59,8 @@ class ModbusTcpServer : public Component {
   /// False when the client has to go.
   bool serve_(Client &client, uint32_t now);
   bool flush_(Client &client);
+  /// Whether a warning about a client may go out now, or only at verbose.
+  bool client_warning_due_(uint32_t now);
 
   modbus::ModbusServerDevice *server_{nullptr};
   std::unique_ptr<socket::ListenSocket> listener_;
@@ -76,9 +78,9 @@ class ModbusTcpServer : public Component {
   bool start_failed_{false};
   uint32_t last_start_{0};
   bool accept_failing_{false};
-  // When a refused connection last made a warning, once one has.
-  bool refusal_warned_{false};
-  uint32_t last_refusal_warning_{0};
+  // When a client's refusal or misbehaviour last made a warning, once one has.
+  bool client_warned_{false};
+  uint32_t last_client_warning_{0};
 };
 
 }  // namespace esphome::modbus_tcp

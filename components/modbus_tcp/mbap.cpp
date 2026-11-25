@@ -91,7 +91,9 @@ size_t answer_pdu(modbus::ModbusServerDevice &device, std::span<const uint8_t> r
   const bool known = !modbus::helpers::is_function_code_unknown_length(function_code) &&
                      !modbus::helpers::is_function_code_exception(function_code);
   if (known && modbus::helpers::client_pdu_length(request.data(), request.size()) != request.size()) {
-    ESP_LOGW(TAG, "Function 0x%02X request of %zu bytes has the wrong length", function_code, request.size());
+    // Debug, as the exception replies are: a client on the network can send these as fast as it likes,
+    // and the exception already tells it.
+    ESP_LOGD(TAG, "Function 0x%02X request of %zu bytes has the wrong length", function_code, request.size());
     return exception(function_code, ExceptionCode::ILLEGAL_DATA_VALUE, response);
   }
   const std::span<const uint8_t> data = request.subspan(1);
@@ -222,7 +224,7 @@ size_t answer_pdu(modbus::ModbusServerDevice &device, std::span<const uint8_t> r
       return put_registers(registers, response);
     }
     default:
-      ESP_LOGW(TAG, "Unsupported function code 0x%02X", function_code);
+      ESP_LOGD(TAG, "Unsupported function code 0x%02X", function_code);
       status = ExceptionCode::ILLEGAL_FUNCTION;
       break;
   }
