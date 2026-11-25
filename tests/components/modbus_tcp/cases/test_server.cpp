@@ -19,15 +19,27 @@ class TestableServer : public ModbusTcpServer {
   void set_retry_interval(uint32_t ms) { this->retry_interval_ms_ = ms; }
 };
 
+/// A port nothing listens on now, as the kernel hands one out: a port picked by hand can be the
+/// local end of one of the cases' own client connections, which the kernel takes from the same range.
+static uint16_t free_port() {
+  const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+  struct sockaddr_in address {};
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  socklen_t length = sizeof(address);
+  ::bind(fd, reinterpret_cast<struct sockaddr *>(&address), sizeof(address));
+  ::getsockname(fd, reinterpret_cast<struct sockaddr *>(&address), &length);
+  ::close(fd);
+  return ntohs(address.sin_port);
+}
+
 // The component on a real loopback socket. Each pass waits on select() for the sockets the
 // component registered, as the host's main loop does, then runs its loop().
 class Sockets : public Server {
  protected:
   void SetUp() override {
     Server::SetUp();
-    // A port of its own per case, so no case meets another's connections in TIME_WAIT.
-    static uint16_t next = 20000 + getpid() % 20000;
-    this->port = next++;
+    this->port = free_port();
     this->tcp.set_server(&this->server);
     this->tcp.set_port(this->port);
   }
@@ -254,7 +266,7 @@ TEST_F(Sockets, StopsAndDropsItsClientsWhenSwitchedOff) {
 TEST_F(Sockets, MovesToANewPort) {
   this->tcp.set_enabled(true);
   this->pump();
-  const uint16_t moved = this->port + 1000;
+  const uint16_t moved = free_port();
   this->tcp.set_port(moved);
   this->pump();
   EXPECT_EQ(this->connect(), -1);
