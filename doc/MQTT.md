@@ -115,7 +115,8 @@ How a message is read:
   zigbee2mqtt reports a closed door as `"contact": true`, so for "open is On" set Payload on to
   `false` and Payload off to `true`.
 - **Text**: the value as sent, a JSON object or list as JSON, cut to 255 bytes.
-- An empty message, such as a cleared retained one, leaves the value unknown.
+- An empty message, such as a cleared retained one, leaves a Number or On/Off value unknown and
+  a Text value empty.
 - A message over 2 KiB is not read.
 
 The dashboard shows each subscription's value, the start of its last message, and why the
