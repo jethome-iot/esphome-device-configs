@@ -91,9 +91,9 @@ answers `403`. Strip or rewrite `Origin` in the proxy, or develop against the mo
 reverse proxy in front of a device fails the same way if it rewrites `Host` while forwarding the
 browser's `Origin` — Home Assistant ingress and a plain nginx front end both do by default.
 
-Nothing that does not send `Origin` is affected: `scripts/device-files.py`, the `curl` recipes
-in the component READMEs, the backup and restore flow, and the ESPHome native API and OTA, which
-do not go through this server at all.
+Nothing that sends no `Origin` and reaches the device by its IP, its name or a name under it is
+affected: `scripts/device-files.py`, the `curl` recipes in the component READMEs, the backup and
+restore flow. The ESPHome native API and OTA do not go through this server at all.
 
 ## Tests
 
