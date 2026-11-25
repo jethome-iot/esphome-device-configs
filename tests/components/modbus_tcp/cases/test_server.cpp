@@ -138,14 +138,15 @@ TEST_F(Sockets, JoinsARequestSplitAcrossWrites) {
   EXPECT_EQ(this->receive(fd, 10), relays_answer(1, 0));
 }
 
-// More than the component answers in one pass: the rest wait in the socket and come in order.
+// More than the component answers in one pass, and more than its 260-byte buffer takes in one
+// read, so requests are cut across reads: the rest wait in the socket and come in order.
 TEST_F(Sockets, AnswersPipelinedRequestsInOrder) {
   this->tcp.set_enabled(true);
   this->pump();
   const int fd = this->connect();
   Bytes burst;
   Bytes expected;
-  for (uint16_t t = 1; t <= 20; t++) {
+  for (uint16_t t = 1; t <= 40; t++) {
     const Bytes request = read_relays(t);
     const Bytes answer = relays_answer(t, 0);
     burst.insert(burst.end(), request.begin(), request.end());
@@ -197,7 +198,7 @@ TEST_F(Sockets, DropsAnIdleClient) {
   EXPECT_EQ(this->tcp.client_count(), 0u);
 }
 
-// A new client is not taken for an idle one by the clock of the pass that accepted it.
+// A client that has connected and not sent anything yet stays for the idle timeout.
 TEST_F(Sockets, KeepsANewClientThatHasNotSentYet) {
   this->tcp.set_enabled(true);
   this->pump();
