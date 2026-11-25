@@ -112,6 +112,19 @@ graphical_display_menu:
                           - lambda: id(firmware_rollback_yes)->set_text("Confirm - OK");
                           # Drawn before the image check below stalls the loop.
                           - delay: 1s
+                          # A running Home Assistant cleanup gets to finish first: the older
+                          # firmware may have no MQTT to finish it after the reboot.
+                          - wait_until:
+                              condition:
+                                lambda: |-
+                                  #ifdef USE_MQTT_CONFIG
+                                  auto *mqtt = mqtt_config::global_mqtt_config;
+                                  return mqtt == nullptr ||
+                                         mqtt->discovery_cleanup() != mqtt_config::DiscoveryCleanup::RUNNING;
+                                  #else
+                                  return true;
+                                  #endif
+                              timeout: 5s
                           # Reboots once the other slot is selected.
                           - firmware_rollback.rollback:
                               id: firmware_rollback_id

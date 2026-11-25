@@ -129,9 +129,10 @@ Shared code and tooling stay at the repository root:
   their ids, so those ids are part of the contract: `esphome_ota_allowed`, `network_mode`,
   `modbus_address`, `modbus_baud_rate`, `modbus_parity`, `modbus_stop_bits`, and
   `firmware_update` and `firmware_channel` in the package `dist/` leaves out. The menu's Reboot
-  device and the `run_factory_reset` script (`features/factory-reset.yaml`) reach `mqtt_config`
-  through `mqtt_config::global_mqtt_config` under `#ifdef USE_MQTT_CONFIG`, not `id()`, which a
-  build without the component could not resolve.
+  device, Forget HA and Rollback rows and the `run_factory_reset` script
+  (`features/factory-reset.yaml`) reach `mqtt_config` through `mqtt_config::global_mqtt_config`
+  under `#ifdef USE_MQTT_CONFIG`, not `id()`, which a build without the component could not
+  resolve.
 - `web_auth_credentials` (`features/web-auth.yaml`) holds the credentials the web server checks.
   The `auth:` block in the same file is the factory pair; a pair set through the dashboard is
   kept in the device's flash preferences and replaces it from the next request on, so a factory
