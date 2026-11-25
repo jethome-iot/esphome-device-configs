@@ -247,7 +247,7 @@ std::string MqttSubscriptions::name_conflict_(size_t index, const SlotConfig &sl
 void MqttSubscriptions::on_message_(const std::string &topic, const std::string &payload) {
   this->note_answer_(topic);
   Message message(payload);
-  const uint32_t now = this->now_ms_();
+  const uint64_t now = this->now_ms_();
   for (size_t i = 0; i < this->max_slots_; i++) {
     Running &run = this->running_[i];
     const SlotConfig &slot = this->active_[i];
@@ -572,7 +572,7 @@ void MqttSubscriptions::write_api_json(JsonObject root) {
     reserved["count"] = this->reserved_count_;
   }
 
-  const uint32_t now = this->now_ms_();
+  const uint64_t now = this->now_ms_();
   JsonArray slots = root["slots"].to<JsonArray>();
   for (size_t i = 0; i < this->max_slots_; i++) {
     JsonObject obj = slots.add<JsonObject>();

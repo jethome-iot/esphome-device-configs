@@ -129,7 +129,7 @@ class GuardConfig : public mqtt_config::MqttConfig {
 // The component on a clock the test moves.
 class TestSubscriptions : public MqttSubscriptions {
  public:
-  uint32_t now{1000};
+  uint64_t now{1000};
   // A filesystem that cannot answer now: out of file handles, an I/O error.
   bool fail_reads{false};
   bool fail_stat{false};
@@ -160,7 +160,7 @@ class TestSubscriptions : public MqttSubscriptions {
   const std::string &raw(size_t slot) const { return this->running_[slot].raw; }
 
  protected:
-  uint32_t now_ms_() const override { return this->now; }
+  uint64_t now_ms_() const override { return this->now; }
   Seen stat_file_() const override {
     if (!this->fail_stat)
       return MqttSubscriptions::stat_file_();

@@ -727,6 +727,18 @@ TEST_F(ComponentTest, TheGetShape) {
   EXPECT_TRUE(empty["status"]["error"].isNull());
 }
 
+// A retained value that never changes is as old as the uptime, which outlasts millis()' wrap.
+TEST_F(ComponentTest, AValuesAgeOutlastsTheMillisWrap) {
+  this->plant({outdoor()});
+  TestSubscriptions &s = this->boot();
+  this->online();
+  s.now = 5000;
+  this->deliver("zigbee2mqtt/outdoor", R"({"temperature":21.4})");
+  s.now = 5000 + 50ULL * 86400 * 1000;
+  JsonDocument doc = this->get();
+  EXPECT_EQ(doc["slots"][0]["status"]["age_s"].as<uint64_t>(), 50ULL * 86400);
+}
+
 TEST_F(ComponentTest, DumpConfigNamesWhatRunsAndWhy) {
   this->plant({outdoor(), slot_of("Bad", "a+b")});
   TestSubscriptions &s = this->boot();

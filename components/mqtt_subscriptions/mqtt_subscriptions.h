@@ -100,7 +100,7 @@ class MqttSubscriptions : public Component {
     EntityBase *entity{nullptr};  // of the slot's kind; nullptr when the slot runs nothing
     std::string off_reason;       // why an enabled slot runs nothing
     bool has_message{false};
-    uint32_t last_ms{0};
+    uint64_t last_ms{0};
     std::string raw;
     std::string error;
   };
@@ -116,7 +116,8 @@ class MqttSubscriptions : public Component {
     }
   };
 
-  virtual uint32_t now_ms_() const { return millis(); }
+  // 64 bits: a value may go unchanged longer than millis() takes to wrap, 49.7 days.
+  virtual uint64_t now_ms_() const { return millis_64(); }
   void on_message_(const std::string &topic, const std::string &payload);
 
   // The client sends its whole list at once on every connect, and 16 retained values overflow its
