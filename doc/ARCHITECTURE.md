@@ -79,8 +79,8 @@ Shared code and tooling stay at the repository root:
   names the running thermostat that drives a relay, `""` when none does. Everything that moves
   a relay on its own asks it first — the status page's CENTER (`display/buttons.yaml`), the
   menu's State and Inverted rows (`display/menu.yaml`), the Modbus coils, `automations`,
-  `bindings`, `schedules` and the `switch_settings` Inverted field — and `bindings` and
-  `schedules` hear from it when a relay is freed. Home Assistant and the web server's REST do
+  `bindings`, `schedules` and the `switch_settings` Inverted field — and `automations` (a rule
+  that follows its condition), `bindings` and `schedules` hear from it when a relay is freed. Home Assistant and the web server's REST do
   not ask; the thermostat puts the relay back. The list of writers and what each gets is in
   [CLIMATE.md](CLIMATE.md#a-running-thermostats-relays); a new writer of a relay asks too.
   `features/climates.yaml`, `automations.yaml`, `entity-settings.yaml` and `schedules.yaml` load
@@ -435,6 +435,11 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
   another task may schedule into it.
 - `components/bindings` subscribes once per input with `add_full_state_callback` and never
   unsubscribes: upstream has no callback removal, so rebinding goes through its own table.
+- `components/automations` adds `add_full_state_callback` to the inputs a condition trigger reads,
+  because the plain state callback is called neither for an input's first state when it does not
+  trigger on it nor for a lost state; and its conditions read an input's or a switch's state from
+  inside that entity's own callback, taking upstream at its word that the state is stored before
+  the callbacks run.
 - `components/crash_report` takes the crash record the one way upstream hands it out, as log
   lines: it checks `esp32::crash_handler_has_data()`, catches what `esp32::crash_handler_log()`
   prints through a logger listener (`logger.request_log_listener()`, `add_log_callback`), then
