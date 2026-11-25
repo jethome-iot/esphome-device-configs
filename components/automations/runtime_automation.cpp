@@ -382,19 +382,23 @@ void RuntimeAutomation::on_released(switch_::Switch *sw) {
   // A change of the result still on its way plays the whole branch when it arrives.
   if (!this->result_.has_value() || this->condition_->check() != *this->result_)
     return;
-  // Where the branch for the result leaves the relay: its last step that sets it. A toggle sets
-  // nothing of its own, and the rest of the branch has already played.
+  // Where the rule has left the relay: the last step that sets it in the branch for the result,
+  // or, while a run is under way, in what the newest run has played so far; its later steps set
+  // the relay when it gets to them. A toggle sets nothing of its own.
+  Run idle{};
+  idle.branch = *this->result_ ? &this->then_ : &this->else_;
+  idle.cursor = idle.branch->size();
+  idle.has_state = true;  // a follow copies the result, as the trigger hands it
+  idle.state = *this->result_;
+  const Run &run = this->runs_.empty() ? idle : *this->runs_.back();
   const CompiledAction *last = nullptr;
-  for (const CompiledAction &action : *this->result_ ? this->then_ : this->else_) {
+  for (size_t i = 0; i < run.cursor; i++) {
+    const CompiledAction &action = (*run.branch)[i];
     if (action.source == SourceAction::SWITCH && action.target == sw && action.type != TypeSwitchAction::TOGGLE)
       last = &action;
   }
-  if (last == nullptr)
-    return;
-  Run run{};
-  run.has_state = true;  // a follow copies the result, as the trigger hands it
-  run.state = *this->result_;
-  this->play_switch_(*last, run);
+  if (last != nullptr)
+    this->play_switch_(*last, run);
 }
 
 void RuntimeAutomation::stop() {

@@ -219,6 +219,46 @@ TEST_F(Runtime, ARelayLetGoGoesWhereTheBranchLeavesIt) {
   EXPECT_TRUE(engine.delays.empty());
 }
 
+// While a run is under way the relay goes where the run has got to: a delay before its step on
+// the relay still holds, and what the run set before the delay is set again.
+TEST_F(Runtime, ARelayLetGoDuringARunGoesWhereTheRunHasGot) {
+  auto later = build_rule(engine, R"({"name":"Later","triggers":[{"source":"condition"}],
+      "condition":{"type":"input","object_id":"in_1"},
+      "actions":[{"source":"delay","delay_ms":500},
+                 {"source":"switch","type":"turn_on","object_id":"relay_1"}]})");
+  ASSERT_NE(later, nullptr);
+  later->watch_condition();
+  e.in1.publish_state(true);
+  later->on_binary_sensor(&e.in1, true);
+  later->on_released(&e.relay1);
+  EXPECT_FALSE(e.relay1.state);
+  EXPECT_EQ(e.relay1.writes, 0);
+  ASSERT_TRUE(engine.fire_next());
+  EXPECT_TRUE(e.relay1.state);
+}
+
+TEST_F(Runtime, ARelayLetGoDuringARunKeepsWhatTheRunSet) {
+  auto pulse = build_rule(engine, R"({"name":"Pulse off","triggers":[{"source":"condition"}],
+      "condition":{"type":"input","object_id":"in_1"},
+      "actions":[{"source":"switch","type":"turn_off","object_id":"relay_1"},
+                 {"source":"delay","delay_ms":500},
+                 {"source":"switch","type":"turn_on","object_id":"relay_1"},
+                 {"source":"switch","type":"toggle","object_id":"relay_2"}]})");
+  ASSERT_NE(pulse, nullptr);
+  pulse->watch_condition();
+  e.relay1.turn_on();  // where a thermostat left it
+  e.in1.publish_state(true);
+  pulse->on_binary_sensor(&e.in1, true);
+  EXPECT_FALSE(e.relay1.state);
+  e.relay1.turn_on();
+  pulse->on_released(&e.relay1);
+  EXPECT_FALSE(e.relay1.state);  // off for the delay, as the run left it
+  EXPECT_EQ(e.relay2.writes, 0);
+  ASSERT_TRUE(engine.fire_next());
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay2.writes, 1);
+}
+
 // A change of the condition the rule has not been handed yet is not taken as acted on when a
 // relay is let go: it fires when it arrives.
 TEST_F(Runtime, ARelayLetGoLeavesAChangeOnItsWayToTheRule) {

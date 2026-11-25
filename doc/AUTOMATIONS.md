@@ -31,7 +31,9 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
   ([Thermostats](CLIMATE.md#a-running-thermostats-relays)). When the thermostat lets the relay
   go, a rule with a condition trigger sets it where its branch for the current result leaves
   it (the last turn on, turn off or follow on it; a toggle sets nothing), so the relay goes
-  where the condition says.
+  where the condition says; nothing else in the rule plays again. While a run is under way, the
+  relay goes where the run has got to, and the run sets it further when it reaches its next step
+  on it, after its delays.
 - **Thermostat actions**: turn off, turn on (back in the mode it was in before it went off),
   pick a preset, set the target, and follow: one preset or on/off while the trigger's state is
   on, another while it is off. A preset that keeps the mode does not turn an off thermostat on:
