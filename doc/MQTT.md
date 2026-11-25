@@ -164,8 +164,9 @@ one lose it.
   input ([AUTOMATIONS.md](AUTOMATIONS.md)). An On/Off subscription can also be a relay's Bound
   input or a virtual input's Source ([ENTITY_SETTINGS.md](ENTITY_SETTINGS.md)): then whoever can
   publish to that topic switches the relay.
-- The first value an On/Off subscription gets after a start, usually the retained message, sets
-  its state without counting as a press or a release. A Follow binding takes it all the same.
+- The first value an On/Off subscription gets after a start, usually the retained message, and
+  the first after a message it could not read set its state without counting as a press or a
+  release. A Follow binding takes them all the same.
 
 ### Topics and large messages
 

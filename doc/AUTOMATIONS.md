@@ -58,7 +58,8 @@ A timetable, what relays and thermostats do by the time of day and the day of th
 
 MQTT subscriptions ([MQTT.md](MQTT.md#subscriptions)) work like the device's own entities: a
 Number subscription is a temperature and an On/Off subscription an input. The first value an
-On/Off subscription gets after a start is its state, not a press or a release.
+On/Off subscription gets after a start, or after a message it could not read, is its state, not
+a press or a release.
 
 ## Storage
 
