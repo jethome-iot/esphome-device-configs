@@ -70,7 +70,9 @@ class ModbusTcpServer : public Component {
   bool enabled_{false};
   bool serve_wifi_ap_{false};
   bool restart_{false};
-  // The last attempt to listen failed; the next waits for RETRY_INTERVAL_MS after last_start_.
+  // A listener that could not open is tried again this often while the server is on.
+  uint32_t retry_interval_ms_{30000};
+  // The last attempt to listen failed; the next waits retry_interval_ms_ after last_start_.
   bool start_failed_{false};
   uint32_t last_start_{0};
   bool accept_failing_{false};

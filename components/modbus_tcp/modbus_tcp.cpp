@@ -19,8 +19,6 @@ static const char *const TAG = "modbus_tcp";
 
 // A client that keeps sending would otherwise keep the loop here: the rest wait for the next pass.
 static constexpr uint8_t MAX_REQUESTS_PER_LOOP = 4;
-// A listener that could not open is tried again this often while the server is on.
-static constexpr uint32_t RETRY_INTERVAL_MS = 30000;
 
 static bool would_block(int err) { return err == EWOULDBLOCK || err == EAGAIN; }
 
@@ -45,7 +43,7 @@ void ModbusTcpServer::loop() {
   }
   // A port another server holds, or a socket pool that was full, may be free later.
   if (this->enabled_ && this->listener_ == nullptr &&
-      (!this->start_failed_ || now - this->last_start_ >= RETRY_INTERVAL_MS)) {
+      (!this->start_failed_ || now - this->last_start_ >= this->retry_interval_ms_)) {
     this->last_start_ = now;
     this->start_failed_ = !this->start_();
   }
@@ -71,7 +69,7 @@ bool ModbusTcpServer::start_() {
   this->listener_ = socket::socket_ip_loop_monitored(SOCK_STREAM, 0);
   if (this->listener_ == nullptr) {
     ESP_LOGW(TAG, "Could not create the socket: errno %d; trying again in %" PRIu32 " s", errno,
-             RETRY_INTERVAL_MS / 1000);
+             this->retry_interval_ms_ / 1000);
     return false;
   }
   int enable = 1;
@@ -82,7 +80,7 @@ bool ModbusTcpServer::start_() {
       this->listener_->bind((struct sockaddr *) &address, length) != 0 ||
       this->listener_->listen(this->max_clients_) != 0) {
     ESP_LOGW(TAG, "Could not listen on port %u: errno %d; trying again in %" PRIu32 " s", this->port_, errno,
-             RETRY_INTERVAL_MS / 1000);
+             this->retry_interval_ms_ / 1000);
     this->listener_->close();
     this->listener_.reset();
     return false;
