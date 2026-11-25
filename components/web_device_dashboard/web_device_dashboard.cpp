@@ -707,20 +707,12 @@ void WebDeviceDashboard::handle_mqtt_get_(AsyncWebServerRequest *request) {
 // POST /api/device/mqtt: a partial update. The types are read here; the values are judged,
 // stored and applied on the loop task, in one job, so the answer describes what was done.
 void WebDeviceDashboard::handle_mqtt_set_(AsyncWebServerRequest *request) {
-  if (!this->require_json_(request))
+  JsonDocument doc;
+  if (!this->read_json_body_(request, doc))
     return;
-  if (this->body_too_large_) {
-    this->send_error_(request, 413, "Request body over 4 KiB");
-    return;
-  }
   auto *mqtt = mqtt_config::global_mqtt_config;
   if (mqtt == nullptr) {
     this->send_error_(request, 503, "MQTT not available");
-    return;
-  }
-  JsonDocument doc = json::parse_json(this->body_);
-  if (doc.isNull() || !doc.is<JsonObject>()) {
-    this->send_error_(request, 400, "Invalid JSON");
     return;
   }
   mqtt_config::MqttPatch patch;
