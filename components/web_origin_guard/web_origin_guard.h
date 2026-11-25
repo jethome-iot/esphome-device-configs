@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include "esphome/components/web_server_base/web_server_base.h"
@@ -17,6 +18,7 @@
 
 #ifdef USE_ESP32
 #include <esp_http_server.h>
+#include <lwip/sockets.h>
 #endif
 
 namespace esphome::web_origin_guard {
@@ -40,9 +42,43 @@ inline bool captive_portal_active() {
 #endif
 }
 
+/// Whether @p request came in on the access point's own address. In Network mode Auto with no
+/// WiFi credentials the access point runs beside Ethernet, where a rebound page reaches the
+/// device too: the portal's exemption is for the access point alone. False when unsure.
+inline bool arrived_on_access_point(AsyncWebServerRequest *request) {
+#if defined(USE_ESP32) && defined(USE_CAPTIVE_PORTAL)
+  httpd_req_t *req = *request;
+  const int fd = httpd_req_to_sockfd(req);
+  struct sockaddr_storage local {};
+  socklen_t len = sizeof(local);
+  if (fd < 0 || getsockname(fd, reinterpret_cast<struct sockaddr *>(&local), &len) != 0)
+    return false;
+  ip4_addr_t addr{};
+  if (local.ss_family == AF_INET) {
+    addr.addr = reinterpret_cast<const struct sockaddr_in *>(&local)->sin_addr.s_addr;
+#if LWIP_IPV6
+  } else if (local.ss_family == AF_INET6) {
+    // A dual-stack server socket gives an IPv4 peer's connection as ::ffff:a.b.c.d.
+    const uint8_t *bytes = reinterpret_cast<const struct sockaddr_in6 *>(&local)->sin6_addr.s6_addr;
+    static const uint8_t V4_MAPPED[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
+    if (memcmp(bytes, V4_MAPPED, sizeof(V4_MAPPED)) != 0)
+      return false;
+    memcpy(&addr.addr, bytes + 12, sizeof(addr.addr));
+#endif
+  } else {
+    return false;
+  }
+  return wifi::global_wifi_component != nullptr &&
+         network::IPAddress(&addr) == wifi::global_wifi_component->wifi_soft_ap_ip();
+#else
+  return false;
+#endif
+}
+
 /// Whether @p request may be served. A Host that names something else than this device is a
 /// page that rebound its own name to the device's address, refused whatever its Origin, except
-/// a GET while @p portal_active, the one request the portal answers. Then web_server's own rule
+/// a GET while @p portal_active (the portal runs and the request came in on its access point),
+/// the one request the portal answers. Then web_server's own rule
 /// (WebServer::is_request_origin_allowed_): no Origin header passes, an Origin whose authority
 /// is the Host the request was sent to passes, everything else is cross-origin. There is no
 /// allow list -- one rule for every handler on the port.
@@ -69,7 +105,9 @@ inline bool allowed(AsyncWebServerRequest *request, bool portal_active) {
   return origin->compare(scheme_sep + 3, std::string::npos, *host) == 0;
 }
 
-inline bool allowed(AsyncWebServerRequest *request) { return allowed(request, captive_portal_active()); }
+inline bool allowed(AsyncWebServerRequest *request) {
+  return allowed(request, captive_portal_active() && arrived_on_access_point(request));
+}
 
 /// The one answer a refused request gets, from whichever of the two guards saw it.
 inline void send_refusal(AsyncWebServerRequest *request) {

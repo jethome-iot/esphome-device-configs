@@ -23,9 +23,10 @@ Forbidden` whatever the `Origin`. It names the device when it is
   the device (`<name>.lan`, `<name>.fritz.box`);
 
 each with or without a port, case aside. A request with no `Host` passes this step: a browser
-always sends one. While the captive portal runs with its access point up, a `GET` skips the step:
-the portal answers every host, because a phone finds it by probing its vendor's own, and it
-answers only `GET`.
+always sends one. While the captive portal runs, a `GET` that comes in on its access point skips
+the step: the portal answers every host, because a phone finds it by probing its vendor's own,
+and it answers only `GET`. One that comes in over Ethernet does not, though in Network mode Auto
+with no WiFi credentials the access point runs beside it.
 
 This is what stops DNS rebinding: a page on `attacker.example` whose name is made to resolve to
 the device's address is same-origin to the browser, so its requests carry `Host:
