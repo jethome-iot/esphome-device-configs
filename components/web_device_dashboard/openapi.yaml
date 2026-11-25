@@ -2589,9 +2589,10 @@ components:
             enum: [temperature_slots, mqtt]
             description: >-
               `temperature_slots`: a forget or an assign changed the saved slot
-              table, see `/temperature-slots`. `mqtt`: a saved MQTT setting
-              waits for a restart, or MQTT is held back after repeated crashes
-              and a restart retries it, see `/mqtt`.
+              table, see `/temperature-slots`. `mqtt`: a saved MQTT setting or
+              subscription waits for a restart, or MQTT or its subscriptions are
+              held back after repeated crashes and a restart retries them, see
+              `/mqtt` and `/mqtt/subscriptions`.
         mqtt:
           $ref: "#/components/schemas/MqttLiveStatus"
       example:
