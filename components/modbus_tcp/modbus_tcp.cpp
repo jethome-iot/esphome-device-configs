@@ -164,11 +164,12 @@ bool ModbusTcpServer::through_wifi_ap_(const struct sockaddr_storage &peer) {
     address = reinterpret_cast<const struct sockaddr_in &>(peer).sin_addr.s_addr;
 #if USE_NETWORK_IPV6
   } else if (peer.ss_family == AF_INET6) {
-    // An IPv4 client of an IPv6 listener shows up as ::ffff:a.b.c.d.
+    // An IPv4 client of an IPv6 listener shows up as ::ffff:a.b.c.d. lwIP's in6_addr is a union
+    // without IN6_IS_ADDR_V4MAPPED, so the prefix is read off its words, as socket.cpp does.
     const auto &in6 = reinterpret_cast<const struct sockaddr_in6 &>(peer).sin6_addr;
-    if (!IN6_IS_ADDR_V4MAPPED(&in6))
+    if (in6.un.u32_addr[0] != 0 || in6.un.u32_addr[1] != 0 || in6.un.u32_addr[2] != htonl(0xFFFF))
       return false;
-    std::memcpy(&address, &in6.s6_addr[12], sizeof(address));
+    address = in6.un.u32_addr[3];
 #endif
   } else {
     return false;
