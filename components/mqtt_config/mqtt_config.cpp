@@ -342,9 +342,18 @@ void MqttConfig::check_cleanup_() {
       return;
     }
   }
-  if (this->probe_out_)
-    return;
+  if (this->probe_out_) {
+    if (millis() - this->probe_sent_ms_ < this->probe_retry_ms_)
+      return;
+    // A broker that will not let a client subscribe to its own topics never hands a probe back.
+    if (!this->probe_warned_) {
+      ESP_LOGW(TAG, "No echo of %s from the broker yet; it has to let the device subscribe to its own topics",
+               this->cleanup_probe_topic_().c_str());
+      this->probe_warned_ = true;
+    }
+  }
   this->probe_out_ = this->client_->publish(this->cleanup_probe_topic_(), std::to_string(++this->probe_seq_), 0, false);
+  this->probe_sent_ms_ = millis();
 }
 
 std::string MqttConfig::cleanup_probe_topic_() const { return this->applied_.topic_prefix + "/mqtt_config/cleanup"; }

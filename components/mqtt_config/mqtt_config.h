@@ -47,6 +47,8 @@ enum class DiscoveryCleanup : uint8_t { NONE, RUNNING, PENDING };
 
 // How long a reboot or a factory reset waits for a running cleanup.
 static constexpr uint32_t CLEANUP_WAIT_MS = 5000;
+// How long a cleanup probe may go without its echo before another is sent.
+static constexpr uint32_t PROBE_RETRY_MS = 10000;
 
 // The MQTT client's settings, kept in NVS and set from the dashboard. The stock client is
 // compiled idle; this applies the stored record at boot, starts the client the first time it
@@ -208,6 +210,9 @@ class MqttConfig : public Component {
   bool probe_subscribed_{false};
   bool probe_out_{false};  // the probe numbered probe_seq_ is on its way and has not come back
   uint32_t probe_seq_{0};
+  uint32_t probe_sent_ms_{0};
+  uint32_t probe_retry_ms_{PROBE_RETRY_MS};
+  bool probe_warned_{false};
 
   // Loop task only; other tasks read them through status_.
   bool started_{false};

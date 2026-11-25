@@ -277,6 +277,38 @@ TEST_F(CleanupTest, AProbeThatCannotBeSentIsTriedOnTheNextPass) {
   EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::NONE);
 }
 
+// A broker that will not let the device subscribe to its own topics never hands one back: the
+// probe goes out again, with a warning once, and the cleanup goes on running.
+TEST_F(CleanupTest, AProbeTheBrokerNeverHandsBackIsSentAgainWithAWarning) {
+  TestConfig &c = this->announced();
+  c.set_probe_retry_ms(30);
+  this->save(patch_of([](MqttPatch &p) { p.discovery = false; }));
+  this->settle();
+  c.run_own_loop();
+  ASSERT_EQ(probes(*this->client), 1u);
+  c.run_own_loop();
+  EXPECT_EQ(probes(*this->client), 1u);
+  LogCapture::instance().clear();
+  advance(40);
+  c.run_own_loop();
+  EXPECT_EQ(probes(*this->client), 2u);
+  const std::string warning = "No echo of " + PROBE + " from the broker yet";
+  EXPECT_TRUE(LogCapture::instance().has(warning.c_str()));
+  advance(40);
+  c.run_own_loop();
+  EXPECT_EQ(probes(*this->client), 3u);
+  const auto &lines = LogCapture::instance().lines;
+  EXPECT_EQ(std::count_if(lines.begin(), lines.end(),
+                          [&warning](const auto &line) { return line.second.find(warning) != std::string::npos; }),
+            1);
+  EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::RUNNING);
+  // The latest one's echo ends it; an older one's would not.
+  this->client->deliver_for_test(PROBE, "1");
+  EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::RUNNING);
+  this->client->deliver_for_test(PROBE, "3");
+  EXPECT_EQ(c.discovery_cleanup(), DiscoveryCleanup::NONE);
+}
+
 // A cleanup an earlier boot left runs to the same end.
 TEST_F(CleanupTest, TheBootsOwnCleanupWaitsForTheEchoToo) {
   MqttRecord stored = enabled_record();

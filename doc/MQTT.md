@@ -52,7 +52,7 @@ With the default prefix `jxd-r6-e1eth-lcd-5c8214`:
 | `<prefix>/<domain>/<object id>/state` | Each entity's state, e.g. `jxd-r6-e1eth-lcd-5c8214/switch/relay_1/state` |
 | `<prefix>/<domain>/<object id>/command` | Commands, for what can be commanded: Relay 1–6 and, on JetHome's builds, Check for updates |
 | `<prefix>/status` | `online` while connected, `offline` otherwise (retained) |
-| `<prefix>/mqtt_config/cleanup` | The device's own: while it removes its Home Assistant entries it publishes a number here and waits for the broker to hand it back, which tells it the removals arrived. The broker has to let the device subscribe to its own topics |
+| `<prefix>/mqtt_config/cleanup` | The device's own: while it removes its Home Assistant entries it publishes a number here and waits for the broker to hand it back, which tells it the removals arrived. The broker has to let the device subscribe to its own topics; when it does not, the device logs a warning and sends the number again every 10 seconds |
 
 A relay that a running thermostat drives refuses a command that would move it: the device log
 names the thermostat and the state topic gets the state the relay kept

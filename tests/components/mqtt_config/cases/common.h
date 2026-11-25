@@ -129,6 +129,7 @@ class TestConfig : public MqttConfig {
   std::vector<LiveStatus> status_writes;
 
   void set_disarm_after_ms(uint32_t ms) { this->disarm_after_ms_ = ms; }
+  void set_probe_retry_ms(uint32_t ms) { this->probe_retry_ms_ = ms; }
   void log(uint8_t level, const char *tag, const std::string &line) {
     MqttConfig::on_log_(this, level, tag, line.data(), line.size());
   }
