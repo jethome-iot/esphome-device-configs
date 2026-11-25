@@ -12,6 +12,7 @@
 
 #ifdef USE_CAPTIVE_PORTAL
 #include "esphome/components/captive_portal/captive_portal.h"
+#include "esphome/components/wifi/wifi_component.h"
 #endif
 
 #ifdef USE_ESP32
@@ -28,10 +29,12 @@ namespace esphome::web_origin_guard {
 bool host_names_device(std::string_view host, std::string_view name);
 
 /// Whether the captive portal runs: it answers every host then, since a phone looks for it by
-/// probing a host of its own vendor's.
+/// probing a host of its own vendor's. Its access point too: WiFi turned off (Network mode
+/// Ethernet) takes the access point down without ending the portal.
 inline bool captive_portal_active() {
 #ifdef USE_CAPTIVE_PORTAL
-  return captive_portal::global_captive_portal != nullptr && captive_portal::global_captive_portal->is_active();
+  return captive_portal::global_captive_portal != nullptr && captive_portal::global_captive_portal->is_active() &&
+         wifi::global_wifi_component != nullptr && wifi::global_wifi_component->is_ap_active();
 #else
   return false;
 #endif
@@ -39,13 +42,14 @@ inline bool captive_portal_active() {
 
 /// Whether @p request may be served. A Host that names something else than this device is a
 /// page that rebound its own name to the device's address, refused whatever its Origin, except
-/// while @p portal_active. Then web_server's own rule (WebServer::is_request_origin_allowed_):
-/// no Origin header passes, an Origin whose authority is the Host the request was sent to
-/// passes, everything else is cross-origin. There is no allow list -- one rule for every
-/// handler on the port.
+/// a GET while @p portal_active, the one request the portal answers. Then web_server's own rule
+/// (WebServer::is_request_origin_allowed_): no Origin header passes, an Origin whose authority
+/// is the Host the request was sent to passes, everything else is cross-origin. There is no
+/// allow list -- one rule for every handler on the port.
 inline bool allowed(AsyncWebServerRequest *request, bool portal_active) {
   const optional<std::string> host = request->get_header("Host");
-  if (!portal_active && host.has_value() && !host->empty()) {
+  const bool portal_request = portal_active && request->method() == HTTP_GET;
+  if (!portal_request && host.has_value() && !host->empty()) {
     const StringRef &name = App.get_name();
     if (!host_names_device(*host, std::string_view(name.c_str(), name.size())))
       return false;

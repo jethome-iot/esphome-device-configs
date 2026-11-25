@@ -328,6 +328,10 @@ TEST_F(Guard, AnswersEveryHostWhileTheCaptivePortalRuns) {
   probe.set_header("Host", "connectivitycheck.gstatic.com");
   EXPECT_FALSE(allowed(&probe, false));
   EXPECT_TRUE(allowed(&probe, true));
+  // The portal answers GETs only, so nothing else goes past the Host check.
+  AsyncWebServerRequest rebound(HTTP_POST, "/mine/write");
+  rebound.set_header("Host", "attacker.example");
+  EXPECT_FALSE(allowed(&rebound, true));
   // The Origin rule holds all the same.
   AsyncWebServerRequest cross(HTTP_POST, "/wifisave");
   cross.set_header("Host", "192.168.4.1");

@@ -23,8 +23,9 @@ Forbidden` whatever the `Origin`. It names the device when it is
   the device (`<name>.lan`, `<name>.fritz.box`);
 
 each with or without a port, case aside. A request with no `Host` passes this step: a browser
-always sends one. While the captive portal runs it answers every host, because a phone finds it
-by probing its vendor's own, so the step is skipped then.
+always sends one. While the captive portal runs with its access point up, a `GET` skips the step:
+the portal answers every host, because a phone finds it by probing its vendor's own, and it
+answers only `GET`.
 
 This is what stops DNS rebinding: a page on `attacker.example` whose name is made to resolve to
 the device's address is same-origin to the browser, so its requests carry `Host:
@@ -98,7 +99,7 @@ do not go through this server at all.
 
 `tests/components/web_origin_guard/` drives both halves over the harness's `web_server_base`
 stand-in: which hosts name the device and which are refused, with and without an `Origin`, that
-the captive portal lifts the `Host` step and only that, which origins pass, which are refused, that a refused request reaches the wrapped
+the captive portal lifts the `Host` step for a `GET` and only that, which origins pass, which are refused, that a refused request reaches the wrapped
 handler on none of `handleRequest`, `handleBody` and `handleUpload`, and that the catch-all
 refuses a request bound for a handler it knows nothing about while leaving an allowed one
 unclaimed. `test_schema.py` covers the configuration.
