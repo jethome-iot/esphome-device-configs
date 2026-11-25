@@ -182,7 +182,11 @@ TEST_F(Sockets, TakesABurstOfConnectionsAFewPerPass) {
     fd = this->connect();
   this->pump();
   EXPECT_EQ(this->tcp.client_count(), 4u);
-  this->pump();
+  // On the device ready() says nothing new until the listener has been drained; the host's select()
+  // says it again every pass. Clearing what it found makes this pass the device's: the component
+  // has to come back for the four still queued on its own.
+  FD_ZERO(&esphome::internal::g_read_fds);
+  this->tcp.loop();
   EXPECT_EQ(this->tcp.client_count(), 8u);
   for (uint16_t i = 0; i < 8; i++) {
     send_all(fds[i], read_relays(i));
