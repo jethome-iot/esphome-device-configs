@@ -109,8 +109,8 @@ subscriptions, each reading one topic into one entity.
 How a message is read:
 
 - **Number**: a number, also one sent as text. `null`, `none`, `nan`, `unknown` and
-  `unavailable` (any case) leave the value unknown, as does an empty message. A JSON `true` or
-  `false` reads as 1 or 0.
+  `unavailable` (any case) leave the value unknown, as does an empty message. A `true` or
+  `false` at the JSON path reads as 1 or 0; a whole message of `true` is not a number.
 - **On/Off**: Payload on, then Payload off; failing both, a JSON `true` is On and `false` is Off.
   zigbee2mqtt reports a closed door as `"contact": true`, so for "open is On" set Payload on to
   `false` and Payload off to `true`.
