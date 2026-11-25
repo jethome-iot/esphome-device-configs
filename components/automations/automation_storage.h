@@ -53,7 +53,7 @@ class AutomationStorage : public Component {
   bool set_enable_automation(uint32_t id, bool enable, bool *persisted = nullptr);
   void reset_all();
   /// Plays the rule's actions now, skipping its triggers and its condition, enabled or not, as
-  /// its mode allows.
+  /// its mode allows; a rule with a condition trigger plays the branch its condition gives.
   RunResult run_automation(uint32_t id);
   /// Names collide by their key, the file name before it is cut to fit; `exclude_id` never
   /// blocks itself.

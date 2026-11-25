@@ -222,7 +222,8 @@ callback, say) they refuse and return false.
 - `reset_all()`: remove every rule and its file
 - `run_automation(id)`: play the rule's actions now, skipping its triggers and its condition,
   enabled or not; the mode applies as for a trigger, and a `follow` has no state to copy unless
-  a trigger arrives while the run plays. `RunResult::STARTED`, else `NOT_FOUND`, `NOT_BUILT`,
+  a trigger arrives while the run plays. A rule with a `condition` trigger plays the branch its
+  condition gives, carrying that result. `RunResult::STARTED`, else `NOT_FOUND`, `NOT_BUILT`,
   `ALREADY_RUNNING` (single with a run under way, parallel at 8 copies) or `REFUSED` (the
   engine failed at boot, the loop never took it, or the call came from inside a rule's own
   action)
