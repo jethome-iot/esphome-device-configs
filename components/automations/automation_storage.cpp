@@ -288,9 +288,11 @@ void AutomationStorage::watch_every_state_(binary_sensor::BinarySensor *entity) 
     if (sub->entity != entity || sub->every_state)
       continue;
     sub->every_state = true;
-    entity->add_full_state_callback([this](optional<bool> previous, optional<bool> current) {
-      // A change from one state to another comes through the plain callback.
-      if (!previous.has_value() || !current.has_value())
+    entity->add_full_state_callback([this, entity](optional<bool> previous, optional<bool> current) {
+      // A change from one state to another comes through the plain callback. An input that is gone,
+      // a deleted virtual input made internal first, did not turn off: its owner rebuilds the rules
+      // that name it, which stops them.
+      if ((!previous.has_value() || !current.has_value()) && !entity->is_internal())
         this->recheck_conditions_();
     });
   }
