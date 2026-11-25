@@ -158,17 +158,20 @@ FINAL_VALIDATE_SCHEMA = _final_validate
 
 
 def held_switches(config):
-    """The switch configs whose MQTT component takes commands: every one but those kept off MQTT."""
+    """The switch configs whose MQTT component takes commands: every one upstream's would serve."""
     for conf in config.get(CONF_SWITCH) or []:
-        if CONF_MQTT_ID not in conf or conf.get(CONF_INTERNAL):
+        if CONF_MQTT_ID not in conf:
             continue
-        # state_topic: null or command_topic: null makes upstream's component internal.
-        if any(
-            key in conf and not conf[key]
-            for key in (CONF_STATE_TOPIC, CONF_COMMAND_TOPIC)
-        ):
-            continue
-        yield conf
+        # Upstream's compute_is_internal_(): a custom state topic decides, then a custom command
+        # topic, then the entity's own flag; an empty topic (`null`) hides it.
+        if CONF_STATE_TOPIC in conf:
+            served = bool(conf[CONF_STATE_TOPIC])
+        elif CONF_COMMAND_TOPIC in conf:
+            served = bool(conf[CONF_COMMAND_TOPIC])
+        else:
+            served = not conf.get(CONF_INTERNAL)
+        if served:
+            yield conf
 
 
 def held_switch_id(conf):

@@ -305,12 +305,25 @@ class HeldSwitches(unittest.TestCase):
                     "mqtt_id": _id("custom_mqtt"),
                     "state_topic": "a/b",
                 },
+                # A topic of its own wins over the entity's flag, as upstream decides.
+                {
+                    "id": _id("inner_topic"),
+                    "mqtt_id": _id("inner_topic_mqtt"),
+                    "internal": True,
+                    "state_topic": "c/d",
+                },
+                {
+                    "id": _id("shown_no_cmd"),
+                    "mqtt_id": _id("shown_no_cmd_mqtt"),
+                    "state_topic": "e/f",
+                    "command_topic": "",
+                },
                 # No mqtt: in the config, so no MQTT component at all.
                 {"id": _id("plain")},
             ]
         }
         held = [conf["id"].id for conf in mqtt_config.held_switches(config)]
-        self.assertEqual(held, ["relay_1", "custom"])
+        self.assertEqual(held, ["relay_1", "custom", "inner_topic", "shown_no_cmd"])
 
     def test_no_switches(self):
         self.assertEqual(list(mqtt_config.held_switches({})), [])
