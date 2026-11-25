@@ -114,7 +114,8 @@ How a message is read:
 - **On/Off**: Payload on, then Payload off; failing both, a JSON `true` is On and `false` is Off.
   zigbee2mqtt reports a closed door as `"contact": true`, so for "open is On" set Payload on to
   `false` and Payload off to `true`.
-- **Text**: the value as sent, a JSON object or list as JSON, cut to 255 bytes.
+- **Text**: the value as sent, a JSON object or list as JSON, cut to 255 bytes. A whole message
+  loses the spaces and line breaks around it.
 - An empty message, such as a cleared retained one, leaves a Number or On/Off value unknown and
   a Text value empty.
 - A message over 2 KiB is not read.
