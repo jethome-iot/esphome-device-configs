@@ -332,7 +332,11 @@ TEST_F(Guard, AnswersEveryHostWhileTheCaptivePortalRuns) {
   AsyncWebServerRequest rebound(HTTP_POST, "/mine/write");
   rebound.set_header("Host", "attacker.example");
   EXPECT_FALSE(allowed(&rebound, true));
-  // The Origin rule holds all the same.
+  // The Origin rule holds all the same, for an exempt GET too.
+  AsyncWebServerRequest probe_cross(HTTP_GET, "/generate_204");
+  probe_cross.set_header("Host", "connectivitycheck.gstatic.com");
+  probe_cross.set_header("Origin", "http://evil.example");
+  EXPECT_FALSE(allowed(&probe_cross, true));
   AsyncWebServerRequest cross(HTTP_POST, "/wifisave");
   cross.set_header("Host", "192.168.4.1");
   cross.set_header("Origin", "http://evil.example");
