@@ -496,7 +496,8 @@ paths:
             or with control characters, or equal ignoring case;
             and last, once the saved slots are read, a `name` giving the id of
             another subscription (named in the answer), of another entity of its
-            kind or (a `sensor`) of a temperature probe.
+            kind, (a `sensor`) of a temperature probe or (a `binary_sensor`) of a
+            virtual input.
           content:
             application/json:
               schema:
@@ -2888,7 +2889,8 @@ components:
           description: >-
             The entity's name, at most 32 bytes of UTF-8 without control
             characters or `/`, trimmed. Its id must not be another subscription's,
-            another entity's of its kind or (a `sensor`) a temperature probe's.
+            another entity's of its kind, (a `sensor`) a temperature probe's or
+            (a `binary_sensor`) a virtual input's.
         topic:
           type: string
           description: >-
