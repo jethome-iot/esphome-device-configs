@@ -106,6 +106,9 @@ export interface MqttMockOptions {
   /** The names temperature probes take; the devices' `Temp 1` … `Temp 16` by default, null
    *  for a firmware without probes. */
   reservedNames?: MqttReservedNames | null
+  /** The virtual inputs' pool, whose names an On/Off slot cannot take; the devices' 16 by
+   *  default, null for a firmware without virtual inputs. */
+  virtualInputs?: number | null
   /**
    * The slots' file, as GET's `file_error` names it; unset, it reads fine. `newer_firmware`:
    * written by newer firmware, so no slot runs, a save answers 503 and it stays so.
@@ -328,6 +331,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
   const units = o.units ?? MQTT_MOCK_UNITS
   const otherEntities = o.entities ?? (() => [])
   const reservedNames = o.reservedNames === undefined ? { prefix: 'Temp', count: 16 } : o.reservedNames
+  const virtualInputs = o.virtualInputs === undefined ? 16 : o.virtualInputs
   /** The crash guard keeps the slots' subscriptions off this boot (a streak of 2 or more). */
   let slotsSuspended = mode === 'held_back'
   if (o.fileError && !(MQTT_MOCK_FILE_ERRORS as readonly string[]).includes(o.fileError)) {
@@ -422,7 +426,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
     const i = body.slot - 1
     const next = body.clear ? { ...SLOT_DEFAULTS } : body.fields
     if (!body.clear) {
-      const conflict = slotNameConflict(i, next, savedSlots, otherEntities(), reservedNames)
+      const conflict = slotNameConflict(i, next, savedSlots, otherEntities(), reservedNames, virtualInputs)
       if (conflict) return err(400, conflict)
     }
     const answer = (message: string): MqttMockResult => ({

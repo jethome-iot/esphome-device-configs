@@ -234,8 +234,12 @@ export const SLOT_NAME_MESSAGES = {
   otherSubscription: (name: string): string =>
     `'name' gives the same id as the subscription '${name}'; add a Latin letter or a digit`,
   entity: (name: string): string => `'name' gives the same id as the entity '${name}'`,
-  probe: (name: string): string => `'name' gives the same id as '${name}', which a temperature probe takes`
+  probe: (name: string): string => `'name' gives the same id as '${name}', which a temperature probe takes`,
+  virtualInput: (name: string): string => `'name' gives the same id as '${name}', which a virtual input takes`
 } as const
+
+/** The name each virtual input goes by, `Virtual input <slot>`, whatever its label. */
+export const VIRTUAL_INPUT_PREFIX = 'Virtual input'
 
 type SlotStringKey = 'name' | 'topic' | 'json_path' | 'unit' | 'payload_on' | 'payload_off'
 
@@ -362,18 +366,21 @@ export interface SlotNamedEntity {
 /**
  * The device's name check after validateSlot(): another saved slot (`others`, by index, empty
  * ones skipped), then another entity of the slot's kind, then (a sensor) a temperature probe's
- * name, `<prefix> 1` … `<prefix> <count>`. `index` is the slot's own, 0-based.
+ * name, `<prefix> 1` … `<prefix> <count>`, then (a binary sensor) a virtual input's,
+ * `Virtual input 1` … `Virtual input <virtualInputs>`. `index` is the slot's own, 0-based.
  *
  * `entities` must leave out the entities the slots run as (`MqttSlot.entity`), as the device
  * does: the saved slots in `others` stand for them. `probes` is GET's `reserved_names`, null on
- * a firmware without temperature probes.
+ * a firmware without temperature probes. `virtualInputs` is `/virtual-inputs`' `max_inputs`,
+ * null on a firmware without virtual inputs.
  */
 export function slotNameConflict(
   index: number,
   slot: MqttSlotFields,
   others: readonly MqttSlotFields[],
   entities: readonly SlotNamedEntity[],
-  probes: MqttReservedNames | null
+  probes: MqttReservedNames | null,
+  virtualInputs: number | null = null
 ): string | null {
   const id = slotObjectId(slot.name)
   for (let j = 0; j < others.length; j++) {
@@ -386,6 +393,12 @@ export function slotNameConflict(
     for (let n = 1; n <= probes.count; n++) {
       const probe = `${probes.prefix} ${n}`
       if (slotObjectId(probe) === id) return SLOT_NAME_MESSAGES.probe(probe)
+    }
+  }
+  if (slot.kind === 'binary_sensor' && virtualInputs) {
+    for (let n = 1; n <= virtualInputs; n++) {
+      const input = `${VIRTUAL_INPUT_PREFIX} ${n}`
+      if (slotObjectId(input) === id) return SLOT_NAME_MESSAGES.virtualInput(input)
     }
   }
   return null
