@@ -2902,11 +2902,10 @@ components:
           $ref: "#/components/schemas/MqttSlotKind"
         json_path:
           type: string
-          maxLength: 64
           description: >-
             Where the value sits in a JSON message: 1 to 6 keys separated by `.`,
-            a number picking an element of a list, without control characters.
-            `""` reads the whole message.
+            a number picking an element of a list, at most 64 bytes of UTF-8
+            without control characters. `""` reads the whole message.
         unit:
           type: string
           description: One of `units`, or `""`.
