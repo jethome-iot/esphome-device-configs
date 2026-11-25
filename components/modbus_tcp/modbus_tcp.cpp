@@ -97,6 +97,8 @@ void ModbusTcpServer::stop_() {
   for (auto &client : this->clients_)
     client->sock->close();
   this->clients_.clear();
+  // A new listener's first failure is news again.
+  this->accept_failing_ = false;
   if (this->listener_ != nullptr) {
     this->listener_->close();
     this->listener_.reset();
