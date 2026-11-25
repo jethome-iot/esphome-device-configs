@@ -87,6 +87,10 @@ broker keeps them in these cases:
 - after a factory reset made while the broker was unreachable: Home Assistant keeps the
   entities as unavailable until they are deleted there or on the broker.
 
+The removal covers the entities the device has in the boot it runs in: a temperature probe whose
+slot was forgotten since the entries were announced keeps its entry until it is deleted in Home
+Assistant or on the broker.
+
 ## Security
 
 - The device side has no access control of its own: anyone who can log in to the web server
