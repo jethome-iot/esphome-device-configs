@@ -54,7 +54,7 @@ class ModbusTcpServer : public Component {
 
   bool start_();
   void stop_();
-  void accept_();
+  void accept_(uint32_t now);
   bool through_wifi_ap_(const struct sockaddr_storage &peer);
   /// False when the client has to go.
   bool serve_(Client &client, uint32_t now);

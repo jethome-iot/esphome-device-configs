@@ -53,7 +53,7 @@ void ModbusTcpServer::loop() {
     return;
 
   if (this->listener_->ready())
-    this->accept_();
+    this->accept_(now);
 
   for (auto it = this->clients_.begin(); it != this->clients_.end();) {
     if (this->serve_(**it, now)) {
@@ -100,7 +100,7 @@ void ModbusTcpServer::stop_() {
   }
 }
 
-void ModbusTcpServer::accept_() {
+void ModbusTcpServer::accept_(uint32_t now) {
   // ready() promises nothing more until the listener is drained.
   while (true) {
     struct sockaddr_storage address;
@@ -138,7 +138,8 @@ void ModbusTcpServer::accept_() {
     }
     auto client = std::make_unique<Client>();
     client->sock = std::move(sock);
-    client->last_request = millis();
+    // The same clock the idle check reads in this pass: a later millis() would make now minus it wrap.
+    client->last_request = now;
     std::memcpy(client->peer, peer, sizeof(peer));
     ESP_LOGD(TAG, "Client %s connected", client->peer);
     this->clients_.push_back(std::move(client));
