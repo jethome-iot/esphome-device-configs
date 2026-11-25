@@ -382,13 +382,14 @@ void RuntimeAutomation::on_released(switch_::Switch *sw) {
   if (!this->result_.has_value())
     return;
   const bool result = this->condition_->check();
-  this->result_ = result;
   for (const CompiledAction &action : result ? this->then_ : this->else_) {
     if (action.source == SourceAction::SWITCH && action.target == sw) {
+      this->result_ = result;
       this->fire_(true, result);
       return;
     }
   }
+  // Otherwise the result is left as acted on: a change still on its way fires when it arrives.
 }
 
 void RuntimeAutomation::stop() {

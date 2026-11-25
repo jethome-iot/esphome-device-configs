@@ -190,6 +190,25 @@ TEST_F(Runtime, ARelayLetGoReplaysTheBranchThatDrivesIt) {
   EXPECT_EQ(e.relay1.writes, 3);
 }
 
+// A change of the condition the rule has not been handed yet is not taken as acted on when a
+// relay is let go: it fires when it arrives.
+TEST_F(Runtime, ARelayLetGoLeavesAChangeOnItsWayToTheRule) {
+  auto rule = build_rule(engine, R"({"name":"Half","triggers":[{"source":"condition"}],
+      "condition":{"type":"input","object_id":"in_1"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],
+      "else_actions":[{"source":"switch","type":"toggle","object_id":"relay_2"}]})");
+  ASSERT_NE(rule, nullptr);
+  rule->watch_condition();
+  EXPECT_EQ(e.relay2.writes, 1);
+  e.in1.publish_state(true);  // not handed to the rule yet
+  rule->on_released(&e.boiler);
+  rule->on_released(&e.relay2);  // what the old result drove, not the new one
+  EXPECT_EQ(e.relay1.writes, 0);
+  EXPECT_EQ(e.relay2.writes, 1);
+  rule->on_binary_sensor(&e.in1, true);
+  EXPECT_TRUE(e.relay1.state);
+}
+
 TEST_F(Runtime, SwitchConditionReadsTheSwitch) {
   ConditionConfig config;
   ASSERT_TRUE(load(R"({"type":"switch","object_id":"relay_1","state":"false"})", config));
