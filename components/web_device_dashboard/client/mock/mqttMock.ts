@@ -72,7 +72,8 @@ export const MQTT_SORTING_GROUP = { name: 'MQTT', sorting_weight: 37 } as const
 export interface MqttSlotEntityState {
   domain: 'sensor' | 'binary_sensor' | 'text_sensor'
   name: string
-  /** As web_server words it: `21.4 °C`, `ON`, the text; `NA` while unknown. */
+  /** As web_server words it: `21.4 °C`, `ON`, the text; a sensor `NA` while unknown, a binary
+   *  sensor its last level, `OFF` before any. */
   state: string
   value: number | boolean | string | null
   uom?: string
@@ -293,9 +294,11 @@ interface SlotRun {
   raw: string
   error: string | null
   value: number | boolean | string | null
+  /** An On/Off slot's last level: web_server shows it, false before any, also while unknown. */
+  level: boolean
 }
 
-const freshRun = (): SlotRun => ({ has: false, at: 0, raw: '', error: null, value: null })
+const freshRun = (): SlotRun => ({ has: false, at: 0, raw: '', error: null, value: null, level: false })
 
 export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
   const mode = o.mode ?? ''
@@ -366,6 +369,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
       run.raw = cutBytes(payload.replace(/[\t\n\r]/g, ' ').replace(/[\u0000-\u001f\u007f-\u009f]/g, '?'), RAW_MAX)
       run.error = reading.error
       if (reading.value !== undefined) run.value = reading.value
+      if (typeof reading.value === 'boolean') run.level = reading.value
     })
   }
 
@@ -684,7 +688,7 @@ export function createMqttMockStore(o: MqttMockOptions): MqttMockStore {
         if (slot.kind === 'sensor')
           out.push({ ...base, domain: 'sensor', state: text || 'NA', value: value === null ? null : floatJson(value as number), uom: slot.unit })
         else if (slot.kind === 'binary_sensor')
-          out.push({ ...base, domain: 'binary_sensor', state: value === null ? 'NA' : value ? 'ON' : 'OFF', value })
+          out.push({ ...base, domain: 'binary_sensor', state: runs[i]!.level ? 'ON' : 'OFF', value: runs[i]!.level })
         else out.push({ ...base, domain: 'text_sensor', state: text, value: text })
       })
       return out
