@@ -12,7 +12,7 @@ loaded at boot and applied before the entities set themselves up.
 | Relay | `Inverted` | `No`, `Yes` | Swaps the physical output: the app's On drives the pin low. Refused while a running thermostat drives the relay |
 | Relay | `Start mode` | `Off`, `On`, `Last` | What the relay does at power-up. On a relay a thermostat drives, `On`, or `Last` when it was on, closes it until the thermostat takes it over |
 | Relay | `Bind to` | `None`, `Input 1` … `Input 6`, the virtual inputs, the On/Off [MQTT subscriptions](MQTT.md#subscriptions) | The input that drives this relay directly; needs a `Binding` other than `Disabled` |
-| Relay | `Binding` | `Disabled`, `Toggle`, `Follow` | `Toggle` flips the relay on each rising edge of the input as reported, after its `Inverted`; `Follow` makes the relay copy the input, at boot too, so it wins over `Start mode` |
+| Relay | `Binding` | `Disabled`, `Toggle`, `Follow` | `Toggle` flips the relay on each rising edge of the input as reported, after its `Inverted`; `Follow` makes the relay copy the input, at boot too, so it wins over `Start mode`; an MQTT subscription has no level until its first message, and the relay keeps its `Start mode` until then |
 | Input | `Inverted` | `No`, `Yes` | A closed contact is reported as Off. Flipping it re-reports the input at once; bindings and automations take that as a level, not as a press or release |
 | Relay, Input | `Label` | Text, up to 24 characters; empty for none | Shown on the panel and the dashboard in place of the name. Set from the dashboard only; it changes nothing else, so Home Assistant, the REST routes, Modbus, automations and thermostats still see the name. A temperature slot's [label](ONEWIRE_WORKFLOW.md#label) takes the same text |
 
