@@ -223,8 +223,8 @@ started lwIP's client on its own servers, and restarts it on the first server to
 `mqtt_subscriptions` sets up at `HARDWARE + 3`: after the mount, and before the entity settings
 apply at `HARDWARE + 1`, which is what lets a relay's Bound input be a slot's entity. It is also
 ahead of `dallas_scan` at `DATA`, so the `Temp N` names are kept free by reservation, since no
-probe exists yet, and ahead of the MQTT client, whose `subscribe()` keeps the topics until it
-connects. It is the first to ask `mqtt_config` for the crash streak.
+probe exists yet, and ahead of the MQTT client, so the connect callback that subscribes the
+slots' topics is in place before the first connect. It is the first to ask `mqtt_config` for the crash streak.
 
 ## Settings
 
