@@ -70,6 +70,9 @@ class ModbusTcpServer : public Component {
   bool enabled_{false};
   bool serve_wifi_ap_{false};
   bool restart_{false};
+  // The last attempt to listen failed; the next waits for RETRY_INTERVAL_MS after last_start_.
+  bool start_failed_{false};
+  uint32_t last_start_{0};
 };
 
 }  // namespace esphome::modbus_tcp

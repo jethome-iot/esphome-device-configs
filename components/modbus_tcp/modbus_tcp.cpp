@@ -19,6 +19,8 @@ static const char *const TAG = "modbus_tcp";
 
 // A client that keeps sending would otherwise keep the loop here: the rest wait for the next pass.
 static constexpr uint8_t MAX_REQUESTS_PER_LOOP = 4;
+// A listener that could not open is tried again this often while the server is on.
+static constexpr uint32_t RETRY_INTERVAL_MS = 30000;
 
 static bool would_block(int err) { return err == EWOULDBLOCK || err == EAGAIN; }
 
@@ -35,11 +37,17 @@ void ModbusTcpServer::set_port(uint16_t port) {
 }
 
 void ModbusTcpServer::loop() {
+  const uint32_t now = millis();
   if (this->restart_) {
     this->restart_ = false;
     this->stop_();
-    if (this->enabled_ && !this->start_())
-      this->stop_();
+    this->start_failed_ = false;
+  }
+  // A port another server holds, or a socket pool that was full, may be free later.
+  if (this->enabled_ && this->listener_ == nullptr &&
+      (!this->start_failed_ || now - this->last_start_ >= RETRY_INTERVAL_MS)) {
+    this->last_start_ = now;
+    this->start_failed_ = !this->start_();
   }
   if (this->listener_ == nullptr)
     return;
@@ -47,7 +55,6 @@ void ModbusTcpServer::loop() {
   if (this->listener_->ready())
     this->accept_();
 
-  const uint32_t now = millis();
   for (auto it = this->clients_.begin(); it != this->clients_.end();) {
     if (this->serve_(**it, now)) {
       ++it;
@@ -61,7 +68,8 @@ void ModbusTcpServer::loop() {
 bool ModbusTcpServer::start_() {
   this->listener_ = socket::socket_ip_loop_monitored(SOCK_STREAM, 0);
   if (this->listener_ == nullptr) {
-    ESP_LOGW(TAG, "Could not create the socket: errno %d", errno);
+    ESP_LOGW(TAG, "Could not create the socket: errno %d; trying again in %" PRIu32 " s", errno,
+             RETRY_INTERVAL_MS / 1000);
     return false;
   }
   int enable = 1;
@@ -71,7 +79,10 @@ bool ModbusTcpServer::start_() {
   if (length == 0 || this->listener_->setblocking(false) != 0 ||
       this->listener_->bind((struct sockaddr *) &address, length) != 0 ||
       this->listener_->listen(this->max_clients_) != 0) {
-    ESP_LOGW(TAG, "Could not listen on port %u: errno %d", this->port_, errno);
+    ESP_LOGW(TAG, "Could not listen on port %u: errno %d; trying again in %" PRIu32 " s", this->port_, errno,
+             RETRY_INTERVAL_MS / 1000);
+    this->listener_->close();
+    this->listener_.reset();
     return false;
   }
   ESP_LOGI(TAG, "Listening on port %u", this->port_);

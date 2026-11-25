@@ -30,7 +30,8 @@ modbus_tcp:
 | `serve_wifi_ap` | `false` | answer clients on the WiFi fallback access point's subnet (ESP32), whichever of the device's addresses they connect to |
 
 Each client counts towards the sockets ESPHome reserves (`CONFIG_LWIP_MAX_SOCKETS`), as does the
-listener.
+listener. A listener that cannot open, on a port another server holds for one, is tried again every
+30 s.
 
 The server answers function codes 01, 02, 03, 04, 05, 06, 0F, 10 and 17, as the RTU hub does, and
 exception `01` to any other. A request to unit 0 or 255 reaches the device as well as one to
