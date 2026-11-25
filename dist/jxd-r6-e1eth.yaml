@@ -684,6 +684,11 @@ binary_sensor:
       if (mqtt_config::global_mqtt_config != nullptr)
         waits = waits || mqtt_config::global_mqtt_config->reboot_required();
       #endif
+      #ifdef USE_MQTT_SUBSCRIPTIONS
+      // Saved subscription slots that differ from the ones running.
+      if (mqtt_subscriptions::global_mqtt_subscriptions != nullptr)
+        waits = waits || mqtt_subscriptions::global_mqtt_subscriptions->reboot_required();
+      #endif
       return waits;
 status_indicator:
   id: red_led
