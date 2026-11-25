@@ -63,7 +63,9 @@ The slots are `<storage>/<folder_path>/subscriptions.json`:
 - Only configured slots are listed. `kind` is `sensor`, `binary_sensor` or `text_sensor`.
 - A file restored from a backup or written by hand is read again within 30 seconds, and its
   changes, like any other, apply after a reboot. A slot in it that breaks a rule does not run,
-  and the device API says why.
+  and the device API says why. An entry that cannot be read as a slot at all (no slot number,
+  one past `max_slots` or listed twice, a field of the wrong type) is dropped with a line in the
+  log, and the next save leaves it out of the file.
 - A file that is not valid is renamed to `subscriptions.json.bad` at boot, and the slots start
   empty. One that could not be read just now is left as it is: no slot runs, a save is refused,
   and the next look tries again.
