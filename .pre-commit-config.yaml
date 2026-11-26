@@ -59,7 +59,7 @@ repos:
         name: regenerate dist/
         entry: python scripts/build-dist.py
         language: python
-        additional_dependencies: [esphome==2026.9.1]
+        additional_dependencies: [esphome==2026.10.2]
         pass_filenames: false
         files: ^(devices/|scripts/build-dist\.py)
 
@@ -69,7 +69,7 @@ repos:
         name: regenerate the dashboard's timezone table
         entry: python scripts/build-timezones.py
         language: python
-        additional_dependencies: [esphome==2026.9.1, tzdata==2026.4]
+        additional_dependencies: [esphome==2026.10.2, tzdata==2026.6]
         pass_filenames: false
         files: ^(scripts/build-timezones\.py|components/web_device_dashboard/client/device/timezones\.ts)$
 
@@ -89,6 +89,6 @@ repos:
         name: vendored components match the ESPHome pin
         entry: python scripts/vendored-diff.py --check
         language: python
-        additional_dependencies: [esphome==2026.9.1]
+        additional_dependencies: [esphome==2026.10.2]
         pass_filenames: false
         files: ^(components/|requirements\.txt$|scripts/vendored-diff\.py$)

@@ -117,7 +117,8 @@ class Esp32Pin(unittest.TestCase):
     def test_a_strapping_pin_warns_unless_told_not_to(self):
         with self.assertLogs(level="WARNING") as logs:
             status_indicator.CONFIG_SCHEMA({"pin": "GPIO2"})
-        self.assertIn("GPIO2 is a strapping PIN", logs.output[0])
+        # Upstream's casing of this warning changed in 2026.10 ("PIN" to "pin"): match the words.
+        self.assertIn("gpio2 is a strapping pin", logs.output[0].casefold())
         with self.assertNoLogs(level="WARNING"):
             config = status_indicator.CONFIG_SCHEMA(
                 {"pin": {"number": "GPIO2", "ignore_strapping_warning": True}}

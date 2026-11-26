@@ -1,6 +1,6 @@
 # ESPHome Device Configurations made by JetHome
 
-![ESPHome](https://img.shields.io/badge/ESPHome-2026.9.1-blue)
+![ESPHome](https://img.shields.io/badge/ESPHome-2026.10.2-blue)
 
 Open-source ESPHome firmware for the JetHome JXD DIN-rail controllers, to build, change and flash
 yourself. For JetHome's proprietary firmware, with more features and support, see the
@@ -56,7 +56,7 @@ no recompile.
 ### Build and flash
 
 You need Python 3.12, 3.13 or 3.14 and, for the first flash, a USB cable or a serial adapter. The
-setup script installs ESPHome 2026.9.1, the version these configs are pinned to. On Windows run
+setup script installs ESPHome 2026.10.2, the version these configs are pinned to. On Windows run
 `scripts\setup.bat`, then `.venv\Scripts\activate`.
 
 ```bash

@@ -1,5 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <new>
+#include <tuple>
+#include <type_traits>
+
 #include "esphome/components/logger/logger.h"
 
 /*
@@ -26,8 +30,23 @@ void setup() {
   test_logger.set_log_level(ESPHOME_LOG_LEVEL);
   test_logger.pre_setup();
 
+#ifdef USE_CONTROLLER_REGISTRY
+  // A state update calls the controllers in the storage original_setup() would construct them in.
+  // Construct them, never set up; api::global_api_server stays the cases' to install.
+  std::apply([](auto *...controller) { (new (controller) std::remove_pointer_t<decltype(controller)>(), ...); },
+             esphome_controllers());
+#ifdef USE_API
+  esphome::api::global_api_server = nullptr;
+#endif
+#endif
+
   ::testing::InitGoogleTest();
   int exit_code = RUN_ALL_TESTS();
+  // A test folder that never reached the build would otherwise pass as an empty run
+  if (::testing::UnitTest::GetInstance()->total_test_count() == 0) {
+    fprintf(stderr, "No tests were linked into this binary\n");
+    exit_code = 1;
+  }
   exit(exit_code);
 }
 

@@ -844,8 +844,8 @@ esphome:
         api->get_noise_ctx().load_psk(key);
         static noise::psk_t last = key;
         if (key != last) {
-          // A key set, cleared or replaced only asks the clients to leave: one that stays keeps
-          // the session it had.
+          // Upstream closes the clients itself as the new key takes effect; dropping them here too
+          // costs nothing and holds should it go back to only asking them to leave.
           last = key;
           id(drop_api_clients).execute(api->get_noise_ctx().has_psk() ? "Key set" : "Key cleared");
           // ESPHome's own OTA, opened before the change, closes as well.
@@ -962,6 +962,13 @@ external_components:
       - i2c_eeprom
       - jethome_board_info
       - status_indicator
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - ds2484
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -1100,13 +1107,6 @@ external_components:
     components:
       - web_file_browser
       - web_origin_guard
-  - source:
-      type: git
-      url: https://github.com/jethome-iot/esphome-device-configs.git
-      ref: master
-      path: components
-    components:
-      - web_server_idf
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
