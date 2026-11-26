@@ -74,8 +74,7 @@ TEST_F(HubTest, RenameKeepsTheIdTheFileAndTheRelay) {
   EXPECT_EQ(claim, hub().claim("relay_1"));
 }
 
-// Two thermostats must not share a name: compared as a person reads it, and as the entity id
-// ESPHome derives from it, which Home Assistant keys the entity on.
+// Two thermostats must not share a name, compared as a person reads it.
 TEST_F(HubTest, CreateRefusesANameAnotherThermostatUses) {
   this->create(draft("Living Room"));
 
@@ -83,24 +82,28 @@ TEST_F(HubTest, CreateRefusesANameAnotherThermostatUses) {
   EXPECT_FALSE(same.ok);
   EXPECT_EQ(409, same.code);
   EXPECT_EQ("\"living   room\" is already used by another thermostat", same.error);
-
-  Result collides = hub().create(draft("Living_Room", "relay_2"));
-  EXPECT_EQ(409, collides.code);
-  EXPECT_EQ("\"Living_Room\" is too close to \"Living Room\": both are living_room to Home Assistant", collides.error);
   EXPECT_EQ(1u, hub().store().size());
 
   this->create(draft("Bathroom", "relay_2"));
 }
 
-TEST_F(HubTest, ObjectIdCollisionsAreRefused) {
-  this->create(draft("Room 1"));
-  for (const char *name : {"Room_1", "Room.1", "room 1", "ROOM-1"}) {
-    Result result = hub().create(draft(name, "relay_2"));
-    if (std::string(name) == "ROOM-1") {
-      EXPECT_TRUE(result.ok) << "'-' survives into the id, so room-1 is its own";
-      continue;
-    }
-    EXPECT_EQ(409, result.code) << name;
+// Names one object id apart are two names: Home Assistant tells entities apart by the whole
+// name, and the API by a key that the hub keeps distinct.
+TEST_F(HubTest, NamesAlikeInTheirObjectIdAreEachTheirOwn) {
+  this->create(draft("Room 1", "relay_1"));
+  HubClimate *first = hub().entity_of("room-1");
+  this->create(draft("Room_1", "relay_2"));
+  this->create(draft("Room.1", "relay_3"));
+  EXPECT_EQ(409, hub().create(draft("room 1", "relay_4")).code);
+
+  EXPECT_EQ(fnv1_hash("room_1"), first->get_object_id_hash()) << "the first keeps the key its name gives";
+  std::set<uint32_t> keys;
+  for (const char *id : {"room-1", "room-1-2", "room-1-3"}) {
+    HubClimate *entity = hub().entity_of(id);
+    ASSERT_NE(nullptr, entity) << id;
+    EXPECT_FALSE(entity->is_internal()) << id;
+    EXPECT_TRUE(keys.insert(entity->get_object_id_hash()).second) << id << "'s key twice";
+    EXPECT_EQ(entity, App.get_climate_by_key(entity->get_object_id_hash())) << id;
   }
 }
 
@@ -123,7 +126,7 @@ TEST_F(HubTest, AYamlClimatesNameIsRefused) {
   Result result = hub().create(draft("Hall"));
   EXPECT_EQ(409, result.code);
   EXPECT_EQ("\"Hall\" is already used by another thermostat", result.error);
-  EXPECT_EQ(409, hub().create(draft("HALL")).code) << "same entity id";
+  EXPECT_EQ(409, hub().create(draft("HALL")).code) << "in any case";
 }
 
 // internal: true hides a climate from the lists, not from the web server's name match.
@@ -134,12 +137,102 @@ TEST_F(HubTest, AnInternalYamlClimatesNameIsRefusedToo) {
 }
 
 TEST_F(HubTest, TheNameRulesHold) {
-  for (const char *bad : {"a/b", "a\\b", "", "Кухня"}) {
+  for (const char *bad : {"a/b", "a\\b", "", "Tab\there", "Kitchen\xd1"}) {
     Result result = hub().create(draft(bad));
     EXPECT_EQ(400, result.code) << bad;
   }
   Result trimmed = this->create(draft("  Porch  "));
   EXPECT_EQ("Porch", hub().store().get(trimmed.id)->name);
+}
+
+// A name in any script is the entity's whole; the id has nothing to slugify and falls back.
+TEST_F(HubTest, ANameInAnyScriptIsKeptWhole) {
+  Result kitchen = this->create(draft("Кухня", "relay_1"));
+  ASSERT_EQ("climate", kitchen.id);
+  EXPECT_EQ("Кухня", hub().store().get("climate")->name);
+  HubClimate *entity = hub().entity_of("climate");
+  ASSERT_NE(nullptr, entity);
+  EXPECT_STREQ("Кухня", entity->get_name().c_str());
+  EXPECT_EQ(fnv1_hash("__________"), entity->get_object_id_hash());
+  EXPECT_NE(std::string::npos, read_file(this->file_of("climate")).find("\"name\":\"Кухня\""));
+
+  // The longest, 96 bytes: the entity's buffer holds it all.
+  const std::string longest = repeat("ж", NAME_MAX_LENGTH);
+  Result hall = this->create(draft(longest, "relay_2"));
+  ASSERT_EQ("climate-2", hall.id) << "two names with nothing to slugify get distinct ids";
+  EXPECT_EQ(longest, std::string(hub().entity_of("climate-2")->get_name().c_str()));
+
+  Result accents = this->create(draft("Café crème", "relay_3"));
+  ASSERT_EQ("caf-cr-me", accents.id);
+  EXPECT_EQ("Café crème", hub().store().get("caf-cr-me")->name);
+}
+
+TEST_F(HubTest, ARenameToANameInAnyScriptKeepsTheId) {
+  this->create(draft("Boiler"));
+  HubClimate *entity = hub().entity_of("boiler");
+  ASSERT_TRUE(hub().update("boiler", draft("Котёл")).ok);
+  EXPECT_EQ("Котёл", hub().store().get("boiler")->name);
+  EXPECT_EQ(entity, hub().entity_of("boiler"));
+  EXPECT_STREQ("Котёл", entity->get_name().c_str());
+  EXPECT_EQ(fnv1_hash("__________"), entity->get_object_id_hash());
+  EXPECT_FALSE(file_exists(this->file_of("climate")));
+}
+
+// Every Cyrillic letter is '_' in an object id, so two names of as many letters give one key.
+// The second takes one from its id: Home Assistant 2026.8 and later, which tells entities apart
+// by the whole name, then shows both.
+TEST_F(HubTest, NamesAlikeOutsideLatinGetTwoKeys) {
+  this->create(draft("Кухня", "relay_1"));
+  Result bath = this->create(draft("Ванна", "relay_2"));
+  ASSERT_EQ("climate-2", bath.id);
+  HubClimate *kitchen = hub().entity_of("climate");
+  HubClimate *bathroom = hub().entity_of("climate-2");
+  EXPECT_EQ(fnv1_hash("__________"), kitchen->get_object_id_hash());
+  EXPECT_EQ(fnv1_hash("climate_hub/climate-2"), bathroom->get_object_id_hash());
+  EXPECT_EQ(kitchen, App.get_climate_by_key(kitchen->get_object_id_hash()));
+  EXPECT_EQ(bathroom, App.get_climate_by_key(bathroom->get_object_id_hash()));
+  EXPECT_EQ(kitchen, web_server_match("Кухня"));
+  EXPECT_EQ(bathroom, web_server_match("Ванна"));
+  // Alike but for case is one name, in Cyrillic as in Latin, and as for schedules and rules.
+  Result upper = hub().create(draft("КУХНЯ", "relay_3"));
+  EXPECT_EQ(409, upper.code);
+  EXPECT_EQ("\"КУХНЯ\" is already used by another thermostat", upper.error);
+  EXPECT_EQ(409, hub().update("climate-2", draft("кухня", "relay_2")).code);
+  EXPECT_EQ("Ванна", hub().store().get("climate-2")->name);
+
+  // A stop and a start give the same key again.
+  const uint32_t key = bathroom->get_object_id_hash();
+  ASSERT_TRUE(hub().set_enabled("climate-2", false).ok);
+  ASSERT_TRUE(hub().set_enabled("climate-2", true).ok);
+  EXPECT_EQ(bathroom, hub().entity_of("climate-2"));
+  EXPECT_EQ(key, bathroom->get_object_id_hash());
+  // The first, started again, takes one from its id too: which has the name's key never hangs on
+  // which started first.
+  ASSERT_TRUE(hub().set_enabled("climate", false).ok);
+  ASSERT_TRUE(hub().set_enabled("climate", true).ok);
+  EXPECT_EQ(fnv1_hash("climate_hub/climate"), kitchen->get_object_id_hash());
+
+  // A rename onto a name whose key another holds takes one from the id too.
+  this->create(draft("Kettle", "relay_3"));
+  ASSERT_TRUE(hub().update("kettle", draft("Сауна", "relay_3")).ok);
+  EXPECT_EQ(fnv1_hash("climate_hub/kettle"), hub().entity_of("kettle")->get_object_id_hash());
+}
+
+// A key a hidden slot still has is not a key to give: a listing queued before it was hidden
+// sends it.
+TEST_F(HubTest, AKeyFromTheIdSkipsOneAHiddenSlotHas) {
+  this->create(draft("Кухня", "relay_1"));
+  this->create(draft("Ванна", "relay_2"));
+  HubClimate *bathroom = hub().entity_of("climate-2");
+  ASSERT_EQ(fnv1_hash("climate_hub/climate-2"), bathroom->get_object_id_hash());
+  ASSERT_TRUE(hub().remove("climate-2").ok);
+
+  Result sauna = this->create(draft("Сауна", "relay_2"));
+  ASSERT_EQ("climate-2", sauna.id) << "the id the removed one had";
+  HubClimate *entity = hub().entity_of("climate-2");
+  ASSERT_NE(bathroom, entity) << "no hidden slot has its name or its key";
+  EXPECT_EQ(fnv1_hash("climate_hub/climate-2"), bathroom->get_object_id_hash());
+  EXPECT_EQ(fnv1_hash("climate_hub/climate-2/2"), entity->get_object_id_hash());
 }
 
 TEST_F(HubTest, DeleteRetiresTheEntityEverywhereItCanBeSeen) {
@@ -453,6 +546,36 @@ TEST_F(HubTest, AWaitingThermostatKeepsWhyItDoesNotRun) {
   EXPECT_EQ(0u, hub().reasons_kept()) << "nor does a removed one leave its reason behind";
 }
 
+// A config switch is the device's own setting, not a relay: a thermostat on it waits as on a
+// relay the device does not have, in either direction and across a reboot, and never drives it.
+TEST_F(HubTest, AConfigSwitchIsNoRelay) {
+  Result result = hub().create(draft("Unlock", "config_switch"));
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: relay 'config_switch' not found", result.warning);
+  EXPECT_FALSE(hub().is_running("unlock"));
+  EXPECT_EQ("", hub().claimed_by("config_switch"));
+
+  ClimateConfig chill = draft("Unlock", "");
+  chill.cool.relay_id = "config_switch";
+  chill.mode = HubMode::COOL;
+  result = hub().update("unlock", chill);
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("not started: relay 'config_switch' not found", result.warning);
+  EXPECT_FALSE(hub().is_running("unlock"));
+
+  this->reboot();
+  entities().room.publish_state(30.f);  // warm enough that a running cooler would close it
+  EXPECT_FALSE(hub().is_running("unlock"));
+  EXPECT_EQ(0, entities().config_switch.writes);
+
+  // The same thermostat on a relay runs.
+  result = hub().update("unlock", draft("Unlock", "relay_2"));
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_EQ("", result.warning);
+  EXPECT_TRUE(hub().is_running("unlock"));
+  EXPECT_EQ("unlock", hub().claimed_by("relay_2"));
+}
+
 // A Save that points a running thermostat at a missing relay stops it: it opens its relay, lets
 // go of it and waits for the new one, saved and enabled.
 TEST_F(HubTest, ASaveOntoAMissingRelayStopsTheThermostatAndKeepsIt) {
@@ -504,7 +627,7 @@ TEST_F(HubTest, ASaveOntoAMissingSensorStopsTheThermostatAndKeepsIt) {
 TEST_F(HubTest, AThermostatThatOnlyWaitsLeavesARelayItNeverHeldAlone) {
   ClimateConfig porch = draft("Porch", "relay_2");
   porch.cool.relay_id = "relay_9";
-  porch.mode = HubMode::HEAT_COOL;
+  porch.mode = HubMode::HEAT;
   entities().relay2.turn_on();  // an automation, or Home Assistant
   const int writes = entities().relay2.writes;
 
@@ -528,7 +651,7 @@ TEST_F(HubTest, ASaveThatLeavesAThermostatWaitingOpensOnlyTheRelayItHeld) {
 
   ClimateConfig moved = draft("Boiler", "relay_2");
   moved.cool.relay_id = "relay_9";
-  moved.mode = HubMode::HEAT_COOL;
+  moved.mode = HubMode::HEAT;
   Result result = hub().update("boiler", moved);
   ASSERT_TRUE(result.ok) << result.error;
   EXPECT_EQ("not started: relay 'relay_9' not found", result.warning);
@@ -568,7 +691,7 @@ TEST_F(HubTest, AMissingSensorRefusesATakeOverBeforeItStopsTheHolder) {
 
   ClimateConfig porch = draft("Porch", "relay_1");
   porch.cool.relay_id = "relay_9";
-  porch.mode = HubMode::HEAT_COOL;
+  porch.mode = HubMode::HEAT;
   porch.enabled = false;
   this->create(porch);
   result = hub().set_enabled("porch", true, true);
@@ -605,7 +728,8 @@ TEST_F(HubTest, MaxControllersCapsCreation) {
 TEST_F(HubTest, ThermostatsReloadFromDiskWithTheirSettings) {
   ClimateConfig config = draft("Boiler");
   config.setpoint = 23.5f;
-  config.pid.kp = 1.25f;
+  config.pid.heat.kp = 1.25f;
+  config.pid.cool.kp = 0.75f;
   this->create(config);
 
   this->reboot();
@@ -613,7 +737,8 @@ TEST_F(HubTest, ThermostatsReloadFromDiskWithTheirSettings) {
   ASSERT_NE(nullptr, back);
   EXPECT_EQ("Boiler", back->name);
   EXPECT_FLOAT_EQ(23.5f, back->setpoint);
-  EXPECT_FLOAT_EQ(1.25f, back->pid.kp);
+  EXPECT_FLOAT_EQ(1.25f, back->pid.heat.kp);
+  EXPECT_FLOAT_EQ(0.75f, back->pid.cool.kp) << "each relay's own";
   EXPECT_TRUE(hub().is_running("boiler"));
 }
 
@@ -670,10 +795,10 @@ TEST_F(HubTest, NumbersFromCppAreClampedLikeTheFileFormat) {
   EXPECT_FLOAT_EQ(3.f, stored->pid.output_samples);
 
   config.safety.sensor_timeout_s = NAN;
-  config.pid.kp = -1.f;
+  config.pid.heat.kp = -1.f;
   ASSERT_TRUE(hub().update("boiler", config).ok);
   EXPECT_FLOAT_EQ(300.f, stored->safety.sensor_timeout_s);
-  EXPECT_FLOAT_EQ(0.f, stored->pid.kp);
+  EXPECT_FLOAT_EQ(0.f, stored->pid.heat.kp);
   EXPECT_NE(std::string::npos, read_file(this->file_of("boiler")).find("\"sensor_timeout_s\":300"));
   hub().loop();
 }
@@ -824,7 +949,7 @@ TEST_F(HubTest, HomeAssistantReconnectsOncePerBurstOfStructuralChanges) {
 
   ASSERT_TRUE(hub().set_setpoint("boiler", 25.f).ok);
   ClimateConfig gains = draft("Hot Water");
-  gains.pid.kp = 2.f;
+  gains.pid.heat.kp = 2.f;
   ASSERT_TRUE(hub().update("boiler", gains).ok);
   pass_resync_delay();
   EXPECT_EQ(1, hub().resyncs) << "a target or new gains are no news to Home Assistant";

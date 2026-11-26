@@ -27,21 +27,50 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
 - **Mode**: `single` ignores a trigger while the rule is running, `restart` starts over,
   `parallel` runs up to 8 copies. A trigger `single` ignores still hands its state to a follow
   that has not played yet, so the target ends where the trigger is.
+- **Run now**: plays a rule's actions at once, skipping its triggers and its condition, even
+  while the rule is disabled; the mode applies as for a trigger, so `single` refuses while a
+  run is under way. A follow has no trigger state to copy unless a trigger arrives while the
+  run plays. A rule that is not built cannot run.
+
+Rules that keep setting each other off, such as one toggling the switch that triggers it, are
+cut 8 nested events deep: the next event is dropped, with a warning naming the rule, and the
+switches stay where the loop left them until something sets it off again, which is cut the same
+way.
 
 A sensor is any numeric one that is not internal, not only a temperature, and its thresholds
-are in its own unit.
+are in its own unit. A switch is any but the device's own settings, such as **Allow uploads
+from ESPHome**: a rule naming one is not built.
+
+Cron follows the device's clock, wherever its time comes from. A jump forward of up to 15
+minutes fires every cron time it skipped at once, and a longer one skips them; a jump back of
+more than 15 minutes fires the times in between again as the clock passes them, and a shorter
+one fires nothing until the clock is back where it was.
+
+A DST switch is not a jump. A cron time whose hour field is `*` (every hour, every few minutes)
+keeps to the time that passes. One at given hours (daily, weekly, monthly) runs once for the
+hour the clocks skip, right after they go forward, and does not run again in the hour they
+repeat when they go back, a restart inside that hour included; a device that was off when the
+clocks went back runs that hour's times again. A new time zone more than 15 minutes and up to an
+hour away counts as a DST switch, one further away as a jump.
+
+A timetable, what relays and thermostats do by the time of day and the day of the week, is a
+[schedule](SCHEDULES.md) rather than a rule.
 
 ## Storage
 
 Rules are `/littlefs/automations/<name>.json` on the LittleFS partition from
 `features/storage.yaml`, one file per rule, named after the rule. Two rules cannot share a
-name. OTA updates keep the files; a factory reset — **Settings → Factory reset → Confirm** on
+name, whatever the spacing and the case of Latin, Greek and Cyrillic letters: `Свет на кухне`
+and `СВЕТ НА КУХНЕ` are one. OTA updates keep the files; a factory reset —
+**Settings → Factory reset → Confirm** on
 the display, the FN button held for 10 seconds, or `POST /api/device/system/factory-reset` —
 formats the partition, so the rules go with it.
 
 Entities are named by object id, so renaming a relay, an input or a sensor leaves
 the rules that used it unbuilt — the boot log says which, and their files are kept exactly as
-written until the entity is back.
+written until the entity is back. A [virtual input](ENTITY_SETTINGS.md#virtual-inputs) comes and
+goes while the device runs, and the rules that name it follow: a delete stops them, files kept,
+and a virtual input set up in that slot starts them again.
 
 A thermostat is named by its id, which a rename leaves as it is, and a preset by its key. A
 rule naming a thermostat or a preset that is not there cannot be saved. One that loses it —
@@ -54,7 +83,9 @@ backup. The editor's rule list says which rules do not run and why.
 `features/automation-editor.yaml` serves the rules on the web server port under
 `/automation-editor/api`: the routes and their contract are in
 [components/web_automation_editor/openapi.yaml](../components/web_automation_editor/openapi.yaml),
-the usage in [its README](../components/web_automation_editor/README.md).
+the usage in [its README](../components/web_automation_editor/README.md). The rule list says
+which rules are running and how long ago each last ran, from a trigger or Run now; a run with no
+action to play does not count, and none of it is kept across a reboot.
 
 ## Testing without hardware
 
@@ -67,7 +98,7 @@ python tests/run.py automations_no_climate
 Builds the engine for the host platform into a Google Test binary and runs
 `tests/components/automations/cases/`:
 the JSON and cron parsers, rules driven by hand with every delay held back until the test fires
-it, the cron tick against a clock the test moves, and the whole component over a directory that
+it, the cron tick against a clock the test moves and switches for DST, and the whole component over a directory that
 stands in for the flash. The second suite drives every HTTP route through the handler, over the
 real engine and a stand-in for the web server. The third builds both on a firmware without
 thermostats. How to add a case: [TESTING.md](TESTING.md).

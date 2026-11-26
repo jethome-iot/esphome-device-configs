@@ -12,6 +12,10 @@ namespace esphome::automations {
 
 class AutomationStorage;
 
+// The cron triggers a tick drives. A DST switch moves the hours, not time: a trigger that runs
+// every hour keeps its pace, one that runs at given hours follows the clock.
+enum class CronTriggers : uint8_t { ALL, EVERY_HOUR, AT_HOURS };
+
 struct CompiledCondition {
   ConditionType type{ConditionType::NONE};
   binary_sensor::BinarySensor *binary_sensor{nullptr};
@@ -58,6 +62,7 @@ struct CompiledTrigger {
   uint32_t press_start{0};
 
   bool cron_matches(const ESPTime &time) const;
+  bool every_hour() const { return this->hours.all(); }
 };
 
 // Resolve one config item against the registered entities and the thermostats. Free functions
@@ -86,11 +91,17 @@ class RuntimeAutomation {
   void set_enabled(bool enabled);
   bool is_running() const { return !this->runs_.empty(); }
   void stop();
+  /// Plays the actions now, skipping the triggers and the condition, enabled or not. The run
+  /// starts with no trigger state: a follow has none to copy unless a trigger arrives while it
+  /// runs. False when the mode refuses it: single while a run is under way, parallel with every
+  /// copy running.
+  bool run_now();
 
   void on_binary_sensor(binary_sensor::BinarySensor *entity, bool state, bool level = false);
   void on_switch(switch_::Switch *entity, bool state);
   void on_sensor(sensor::Sensor *entity, float value);
-  void on_time(const ESPTime &time);
+  /// Fires once for each cron trigger `which` picks that matches `time`; true when one matched.
+  bool on_time(const ESPTime &time, CronTriggers which = CronTriggers::ALL);
   void on_startup();
 
   const std::vector<CompiledTrigger> &get_triggers() const { return this->triggers_; }
@@ -108,6 +119,8 @@ class RuntimeAutomation {
   RuntimeAutomation(AutomationStorage *engine, const AutomationConfig &config);
 
   void fire_(bool has_state, bool state);
+  // Starts a run unless the mode refuses it; `forced`, a run now, skips the condition.
+  bool start_(bool has_state, bool state, bool forced);
   // `scheduled`: entered from the scheduler, a delay or a wait for the loop, rather than from the
   // callback that fired the rule.
   void step_(uint32_t token, bool scheduled = false);
@@ -133,5 +146,7 @@ class RuntimeAutomation {
 
 // Timer ids carry the run sequence in their low 4 bits, so a rule id has to fit the rest.
 static constexpr uint32_t MAX_RULE_ID = (1u << 28) - 1;
+// The copies a parallel rule runs at once; the run sequence has to fit those 4 bits.
+static constexpr uint8_t MAX_RUNS = 8;
 
 }  // namespace esphome::automations

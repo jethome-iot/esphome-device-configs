@@ -9,6 +9,7 @@
 #include "esphome/components/loop_job/loop_job.h"
 #include "esphome/core/component.h"
 #include "esphome/core/optional.h"
+#include "esphome/core/preferences.h"
 #include "esphome/core/time.h"
 #include "runtime_automation.h"
 
@@ -19,6 +20,17 @@ class RealTimeClock;
 }
 
 namespace automations {
+
+enum class RunResult : uint8_t {
+  STARTED,
+  NOT_FOUND,
+  NOT_BUILT,
+  // Its mode refused: single with a run under way, parallel with every copy running.
+  ALREADY_RUNNING,
+  // The engine failed (its storage is not mounted), the loop task never took it, or it came
+  // from inside a rule's own action.
+  REFUSED,
+};
 
 // Loads the rules from <storage>/<folder>/*.json, runs them, and edits them at run time.
 // The mutators may be called from any task: they execute on the loop task and block the caller.
@@ -40,8 +52,29 @@ class AutomationStorage : public Component {
   /// flash: it can fail on its own, leaving the rule live but back as it was after a reboot.
   bool set_enable_automation(uint32_t id, bool enable, bool *persisted = nullptr);
   void reset_all();
-  /// Names collide by sanitized filename; `exclude_id` never blocks itself.
+  /// Plays the rule's actions now, skipping its triggers and its condition, enabled or not, as
+  /// its mode allows.
+  RunResult run_automation(uint32_t id);
+  /// Names collide by their key, the file name before it is cut to fit; `exclude_id` never
+  /// blocks itself.
   bool is_name_taken(const std::string &name, uint32_t exclude_id = 0) const;
+  /// A name is any UTF-8 text without control characters; `error` says which rule it breaks. An
+  /// update keeps a name the rule already has, whatever it is.
+  static bool check_name(const std::string &name, std::string *error = nullptr);
+  /// The names of the rules whose trigger or condition names the binary sensor `key` (its object
+  /// id's fnv1 hash), built or not: one that found no such input still names it. Loop task, as
+  /// configs().
+  std::vector<std::string> rules_naming_binary_sensor(uint32_t key) const;
+  /// The binary sensor `key` came or went, as a virtual input does: the rules that name it are
+  /// built or dropped to match, as a thermostat's are. Loop task.
+  void rebuild_rules_naming_binary_sensor(uint32_t key);
+  /// Whether a run of that rule is under way. For the loop task, as configs() is.
+  bool is_running(uint32_t id) const;
+  /// The clock of AutomationConfig::last_run_ms: milliseconds since boot, never wrapping.
+  /// Virtual so the unit tests can move it.
+  virtual uint64_t uptime_ms() const;
+  // A run of rule `id` has started: RuntimeAutomation stamps its config.
+  void note_run_(uint32_t id);
 
   /// The loaded configs. They belong to the loop task, which the mutators above and a rule's
   /// own dispatch run on: a caller on another task reads them through run_on_loop().
@@ -54,6 +87,7 @@ class AutomationStorage : public Component {
   virtual bool run_on_loop(std::function<bool()> &&job);
 
   void set_time_source(time::RealTimeClock *rtc) { this->rtc_ = rtc; }
+  void set_preference_hash(uint32_t hash) { this->preference_hash_ = hash; }
   void set_folder_path(const std::string &path) { this->folder_path_ = path; }
   void set_storage(filesystem_storage_abstract::FilesystemStorageAbstract *storage) {
     this->storage_backend_ = storage;
@@ -67,10 +101,10 @@ class AutomationStorage : public Component {
   virtual void cancel_delay(uint32_t id) { this->cancel_timeout(id); }
   virtual uint32_t now_ms() const;
   // Runs a rule's own step, so an edit from inside it is refused as from any other dispatch.
-  template<typename F> void drive(F &&step) {
-    this->dispatching_++;
+  template<typename F> void drive(RuntimeAutomation &rule, F &&step) {
+    this->driving_.push_back(&rule);
     step();
-    this->dispatching_--;
+    this->driving_.pop_back();
   }
 
   template<typename E> struct Subscription {
@@ -93,19 +127,34 @@ class AutomationStorage : public Component {
   bool remove_automation_(uint32_t id);
   bool set_enable_automation_(uint32_t id, bool enable, bool *persisted);
   void reset_all_();
+  RunResult run_automation_(uint32_t id);
   bool run_on_loop_(std::function<bool()> &&job);
 
   void subscribe_(const RuntimeAutomation &automation);
   /// climate_hub created, removed or re-keyed the presets of a thermostat: the rules that name
   /// it are built or dropped to match.
   void on_climate_change_(const std::string &climate_id);
-  void rebuild_for_climate_(const std::string &climate_id);
+  /// Builds or drops, to match, each rule `names` picks; `what` is what came back, for the log.
+  void rebuild_rules_(std::function<bool(const AutomationConfig &)> names, std::string what);
+  template<typename F> void each_rule_(F call);
+  bool too_deep_();
   void check_time_();
+  void dispatch_time_(const ESPTime &time, CronTriggers which);
+  void cross_dst_(ESPTime last, int64_t last_local, const ESPTime &now, int64_t now_local);
+  // A DST hold as it outlives a restart: the local second it holds to, and the UTC moment the
+  // local clock passes it, after which the record means nothing.
+  struct StoredHold {
+    int64_t held_until;
+    int64_t expires;
+  };
+  void restore_hold_();
+  void store_hold_(const StoredHold &hold);
+  void drop_hold_();
   virtual ESPTime clock_now_();
 
-  std::string sanitize_filename_(const std::string &name) const;
+  std::string name_key_(const std::string &name) const;
   std::string get_folder_path_() const;
-  std::string get_filepath_for_name_(const std::string &name) const;
+  std::string filename_for_(const std::string &name, uint32_t id) const;
   uint32_t allocate_id_();
   bool ensure_directory_exists_(const std::string &path);
   bool load_automation_from_file_(const std::string &filepath);
@@ -116,7 +165,7 @@ class AutomationStorage : public Component {
   virtual bool remove_file_(const std::string &filepath);
   std::vector<bool> resolve_duplicates_();
   void normalize_filenames_(const std::vector<bool> &changed);
-  int find_automation_index_by_id_(uint32_t id);
+  int find_automation_index_by_id_(uint32_t id) const;
 
   void print_trigger_info_(const TriggerConfig &trigger, int indent);
   void print_condition_info_(const ConditionConfig &condition, int indent);
@@ -128,9 +177,19 @@ class AutomationStorage : public Component {
   uint32_t next_id_{1};
   time::RealTimeClock *rtc_{nullptr};
   optional<ESPTime> last_check_;
+  // Set when the clocks went back for DST: the local second up to which rules at given hours
+  // have already run, so the repeated hour does not run them again.
+  optional<int64_t> held_until_;
+  // Read at boot, for the first tick with a valid time to take up.
+  optional<StoredHold> stored_hold_;
+  ESPPreferenceObject hold_pref_;
+  // The record on flash still holds something.
+  bool hold_stored_{false};
+  uint32_t preference_hash_{0};
   loop_job::LoopDispatcher dispatcher_;
-  // Above zero while a rule is being driven: an edit then would pull the rule from under it.
-  uint8_t dispatching_{0};
+  // The rules being driven, innermost last. An edit while any is would pull it from under it,
+  // and how many there are is how deeply dispatches nest, which too_deep_() bounds.
+  std::vector<RuntimeAutomation *> driving_;
 
   // One subscription per entity, kept for the life of the device.
   std::vector<std::unique_ptr<Subscription<binary_sensor::BinarySensor>>> binary_sensor_subs_;

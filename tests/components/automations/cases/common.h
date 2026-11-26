@@ -11,12 +11,14 @@
 #include "esphome/components/automations/automation_storage.h"
 #include "esphome/components/automations/runtime_automation.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
+#include "esphome/components/host/preferences.h"
 #include "esphome/components/logger/logger.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
 #include "esphome/components/time/real_time_clock.h"
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
+#include "esphome/core/preferences.h"
 
 namespace esphome::automations::testing {
 
@@ -93,9 +95,19 @@ class FakeClock : public time::RealTimeClock {
   void update() override {}
 };
 
+// The generated setup would have installed the host backend before anything asked for a
+// preference; main.cpp never runs it. The directory goes next to the binary, not into $HOME.
+inline void install_preferences() {
+  [[maybe_unused]] static const bool ONCE = [] {
+    setenv("ESPHOME_PREFDIR", ".prefs", 0);
+    host::setup_preferences();
+    return true;
+  }();
+}
+
 // Holds the delays instead of handing them to the scheduler, so a test fires them itself, and
-// takes its clocks from the test: `ms` for click timing, `now` (epoch seconds, 0 = not set) for
-// cron.
+// takes its clocks from the test: `ms` for click timing, `uptime` for when a run started, `now`
+// (epoch seconds, 0 = not set) and `offset` (seconds the local clock is ahead of UTC) for cron.
 class FakeEngine : public AutomationStorage {
  public:
   struct Delay {
@@ -105,9 +117,12 @@ class FakeEngine : public AutomationStorage {
   };
   std::vector<Delay> delays;
   uint32_t ms{0};
+  uint64_t uptime{0};
   time_t now{0};
+  int32_t offset{0};
 
   uint32_t now_ms() const override { return this->ms; }
+  uint64_t uptime_ms() const override { return this->uptime; }
   // One cron tick, as the engine's one-second interval would run it.
   void tick() { this->check_time_(); }
   // A rule that runs inside this engine without going through the storage.
@@ -141,7 +156,22 @@ class FakeEngine : public AutomationStorage {
     d.f();
     return true;
   }
-  void with_clock() { this->set_time_source(&this->clock_); }
+  // The clock, on a flash with nothing stored. sync() first: it runs the backend's lazy read of
+  // the file, and a reset before that would be undone by the next call that triggers it.
+  void with_clock() {
+    install_preferences();
+    global_preferences->sync();
+    global_preferences->reset();
+    global_preferences->sync();
+    this->set_time_source(&this->clock_);
+    this->restore_hold_();
+  }
+  // A restart: what the engine kept in RAM is gone, what it stored is read back.
+  void restart() {
+    this->last_check_.reset();
+    this->held_until_.reset();
+    this->restore_hold_();
+  }
 
   // Rule files this engine's filesystem refuses to unlink, by basename: a full or failing
   // flash does that, and no host filesystem can be made to refuse one file.
@@ -157,9 +187,18 @@ class FakeEngine : public AutomationStorage {
     return AutomationStorage::remove_file_(filepath);
   }
 
-  ESPTime clock_now_() override { return this->now == 0 ? ESPTime{} : ESPTime::from_epoch_utc(this->now); }
+  ESPTime clock_now_() override {
+    if (this->now == 0)
+      return ESPTime{};
+    ESPTime time = ESPTime::from_epoch_utc(this->now + this->offset);
+    time.timestamp = this->now;
+    return time;
+  }
   FakeClock clock_;
 };
+
+// entity_fields for an entity declared with `entity_category: config`.
+inline constexpr uint32_t CONFIG_CATEGORY = uint32_t{ENTITY_CATEGORY_CONFIG} << ENTITY_FIELD_ENTITY_CATEGORY_SHIFT;
 
 // The entities the rules under test may name. Registered once: App keeps the pointers for the
 // life of the process and the engine finds them by the hash of their object id. `room` and
@@ -172,6 +211,8 @@ struct Entities {
   FakeSwitch relay1;
   FakeSwitch relay2;
   FakeSwitch boiler;
+  // entity_category: config, as the board's ESPHome OTA switch: no rule may name it.
+  FakeSwitch config_switch;
 };
 
 // The entity field that gives `unit`, from the table codegen built out of test.yaml's units.
@@ -196,6 +237,7 @@ inline Entities &entities() {
     App.register_switch(&e->relay1, "Relay 1", fnv1_hash("relay_1"), 0);
     App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
     App.register_switch(&e->boiler, "Boiler", fnv1_hash("boiler"), 0);
+    App.register_switch(&e->config_switch, "Config Switch", fnv1_hash("config_switch"), CONFIG_CATEGORY);
     return e;
   }();
   return *instance;
@@ -207,7 +249,7 @@ inline void reset_entities() {
   e.in1.publish_state(false);
   e.in2.publish_state(false);
   e.temp.state = NAN;
-  for (FakeSwitch *sw : {&e.relay1, &e.relay2, &e.boiler}) {
+  for (FakeSwitch *sw : {&e.relay1, &e.relay2, &e.boiler, &e.config_switch}) {
     sw->on_change = nullptr;
     sw->publish_state(false);
     sw->writes = 0;

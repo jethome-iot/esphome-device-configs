@@ -1,9 +1,9 @@
 # web_automation_editor
 
 The JSON/REST API of the `automations` component, served on the device's own web server under
-`/automation-editor/api/`. List, read, create, update, delete and export the rules, discover the
-entities a rule may name, and read what the editor may offer — everything a browser editor does,
-and everything `curl` can do without one. ESP-IDF only.
+`/automation-editor/api/`. List, read, create, update, delete, run and export the rules, discover
+the entities a rule may name, and read what the editor may offer — everything a browser editor
+does, and everything `curl` can do without one. ESP-IDF only.
 
 ```yaml
 external_components:
@@ -12,7 +12,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [filesystem_storage_abstract, littlefs_storage, automations, loop_job, switch_hold, web_origin_guard, web_automation_editor]
+    components: [filesystem_storage_abstract, littlefs_storage, case_fold, automations, loop_job, switch_hold, web_origin_guard, web_automation_editor]
 
 web_server:
   port: 80
@@ -55,12 +55,13 @@ simply be made again.
 
 | Method | Path | |
 |---|---|---|
-| GET | `list` | `{"automations": [{"id", "name", "enabled", "trigger_count", "action_count", "else_action_count", "mode", "built", "build_error"}, ...]}`; `built` is false for a rule on the device that cannot be built, and `build_error` says why (`Action 1: thermostat "attic" not found`), `""` when it runs |
+| GET | `list` | `{"automations": [{"id", "name", "enabled", "trigger_count", "action_count", "else_action_count", "mode", "built", "build_error", "running", "last_run_s"}, ...]}`; `built` is false for a rule on the device that cannot be built, and `build_error` says why (`Action 1: thermostat "attic" not found`), `""` when it runs. `running` is true while a run is under way; `last_run_s` is the seconds since a run that played an action last started, from a trigger or from `run`, `null` when none has since boot |
 | GET | `get?id=` | One rule, in the file format of [automations](../automations/README.md#a-rule) |
 | POST | `save` | A rule as a JSON body; `id` absent or `0` creates, an existing `id` replaces that rule, renamed or not. Answers `{"success": true, "message", "id"}` on create, without `id` on update |
 | POST | `delete?id=` | Removes the rule and its file; `Failed to delete automation` when the engine refuses |
+| POST | `run?id=` | Plays the rule's actions now, skipping its triggers and its condition, enabled or not. Answers `{"success": true, "message": "Automation started"}` once the run has started; `409` when it cannot |
 | GET | `export` | `{"version": 1, "automations": [...]}`, every rule as `get` returns it — the backup file a client re-imports rule by rule through `save`, with each `id` dropped so the rules are created |
-| GET | `entities` | `{"binary_sensors", "sensors", "switches"}`, each `[{"object_id", "name"}, ...]`, sensors with `"unit"`; internal entities are left out. `"climates"`: the thermostats, `[{"id", "name", "presets": [{"key", "name"}, ...]}, ...]`, by the id and keys a climate action names; empty on a firmware without them |
+| GET | `entities` | `{"binary_sensors", "sensors", "switches"}`, each `[{"object_id", "name"}, ...]`, sensors with `"unit"`; internal entities and config switches are left out. `"climates"`: the thermostats, `[{"id", "name", "presets": [{"key", "name"}, ...]}, ...]`, by the id and keys a climate action names; empty on a firmware without them |
 | GET | `schema` | The trigger, condition and action types and subtypes and the cron presets the engine parses, for an editor's menus. The `climate` action only on a firmware with thermostats (`climate_hub`) |
 | POST | `reboot` | Answers, then `App.safe_reboot()` |
 | GET | `ping` | `{"status": "ok"}` |
@@ -68,17 +69,24 @@ simply be made again.
 `save` reads a raw JSON body, so it needs a `Content-Type` that is not a form:
 `application/json`. A form-encoded body is parsed into fields by the server and answered
 `Empty request body`; a body over 16 KiB, the engine's own ceiling on a rule file, is `413`. A
-name another rule already owns — names collide by file name, so `Porch light` and `porch-LIGHT`
-are one — is refused with the reason. So is a rule that names something the device does not
-have, an entity, a thermostat or a preset key: `Action 1: thermostat "attic" not found`. The
-engine's other refusals (a rule limit reached, a file the loader had refused under that name, a
-call from inside a running rule) come back as `Failed to create automation` /
-`Failed to update automation`.
+name another rule already owns — names collide by the file name they spell before it is cut to
+fit, so `Porch light` and `porch-LIGHT` are one, and so are `Свет` and `СВЕТ` — is refused with the
+reason, and so is a name with a control character in it. So is a rule that names something the
+device does not have, an entity, a thermostat or a preset key: `Action 1: thermostat "attic" not found`. The engine's other refusals (a rule limit reached, a
+file the loader had refused under that name, a call from inside a running rule) come back as
+`Failed to create automation` / `Failed to update automation`.
+
+`run` is the editor's Run now. The run starts with no trigger state, so a `follow` has none to
+copy unless a trigger arrives while it plays, and the rule's mode decides as it does for a
+trigger: `restart` starts over, `parallel` adds a copy,
+and `single` refuses while a run is under way — `409` with `Automation is already running`
+(`Automation is already running 8 copies` for a `parallel` rule at its limit). A rule that is
+not built cannot run: `409` with `Automation cannot run: ` and its `build_error`.
 
 Every failure is `{"success": false, "error"}`: `400` for a bad request (an `id` that is missing
 or not a plain non-zero number included), `404` for an `id` no
-rule has (`get`, `delete`, and a `save` carrying one), `405` for the wrong method, `413` for an
-oversized body. The same contract,
+rule has (`get`, `delete`, `run`, and a `save` carrying one), `405` for the wrong method, `409`
+for a `run` the rule cannot start, `413` for an oversized body. The same contract,
 machine-readable: [openapi.yaml](openapi.yaml) (OpenAPI 3.1).
 
 A firmware with an `auth:` block wants the credentials on every one of these; `--digest -u`
@@ -90,6 +98,7 @@ curl $A 'http://<device>/automation-editor/api/list'
 curl -X POST $A 'http://<device>/automation-editor/api/save' -H 'Content-Type: application/json' \
   --data-binary @porch-light.json
 curl -X POST $A 'http://<device>/automation-editor/api/delete?id=3' -d ''
+curl -X POST $A 'http://<device>/automation-editor/api/run?id=3' -d ''
 curl $A 'http://<device>/automation-editor/api/export' > automations.json
 ```
 

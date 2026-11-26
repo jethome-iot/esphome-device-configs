@@ -14,7 +14,7 @@ class ClimateHub;
 /// URL segment can carry, so nothing can address it; an empty name would fall back to the device's.
 /// As long as a name buffer and zero-filled, so a reader that pairs this pointer with a longer
 /// name's length stays inside it.
-inline constexpr char FREE_SLOT_NAME[64] = "climate_hub/free";
+inline constexpr char FREE_SLOT_NAME[NAME_MAX_BYTES + 1] = "climate_hub/free";
 
 /// One climate entity of the hub's pool. The hub registers every slot with App in its setup()
 /// and never frees one: a thermostat that starts takes a free slot, one that stops hands it
@@ -33,15 +33,15 @@ class HubClimate final : public climate::Climate {
   /// Whether the slot carries a thermostat's name rather than the placeholder.
   bool is_named() const { return this->named_; }
 
-  /// Visible under `name`, which the caller has validated; its object id derives from it.
-  void show(const std::string &name, uint32_t entity_fields);
+  /// Visible under `name`, which the caller has validated, with `key` as the API's key.
+  void show(const std::string &name, uint32_t key, uint32_t entity_fields);
   /// Internal, keeping its name, key and traits: an API client may still be encoding the
   /// entity it listed a moment ago, and upstream reads the name then, not when it queued it.
   void hide(uint32_t entity_fields);
-  /// A hidden slot under `name` instead of its own, whose name or object id a running thermostat
-  /// is about to take: `name` is the one that thermostat leaves, so an API client still encoding
-  /// this slot sends a thermostat's name and key, never the placeholder or one key twice.
-  void hide_as(const std::string &name, uint32_t entity_fields);
+  /// A hidden slot under `name` and `key` instead of its own, whose name or key a running
+  /// thermostat is about to take: they are the ones that thermostat leaves, so an API client still
+  /// encoding this slot sends a thermostat's name and key, never the placeholder or one key twice.
+  void hide_as(const std::string &name, uint32_t key, uint32_t entity_fields);
   /// Back under the placeholder with no traits, as setup() registered it: for tests that start
   /// the hub over. The firmware never calls it, since a listing may still hold a slot once shown.
   void park(uint32_t entity_fields);
@@ -56,15 +56,15 @@ class HubClimate final : public climate::Climate {
   climate::ClimateTraits traits() override;
   void control(const climate::ClimateCall &call) override;
   /// Writes `name` into the buffer not in use and points the entity at it.
-  void rename_(const std::string &name, uint32_t entity_fields);
+  void rename_(const std::string &name, uint32_t key, uint32_t entity_fields);
 
   ClimateHub *hub_;
   uint8_t index_;
   bool free_{true};
   bool named_{false};
   // EntityBase keeps a StringRef to the name, not a copy. A rename alternates the buffers, so a
-  // reader still holding the previous pointer reads intact bytes; byte 63 is never written.
-  char names_[2][64]{};
+  // reader still holding the previous pointer reads intact bytes; the last byte is never written.
+  char names_[2][NAME_MAX_BYTES + 1]{};
   uint8_t current_name_{0};
   bool heat_{false};
   bool cool_{false};
@@ -74,8 +74,8 @@ class HubClimate final : public climate::Climate {
   climate::ClimatePresetMask standard_presets_;
   // Upstream keeps const char * into these, as the custom preset list and as the active one, and
   // the web server reads them on its task: they live as long as the slot, and the list never
-  // outgrows the room the constructor gave it. Byte NAME_MAX_LENGTH is never written.
-  char custom_presets_[PRESET_MAX_COUNT][NAME_MAX_LENGTH + 1]{};
+  // outgrows the room the constructor gave it. Byte NAME_MAX_BYTES is never written.
+  char custom_presets_[PRESET_MAX_COUNT][NAME_MAX_BYTES + 1]{};
 };
 
 }  // namespace esphome::climate_hub

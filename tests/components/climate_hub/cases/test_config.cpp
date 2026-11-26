@@ -19,12 +19,13 @@ ClimateConfig sample() {
 }
 
 const char *const GOLDEN =
-    R"({"version":4,"revision":0,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
+    R"({"version":5,"revision":0,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
     R"("update_interval_s":30,"heat":{"relay_id":"relay_1","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("cool":{"relay_id":"","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("visual":{"min_temperature":5,"max_temperature":45,"step":0.5},)"
     R"("safety":{"sensor_timeout_s":300,"max_temperature":60},)"
-    R"("pid":{"kp":0.6,"ki":0.0025,"kd":0,"min_integral":-1,"max_integral":1,"starting_integral_term":0,)"
+    R"("pid":{"heat":{"kp":0.6,"ki":0.0025,"kd":0},"cool":{"kp":0.6,"ki":0.0025,"kd":0},)"
+    R"("kp":0.6,"ki":0.0025,"kd":0,"min_integral":-1,"max_integral":1,"starting_integral_term":0,)"
     R"("output_samples":1,"derivative_samples":8,"deadband_threshold_low":0,"deadband_threshold_high":0,)"
     R"("deadband_kp_multiplier":0,"deadband_ki_multiplier":0,"deadband_kd_multiplier":0,)"
     R"("deadband_output_samples":1},"bang_bang":{"below":0.5,"above":0.5},"mode":"heat",)"
@@ -54,24 +55,25 @@ ClimateConfig with_presets() {
   night.key = "night";
   night.name = "Night";
   night.setpoint = 19.5f;
-  night.mode = HubMode::HEAT_COOL;
+  night.mode = HubMode::COOL;
   c.presets = {eco, night};
   c.active_preset = "night";
   return c;
 }
 
 const char *const GOLDEN_PRESETS =
-    R"({"version":4,"revision":0,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
+    R"({"version":5,"revision":0,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
     R"("update_interval_s":30,"heat":{"relay_id":"relay_1","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("cool":{"relay_id":"relay_2","period_s":300,"min_on_s":10,"min_off_s":10},)"
     R"("visual":{"min_temperature":5,"max_temperature":45,"step":0.5},)"
     R"("safety":{"sensor_timeout_s":300,"max_temperature":60},)"
-    R"("pid":{"kp":0.6,"ki":0.0025,"kd":0,"min_integral":-1,"max_integral":1,"starting_integral_term":0,)"
+    R"("pid":{"heat":{"kp":0.6,"ki":0.0025,"kd":0},"cool":{"kp":0.6,"ki":0.0025,"kd":0},)"
+    R"("kp":0.6,"ki":0.0025,"kd":0,"min_integral":-1,"max_integral":1,"starting_integral_term":0,)"
     R"("output_samples":1,"derivative_samples":8,"deadband_threshold_low":0,"deadband_threshold_high":0,)"
     R"("deadband_kp_multiplier":0,"deadband_ki_multiplier":0,"deadband_kd_multiplier":0,)"
     R"("deadband_output_samples":1},"bang_bang":{"below":0.5,"above":0.5},"mode":"heat",)"
     R"("last_on_mode":"heat","setpoint":21,"presets":[{"key":"eco","name":"Eco","setpoint":18,"mode":"keep"},)"
-    R"({"key":"night","name":"Night","setpoint":19.5,"mode":"heat_cool"}],"active_preset":"night"})";
+    R"({"key":"night","name":"Night","setpoint":19.5,"mode":"cool"}],"active_preset":"night"})";
 
 // What the firmware with presets wrote: no revision, version 2.
 const char *const GOLDEN_V2 =
@@ -85,7 +87,7 @@ const char *const GOLDEN_V2 =
     R"("deadband_kp_multiplier":0,"deadband_ki_multiplier":0,"deadband_kd_multiplier":0,)"
     R"("deadband_output_samples":1},"bang_bang":{"below":0.5,"above":0.5},"mode":"heat",)"
     R"("setpoint":21,"presets":[{"key":"eco","name":"Eco","setpoint":18,"mode":"keep"},)"
-    R"({"key":"night","name":"Night","setpoint":19.5,"mode":"heat_cool"}],"active_preset":"night"})";
+    R"({"key":"night","name":"Night","setpoint":19.5,"mode":"cool"}],"active_preset":"night"})";
 
 // What the firmware with calibration wrote: no last_on_mode, version 3.
 const char *const GOLDEN_V3 =
@@ -99,7 +101,53 @@ const char *const GOLDEN_V3 =
     R"("deadband_kp_multiplier":0,"deadband_ki_multiplier":0,"deadband_kd_multiplier":0,)"
     R"("deadband_output_samples":1},"bang_bang":{"below":0.5,"above":0.5},"mode":"heat",)"
     R"("setpoint":21,"presets":[{"key":"eco","name":"Eco","setpoint":18,"mode":"keep"},)"
-    R"({"key":"night","name":"Night","setpoint":19.5,"mode":"heat_cool"}],"active_preset":"night"})";
+    R"({"key":"night","name":"Night","setpoint":19.5,"mode":"cool"}],"active_preset":"night"})";
+
+// What the firmware with the mode to go back to wrote: one set of gains for both relays, version 4.
+const char *const GOLDEN_V4 =
+    R"({"version":4,"revision":3,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
+    R"("update_interval_s":30,"heat":{"relay_id":"relay_1","period_s":300,"min_on_s":10,"min_off_s":10},)"
+    R"("cool":{"relay_id":"relay_2","period_s":300,"min_on_s":10,"min_off_s":10},)"
+    R"("visual":{"min_temperature":5,"max_temperature":45,"step":0.5},)"
+    R"("safety":{"sensor_timeout_s":300,"max_temperature":60},)"
+    R"("pid":{"kp":1.5,"ki":0.25,"kd":2,"min_integral":-1,"max_integral":1,"starting_integral_term":0,)"
+    R"("output_samples":1,"derivative_samples":8,"deadband_threshold_low":0,"deadband_threshold_high":0,)"
+    R"("deadband_kp_multiplier":0,"deadband_ki_multiplier":0,"deadband_kd_multiplier":0,)"
+    R"("deadband_output_samples":1},"bang_bang":{"below":0.5,"above":0.5},"mode":"off",)"
+    R"("last_on_mode":"cool","setpoint":21,"presets":[],"active_preset":""})";
+
+// Each relay with its own gains, in mode cool: the bare ones are the cooling relay's.
+ClimateConfig with_gains() {
+  ClimateConfig c = sample();
+  c.cool.relay_id = "relay_2";
+  c.pid.heat = PidGains{1.5f, 0.25f, 2.f};
+  c.pid.cool = PidGains{0.75f, 0.5f, 0.f};
+  c.mode = HubMode::COOL;
+  return c;
+}
+
+const char *const GOLDEN_GAINS =
+    R"({"version":5,"revision":0,"id":"boiler","name":"Boiler","enabled":true,"kind":"pid","sensor_id":"room_temp",)"
+    R"("update_interval_s":30,"heat":{"relay_id":"relay_1","period_s":300,"min_on_s":10,"min_off_s":10},)"
+    R"("cool":{"relay_id":"relay_2","period_s":300,"min_on_s":10,"min_off_s":10},)"
+    R"("visual":{"min_temperature":5,"max_temperature":45,"step":0.5},)"
+    R"("safety":{"sensor_timeout_s":300,"max_temperature":60},)"
+    R"("pid":{"heat":{"kp":1.5,"ki":0.25,"kd":2},"cool":{"kp":0.75,"ki":0.5,"kd":0},)"
+    R"("kp":0.75,"ki":0.5,"kd":0,"min_integral":-1,"max_integral":1,"starting_integral_term":0,)"
+    R"("output_samples":1,"derivative_samples":8,"deadband_threshold_low":0,"deadband_threshold_high":0,)"
+    R"("deadband_kp_multiplier":0,"deadband_ki_multiplier":0,"deadband_kd_multiplier":0,)"
+    R"("deadband_output_samples":1},"bang_bang":{"below":0.5,"above":0.5},"mode":"cool",)"
+    R"("last_on_mode":"cool","setpoint":21,"presets":[],"active_preset":""})";
+
+bool same_gains(const PidGains &a, const PidGains &b) { return a.kp == b.kp && a.ki == b.ki && a.kd == b.kd; }
+
+// The pid block's bare kp, ki and kd as `json` has them.
+PidGains bare_gains(const std::string &json) {
+  JsonDocument doc;
+  deserializeJson(doc, json);
+  JsonObject pid = doc["pid"];
+  return PidGains{pid["kp"].as<float>(), pid["ki"].as<float>(), pid["kd"].as<float>()};
+}
 
 // A document with a heating and a cooling relay and `presets` spliced in as its preset list.
 std::string doc_with(const std::string &presets, const std::string &rest = "") {
@@ -127,7 +175,109 @@ TEST(ClimateConfigJson, PresetsSerialiseToTheGoldenDocumentAndRoundTrip) {
   EXPECT_EQ(GOLDEN_PRESETS, to_json(parsed));
   ASSERT_EQ(2u, parsed.presets.size());
   EXPECT_FALSE(parsed.presets[0].mode.has_value()) << "keep is no mode";
-  EXPECT_EQ(HubMode::HEAT_COOL, parsed.presets[1].mode);
+  EXPECT_EQ(HubMode::COOL, parsed.presets[1].mode);
+}
+
+// Each relay's gains in a block of their own, and the bare ones a copy of the mode's relay's.
+TEST(ClimateConfigJson, EachRelaysGainsSerialiseToTheGoldenDocumentAndRoundTrip) {
+  EXPECT_EQ(GOLDEN_GAINS, to_json(with_gains()));
+  ClimateConfig parsed;
+  std::string error;
+  ASSERT_TRUE(from_json(GOLDEN_GAINS, &parsed, &error)) << error;
+  EXPECT_EQ(GOLDEN_GAINS, to_json(parsed));
+  EXPECT_TRUE(same_gains(PidGains{1.5f, 0.25f, 2.f}, parsed.pid.heat));
+  EXPECT_TRUE(same_gains(PidGains{0.75f, 0.5f, 0.f}, parsed.pid.cool));
+}
+
+// The bare ones are for an older firmware: with a relay's own beside them, they are not read.
+TEST(ClimateConfigJson, TheBareGainsAreIgnoredBesideARelaysOwn) {
+  std::string json = GOLDEN_GAINS;
+  const std::string copy = R"("kp":0.75,"ki":0.5,"kd":0,"min_integral")";
+  json.replace(json.find(copy), copy.size(), R"("kp":9,"ki":8,"kd":7,"min_integral")");
+  ClimateConfig parsed;
+  std::string error;
+  ASSERT_TRUE(from_json(json, &parsed, &error)) << error;
+  EXPECT_TRUE(same_gains(PidGains{1.5f, 0.25f, 2.f}, parsed.pid.heat));
+  EXPECT_TRUE(same_gains(PidGains{0.75f, 0.5f, 0.f}, parsed.pid.cool));
+  EXPECT_EQ(GOLDEN_GAINS, to_json(parsed)) << "written back as a copy again";
+
+  // One relay's own missing takes the bare ones, as a file from before them gives both.
+  json = R"({"name":"B","sensor_id":"s","heat":{"relay_id":"r"},"cool":{"relay_id":"c"},)"
+         R"("pid":{"heat":{"kp":1.5,"ki":0.25,"kd":2},"kp":3,"ki":0.125}})";
+  ASSERT_TRUE(from_json(json, &parsed, &error, false)) << error;
+  EXPECT_TRUE(same_gains(PidGains{1.5f, 0.25f, 2.f}, parsed.pid.heat));
+  EXPECT_TRUE(same_gains(PidGains{3.f, 0.125f, DEFAULT_PID_GAINS.kd}, parsed.pid.cool)) << "kd: the default";
+
+  // And a relay's own missing a gain takes the default, as any key of a nested object does.
+  ClimateConfig fresh;
+  json = R"({"name":"B","sensor_id":"s","heat":{"relay_id":"r"},"pid":{"heat":{"kp":1.5},"kp":3,"ki":0.125}})";
+  ASSERT_TRUE(from_json(json, &fresh, &error, false)) << error;
+  EXPECT_TRUE(same_gains(PidGains{1.5f, DEFAULT_PID_GAINS.ki, DEFAULT_PID_GAINS.kd}, fresh.pid.heat));
+}
+
+// No pid block at all, or one without gains, is the defaults for both relays.
+TEST(ClimateConfigJson, MissingGainsAreTheDefaults) {
+  for (const char *pid : {"", R"(,"pid":{})", R"(,"pid":{"heat":{},"cool":{}})", R"(,"pid":null)"}) {
+    ClimateConfig parsed;
+    std::string error;
+    ASSERT_TRUE(from_json(
+        std::string(R"({"name":"B","sensor_id":"s","heat":{"relay_id":"r"},"cool":{"relay_id":"c"})") + pid + "}",
+        &parsed, &error, false))
+        << pid << ": " << error;
+    EXPECT_TRUE(same_gains(DEFAULT_PID_GAINS, parsed.pid.heat)) << pid;
+    EXPECT_TRUE(same_gains(DEFAULT_PID_GAINS, parsed.pid.cool)) << pid;
+  }
+  EXPECT_FLOAT_EQ(find_param("kp")->def, DEFAULT_PID_GAINS.kp) << "the table's defaults";
+  EXPECT_FLOAT_EQ(find_param("ki")->def, DEFAULT_PID_GAINS.ki);
+  EXPECT_FLOAT_EQ(find_param("kd")->def, DEFAULT_PID_GAINS.kd);
+}
+
+// For a firmware that reads the bare ones alone: the relay a turn-on goes to, so it runs on its
+// own gains there.
+TEST(ClimateConfigJson, TheBareGainsAreThoseOfTheRelayATurnOnGoesTo) {
+  const PidGains heat{1.5f, 0.25f, 2.f};
+  const PidGains cool{0.75f, 0.5f, 0.f};
+  ClimateConfig c = with_gains();
+  c.mode = HubMode::HEAT;
+  EXPECT_TRUE(same_gains(heat, bare_gains(to_json(c)))) << "heat";
+  c.mode = HubMode::COOL;
+  EXPECT_TRUE(same_gains(cool, bare_gains(to_json(c)))) << "cool";
+  c.set_mode(HubMode::OFF);
+  EXPECT_TRUE(same_gains(cool, bare_gains(to_json(c)))) << "off after cool";
+  c.mode = HubMode::HEAT;
+  c.set_mode(HubMode::OFF);
+  EXPECT_TRUE(same_gains(heat, bare_gains(to_json(c)))) << "off after heat";
+
+  ClimateConfig heat_only = with_gains();
+  heat_only.cool.relay_id = "";
+  heat_only.mode = HubMode::OFF;
+  heat_only.last_on_mode = HubMode::OFF;
+  EXPECT_TRUE(same_gains(heat, bare_gains(to_json(heat_only)))) << "heat only";
+
+  ClimateConfig cool_only = with_gains();
+  cool_only.heat.relay_id = "";
+  cool_only.mode = HubMode::OFF;
+  cool_only.last_on_mode = HubMode::OFF;
+  EXPECT_TRUE(same_gains(cool, bare_gains(to_json(cool_only)))) << "cool only";
+}
+
+// Each set is held to the table's ranges, as the one set was.
+TEST(ClimateConfigJson, BothRelaysGainsAreClamped) {
+  ClimateConfig parsed;
+  std::string error;
+  ASSERT_TRUE(from_json(R"({"name":"B","sensor_id":"s","heat":{"relay_id":"r"},"cool":{"relay_id":"c"},)"
+                        R"("pid":{"heat":{"kp":-3,"ki":5000,"kd":"x"},"cool":{"kp":2000,"ki":-1,"kd":20000}}})",
+                        &parsed, &error, false))
+      << error;
+  EXPECT_TRUE(same_gains(PidGains{0.f, 1000.f, DEFAULT_PID_GAINS.kd}, parsed.pid.heat));
+  EXPECT_TRUE(same_gains(PidGains{1000.f, 0.f, 10000.f}, parsed.pid.cool));
+
+  ClimateConfig built = with_gains();
+  built.pid.heat.kp = NAN;
+  built.pid.cool.kd = -1.f;
+  built.clamp_numbers();
+  EXPECT_FLOAT_EQ(DEFAULT_PID_GAINS.kp, built.pid.heat.kp);
+  EXPECT_FLOAT_EQ(0.f, built.pid.cool.kd);
 }
 
 // A calibration moves the revision on, and the file keeps it across a reboot.
@@ -135,7 +285,7 @@ TEST(ClimateConfigJson, TheRevisionRoundTrips) {
   ClimateConfig c = sample();
   c.revision = 7;
   const std::string json = to_json(c);
-  EXPECT_NE(std::string::npos, json.find(R"("version":4,"revision":7,"id":"boiler")")) << json;
+  EXPECT_NE(std::string::npos, json.find(R"("version":5,"revision":7,"id":"boiler")")) << json;
   ClimateConfig parsed;
   std::string error;
   ASSERT_TRUE(from_json(json, &parsed, &error)) << error;
@@ -182,6 +332,43 @@ TEST(ClimateConfigJson, AVersionThreeFileReadsAsThisVersion) {
   ASSERT_TRUE(from_json(GOLDEN_V3, &parsed, &error)) << error;
   EXPECT_FALSE(parsed.from_newer_firmware());
   EXPECT_EQ(GOLDEN_PRESETS, to_json(parsed));
+}
+
+// One the firmware before each relay had its own gains wrote: its one set is both relays'.
+TEST(ClimateConfigJson, AVersionFourFilesGainsAreBothRelays) {
+  ClimateConfig parsed;
+  std::string error;
+  ASSERT_TRUE(from_json(GOLDEN_V4, &parsed, &error)) << error;
+  EXPECT_FALSE(parsed.from_newer_firmware());
+  EXPECT_EQ(CONFIG_VERSION, parsed.version);
+  EXPECT_EQ(3u, parsed.revision);
+  EXPECT_TRUE(same_gains(PidGains{1.5f, 0.25f, 2.f}, parsed.pid.heat));
+  EXPECT_TRUE(same_gains(PidGains{1.5f, 0.25f, 2.f}, parsed.pid.cool));
+  const std::string json = to_json(parsed);
+  EXPECT_NE(std::string::npos,
+            json.find(R"("pid":{"heat":{"kp":1.5,"ki":0.25,"kd":2},"cool":{"kp":1.5,"ki":0.25,"kd":2},"kp":1.5,)"))
+      << json;
+}
+
+// No migration: a file from before in heat and cool mode breaks this firmware's rules.
+TEST(ClimateConfigJson, HeatAndCoolIsAWordItDoesNotKnow) {
+  const std::string both = R"({"name":"B","sensor_id":"s","heat":{"relay_id":"r"},"cool":{"relay_id":"c"},)";
+  struct Case {
+    std::string json;
+    const char *error;
+  };
+  const Case cases[] = {
+      {both + R"("mode":"heat_cool"})", "mode must be one of off/heat/cool"},
+      {both + R"("mode":"off","last_on_mode":"heat_cool"})", "last_on_mode must be one of heat/cool"},
+      {both + R"("mode":"heat","presets":[{"name":"Eco","setpoint":18,"mode":"heat_cool"}]})",
+       "Preset 1: mode must be one of keep/off/heat/cool"},
+  };
+  for (const Case &c : cases) {
+    ClimateConfig parsed;
+    std::string error;
+    EXPECT_FALSE(from_json(c.json, &parsed, &error, false)) << c.json;
+    EXPECT_EQ(c.error, error) << c.json;
+  }
 }
 
 // A newer firmware's file keeps its number, so the hub knows it must not write it, and keeps
@@ -258,7 +445,7 @@ TEST(PresetRules, StructuralProblemsAreRejectedWithAReason) {
       {R"([{"name":"Eco","setpoint":18},"Night"])", "Preset 2 must be an object"},
       {R"([{"name":"Eco"}])", "Preset 1: setpoint must be a number"},
       {R"([{"name":"Eco","setpoint":"18"}])", "Preset 1: setpoint must be a number"},
-      {R"([{"name":"Eco","setpoint":18,"mode":"dry"}])", "Preset 1: mode must be one of keep/off/heat/cool/heat_cool"},
+      {R"([{"name":"Eco","setpoint":18,"mode":"dry"}])", "Preset 1: mode must be one of keep/off/heat/cool"},
       {R"([{"name":"Eco","setpoint":18,"key":"Eco!"}])",
        "Preset 1: key must be a slug: lowercase letters, digits and single dashes"},
       {R"([{"name":"Eco","setpoint":18,"key":"x"},{"name":"Night","setpoint":18,"key":"x"}])",
@@ -288,7 +475,6 @@ TEST(PresetRules, APresetsModeNeedsItsRelays) {
   };
   const std::pair<const char *, const char *> refused[] = {
       {"cool", "Preset 1: mode 'cool' needs cool.relay_id"},
-      {"heat_cool", "Preset 1: mode 'heat_cool' needs both relays"},
   };
   for (const auto &c : refused) {
     ClimateConfig parsed;
@@ -320,9 +506,11 @@ TEST(PresetRules, TheNameRulesHoldForEveryPreset) {
       {"", "Preset 2: Name is required"},
       {"   ", "Preset 2: Name is required"},
       {std::string(49, 'a'), "Preset 2: Name is longer than 48 characters"},
+      {repeat("\u043d", 49), "Preset 2: Name is longer than 48 characters"},
       {"Up/down", "Preset 2: Name cannot contain '/'"},
       {"Back\\\\slash", "Preset 2: Name cannot contain '\\'"},
-      {"\u041d\u043e\u0447\u044c", "Preset 2: Use printable ASCII characters only"},
+      {"Late\tnight", "Preset 2: Name cannot contain control characters"},
+      {"\xd0", "Preset 2: Name is not valid UTF-8"},
       {"none", "Preset 2: \"none\" is reserved"},
       {" NONE ", "Preset 2: \"NONE\" is reserved"},
       {"Eco", "Preset 2: \"Eco\" is already used by Preset 1"},
@@ -343,8 +531,30 @@ TEST(PresetRules, TheNameRulesHoldForEveryPreset) {
                          &error, false));
   EXPECT_EQ("Preset 2: \"day time\" is already used by Preset 1", error);
 
+  EXPECT_FALSE(
+      from_json(doc_with(R"([{"name":"Ночь","setpoint":18},{"name":"НОЧЬ","setpoint":18}])"), &parsed, &error, false));
+  EXPECT_EQ("Preset 2: \"НОЧЬ\" is already used by Preset 1", error) << "in any script";
+
   ASSERT_TRUE(from_json(doc_with(R"([{"name":"  Night \t","setpoint":18}])"), &parsed, &error, false)) << error;
   EXPECT_EQ("Night", parsed.presets[0].name) << "trimmed, as a thermostat's name is";
+}
+
+// Any script, as a thermostat's name; the key falls back to "preset" and stays unique.
+TEST(PresetRules, ANameInAnyScriptIsKeptAndKeyedUniquely) {
+  ClimateConfig parsed;
+  std::string error;
+  const std::string presets =
+      R"([{"name":"\u041d\u043e\u0447\u044c","setpoint":18},{"name":"\u0414\u0435\u043d\u044c","setpoint":21},)"
+      R"({"name":"Preset","setpoint":19},{"name":")" +
+      repeat("\u043d", 48) + R"(","setpoint":20}])";
+  ASSERT_TRUE(from_json(doc_with(presets), &parsed, &error, false)) << error;
+  ASSERT_EQ(4u, parsed.presets.size());
+  EXPECT_EQ("\u041d\u043e\u0447\u044c", parsed.presets[0].name);
+  EXPECT_EQ("preset", parsed.presets[0].key);
+  EXPECT_EQ("preset-2", parsed.presets[1].key);
+  EXPECT_EQ("preset-3", parsed.presets[2].key) << "\"Preset\" slugifies to a key taken already";
+  EXPECT_EQ("preset-4", parsed.presets[3].key);
+  EXPECT_EQ(repeat("\u043d", 48), parsed.presets[3].name);
 }
 
 // The presets come after the thermostat's own rules and before its name; within them, every
@@ -489,7 +699,7 @@ TEST(PresetRules, APickTakesTheTargetTheModeAndTheLabel) {
   EXPECT_FALSE(config.pick_preset(config.presets[0])) << "already the eco's values";
   EXPECT_TRUE(config.pick_preset(config.presets[1]));
   EXPECT_FLOAT_EQ(19.5f, config.setpoint);
-  EXPECT_EQ(HubMode::HEAT_COOL, config.mode);
+  EXPECT_EQ(HubMode::COOL, config.mode);
   EXPECT_EQ("night", config.active_preset);
 
   config.presets[0].setpoint = 99.f;
@@ -570,7 +780,8 @@ TEST(ClimateConfigJson, OutOfRangeNumbersAreClamped) {
 
   EXPECT_FLOAT_EQ(3600.f, parsed.heat.period_s);
   EXPECT_FLOAT_EQ(0.f, parsed.heat.min_on_s);
-  EXPECT_FLOAT_EQ(0.f, parsed.pid.kp);
+  EXPECT_FLOAT_EQ(0.f, parsed.pid.heat.kp);
+  EXPECT_FLOAT_EQ(0.f, parsed.pid.cool.kp) << "the one set is both relays'";
   EXPECT_FLOAT_EQ(100.f, parsed.pid.derivative_samples);
 }
 
@@ -595,12 +806,12 @@ TEST(ClimateConfigJson, StructuralProblemsAreRejectedWithAReason) {
       {R"({"name":"B","kind":"pid","heat":{"relay_id":"r"}})", "sensor_id is required"},
       {R"({"name":"B","kind":"pid","sensor_id":"s"})", "at least one of heat.relay_id / cool.relay_id is required"},
       {R"({"name":"B","kind":"pid","sensor_id":"s","heat":{"relay_id":"r"},"mode":"dry"})",
-       "mode must be one of off/heat/cool/heat_cool"},
+       "mode must be one of off/heat/cool"},
       {R"({"name":"B","kind":"pid","sensor_id":"s","heat":{"relay_id":"r"},"mode":"cool"})",
        "mode 'cool' needs cool.relay_id"},
       {R"({"name":"B","sensor_id":"s","cool":{"relay_id":"r"},"mode":"heat"})", "mode 'heat' needs heat.relay_id"},
       {R"({"name":"B","sensor_id":"s","heat":{"relay_id":"r"},"mode":"heat_cool"})",
-       "mode 'heat_cool' needs both relays"},
+       "mode must be one of off/heat/cool"},
       {R"({"name":"B","sensor_id":"s","heat":{"relay_id":"r"},"visual":{"min_temperature":30,"max_temperature":20}})",
        "visual.max_temperature must be above visual.min_temperature"},
       {R"({"name":"B","sensor_id":"s","heat":{"relay_id":"r"},"pid":{"min_integral":1,"max_integral":-1}})",
@@ -620,7 +831,7 @@ TEST(ClimateConfigJson, StructuralProblemsAreRejectedWithAReason) {
 TEST(ClimateConfigJson, OneRelayCannotDriveBothDirections) {
   ClimateConfig parsed;
   std::string error;
-  std::string json = R"({"name":"B","kind":"pid","sensor_id":"s","mode":"heat_cool",)"
+  std::string json = R"({"name":"B","kind":"pid","sensor_id":"s","mode":"heat",)"
                      R"("heat":{"relay_id":"relay_1"},"cool":{"relay_id":"relay_1"}})";
   EXPECT_FALSE(from_json(json, &parsed, &error, false));
   EXPECT_EQ("heat and cool cannot share one relay", error);
@@ -670,7 +881,9 @@ TEST(ClimateConfigJson, TheLargestDocumentTheRulesAllowFitsTheCap) {
   ClimateConfig c;
   c.version = 65535;
   c.id = std::string(ID_MAX_LENGTH, 'a');
-  c.name = std::string(NAME_MAX_LENGTH, '"');
+  // 48 characters in 96 bytes, written out longest: a '"' takes two, a four-byte one four.
+  const std::string worst_name = std::string(32, '"') + repeat("\U0001F525", 16);
+  c.name = worst_name;
   c.sensor_id = std::string(ENTITY_ID_MAX_LENGTH, '\0');
   c.heat.relay_id = std::string(ENTITY_ID_MAX_LENGTH, '\0');
   c.cool.relay_id = std::string(ENTITY_ID_MAX_LENGTH - 1, '\0') + "x";
@@ -683,20 +896,22 @@ TEST(ClimateConfigJson, TheLargestDocumentTheRulesAllowFitsTheCap) {
   c.safety.sensor_timeout_s = c.safety.max_temperature = wide;
   c.bang_bang.below = c.bang_bang.above = wide;
   PidParams &p = c.pid;
-  p.kp = p.ki = p.kd = p.min_integral = p.max_integral = p.starting_integral_term = wide;
+  p.heat.kp = p.heat.ki = p.heat.kd = p.cool.kp = p.cool.ki = p.cool.kd = wide;
+  p.min_integral = p.max_integral = p.starting_integral_term = wide;
   p.output_samples = p.derivative_samples = p.deadband_threshold_low = p.deadband_threshold_high = wide;
   p.deadband_kp_multiplier = p.deadband_ki_multiplier = p.deadband_kd_multiplier = p.deadband_output_samples = wide;
   for (size_t i = 0; i < PRESET_MAX_COUNT; i++) {
     PresetConfig preset;
     preset.key = std::string(ID_MAX_LENGTH - 1, 'k') + std::to_string(i);
-    preset.name = std::string(NAME_MAX_LENGTH, '"');
+    preset.name = worst_name;
     preset.setpoint = wide;
-    preset.mode = HubMode::HEAT_COOL;
+    preset.mode = HubMode::COOL;
     c.presets.push_back(preset);
   }
   c.active_preset = c.presets.back().key;
   std::string error;
   ASSERT_TRUE(validate_name(c.name, &error)) << error;
+  ASSERT_EQ(NAME_MAX_BYTES, c.name.size());
 
   std::string json;
   ASSERT_EQ(EncodeError::NONE, c.encode(&json));
@@ -827,12 +1042,24 @@ TEST(ClimateConfigJson, TheNameIsTrimmed) {
       << error;
   EXPECT_EQ("Boiler", parsed.name);
   EXPECT_EQ("Boiler", trim_name("\n\r\f\vBoiler\t "));
+  // A paste brings no-break and ideographic spaces along; inside the name they stay.
+  EXPECT_EQ("Кухня\u00a01", trim_name("\u00a0\u3000Кухня\u00a01\u2009\ufeff\u202f"));
+  EXPECT_EQ("", trim_name("\u00a0\u3000"));
+  // Bytes that are not UTF-8 stop the trim; the name rules refuse them.
+  EXPECT_EQ("\xa0"
+            "Boiler",
+            trim_name(" \xa0"
+                      "Boiler "));
 }
 
 TEST(NameRules, WhatANameMayBe) {
   std::string error;
-  EXPECT_TRUE(validate_name("Living room 2 (south)", &error)) << error;
-  EXPECT_TRUE(validate_name(std::string(48, 'a'), &error)) << error;
+  for (const std::string &name : {std::string("Living room 2 (south)"), std::string(48, 'a'), std::string("Кухня"),
+                                  std::string("Café crème"), std::string("Ёлка \U0001F384"), repeat("ж", 48),
+                                  // Two-byte letters to the byte limit, a three-byte one in 32 characters.
+                                  repeat("ж", 47) + "z", repeat("€", 32)}) {
+    EXPECT_TRUE(validate_name(name, &error)) << name << ": " << error;
+  }
 
   struct Case {
     std::string name;
@@ -841,13 +1068,28 @@ TEST(NameRules, WhatANameMayBe) {
   const Case cases[] = {
       {"", "Name is required"},
       {std::string(49, 'a'), "Name is longer than 48 characters"},
+      {repeat("ж", 49), "Name is longer than 48 characters"},
+      {repeat("ж", 47) + "€", "Name is longer than 96 bytes"},
+      {repeat("\U0001F525", 25), "Name is longer than 96 bytes"},
       {"Up/down", "Name cannot contain '/'"},
+      {"Кухня/2", "Name cannot contain '/'"},
       {"Back\\slash", "Name cannot contain '\\'"},
-      {"Кухня", "Use printable ASCII characters only"},
-      {"Tab\there", "Use printable ASCII characters only"},
+      {"Tab\there", "Name cannot contain control characters"},
+      {"Bell\x07", "Name cannot contain control characters"},
+      {"Del\x7f", "Name cannot contain control characters"},
+      {"Next\xc2\x85line", "Name cannot contain control characters"},
+      {"\xff", "Name is not valid UTF-8"},
+      {"Кухн\xd1", "Name is not valid UTF-8"},
+      {"\xd1\x20", "Name is not valid UTF-8"},
+      {"\xc0\xaf", "Name is not valid UTF-8"},
+      {"\xe0\x80\xaf", "Name is not valid UTF-8"},
+      {"\xed\xa0\x80", "Name is not valid UTF-8"},
+      {"\xf4\x90\x80\x80", "Name is not valid UTF-8"},
+      {"\x80", "Name is not valid UTF-8"},
       // The whole name is checked for each rule in turn, not character by character.
-      {"a/b\tc", "Use printable ASCII characters only"},
+      {"a/b\tc", "Name cannot contain control characters"},
       {"a\\b/c", "Name cannot contain '/'"},
+      {"a\tb\xff", "Name is not valid UTF-8"},
   };
   for (const Case &c : cases) {
     EXPECT_FALSE(validate_name(c.name, &error)) << c.name;
@@ -858,6 +1100,13 @@ TEST(NameRules, WhatANameMayBe) {
 TEST(NameRules, TheDocumentRefusesABrokenName) {
   ClimateConfig parsed;
   std::string error;
+  EXPECT_FALSE(from_json("{\"name\":\"Kitchen\xd1\",\"sensor_id\":\"s\",\"heat\":{\"relay_id\":\"r\"}}", &parsed,
+                         &error, false));
+  EXPECT_EQ("Name is not valid UTF-8", error);
+  ASSERT_TRUE(from_json(R"({"name":" \u041a\u0443\u0445\u043d\u044f ","sensor_id":"s","heat":{"relay_id":"r"}})",
+                        &parsed, &error, false))
+      << error;
+  EXPECT_EQ("Кухня", parsed.name) << "trimmed, and kept as it is";
   EXPECT_FALSE(from_json(R"({"name":"a/b","sensor_id":"s","heat":{"relay_id":"r"}})", &parsed, &error, false));
   EXPECT_EQ("Name cannot contain '/'", error);
   EXPECT_FALSE(from_json(R"({"name":"   ","sensor_id":"s","heat":{"relay_id":"r"}})", &parsed, &error, false));
@@ -873,8 +1122,7 @@ TEST(ClimateConfigJson, TheFirstBrokenRuleIsTheOneReported) {
   };
   const Case cases[] = {
       {R"({"name":"a/b","heat":{"relay_id":"r"}})", "sensor_id is required"},
-      {R"({"name":"a/b","sensor_id":"s","heat":{"relay_id":"r"},"mode":"dry"})",
-       "mode must be one of off/heat/cool/heat_cool"},
+      {R"({"name":"a/b","sensor_id":"s","heat":{"relay_id":"r"},"mode":"dry"})", "mode must be one of off/heat/cool"},
       {R"({"name":"B","heat":{"relay_id":"r"},"mode":"dry"})", "sensor_id is required"},
       {R"({"name":"B","sensor_id":"s","heat":{"relay_id":"r"},"mode":"dry","pid":{"min_integral":1,"max_integral":-1}})",
        "pid.max_integral must not be below pid.min_integral"},
@@ -903,21 +1151,27 @@ TEST(ClimateConfigJson, ANumberIsNoName) {
   EXPECT_EQ("", parsed.id);
 }
 
-// What Home Assistant and every object-id-keyed record know the entity by.
-TEST(NameRules, TheObjectIdIsWhatESPHomeDerives) {
-  EXPECT_EQ("living_room", object_id_of_name("Living Room"));
-  EXPECT_EQ("room_1", object_id_of_name("Room 1"));
-  EXPECT_EQ("room_1", object_id_of_name("Room_1"));
-  EXPECT_EQ("room_1", object_id_of_name("Room.1"));
-  EXPECT_EQ(fnv1_hash_object_id("Room 1", 6), fnv1_hash(object_id_of_name("Room 1")));
+TEST(NameRules, AFittedNameNeverEndsInsideACharacter) {
+  EXPECT_EQ("Boil", fit_name("Boiler", 4, 96));
+  EXPECT_EQ("Кух", fit_name("Кухня", 3, 96));
+  EXPECT_EQ("Кух", fit_name("Кухня", 48, 7)) << "a fourth letter would end on byte 8";
+  EXPECT_EQ("Кухня", fit_name("Кухня", 48, 96));
+  EXPECT_EQ(repeat("ж", 46), fit_name(repeat("ж", 48), 46, 94));
+  EXPECT_EQ("", fit_name("\U0001F525", 1, 3));
 }
 
 TEST(NameRules, TheKeyIsTheNameAsAPersonReadsIt) {
   EXPECT_EQ("living room", name_key("  Living   Room "));
   EXPECT_EQ(name_key("LIVING ROOM"), name_key("living room"));
   EXPECT_NE(name_key("Room 1"), name_key("Room_1"));
-  // A YAML climate's name may be anything; its non-ASCII bytes are compared as they are.
-  EXPECT_EQ("\xd0\x9a\xd1\x83\xd1\x85\xd0\xbd\xd1\x8f 1", name_key("\xd0\x9a\xd1\x83\xd1\x85\xd0\xbd\xd1\x8f  1"));
+  // Latin, Greek and Cyrillic letters are compared without case, as the dashboard compares them.
+  EXPECT_EQ("кухня 1", name_key("КУХНЯ  1"));
+  EXPECT_EQ(name_key("Café crème"), name_key("CAFÉ CRÈME"));
+  EXPECT_EQ(name_key("Οδός"), name_key("ΟΔΌΣ"));
+  EXPECT_NE(name_key("Οδός"), name_key("Οδος")) << "an accent makes another letter";
+  // Any other script, and a YAML climate's bytes that are not UTF-8, are compared as they are.
+  EXPECT_NE(name_key("Ⴀ"), name_key("ⴀ"));
+  EXPECT_EQ("\xd0 \xff", name_key("\xd0  \xff"));
 }
 
 TEST(SlugifyId, ReducesToASafeStem) {

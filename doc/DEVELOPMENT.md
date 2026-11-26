@@ -5,7 +5,7 @@ Setting up, building, and the checks that gate a push.
 ## Environment
 
 `scripts/setup.sh` (`scripts\setup.bat` on Windows) creates `.venv/`, installs `requirements.txt`
-and `requirements-dev.txt`, and installs the pre-commit hook. ESPHome is pinned to 2026.9.1;
+and `requirements-dev.txt`, and installs the pre-commit hook. ESPHome is pinned to 2026.10.2;
 Python 3.12–3.14. Activate the venv before committing: the hooks run with whatever `python3`
 git sees.
 
@@ -19,10 +19,11 @@ git sees.
 esphome config  devices/JXD/jxd-r6-e1eth-lcd.yaml                 # validate only, no toolchain
 esphome compile devices/JXD/jxd-r6-e1eth-lcd.yaml                 # full build
 esphome run     devices/JXD/jxd-r6-e1eth-lcd.yaml --device <ip>   # build + OTA (omit --device for USB)
-esphome -s version 2026.9.1.0 -s timezone Europe/Berlin compile <config>   # substitutions from the CLI
+esphome -s version 2026.10.2.0 -s timezone Europe/Berlin compile <config>   # substitutions from the CLI
 
 python scripts/build-dist.py  [--check]    # regenerate / verify dist/ (imports esphome: use the venv)
 python scripts/build-icons.py [--check]    # regenerate / verify assets/res/
+python scripts/build-case-fold.py [--check] # regenerate / verify the case-fold tables
 python scripts/firmware-matrix.py build    # CI matrix from firmwares.yaml; also validates the file
 python scripts/vendored-diff.py            # what components/ changed in the ESPHome components it shadows
 python scripts/vendored-diff.py --check    # and whether every hunk of that is still marked
@@ -40,6 +41,19 @@ SKIP=build-dist pre-commit run --all-files # what the CI lint job runs
 
 Build output lands next to the config:
 `devices/JXD/.esphome/build/<name>/build/firmware.{factory,ota}.bin`.
+
+`esphome run --device` needs **Allow uploads from ESPHome** on, or the upload stops at
+`Authentication invalid`. It turns itself off after 30 minutes, at every reboot, whenever the
+API key is set or cleared, and, on a device Home Assistant has not added, 15 minutes after a
+boot: turn it on again then. From the shell:
+
+```bash
+curl --digest -u admin:admin -X POST -d '' 'http://<ip>/switch/Allow%20uploads%20from%20ESPHome/turn_on'
+```
+
+A config without `password: ""` under `ota: - platform: esphome`, such as one imported into the
+Builder from an older `dist/`, stops at `ESP requests password, but no password given!`, switch
+or not: add the line.
 
 CI compiles with `TZ=Etc/UTC`: the `homeassistant` time platform bakes the build host's zone into
 the firmware.
@@ -70,6 +84,15 @@ requires.
   `npm run build` in [jethome-devices-web-dashboard](https://github.com/jethome-iot/jethome-devices-web-dashboard)
   writes `dist/dashboard_index.h`; copy it over this one, or merge the pull request that
   repository's Release workflow opens.
+- `components/web_device_dashboard/client/device/timezones.ts` — `scripts/build-timezones.py`,
+  every IANA name with the POSIX string ESPHome compiles for it. The `build-timezones` hook pins
+  ESPHome and tzdata, so the table changes only when those pins do; a new tzdata release reaches
+  it by moving the hook's `tzdata` pin and regenerating.
+- `components/case_fold/case_fold_table.h`, `components/case_fold/client/caseFoldTable.ts` and
+  `tests/components/case_fold/fold_cases.tsv` — `scripts/build-case-fold.py`, from the Unicode
+  data of the Python running it. The device and the dashboard compare names with these two
+  tables, so they are regenerated together; the `build-case-fold` hook and the `case_fold` suite
+  fail when one is stale.
 
 `firmwares.yaml` must list every device config (`build-dist.py` refuses to run otherwise); it is
 the only input to the Build and Release matrices.
@@ -79,7 +102,8 @@ the only input to the Build and Release matrices.
 The pin appears in these files; Dependabot bumps only the first:
 
 - `requirements.txt` — the source of truth: firmware versions and CI cache keys derive from it
-- `.pre-commit-config.yaml` — `additional_dependencies` of the `build-dist` hook
+- `.pre-commit-config.yaml` — `additional_dependencies` of the `build-dist`, `build-timezones`
+  and `vendored-diff` hooks
 - `README.md` — badge and text
 - `scripts/setup.sh`, `scripts/setup.bat` — the Python-range messages
 - `doc/DEVELOPMENT.md` (Environment) and `CLAUDE.md` — the stated version
@@ -87,27 +111,12 @@ The pin appears in these files; Dependabot bumps only the first:
 After a bump, re-check every entry under "Coupled to upstream internals" in
 [ARCHITECTURE.md](ARCHITECTURE.md): that list is the one that grows, this one would go stale.
 
-`components/display_menu_base` and `components/graphical_display_menu` replace the ESPHome
-components of those names, so a bump does not reach them. Before changing the pin, save
-`scripts/vendored-diff.py` output; after it, copy both directories from the new ESPHome and
-re-apply that patch. Every hunk it prints is marked `JetHome:` in the source, which is what the
-`vendored-diff` pre-commit hook checks — it fails on the un-re-copied tree, so the pin in that
-hook has to move with the others.
-
-`components/web_server_idf` is a different case: it is not a change of ours but a backport, ESPHome
-PR #17800, carried only because the pinned release predates it. **On the first bump to a release that
-contains #17800, delete it rather than re-copying it** — the directory, the
-`devices/JXD/packages/features/web-server-idf-backport.yaml` package, and that package's line in both
-device configs, then regenerate `dist/` and drop the entry from ARCHITECTURE.md. To check whether a
-candidate release carries it:
-
-```bash
-git -C <esphome checkout> merge-base --is-ancestor 9309cf96b9 <tag> && echo "carried"
-```
-
-`scripts/vendored-diff.py web_server_idf` prints exactly what is being carried, so a mismatch after a
-bump means the release moved that code for some other reason and the diff has to be read before
-anything is deleted.
+`components/display_menu_base`, `components/graphical_display_menu` and `components/ds2484`
+replace the ESPHome components of those names, so a bump does not reach them. Before changing
+the pin, save `scripts/vendored-diff.py` output; after it, copy the directories from the new
+ESPHome and re-apply that patch. Every hunk it prints is marked `JetHome:` in the source, which
+is what the `vendored-diff` pre-commit hook checks — it fails on the un-re-copied tree, so the
+pin in that hook has to move with the others.
 
 Also re-sync `.clang-format` and the `mirrors-clang-format` rev in `.pre-commit-config.yaml` with
 upstream's: a bump can change either the style config or the version it formats with.

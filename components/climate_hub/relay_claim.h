@@ -60,6 +60,8 @@ class RelayClaim {
   uint32_t moves() const { return this->moves_; }
 
   bool state() const { return this->state_; }
+  /// state() is where something else moved the relay, kept there until it is put back.
+  bool pending() const { return this->pending_; }
   /// What kept the relay from the last request()'s `want`: its own min_on or min_off. NONE once
   /// it got there, after force_off(), and while it stays where something else moved it until the
   /// put-back, which waits on that move rather than on the thermostat.

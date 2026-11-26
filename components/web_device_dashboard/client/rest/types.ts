@@ -135,6 +135,7 @@ export interface ClimateEntity extends BaseEntity {
   min_temp?: string
   max_temp?: string
   step?: number
+  temperature_unit?: number // detail=all; 0 Celsius, 1 Fahrenheit, 2 Kelvin
   current_humidity?: string // if the entity reports humidity
   fan_mode?: string
   custom_fan_mode?: string

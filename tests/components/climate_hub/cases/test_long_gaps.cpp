@@ -34,8 +34,8 @@ class LongGaps : public HubTest {
   static ClimateConfig integrating() {
     ClimateConfig c = base(ControlKind::PID);
     c.setpoint = 25.f;
-    c.pid.kp = 0.f;
-    c.pid.ki = 0.01f;
+    c.pid.heat.kp = 0.f;
+    c.pid.heat.ki = 0.01f;
     return c;
   }
 
@@ -143,8 +143,8 @@ TEST_F(LongGaps, AReadingHeardBeforeTheMillisWrapIsStaleAtAStart) {
 TEST_F(LongGaps, ThePwmKeepsItsRhythmAcrossTheMillisWrap) {
   ClimateConfig config = base(ControlKind::PID);
   config.setpoint = 25.f;
-  config.pid.kp = 0.1f;
-  config.pid.ki = 0.f;
+  config.pid.heat.kp = 0.1f;
+  config.pid.heat.ki = 0.f;
   config.safety.sensor_timeout_s = 60.f;
   hub().ms = MILLIS_WRAP - 3000;
   ControllerRuntime *rt = this->start(config, 20.f);
@@ -269,7 +269,7 @@ TEST_F(LongGaps, ARuleEndsACalibrationAcrossTheMillisWrapAtTheHubsClock) {
 // would read as the time since the relay opened.
 TEST_F(LongGaps, ARuleTurnsAThermostatBackOnPastTheMillisWrap) {
   ClimateConfig config = integrating();
-  config.pid.kp = 0.1f;
+  config.pid.heat.kp = 0.1f;
   config.heat.min_off_s = 600.f;
   config.safety.sensor_timeout_s = 60.f;
   // Past the min_off the boot started.
@@ -298,7 +298,7 @@ TEST_F(LongGaps, ARuleTurnsAThermostatBackOnPastTheMillisWrap) {
 TEST_F(LongGaps, APidStartsAfreshAfterModeOff) {
   ClimateConfig config = integrating();
   config.safety.sensor_timeout_s = 60.f;
-  config.pid.kd = 1.f;
+  config.pid.heat.kd = 1.f;
   ControllerRuntime *rt = this->start(config, 20.f);
   tick(100000);
   tick(101000);
@@ -339,8 +339,8 @@ TEST_F(LongGaps, APidStartsAfreshAfterAFault) {
 // that averages it holds nothing from before.
 TEST_F(LongGaps, APidAveragesNoDerivativeFromBeforeAPause) {
   ClimateConfig config = integrating();
-  config.pid.ki = 0.f;
-  config.pid.kd = 1.f;
+  config.pid.heat.ki = 0.f;
+  config.pid.heat.kd = 1.f;
   config.pid.derivative_samples = 4.f;
   config.safety.sensor_timeout_s = 60.f;
   ControllerRuntime *rt = this->start(config, 20.f);
@@ -364,8 +364,8 @@ TEST_F(LongGaps, APidAveragesNoDerivativeFromBeforeAPause) {
 // Nor does it average in an output from before the pause: here after a stale sensor.
 TEST_F(LongGaps, APidAveragesNoOutputFromBeforeAPause) {
   ClimateConfig config = integrating();
-  config.pid.kp = 0.1f;
-  config.pid.ki = 0.f;
+  config.pid.heat.kp = 0.1f;
+  config.pid.heat.ki = 0.f;
   config.pid.output_samples = 4.f;
   ControllerRuntime *rt = this->start(config, 20.f);
   tick(100000);
@@ -384,11 +384,13 @@ TEST_F(LongGaps, APidAveragesNoOutputFromBeforeAPause) {
 // in full.
 TEST_F(LongGaps, ARelayContestIsNoPause) {
   ClimateConfig config = integrating();
-  config.setpoint = 20.f;
-  config.pid.ki = 0.001f;
+  config.pid.heat.ki = 0.001f;
+  config.pid.starting_integral_term = -1.f;
   config.safety.sensor_timeout_s = 3600.f;
-  // Five degrees too warm: the relay is wanted open, and something else keeps closing it.
-  ControllerRuntime *rt = this->start(config, 25.f);
+  // Five degrees too cold, but an integral from its floor holds the output under 0: the relay is
+  // wanted open, and something else keeps closing it. Too warm instead, the integral would not
+  // move at all with the output under the range.
+  ControllerRuntime *rt = this->start(config, 20.f);
   tick(100000);
   uint64_t t = 100000;
   for (uint32_t n = 1; n <= CONTEST_MOVES; n++) {
@@ -402,13 +404,13 @@ TEST_F(LongGaps, ARelayContestIsNoPause) {
   const float before = rt->pid().integral_term();
   tick(t + 30000);
   EXPECT_EQ(HubFault::RELAY_CONTESTED, rt->fault());
-  EXPECT_NEAR(before - 0.15f, rt->pid().integral_term(), 1e-5f) << "-5 degrees for 30 s at 0.001";
+  EXPECT_NEAR(before + 0.15f, rt->pid().integral_term(), 1e-5f) << "5 degrees for 30 s at 0.001";
 }
 
 // An interval is no pause: the pass at its end integrates over all of it.
 TEST_F(LongGaps, APidIntegratesOverItsWholeInterval) {
   ClimateConfig config = integrating();
-  config.pid.ki = 0.001f;
+  config.pid.heat.ki = 0.001f;
   config.update_interval_s = 60.f;
   config.safety.sensor_timeout_s = 300.f;
   ControllerRuntime *rt = this->start(config, 20.f);
@@ -523,8 +525,8 @@ TEST_F(AfterTheWrap, AStartAfterTheWrapWaitsForItsFirstReading) {
 TEST_F(AfterTheWrap, APidAfterTheWrapIntegratesOverItsInterval) {
   ClimateConfig c = cfg(ControlKind::PID);
   c.setpoint = 25.f;
-  c.pid.kp = 0.f;
-  c.pid.ki = 0.01f;
+  c.pid.heat.kp = 0.f;
+  c.pid.heat.ki = 0.01f;
   hub().ms = MILLIS_WRAP + 1000;
   const std::string id = this->create(c).id;
   entities().room.publish_state(20.f);

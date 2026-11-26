@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <dirent.h>
 #include <sys/stat.h>
+#include "esphome/components/case_fold/case_fold.h"
 #include "esphome/components/time/real_time_clock.h"
 #include "esphome/core/application.h"
 #include "esphome/core/hal.h"
@@ -30,11 +31,51 @@ static const size_t MAX_FILENAME_BYTES = 48;
 static const size_t MAX_FILE_BYTES = 16384;
 // A cron tick further away than this from the previous one is a clock jump, not elapsed time.
 static const time_t MAX_TIMESTAMP_DRIFT = 900;
+// A local offset that moves by more than the drift and at most this, while time runs on, is a
+// DST switch; a larger move is a new zone and is taken as a jump.
+static const int64_t MAX_DST_SHIFT = 3600;
+// A switch an action drives calls back in synchronously: rules that trigger each other would
+// otherwise recurse until the loop task's stack runs out. Eight levels fit its 8 KiB.
+static const uint8_t MAX_DISPATCH_DEPTH = 8;
+
+// The code point at `i`, moving past it; false where the bytes are not UTF-8.
+static bool next_code_point(const std::string &text, size_t *i, uint32_t *out) {
+  auto byte = [&text](size_t at) { return static_cast<unsigned char>(text[at]); };
+  const unsigned char lead = byte(*i);
+  size_t width;
+  uint32_t c;
+  if (lead < 0x80) {
+    width = 1;
+    c = lead;
+  } else if (lead >= 0xC2 && lead <= 0xDF) {
+    width = 2;
+    c = lead & 0x1F;
+  } else if (lead >= 0xE0 && lead <= 0xEF) {
+    width = 3;
+    c = lead & 0x0F;
+  } else if (lead >= 0xF0 && lead <= 0xF4) {
+    width = 4;
+    c = lead & 0x07;
+  } else {
+    return false;
+  }
+  if (*i + width > text.size())
+    return false;
+  for (size_t k = 1; k < width; k++) {
+    if ((byte(*i + k) & 0xC0) != 0x80)
+      return false;
+    c = (c << 6) | (byte(*i + k) & 0x3F);
+  }
+  // Overlong forms, surrogates and past U+10FFFF.
+  if ((width == 3 && c < 0x800) || (width == 4 && c < 0x10000) || (c >= 0xD800 && c <= 0xDFFF) || c > 0x10FFFF)
+    return false;
+  *i += width;
+  *out = c;
+  return true;
+}
 
 // Cut to at most `limit` bytes without splitting a UTF-8 character.
 static std::string truncate_utf8(const std::string &text, size_t limit) {
-  if (text.size() <= limit)
-    return text;
   size_t cut = 0;
   for (size_t i = 0; i < text.size();) {
     auto lead = static_cast<unsigned char>(text[i]);
@@ -63,19 +104,27 @@ AutomationStorage::AutomationStorage() { global_automation_storage = this; }
 
 uint32_t AutomationStorage::now_ms() const { return millis(); }
 
+uint64_t AutomationStorage::uptime_ms() const { return millis_64(); }
+
 ESPTime AutomationStorage::clock_now_() { return this->rtc_->now(); }
 
 // --- Setup and runtime ---
 
-// Drives every built rule, and marks the engine as dispatching for as long as it does.
-template<typename F>
-static void for_each_rule(uint8_t &depth, std::vector<std::unique_ptr<RuntimeAutomation>> &rules, F call) {
-  depth++;
-  for (size_t i = 0; i < rules.size(); i++) {
-    if (rules[i] != nullptr)
-      call(*rules[i]);
+// Drives every built rule in turn.
+template<typename F> void AutomationStorage::each_rule_(F call) {
+  for (size_t i = 0; i < this->automations_.size(); i++) {
+    RuntimeAutomation *rule = this->automations_[i].get();
+    if (rule != nullptr)
+      this->drive(*rule, [&]() { call(*rule); });
   }
-  depth--;
+}
+
+bool AutomationStorage::too_deep_() {
+  if (this->driving_.size() < MAX_DISPATCH_DEPTH)
+    return false;
+  ESP_LOGW(TAG, "Automation '%s': events nested %u deep, dropping the next; do rules trigger each other in a loop?",
+           this->driving_.back()->get_name().c_str(), static_cast<unsigned>(this->driving_.size()));
+  return true;
 }
 
 void AutomationStorage::setup() {
@@ -136,14 +185,13 @@ void AutomationStorage::setup() {
 #endif
 
   if (this->rtc_ != nullptr) {
+    this->restore_hold_();
     this->set_interval(1000, [this]() { this->check_time_(); });
   } else {
     ESP_LOGW(TAG, "No time source: cron triggers are disabled");
   }
   // Startup triggers fire once every component has finished setting up.
-  this->defer([this]() {
-    for_each_rule(this->dispatching_, this->automations_, [](RuntimeAutomation &rule) { rule.on_startup(); });
-  });
+  this->defer([this]() { this->each_rule_([](RuntimeAutomation &rule) { rule.on_startup(); }); });
 }
 
 template<typename E, typename F>
@@ -196,20 +244,21 @@ void AutomationStorage::subscribe_(const RuntimeAutomation &automation) {
 }
 
 void AutomationStorage::on_climate_change_(const std::string &climate_id) {
-  // A lambda behind a rule's own switch action may have changed the hub: rebuilding now would
-  // pull that rule from under its run.
-  if (this->dispatching_ > 0) {
-    this->defer([this, climate_id]() { this->rebuild_for_climate_(climate_id); });
-    return;
-  }
-  this->rebuild_for_climate_(climate_id);
+  this->rebuild_rules_([climate_id](const AutomationConfig &config) { return names_climate(config, climate_id); },
+                       "thermostat '" + climate_id + "'");
 }
 
 // A built rule that still builds is left running; only the ones whose state changes move.
-void AutomationStorage::rebuild_for_climate_(const std::string &climate_id) {
+void AutomationStorage::rebuild_rules_(std::function<bool(const AutomationConfig &)> names, std::string what) {
+  // A lambda behind a rule's own switch action may have made the change: rebuilding now would
+  // pull that rule from under its run.
+  if (!this->driving_.empty()) {
+    this->defer([this, names = std::move(names), what = std::move(what)]() { this->rebuild_rules_(names, what); });
+    return;
+  }
   for (size_t i = 0; i < this->config_storage_.size(); i++) {
     AutomationConfig *config = this->config_storage_.get_config(static_cast<uint8_t>(i));
-    if (!names_climate(*config, climate_id))
+    if (!names(*config))
       continue;
     std::string error;
     auto rebuilt = RuntimeAutomation::build(this, *config, &error);
@@ -221,7 +270,7 @@ void AutomationStorage::rebuild_for_climate_(const std::string &climate_id) {
         this->automations_[i].reset();
       }
     } else if (!built) {
-      ESP_LOGI(TAG, "Automation '%s' is built: thermostat '%s' is there", config->name.c_str(), climate_id.c_str());
+      ESP_LOGI(TAG, "Automation '%s' is built: %s is there", config->name.c_str(), what.c_str());
       config->build_error.clear();
       this->subscribe_(*rebuilt);
       this->automations_[i] = std::move(rebuilt);
@@ -237,51 +286,178 @@ void AutomationStorage::expect_level(binary_sensor::BinarySensor *entity) {
 }
 
 void AutomationStorage::dispatch_binary_sensor_(binary_sensor::BinarySensor *entity, bool state, bool level) {
-  for_each_rule(this->dispatching_, this->automations_,
-                [=](RuntimeAutomation &rule) { rule.on_binary_sensor(entity, state, level); });
+  if (!this->too_deep_())
+    this->each_rule_([=](RuntimeAutomation &rule) { rule.on_binary_sensor(entity, state, level); });
 }
 
 void AutomationStorage::dispatch_switch_(switch_::Switch *entity, bool state) {
-  for_each_rule(this->dispatching_, this->automations_,
-                [=](RuntimeAutomation &rule) { rule.on_switch(entity, state); });
+  if (!this->too_deep_())
+    this->each_rule_([=](RuntimeAutomation &rule) { rule.on_switch(entity, state); });
 }
 
 void AutomationStorage::dispatch_sensor_(sensor::Sensor *entity, float value) {
-  for_each_rule(this->dispatching_, this->automations_,
-                [=](RuntimeAutomation &rule) { rule.on_sensor(entity, value); });
+  if (!this->too_deep_())
+    this->each_rule_([=](RuntimeAutomation &rule) { rule.on_sensor(entity, value); });
 }
 
-// Same catch-up and clock-jump handling as the core cron trigger, for all rules at once.
+// The local clock in seconds, read from the fields: a DST switch moves it, not the timestamp.
+static int64_t local_seconds(const ESPTime &time) {
+  ESPTime copy = time;
+  copy.recalc_timestamp_utc(false);
+  return copy.timestamp;
+}
+
+void AutomationStorage::dispatch_time_(const ESPTime &time, CronTriggers which) {
+  this->each_rule_([&time, which](RuntimeAutomation &rule) { rule.on_time(time, which); });
+}
+
+// Same catch-up and clock-jump handling as the core cron trigger, for all rules at once, except
+// across a DST switch, which the core trigger takes for an ordinary second.
 void AutomationStorage::check_time_() {
   ESPTime now = this->clock_now_();
   if (!now.is_valid())
     return;
-  auto fire = [this](const ESPTime &time) {
-    for_each_rule(this->dispatching_, this->automations_, [&time](RuntimeAutomation &rule) { rule.on_time(time); });
+  const int64_t now_local = local_seconds(now);
+  if (!this->last_check_.has_value() && this->stored_hold_.has_value()) {
+    // held_until is a reading in the offset the record was written in; another zone's clock
+    // never read it.
+    const StoredHold &hold = *this->stored_hold_;
+    if (now.timestamp < hold.expires && now_local - now.timestamp == hold.held_until + 1 - hold.expires)
+      this->held_until_ = hold.held_until;
+    this->stored_hold_.reset();
+  }
+  auto fire = [this](const ESPTime &time, int64_t local) {
+    if (this->held_until_.has_value() && local <= *this->held_until_) {
+      this->dispatch_time_(time, CronTriggers::EVERY_HOUR);
+      return;
+    }
+    this->held_until_.reset();
+    this->dispatch_time_(time, CronTriggers::ALL);
   };
   if (this->last_check_.has_value()) {
     ESPTime &last = *this->last_check_;
+    int64_t local = local_seconds(last);
+    const int64_t elapsed = now.timestamp - last.timestamp;
+    const int64_t shift = now_local - local - elapsed;
+    const int64_t moved = shift < 0 ? -shift : shift;
+    if (elapsed > 0 && elapsed <= MAX_TIMESTAMP_DRIFT && moved > MAX_TIMESTAMP_DRIFT && moved <= MAX_DST_SHIFT) {
+      this->cross_dst_(last, local, now, now_local);
+      this->last_check_ = now;
+      return;
+    }
+    if (shift != 0)
+      this->drop_hold_();
     if (last > now && last.timestamp - now.timestamp > MAX_TIMESTAMP_DRIFT) {
       ESP_LOGW(TAG, "Time has jumped back");
+      this->drop_hold_();
     } else if (last >= now) {
       return;
-    } else if (now.timestamp - last.timestamp > MAX_TIMESTAMP_DRIFT) {
+    } else if (elapsed > MAX_TIMESTAMP_DRIFT) {
       ESP_LOGW(TAG, "Time has jumped ahead");
       this->last_check_ = now;
       return;
     }
     while (true) {
       last.increment_second();
+      local++;
       if (last >= now)
         break;
-      fire(last);
+      fire(last, local);
     }
   }
   this->last_check_ = now;
-  fire(now);
+  fire(now, now_local);
+}
+
+static bool runs_at_hours(const RuntimeAutomation &rule) {
+  for (const auto &trigger : rule.get_triggers()) {
+    if (trigger.source == SourceTrigger::CRON && !trigger.every_hour())
+      return true;
+  }
+  return false;
+}
+
+// A rule that runs every hour keeps to the seconds that passed. One at given hours follows the
+// local clock: forward, it runs once for the times skipped; back, not again for the repeated ones.
+void AutomationStorage::cross_dst_(ESPTime last, int64_t last_local, const ESPTime &now, int64_t now_local) {
+  const bool forward = now_local > last_local;
+  ESP_LOGI(TAG, "Clocks went %s for DST", forward ? "forward" : "back");
+  if (forward) {
+    // Seconds a hold still covers ran before the clocks went back.
+    const int64_t ran = std::max(last_local, this->held_until_.value_or(last_local));
+    std::vector<bool> done(this->automations_.size());
+    for (size_t i = 0; i < this->automations_.size(); i++)
+      done[i] = this->automations_[i] == nullptr || !runs_at_hours(*this->automations_[i]);
+    ESPTime wall = last;
+    for (int64_t s = last_local + 1; s < now_local; s++) {
+      wall.increment_second();
+      if (s <= ran)
+        continue;
+      for (size_t i = 0; i < this->automations_.size(); i++) {
+        if (done[i])
+          continue;
+        RuntimeAutomation &rule = *this->automations_[i];
+        this->drive(rule, [&]() { done[i] = rule.on_time(wall, CronTriggers::AT_HOURS); });
+      }
+    }
+    if (now_local > ran)
+      this->held_until_.reset();
+  } else {
+    const int64_t held = std::max(this->held_until_.value_or(last_local), last_local);
+    this->held_until_ = held;
+    this->store_hold_({held, now.timestamp + held - now_local + 1});
+  }
+  while (true) {
+    last.increment_second();
+    if (last >= now)
+      break;
+    this->dispatch_time_(last, CronTriggers::EVERY_HOUR);
+  }
+  this->dispatch_time_(now, this->held_until_.has_value() ? CronTriggers::EVERY_HOUR : CronTriggers::ALL);
+}
+
+void AutomationStorage::restore_hold_() {
+  this->hold_pref_ = global_preferences->make_preference<StoredHold>(this->preference_hash_, true);
+  StoredHold hold{};
+  this->hold_stored_ = this->hold_pref_.load(&hold) && hold.expires != 0;
+  if (this->hold_stored_)
+    this->stored_hold_ = hold;
+}
+
+// save() only queues the record on ESP32: sync() is what reaches NVS, and a restart soon after
+// the switch is what the record is for.
+void AutomationStorage::store_hold_(const StoredHold &hold) {
+  this->hold_stored_ = hold.expires != 0;
+  if (!this->hold_pref_.save(&hold) || !global_preferences->sync())
+    ESP_LOGW(TAG, "Cannot store the DST hold: a restart in the repeated hour runs its rules again");
+}
+
+// A jump or a new zone ends the hold: its record, even one whose hold already ran out, must
+// not bring it back after a restart.
+void AutomationStorage::drop_hold_() {
+  this->held_until_.reset();
+  if (this->hold_stored_)
+    this->store_hold_({0, 0});
 }
 
 // --- Mutators: any task in, loop task does the work ---
+
+bool AutomationStorage::check_name(const std::string &name, std::string *error) {
+  for (size_t i = 0; i < name.size();) {
+    uint32_t c;
+    if (!next_code_point(name, &i, &c)) {
+      if (error != nullptr)
+        *error = "Name is not valid UTF-8";
+      return false;
+    }
+    if (c < 0x20 || (c >= 0x7F && c <= 0x9F)) {
+      if (error != nullptr)
+        *error = "Name cannot contain control characters";
+      return false;
+    }
+  }
+  return true;
+}
 
 bool AutomationStorage::run_on_loop(std::function<bool()> &&job) {
   // A failed component is not scheduled, so a deferred job would only wait out the timeout.
@@ -300,7 +476,7 @@ bool AutomationStorage::run_on_loop_(std::function<bool()> &&job) {
     return false;
   }
   if (this->dispatcher_.on_loop_task()) {
-    if (this->dispatching_ > 0) {
+    if (!this->driving_.empty()) {
       ESP_LOGE(TAG, "Rules cannot be edited from inside a rule's own action");
       return false;
     }
@@ -353,20 +529,30 @@ void AutomationStorage::reset_all() {
   });
 }
 
+RunResult AutomationStorage::run_automation(uint32_t id) {
+  // Shared: a job the caller gave up on never runs, but outlives this call.
+  auto result = std::make_shared<RunResult>(RunResult::REFUSED);
+  this->run_on_loop_([this, id, result]() {
+    *result = this->run_automation_(id);
+    return *result == RunResult::STARTED;
+  });
+  return *result;
+}
+
 uint32_t AutomationStorage::add_automation_(const AutomationConfig &config, std::string *error) {
   if (this->config_storage_.size() >= MAX_AUTOMATIONS) {
     ESP_LOGE(TAG, "Refusing to add '%s': already at the %u automation limit", config.name.c_str(),
              static_cast<unsigned>(MAX_AUTOMATIONS));
     return 0;
   }
-  // The name decides the file, so a name in use would replace that file. A file nothing loaded
-  // is one the loader refused, and it is kept for its author.
-  if (this->is_name_taken(config.name)) {
-    ESP_LOGE(TAG, "Refusing to add '%s': that name is already in use", config.name.c_str());
+  // The log and the panel show the name, so it carries nothing they cannot.
+  if (!check_name(config.name, error)) {
+    ESP_LOGE(TAG, "Refusing to add a rule: its name is not UTF-8 or carries a control character");
     return 0;
   }
-  if (file_exists(this->get_filepath_for_name_(config.name))) {
-    ESP_LOGE(TAG, "Refusing to add '%s': a file the loader refused has that name", config.name.c_str());
+  // A name short enough is its own file, so a second rule by that name would replace it.
+  if (this->is_name_taken(config.name)) {
+    ESP_LOGE(TAG, "Refusing to add '%s': that name is already in use", config.name.c_str());
     return 0;
   }
   if (!this->fits_a_file_(config)) {
@@ -377,8 +563,14 @@ uint32_t AutomationStorage::add_automation_(const AutomationConfig &config, std:
 
   AutomationConfig cfg = config;
   cfg.id = this->allocate_id_();
-  cfg.file = this->sanitize_filename_(cfg.name) + ".json";
+  cfg.file = this->filename_for_(cfg.name, cfg.id);
   cfg.build_error.clear();
+  cfg.last_run_ms.reset();
+  // A file nothing loaded is one the loader refused, and it is kept for its author.
+  if (file_exists(this->get_folder_path_() + "/" + cfg.file)) {
+    ESP_LOGE(TAG, "Refusing to add '%s': a file the loader refused has that name", config.name.c_str());
+    return 0;
+  }
 
   auto automation = RuntimeAutomation::build(this, cfg, error);
   if (automation == nullptr) {
@@ -404,6 +596,12 @@ bool AutomationStorage::update_automation_(uint32_t id, const AutomationConfig &
   }
   auto index = static_cast<size_t>(found);
 
+  // A name kept as it is passes: switching a rule on or off writes it back whole.
+  if (new_config.name != this->config_storage_.get_all_configs()[index].name && !check_name(new_config.name, error)) {
+    ESP_LOGE(TAG, "Refusing to update automation id=%u: its name is not UTF-8 or carries a control character",
+             static_cast<unsigned>(id));
+    return false;
+  }
   if (this->is_name_taken(new_config.name, id)) {
     ESP_LOGE(TAG, "Refusing to rename automation id=%u to '%s': that name is already in use", static_cast<unsigned>(id),
              new_config.name.c_str());
@@ -414,11 +612,14 @@ bool AutomationStorage::update_automation_(uint32_t id, const AutomationConfig &
   cfg.id = id;
   const AutomationConfig &current = this->config_storage_.get_all_configs()[index];
   const std::string old_file = current.file;
-  // A rule keeps its file unless its name changes: the file may not be the canonical one when
-  // that name was taken by a file the loader refused.
-  const bool renaming = this->sanitize_filename_(current.name) != this->sanitize_filename_(cfg.name);
-  cfg.file = renaming ? this->sanitize_filename_(cfg.name) + ".json" : old_file;
-  if (renaming && file_exists(this->get_filepath_for_name_(cfg.name))) {
+  // A rule keeps its file unless its name maps to another: the file may not be the canonical
+  // one when that name was taken by a file the loader refused, or when boot could not move it.
+  const std::string target = this->filename_for_(cfg.name, id);
+  cfg.file = this->filename_for_(current.name, id) != target ? target : old_file;
+  const bool renaming = cfg.file != old_file;
+  // An edit is the same rule: when it last ran still holds.
+  cfg.last_run_ms = current.last_run_ms;
+  if (renaming && file_exists(this->get_folder_path_() + "/" + target)) {
     ESP_LOGE(TAG, "Refusing to rename automation id=%u to '%s': a file the loader refused has that name",
              static_cast<unsigned>(id), cfg.name.c_str());
     return false;
@@ -493,6 +694,39 @@ bool AutomationStorage::set_enable_automation_(uint32_t id, bool enable, bool *p
   return true;
 }
 
+RunResult AutomationStorage::run_automation_(uint32_t id) {
+  const int found = this->find_automation_index_by_id_(id);
+  if (found < 0) {
+    ESP_LOGW(TAG, "Automation id=%u not found", static_cast<unsigned>(id));
+    return RunResult::NOT_FOUND;
+  }
+  RuntimeAutomation *rule = this->automations_[static_cast<size_t>(found)].get();
+  if (rule == nullptr) {
+    ESP_LOGW(TAG, "Automation id=%u cannot run: it is not built", static_cast<unsigned>(id));
+    return RunResult::NOT_BUILT;
+  }
+  // As a trigger would: an edit from inside its actions is refused, not run under it.
+  bool started = false;
+  this->drive(*rule, [&]() { started = rule->run_now(); });
+  if (!started)
+    ESP_LOGI(TAG, "Automation '%s' is already running", rule->get_name().c_str());
+  return started ? RunResult::STARTED : RunResult::ALREADY_RUNNING;
+}
+
+bool AutomationStorage::is_running(uint32_t id) const {
+  const int found = this->find_automation_index_by_id_(id);
+  if (found < 0)
+    return false;
+  const RuntimeAutomation *rule = this->automations_[static_cast<size_t>(found)].get();
+  return rule != nullptr && rule->is_running();
+}
+
+void AutomationStorage::note_run_(uint32_t id) {
+  const int found = this->find_automation_index_by_id_(id);
+  if (found >= 0)
+    this->config_storage_.get_config(static_cast<uint8_t>(found))->last_run_ms = this->uptime_ms();
+}
+
 void AutomationStorage::reset_all_() {
   this->automations_.clear();
   for (const auto &config : this->config_storage_.get_all_configs())
@@ -504,10 +738,10 @@ void AutomationStorage::reset_all_() {
 
 // --- Files ---
 
-std::string AutomationStorage::sanitize_filename_(const std::string &name) const {
+std::string AutomationStorage::name_key_(const std::string &name) const {
   std::string result;
   result.reserve(name.length());
-  for (char c : name) {
+  for (char c : case_fold::fold_case(name)) {
     auto byte = static_cast<unsigned char>(c);
     // Non-ASCII passes through: dropped, every Cyrillic name would map to the same file.
     if (byte >= 0x80) {
@@ -537,30 +771,64 @@ std::string AutomationStorage::sanitize_filename_(const std::string &name) const
   size_t end = cleaned.find_last_not_of('_');
   if (start == std::string::npos)
     return "automation";
-
-  std::string trimmed = truncate_utf8(cleaned.substr(start, end - start + 1), MAX_FILENAME_BYTES);
-  while (!trimmed.empty() && trimmed.back() == '_')
-    trimmed.pop_back();
-  return trimmed.empty() ? "automation" : trimmed;
+  return cleaned.substr(start, end - start + 1);
 }
 
 std::string AutomationStorage::get_folder_path_() const {
   return this->storage_backend_->get_base_path() + "/" + this->folder_path_;
 }
 
-std::string AutomationStorage::get_filepath_for_name_(const std::string &name) const {
-  return this->get_folder_path_() + "/" + this->sanitize_filename_(name) + ".json";
+// A key too long for a file name is cut and ends in "-<id>": no key has a '-', and ids are
+// unique, so two keys never share a file.
+std::string AutomationStorage::filename_for_(const std::string &name, uint32_t id) const {
+  std::string stem = this->name_key_(name);
+  if (stem.size() > MAX_FILENAME_BYTES) {
+    const std::string tail = "-" + std::to_string(id);
+    stem = truncate_utf8(stem, MAX_FILENAME_BYTES - tail.size());
+    while (!stem.empty() && stem.back() == '_')
+      stem.pop_back();
+    stem += tail;
+  }
+  return stem + ".json";
 }
 
 bool AutomationStorage::is_name_taken(const std::string &name, uint32_t exclude_id) const {
-  std::string wanted = this->sanitize_filename_(name);
+  std::string wanted = this->name_key_(name);
   for (const auto &config : this->config_storage_.get_all_configs()) {
     if (config.id == exclude_id)
       continue;
-    if (this->sanitize_filename_(config.name) == wanted)
+    if (this->name_key_(config.name) == wanted)
       return true;
   }
   return false;
+}
+
+static bool condition_names(const ConditionConfig &condition, uint32_t key) {
+  if (condition.type == ConditionType::INPUT && condition.sensor_id == key)
+    return true;
+  return std::any_of(condition.sub_conditions.begin(), condition.sub_conditions.end(),
+                     [key](const ConditionConfig &sub) { return condition_names(sub, key); });
+}
+
+static bool names_binary_sensor(const AutomationConfig &config, uint32_t key) {
+  const bool triggered = std::any_of(config.triggers.begin(), config.triggers.end(), [key](const TriggerConfig &t) {
+    return t.source == SourceTrigger::INPUT && t.params.input.input_id == key;
+  });
+  return triggered || condition_names(config.condition, key);
+}
+
+std::vector<std::string> AutomationStorage::rules_naming_binary_sensor(uint32_t key) const {
+  std::vector<std::string> names;
+  for (const auto &config : this->config_storage_.get_all_configs()) {
+    if (names_binary_sensor(config, key))
+      names.push_back(config.name);
+  }
+  return names;
+}
+
+void AutomationStorage::rebuild_rules_naming_binary_sensor(uint32_t key) {
+  this->rebuild_rules_([key](const AutomationConfig &config) { return names_binary_sensor(config, key); },
+                       "input '" + binary_sensor_object_id(key) + "'");
 }
 
 uint32_t AutomationStorage::allocate_id_() {
@@ -695,8 +963,7 @@ bool AutomationStorage::fits_a_file_(const AutomationConfig &config) const {
 }
 
 bool AutomationStorage::save_automation_to_file_(const AutomationConfig &config) {
-  const std::string filepath =
-      config.file.empty() ? this->get_filepath_for_name_(config.name) : this->get_folder_path_() + "/" + config.file;
+  const std::string filepath = this->get_folder_path_() + "/" + config.file;
 
   if (entity_missing(config)) {
     ESP_LOGW(TAG, "Not writing '%s': an entity it names is missing and the reference would be lost",
@@ -792,7 +1059,7 @@ std::vector<bool> AutomationStorage::resolve_duplicates_() {
     std::string original = cfg->name;
     for (uint32_t suffix = 2; suffix <= MAX_AUTOMATIONS + 2; suffix++) {
       std::string tail = " " + std::to_string(suffix);
-      std::string candidate = truncate_utf8(original, MAX_FILENAME_BYTES - tail.size()) + tail;
+      std::string candidate = original + tail;
       if (!this->is_name_taken(candidate, cfg->id)) {
         cfg->name = candidate;
         break;
@@ -820,7 +1087,7 @@ void AutomationStorage::normalize_filenames_(const std::vector<bool> &changed) {
   canonical.reserve(count);
   loaded.reserve(count);
   for (const auto &config : this->config_storage_.get_all_configs()) {
-    canonical.push_back(this->sanitize_filename_(config.name) + ".json");
+    canonical.push_back(this->filename_for_(config.name, config.id));
     loaded.push_back(config.file);
   }
 
@@ -843,8 +1110,11 @@ void AutomationStorage::normalize_filenames_(const std::vector<bool> &changed) {
       if (vacating != (round == 0))
         continue;
 
+      // A rule that stays put holds `from`, so whoever that file is named after must not take it.
       if (std::find(occupied.begin(), occupied.end(), canonical[i]) != occupied.end()) {
         ESP_LOGW(TAG, "Not writing '%s': another automation is still stored there", canonical[i].c_str());
+        if (moved)
+          occupied.push_back(from);
         continue;
       }
       // A target nothing loaded from is a file the loader refused: it stays, the rule stays put.
@@ -852,6 +1122,7 @@ void AutomationStorage::normalize_filenames_(const std::vector<bool> &changed) {
           file_exists(folder_path + "/" + canonical[i])) {
         ESP_LOGW(TAG, "Not writing '%s': a file the loader refused is there; leaving '%s' in place",
                  canonical[i].c_str(), from.c_str());
+        occupied.push_back(from);
         continue;
       }
 
@@ -876,7 +1147,7 @@ void AutomationStorage::normalize_filenames_(const std::vector<bool> &changed) {
   }
 }
 
-int AutomationStorage::find_automation_index_by_id_(uint32_t id) {
+int AutomationStorage::find_automation_index_by_id_(uint32_t id) const {
   const auto &configs = this->config_storage_.get_all_configs();
   for (size_t i = 0; i < configs.size(); i++) {
     if (configs[i].id == id)

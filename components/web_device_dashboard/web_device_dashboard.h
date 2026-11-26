@@ -9,6 +9,7 @@
 #include "esphome/components/web_origin_guard/web_origin_guard.h"
 #include "esphome/components/web_server_base/web_server_base.h"
 #include "esphome/core/component.h"
+#include "esphome/core/defines.h"
 #ifdef USE_WEB_DEVICE_DASHBOARD_BOARD_INFO
 #include "esphome/components/jethome_board_info/jethome_board_info.h"
 #endif
@@ -24,6 +25,19 @@
 #ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
 #include "esphome/components/modbus_map/modbus_map.h"
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
+#include "esphome/components/timezone_settings/timezone_settings.h"
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+#include "esphome/components/ntp_servers/ntp_servers.h"
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
+#include "esphome/components/virtual_inputs/virtual_inputs.h"
+#endif
+// The key Home Assistant stores can be cleared; one from the YAML is compiled in.
+#if defined(USE_API_NOISE) && !defined(USE_API_NOISE_PSK_FROM_YAML)
+#define USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
+#endif
 
 namespace esphome::web_device_dashboard {
 
@@ -38,6 +52,9 @@ enum class RouteId : uint8_t {
   SYSTEM_REBOOT,
   SYSTEM_FACTORY_RESET,
   SYSTEM_ROLLBACK,
+#ifdef USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
+  SYSTEM_FORGET_API_KEY,
+#endif
 #ifdef USE_WEB_DEVICE_DASHBOARD_TEMPERATURE_SLOTS
   TEMPERATURE_SLOTS,
   TEMPERATURE_SLOTS_FORGET,
@@ -50,12 +67,20 @@ enum class RouteId : uint8_t {
   ENTITY_SETTINGS,
   ENTITY_SETTINGS_META,
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
+  TIME,
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
+  VIRTUAL_INPUTS,
+  VIRTUAL_INPUTS_SAVE,
+  VIRTUAL_INPUTS_DELETE,
+#endif
 };
 
 struct Route {
   const char *name;
   RouteId id;
-  /// Reads answer GET, writes POST; entity-settings reads on GET and writes on POST.
+  /// Reads answer GET, writes POST; entity-settings and time read on GET and write on POST.
   bool get;
   bool post;
 };
@@ -64,9 +89,10 @@ using firmware_rollback::RollbackTarget;
 
 // The dashboard page at / and the device API under /api/device/: info (with the board's
 // EEPROM identity when jethome_board_info is wired in), status, network, what the firmware
-// can do, the three system actions, with web_auth the HTTP credentials, with dallas_scan the
-// temperature slots, forgetting and assigning them, their offsets and labels, and with config_json the
-// entity index, the entity settings and their form fields. A modbus_map is reported in
+// can do, the system actions, with web_auth the HTTP credentials, with dallas_scan the
+// temperature slots, forgetting and assigning them, their offsets and labels, with config_json the
+// entity index, the entity settings and their form fields, with timezone_settings the clock
+// and the zone, and with virtual_inputs the virtual inputs. A modbus_map is reported in
 // /capabilities.
 class WebDeviceDashboard : public AsyncWebHandler, public Component {
  public:
@@ -89,11 +115,21 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
   void set_modbus_map(const modbus_map::ModbusMap *map) { this->modbus_map_ = map; }
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
+  void set_timezone_settings(timezone_settings::TimezoneSettings *settings) { this->timezone_settings_ = settings; }
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+  void set_ntp_servers(ntp_servers::NTPServers *servers) { this->ntp_servers_ = servers; }
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
+  void set_virtual_inputs(virtual_inputs::VirtualInputs *inputs) { this->virtual_inputs_ = inputs; }
+#endif
   // Where the other web components serve, as this firmware configured them; nullptr when it
   // has none. Only /capabilities reads them.
   void set_files_url_prefix(const char *prefix) { this->files_url_prefix_ = prefix; }
   void set_automations_url_prefix(const char *prefix) { this->automations_url_prefix_ = prefix; }
   void set_climates_url_prefix(const char *prefix) { this->climates_url_prefix_ = prefix; }
+  void set_schedules_url_prefix(const char *prefix) { this->schedules_url_prefix_ = prefix; }
 
   bool canHandle(AsyncWebServerRequest *request) const override;
   void handleRequest(AsyncWebServerRequest *request) override;
@@ -119,6 +155,9 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   void handle_reboot_(AsyncWebServerRequest *request);
   void handle_factory_reset_(AsyncWebServerRequest *request);
   void handle_rollback_(AsyncWebServerRequest *request);
+#ifdef USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
+  void handle_forget_api_key_(AsyncWebServerRequest *request);
+#endif
   /// Answers 400, 413 or 415 itself when the body is not a JSON object; else it is left in @p doc.
   bool read_json_body_(AsyncWebServerRequest *request, JsonDocument &doc);
   /// Answers 400, 403, 413 or 415 itself when the body is not a confirmation of this device. The
@@ -136,6 +175,12 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   /// nullptr once the next boot is the rolled-back slot, else why it is not. Loop task only.
   virtual const char *select_rollback_(const RollbackTarget &target);
   virtual void restart_();
+#ifdef USE_WEB_DEVICE_DASHBOARD_FORGET_API_KEY
+  /// False when the API server did not clear the key in flash; else its clients are dropped too.
+  /// Loop task only. Virtual as well: the tests have no API server that set up, so none that can
+  /// hold a key.
+  virtual bool clear_api_key_();
+#endif
   /// Hands @p job to the loop task, which owns the entity records and the rollback, and waits
   /// for it. False when the loop never got to it: the job did not run and never will.
   /// Virtual for the same reason: a host build has one task, so nothing crosses on its own
@@ -159,6 +204,25 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
   bool check_slots_writable_(AsyncWebServerRequest *request, dallas_scan::DallasScan *scan);
   /// The body's `slot`, 1 to max_sensors(), as an index; answers 400 itself when it is not one.
   bool read_slot_(AsyncWebServerRequest *request, JsonVariant value, size_t &slot);
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
+  void handle_time_get_(AsyncWebServerRequest *request);
+  void handle_time_set_(AsyncWebServerRequest *request);
+  std::string time_json_(const timezone_settings::TimezoneSettings &settings) const;
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+  bool read_ntp_(AsyncWebServerRequest *request, JsonVariant ntp, std::vector<std::string> &list, bool &list_given,
+                 bool &fallback, bool &fallback_given);
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
+  void handle_virtual_inputs_(AsyncWebServerRequest *request);
+  void handle_virtual_inputs_save_(AsyncWebServerRequest *request);
+  void handle_virtual_inputs_delete_(AsyncWebServerRequest *request);
+  /// Answers 404 or 503 itself when there is nothing to edit or it cannot be kept.
+  bool check_virtual_inputs_writable_(AsyncWebServerRequest *request);
+  /// The body's `slot`, 1 to max_inputs(), as an index; answers 400 itself when it is not one.
+  bool read_virtual_slot_(AsyncWebServerRequest *request, JsonVariant value, size_t &slot);
+  static void write_virtual_input_(JsonObject entry, virtual_inputs::VirtualInputs *inputs, size_t slot);
 #endif
 #ifdef USE_CONFIG_JSON
   void handle_entities_(AsyncWebServerRequest *request);
@@ -187,9 +251,19 @@ class WebDeviceDashboard : public AsyncWebHandler, public Component {
 #ifdef USE_WEB_DEVICE_DASHBOARD_MODBUS_MAP
   const modbus_map::ModbusMap *modbus_map_{nullptr};
 #endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE
+  timezone_settings::TimezoneSettings *timezone_settings_{nullptr};
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_NTP
+  ntp_servers::NTPServers *ntp_servers_{nullptr};
+#endif
+#ifdef USE_WEB_DEVICE_DASHBOARD_VIRTUAL_INPUTS
+  virtual_inputs::VirtualInputs *virtual_inputs_{nullptr};
+#endif
   const char *files_url_prefix_{nullptr};
   const char *automations_url_prefix_{nullptr};
   const char *climates_url_prefix_{nullptr};
+  const char *schedules_url_prefix_{nullptr};
   // How long the answer is given to leave the socket before the device stops serving it. A
   // member so the tests can drop it and run the deferred work in the same loop call.
   uint32_t action_delay_ms_{500};

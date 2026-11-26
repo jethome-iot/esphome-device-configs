@@ -10,22 +10,25 @@
 #include "esphome/components/climate/climate_mode.h"
 #include "esphome/core/entity_base.h"
 #include "esphome/core/optional.h"
+#include "pid_core.h"
 
 namespace esphome::climate_hub {
 
 /// A document larger than this is refused before it is parsed.
 static constexpr size_t CONFIG_MAX_BYTES = 8192;
 /// The file format this firmware writes: 2 brought presets, 3 the revision and calibrated gains
-/// past 2's ranges, 4 the mode a turn-on goes back to. A file with a higher one came from a newer
-/// firmware: it is read as far as this one understands it and never written back, so an older
-/// firmware cannot clamp those gains into it.
-static constexpr uint16_t CONFIG_VERSION = 4;
+/// past 2's ranges, 4 the mode a turn-on goes back to, 5 each relay's own gains and no heat_cool.
+/// A file with a higher one came from a newer firmware: it is read as far as this one understands
+/// it and never written back, so an older firmware cannot clamp those gains into it.
+static constexpr uint16_t CONFIG_VERSION = 5;
 /// Presets per thermostat.
 static constexpr size_t PRESET_MAX_COUNT = 8;
 /// A preset's mode word for "leave the thermostat's mode as it is".
 static constexpr const char *PRESET_MODE_KEEP = "keep";
-/// Longest name a controller may have; its entity keeps it in a fixed buffer.
+/// Longest name a thermostat or a preset may have, in characters.
 static constexpr size_t NAME_MAX_LENGTH = 48;
+/// And in UTF-8 bytes, which the entity's fixed buffers hold: 48 letters of a two-byte script.
+static constexpr size_t NAME_MAX_BYTES = 96;
 /// Longest id; `<id>.json.tmp` has to stay inside LittleFS's 64-byte names.
 static constexpr size_t ID_MAX_LENGTH = 48;
 /// Longest sensor_id or relay_id: an object id has one character per byte of the entity's
@@ -56,10 +59,13 @@ struct SafetyConfig {
   float max_temperature{60.f};
 };
 
+/// The gains of a thermostat that has had none set: the param table's defaults.
+inline constexpr PidGains DEFAULT_PID_GAINS{0.6f, 0.0025f, 0.f};
+
 struct PidParams {
-  float kp{0.6f};
-  float ki{0.0025f};
-  float kd{0.f};
+  /// Each relay's own: a heating and a cooling relay move a room at different rates.
+  PidGains heat{DEFAULT_PID_GAINS};
+  PidGains cool{DEFAULT_PID_GAINS};
   float min_integral{-1.f};
   float max_integral{1.f};
   float starting_integral_term{0.f};
@@ -71,6 +77,9 @@ struct PidParams {
   float deadband_ki_multiplier{0.f};
   float deadband_kd_multiplier{0.f};
   float deadband_output_samples{1.f};
+
+  PidGains &gains(Direction direction) { return direction == Direction::COOL ? this->cool : this->heat; }
+  const PidGains &gains(Direction direction) const { return direction == Direction::COOL ? this->cool : this->heat; }
 };
 
 /// The band around the target, as deviations rather than absolute points: the controller
@@ -169,6 +178,8 @@ struct ClimateConfig {
   /// The mode a turn-on goes to: the mode while it is not off, else the last one before off
   /// that the relays still serve, else heat, or cool for a cooling-only thermostat.
   HubMode on_mode() const;
+  /// The relay on_mode() drives: whose gains a PID runs on, and the file's bare ones copy.
+  Direction on_direction() const { return this->on_mode() == HubMode::COOL ? Direction::COOL : Direction::HEAT; }
 
   /// Written by a newer firmware: this one must not write it back.
   bool from_newer_firmware() const { return this->version > CONFIG_VERSION; }
@@ -197,14 +208,19 @@ std::string id_with_suffix(const std::string &base, unsigned n);
 /// The rules an id read from outside meets: present, and a slug.
 bool validate_id(const std::string &id, std::string *error);
 
-/// The name with surrounding ASCII whitespace removed.
+/// The name without the white space at its ends, ASCII's and Unicode's spaces alike.
 std::string trim_name(const std::string &name);
 
-/// The name rules on a trimmed name: 1..NAME_MAX_LENGTH printable ASCII characters, neither
-/// '/' (a web_server URL cannot carry it) nor '\' (a browser turns it into '/').
+/// The name rules on a trimmed name: UTF-8 text of 1..NAME_MAX_LENGTH characters and at most
+/// NAME_MAX_BYTES bytes, without control characters, neither '/' (a web_server URL cannot carry
+/// it) nor '\' (a browser turns it into '/').
 bool validate_name(const std::string &name, std::string *error);
 
-/// The name as a person reads it: trimmed, inner whitespace collapsed, ASCII lowercased.
+/// The longest start of `name` within `max_chars` characters and `max_bytes` bytes, never cut
+/// inside a character.
+std::string fit_name(const std::string &name, size_t max_chars, size_t max_bytes);
+
+/// The name as a person reads it: trimmed, inner whitespace collapsed, case folded (case_fold).
 std::string name_key(const std::string &name);
 
 /// Home Assistant's built-in presets, by the name a preset takes to be one.
@@ -223,9 +239,5 @@ inline constexpr StandardPreset STANDARD_PRESETS[] = {
 /// string to the built-in preset before it looks at the custom ones, so a preset by that name
 /// has to be the built-in.
 bool standard_preset(const std::string &name, climate::ClimatePreset *out = nullptr);
-
-/// The object id ESPHome derives from an entity name: what Home Assistant and every
-/// object-id-keyed record in this repository know the entity by.
-std::string object_id_of_name(const std::string &name);
 
 }  // namespace esphome::climate_hub

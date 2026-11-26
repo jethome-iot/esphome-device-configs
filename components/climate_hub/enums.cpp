@@ -32,8 +32,6 @@ const char *mode_to_string(HubMode v) {
       return "heat";
     case HubMode::COOL:
       return "cool";
-    case HubMode::HEAT_COOL:
-      return "heat_cool";
   }
   return "off";
 }
@@ -49,10 +47,6 @@ bool mode_from_string(const std::string &s, HubMode *out) {
   }
   if (s == "cool") {
     *out = HubMode::COOL;
-    return true;
-  }
-  if (s == "heat_cool") {
-    *out = HubMode::HEAT_COOL;
     return true;
   }
   return false;
@@ -174,15 +168,15 @@ bool autotune_rule_from_string(const std::string &s, AutotuneRule *out) {
   return false;
 }
 
-const char *autotune_direction_to_string(AutotuneDirection v) { return v == AutotuneDirection::COOL ? "cool" : "heat"; }
+const char *direction_to_string(Direction v) { return v == Direction::COOL ? "cool" : "heat"; }
 
-bool autotune_direction_from_string(const std::string &s, AutotuneDirection *out) {
+bool direction_from_string(const std::string &s, Direction *out) {
   if (s == "heat") {
-    *out = AutotuneDirection::HEAT;
+    *out = Direction::HEAT;
     return true;
   }
   if (s == "cool") {
-    *out = AutotuneDirection::COOL;
+    *out = Direction::COOL;
     return true;
   }
   return false;
@@ -196,6 +190,8 @@ const char *relay_wait_to_string(RelayWait v) {
       return "min_on";
     case RelayWait::MIN_OFF:
       return "min_off";
+    case RelayWait::OTHER_RELAY:
+      return "other_relay";
   }
   return "none";
 }

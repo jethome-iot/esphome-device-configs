@@ -18,8 +18,6 @@ climate::ClimateMode to_climate_mode(HubMode m) {
       return climate::CLIMATE_MODE_HEAT;
     case HubMode::COOL:
       return climate::CLIMATE_MODE_COOL;
-    case HubMode::HEAT_COOL:
-      return climate::CLIMATE_MODE_HEAT_COOL;
     case HubMode::OFF:
     default:
       return climate::CLIMATE_MODE_OFF;
@@ -36,9 +34,6 @@ bool from_climate_mode(climate::ClimateMode m, HubMode *out) {
       return true;
     case climate::CLIMATE_MODE_COOL:
       *out = HubMode::COOL;
-      return true;
-    case climate::CLIMATE_MODE_HEAT_COOL:
-      *out = HubMode::HEAT_COOL;
       return true;
     default:
       return false;
@@ -63,6 +58,18 @@ float clamp01(float v) { return std::isnan(v) ? 0.f : (v < 0.f ? 0.f : (v > 1.f 
 
 // Every fault but relay_contested stops control; that one only reports.
 bool cuts_out(HubFault f) { return f != HubFault::NONE && f != HubFault::RELAY_CONTESTED; }
+
+// One closed from elsewhere only waits for its put-back: it is no close of the thermostat's.
+bool closed_by_holder(const RelayClaim *claim) { return claim->state() && !claim->pending(); }
+
+// What the relay of `direction` can do, in the PID's output: closed for none to all of its period.
+void set_output_range(PidCore &pid, Direction direction) {
+  if (direction == Direction::COOL) {
+    pid.set_output_range(-1.f, 0.f);
+  } else {
+    pid.set_output_range(0.f, 1.f);
+  }
+}
 
 }  // namespace
 
@@ -89,23 +96,22 @@ void ControllerRuntime::start(ClimateConfig *config, sensor::Sensor *sensor, Rel
   if (!restart) {
     this->heat_duty_.reset();
     this->cool_duty_.reset();
+    this->heat_interlocked_ = false;
+    this->cool_interlocked_ = false;
   }
   if (!same_sensor)
     this->waiting_since_ms_ = now_ms;
   this->control_due_ = true;
   this->apply_config_();
-  if (!keep_pid) {
-    this->pid_.reset();
-    this->pid_.set_starting_integral_term(config->pid.starting_integral_term);
-    this->controlled_ = false;
-  }
+  if (!keep_pid)
+    this->restart_pid_(config->on_direction());
 
   // Inside the band the latch decides: reset, it would open a relay that is heating now. A
   // start or a take-over has no latch of its own and goes by the relays; a direction the mode
   // no longer drives is dropped, as a mode change through control() drops it.
   const HubMode mode = config->mode;
-  const bool may_heat = heat != nullptr && (mode == HubMode::HEAT || mode == HubMode::HEAT_COOL);
-  const bool may_cool = cool != nullptr && (mode == HubMode::COOL || mode == HubMode::HEAT_COOL);
+  const bool may_heat = heat != nullptr && mode == HubMode::HEAT;
+  const bool may_cool = cool != nullptr && mode == HubMode::COOL;
   const HubAction latched = this->hysteresis_.action();
   const bool heating = may_heat && (keep_latch ? latched == HubAction::HEATING : heat->state());
   const bool cooling = may_cool && (keep_latch ? latched == HubAction::COOLING : cool->state());
@@ -137,6 +143,8 @@ void ControllerRuntime::stop(uint64_t now_ms) {
   this->sensor_ = nullptr;
   this->heat_claim_ = nullptr;
   this->cool_claim_ = nullptr;
+  this->heat_interlocked_ = false;
+  this->cool_interlocked_ = false;
   this->action_ = HubAction::OFF;
   this->fault_ = HubFault::NONE;
   this->has_sample_ = false;
@@ -156,7 +164,8 @@ void ControllerRuntime::release_claim(const RelayClaim *claim) {
 void ControllerRuntime::apply_config_() {
   const ClimateConfig &c = *this->config_;
 
-  this->pid_.set_gains(c.pid.kp, c.pid.ki, c.pid.kd);
+  // The relay the PID was built for: a Save that moves only the other relay's gains changes nothing.
+  this->pid_.set_gains(c.pid.gains(this->pid_direction_));
   this->pid_.set_integral_limits(c.pid.min_integral, c.pid.max_integral);
   this->pid_.set_samples(static_cast<int>(c.pid.output_samples), static_cast<int>(c.pid.derivative_samples));
   this->pid_.set_deadband(c.pid.deadband_threshold_low, c.pid.deadband_threshold_high, c.pid.deadband_kp_multiplier,
@@ -299,7 +308,7 @@ bool ControllerRuntime::feed_autotune_(float value, uint64_t now_ms) {
   // The pass that found the gains leaves the relays to the PID the hub starts next.
   if (run.found())
     return false;
-  const bool heat = run.direction() == AutotuneDirection::HEAT;
+  const bool heat = run.direction() == Direction::HEAT;
   this->heat_duty_.set_duty(heat && on ? 1.f : 0.f);
   this->cool_duty_.set_duty(!heat && on ? 1.f : 0.f);
   return this->set_action_(this->relay_action_());
@@ -314,14 +323,20 @@ void ControllerRuntime::end_autotune(AutotuneEnd why, uint64_t now_ms) {
   }
   this->autotune_ = nullptr;
   // A clean restart: nothing the PID held before the run, or the relay function's duties, carries on.
-  const ClimateConfig &c = *this->config_;
-  this->pid_.set_gains(c.pid.kp, c.pid.ki, c.pid.kd);
-  this->pid_.reset();
-  this->pid_.set_starting_integral_term(c.pid.starting_integral_term);
+  this->restart_pid_(this->config_->on_direction());
   this->heat_duty_.set_duty(0.f);
   this->cool_duty_.set_duty(0.f);
-  this->controlled_ = false;
   this->control_due_ = true;
+}
+
+void ControllerRuntime::restart_pid_(Direction direction) {
+  const ClimateConfig &c = *this->config_;
+  this->pid_direction_ = direction;
+  this->pid_.set_gains(c.pid.gains(direction));
+  set_output_range(this->pid_, direction);
+  this->pid_.reset();
+  this->pid_.set_starting_integral_term(c.pid.starting_integral_term);
+  this->controlled_ = false;
 }
 
 void ControllerRuntime::tick(uint64_t now_ms) {
@@ -398,12 +413,10 @@ HubAction ControllerRuntime::relay_action_() const {
   // The next pass opens whatever is closed, without waiting.
   if (!this->has_sample_)
     return HubAction::IDLE;
-  const bool heating = this->shows_(this->heat_claim_, this->heat_duty_, HubAction::HEATING,
-                                    c.mode == HubMode::HEAT || c.mode == HubMode::HEAT_COOL);
-  const bool cooling = this->shows_(this->cool_claim_, this->cool_duty_, HubAction::COOLING,
-                                    c.mode == HubMode::COOL || c.mode == HubMode::HEAT_COOL);
-  // Both closed while min_on holds one after a switch-over, or while one closed from elsewhere waits
-  // for its put-back: the one it drives now is what it does.
+  const bool heating = this->shows_(this->heat_claim_, this->heat_duty_, HubAction::HEATING, c.mode == HubMode::HEAT);
+  const bool cooling = this->shows_(this->cool_claim_, this->cool_duty_, HubAction::COOLING, c.mode == HubMode::COOL);
+  // Both closed while one closed from elsewhere waits for its put-back, or after a take-over of
+  // two closed relays until min_on lets the undriven one open: the one it drives is what it does.
   if (heating && (!cooling || this->heat_duty_.duty() > 0.f))
     return HubAction::HEATING;
   return cooling ? HubAction::COOLING : HubAction::IDLE;
@@ -429,6 +442,10 @@ bool ControllerRuntime::set_action_(HubAction action) {
 
 void ControllerRuntime::run_control_(uint64_t now_ms) {
   const ClimateConfig &c = *this->config_;
+  // Never in mode off: the pass drives the mode's relay alone.
+  const Direction direction = c.mode == HubMode::COOL ? Direction::COOL : Direction::HEAT;
+  if (c.kind == ControlKind::PID && direction != this->pid_direction_)
+    this->restart_pid_(direction);
   const float dt_s = this->controlled_ ? static_cast<float>(now_ms - this->last_control_ms_) / 1000.f : 0.f;
   // After a pause the averages still hold samples from before it; a start emptied them already.
   if (!this->controlled_)
@@ -440,10 +457,9 @@ void ControllerRuntime::run_control_(uint64_t now_ms) {
   // Only the demand: what the entity shows follows the relays once they have moved.
   if (c.kind == ControlKind::PID) {
     const float output = this->pid_.update(c.setpoint, this->entity_->current_temperature, dt_s);
-    const bool may_heat = c.supports_heat() && (c.mode == HubMode::HEAT || c.mode == HubMode::HEAT_COOL);
-    const bool may_cool = c.supports_cool() && (c.mode == HubMode::COOL || c.mode == HubMode::HEAT_COOL);
-    this->heat_duty_.set_duty(may_heat ? clamp01(output) : 0.f);
-    this->cool_duty_.set_duty(may_cool ? clamp01(-output) : 0.f);
+    const bool heat = direction == Direction::HEAT;
+    this->heat_duty_.set_duty(heat && c.supports_heat() ? clamp01(output) : 0.f);
+    this->cool_duty_.set_duty(!heat && c.supports_cool() ? clamp01(-output) : 0.f);
   } else {
     const HubAction latched = this->hysteresis_.update(c.mode, this->entity_->current_temperature);
     this->heat_duty_.set_duty(latched == HubAction::HEATING ? 1.f : 0.f);
@@ -452,13 +468,29 @@ void ControllerRuntime::run_control_(uint64_t now_ms) {
 }
 
 void ControllerRuntime::drive_outputs_(uint64_t now_ms) {
-  if (this->heat_claim_ != nullptr)
-    this->heat_claim_->request(this->heat_duty_.update(now_ms), now_ms);
-  if (this->cool_claim_ != nullptr)
-    this->cool_claim_->request(this->cool_duty_.update(now_ms), now_ms);
+  const bool heat = this->heat_claim_ != nullptr && this->heat_duty_.update(now_ms);
+  const bool cool = this->cool_claim_ != nullptr && this->cool_duty_.update(now_ms);
+  // The opening first, so a relay waiting for it may close on this same pass.
+  if (this->heat_claim_ != nullptr && !heat)
+    this->heat_claim_->request(false, now_ms);
+  if (this->cool_claim_ != nullptr && !cool)
+    this->cool_claim_->request(false, now_ms);
+  // A heater and a cooler never run against each other: a relay closes only once the other has
+  // opened, which its min_on may hold off. One the thermostat closed already stays; one closed
+  // from elsewhere goes back meanwhile, as any such close.
+  this->heat_interlocked_ =
+      heat && !closed_by_holder(this->heat_claim_) && this->cool_claim_ != nullptr && this->cool_claim_->state();
+  if (heat)
+    this->heat_claim_->request(!this->heat_interlocked_, now_ms);
+  this->cool_interlocked_ =
+      cool && !closed_by_holder(this->cool_claim_) && this->heat_claim_ != nullptr && this->heat_claim_->state();
+  if (cool)
+    this->cool_claim_->request(!this->cool_interlocked_, now_ms);
 }
 
 void ControllerRuntime::all_relays_off_(uint64_t now_ms, bool paced) {
+  this->heat_interlocked_ = false;
+  this->cool_interlocked_ = false;
   this->heat_duty_.set_duty(0.f);
   this->cool_duty_.set_duty(0.f);
   if (this->heat_claim_ != nullptr)

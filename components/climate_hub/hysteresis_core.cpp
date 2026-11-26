@@ -27,18 +27,14 @@ HubAction HysteresisCore::update(HubMode mode, float temperature) {
   const bool too_hot = temperature > this->high_;
 
   if (too_cold) {
-    const bool may_heat = this->supports_heat_ && (mode == HubMode::HEAT || mode == HubMode::HEAT_COOL);
-    this->action_ = may_heat ? HubAction::HEATING : HubAction::IDLE;
+    this->action_ = this->supports_heat_ && mode == HubMode::HEAT ? HubAction::HEATING : HubAction::IDLE;
   } else if (too_hot) {
-    const bool may_cool = this->supports_cool_ && (mode == HubMode::COOL || mode == HubMode::HEAT_COOL);
-    this->action_ = may_cool ? HubAction::COOLING : HubAction::IDLE;
-  } else if ((this->supports_heat_ && this->supports_cool_ && mode == HubMode::HEAT_COOL) ||
-             this->action_ == HubAction::OFF) {
-    // Both directions live, or nothing to hold after mode OFF or an unknown reading.
+    this->action_ = this->supports_cool_ && mode == HubMode::COOL ? HubAction::COOLING : HubAction::IDLE;
+  } else if (this->action_ == HubAction::OFF) {
+    // Nothing to hold after mode OFF or an unknown reading.
     this->action_ = HubAction::IDLE;
   }
-  // Between the points in a single-direction mode the previous action stands: that latch is
-  // the hysteresis.
+  // Between the points the previous action stands: that latch is the hysteresis.
 
   return this->action_;
 }

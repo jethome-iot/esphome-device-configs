@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cmath>
 #include <strings.h>
+#include "esphome/components/case_fold/case_fold.h"
 #include "esphome/core/helpers.h"
 #include "param_table.h"
 
@@ -22,6 +23,53 @@ bool fail(std::string *error, const std::string &message) { return fail(error, m
 std::string text_of(JsonVariantConst value) { return value.is<const char *>() ? value.as<std::string>() : ""; }
 
 bool is_ascii_space(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v'; }
+
+bool is_continuation(char c) { return (static_cast<uint8_t>(c) & 0xC0) == 0x80; }
+
+// The length of the well-formed UTF-8 sequence at `i`, 0 for none, and its code point. The
+// second byte's range rules out overlong forms, surrogates and anything past U+10FFFF.
+size_t decode_utf8(const std::string &text, size_t i, uint32_t *code_point) {
+  const auto lead = static_cast<uint8_t>(text[i]);
+  if (lead < 0x80) {
+    *code_point = lead;
+    return 1;
+  }
+  if (lead < 0xC2 || lead > 0xF4)
+    return 0;
+  size_t length = 2;
+  uint8_t low = 0x80;
+  uint8_t high = 0xBF;
+  if (lead >= 0xF0) {
+    length = 4;
+    low = lead == 0xF0 ? 0x90 : low;
+    high = lead == 0xF4 ? 0x8F : high;
+  } else if (lead >= 0xE0) {
+    length = 3;
+    low = lead == 0xE0 ? 0xA0 : low;
+    high = lead == 0xED ? 0x9F : high;
+  }
+  if (i + length > text.size())
+    return 0;
+  uint32_t value = lead & (0x7F >> length);
+  for (size_t k = 1; k < length; k++) {
+    const auto next = static_cast<uint8_t>(text[i + k]);
+    if (next < (k == 1 ? low : 0x80) || next > (k == 1 ? high : 0xBF))
+      return 0;
+    value = (value << 6) | (next & 0x3F);
+  }
+  *code_point = value;
+  return length;
+}
+
+// C0, DEL and C1.
+bool is_control(uint32_t code_point) { return code_point < 0x20 || (code_point >= 0x7F && code_point <= 0x9F); }
+
+// The white space a name loses at either end: ASCII's, and the Unicode spaces a paste brings
+// along (no-break, ideographic and the like), which would make two names look alike.
+bool is_edge_space(uint32_t c) {
+  return c == ' ' || (c >= 0x09 && c <= 0x0D) || c == 0xA0 || c == 0x1680 || (c >= 0x2000 && c <= 0x200A) ||
+         c == 0x2028 || c == 0x2029 || c == 0x202F || c == 0x205F || c == 0x3000 || c == 0xFEFF;
+}
 
 void serialize_output(JsonObject obj, const OutputConfig &out) {
   obj["relay_id"] = out.relay_id;
@@ -44,6 +92,27 @@ void clamp_output(OutputConfig *out) {
   out->period_s = clamp_param("period_s", out->period_s);
   out->min_on_s = clamp_param("min_on_s", out->min_on_s);
   out->min_off_s = clamp_param("min_off_s", out->min_off_s);
+}
+
+void serialize_gains(JsonObject obj, const PidGains &gains) {
+  obj["kp"] = gains.kp;
+  obj["ki"] = gains.ki;
+  obj["kd"] = gains.kd;
+}
+
+// A relay without gains of its own, as in a file from before they were per relay, takes the bare
+// ones beside them.
+void deserialize_gains(JsonObjectConst pid, const char *relay, PidGains *out) {
+  JsonObjectConst from = pid[relay].is<JsonObjectConst>() ? pid[relay].as<JsonObjectConst>() : pid;
+  out->kp = from["kp"] | out->kp;
+  out->ki = from["ki"] | out->ki;
+  out->kd = from["kd"] | out->kd;
+}
+
+void clamp_gains(PidGains *gains) {
+  gains->kp = clamp_param("kp", gains->kp);
+  gains->ki = clamp_param("ki", gains->ki);
+  gains->kd = clamp_param("kd", gains->kd);
 }
 
 static_assert(ENTITY_ID_MAX_LENGTH == 120, "the sentences below name the limit");
@@ -78,8 +147,6 @@ bool check_mode(const ClimateConfig &config, std::string *error) {
     return fail(error, "mode 'heat' needs heat.relay_id");
   if (config.mode == HubMode::COOL && !config.supports_cool())
     return fail(error, "mode 'cool' needs cool.relay_id");
-  if (config.mode == HubMode::HEAT_COOL && !(config.supports_heat() && config.supports_cool()))
-    return fail(error, "mode 'heat_cool' needs both relays");
   if (std::isnan(config.setpoint))
     return fail(error, "setpoint must be a number");
   return true;
@@ -104,9 +171,7 @@ bool check_preset_values(const ClimateConfig &config, std::string *error) {
     if (preset.mode.has_value() && !config.supports_mode(*preset.mode)) {
       // Off needs nothing, so it never gets here.
       const HubMode mode = *preset.mode;
-      const char *needs = mode == HubMode::HEAT   ? "heat.relay_id"
-                          : mode == HubMode::COOL ? "cool.relay_id"
-                                                  : "both relays";
+      const char *needs = mode == HubMode::HEAT ? "heat.relay_id" : "cool.relay_id";
       return fail(error, preset_at(i) + ": mode '" + enums::mode_to_string(mode) + "' needs " + needs);
     }
     if (preset.key.empty())
@@ -166,7 +231,7 @@ bool read_presets(JsonVariantConst value, std::vector<PresetConfig> *out, std::s
     if (!mode.isNull() && mode.as<std::string>() != PRESET_MODE_KEEP) {
       HubMode parsed;
       if (!enums::mode_from_string(mode.as<std::string>(), &parsed))
-        return fail(error, at + ": mode must be one of keep/off/heat/cool/heat_cool");
+        return fail(error, at + ": mode must be one of keep/off/heat/cool");
       preset.mode = parsed;
     }
     out->push_back(std::move(preset));
@@ -239,25 +304,43 @@ bool validate_id(const std::string &id, std::string *error) {
 }
 
 std::string trim_name(const std::string &name) {
+  uint32_t c;
   size_t begin = 0;
+  for (size_t length; begin < name.size() && (length = decode_utf8(name, begin, &c)) != 0 && is_edge_space(c);)
+    begin += length;
   size_t end = name.size();
-  while (begin < end && is_ascii_space(name[begin]))
-    begin++;
-  while (end > begin && is_ascii_space(name[end - 1]))
-    end--;
+  while (end > begin) {
+    size_t start = end - 1;
+    while (start > begin && is_continuation(name[start]))
+      start--;
+    if (decode_utf8(name, start, &c) != end - start || !is_edge_space(c))
+      break;
+    end = start;
+  }
   return name.substr(begin, end - begin);
 }
+
+static_assert(NAME_MAX_LENGTH == 48 && NAME_MAX_BYTES == 96, "the sentences below name the limits");
 
 bool validate_name(const std::string &name, std::string *error) {
   if (name.empty())
     return fail(error, "Name is required");
-  if (name.size() > NAME_MAX_LENGTH)
-    return fail(error, "Name is longer than 48 characters");
-  for (char c : name) {
-    auto u = static_cast<unsigned char>(c);
-    if (u < 0x20 || u > 0x7E)
-      return fail(error, "Use printable ASCII characters only");
+  size_t chars = 0;
+  bool control = false;
+  for (size_t i = 0; i < name.size(); chars++) {
+    uint32_t code_point;
+    const size_t length = decode_utf8(name, i, &code_point);
+    if (length == 0)
+      return fail(error, "Name is not valid UTF-8");
+    control = control || is_control(code_point);
+    i += length;
   }
+  if (chars > NAME_MAX_LENGTH)
+    return fail(error, "Name is longer than 48 characters");
+  if (name.size() > NAME_MAX_BYTES)
+    return fail(error, "Name is longer than 96 bytes");
+  if (control)
+    return fail(error, "Name cannot contain control characters");
   if (name.find('/') != std::string::npos)
     return fail(error, "Name cannot contain '/'");
   if (name.find('\\') != std::string::npos)
@@ -270,7 +353,6 @@ std::string name_key(const std::string &name) {
   out.reserve(name.size());
   bool pending_space = false;
   for (char c : name) {
-    auto u = static_cast<unsigned char>(c);
     if (is_ascii_space(c)) {
       pending_space = !out.empty();
       continue;
@@ -279,9 +361,9 @@ std::string name_key(const std::string &name) {
       out += ' ';
       pending_space = false;
     }
-    out += u < 0x80 ? static_cast<char>(std::tolower(u)) : c;
+    out += c;
   }
-  return out;
+  return case_fold::fold_case(out);
 }
 
 bool standard_preset(const std::string &name, climate::ClimatePreset *out) {
@@ -295,12 +377,17 @@ bool standard_preset(const std::string &name, climate::ClimatePreset *out) {
   return false;
 }
 
-std::string object_id_of_name(const std::string &name) {
-  std::string out;
-  out.reserve(name.size());
-  for (char c : name)
-    out += to_sanitized_char(to_snake_case_char(c));
-  return out;
+std::string fit_name(const std::string &name, size_t max_chars, size_t max_bytes) {
+  size_t end = 0;
+  for (size_t chars = 0; end < name.size() && chars < max_chars; chars++) {
+    size_t next = end + 1;
+    while (next < name.size() && is_continuation(name[next]))
+      next++;
+    if (next > max_bytes)
+      break;
+    end = next;
+  }
+  return name.substr(0, end);
 }
 
 void ClimateConfig::serialize(JsonObject root) const {
@@ -326,9 +413,11 @@ void ClimateConfig::serialize(JsonObject root) const {
   safety["max_temperature"] = this->safety.max_temperature;
 
   JsonObject pid = root["pid"].to<JsonObject>();
-  pid["kp"] = this->pid.kp;
-  pid["ki"] = this->pid.ki;
-  pid["kd"] = this->pid.kd;
+  serialize_gains(pid["heat"].to<JsonObject>(), this->pid.heat);
+  serialize_gains(pid["cool"].to<JsonObject>(), this->pid.cool);
+  // For a firmware from before each relay had its own, which reads these alone: the relay a
+  // turn-on goes to runs on its own gains there too.
+  serialize_gains(pid, this->pid.gains(this->on_direction()));
   pid["min_integral"] = this->pid.min_integral;
   pid["max_integral"] = this->pid.max_integral;
   pid["starting_integral_term"] = this->pid.starting_integral_term;
@@ -419,9 +508,8 @@ bool ClimateConfig::deserialize(const JsonObject &root, bool require_id, std::st
 
   JsonObject pid = root["pid"].as<JsonObject>();
   if (!pid.isNull()) {
-    this->pid.kp = pid["kp"] | this->pid.kp;
-    this->pid.ki = pid["ki"] | this->pid.ki;
-    this->pid.kd = pid["kd"] | this->pid.kd;
+    deserialize_gains(pid, "heat", &this->pid.heat);
+    deserialize_gains(pid, "cool", &this->pid.cool);
     this->pid.min_integral = pid["min_integral"] | this->pid.min_integral;
     this->pid.max_integral = pid["max_integral"] | this->pid.max_integral;
     this->pid.starting_integral_term = pid["starting_integral_term"] | this->pid.starting_integral_term;
@@ -445,13 +533,13 @@ bool ClimateConfig::deserialize(const JsonObject &root, bool require_id, std::st
   if (!check_wiring(*this, error))
     return false;
   if (!root["mode"].isNull() && !enums::mode_from_string(root["mode"].as<std::string>(), &this->mode))
-    return fail(error, "mode must be one of off/heat/cool/heat_cool");
+    return fail(error, "mode must be one of off/heat/cool");
   // State, like active_preset: one the relays no longer serve gives way in on_mode(). A word it
   // does not know is refused as any other is.
   if (!root["last_on_mode"].isNull() &&
       (!enums::mode_from_string(root["last_on_mode"].as<std::string>(), &this->last_on_mode) ||
        this->last_on_mode == HubMode::OFF))
-    return fail(error, "last_on_mode must be one of heat/cool/heat_cool");
+    return fail(error, "last_on_mode must be one of heat/cool");
   this->setpoint = root["setpoint"] | this->setpoint;
   if (!check_mode(*this, error) || !read_presets(root["presets"], &this->presets, error) ||
       !check_presets(*this, error) || !validate_name(this->name, error))
@@ -480,9 +568,8 @@ void ClimateConfig::clamp_numbers() {
   this->safety.sensor_timeout_s = clamp_param("sensor_timeout_s", this->safety.sensor_timeout_s);
   this->safety.max_temperature = clamp_param("safety_max_temperature", this->safety.max_temperature);
   PidParams &p = this->pid;
-  p.kp = clamp_param("kp", p.kp);
-  p.ki = clamp_param("ki", p.ki);
-  p.kd = clamp_param("kd", p.kd);
+  clamp_gains(&p.heat);
+  clamp_gains(&p.cool);
   p.min_integral = clamp_param("min_integral", p.min_integral);
   p.max_integral = clamp_param("max_integral", p.max_integral);
   p.starting_integral_term = clamp_param("starting_integral_term", p.starting_integral_term);
@@ -516,8 +603,6 @@ bool ClimateConfig::supports_mode(HubMode mode) const {
       return this->supports_heat();
     case HubMode::COOL:
       return this->supports_cool();
-    case HubMode::HEAT_COOL:
-      return this->supports_heat() && this->supports_cool();
   }
   return false;
 }

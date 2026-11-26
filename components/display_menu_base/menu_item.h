@@ -55,8 +55,9 @@ class MenuItem {
   virtual bool select_next() { return false; }
   virtual bool select_prev() { return false; }
 
-  void on_enter();
-  void on_leave();
+  // JetHome: apply on leave. Virtual so a select or a number can hold its edit until it ends.
+  virtual void on_enter();
+  virtual void on_leave();
 
  protected:
   void on_value_();
@@ -108,8 +109,17 @@ class MenuItemSelect final : public MenuItemEditable {
   bool select_next() override;
   bool select_prev() override;
 
+  // JetHome: apply on leave. An edit opened with "enter" steps a pending option and hands it to
+  // the select when it ends, if it differs; an immediate_edit row still applies every step.
+  void on_enter() override;
+  void on_leave() override;
+
  protected:
+  bool step_pending_(bool next);
+
   select::Select *select_var_{nullptr};
+  bool editing_{false};
+  optional<size_t> pending_{};
 };
 #endif
 
@@ -126,11 +136,20 @@ class MenuItemNumber final : public MenuItemEditable {
   bool select_next() override;
   bool select_prev() override;
 
+  // JetHome: apply on leave, as for a select.
+  void on_enter() override;
+  void on_leave() override;
+
  protected:
   float get_number_value_() const;
+  bool step_pending_(bool up);
 
   number::Number *number_var_{nullptr};
   std::string format_;
+  bool editing_{false};
+  optional<float> pending_{};
+  float origin_{0};
+  int steps_{0};
 };
 #endif
 

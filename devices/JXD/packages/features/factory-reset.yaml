@@ -32,12 +32,12 @@ script:
           }
           App.safe_reboot();
 
-  # The blinking is the only sign of it on a device without a display.
+  # The LED blinks fast while this runs (features/status-led.yaml): the only sign of it on
+  # a device without a display.
   - id: fn_factory_reset
     then:
       - logger.log:
           level: WARN
           format: "FN held for 10 s: factory reset in 5 s"
-      - status_indicator.blink_fast: red_led
       - delay: 5s
       - script.execute: run_factory_reset

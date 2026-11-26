@@ -6,12 +6,13 @@ from esphome.components import filesystem_storage_abstract
 from esphome.core import CORE
 from esphome.components import time as time_
 from esphome.const import CONF_ID, CONF_TIME_ID
+from esphome.helpers import fnv1_hash
 
 CODEOWNERS = ["@jethome-iot"]
 # time: the cron path holds a RealTimeClock and includes its header even when
 # time_id is left out, so the component is always compiled in.
 DEPENDENCIES = ["filesystem_storage_abstract"]
-AUTO_LOAD = ["json", "time", "loop_job", "switch_hold"]
+AUTO_LOAD = ["case_fold", "json", "time", "loop_job", "switch_hold"]
 
 CONF_STORAGE = "storage"
 CONF_FOLDER_PATH = "folder_path"
@@ -57,3 +58,4 @@ async def to_code(config):
     if CONF_TIME_ID in config:
         rtc = await cg.get_variable(config[CONF_TIME_ID])
         cg.add(var.set_time_source(rtc))
+        cg.add(var.set_preference_hash(fnv1_hash(config[CONF_ID].id)))

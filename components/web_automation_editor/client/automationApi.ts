@@ -5,10 +5,10 @@
 // base URL and its fetch wrapper through createAutomationApi().
 //
 // Backend behaviour (verified against web_automation_editor.cpp):
-//  - save, delete and reboot answer POST only, the rest GET only; any other
-//    method is 405 with an Allow header;
-//  - get/save/delete return HTTP 400/404 with a {success:false,error} body, a
-//    save body over 16 KiB 413;
+//  - save, delete, run and reboot answer POST only, the rest GET only; any
+//    other method is 405 with an Allow header;
+//  - get/save/delete/run return HTTP 400/404 with a {success:false,error} body,
+//    a save body over 16 KiB 413, a run the device cannot start 409;
 //  - /ping returns {status:"ok"} (NOT the {success:true} envelope).
 import type {
   AutomationListResponse,
@@ -41,6 +41,12 @@ export interface AutomationApi {
   save(config: AutomationSaveInput): Promise<AutomationSaveResponse>
   /** POST /delete?id= — delete an automation (no body). */
   remove(id: number): Promise<AutomationSaveResponse>
+  /**
+   * POST /run?id= — play its actions now, skipping its triggers and its condition
+   * (no body). Throws with the device's reason on 409: not built, or its mode
+   * refuses another run while one is under way.
+   */
+  run(id: number): Promise<AutomationSaveResponse>
   /** GET /entities — grouped object_id/name for editor dropdowns. */
   entities(): Promise<AutomationEntitiesResponse>
   /** GET /schema — static catalog of trigger/condition/action types + cron presets. */
@@ -102,6 +108,9 @@ export function createAutomationApi(options: AutomationApiOptions): AutomationAp
     },
     remove(id) {
       return jpost<AutomationSaveResponse>(`/delete?id=${id}`)
+    },
+    run(id) {
+      return jpost<AutomationSaveResponse>(`/run?id=${id}`)
     },
     entities() {
       return jget<AutomationEntitiesResponse>('/entities')

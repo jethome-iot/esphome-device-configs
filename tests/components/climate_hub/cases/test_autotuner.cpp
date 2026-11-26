@@ -116,7 +116,7 @@ TEST(PidAutotuner, TheFiveRulesGiveTheirFactorsOfKuAndPu) {
   const float ku = tuner.ku();
   const float pu = tuner.pu();
   for (const Rule &rule : RULES) {
-    AutotuneRun run(AutotuneDirection::HEAT, rule.rule, PidGains{}, 20.f, 1000);
+    AutotuneRun run(Direction::HEAT, rule.rule, PidGains{}, 20.f, 1000);
     for (const Sample &sample : SWINGS)
       run.feed(sample.value, 1000 + sample.s * 1000);
     ASSERT_TRUE(run.found());

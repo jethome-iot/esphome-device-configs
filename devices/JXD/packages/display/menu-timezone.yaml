@@ -1,0 +1,16 @@
+# Info → Timezone: the chosen zone's city while it is in effect, else the offset from UTC of the
+# zone that is (Home Assistant's or the compiled one), DST included.
+graphical_display_menu:
+  items:
+    - id: !extend info_submenu
+      items:
+        - type: label
+          text: "Timezone:"
+
+        - type: label
+          text: !lambda |-
+            static constexpr size_t ROW = 18;  // f7x14_mod2 glyphs across the panel
+            auto *font = id(f7x14_mod2);
+            const panel_text::HasGlyph has = [font](uint32_t code_point) { return font->find_glyph(code_point) != nullptr; };
+            const std::string zone = panel_text::panel_safe(id(device_timezone).zone_label(), 4 * ROW, has);
+            return " " + panel_text::panel_fit(zone, ROW - 1);

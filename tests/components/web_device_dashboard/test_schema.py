@@ -125,6 +125,7 @@ class ServedScreens(unittest.TestCase):
         "web_file_browser": {"storage_id": "store"},
         "web_automation_editor": {},
         "web_climate_editor": {},
+        "web_schedule_editor": {},
     }
 
     def test_each_one_is_configured_under_the_key_the_dashboard_looks_up(self):
@@ -249,6 +250,111 @@ class ModbusMapWiring(unittest.TestCase):
         self.assertNotIn(dashboard.CONF_MODBUS_MAP, dashboard.DEPENDENCIES)
 
 
+class TimezoneWiring(unittest.TestCase):
+    """/api/device/time and its capability come from a timezone_settings in the config."""
+
+    def tearDown(self):
+        CORE.reset()
+        setUpModule()
+
+    def generate(self, core_config):
+        CORE.reset()
+        setUpModule()
+        CORE.config = core_config
+        config = dashboard.CONFIG_SCHEMA({"id": "dash", "web_server_base_id": "web"})
+        CORE.component_ids.add("dash")
+        declared = [
+            ID("web", is_declaration=True, type=config["web_server_base_id"].type)
+        ]
+        for key in (dashboard.CONF_TIMEZONE_SETTINGS, dashboard.CONF_NTP_SERVERS):
+            if key in core_config:
+                declared.append(core_config[key]["id"])
+
+        async def declare():
+            for variable in declared:
+                cg.new_Pvariable(variable)
+
+        CORE.add_job(dashboard.to_code, config)
+        CORE.add_job(declare)
+        CORE.flush_tasks()
+        return {define.name for define in CORE.defines}, [
+            str(statement) for statement in CORE.main_statements
+        ]
+
+    def test_settings_in_the_config_are_wired_in(self):
+        module = importlib.import_module(
+            f"esphome.components.{dashboard.CONF_TIMEZONE_SETTINGS}"
+        )
+        settings = module.CONFIG_SCHEMA({"id": "device_timezone", "timezone": "UTC"})
+        defines, statements = self.generate(
+            {dashboard.CONF_TIMEZONE_SETTINGS: settings}
+        )
+        self.assertIn("USE_WEB_DEVICE_DASHBOARD_TIMEZONE", defines)
+        self.assertIn("dash->set_timezone_settings(device_timezone);", statements)
+
+    def test_without_them_nothing_is(self):
+        defines, statements = self.generate({})
+        self.assertNotIn("USE_WEB_DEVICE_DASHBOARD_TIMEZONE", defines)
+        self.assertFalse([s for s in statements if "set_timezone_settings" in s])
+
+    def test_the_setter_exists_under_that_define(self):
+        header = (
+            Path(__file__).resolve().parents[3]
+            / "components/web_device_dashboard/web_device_dashboard.h"
+        ).read_text()
+        setter = header.index(
+            "void set_timezone_settings(timezone_settings::TimezoneSettings *"
+        )
+        guard = header.rindex("#ifdef USE_WEB_DEVICE_DASHBOARD_TIMEZONE", 0, setter)
+        self.assertNotIn("#endif", header[guard:setter])
+        self.assertNotIn("#else", header[guard:setter])
+
+    def test_the_settings_stay_optional(self):
+        self.assertNotIn(dashboard.CONF_TIMEZONE_SETTINGS, dashboard.AUTO_LOAD)
+        self.assertNotIn(dashboard.CONF_TIMEZONE_SETTINGS, dashboard.DEPENDENCIES)
+
+    def config(self, key, **options):
+        module = importlib.import_module(f"esphome.components.{key}")
+        return module.CONFIG_SCHEMA(options)
+
+    def test_ntp_servers_ride_on_the_zones_route(self):
+        defines, statements = self.generate(
+            {
+                dashboard.CONF_TIMEZONE_SETTINGS: self.config(
+                    dashboard.CONF_TIMEZONE_SETTINGS,
+                    id="device_timezone",
+                    timezone="UTC",
+                ),
+                dashboard.CONF_NTP_SERVERS: self.config(
+                    dashboard.CONF_NTP_SERVERS, id="device_ntp", sntp_id="sntp_time"
+                ),
+            }
+        )
+        self.assertIn("USE_WEB_DEVICE_DASHBOARD_NTP", defines)
+        self.assertIn("dash->set_ntp_servers(device_ntp);", statements)
+
+    def test_ntp_servers_without_a_zone_have_no_route(self):
+        defines, statements = self.generate(
+            {
+                dashboard.CONF_NTP_SERVERS: self.config(
+                    dashboard.CONF_NTP_SERVERS, id="device_ntp", sntp_id="sntp_time"
+                )
+            }
+        )
+        self.assertNotIn("USE_WEB_DEVICE_DASHBOARD_NTP", defines)
+        self.assertFalse([s for s in statements if "set_ntp_servers" in s])
+
+    def test_the_ntp_setter_exists_under_its_define(self):
+        header = (
+            Path(__file__).resolve().parents[3]
+            / "components/web_device_dashboard/web_device_dashboard.h"
+        ).read_text()
+        setter = header.index("void set_ntp_servers(ntp_servers::NTPServers *")
+        guard = header.rindex("#ifdef USE_WEB_DEVICE_DASHBOARD_NTP", 0, setter)
+        self.assertNotIn("#endif", header[guard:setter])
+        self.assertNotIn("#else", header[guard:setter])
+
+
 class UnknownKeys(unittest.TestCase):
     def test_a_misspelled_option_is_refused(self):
         for key in (
@@ -259,6 +365,10 @@ class UnknownKeys(unittest.TestCase):
             "dallas_scan",
             "modbus_map",
             "modbus_map_id",
+            "timezone_settings",
+            "timezone_settings_id",
+            "ntp_servers",
+            "ntp_servers_id",
         ):
             with (
                 self.subTest(key=key),

@@ -1,17 +1,19 @@
 font:
-  # The menu font draws the labels users type, Cyrillic included.
+  # The menu font draws the labels users type: Latin with its accented letters, and Cyrillic.
+  # The file lacks ȷ and ẞ, which the build fills with its default glyph (a dotted box), not `?`.
   - file: ${assets}/fonts/7x14-mod2.bdf
     id: f7x14_mod2
-    glyphsets: [GF_Latin_Kernel, GF_Cyrillic_Core]
+    glyphsets: [GF_Latin_Core, GF_Cyrillic_Core]
+    ignore_missing_glyphs: true
 
   - file: ${assets}/fonts/6x12.bdf
     id: f6x12
 
-  # The status page draws the temperature slots' labels, Cyrillic included. The file lacks four
-  # of the set's letters (Ң ң Ҷ ҷ), which draw as its default glyph.
+  # The status page draws the temperature slots' labels in the same scripts. The file lacks ȷ, ẞ,
+  # the combining comma, cedilla and ogonek, and Ң ң Ҷ ҷ, filled the same way.
   - file: ${assets}/fonts/5x7.bdf
     id: f5x7
-    glyphsets: [GF_Latin_Kernel, GF_Cyrillic_Core]
+    glyphsets: [GF_Latin_Core, GF_Cyrillic_Core]
     ignore_missing_glyphs: true
 
   - file: ${assets}/fonts/spleen-12x24.bdf

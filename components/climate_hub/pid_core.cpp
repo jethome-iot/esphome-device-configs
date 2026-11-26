@@ -109,8 +109,9 @@ float PidCore::update(float setpoint, float process_value, float dt_s) {
   this->error_ = setpoint - process_value;
 
   this->calculate_proportional_term_();
-  this->calculate_integral_term_(dt_s);
+  // The derivative before the integral: whether the output is past its range takes both.
   this->calculate_derivative_term_(setpoint, dt_s);
+  this->calculate_integral_term_(dt_s);
 
   float output = this->proportional_term_ + this->integral_term_ + this->derivative_term_;
   int samples = this->in_deadband() ? this->deadband_output_samples_ : this->output_samples_;
@@ -130,7 +131,15 @@ void PidCore::calculate_proportional_term_() {
 
 void PidCore::calculate_integral_term_(float dt_s) {
   float new_integral = this->error_ * dt_s * this->ki_;
-  this->accumulated_integral_ += this->in_deadband() ? new_integral * this->ki_multiplier_ : new_integral;
+  if (this->in_deadband())
+    new_integral *= this->ki_multiplier_;
+  // Integrated past the range the relay can follow, it would come back out as overshoot. A NaN
+  // bound compares false and never stops it.
+  const float output = this->proportional_term_ + this->accumulated_integral_ + this->derivative_term_;
+  const bool winds_up =
+      (new_integral > 0.f && output >= this->output_high_) || (new_integral < 0.f && output <= this->output_low_);
+  if (!winds_up)
+    this->accumulated_integral_ += new_integral;
   this->clamp_integral_();
   this->integral_term_ = this->accumulated_integral_;
 }

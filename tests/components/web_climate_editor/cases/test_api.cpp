@@ -1,4 +1,5 @@
 #include "common.h"
+#include "esphome/components/api/api_server.h"
 #include "esphome/components/climate_hub/param_table.h"
 
 // Every route's answer, and its refusals in the order client/mock/climateMock.ts gives them:
@@ -11,7 +12,27 @@ namespace esphome::web_climate_editor::testing {
 TEST_F(Editor, AnEmptyHubListsNothing) {
   Reply reply = this->get("list");
   ASSERT_EQ(reply.code, 200);
-  EXPECT_EQ(reply.body, R"({"success":true,"count":0,"max_controllers":3,"controllers":[]})");
+  EXPECT_EQ(reply.body, R"({"success":true,"count":0,"max_controllers":3,"controllers":[],"home_assistant":[]})");
+}
+
+TEST(HomeAssistantVersion, ComesFromHomeAssistantsHelloOnly) {
+  EXPECT_EQ(home_assistant_version("Home Assistant 2026.7.3"), "2026.7.3");
+  EXPECT_EQ(home_assistant_version("Home Assistant 2026.10.0.dev20260901"), "2026.10.0.dev20260901");
+  EXPECT_EQ(home_assistant_version("Home Assistant 2026.8.0b0 (x)"), "2026.8.0b0");
+  for (const char *other : {"aioesphomeapi", "Home Assistant", "Home Assistant ", "Home Assistant beta",
+                            "home assistant 2026.7.3", "Home Assistant\t2026.7.3", "192.168.1.2", ""})
+    EXPECT_EQ(home_assistant_version(other), "") << other;
+  EXPECT_EQ(home_assistant_version(nullptr), "");
+}
+
+// No client has said hello to a server that never set up, so the list names no Home Assistant.
+TEST_F(Editor, AListBesideAnApiServerWithNoClientsNamesNoHomeAssistant) {
+  auto server = std::make_unique<api::APIServer>();
+  Reply reply = this->get("list");
+  api::global_api_server = nullptr;
+  ASSERT_EQ(reply.code, 200);
+  EXPECT_EQ(reply["home_assistant"].as<JsonArrayConst>().size(), 0U);
+  EXPECT_TRUE(reply["home_assistant"].is<JsonArrayConst>());
 }
 
 TEST_F(Editor, SaveCreatesAThermostatTheOtherRoutesThenSee) {
@@ -22,10 +43,11 @@ TEST_F(Editor, SaveCreatesAThermostatTheOtherRoutesThenSee) {
   EXPECT_TRUE(hub().is_running("living-room"));
 
   Reply list = this->get("list");
-  EXPECT_EQ(list.body, R"({"success":true,"count":1,"max_controllers":3,"controllers":[)"
-                       R"({"id":"living-room","name":"Living Room","enabled":true,"kind":"pid","mode":"heat",)"
-                       R"("sensor_id":"room","heat_relay_id":"relay_1","cool_relay_id":"","running":true,)"
-                       R"("waiting":"","active_preset":"","active_preset_name":""}]})");
+  EXPECT_EQ(list.body,
+            R"({"success":true,"count":1,"max_controllers":3,"controllers":[)"
+            R"({"id":"living-room","name":"Living Room","enabled":true,"kind":"pid","mode":"heat",)"
+            R"("sensor_id":"room","heat_relay_id":"relay_1","cool_relay_id":"","running":true,)"
+            R"("revision":0,"waiting":"","active_preset":"","active_preset_name":""}],"home_assistant":[]})");
 
   // The bare document, every key there, the same shape save takes back.
   Reply got = this->get("get?id=living-room");
@@ -105,14 +127,19 @@ TEST_F(Editor, SaveRefusesWhatItCannotRead) {
                 "Name is required"},
            Case{R"({"name":"Up/down","sensor_id":"room","heat":{"relay_id":"relay_1"}})", "application/json",
                 "Name cannot contain '/'"},
-           Case{R"({"name":"Кухня","sensor_id":"room","heat":{"relay_id":"relay_1"}})", "application/json",
-                "Use printable ASCII characters only"},
+           // Bytes no browser sends, so not in the contract.
+           Case{"{\"name\":\"Kitchen\xd1\",\"sensor_id\":\"room\",\"heat\":{\"relay_id\":\"relay_1\"}}",
+                "application/json", "Name is not valid UTF-8"},
            Case{R"({"name":")" + std::string(49, 'a') + R"(","sensor_id":"room","heat":{"relay_id":"relay_1"}})",
                 "application/json", "Name is longer than 48 characters"},
            // The codec's rules come first, the name's last.
            Case{R"({"name":"Up/down","heat":{"relay_id":"relay_1"}})", "application/json", "sensor_id is required"},
            Case{R"({"name":"A","sensor_id":"room","heat":{"relay_id":"relay_1"},"mode":"dry"})", "application/json",
-                "mode must be one of off/heat/cool/heat_cool"},
+                "mode must be one of off/heat/cool"},
+           // Gone, and not migrated: a thermostat drives one relay at a time.
+           Case{R"({"name":"A","sensor_id":"room","heat":{"relay_id":"relay_1"},"cool":{"relay_id":"relay_2"},)"
+                R"("mode":"heat_cool"})",
+                "application/json", "mode must be one of off/heat/cool"},
            // An entity named by a number is no entity: ArduinoJson would hand over its JSON text.
            Case{R"({"name":"A","sensor_id":5,"heat":{"relay_id":"relay_1"}})", "application/json",
                 "sensor_id is required"},
@@ -213,8 +240,6 @@ TEST_F(Editor, SaveRefusesANameAnotherClimateAnswersTo) {
   };
   for (const Case &c : {
            Case{"living  ROOM", "\"living  ROOM\" is already used by another thermostat"},
-           Case{"Living_Room",
-                "\"Living_Room\" is too close to \"Living Room\": both are living_room to Home Assistant"},
            // The web server finds a climate by name, the YAML's first.
            Case{"Hall", "\"Hall\" is already used by another thermostat"},
        }) {
@@ -646,7 +671,7 @@ TEST_F(Editor, TakeOverIsReadStrictlyAndActsOnlyOnAStart) {
 
 static const char *const STUDIO =
     R"({"name":"Studio","enabled":false,"kind":"pid","sensor_id":"room","heat":{"relay_id":"relay_1"},)"
-    R"("cool":{"relay_id":"relay_2"},"mode":"heat_cool","setpoint":22})";
+    R"("cool":{"relay_id":"relay_2"},"mode":"heat","setpoint":22})";
 
 TEST_F(Editor, TakingTwoRelaysOverNamesEveryThermostatItStopped) {
   ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
@@ -885,7 +910,7 @@ TEST_F(Waiters, ASaveThatLeavesItWaitingNamesWhoStartedBeforeTheWarning) {
 // then who started after the one taking over.
 TEST_F(Waiters, ATakeOverNamesWhoStoppedThenWhoStarted) {
   this->boot_with({R"({"version":1,"id":"attic","name":"Attic","kind":"bang_bang","sensor_id":"room",)"
-                   R"("heat":{"relay_id":"relay_1"},"cool":{"relay_id":"relay_2"},"mode":"heat_cool"})",
+                   R"("heat":{"relay_id":"relay_1"},"cool":{"relay_id":"relay_2"},"mode":"heat"})",
                    R"({"version":1,"id":"den","name":"Den","kind":"bang_bang","sensor_id":"room",)"
                    R"("heat":{"relay_id":"relay_1"},"mode":"heat"})",
                    R"({"version":1,"id":"porch","name":"Porch","kind":"bang_bang","sensor_id":"floor",)"
@@ -1147,6 +1172,45 @@ TEST_F(Editor, StatusSaysWhichDwellHoldsARelay) {
   EXPECT_EQ(row["heat_relay_wait"].as<std::string>(), "min_on");
 }
 
+// Switched from heat to cool while min_on holds the heater closed, the cooler waits for it, and
+// says so beside the heater's own minimum: the two never run at once.
+TEST_F(Editor, StatusSaysTheOtherRelayHoldsOneOpen) {
+  ASSERT_EQ(this->create(R"({"name":"Floor","kind":"bang_bang","sensor_id":"floor",)"
+                         R"("heat":{"relay_id":"relay_1","min_on_s":60,"min_off_s":0},)"
+                         R"("cool":{"relay_id":"relay_2","min_on_s":0,"min_off_s":0},"mode":"heat","setpoint":24})"),
+            "floor");
+  entities().floor.publish_state(20.f);
+  hub().loop();
+  ASSERT_TRUE(entities().relay1.state);
+
+  entities().floor.publish_state(28.f);
+  climate::Climate *entity = hub().runtime("floor")->entity();
+  auto cool = entity->make_call();
+  cool.set_mode(climate::CLIMATE_MODE_COOL);
+  cool.perform();
+  hub().ms += 1000;
+  hub().loop();
+  Reply held = this->get("status?id=floor");
+  ASSERT_EQ(held.code, 200) << held.body;
+  JsonObject row = held["controllers"][0];
+  EXPECT_EQ(row["action"].as<std::string>(), "heating") << "the heater is closed until its min_on ends";
+  EXPECT_TRUE(row["heat_relay_on"].as<bool>());
+  EXPECT_FALSE(row["cool_relay_on"].as<bool>());
+  EXPECT_FLOAT_EQ(row["cool_duty"].as<float>(), 1.f);
+  EXPECT_EQ(row["heat_relay_wait"].as<std::string>(), "min_on");
+  EXPECT_EQ(row["cool_relay_wait"].as<std::string>(), "other_relay");
+
+  hub().ms += 60000;
+  hub().loop();
+  Reply cooling = this->get("status?id=floor");
+  row = cooling["controllers"][0];
+  EXPECT_EQ(row["action"].as<std::string>(), "cooling");
+  EXPECT_FALSE(row["heat_relay_on"].as<bool>());
+  EXPECT_TRUE(row["cool_relay_on"].as<bool>());
+  EXPECT_EQ(row["heat_relay_wait"].as<std::string>(), "none");
+  EXPECT_EQ(row["cool_relay_wait"].as<std::string>(), "none");
+}
+
 // A stopped thermostat still shows its room, read off the sensor itself.
 TEST_F(Editor, StatusOfAStoppedThermostat) {
   ASSERT_EQ(this->create(with(LIVING_ROOM, R"("enabled":false)").c_str()), "living-room");
@@ -1214,6 +1278,23 @@ TEST_F(Editor, EntitiesListsThermostatInputsAndWhoHoldsEachRelay) {
                         R"({"object_id":"relay_2","name":"Relay 2","claimed_by":""}]})");
 }
 
+// A config switch is the device's own setting, not a relay: the editor does not offer it, and a
+// thermostat saved on it waits as on a relay the device does not have.
+TEST_F(Editor, AConfigSwitchIsNeitherListedNorTaken) {
+  Reply reply = this->get("entities");
+  ASSERT_EQ(reply.code, 200);
+  std::vector<std::string> switches;
+  for (JsonObject row : reply["switches"].as<JsonArray>())
+    switches.push_back(row["object_id"].as<std::string>());
+  EXPECT_EQ(switches, (std::vector<std::string>{"relay_1", "relay_2"}));
+
+  reply = this->post(
+      "save",
+      R"({"name":"Unlock","kind":"bang_bang","sensor_id":"room","heat":{"relay_id":"config_switch"},"mode":"heat","setpoint":22})");
+  EXPECT_EQ(reply.code, 200);
+  EXPECT_EQ(reply["warning"].as<std::string>(), "not started: relay 'config_switch' not found");
+}
+
 // Straight from the table the codec clamps against, so the form cannot offer what the device
 // would then change.
 TEST_F(Editor, SchemaIsTheParameterTable) {
@@ -1224,7 +1305,7 @@ TEST_F(Editor, SchemaIsTheParameterTable) {
   EXPECT_EQ(words, R"(["pid","bang_bang"])");
   words.clear();
   serializeJson(reply["modes"], words);
-  EXPECT_EQ(words, R"(["off","heat","cool","heat_cool"])");
+  EXPECT_EQ(words, R"(["off","heat","cool"])");
   words.clear();
   serializeJson(reply["faults"], words);
   EXPECT_EQ(words, R"(["none","sensor_stale","overtemp","relay_contested"])");

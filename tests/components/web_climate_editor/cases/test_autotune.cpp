@@ -108,8 +108,40 @@ TEST_F(Editor, AFinishedRunShowsWhatItFoundAndGetHasIt) {
 
   Reply doc = this->get("get?id=living-room");
   EXPECT_EQ(doc["revision"], 1);
-  EXPECT_FLOAT_EQ(doc["pid"]["kp"].as<float>(), found->new_gains().kp);
-  EXPECT_FLOAT_EQ(doc["pid"]["kd"].as<float>(), found->new_gains().kd);
+  EXPECT_FLOAT_EQ(doc["pid"]["heat"]["kp"].as<float>(), found->new_gains().kp);
+  EXPECT_FLOAT_EQ(doc["pid"]["heat"]["kd"].as<float>(), found->new_gains().kd);
+  EXPECT_FLOAT_EQ(doc["pid"]["kp"].as<float>(), found->new_gains().kp) << "the copy for an older firmware";
+  EXPECT_FLOAT_EQ(doc["pid"]["cool"]["kp"].as<float>(), 0.6f) << "the cooling relay's are its own";
+}
+
+// With both relays, a run in cool swings the cooling relay, from its gains, and writes its gains
+// alone: the heating relay keeps its own.
+TEST_F(Editor, ACoolingRunWritesTheCoolingRelaysGains) {
+  ASSERT_EQ(this->create(R"({"name":"Living Room","kind":"pid","sensor_id":"room","heat":{"relay_id":"relay_1"},)"
+                         R"("cool":{"relay_id":"relay_2"},"mode":"cool","setpoint":22,)"
+                         R"("pid":{"heat":{"kp":1.5,"ki":0.25,"kd":2},"cool":{"kp":0.75,"ki":0.5,"kd":0}}})"),
+            "living-room");
+  reading(22.f);
+  ASSERT_EQ(this->post("autotune?id=living-room&value=true").code, 200);
+  Reply running = this->get("status?id=living-room");
+  EXPECT_EQ(autotune_of(running)["direction"], "cool");
+  EXPECT_FLOAT_EQ(autotune_of(running)["old"]["kp"].as<float>(), 0.75f);
+  EXPECT_FLOAT_EQ(autotune_of(running)["old"]["ki"].as<float>(), 0.5f);
+  swing();
+
+  const climate_hub::AutotuneRun *found = hub().autotune("living-room");
+  ASSERT_NE(found, nullptr);
+  ASSERT_EQ(found->state(), climate_hub::AutotuneState::SUCCEEDED);
+  Reply doc = this->get("get?id=living-room");
+  EXPECT_EQ(doc["revision"], 1);
+  EXPECT_FLOAT_EQ(doc["pid"]["cool"]["kp"].as<float>(), found->new_gains().kp);
+  EXPECT_FLOAT_EQ(doc["pid"]["cool"]["ki"].as<float>(), found->new_gains().ki);
+  EXPECT_FLOAT_EQ(doc["pid"]["kp"].as<float>(), found->new_gains().kp) << "the copy is the mode's relay's";
+  EXPECT_FLOAT_EQ(doc["pid"]["heat"]["kp"].as<float>(), 1.5f);
+  EXPECT_FLOAT_EQ(doc["pid"]["heat"]["ki"].as<float>(), 0.25f);
+  EXPECT_FLOAT_EQ(doc["pid"]["heat"]["kd"].as<float>(), 2.f);
+  Reply status = this->get("status?id=living-room");
+  EXPECT_EQ(status.json["controllers"][0]["pid"]["direction"], "cool");
 }
 
 // The chart is the run's: a target that ended it, or one set after it succeeded, leaves it alone.
@@ -194,7 +226,7 @@ TEST_F(Editor, ASaveOfAFormReadBeforeTheRunIsRefused) {
   Reply stale = this->post("save", body);
   EXPECT_EQ(stale.code, 409);
   EXPECT_EQ(stale.error(), "The device changed this thermostat since it was read; reload it");
-  EXPECT_NE(hub().store().get("living-room")->pid.kp, 0.6f) << "the tuned gains stay";
+  EXPECT_NE(hub().store().get("living-room")->pid.heat.kp, 0.6f) << "the tuned gains stay";
 
   Reply after = this->get("get?id=living-room");
   after.json["name"] = "Lounge";

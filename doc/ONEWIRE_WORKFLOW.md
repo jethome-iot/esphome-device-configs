@@ -119,9 +119,10 @@ Forget All and a factory reset clear every offset. Listed sensors take none: the
 
 ## Label
 
-A slot can be named in your own words, "Boiler return" or «Подача», up to 24 characters, Cyrillic
-included. Set it on the web dashboard, in the slot's **Edit** dialog in **Settings → Temperature**
-or in the `Temp N` entity's dialog; the panel has no text entry. An empty label clears it.
+A slot can be named in your own words, "Boiler return" or «Подача», up to 24 characters, accented
+Latin and Cyrillic included. Set it on the web dashboard, in the slot's **Edit** dialog in
+**Settings → Temperature** or in the `Temp N` entity's dialog; the panel has no text entry. An
+empty label clears it.
 
 The label shows at once, with no reboot, wherever the panel and the dashboard name the slot: the
 **Temperatures** rows (`Подача: 21.5°C`, cut with `…` when it does not fit), the status page (up

@@ -11,7 +11,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [config_base, config_json, entity_config, bindings, switch_hold]
+    components: [config_base, config_json, entity_config, bindings, panel_text, switch_hold]
 
 bindings:
 ```
@@ -22,6 +22,7 @@ Nothing to configure; needs at least one `switch` and one `binary_sensor` in the
 |---|---|
 | Source | a `binary_sensor` |
 | Target | a `switch` |
+| Neither end | internal, or with `entity_category: config` |
 | Per output | at most one binding (a second write overwrites) |
 | Per input | any number of outputs |
 

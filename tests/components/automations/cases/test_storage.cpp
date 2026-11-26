@@ -37,6 +37,19 @@ static const std::vector<std::pair<const char *, const char *>> REFUSED = {
      R"({"name":"Empty Cond","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"condition":{"type":"and","conditions":[]},"actions":[]})"},
 };
 
+// A Cyrillic letter is two bytes, so a few dozen of them pass the 48 a file name holds.
+static std::string repeat(const char *text, int count) {
+  std::string out;
+  for (int i = 0; i < count; i++)
+    out += text;
+  return out;
+}
+
+static std::string startup_rule(const std::string &name, uint32_t id = 0) {
+  return R"({)" + (id == 0 ? std::string() : R"("id":)" + std::to_string(id) + ",") + R"("name":")" + name +
+         R"(","triggers":[{"source":"startup"}]})";
+}
+
 class Storage : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -287,14 +300,240 @@ TEST_F(Storage, FilenamesAreSanitized) {
     ASSERT_NE(engine->add_automation(
                   rule((R"({"name":")" + std::string(name) + R"(","triggers":[{"source":"startup"}]})").c_str())),
               0u);
-  ASSERT_NE(engine->add_automation(rule((R"({"name":")" + thirty + R"(","triggers":[{"source":"startup"}]})").c_str())),
-            0u);
-  std::string twenty_four;
-  for (int i = 0; i < 24; i++)
-    twenty_four += "ф";  // 48 bytes: the limit, and no character cut in half
-  std::vector<std::string> expected = {"hello_world.json", "Кухня_свет.json", "automation.json", twenty_four + ".json"};
+  ASSERT_EQ(engine->add_automation(rule((R"({"name":")" + thirty + R"(","triggers":[{"source":"startup"}]})").c_str())),
+            4u);
+  std::string twenty_three;
+  for (int i = 0; i < 23; i++)
+    twenty_three += "ф";  // 46 bytes and the id's "-4": the 48, and no character cut in half
+  // Four bytes each: a twelfth would pass the 46 left beside "-5".
+  ASSERT_EQ(engine->add_automation(rule(startup_rule(repeat("🔥", 13)).c_str())), 5u);
+  std::vector<std::string> expected = {"hello_world.json", "кухня_свет.json", "automation.json",
+                                       twenty_three + "-4.json", repeat("🔥", 11) + "-5.json"};
   std::sort(expected.begin(), expected.end());
   EXPECT_EQ(files(), expected);
+}
+
+TEST_F(Storage, ANameIsAnyScriptButNoControlCharacter) {
+  boot();
+  uint32_t id = 0;
+  for (const char *name : {"Кухня свет", "Küche Licht", "Żółć", "🔥 Boiler", "Ελλάδα"}) {
+    id = engine->add_automation(rule(startup_rule(name).c_str()));
+    EXPECT_NE(id, 0u) << name;
+  }
+  struct Case {
+    std::string name;
+    const char *error;
+  };
+  for (const Case &c :
+       {Case{"Bell\a", "Name cannot contain control characters"},
+        Case{"Tab\there", "Name cannot contain control characters"},
+        Case{"Del\x7f", "Name cannot contain control characters"},
+        Case{"Next\xc2\x85line", "Name cannot contain control characters"}, Case{"Cut \xd0", "Name is not valid UTF-8"},
+        Case{"Bad \xff byte", "Name is not valid UTF-8"}, Case{"Overlong \xc0\xaf", "Name is not valid UTF-8"},
+        Case{"Surrogate \xed\xa0\x80", "Name is not valid UTF-8"}}) {
+    AutomationConfig config = rule(startup_rule("Placeholder").c_str());
+    config.name = c.name;
+    std::string error;
+    EXPECT_EQ(engine->add_automation(config, &error), 0u) << c.error;
+    EXPECT_EQ(error, c.error);
+    error.clear();
+    EXPECT_FALSE(engine->update_automation(id, config, &error)) << c.error;
+    EXPECT_EQ(error, c.error);
+  }
+  EXPECT_EQ(names(), (std::vector<std::string>{"Кухня свет", "Küche Licht", "Żółć", "🔥 Boiler", "Ελλάδα"}));
+}
+
+// A file written before the rule was refused still loads, the panel showing the character as
+// `?`, and the rule can be switched off without a rename.
+TEST_F(Storage, AControlCharacterInAStoredNameStillLoads) {
+  write("bell.json", R"({"id":1,"name":"Bell\u0007","triggers":[{"source":"startup"}]})");
+  boot();
+  EXPECT_EQ(names(), (std::vector<std::string>{"Bell\a"}));
+  AutomationConfig off = *config("Bell\a");
+  off.enabled = false;
+  std::string error;
+  EXPECT_TRUE(engine->update_automation(1, off, &error)) << error;
+  EXPECT_FALSE(config("Bell\a")->enabled);
+  off.name = "Bell\a\a";
+  EXPECT_FALSE(engine->update_automation(1, off, &error));
+  EXPECT_EQ(error, "Name cannot contain control characters");
+}
+
+// The two agree in their first 48 bytes, all a file name holds.
+TEST_F(Storage, LongNamesThatStartAlikeAreTwoRules) {
+  const std::string weekdays = "Свет на кухне по вечерам в будни";
+  const std::string weekends = "Свет на кухне по вечерам в выходные";
+  boot();
+  ASSERT_EQ(engine->add_automation(rule(startup_rule(weekdays).c_str())), 1u);
+  EXPECT_FALSE(engine->is_name_taken(weekends));
+  ASSERT_EQ(engine->add_automation(rule(startup_rule(weekends).c_str())), 2u);
+  const std::vector<std::string> expected = {"свет_на_кухне_по_вечерам-1.json", "свет_на_кухне_по_вечерам-2.json"};
+  EXPECT_EQ(files(), expected);
+  EXPECT_NE(read("свет_на_кухне_по_вечерам-2.json").find(weekends), std::string::npos);
+
+  reboot();
+  EXPECT_EQ(names(), (std::vector<std::string>{weekdays, weekends}));
+  EXPECT_EQ(files(), expected);
+}
+
+// A name folds '-' to '_', so one spelling another rule's cut file name is a rule of its own.
+TEST_F(Storage, ANameSpellingACutFileNameIsAnotherRule) {
+  boot();
+  ASSERT_EQ(engine->add_automation(rule(startup_rule(repeat("ф", 30)).c_str())), 1u);
+  const std::string lookalike = repeat("ф", 23) + "-1";
+  EXPECT_FALSE(engine->is_name_taken(lookalike));
+  ASSERT_EQ(engine->add_automation(rule(startup_rule(lookalike).c_str())), 2u);
+  const std::vector<std::string> expected = {repeat("ф", 23) + "-1.json", repeat("ф", 23) + "_1.json"};
+  EXPECT_EQ(files(), expected);
+
+  reboot();
+  EXPECT_EQ(names(), (std::vector<std::string>{repeat("ф", 30), lookalike}));
+  EXPECT_EQ(files(), expected);
+}
+
+// Before the id went into it, a long name's file was its first 48 bytes alone.
+TEST_F(Storage, AFileCutTheOldWayMovesAtBoot) {
+  write(repeat("ф", 24) + ".json", startup_rule(repeat("ф", 30), 4));
+  boot();
+  EXPECT_EQ(files(), (std::vector<std::string>{repeat("ф", 23) + "-4.json"}));
+  EXPECT_NE(read(repeat("ф", 23) + "-4.json").find(R"("name":")" + repeat("ф", 30) + "\""), std::string::npos);
+
+  reboot();
+  EXPECT_EQ(names(), (std::vector<std::string>{repeat("ф", 30)}));
+  EXPECT_EQ(files(), (std::vector<std::string>{repeat("ф", 23) + "-4.json"}));
+}
+
+// The old file name is the whole of a shorter name's: the long rule moves out before that one
+// moves in.
+TEST_F(Storage, AnOldCutFileGoesToTheNameItSpellsWhole) {
+  write(repeat("ф", 24) + ".json", startup_rule(repeat("ф", 30), 4));
+  write("x.json", startup_rule(repeat("ф", 24), 5));
+  boot();
+  EXPECT_EQ(files(), (std::vector<std::string>{repeat("ф", 23) + "-4.json", repeat("ф", 24) + ".json"}));
+  EXPECT_NE(read(repeat("ф", 23) + "-4.json").find(R"("name":")" + repeat("ф", 30) + "\""), std::string::npos);
+  EXPECT_NE(read(repeat("ф", 24) + ".json").find(R"("name":")" + repeat("ф", 24) + "\""), std::string::npos);
+}
+
+// A refused file holds the long rule's new name, so it stays in the old one, which the rule
+// named after that file must then leave alone.
+TEST_F(Storage, AnOldCutFileThatCannotMoveIsKept) {
+  const std::string refused = "{";
+  write(repeat("ф", 23) + "-4.json", refused);
+  write(repeat("ф", 24) + ".json", startup_rule(repeat("ф", 30), 4));
+  write("x.json", startup_rule(repeat("ф", 24), 5));
+  boot();
+  EXPECT_EQ(read(repeat("ф", 23) + "-4.json"), refused);
+  EXPECT_NE(read(repeat("ф", 24) + ".json").find(R"("name":")" + repeat("ф", 30) + "\""), std::string::npos);
+  EXPECT_NE(read("x.json").find(R"("name":")" + repeat("ф", 24) + "\""), std::string::npos);
+
+  reboot();
+  EXPECT_EQ(names(), (std::vector<std::string>{repeat("ф", 30), repeat("ф", 24)}));
+}
+
+// An orphan is never rewritten, so it stays in its old cut file; renamed to the name that file
+// spells whole, it is already where it belongs.
+TEST_F(Storage, AnOrphanInAnOldCutFileTakesTheNameItSpells) {
+  std::string orphan = ORPHAN;
+  orphan.replace(orphan.find("Orphan"), 6, repeat("ф", 30));
+  write(repeat("ф", 24) + ".json", orphan);
+  boot();
+  ASSERT_EQ(files(), std::vector<std::string>{repeat("ф", 24) + ".json"});
+
+  const uint32_t id = id_of(repeat("ф", 30));
+  ASSERT_TRUE(engine->update_automation(id, rule(startup_rule(repeat("ф", 24)).c_str())));
+  EXPECT_EQ(files(), std::vector<std::string>{repeat("ф", 24) + ".json"});
+  EXPECT_NE(read(repeat("ф", 24) + ".json").find("startup"), std::string::npos);
+}
+
+TEST_F(Storage, ALongNameRenamedKeepsOneFile) {
+  boot();
+  const uint32_t id = engine->add_automation(rule(startup_rule(repeat("ф", 30)).c_str()));
+  ASSERT_EQ(id, 1u);
+  const std::string file = repeat("ф", 23) + "-1.json";
+
+  // The same first 46 bytes: the same file.
+  const std::string longer = repeat("ф", 23) + repeat("ж", 10);
+  ASSERT_TRUE(engine->update_automation(id, rule(startup_rule(longer).c_str())));
+  EXPECT_EQ(files(), std::vector<std::string>{file});
+  EXPECT_NE(read(file).find(longer), std::string::npos);
+  EXPECT_FALSE(engine->is_name_taken(repeat("ф", 30)));
+
+  ASSERT_TRUE(engine->update_automation(id, rule(startup_rule("Short").c_str())));
+  EXPECT_EQ(files(), std::vector<std::string>{"short.json"});
+  ASSERT_TRUE(engine->update_automation(id, rule(startup_rule(repeat("ж", 30)).c_str())));
+  EXPECT_EQ(files(), std::vector<std::string>{repeat("ж", 23) + "-1.json"});
+}
+
+TEST_F(Storage, ASecondLongNameKeepsItWholeAndTakesANumber) {
+  const std::string name = repeat("ф", 30);
+  write("a.json", startup_rule(name, 1));
+  write("b.json", startup_rule(name, 2));
+  boot();
+  std::vector<std::string> got = names();
+  std::sort(got.begin(), got.end());
+  EXPECT_EQ(got, (std::vector<std::string>{name, name + " 2"}));
+  EXPECT_EQ(files(), (std::vector<std::string>{repeat("ф", 23) + "-1.json", repeat("ф", 23) + "-2.json"}));
+  ASSERT_NE(config(name + " 2"), nullptr);
+  EXPECT_EQ(config(name + " 2")->file, repeat("ф", 23) + "-" + std::to_string(id_of(name + " 2")) + ".json");
+  EXPECT_TRUE(log().has(log().warnings, "Two automations named"));
+}
+
+TEST_F(Storage, CaseFoldsInALongNameToo) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(startup_rule("Pump").c_str())), 0u);
+  EXPECT_TRUE(engine->is_name_taken("pump"));
+  EXPECT_EQ(engine->add_automation(rule(startup_rule("pump").c_str())), 0u);
+
+  ASSERT_EQ(
+      engine->add_automation(rule(startup_rule("Pump the basement dry every evening after the rain stops").c_str())),
+      2u);
+  EXPECT_TRUE(engine->is_name_taken("PUMP THE BASEMENT DRY EVERY EVENING AFTER THE RAIN STOPS"));
+  // Past the 48 bytes a file name holds, the rest of the name still tells two apart.
+  EXPECT_FALSE(engine->is_name_taken("Pump the basement dry every evening after the rain starts"));
+  EXPECT_EQ(files(), (std::vector<std::string>{"pump.json", "pump_the_basement_dry_every_evening_after_the-2.json"}));
+}
+
+// Latin, Greek and Cyrillic alike, and the file is named in the folded case.
+TEST_F(Storage, CaseFoldsInEveryScript) {
+  boot();
+  for (const char *name : {"Кухня свет", "Café", "Οδός"})
+    ASSERT_NE(engine->add_automation(rule(startup_rule(name).c_str())), 0u) << name;
+  for (const char *name : {"КУХНЯ СВЕТ", "кухня-свет", "CAFÉ", "café", "ΟΔΌΣ", "οδός"}) {
+    EXPECT_TRUE(engine->is_name_taken(name)) << name;
+    std::string error;
+    EXPECT_EQ(engine->add_automation(rule(startup_rule(name).c_str()), &error), 0u) << name;
+  }
+  // Outside those scripts a letter is compared as it is.
+  EXPECT_FALSE(engine->is_name_taken("Ⴀ"));
+  ASSERT_NE(engine->add_automation(rule(startup_rule("Ⴀ").c_str())), 0u);
+  EXPECT_FALSE(engine->is_name_taken("ⴀ"));
+  EXPECT_FALSE(engine->is_name_taken("Οδος")) << "a letter with an accent is another letter";
+  EXPECT_EQ(files(), (std::vector<std::string>{"café.json", "οδόσ.json", "кухня_свет.json", "Ⴀ.json"}));
+  EXPECT_TRUE(engine->update_automation(1, rule(startup_rule("КУХНЯ СВЕТ").c_str()))) << "its own name is no clash";
+  EXPECT_EQ(names(), (std::vector<std::string>{"КУХНЯ СВЕТ", "Café", "Οδός", "Ⴀ"}));
+}
+
+// A file an older firmware named after the name as written moves to the folded one, and two
+// rules whose names are one in the folded case are told apart.
+TEST_F(Storage, NamesAlikeButForCaseAreToldApartAtBoot) {
+  write("Свет.json", R"({"id":1,"name":"Свет","triggers":[{"source":"startup"}]})");
+  write("СВЕТ.json", R"({"id":2,"name":"СВЕТ","triggers":[{"source":"startup"}]})");
+  write("Кухня_свет.json", R"({"id":3,"name":"Кухня свет","triggers":[{"source":"startup"}]})");
+  boot();
+  std::vector<std::string> got = names();
+  std::sort(got.begin(), got.end());
+  // Which of the two keeps its name is the order the folder lists them in.
+  EXPECT_TRUE(got == (std::vector<std::string>{"Кухня свет", "СВЕТ", "Свет 2"}) ||
+              got == (std::vector<std::string>{"Кухня свет", "СВЕТ 2", "Свет"}))
+      << got[1] << ", " << got[2];
+  EXPECT_EQ(files(), (std::vector<std::string>{"кухня_свет.json", "свет.json", "свет_2.json"}));
+  EXPECT_TRUE(log().has(log().warnings, "Two automations named"));
+
+  reboot();
+  std::vector<std::string> again = names();
+  std::sort(again.begin(), again.end());
+  EXPECT_EQ(again, got);
+  EXPECT_EQ(files(), (std::vector<std::string>{"кухня_свет.json", "свет.json", "свет_2.json"}));
 }
 
 TEST_F(Storage, RulesRunThroughTheEntityCallback) {
@@ -331,6 +570,30 @@ TEST_F(Storage, AnAnnouncedLevelIsNotAPress) {
       0u);
   e.in2.publish_state(true);
   EXPECT_EQ(e.relay2.writes, 1);
+}
+
+TEST_F(Storage, NamesTheRulesThatNameAnInputBuiltOrNot) {
+  write("input_press.json", PRESS_RELAY_1);
+  write("gated.json",
+        R"({"id":2,"name":"Gated","triggers":[{"source":"startup"}],"condition":{"type":"and","conditions":[)"
+        R"({"type":"input","object_id":"in_2","state":"true"},{"type":"or","conditions":[)"
+        R"({"type":"input","object_id":"in_1","state":"false"}]}]},"actions":[]})");
+  // Not built: it names an input this firmware lacks, and in_1 too.
+  write("orphan.json",
+        R"({"id":3,"name":"Orphan","triggers":[{"source":"input","type":"press","object_id":"no_such_input"},)"
+        R"({"source":"input","type":"release","object_id":"in_1"}],"actions":[]})");
+  // A sensor's hash in a temperature trigger is no input.
+  write(
+      "warm.json",
+      R"({"id":4,"name":"Warm","triggers":[{"source":"temperature","type":"above","object_id":"in_1","threshold":25}],)"
+      R"("actions":[]})");
+  boot();
+  ASSERT_FALSE(built("Orphan"));
+  EXPECT_EQ(engine->rules_naming_binary_sensor(fnv1_hash("in_1")),
+            (std::vector<std::string>{"Input press", "Gated", "Orphan"}));
+  EXPECT_EQ(engine->rules_naming_binary_sensor(fnv1_hash("in_2")), (std::vector<std::string>{"Gated"}));
+  EXPECT_EQ(engine->rules_naming_binary_sensor(fnv1_hash("no_such_input")), (std::vector<std::string>{"Orphan"}));
+  EXPECT_TRUE(engine->rules_naming_binary_sensor(fnv1_hash("relay_1")).empty());
 }
 
 TEST_F(Storage, TheApiEditsRulesAndTheirFiles) {
@@ -590,6 +853,31 @@ TEST_F(Storage, StartupRulesFireOnceTheEngineIsUp) {
   EXPECT_TRUE(e.relay1.state);
 }
 
+// A rule on a config switch, such as the board's ESPHome OTA one, is not built, from a file or the
+// API: it fares as a rule on a switch the device does not have.
+TEST_F(Storage, ARuleOnAConfigSwitchIsAnOrphan) {
+  static const char *const UNLOCK =
+      R"({"id":1,"name":"Unlock","enabled":true,"mode":"single","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"config_switch"}]})";
+  static const char *const UNLOCK_AGAIN =
+      R"({"name":"Unlock again","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"config_switch"}]})";
+  static const char *const WATCH =
+      R"({"name":"Watch","triggers":[{"source":"switch","type":"turn_on","object_id":"config_switch"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})";
+  write("unlock.json", UNLOCK);
+  boot();
+  EXPECT_FALSE(built("Unlock"));
+  EXPECT_EQ(read("unlock.json"), UNLOCK);
+  EXPECT_TRUE(log().has(log().errors, "Automation 'Unlock': action cannot be built"));
+
+  for (const char *json : {UNLOCK_AGAIN, WATCH})
+    EXPECT_EQ(engine->add_automation(rule(json)), 0u) << json;
+  EXPECT_EQ(files(), (std::vector<std::string>{"unlock.json"}));
+
+  std::string on_relay = UNLOCK_AGAIN;
+  const std::string config_switch = "config_switch";
+  on_relay.replace(on_relay.find(config_switch), config_switch.size(), "relay_1");
+  EXPECT_NE(engine->add_automation(rule(on_relay.c_str())), 0u);
+}
+
 TEST_F(Storage, RulesCannotBeEditedFromInsideTheirOwnAction) {
   write("input_press.json", PRESS_RELAY_1);
   boot();
@@ -631,6 +919,204 @@ TEST_F(Storage, StopsAt255Rules) {
   EXPECT_EQ(engine->add_automation(rule(R"({"name":"One more","triggers":[{"source":"startup"}]})")), 0u);
   EXPECT_TRUE(log().has(log().errors, "already at the 255 automation limit"));
   EXPECT_EQ(files().size(), 255u);
+}
+
+// The switch a rule toggles calls back into the engine from inside the action: a rule
+// triggered by that switch restarts itself on every toggle, and only the bound ends it.
+TEST_F(Storage, ARuleTogglingItsOwnTriggerStopsAtTheBound) {
+  boot();
+  ASSERT_NE(
+      engine->add_automation(rule(
+          R"({"name":"Self toggle","mode":"restart","triggers":[{"source":"switch","type":"state_change","object_id":"relay_1"}],"actions":[{"source":"switch","type":"toggle","object_id":"relay_1"}]})")),
+      0u);
+  e.relay1.turn_on();
+  // The test's own write, then one toggle from each of the 8 dispatches the bound lets in.
+  EXPECT_EQ(e.relay1.writes, 9);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_TRUE(log().has(log().warnings, "Automation 'Self toggle': events nested 8 deep"));
+  EXPECT_FALSE(engine->rule(0)->is_running());
+}
+
+// Two rules each toggling the other's trigger take turns down the same stack; once the cut
+// unwinds, nothing is left driving, so the rules can be edited again.
+TEST_F(Storage, RulesTriggeringEachOtherStopAtTheBound) {
+  boot();
+  ASSERT_NE(
+      engine->add_automation(rule(
+          R"({"name":"Ping","mode":"restart","triggers":[{"source":"switch","type":"state_change","object_id":"relay_1"}],"actions":[{"source":"switch","type":"toggle","object_id":"relay_2"}]})")),
+      0u);
+  ASSERT_NE(
+      engine->add_automation(rule(
+          R"({"name":"Pong","mode":"restart","triggers":[{"source":"switch","type":"state_change","object_id":"relay_2"}],"actions":[{"source":"switch","type":"toggle","object_id":"relay_1"}]})")),
+      0u);
+  e.relay1.turn_on();
+  // Ping toggles at levels 1, 3, 5 and 7, Pong at 2, 4, 6 and 8.
+  EXPECT_EQ(e.relay1.writes, 5);
+  EXPECT_EQ(e.relay2.writes, 4);
+  EXPECT_TRUE(log().has(log().warnings, "Automation 'Pong': events nested 8 deep"));
+  EXPECT_NE(engine->add_automation(rule(R"({"name":"After","triggers":[{"source":"startup"}]})")), 0u);
+}
+
+// --- run now, and when a rule last ran ---
+
+// Relay 1 on, a delay, relay 2 on; behind a condition that is false, with relay 2 on at once
+// in its place.
+static const char *const GATED =
+    R"({"id":20,"name":"Gated","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"condition":{"type":"input","object_id":"in_2","state":"true"},"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"},{"source":"delay","delay_ms":5000},{"source":"switch","type":"turn_on","object_id":"relay_2"}],"else_actions":[{"source":"switch","type":"toggle","object_id":"relay_2"}]})";
+
+TEST_F(Storage, RunNowPlaysTheActionsWhateverTheCondition) {
+  write("gated.json", GATED);
+  boot();
+  engine->uptime = 5000;
+  EXPECT_EQ(engine->run_automation(20), RunResult::STARTED);
+  EXPECT_TRUE(e.relay1.state);
+  EXPECT_EQ(e.relay2.writes, 0);
+  EXPECT_TRUE(engine->is_running(20));
+  EXPECT_EQ(config("Gated")->last_run_ms, optional<uint64_t>(5000));
+
+  // Single mode: a second one waits for the first to end, and is not a run.
+  engine->uptime = 6000;
+  EXPECT_EQ(engine->run_automation(20), RunResult::ALREADY_RUNNING);
+  EXPECT_TRUE(log().has(log().lines, "Automation 'Gated' is already running"));
+  EXPECT_EQ(config("Gated")->last_run_ms, optional<uint64_t>(5000));
+  ASSERT_TRUE(engine->fire_next());
+  EXPECT_TRUE(e.relay2.state);
+  EXPECT_FALSE(engine->is_running(20));
+}
+
+TEST_F(Storage, RunNowNeedsARuleThatIsBuilt) {
+  write("orphan.json", ORPHAN);
+  boot();
+  const uint32_t orphan = id_of("Orphan");
+  ASSERT_NE(orphan, 0u);
+  EXPECT_EQ(engine->run_automation(orphan), RunResult::NOT_BUILT);
+  EXPECT_EQ(engine->run_automation(99), RunResult::NOT_FOUND);
+  EXPECT_FALSE(engine->is_running(orphan));
+  EXPECT_FALSE(engine->is_running(99));
+  EXPECT_FALSE(config("Orphan")->last_run_ms.has_value());
+  EXPECT_EQ(e.relay1.writes, 0);
+}
+
+TEST_F(Storage, RunNowIsRefusedFromInsideARulesAction) {
+  write("input_press.json", PRESS_RELAY_1);
+  write(
+      "other.json",
+      R"({"id":21,"name":"Other","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_2"}]})");
+  boot();
+  RunResult result = RunResult::STARTED;
+  e.relay1.on_change = [&]() { result = engine->run_automation(21); };
+  press(e.in1);
+  EXPECT_EQ(result, RunResult::REFUSED);
+  EXPECT_EQ(e.relay2.writes, 0);
+  EXPECT_FALSE(config("Other")->last_run_ms.has_value());
+}
+
+// As from a trigger: the run is a rule's own dispatch, so its actions cannot edit the rules.
+TEST_F(Storage, RulesCannotBeEditedFromInsideARunNow) {
+  write("gated.json", GATED);
+  boot();
+  bool removed = true;
+  e.relay1.on_change = [&]() { removed = engine->remove_automation(20); };
+  EXPECT_EQ(engine->run_automation(20), RunResult::STARTED);
+  EXPECT_FALSE(removed);
+  EXPECT_EQ(engine->configs().size(), 1u);
+}
+
+TEST_F(Storage, ATriggeredRunIsStampedOnEitherBranch) {
+  write("gated.json", GATED);
+  boot();
+  EXPECT_FALSE(config("Gated")->last_run_ms.has_value());
+
+  // The condition is false: the else branch is a run all the same.
+  engine->uptime = 1000;
+  press(e.in1);
+  EXPECT_TRUE(e.relay2.state);
+  EXPECT_EQ(config("Gated")->last_run_ms, optional<uint64_t>(1000));
+
+  e.in2.publish_state(true);
+  engine->uptime = 2000;
+  press(e.in1);
+  EXPECT_TRUE(engine->is_running(20));
+  EXPECT_EQ(config("Gated")->last_run_ms, optional<uint64_t>(2000));
+
+  // Single mode ignores this one: no run, no stamp.
+  engine->uptime = 3000;
+  press(e.in1);
+  EXPECT_EQ(config("Gated")->last_run_ms, optional<uint64_t>(2000));
+}
+
+TEST_F(Storage, TheStampOutlivesAnEditAndTheMillisWrap) {
+  write("gated.json", GATED);
+  boot();
+  engine->uptime = UINT32_MAX - 10;
+  press(e.in1);
+  ASSERT_TRUE(engine->update_automation(
+      20,
+      rule(
+          R"({"name":"Gated again","triggers":[{"source":"startup"}],"actions":[{"source":"switch","type":"toggle","object_id":"relay_2"}]})")));
+  EXPECT_EQ(config("Gated again")->last_run_ms, optional<uint64_t>(UINT32_MAX - 10));
+
+  // Past 2^32 ms the stamp still reads as the moment it was.
+  engine->uptime = uint64_t(UINT32_MAX) + 20000;
+  EXPECT_EQ((engine->uptime - *config("Gated again")->last_run_ms) / 1000, 20u);
+  EXPECT_EQ(engine->run_automation(20), RunResult::STARTED);
+  EXPECT_EQ(config("Gated again")->last_run_ms, optional<uint64_t>(uint64_t(UINT32_MAX) + 20000));
+
+  // A new rule has not run, whatever the config it came from says; nor has anything after a boot.
+  AutomationConfig copied = *config("Gated again");
+  copied.name = "Copy";
+  ASSERT_NE(engine->add_automation(copied), 0u);
+  EXPECT_FALSE(config("Copy")->last_run_ms.has_value());
+  reboot();
+  EXPECT_FALSE(config("Gated again")->last_run_ms.has_value());
+}
+
+// A run that has nothing to play has not run: the stamp says when the rule last did something.
+TEST_F(Storage, ARunWithNothingToPlayIsNotStamped) {
+  write(
+      "no_else.json",
+      R"({"id":30,"name":"No else","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"condition":{"type":"input","object_id":"in_2","state":"true"},"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})");
+  write("empty.json", R"({"id":31,"name":"Empty","triggers":[{"source":"startup"}]})");
+  boot();
+  engine->uptime = 1000;
+  press(e.in1);  // the condition is false, and there is no else branch
+  EXPECT_EQ(e.relay1.writes, 0);
+  EXPECT_FALSE(config("No else")->last_run_ms.has_value());
+  EXPECT_EQ(engine->run_automation(31), RunResult::STARTED);
+  EXPECT_FALSE(engine->is_running(31));
+  EXPECT_FALSE(config("Empty")->last_run_ms.has_value());
+
+  // The same rules with something to play are stamped.
+  e.in2.publish_state(true);
+  press(e.in1);
+  EXPECT_EQ(config("No else")->last_run_ms, optional<uint64_t>(1000));
+}
+
+// An edit rebuilds the rule: the run it was playing stops, and when it last ran still holds.
+TEST_F(Storage, AnEditStopsARunNowAndKeepsTheStamp) {
+  write("gated.json", GATED);
+  boot();
+  engine->uptime = 4000;
+  ASSERT_EQ(engine->run_automation(20), RunResult::STARTED);
+  ASSERT_TRUE(engine->is_running(20));
+  ASSERT_EQ(engine->delays.size(), 1u);
+
+  engine->uptime = 6000;
+  AutomationConfig edited = rule(GATED);
+  edited.name = "Gated, edited";
+  ASSERT_TRUE(engine->update_automation(20, edited));
+  EXPECT_FALSE(engine->is_running(20));
+  EXPECT_TRUE(engine->delays.empty());
+  EXPECT_EQ(e.relay2.writes, 0);  // the step after the delay never plays
+  EXPECT_EQ(config("Gated, edited")->last_run_ms, optional<uint64_t>(4000));
+}
+
+// The clock the device stamps with: milliseconds since boot in 64 bits, where millis() wraps.
+TEST_F(Storage, TheStampClockIsTheOneThatDoesNotWrap) {
+  const uint64_t before = millis_64();
+  const uint64_t read = engine->AutomationStorage::uptime_ms();
+  EXPECT_LE(before, read);
+  EXPECT_LE(read, millis_64());
 }
 
 }  // namespace esphome::automations::testing

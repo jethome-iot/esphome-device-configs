@@ -7,7 +7,10 @@ editor's HTTP API, and checks from the native API, as Home Assistant sees it, th
 - the built-in and custom presets are listed;
 - a pick applies the preset's target and mode, and a preset that keeps the mode leaves it be;
 - a values-only edit of the presets causes no reconnect;
-- the active preset survives a restart.
+- gain sets are saved, renamed, applied and deleted on the real LittleFS, and a listing longer
+  than one buffer streams whole;
+- the active preset, an applied set and the sets survive a restart;
+- deleting the thermostat deletes its sets.
 
 It prints one line per check, stops at the first failure with a non-zero exit, and deletes the
 thermostat and stops the emulator on the way out. Needs only what ESPHome pulls in
@@ -88,6 +91,10 @@ STATE_TIMEOUT_S = 20.0
 # LittleFS under QEMU is slow: a save takes seconds.
 HTTP_TIMEOUT_S = 60.0
 FILE_TIMEOUT_S = 30.0
+# Gain set names: one in another script, as a user may name a season.
+SET_WINTER, SET_SPRING = "Smoke winter", "Весна"
+# A sets file this long goes out in more than one of the listing's 4 KB chunks.
+STREAMED_SETS = 60
 # Longer than the 5 s a route waits for a busy loop before it answers 503.
 PROBE_TIMEOUT_S = 8.0
 # QEMU now and then hangs right after the bootloader; a second cold start gets through.
@@ -336,6 +343,40 @@ class Editor:
                 f"{method} {route}: HTTP {response.status_code} {response.text[:300]}"
             )
         return answer
+
+    async def raw(
+        self, method: str, route: str, params: dict | None = None
+    ) -> requests.Response:
+        """A route's whole answer, headers too."""
+        return await self.worker.run(
+            partial(self._request, method, "/climate-editor/api/" + route, params, None)
+        )
+
+    async def read_text(self, path: str) -> str | None:
+        return await self.worker.run(partial(self._read_text, path))
+
+    def _read_text(self, path: str) -> str | None:
+        response = self._request("GET", "/files/download", {"path": path}, None)
+        return response.text if response.status_code == 200 else None
+
+    async def write_text(self, path: str, text: str) -> None:
+        await self.worker.run(partial(self._write_text, path, text))
+
+    def _write_text(self, path: str, text: str) -> None:
+        try:
+            response = self.session.post(
+                self.base + "/files/write",
+                params={"path": path},
+                data=text.encode(),
+                headers={"Content-Type": "text/plain"},
+                timeout=HTTP_TIMEOUT_S,
+            )
+        except requests.RequestException as err:
+            raise CheckFailed(f"write {path}: {err}") from err
+        if response.status_code != 200:
+            raise CheckFailed(
+                f"write {path}: HTTP {response.status_code} {response.text[:300]}"
+            )
 
     async def read_file(self, path: str) -> dict | None:
         return await self.worker.run(partial(self._read_file, path))
@@ -729,6 +770,159 @@ class Smoke:
             f"values-only edit: no API reconnect in {window:.1f} s after the save"
         )
 
+    async def gain_sets(self) -> None:
+        """Saved sets on the real LittleFS: the hub's appends and rewrites, then a long listing."""
+        q = {"id": THERMOSTAT_ID}
+        listed = await self.http("GET", "gains", params=q)
+        if listed.get("sets") != [] or listed.get("more") is not False:
+            raise CheckFailed(f"gain sets: a new thermostat lists {listed}")
+        doc = await self.http("GET", "get", params=q)
+        kept = doc["pid"]["heat"]
+        first = (
+            await self.http(
+                "POST",
+                "gains/add",
+                params={**q, "direction": "heat"},
+                body={"name": SET_WINTER},
+            )
+        )["set"]
+        if (first["n"], first["name"], first["source"]) != (
+            1,
+            SET_WINTER,
+            "manual",
+        ) or not same(first["kp"], kept["kp"]):
+            raise CheckFailed(f"gain sets: the first add answered {first}")
+        doc["pid"]["heat"] = {"kp": 2.5, "ki": 0.004, "kd": 1}
+        await self.http("POST", "save", body=doc)
+        second = (await self.http("POST", "gains/add", params=q))["set"]
+        dated = re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d manual", second["name"])
+        if second["n"] != 2 or not same(second["kp"], 2.5):
+            raise CheckFailed(f"gain sets: the second add answered {second}")
+        if not dated and second["name"] != "Heat manual #2":
+            raise CheckFailed(f"gain sets: a set without a name got {second['name']!r}")
+        note(
+            f"the device's clock {'dates' if dated else 'is not set: no date for'}"
+            f" a set saved without a name: {second['name']!r}"
+        )
+        renamed = (
+            await self.http(
+                "POST",
+                "gains/rename",
+                params={**q, "set": 2},
+                body={"name": SET_SPRING},
+            )
+        )["set"]
+        if renamed["name"] != SET_SPRING:
+            raise CheckFailed(f"gain sets: the rename answered {renamed}")
+        revision = (await self.http("GET", "get", params=q))["revision"]
+        applied = await self.http("POST", "gains/apply", params={**q, "set": 1})
+        if (
+            applied.get("revision") != revision + 1
+            or applied.get("persisted") is not True
+        ):
+            raise CheckFailed(f"gain sets: the apply answered {applied}")
+        stored = await self.editor.read_file(f"/climates/{THERMOSTAT_ID}.json")
+        if (
+            stored is None
+            or not same(stored["pid"]["heat"]["kp"], kept["kp"])
+            or stored.get("revision") != revision + 1
+        ):
+            raise CheckFailed(
+                f"gain sets: the applied set is not in the file: {stored}"
+            )
+        path = f"/climates/gains/{THERMOSTAT_ID}.jsonl"
+        text = await self.editor.read_text(path) or ""
+        names = [json.loads(line)["name"] for line in text.splitlines()]
+        if names != [SET_WINTER, SET_SPRING]:
+            raise CheckFailed(f"gain sets: {path} holds {names}")
+        await self.http("POST", "gains/delete", params={**q, "set": 2})
+        third = (await self.http("POST", "gains/add", params=q))["set"]
+        numbers = [
+            row["n"] for row in (await self.http("GET", "gains", params=q))["sets"]
+        ]
+        if third["n"] != 3 or numbers != [1, 3]:
+            raise CheckFailed(
+                f"gain sets: after a delete and an add the list has {numbers}"
+            )
+        self.passed(
+            f'gain sets: saved, renamed "{SET_SPRING}", applied (revision {revision + 1},'
+            " in the file), deleted, and the deleted number not given again"
+        )
+
+        # Written back as a restore writes a backup's sets file, then listed past one buffer.
+        lines = [
+            json.dumps(
+                {
+                    "n": n,
+                    "name": f"Restored {n}",
+                    "direction": "heat",
+                    "source": "calibration",
+                    "rule": "zn_pi",
+                    "ku": 10,
+                    "pu": 1200,
+                    "kp": 4.5,
+                    "ki": 0.0045,
+                    "kd": 0,
+                    "flags": ["uneven"],
+                    "time": 1793973900,
+                    "from": None,
+                },
+                ensure_ascii=False,
+            )
+            for n in range(1, STREAMED_SETS + 1)
+        ]
+        await self.editor.write_text(path, "\n".join(lines) + "\n")
+        response = await self.editor.raw("GET", "gains", q)
+        try:
+            page = response.json()
+        except ValueError as err:
+            raise CheckFailed(
+                f"gain sets: a long listing does not parse: {err}"
+            ) from err
+        numbers = [row["n"] for row in page.get("sets", [])]
+        if (
+            response.status_code != 200
+            or numbers != list(range(1, STREAMED_SETS + 1))
+            or page.get("more") is not False
+        ):
+            raise CheckFailed(f"gain sets: the long listing has {numbers}")
+        if response.headers.get("Transfer-Encoding") != "chunked":
+            raise CheckFailed(
+                f"gain sets: {len(response.content)} bytes did not come in chunks:"
+                f" {dict(response.headers)}"
+            )
+        page = await self.http("GET", "gains", params={**q, "after": 25, "limit": 25})
+        numbers = [row["n"] for row in page["sets"]]
+        if numbers != list(range(26, 51)) or page["more"] is not True:
+            raise CheckFailed(f"gain sets: the page after 25 has {numbers}")
+        self.passed(
+            f"gain sets: {STREAMED_SETS} sets written back as a restore writes them list whole,"
+            f" {len(response.content)} bytes in chunks, and page by after and limit"
+        )
+
+    async def gain_sets_after_restart(self) -> None:
+        q = {"id": THERMOSTAT_ID}
+        numbers = [
+            row["n"] for row in (await self.http("GET", "gains", params=q))["sets"]
+        ]
+        if numbers != list(range(1, STREAMED_SETS + 1)):
+            raise CheckFailed(f"restart: the sets listed are {numbers}")
+        doc = await self.http("GET", "get", params=q)
+        if not same(doc["pid"]["heat"]["kp"], 0.6):
+            raise CheckFailed(
+                f"restart: the applied set's kp is gone: {doc['pid']['heat']}"
+            )
+        self.passed("restart: the sets and the applied set's gains are still there")
+
+    async def delete_with_sets(self) -> None:
+        # The removal makes the device drop the API client: let go of it first, as cleanup does.
+        await self.api.disconnect()
+        await self.http("POST", "delete", params={"id": THERMOSTAT_ID})
+        path = f"/climates/gains/{THERMOSTAT_ID}.jsonl"
+        if await self.editor.read_text(path) is not None:
+            raise CheckFailed(f"delete: {path} is still there")
+        self.passed("delete: the thermostat's sets file goes with it")
+
     async def restart(self) -> None:
         await self.pick_api(
             f'"{CUSTOM}" (edited)', 9, ClimateMode.OFF, custom_preset=CUSTOM
@@ -805,7 +999,10 @@ class Smoke:
         await self.pick_api(f'"{CUSTOM}"', 8, ClimateMode.OFF, custom_preset=CUSTOM)
         await self.pick_editor()
         await self.edit_values()
+        await self.gain_sets()
         await self.restart()
+        await self.gain_sets_after_restart()
+        await self.delete_with_sets()
 
 
 def parse_args() -> argparse.Namespace:

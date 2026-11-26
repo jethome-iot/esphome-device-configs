@@ -18,32 +18,31 @@ HubClimate::HubClimate(ClimateHub *hub, uint8_t index) : hub_(hub), index_(index
   this->set_supported_custom_presets(std::vector<const char *>{});
 }
 
-void HubClimate::show(const std::string &name, uint32_t entity_fields) {
+void HubClimate::show(const std::string &name, uint32_t key, uint32_t entity_fields) {
   // configure_entity_ would give an empty name the device's friendly name.
   if (name.empty())
     return;
-  this->rename_(name, entity_fields & ~INTERNAL_BIT);
+  this->rename_(name, key, entity_fields & ~INTERNAL_BIT);
   this->free_ = false;
 }
 
 void HubClimate::hide(uint32_t entity_fields) {
-  this->configure_entity_(this->named_ ? this->names_[this->current_name_] : FREE_SLOT_NAME, 0,
+  this->configure_entity_(this->named_ ? this->names_[this->current_name_] : FREE_SLOT_NAME, this->get_object_id_hash(),
                           entity_fields | INTERNAL_BIT);
   this->free_ = true;
 }
 
-void HubClimate::hide_as(const std::string &name, uint32_t entity_fields) {
-  this->rename_(name, entity_fields | INTERNAL_BIT);
+void HubClimate::hide_as(const std::string &name, uint32_t key, uint32_t entity_fields) {
+  this->rename_(name, key, entity_fields | INTERNAL_BIT);
   this->free_ = true;
 }
 
-void HubClimate::rename_(const std::string &name, uint32_t entity_fields) {
+void HubClimate::rename_(const std::string &name, uint32_t key, uint32_t entity_fields) {
   const uint8_t next = this->current_name_ ^ 1;
   char *buffer = this->names_[next];
   std::memset(buffer, 0, sizeof(this->names_[next]) - 1);
-  std::memcpy(buffer, name.data(), std::min(name.size(), NAME_MAX_LENGTH));
-  // Hash 0: derived from the name, as codegen does, so object-id-keyed records find it.
-  this->configure_entity_(buffer, 0, entity_fields);
+  std::memcpy(buffer, name.data(), std::min(name.size(), NAME_MAX_BYTES));
+  this->configure_entity_(buffer, key, entity_fields);
   this->current_name_ = next;
   this->named_ = true;
 }
@@ -79,9 +78,9 @@ void HubClimate::set_presets(const std::vector<PresetConfig> &presets) {
       continue;
     // In place, the terminator untouched: a reader mid-copy sees a mix of names, never past the end.
     char *buffer = this->custom_presets_[custom.size()];
-    const size_t length = std::min(preset.name.size(), NAME_MAX_LENGTH);
+    const size_t length = std::min(preset.name.size(), NAME_MAX_BYTES);
     std::memcpy(buffer, preset.name.data(), length);
-    std::memset(buffer + length, 0, NAME_MAX_LENGTH - length);
+    std::memset(buffer + length, 0, NAME_MAX_BYTES - length);
     custom.push_back(buffer);
   }
   this->standard_presets_ = standard_presets;
@@ -110,8 +109,6 @@ climate::ClimateTraits HubClimate::traits() {
     traits.add_supported_mode(climate::CLIMATE_MODE_HEAT);
   if (this->cool_)
     traits.add_supported_mode(climate::CLIMATE_MODE_COOL);
-  if (this->heat_ && this->cool_)
-    traits.add_supported_mode(climate::CLIMATE_MODE_HEAT_COOL);
   traits.set_visual_min_temperature(this->min_temperature_);
   traits.set_visual_max_temperature(this->max_temperature_);
   traits.set_visual_target_temperature_step(this->step_);

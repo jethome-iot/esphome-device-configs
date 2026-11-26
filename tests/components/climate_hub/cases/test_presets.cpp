@@ -24,7 +24,7 @@ ClimateConfig with_presets(const char *name = "Boiler") {
   c.kind = ControlKind::BANG_BANG;
   c.cool.relay_id = "relay_2";
   c.setpoint = 21.f;
-  c.presets = {preset("Eco", 18.f), preset("away", 12.f, HubMode::OFF), preset("Night", 19.5f, HubMode::HEAT_COOL),
+  c.presets = {preset("Eco", 18.f), preset("away", 12.f, HubMode::OFF), preset("Night", 19.5f, HubMode::COOL),
                preset("Day", 22.f)};
   return c;
 }
@@ -138,13 +138,14 @@ TEST_F(Presets, TheEntityListsBuiltInAndCustomPresets) {
 // slot's own buffers and never moves the list, nor does a park or the eight names after it.
 TEST_F(Presets, TheCustomNamesStayInTheSlotsBuffers) {
   ClimateConfig config = with_presets();
-  config.presets[3].name = std::string(NAME_MAX_LENGTH, 'd');
+  config.presets[3].name = repeat("д", NAME_MAX_LENGTH);
   this->create(config);
   HubClimate *entity = hub().entity_of("boiler");
+  ASSERT_NE(nullptr, entity);
   const std::vector<const char *> &list = entity->get_traits().get_supported_custom_presets();
   const char *const *storage = list.data();
   const char *first = list[0];
-  EXPECT_EQ(NAME_MAX_LENGTH, strlen(list[1]));
+  EXPECT_EQ(repeat("д", NAME_MAX_LENGTH), list[1]) << "the longest name, 96 bytes, whole";
 
   // The built-in two make way for six more: eight custom names, the most there can be.
   config = stored("boiler");
@@ -218,9 +219,9 @@ TEST_F(Presets, HomeAssistantPicksACustomPresetByName) {
 
   const ClimateConfig *saved = hub().store().get("boiler");
   EXPECT_FLOAT_EQ(19.5f, saved->setpoint);
-  EXPECT_EQ(HubMode::HEAT_COOL, saved->mode);
+  EXPECT_EQ(HubMode::COOL, saved->mode);
   EXPECT_EQ("night", saved->active_preset);
-  EXPECT_EQ(climate::CLIMATE_MODE_HEAT_COOL, entity->mode);
+  EXPECT_EQ(climate::CLIMATE_MODE_COOL, entity->mode);
   EXPECT_EQ("Night", label(entity));
   EXPECT_FALSE(entity->preset.has_value());
 
@@ -277,12 +278,13 @@ TEST_F(Presets, ATargetBesideAPresetWins) {
   auto call = entity->make_call();
   call.set_preset("Night");
   call.set_target_temperature(25.f);
-  call.set_mode(climate::CLIMATE_MODE_COOL);
+  call.set_mode(climate::CLIMATE_MODE_OFF);
   call.perform();
 
   const ClimateConfig *saved = hub().store().get("boiler");
   EXPECT_FLOAT_EQ(25.f, saved->setpoint);
-  EXPECT_EQ(HubMode::COOL, saved->mode);
+  EXPECT_EQ(HubMode::OFF, saved->mode);
+  EXPECT_EQ(HubMode::COOL, saved->on_mode()) << "the preset's cool came first";
   EXPECT_EQ("night", saved->active_preset);
 }
 
@@ -298,7 +300,7 @@ TEST_F(Presets, TheActivePresetIsRestoredAtBoot) {
   ASSERT_NE(nullptr, entity);
   EXPECT_EQ("Night", label(entity));
   EXPECT_FLOAT_EQ(23.f, entity->target_temperature);
-  EXPECT_EQ(climate::CLIMATE_MODE_HEAT_COOL, entity->mode);
+  EXPECT_EQ(climate::CLIMATE_MODE_COOL, entity->mode);
   EXPECT_EQ((std::vector<std::string>{"Night", "Day"}), custom_presets(entity));
 
   pick(entity, climate::CLIMATE_PRESET_AWAY);
@@ -443,7 +445,7 @@ TEST_F(Presets, ApplyPresetPicksByKey) {
   ASSERT_TRUE(picked.ok);
   EXPECT_TRUE(picked.persisted);
   EXPECT_FLOAT_EQ(19.5f, entity->target_temperature);
-  EXPECT_EQ(climate::CLIMATE_MODE_HEAT_COOL, entity->mode);
+  EXPECT_EQ(climate::CLIMATE_MODE_COOL, entity->mode);
   EXPECT_EQ("Night", label(entity));
   EXPECT_TRUE(hub().dirty("boiler"));
   flush();

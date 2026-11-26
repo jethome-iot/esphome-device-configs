@@ -105,6 +105,9 @@ struct Entities {
   binary_sensor::BinarySensor in1;
   FakeSwitch relay1;
   FakeSwitch hidden;
+  // entity_category: config, as the board's ESPHome OTA switch: not the device's I/O.
+  binary_sensor::BinarySensor config_input;
+  FakeSwitch config_switch;
 };
 
 inline Entities &entities() {
@@ -115,6 +118,9 @@ inline Entities &entities() {
     App.register_binary_sensor(&e->in1, "In 1", fnv1_hash("in_1"), 0);
     App.register_switch(&e->relay1, "Relay 1", fnv1_hash("relay_1"), 0);
     App.register_switch(&e->hidden, "Hidden", fnv1_hash("hidden"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);
+    const uint32_t config = uint32_t{ENTITY_CATEGORY_CONFIG} << ENTITY_FIELD_ENTITY_CATEGORY_SHIFT;
+    App.register_binary_sensor(&e->config_input, "Config Input", fnv1_hash("config_input"), config);
+    App.register_switch(&e->config_switch, "Config Switch", fnv1_hash("config_switch"), config);
     return e;
   }();
   return *instance;
@@ -354,6 +360,12 @@ class TestDashboard : public WebDeviceDashboard {
 
   int restarts{0};
   int rollbacks{0};
+  // The API key clears counted, what each answers, and how many had run when the restart came.
+  // `real_clear` hands the clear to api::global_api_server instead.
+  int key_clears{0};
+  bool key_clear_result{true};
+  int key_clears_at_restart{-1};
+  bool real_clear{false};
   // A host build has one task, so every job runs inline and a handler that read the records
   // where they stand would answer exactly like one that handed the read over. What crossed is
   // counted here instead, and `loop_busy` refuses a job the way the dispatcher does when the
@@ -370,7 +382,14 @@ class TestDashboard : public WebDeviceDashboard {
   bool real_select{false};
 
  protected:
-  void restart_() override { this->restarts++; }
+  void restart_() override {
+    this->restarts++;
+    this->key_clears_at_restart = this->key_clears;
+  }
+  bool clear_api_key_() override {
+    this->key_clears++;
+    return this->real_clear ? WebDeviceDashboard::clear_api_key_() : this->key_clear_result;
+  }
   RollbackTarget rollback_target_() const override {
     return this->stub_rollback ? this->rollback : WebDeviceDashboard::rollback_target_();
   }

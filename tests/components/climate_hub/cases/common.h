@@ -123,6 +123,10 @@ class TestHub : public ClimateHub {
   std::vector<std::string> undeletable;
   size_t max_file_bytes{CONFIG_MAX_BYTES};
   ArduinoJson::Allocator *json_allocator{nullptr};
+  // The device's clock: not set unless a case sets it.
+  ESPTime clock{};
+  // What the storage says is free; none, as the host's directory says nothing.
+  optional<size_t> free_bytes;
 
   uint64_t now_ms() const override { return this->ms; }
   bool run_on_loop(std::function<bool()> &&job) override {
@@ -171,6 +175,9 @@ class TestHub : public ClimateHub {
     this->max_file_bytes = CONFIG_MAX_BYTES;
     this->json_allocator = nullptr;
     this->ha_resync_delay_ms_ = 20;
+    this->clock = ESPTime{};
+    this->free_bytes.reset();
+    this->pending_sets_.clear();
   }
 
   void register_pool() { this->build_pool_(); }
@@ -191,6 +198,9 @@ class TestHub : public ClimateHub {
     return it == this->claims_.end() ? nullptr : it->second.get();
   }
   bool dirty(const std::string &id) const { return this->dirty_.count(id) != 0; }
+  std::string sets_path(const std::string &id) const { return this->gain_sets_path_(id); }
+  size_t pending_sets() const { return this->pending_sets_.size(); }
+  unsigned open_readers() const { return this->gain_readers_.load(); }
   // Every reason kept, stale or not: waiting_reason() would hide one the hub forgot to drop.
   size_t reasons_kept() const { return this->waiting_.size(); }
 
@@ -205,6 +215,13 @@ class TestHub : public ClimateHub {
         return false;
     }
     return ClimateHub::remove_file_(path);
+  }
+  ESPTime clock_now_() const override { return this->clock; }
+  filesystem_storage_abstract::StorageInfo storage_info_() const override {
+    filesystem_storage_abstract::StorageInfo info;
+    info.valid = this->free_bytes.has_value();
+    info.free_bytes = this->free_bytes.value_or(0);
+    return info;
   }
   EncodeError encode_(const ClimateConfig &config, std::string *json) const override {
     if (this->json_allocator == nullptr)
@@ -226,6 +243,8 @@ struct Entities {
   FakeSwitch relay1;
   FakeSwitch relay2;
   FakeSwitch relay3;
+  // entity_category: config, as the board's ESPHome OTA switch: no thermostat may take it.
+  FakeSwitch config_switch;
   YamlClimate hall;
   // internal: true in YAML; the web server still answers its name.
   YamlClimate cellar;
@@ -244,6 +263,9 @@ inline uint32_t unit_field(const char *unit) {
   return 0;
 }
 
+// entity_fields for an entity declared with `entity_category: config`.
+inline constexpr uint32_t CONFIG_CATEGORY = uint32_t{ENTITY_CATEGORY_CONFIG} << ENTITY_FIELD_ENTITY_CATEGORY_SHIFT;
+
 inline Entities &entities() {
   static Entities *instance = [] {
     auto *e = new Entities();
@@ -256,6 +278,7 @@ inline Entities &entities() {
     App.register_switch(&e->relay1, "Relay 1", fnv1_hash("relay_1"), 0);
     App.register_switch(&e->relay2, "Relay 2", fnv1_hash("relay_2"), 0);
     App.register_switch(&e->relay3, "Relay 3", fnv1_hash("relay_3"), 0);
+    App.register_switch(&e->config_switch, "Config Switch", fnv1_hash("config_switch"), CONFIG_CATEGORY);
     App.register_climate(&e->hall, "Hall", fnv1_hash("hall"), 0);
     App.register_climate(&e->cellar, "Cellar", fnv1_hash("cellar"), 1u << ENTITY_FIELD_INTERNAL_SHIFT);
     return e;
@@ -289,7 +312,7 @@ inline void reset_entities() {
     s->state = NAN;
     s->set_has_state(false);
   }
-  for (FakeSwitch *sw : {&e.relay1, &e.relay2, &e.relay3}) {
+  for (FakeSwitch *sw : {&e.relay1, &e.relay2, &e.relay3, &e.config_switch}) {
     sw->publish_state(false);
     sw->writes = 0;
   }
@@ -319,7 +342,7 @@ inline void write_file(const std::string &path, const std::string &data) {
 // thermostats on one relay come only from files.
 inline std::string file_doc(const char *id, const char *name, const char *heat, const char *cool = "",
                             bool enabled = true, const char *sensor = "room") {
-  const char *mode = *heat == '\0' ? "cool" : *cool == '\0' ? "heat" : "heat_cool";
+  const char *mode = *heat == '\0' ? "cool" : "heat";
   char buf[512];
   snprintf(buf, sizeof(buf),
            R"({"version":1,"id":"%s","name":"%s","enabled":%s,"kind":"bang_bang","sensor_id":"%s",)"
@@ -351,6 +374,14 @@ inline std::vector<std::string> list_dir(const std::string &path) {
 inline std::string object_id(const EntityBase &entity) {
   char buf[OBJECT_ID_MAX_LEN];
   return std::string(entity.get_object_id_to(buf));
+}
+
+// `text` `n` times over: a name of `n` letters in a script of more than one byte each.
+inline std::string repeat(const std::string &text, size_t n) {
+  std::string out;
+  for (size_t i = 0; i < n; i++)
+    out += text;
+  return out;
 }
 
 // What web_server answers /climate/<name> with: the first climate by that name, hidden or not.
@@ -406,6 +437,9 @@ class HubTest : public ::testing::Test {
   void TearDown() override {
     hub().reset();
     storage().path = this->base_;
+    for (const std::string &name : list_dir(this->gains()))
+      ::remove((this->gains() + "/" + name).c_str());
+    rmdir(this->gains().c_str());
     for (const std::string &name : list_dir(this->folder()))
       ::remove((this->folder() + "/" + name).c_str());
     rmdir(this->folder().c_str());
@@ -428,6 +462,8 @@ class HubTest : public ::testing::Test {
 
   std::string folder() const { return this->base_ + "/climates"; }
   std::string file_of(const std::string &id) const { return this->folder() + "/" + id + ".json"; }
+  std::string gains() const { return this->folder() + "/gains"; }
+  std::string sets_of(const std::string &id) const { return this->gains() + "/" + id + ".jsonl"; }
 
   Result create(const ClimateConfig &config) {
     Result result = hub().create(config);

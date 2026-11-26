@@ -52,7 +52,7 @@ TEST_F(HubTest, AnEnabledThermostatThatWaitsReservesItsRelay) {
 TEST_F(HubTest, AReservedCoolingRelayIsRefusedToo) {
   ClimateConfig attic = draft("Attic", "relay_2");
   attic.cool.relay_id = "relay_3";
-  attic.mode = HubMode::HEAT_COOL;
+  attic.mode = HubMode::HEAT;
   attic.sensor_id = "gone";
   this->create(attic);
 
@@ -65,7 +65,7 @@ TEST_F(HubTest, AReservedCoolingRelayIsRefusedToo) {
 
   ClimateConfig shed = draft("Shed", "relay_1");
   shed.cool.relay_id = "relay_2";
-  shed.mode = HubMode::HEAT_COOL;
+  shed.mode = HubMode::HEAT;
   result = hub().create(shed);
   EXPECT_EQ(409, result.code);
   EXPECT_EQ("\"Relay 2\" is reserved by \"Attic\", which is enabled and waits to start", result.error);

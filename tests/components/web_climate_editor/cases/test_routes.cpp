@@ -77,7 +77,10 @@ TEST_F(Editor, EveryRouteAnswersItsOneMethodAndRefusesTheRest) {
   for (const Case &c :
        {Case{"list", HTTP_GET}, Case{"get", HTTP_GET}, Case{"status", HTTP_GET}, Case{"entities", HTTP_GET},
         Case{"schema", HTTP_GET}, Case{"ping", HTTP_GET}, Case{"save", HTTP_POST}, Case{"import", HTTP_POST},
-        Case{"delete", HTTP_POST}, Case{"enable", HTTP_POST}, Case{"setpoint", HTTP_POST}, Case{"preset", HTTP_POST}}) {
+        Case{"delete", HTTP_POST}, Case{"enable", HTTP_POST}, Case{"setpoint", HTTP_POST}, Case{"preset", HTTP_POST},
+        Case{"autotune", HTTP_POST}, Case{"gains", HTTP_GET}, Case{"gains/add", HTTP_POST},
+        Case{"gains/rename", HTTP_POST}, Case{"gains/delete", HTTP_POST}, Case{"gains/apply", HTTP_POST},
+        Case{"gains/derive", HTTP_POST}}) {
     const char *allow = c.method == HTTP_POST ? "POST" : "GET";
     for (http_method method : {HTTP_GET, HTTP_POST, HTTP_OPTIONS}) {
       Reply reply = this->call(method, c.route);
@@ -124,9 +127,12 @@ TEST_F(Editor, RefusesACrossSiteWriteAndChangesNothing) {
   const char *evil = "http://evil.example";
 
   const std::string replacement = with(FLOOR, R"("id":")" + id + "\"");
+  ASSERT_TRUE(hub().add_gain_set(id, climate_hub::Direction::HEAT, "Kept", nullptr).ok);
   for (const auto &route :
        {std::string("save"), std::string("import"), "delete?id=" + id, "enable?id=" + id + "&value=false",
-        "setpoint?id=" + id + "&value=30", "preset?id=" + id + "&key=eco"}) {
+        "setpoint?id=" + id + "&value=30", "preset?id=" + id + "&key=eco", "gains/add?id=" + id,
+        "gains/rename?id=" + id + "&set=1", "gains/delete?id=" + id + "&set=1", "gains/apply?id=" + id + "&set=1",
+        "gains/derive?id=" + id + "&set=1&rule=zn_pid"}) {
     const std::string body = route == "save" ? FLOOR : route == "import" ? replacement : "";
     Reply reply = this->call(HTTP_POST, route, body, "application/json", evil);
     EXPECT_TRUE(reply.claimed) << route;
@@ -138,6 +144,9 @@ TEST_F(Editor, RefusesACrossSiteWriteAndChangesNothing) {
   EXPECT_TRUE(hub().is_running(id));
   EXPECT_EQ(hub().store().get(id)->name, "Living Room");
   EXPECT_FLOAT_EQ(hub().store().get(id)->setpoint, 22.f);
+  EXPECT_EQ(hub().store().get(id)->revision, 0u);
+  EXPECT_EQ(this->list(this->gains()), std::vector<std::string>{"living-room.jsonl"});
+  EXPECT_NE(this->file("gains/living-room.jsonl").find("\"name\":\"Kept\""), std::string::npos);
 }
 
 // Reads too: a page on another site has no business learning the thermostats, and the refusal
@@ -145,8 +154,8 @@ TEST_F(Editor, RefusesACrossSiteWriteAndChangesNothing) {
 TEST_F(Editor, RefusesACrossSiteReadBeforeItReachesTheLoopTask) {
   ASSERT_EQ(this->create(LIVING_ROOM), "living-room");
   hub().jobs = 0;
-  for (const char *route :
-       {"list", "get?id=living-room", "status", "entities", "schema", "ping", "nothing", "save", "import"}) {
+  for (const char *route : {"list", "get?id=living-room", "status", "entities", "schema", "ping", "nothing", "save",
+                            "import", "gains?id=living-room"}) {
     for (const char *origin : {"http://evil.example", "null", "http://device.local.evil.example"}) {
       Reply reply = this->call(HTTP_GET, route, "", "application/json", origin);
       EXPECT_EQ(reply.code, 403) << route << " from " << origin;

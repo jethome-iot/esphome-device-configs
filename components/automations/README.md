@@ -11,7 +11,7 @@ external_components:
       url: https://github.com/jethome-iot/esphome-device-configs
       ref: master
       path: components
-    components: [filesystem_storage_abstract, littlefs_storage, automations, loop_job, switch_hold]
+    components: [filesystem_storage_abstract, littlefs_storage, case_fold, automations, loop_job, switch_hold]
 
 i2c:
   sda: 5
@@ -55,8 +55,9 @@ automations:
 }
 ```
 
-Entities are named by their object id. Any trigger fires the rule; the condition, when there is
-one, picks `actions` or `else_actions`.
+A name is any text in any script, without control characters. Entities are named by their
+object id. Any trigger fires the rule; the condition, when there is one, picks `actions` or
+`else_actions`.
 
 | Key                 | Values                                                                      |
 | ------------------- | --------------------------------------------------------------------------- |
@@ -79,6 +80,13 @@ is rejected.
 
 A jump of the `time_id` clock back by more than 15 minutes is not handled: the moments it
 passes again fire a second time.
+
+A DST switch, the local offset moving by more than 15 minutes and at most an hour while the
+time runs on, is not a jump. A `cron` trigger whose hours field is `*` keeps to the time that
+passes. A rule's triggers at given hours run it once, at the switch, for the times the clocks
+skip forward, and not again for the times they repeat going back. What has run is kept in one
+preference record, written when the clocks go back, so a restart inside the repeated hour keeps
+it; a device off at the switch has no record and runs the repeated times again.
 
 ## Thermostat actions
 
@@ -105,11 +113,16 @@ rule with such an action is never built there.
   actions after it in the run follow on that pass. A rule restarted or stopped before then does
   not move it.
 
+A switch action calls the rules that trigger on that switch before it returns. Such calls are
+cut 8 deep: the event that would go deeper reaches no rule, and a warning names the innermost
+rule.
+
 ## Storage
 
-One file per rule, `<base_path>/<folder_path>/<name>.json`, the name lower-cased with runs of
-spaces, dashes and underscores collapsed into one `_` and cut to 48 bytes. The name is the key
-on disk, so two rules cannot share one.
+One file per rule, `<base_path>/<folder_path>/<name>.json`, the name case-folded (its Latin, Greek
+and Cyrillic letters) with runs of spaces, dashes and underscores collapsed into one `_`; past 48
+bytes it is cut and ends in `-<id>`. Two rules cannot have names that come out the same before
+that cut.
 
 The folder is meant to be writable by hand, so what it holds is repaired at boot: a rule in a
 file named after something else is moved to its own file, a missing or repeated `id` is
@@ -121,14 +134,16 @@ word and the file. Nothing is loaded from it, so a rule with one typo never runs
 says — and a repair never writes the engine's guess over what its author wrote.
 
 A removal or a rename that the partition refuses to carry out leaves the file empty rather than
-whole, so the rule does not come back at the next boot. The name it held stays taken until that
-file is deleted by hand.
+whole, so the rule does not come back at the next boot. A name short enough to be that file
+stays taken until it is deleted by hand.
 
 ## Missing entities and thermostats
 
 Every entity reference is the `fnv1_hash` of an object id, resolved once at boot. A rule naming
-an entity that is not there stays on disk but is not built — the log says why and `dump_config`
-marks it `(not built: <why>)`. Renaming an entity orphans the rules that used it.
+an entity that is not there, or a config switch (`entity_category: config`), stays on disk but
+is not built — the log says why and `dump_config` marks it `(not built: <why>)`. Renaming an
+entity orphans the rules that used it. A virtual input comes and goes while the device runs, and
+takes the rules that name it along, as a thermostat does (below).
 
 Such a file is never rewritten, not even to restamp its `id` or move it to its own name: a file
 holds the object ids, memory holds only their hashes, so a rewrite would blank the names. Put
@@ -156,15 +171,31 @@ callback, say) they refuse and return false.
 - `update_automation(id, config, &error)`, `remove_automation(id)`
 - `set_enable_automation(id, enable, persisted = nullptr)`: `persisted` says whether it reached flash
 - `reset_all()`: remove every rule and its file
-- `is_name_taken(name, exclude_id = 0)`: names collide by file name
+- `run_automation(id)`: play the rule's actions now, skipping its triggers and its condition,
+  enabled or not; the mode applies as for a trigger, and a `follow` has no state to copy unless
+  a trigger arrives while the run plays. `RunResult::STARTED`, else `NOT_FOUND`, `NOT_BUILT`,
+  `ALREADY_RUNNING` (single with a run under way, parallel at 8 copies) or `REFUSED` (the
+  engine failed at boot, the loop never took it, or the call came from inside a rule's own
+  action)
+- `is_name_taken(name, exclude_id = 0)`: names collide by the file name they spell before the cut
+- `check_name(name, &error)`: false for a name that is not UTF-8 or carries a control character;
+  `add_automation` refuses such a name with that reason, and so does `update_automation` unless
+  the rule already had it
+- `rules_naming_binary_sensor(key)`: the names of the rules whose trigger or condition names the
+  binary sensor with that object id hash, built or not; loop task
+- `rebuild_rules_naming_binary_sensor(key)`: that sensor came or went, so those rules are built or
+  dropped to match; loop task
 - `configs()`: the loaded `AutomationConfig`s, including the ones that did not build, each with
-  its `build_error`
+  its `build_error` and `last_run_ms`: the `uptime_ms()` at which a run with an action to play
+  last started, from a trigger that the mode let through or from `run_automation`, unset until
+  one has since boot
+- `is_running(id)`: a run of the rule is under way
 - `run_on_loop(job)`: runs `job` on the loop task and blocks; `false` when the loop never got to it
 
-`configs()` and `is_name_taken()` read the list where it lives, so they are for the loop task —
-a mutator called from a lambda there reallocates it under a reader on any other. A caller that
-is not the loop task reads through `run_on_loop`, together with whatever it decides from the
-read, so that its answer describes one state of the list.
+`configs()`, `is_name_taken()` and `is_running()` read the list where it lives, so they are for
+the loop task — a mutator called from a lambda there reallocates it under a reader on any other.
+A caller that is not the loop task reads through `run_on_loop`, together with whatever it
+decides from the read, so that its answer describes one state of the list.
 
 ## Testing
 

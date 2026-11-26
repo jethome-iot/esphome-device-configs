@@ -14,8 +14,6 @@ static const char *const TAG = "automations";
 // Same window the core click trigger was given in the previous engine.
 static const uint32_t CLICK_MIN_MS = 200;
 static const uint32_t CLICK_MAX_MS = 1000;
-// Timer ids carry the run sequence in their low 4 bits.
-static const uint8_t MAX_RUNS = 8;
 
 static bool fail(std::string *error, const std::string &message) {
   if (error != nullptr)
@@ -419,11 +417,19 @@ void RuntimeAutomation::on_sensor(sensor::Sensor *entity, float value) {
   }
 }
 
-void RuntimeAutomation::on_time(const ESPTime &time) {
+bool RuntimeAutomation::on_time(const ESPTime &time, CronTriggers which) {
+  bool matched = false;
   for (const auto &trigger : this->triggers_) {
-    if (trigger.source == SourceTrigger::CRON && trigger.cron_matches(time))
+    if (trigger.source != SourceTrigger::CRON)
+      continue;
+    if (which != CronTriggers::ALL && trigger.every_hour() != (which == CronTriggers::EVERY_HOUR))
+      continue;
+    if (trigger.cron_matches(time)) {
+      matched = true;
       this->fire_(false, false);
+    }
   }
+  return matched;
 }
 
 void RuntimeAutomation::on_startup() {
@@ -434,8 +440,13 @@ void RuntimeAutomation::on_startup() {
 }
 
 void RuntimeAutomation::fire_(bool has_state, bool state) {
-  if (!this->enabled_)
-    return;
+  if (this->enabled_)
+    this->start_(has_state, state, false);
+}
+
+bool RuntimeAutomation::run_now() { return this->start_(false, false, true); }
+
+bool RuntimeAutomation::start_(bool has_state, bool state, bool forced) {
   if (!this->runs_.empty()) {
     switch (this->mode_) {
       case AutomationMode::SINGLE:
@@ -447,28 +458,34 @@ void RuntimeAutomation::fire_(bool has_state, bool state) {
             run->state = state;
           }
         }
-        return;
+        return false;
       case AutomationMode::RESTART:
         this->stop();
         break;
       case AutomationMode::PARALLEL:
         if (this->runs_.size() >= MAX_RUNS)
-          return;
+          return false;
         break;
     }
   }
-  ESP_LOGD(TAG, "Automation '%s' is triggered", this->name_.c_str());
+  ESP_LOGD(TAG, "Automation '%s' is %s", this->name_.c_str(), forced ? "run now" : "triggered");
   auto run = std::make_unique<Run>();
   run->seq = this->free_seq_();
   run->token = ++this->next_token_;
   run->has_state = has_state;
   run->state = state;
   run->branch = &this->then_;
-  if (this->condition_ != nullptr && !this->condition_->check())
+  if (!forced && this->condition_ != nullptr && !this->condition_->check())
     run->branch = &this->else_;
   const uint32_t token = run->token;
+  // Only a run that plays something has run. Before the first step: a run that ends inside it
+  // has started all the same.
+  const bool plays = !run->branch->empty();
   this->runs_.push_back(std::move(run));
+  if (plays)
+    this->engine_->note_run_(this->id_);
   this->step_(token);
+  return true;
 }
 
 void RuntimeAutomation::step_(uint32_t token, bool scheduled) {
@@ -482,7 +499,7 @@ void RuntimeAutomation::step_(uint32_t token, bool scheduled) {
       if (!wait_for_loop)
         run->cursor++;
       this->engine_->schedule_delay(this->timer_id_(run->seq), wait_for_loop ? 0 : action.delay_ms, [this, token]() {
-        this->engine_->drive([this, token]() { this->step_(token, true); });
+        this->engine_->drive(*this, [this, token]() { this->step_(token, true); });
       });
       return;
     }

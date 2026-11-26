@@ -2,34 +2,28 @@
 // from one. climate_hub follows these rules byte for byte — the device is the
 // authority, this is what lets a client say so before the round trip.
 
+import { foldCase } from '../../case_fold/client/caseFold'
 import type { StandardPresetName } from './types'
-import { NAME_MAX_LENGTH, STANDARD_PRESETS } from './types'
+import { NAME_MAX_BYTES, NAME_MAX_LENGTH, STANDARD_PRESETS } from './types'
 
-// C's isspace() in the "C" locale: the device leaves every other character alone.
+// C's isspace() in the "C" locale: inside a name the device collapses these and leaves every
+// other character alone.
 const ASCII_SPACE = /[ \t\n\v\f\r]+/g
 
-/// The name the device stores: ASCII whitespace trimmed from both ends.
+// The white space the device trims from both ends: ASCII's, and the Unicode spaces a paste brings
+// along (no-break, ideographic and the like).
+const EDGE_SPACE = '[\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff]+'
+const EDGES = new RegExp(`^${EDGE_SPACE}|${EDGE_SPACE}$`, 'g')
+
+/// The name the device stores: white space trimmed from both ends.
 export function trimName(name: string): string {
-  return name.replace(/^[ \t\n\v\f\r]+|[ \t\n\v\f\r]+$/g, '')
+  return name.replace(EDGES, '')
 }
 
-/// The name as a person reads it: trimmed, inner whitespace collapsed, ASCII
-/// lowercased. Non-ASCII is left alone, exactly as the firmware leaves it.
+/// The name as a person reads it: trimmed, inner whitespace collapsed, case folded
+/// as the firmware folds it (caseFold.ts).
 export function nameKey(name: string): string {
-  return trimName(name.replace(ASCII_SPACE, ' ')).replace(/[A-Z]/g, (c) => c.toLowerCase())
-}
-
-/// The object id ESPHome derives from an entity name, and so the id Home
-/// Assistant and the device's own lookups know the entity by: per UTF-8 byte, a
-/// space becomes '_', A-Z is lowercased, and anything outside [a-z0-9_-] is '_'.
-export function objectIdOf(name: string): string {
-  let out = ''
-  // The device writes it into a 128-byte buffer.
-  for (const byte of new TextEncoder().encode(name).subarray(0, 127)) {
-    const c = String.fromCharCode(byte >= 0x41 && byte <= 0x5a ? byte + 0x20 : byte)
-    out += /[a-z0-9_-]/.test(c) ? c : '_'
-  }
-  return out
+  return foldCase(trimName(name.replace(ASCII_SPACE, ' ')))
 }
 
 /// The id the device derives from a name at creation: lowercased ASCII
@@ -79,30 +73,11 @@ function firstFree(base: string, free: (candidate: string) => boolean): string {
 
 type Named = { id: string; name: string }
 
-// The other thermostat (or YAML climate) this name collides with, and how.
-function clashOf(
-  name: string,
-  id: string,
-  existing: ReadonlyArray<Named>
-): { by: 'name' | 'object_id'; other: Named } | null {
-  const key = nameKey(name)
-  const objectId = objectIdOf(trimName(name))
-  for (const other of existing) {
-    if (other.id === id) continue
-    if (nameKey(other.name) === key) return { by: 'name', other }
-  }
-  for (const other of existing) {
-    if (other.id === id) continue
-    if (objectIdOf(trimName(other.name)) === objectId) return { by: 'object_id', other }
-  }
-  return null
-}
-
-/// Whether another controller already answers to `name`, by its name or by the
-/// object id both would get. `id` is the controller being saved ('' for a new
-/// one), which never blocks itself.
+/// Whether another controller already answers to `name`, as a person reads it. `id`
+/// is the controller being saved ('' for a new one), which never blocks itself.
 export function isNameTaken(name: string, id: string, existing: ReadonlyArray<Named>): boolean {
-  return clashOf(name, id, existing) !== null
+  const key = nameKey(name)
+  return existing.some((other) => other.id !== id && nameKey(other.name) === key)
 }
 
 /// Why the device would refuse `name`, in its own words, or '' when it would take
@@ -113,22 +88,78 @@ export function nameError(name: string, id: string, existing: ReadonlyArray<Name
   const trimmed = trimName(name)
   const broken = nameRuleError(trimmed)
   if (broken) return broken
-  const clash = clashOf(trimmed, id, existing)
-  if (clash?.by === 'name') return `"${trimmed}" is already used by another thermostat`
-  if (clash) {
-    const other = trimName(clash.other.name)
-    return `"${trimmed}" is too close to "${other}": both are ${objectIdOf(trimmed)} to Home Assistant`
+  if (isNameTaken(trimmed, id, existing)) return `"${trimmed}" is already used by another thermostat`
+  return ''
+}
+
+// One character of the object id Home Assistant 2026.7 and older rebuilds from a name
+// (aioesphomeapi's compute_object_id): a space is '_', A-Z is lowercased, and anything else
+// outside [a-z0-9_-] is '_'.
+function legacyIdChar(c: string): string {
+  const lower = c === ' ' ? '_' : c.replace(/[A-Z]/, (u) => u.toLowerCase())
+  return /^[a-z0-9_-]$/.test(lower) ? lower : '_'
+}
+
+/// The object id Home Assistant 2026.7 and older gives a thermostat, and its entity's unique id
+/// with it: one character per code point, so "Кухня" and "Ванна" are both "_____".
+export function legacyObjectIdOf(name: string): string {
+  let out = ''
+  for (const c of name) out += legacyIdChar(c)
+  return out
+}
+
+/// The first of `versions` older than Home Assistant 2026.8, which is the first to tell
+/// thermostats apart by the whole name, or '' when none is.
+export function legacyHomeAssistant(versions: ReadonlyArray<string> | undefined): string {
+  for (const version of versions ?? []) {
+    const parts = /^(\d+)\.(\d+)/.exec(version)
+    if (!parts) continue
+    const year = Number(parts[1])
+    if (year < 2026 || (year === 2026 && Number(parts[2]) < 8)) return version
   }
   return ''
 }
 
-// The rules a name must keep whatever it names, on the trimmed name.
+/// The name of the first thermostat in `existing` (not `id` itself) that Home Assistant 2026.7
+/// and older would show as one with `name`, or '' when there is none. A name the device takes
+/// for the same one is nameError's, not this.
+export function legacyLookalike(name: string, id: string, existing: ReadonlyArray<Named>): string {
+  const trimmed = trimName(name)
+  const key = nameKey(trimmed)
+  const objectId = legacyObjectIdOf(trimmed)
+  const other = existing.find(
+    (o) => o.id !== id && nameKey(o.name) !== key && legacyObjectIdOf(trimName(o.name)) === objectId
+  )
+  return other ? trimName(other.name) : ''
+}
+
+/// The names in `existing` that Home Assistant 2026.7 and older shows as one thermostat, in
+/// groups of two or more, each group and its names in `existing`'s order.
+export function legacyLookalikeGroups(existing: ReadonlyArray<Named>): string[][] {
+  const groups = new Map<string, string[]>()
+  for (const other of existing) {
+    const name = trimName(other.name)
+    const group = groups.get(legacyObjectIdOf(name))
+    if (group) group.push(name)
+    else groups.set(legacyObjectIdOf(name), [name])
+  }
+  return [...groups.values()].filter((group) => group.length > 1)
+}
+
+// A string holds no bytes that are not UTF-8; a lone surrogate, which JSON would carry
+// garbled, is refused in their place.
+const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/
+// C0, DEL and C1.
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/
+
+// The rules a name must keep whatever it names, on the trimmed name, in the
+// device's order. The length counts characters (code points), then UTF-8 bytes.
 function nameRuleError(trimmed: string): string {
   if (trimmed === '') return 'Name is required'
-  if (new TextEncoder().encode(trimmed).length > NAME_MAX_LENGTH) {
-    return `Name is longer than ${NAME_MAX_LENGTH} characters`
-  }
-  if (!/^[\x20-\x7e]*$/.test(trimmed)) return 'Use printable ASCII characters only'
+  if (LONE_SURROGATE.test(trimmed)) return 'Name is not valid UTF-8'
+  if ([...trimmed].length > NAME_MAX_LENGTH) return `Name is longer than ${NAME_MAX_LENGTH} characters`
+  if (new TextEncoder().encode(trimmed).length > NAME_MAX_BYTES) return `Name is longer than ${NAME_MAX_BYTES} bytes`
+  if (CONTROL.test(trimmed)) return 'Name cannot contain control characters'
   if (trimmed.includes('/')) return "Name cannot contain '/'"
   if (trimmed.includes('\\')) return "Name cannot contain '\\'"
   return ''

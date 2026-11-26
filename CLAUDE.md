@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ESPHome configurations for JetHome JXD devices. A device is a thin YAML under `devices/` that
 lists packages; the logic is C++ lambdas inside those packages and the external components
-under `components/`; `scripts/` holds the Python tooling. ESPHome is pinned to 2026.9.1. CI
+under `components/`; `scripts/` holds the Python tooling. ESPHome is pinned to 2026.10.2. CI
 compiles every firmware in `firmwares.yaml`, runs the test suites in `tests/`, checks the
 generated files and runs the pre-commit hooks.
 
@@ -22,8 +22,10 @@ generated files and runs the pre-commit hooks.
 | change the web server's credentials or how they are stored | [components/web_auth/README.md](components/web_auth/README.md) |
 | touch the `automations` engine or its rule format | [doc/AUTOMATIONS.md](doc/AUTOMATIONS.md) |
 | touch the `climate_hub` thermostats, their file format or their HTTP API | [doc/CLIMATE.md](doc/CLIMATE.md), [components/climate_hub/README.md](components/climate_hub/README.md), [components/web_climate_editor/README.md](components/web_climate_editor/README.md) |
+| touch the `schedules` engine, its file format or its HTTP API | [doc/SCHEDULES.md](doc/SCHEDULES.md), [components/schedules/README.md](components/schedules/README.md), [components/web_schedule_editor/README.md](components/web_schedule_editor/README.md) |
 | add a test, or wonder which suite a case belongs in | [doc/TESTING.md](doc/TESTING.md) |
 | change what a relay or an input remembers across reboots | [doc/ENTITY_SETTINGS.md](doc/ENTITY_SETTINGS.md) |
+| touch the virtual inputs: their delays, their file or their HTTP API | [doc/ENTITY_SETTINGS.md](doc/ENTITY_SETTINGS.md#virtual-inputs), [components/virtual_inputs/README.md](components/virtual_inputs/README.md) |
 | change WiFi provisioning | [doc/WIFI_SETUP.md](doc/WIFI_SETUP.md) |
 
 The tree itself is in the README, "Repository Layout".

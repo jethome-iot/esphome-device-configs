@@ -381,17 +381,22 @@ refuse_if_running() {
     die "$device is running (pid ${pids//$'\n'/, }) and holds its flash image — stop it first: scripts/qemu.sh stop $device"
 }
 
-# ss is Linux's; macOS has lsof instead. Neither present means no early warning, which is
-# what the check was before it existed.
+# Asked the way QEMU will bind, by connecting to 127.0.0.1:<port>: only a refusal leaves
+# the address free; an answer, or a full queue that never answers, holds it. Listing
+# sockets instead (lsof) walks the mounted file systems first, and blocks for good on a
+# network mount that does not answer.
 port_listening() {
-  local port=$1
-  if command -v ss >/dev/null 2>&1; then
-    ss -ltn "sport = :$port" 2>/dev/null | grep -q LISTEN
-  elif command -v lsof >/dev/null 2>&1; then
-    lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
-  else
-    return 1
-  fi
+  python - "$1" <<'PY'
+import socket
+import sys
+
+try:
+    socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=2).close()
+except ConnectionRefusedError:
+    sys.exit(1)
+except OSError:
+    pass
+PY
 }
 
 # QEMU refuses to start at all if one forwarded port is taken — usually another
@@ -399,7 +404,7 @@ port_listening() {
 # instead, where the caller is looking.
 check_ports_free() {
   local port
-  # Two of ours on the same host port is the one clash `ss` cannot see: nothing is
+  # Two of ours on the same host port is the one clash a probe cannot see: nothing is
   # listening yet, and QEMU still refuses.
   if [ "$(printf '%s\n' "$HTTP_PORT" "$API_PORT" "$OTA_PORT" | sort -u | wc -l)" -ne 3 ]; then
     die "--http-port/--api-port/--ota-port must differ, got $HTTP_PORT/$API_PORT/$OTA_PORT"

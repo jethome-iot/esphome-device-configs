@@ -36,7 +36,10 @@ block, and a factory reset clears only the stored settings. `dallas_scan_id` nam
 The Files, Automations and Climate screens need no option of their own: the component reads
 the `url_prefix` of a `web_file_browser`, a `web_automation_editor` and a `web_climate_editor`
 off the config and reports whichever of them this firmware has in `/api/device/capabilities`.
-A [`modbus_map`](../modbus_map/README.md) is picked up the same way.
+A [`modbus_map`](../modbus_map/README.md) is picked up the same way, and so are a
+[`timezone_settings`](../timezone_settings/README.md), which brings `/api/device/time`, with
+beside it an [`ntp_servers`](../ntp_servers/README.md), which adds the NTP servers there, and a
+[`virtual_inputs`](../virtual_inputs/README.md), which brings `/api/device/virtual-inputs`.
 
 The **Settings → Network** and **Settings → Modbus** tabs show the entities of the `web_server`
 sorting groups named `Network` and `Modbus`, and the Entities screen leaves those groups out. The
@@ -77,6 +80,7 @@ failure `{"success": false, "error"}`. The same contract, machine-readable:
 | POST | `/api/device/system/reboot` | restart, nothing cleared; what waits for a restart applies |
 | POST | `/api/device/system/factory-reset` | clear the stored settings and restart, wiping the storage on the way back up (with a `storage_id`) |
 | POST | `/api/device/system/rollback` | boot the other app slot — after an update, the firmware it replaced |
+| POST | `/api/device/system/forget-api-key` | clear the API key Home Assistant set and restart, so Home Assistant can add the device again; settings and files stay. Only with `api: encryption:` and no `key:`, else `404` |
 
 ### Capabilities
 
@@ -89,8 +93,10 @@ image in it; that version is what a confirmation dialog should show, because aft
 other slot is the *newer* firmware. It is there when
 [`firmware_rollback`](../firmware_rollback/README.md) finds a firmware to go back to, and absent
 after a serial flash, a failed or interrupted update, a rollback the bootloader did itself, or while
-a switch waits for its reboot. `storage`, `files`, `automations`, `climates`, `entity_settings`,
-`board_info`, `temperature_slots` and `modbus` follow the components the firmware was built with.
+a switch waits for its reboot. `forget_api_key` is there when the firmware keeps the key Home
+Assistant sets — `api: encryption:` with no `key:` — rather than one compiled in. `storage`, `files`,
+`automations`, `climates`, `entity_settings`, `board_info`, `temperature_slots`, `modbus`, `time`
+and `virtual_inputs` follow the components the firmware was built with.
 `storage` says what the mount is, not how full it is: usage is live and this route is not polled,
 so the byte counts stay in the file API's own `info`. `modbus` is the Modbus server's address map
 as a `modbus_map` names it: the bit and register ranges, each with its first and last address, how
@@ -109,7 +115,7 @@ this route answers without `temperature_slots`.
 
 ### System actions
 
-All three take `{"confirm": true, "confirm_token": "DD:EE:FF"}` — the last three octets of
+Each takes `{"confirm": true, "confirm_token": "DD:EE:FF"}` — the last three octets of
 `/api/device/info`'s `base_mac_address`, in either case. Not `mac_address`, which on a build
 with Ethernet is a different MAC; the `403` says so. Without `confirm` the answer is `400`, and
 without `Content-Type: application/json` a `415`.
@@ -119,14 +125,20 @@ can address the device can spell it. It is there so a single stray POST does not
 device; what keeps other sites out is the `web_server:` `auth:` block and
 [`web_origin_guard`](../web_origin_guard/README.md).
 
-Each answers before it acts, so the caller gets its answer. A factory reset does what
+Each answers before it restarts, so the caller gets its answer. A factory reset does what
 **Settings → Factory reset** on the display does, in the same order; the files it takes are
 gone once the device is back, not when it answers. A rollback selects the
 other app slot, checking the image while the request is still open — a slot that is not whole
 is a `500` here rather than a device that comes back unchanged — and the firmware it boots gets
 one monitored boot: if it fails before it marks itself good, the bootloader returns to this
 one. `503` means there is nothing to roll back to, or that the device was too busy to take the
-request (`Device busy`) and selected nothing.
+request (`Device busy`) and selected nothing. Forgetting the API key does what **Settings →
+Forget HA** on the display does: it clears the key while the request is still open, closes every
+native API connection open at the time, and restarts only once the key is gone. Home Assistant's
+old key then stops connecting, and Home Assistant can add the device again — on a firmware with a
+`provisioning:` block, within the window it opens after the boot. `500` means the API server did
+not clear the key, and the device does not restart; `503`, that the device was too busy to take
+the request and cleared nothing.
 
 With a [`web_auth`](../web_auth/README.md), the web server's own credentials; without one
 these routes are `404`:
@@ -153,12 +165,36 @@ one that puts the table back as the device booted leaves nothing waiting. An off
 `{"success", "message", "label"}`, the label as stored. A slot's reading is
 not here: it is the state of the sensor of that `name` on `web_server`'s `/events`.
 
+With a [`timezone_settings`](../timezone_settings/README.md), the clock and the timezone; without
+one this route is `404`:
+
+| Method | Path | |
+|---|---|---|
+| GET | `/api/device/time` | `{"time", "utc_offset", "dst", "clock_source", "follow_homeassistant", "zone_source", "zone", "posix", "default_zone"}`: `time` is the device's clock in UTC epoch seconds, `null` until a clock has set it; `utc_offset` the seconds east of UTC in effect then (local time is `time + utc_offset`), the standard offset while `time` is `null`; `dst` whether that offset is summer time. `clock_source` names the network clock that synced last, `homeassistant` or `sntp`, or `dashboard` when the time was set here since; it is `rtc` (the battery-backed clock) until one of them has set the time since boot, or once the RTC reads back another time than the one they set (writing it failed), and `null` until any clock has. `zone_source` is where the zone in effect comes from: `homeassistant`, `default` (the compiled `default_zone`, as written in the configuration, while following Home Assistant until it first sets the clock) or `manual` (the chosen one); a Home Assistant older than 2026.3 sends no zone, and the one in effect when it answers counts as its own. `zone` and `posix` are the chosen zone, kept while the device follows Home Assistant; `null` when none was ever chosen, and `zone` also when only `posix` was given. With an `ntp_servers`, `ntp` too: `{"servers", "fallback", "fallback_servers", "current", "last_sync"}`, the servers set here, whether the firmware's own (`fallback_servers`) are asked after them, the one being asked or that answered last (`null` with none to ask), and the last answer since boot, `{"time", "server"}` or `null`. Read on the loop task: `503` when it does not get to it |
+| POST | `/api/device/time` | `{"follow_homeassistant": true}` follows Home Assistant, keeping the chosen zone, and asks Home Assistant for its zone at once; `{"follow_homeassistant": false, "zone": "Europe/Berlin", "posix": "CET-1CEST,M3.5.0,M10.5.0/3"}` chooses that zone and applies it at once; `{"follow_homeassistant": false}` applies the chosen zone. `posix`, with an optional `zone`, sent while the device follows Home Assistant is kept for later and not applied. Stored before applied, kept across reboots, no confirmation. `{"time": 1791369125}`, alone or beside the others, sets the device's clock to that UTC epoch at once and runs `timezone_settings`' `on_clock_set`, which writes the RTC in this repository's configs; `clock_source` is then `dashboard` until Home Assistant or SNTP sets the time, or the RTC reads back a time of its own. With an `ntp_servers`, `{"ntp": {"servers": ["ntp.example.com"], "fallback": true}}` sets the servers asked ahead of the firmware's own and whether those are asked, either key alone keeping the other; stored before it takes effect, and the first server is asked at once. Answers what `GET` would after it. Everything in the body is checked before anything changes: a body that is not JSON, a field of the wrong type (`time` not an integer, `ntp.servers` not a list of strings) or none of the keys is `400`; more than 3 servers, or one that is no host name or IPv4 address, is over 63 bytes or repeats another, is `422`; a `posix` the device cannot parse, a `posix` or `zone` over 63 bytes, a `zone` with a control character or without `posix`, not following with no zone chosen, and a `time` before 2019 or from 2100 on are `422`; a zone store that fails is `500` and changes nothing; an NTP store that fails is `500` too, with a zone sent beside it already applied; a clock that does not take the time is `500` as well, with a zone and servers sent beside it already applied; `503` when the loop task does not take it |
+
+`posix` is what the device runs on; `zone` is only the name it was picked as, which the panel
+shows. The dashboard sends both from its own table of zones.
+`time` is for a device that has neither NTP nor Home Assistant to set its clock; either of them
+sets it again when it answers.
+
+With a [`virtual_inputs`](../virtual_inputs/README.md), the virtual inputs; without one these
+routes are `404`:
+
+| Method | Path | |
+|---|---|---|
+| GET | `/api/device/virtual-inputs` | `{"max_inputs", "max_delay", "can_save", "inputs": [{"slot", "object_id", "name", "label", "source", "on_delay", "off_delay", "state", "problem", "used_by": {"rules", "relays"}}], "sources": [{"object_id", "name", "label"}]}`: the slots in use, in slot order, and the physical inputs a slot may follow. `object_id` (`virtual_input_N`) and `name` (`Virtual input N`) stay whatever the label; `label` is the `binary_sensor` entity settings' record, set through `/api/device/entity-settings`. Delays are whole seconds up to `max_delay` (86400). `state` is the one it had when read, `null` until its source reported; `problem` says why one is off whatever its source does, `""` while it follows it. `used_by` is what a delete stops: the names of the rules whose trigger or condition names it, built or not, and the relays bound to it, by label or name. `can_save` is false when a write would be `503`. Read on the loop task: `503` when it does not get to it |
+| POST | `/api/device/virtual-inputs/save` | `{"slot": N, "source": "input_3", "on_delay": s, "off_delay": s}` sets up slot N or changes it, in force at once with its delays counted from the save; without `slot` it takes the lowest free one no rule and no relay's binding names, or the lowest free one when every free one is named. A delay left out is `0` on a new slot and kept on one in use. Answers `{"success", "message", "input"}`, the slot as it now stands. No confirmation. A slot out of range, a `source` that is not a physical input (a virtual input, a relay, nothing) or a delay that is not a whole number of seconds up to 86400 is `400`, no free slot `409`, a partition that did not mount or a file that did not load at boot `503`, a write that fails `500`, a loop task that does not take it `503` |
+| POST | `/api/device/virtual-inputs/delete` | `{"slot": N}` frees slot N: its binary sensor is hidden, its label dropped, and every relay bound to it loses that binding (Bind to: None) and stays as it is; a rule that names it stops until a virtual input is set up in that slot again. No confirmation. A slot out of range is `400`, a free one `409`, `503` and `500` as for a save |
+
+A new slot and a deleted one make Home Assistant reconnect a moment later, to list it or drop it.
+
 With a `config_json` store (`entity_config`'s `switch` and `binary_sensor` types), the entity
 settings too; without one these routes are `404`:
 
 | Method | Path | |
 |---|---|---|
-| GET | `/api/device/entities` | per settings type, `[{"source_name", "name", "label"}]`: object id, name and label of every entity of that type, the label empty when it has none. Read on the loop task, which owns the records — `503` when it does not get to it |
+| GET | `/api/device/entities` | per settings type, `[{"source_name", "name", "label"}]`: object id, name and label of every entity of that type that takes settings (an internal or a config one does not), the label empty when it has none; a virtual input's entry also carries `"virtual": true`, since it takes a label and no `inverted`. Read on the loop task, which owns the records — `503` when it does not get to it |
 | GET | `/api/device/entity-settings?type=switch[&source_name=relay_1]` | the stored records of a type, or one of them. Read on the loop task, which owns the records — `503` when it does not get to it |
 | POST | `/api/device/entity-settings` | `{"type", "source_name", "settings": {...}}` updates and applies a record; `{"type", "source_name", "action": "delete"}` removes it. A change of a relay's `inverted` while a running thermostat drives it is `409`, naming the thermostat. Needs `Content-Type: application/json`, as every route here that reads a body does |
 | GET | `/api/device/entity-settings-meta` | the form fields of every settings type |
@@ -174,7 +210,12 @@ leaves it out keeps it. The name, the object id and `web_server`'s routes do not
 `client/device` is the TypeScript client for these routes and `client/rest` the client for
 `web_server`'s entity routes and the wire types of its `/events` stream; the dashboard
 repository builds against them through its `firmware` link, so they change with the C++ they
-mirror. Nothing in this repository builds or type-checks them.
+mirror. Nothing in this repository builds or type-checks them. `client/device/timezones.ts`, the
+zones the Date & Time screen offers with the POSIX string each is sent as, is generated by
+`scripts/build-timezones.py`. `client/mock/virtualInputsMock.ts` answers the virtual input routes
+for the dashboard's dev server, with the firmware's refusals and messages; it boots with slot 1
+following `motion` with a 10 min off delay, the input the automation mock's "Comfort while someone
+is home" rule follows.
 
 ## Tests
 
@@ -182,10 +223,14 @@ mirror. Nothing in this repository builds or type-checks them.
 `web_server_base` stand-in: the URLs it claims, the route table and its method matrix, the body
 accumulation and its 4 KiB cap, the JSON every route answers with, the confirmation the system
 actions take, a factory reset wiping a stand-in storage and the preferences before it restarts,
-and the temperature slots listed, forgotten and assigned and their offsets and labels set on a real
+the API key forgotten before the restart, through a stand-in for the call into ESPHome's API
+server, and refused by a real server that was never set up, and the
+temperature slots listed, forgotten and assigned and their offsets and labels set on a real
 `dallas_scan` over the harness's 1-Wire bus, with `/status` reporting what waits, booted again to
-see what the table kept. Out of reach there is the ESP-IDF half — the `Allow` header, URL
+see what the table kept, the time route over a real `timezone_settings` on a clock the cases
+set and a real `ntp_servers`, every body it takes and refuses, and the virtual input routes over a real `virtual_inputs`
+whose file sits in a directory, every body they take and refuse. Out of reach there is the ESP-IDF half — the `Allow` header, URL
 decoding, the reset reason and the IP lookups, the eFuse block, a live WiFi or Ethernet link, the
-real reboot, the LittleFS format, and the rollback's reads and switch, which the tests stand in
-for; the rule that decides is covered by [`firmware_rollback`](../firmware_rollback/README.md)'s
+real reboot, the LittleFS format, and the rollback's reads and switch, which the tests stand
+in for; the rule that decides is covered by [`firmware_rollback`](../firmware_rollback/README.md)'s
 own suite.

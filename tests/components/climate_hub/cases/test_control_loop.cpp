@@ -51,7 +51,7 @@ class ControlLoop : public HubTest {
     call.perform();
   }
 
-  // `config` driving relay_2 as its cooling relay, alone or beside its heating one.
+  // `config` in mode cool on relay_2, alone or beside its heating relay.
   static ClimateConfig with_cooling(ClimateConfig config, bool keep_heat) {
     if (!keep_heat)
       config.heat.relay_id = "";
@@ -59,7 +59,7 @@ class ControlLoop : public HubTest {
     config.cool.period_s = 10.f;
     config.cool.min_on_s = 0.f;
     config.cool.min_off_s = 0.f;
-    config.mode = keep_heat ? HubMode::HEAT_COOL : HubMode::COOL;
+    config.mode = HubMode::COOL;
     return config;
   }
 
@@ -116,8 +116,8 @@ TEST_F(ControlLoop, BangBangLatchesBetweenTheSwitchingPoints) {
 TEST_F(ControlLoop, PidRunsTheRelayOnADutyCycle) {
   ClimateConfig config = this->base(ControlKind::PID);
   config.setpoint = 25.f;
-  config.pid.kp = 0.1f;
-  config.pid.ki = 0.f;
+  config.pid.heat.kp = 0.1f;
+  config.pid.heat.ki = 0.f;
   ControllerRuntime *rt = this->start(config, 20.f);
   ASSERT_NE(nullptr, rt);
 
@@ -140,8 +140,8 @@ TEST_F(ControlLoop, PidRunsTheRelayOnADutyCycle) {
 TEST_F(ControlLoop, ReachingTheSetpointDropsTheDutyToZero) {
   ClimateConfig config = this->base(ControlKind::PID);
   config.setpoint = 25.f;
-  config.pid.kp = 0.1f;
-  config.pid.ki = 0.f;
+  config.pid.heat.kp = 0.1f;
+  config.pid.heat.ki = 0.f;
   ControllerRuntime *rt = this->start(config, 20.f);
 
   tick(200000);
@@ -171,8 +171,8 @@ TEST_F(ControlLoop, ARunningThermostatThatDoesNothingIsIdle) {
   for (ControlKind kind : {ControlKind::BANG_BANG, ControlKind::PID}) {
     SCOPED_TRACE(enums::control_kind_to_string(kind));
     ClimateConfig config = this->base(kind);
-    config.pid.kp = 0.1f;
-    config.pid.ki = 0.f;
+    config.pid.heat.kp = 0.1f;
+    config.pid.heat.ki = 0.f;
     this->id_ = this->create(config).id;
     ControllerRuntime *rt = hub().runtime_of(this->id_);
     HubClimate *entity = hub().entity_of(this->id_);
@@ -272,8 +272,8 @@ TEST_F(ControlLoop, ASaveShowsWhatTheThermostatIsDoing) {
 TEST_F(ControlLoop, ASaveOfAPidBetweenPulsesShowsHeating) {
   ClimateConfig config = this->base(ControlKind::PID);
   config.setpoint = 25.f;
-  config.pid.kp = 0.1f;
-  config.pid.ki = 0.f;
+  config.pid.heat.kp = 0.1f;
+  config.pid.heat.ki = 0.f;
   config.update_interval_s = 60.f;
   ControllerRuntime *rt = this->start(config, 20.f);
   HubClimate *entity = hub().entity_of(this->id_);
@@ -296,8 +296,7 @@ TEST_F(ControlLoop, ASaveOntoAnotherRelayBetweenPulsesIdlesUntilItCloses) {
     SCOPED_TRACE(cool ? "cool" : "heat");
     ClimateConfig config = cool ? with_cooling(this->base(ControlKind::PID), false) : this->base(ControlKind::PID);
     config.setpoint = cool ? 20.f : 25.f;
-    config.pid.kp = 0.1f;
-    config.pid.ki = 0.f;
+    config.pid.heat = config.pid.cool = PidGains{0.1f, 0.f, 0.f};
     config.update_interval_s = 60.f;
     ControllerRuntime *rt = this->start(config, cool ? 25.f : 20.f);
     HubClimate *entity = hub().entity_of(this->id_);
@@ -325,14 +324,13 @@ TEST_F(ControlLoop, ASaveOntoAnotherRelayBetweenPulsesIdlesUntilItCloses) {
   }
 }
 
-// The same for cooling, in cool and in heat and cool.
+// The same for cooling, with a heating relay beside or without.
 TEST_F(ControlLoop, ASaveOfACoolingPidShowsCooling) {
   for (bool keep_heat : {false, true}) {
-    SCOPED_TRACE(keep_heat ? "heat_cool" : "cool");
+    SCOPED_TRACE(keep_heat ? "both relays" : "cooling only");
     ClimateConfig config = with_cooling(this->base(ControlKind::PID), keep_heat);
     config.setpoint = 20.f;
-    config.pid.kp = 0.1f;
-    config.pid.ki = 0.f;
+    config.pid.cool = PidGains{0.1f, 0.f, 0.f};
     config.update_interval_s = 60.f;
     ControllerRuntime *rt = this->start(config, 25.f);
     HubClimate *entity = hub().entity_of(this->id_);
@@ -492,8 +490,8 @@ TEST_F(ControlLoop, TheLatchDoesNotSurviveAModeChange) {
 TEST_F(ControlLoop, ANaNReadingIsIgnoredRatherThanStored) {
   ClimateConfig config = this->base(ControlKind::PID);
   config.setpoint = 25.f;
-  config.pid.kp = 0.1f;
-  config.pid.ki = 0.01f;
+  config.pid.heat.kp = 0.1f;
+  config.pid.heat.ki = 0.01f;
   ControllerRuntime *rt = this->start(config, 20.f);
 
   tick(200000);
@@ -552,9 +550,9 @@ TEST_F(ControlLoop, AnInfiniteReadingIsIgnoredByTheHysteresis) {
 TEST_F(ControlLoop, AnInfiniteReadingIsIgnoredByThePid) {
   ClimateConfig config = this->base(ControlKind::PID);
   config.setpoint = 25.f;
-  config.pid.kp = 0.1f;
-  config.pid.ki = 0.01f;
-  config.pid.kd = 1.f;
+  config.pid.heat.kp = 0.1f;
+  config.pid.heat.ki = 0.01f;
+  config.pid.heat.kd = 1.f;
   config.pid.derivative_samples = 4;
   ControllerRuntime *rt = this->start(config, 20.f);
   HubClimate *entity = hub().entity_of(this->id_);
@@ -612,8 +610,8 @@ TEST_F(ControlLoop, ASetpointChangeIsActedOnAtTheNextTick) {
   ClimateConfig config = this->base(ControlKind::PID);
   config.update_interval_s = 3600.f;
   config.setpoint = 19.f;
-  config.pid.kp = 0.5f;
-  config.pid.ki = 0.f;
+  config.pid.heat.kp = 0.5f;
+  config.pid.heat.ki = 0.f;
   ControllerRuntime *rt = this->start(config, 20.f);
 
   tick(200000);
@@ -691,9 +689,11 @@ TEST_F(ControlLoop, ControlTakesOnlyTheModesItsRelaysServe) {
   EXPECT_FALSE(traits.supports_mode(climate::CLIMATE_MODE_COOL));
   EXPECT_FALSE(traits.supports_mode(climate::CLIMATE_MODE_HEAT_COOL));
 
-  call(entity, climate::CLIMATE_MODE_COOL);
-  EXPECT_EQ(HubMode::HEAT, hub().store().get(this->id_)->mode);
-  EXPECT_EQ(climate::CLIMATE_MODE_HEAT, entity->mode);
+  for (auto mode : {climate::CLIMATE_MODE_COOL, climate::CLIMATE_MODE_HEAT_COOL}) {
+    call(entity, mode);
+    EXPECT_EQ(HubMode::HEAT, hub().store().get(this->id_)->mode) << mode;
+    EXPECT_EQ(climate::CLIMATE_MODE_HEAT, entity->mode) << mode;
+  }
 }
 
 // A sample that changes nothing is not sent on: the API and the event stream see changes only.
@@ -735,27 +735,43 @@ TEST_F(ControlLoop, BangBangCoolsAboveTheUpperPoint) {
   EXPECT_FALSE(entities().relay2.state);
 }
 
-// With both relays, heat and cool heats below the band, cools above it and idles inside it.
-TEST_F(ControlLoop, HeatAndCoolUsesBothRelays) {
-  ControllerRuntime *rt = this->start(with_cooling(this->base(ControlKind::BANG_BANG), true), 18.f);
+// With both relays, one at a time: heat or cool, picked by hand. Home Assistant is not offered
+// heat and cool, and a call for it is put back.
+TEST_F(ControlLoop, BothRelaysHeatOrCoolOneAtATime) {
+  ClimateConfig config = with_cooling(this->base(ControlKind::BANG_BANG), true);
+  config.mode = HubMode::HEAT;
+  ControllerRuntime *rt = this->start(config, 18.f);
   HubClimate *entity = hub().entity_of(this->id_);
-  EXPECT_EQ(climate::CLIMATE_MODE_HEAT_COOL, entity->mode);
   auto traits = entity->get_traits();
-  for (auto mode : {climate::CLIMATE_MODE_OFF, climate::CLIMATE_MODE_HEAT, climate::CLIMATE_MODE_COOL,
-                    climate::CLIMATE_MODE_HEAT_COOL})
+  for (auto mode : {climate::CLIMATE_MODE_OFF, climate::CLIMATE_MODE_HEAT, climate::CLIMATE_MODE_COOL})
     EXPECT_TRUE(traits.supports_mode(mode)) << mode;
+  EXPECT_FALSE(traits.supports_mode(climate::CLIMATE_MODE_HEAT_COOL));
 
   tick(200000);
   EXPECT_EQ(HubAction::HEATING, rt->action());
   EXPECT_TRUE(entities().relay1.state);
   EXPECT_FALSE(entities().relay2.state);
 
-  entities().room.publish_state(20.5f);
-  tick(201000);
-  EXPECT_EQ(HubAction::IDLE, rt->action()) << "no latch when both directions are live";
-  EXPECT_FALSE(entities().relay1.state);
+  // The entity outlives the test and keeps its callbacks, so the record must too.
+  static std::vector<climate::ClimateMode> shown;
+  static bool hooked = false;
+  if (!hooked) {
+    entity->add_on_state_callback([](climate::Climate &c) { shown.push_back(c.mode); });
+    hooked = true;
+  }
+  shown.clear();
+  call(entity, climate::CLIMATE_MODE_HEAT_COOL);
+  EXPECT_EQ(HubMode::HEAT, hub().store().get(this->id_)->mode);
+  EXPECT_EQ(std::vector<climate::ClimateMode>{climate::CLIMATE_MODE_HEAT}, shown) << "put back";
+  EXPECT_FALSE(hub().dirty(this->id_));
 
   entities().room.publish_state(23.f);
+  tick(201000);
+  EXPECT_EQ(HubAction::IDLE, rt->action()) << "too warm is not heat's to fix";
+  EXPECT_FALSE(entities().relay1.state);
+  EXPECT_FALSE(entities().relay2.state);
+
+  call(entity, climate::CLIMATE_MODE_COOL);
   tick(202000);
   EXPECT_EQ(HubAction::COOLING, rt->action());
   EXPECT_FALSE(entities().relay1.state);
@@ -766,8 +782,7 @@ TEST_F(ControlLoop, HeatAndCoolUsesBothRelays) {
 TEST_F(ControlLoop, PidCoolsOnANegativeOutput) {
   ClimateConfig config = with_cooling(this->base(ControlKind::PID), false);
   config.setpoint = 20.f;
-  config.pid.kp = 0.1f;
-  config.pid.ki = 0.f;
+  config.pid.cool = PidGains{0.1f, 0.f, 0.f};
   ControllerRuntime *rt = this->start(config, 25.f);
 
   tick(200000);
@@ -794,8 +809,7 @@ TEST_F(ControlLoop, ASingleDirectionModeNeverDrivesTheOtherRelay) {
     SCOPED_TRACE(c.what);
     ClimateConfig config = with_cooling(this->base(c.kind), true);
     config.mode = c.mode;
-    config.pid.kp = 0.1f;
-    config.pid.ki = 0.f;
+    config.pid.heat = config.pid.cool = PidGains{0.1f, 0.f, 0.f};
     ControllerRuntime *rt = this->start(config, c.reading);
     tick(200000);
     tick(201000);
@@ -811,7 +825,7 @@ TEST_F(ControlLoop, ASingleDirectionModeNeverDrivesTheOtherRelay) {
   }
 }
 
-// Home Assistant turning a stopped-in-OFF thermostat back to HEAT, or a two-relay one to HEAT_COOL:
+// Home Assistant turning a stopped-in-OFF thermostat back to HEAT, or a two-relay one to COOL:
 // the mode lands in the document and on the entity, and is written after the debounce.
 TEST_F(ControlLoop, ControlTakesEveryModeItsRelaysServe) {
   ClimateConfig config = this->base(ControlKind::BANG_BANG);
@@ -825,7 +839,7 @@ TEST_F(ControlLoop, ControlTakesEveryModeItsRelaysServe) {
   EXPECT_TRUE(hub().dirty(this->id_));
   tick(200000);
   EXPECT_EQ(HubAction::HEATING, rt->action());
-  call(entity, climate::CLIMATE_MODE_HEAT_COOL);
+  call(entity, climate::CLIMATE_MODE_COOL);
   EXPECT_EQ(HubMode::HEAT, hub().store().get(this->id_)->mode) << "no cooling relay";
 
   ASSERT_TRUE(hub().remove(this->id_).ok);
@@ -833,9 +847,10 @@ TEST_F(ControlLoop, ControlTakesEveryModeItsRelaysServe) {
   both.mode = HubMode::HEAT;
   this->start(both, 18.f);
   entity = hub().entity_of(this->id_);
-  call(entity, climate::CLIMATE_MODE_HEAT_COOL);
-  EXPECT_EQ(HubMode::HEAT_COOL, hub().store().get(this->id_)->mode);
-  EXPECT_EQ(climate::CLIMATE_MODE_HEAT_COOL, entity->mode);
+  call(entity, climate::CLIMATE_MODE_COOL);
+  EXPECT_EQ(HubMode::COOL, hub().store().get(this->id_)->mode);
+  EXPECT_EQ(climate::CLIMATE_MODE_COOL, entity->mode);
+  EXPECT_TRUE(hub().dirty(this->id_));
 }
 
 // Home Assistant sends what a user set, so picking the mode the thermostat already has sends it
@@ -954,8 +969,8 @@ TEST_F(ControlLoop, PidRecomputesOnlyEveryInterval) {
   ClimateConfig config = this->base(ControlKind::PID);
   config.update_interval_s = 60.f;
   config.setpoint = 25.f;
-  config.pid.kp = 0.1f;
-  config.pid.ki = 0.f;
+  config.pid.heat.kp = 0.1f;
+  config.pid.heat.ki = 0.f;
   ControllerRuntime *rt = this->start(config, 20.f);
 
   tick(200000);
@@ -1196,6 +1211,7 @@ TEST_F(ControlLoop, ATakeOverFromTwoHoldersTakesBothRelays) {
   ASSERT_TRUE(entities().relay1.state);
   ClimateConfig both = with_cooling(this->base(ControlKind::BANG_BANG), true);
   both.name = "Both";
+  both.mode = HubMode::HEAT;
   both.enabled = false;
   this->create(both);
   const int writes = entities().relay1.writes;
@@ -1209,6 +1225,43 @@ TEST_F(ControlLoop, ATakeOverFromTwoHoldersTakesBothRelays) {
   EXPECT_EQ(HubAction::HEATING, hub().runtime_of("both")->action());
   EXPECT_TRUE(entities().relay1.state);
   EXPECT_EQ(writes, entities().relay1.writes) << "the heating relay never moved";
+}
+
+// Taken over from a heater and a cooler that ran at once, both relays stay closed until the one
+// the mode does not drive may open by its min_on; the one it drives stays closed throughout.
+TEST_F(ControlLoop, ATakeOverOfTwoClosedRelaysOpensTheUndrivenOneByItsMinOn) {
+  ClimateConfig heater = this->base(ControlKind::BANG_BANG);
+  heater.name = "Heater";
+  this->start(heater, 18.f);
+  ClimateConfig cooler = with_cooling(this->base(ControlKind::BANG_BANG), false);
+  cooler.name = "Cooler";
+  cooler.setpoint = 15.f;
+  this->create(cooler);
+  tick(200000);
+  ASSERT_TRUE(entities().relay1.state);
+  ASSERT_TRUE(entities().relay2.state);
+  ClimateConfig both = with_cooling(this->base(ControlKind::BANG_BANG), true);
+  both.name = "Both";
+  both.mode = HubMode::HEAT;
+  both.cool.min_on_s = 600.f;
+  both.enabled = false;
+  this->create(both);
+
+  ASSERT_TRUE(hub().set_enabled("both", true, true).ok);
+  ControllerRuntime *rt = hub().runtime_of("both");
+  for (uint64_t t = 201000; t < 800000; t += 1000) {
+    tick(t);
+    ASSERT_TRUE(entities().relay1.state) << "at " << t;
+    ASSERT_TRUE(entities().relay2.state) << "min_on holds it until 800 s, at " << t;
+    ASSERT_EQ(RelayWait::NONE, rt->heat_relay_wait()) << "at " << t;
+    ASSERT_EQ(RelayWait::MIN_ON, rt->cool_relay_wait()) << "at " << t;
+    ASSERT_EQ(HubAction::HEATING, rt->action()) << "at " << t;
+  }
+  tick(800000);
+  EXPECT_FALSE(entities().relay2.state);
+  EXPECT_TRUE(entities().relay1.state);
+  EXPECT_EQ(RelayWait::NONE, rt->cool_relay_wait());
+  EXPECT_EQ(HubAction::HEATING, rt->action());
 }
 
 // A Save onto a relay another thermostat opened a moment ago waits out that relay's min_off.
@@ -1299,8 +1352,8 @@ TEST_F(ControlLoop, ASaveIntoAnotherModeDropsTheLatch) {
 TEST_F(ControlLoop, ASaveKeepsThePwmPhaseUnlessThePeriodChanges) {
   ClimateConfig config = this->base(ControlKind::PID);
   config.setpoint = 25.f;
-  config.pid.kp = 0.1f;
-  config.pid.ki = 0.f;
+  config.pid.heat.kp = 0.1f;
+  config.pid.heat.ki = 0.f;
   this->start(config, 20.f);
   tick(200000);
   ASSERT_TRUE(entities().relay1.state) << "half of a ten second period, from 200 s";
@@ -1323,8 +1376,8 @@ TEST_F(ControlLoop, ASaveKeepsThePwmPhaseUnlessThePeriodChanges) {
 TEST_F(ControlLoop, ASaveKeepsThePidState) {
   ClimateConfig config = this->base(ControlKind::PID);
   config.setpoint = 25.f;
-  config.pid.kp = 0.1f;
-  config.pid.ki = 0.01f;
+  config.pid.heat.kp = 0.1f;
+  config.pid.heat.ki = 0.01f;
   config.pid.starting_integral_term = 0.02f;
   ControllerRuntime *rt = this->start(config, 20.f);
   tick(200000);
@@ -1334,7 +1387,7 @@ TEST_F(ControlLoop, ASaveKeepsThePidState) {
   ASSERT_NEAR(0.12f, rt->pid().integral_term(), 1e-5f);
 
   config.name = "Renamed";
-  config.pid.kp = 0.12f;
+  config.pid.heat.kp = 0.12f;
   hub().ms = 202500;
   ASSERT_TRUE(hub().update(this->id_, config).ok);
   EXPECT_NEAR(0.12f, rt->pid().integral_term(), 1e-5f) << "not back to the starting term";
@@ -1347,8 +1400,8 @@ TEST_F(ControlLoop, ASaveKeepsThePidState) {
 TEST_F(ControlLoop, ASaveClampsTheKeptIntegral) {
   ClimateConfig config = this->base(ControlKind::PID);
   config.setpoint = 25.f;
-  config.pid.kp = 0.f;
-  config.pid.ki = 0.1f;
+  config.pid.heat.kp = 0.f;
+  config.pid.heat.ki = 0.1f;
   ControllerRuntime *rt = this->start(config, 20.f);
   tick(200000);
   tick(201000);
@@ -1367,8 +1420,8 @@ TEST_F(ControlLoop, ASaveClampsTheKeptIntegral) {
 TEST_F(ControlLoop, AnotherLawOrSensorOrAStartResetsThePid) {
   ClimateConfig config = this->base(ControlKind::PID);
   config.setpoint = 25.f;
-  config.pid.kp = 0.f;
-  config.pid.ki = 0.01f;
+  config.pid.heat.kp = 0.f;
+  config.pid.heat.ki = 0.01f;
   config.pid.starting_integral_term = 0.3f;
   ControllerRuntime *rt = this->start(config, 20.f);
   tick(200000);
@@ -1398,6 +1451,224 @@ TEST_F(ControlLoop, AnotherLawOrSensorOrAStartResetsThePid) {
   rt = hub().runtime_of(this->id_);
   tick(207000);
   EXPECT_NEAR(0.3f, rt->pid().integral_term(), 1e-5f) << "started from stopped";
+}
+
+// Each relay runs on its own gains: heat on the heating relay's, cool on the cooling relay's.
+TEST_F(ControlLoop, EachRelayRunsOnItsOwnGains) {
+  ClimateConfig config = with_cooling(this->base(ControlKind::PID), true);
+  config.mode = HubMode::HEAT;
+  config.setpoint = 20.f;
+  config.pid.heat = PidGains{0.1f, 0.f, 0.f};
+  config.pid.cool = PidGains{0.05f, 0.f, 0.f};
+  ControllerRuntime *rt = this->start(config, 18.f);
+  HubClimate *entity = hub().entity_of(this->id_);
+  tick(200000);
+  EXPECT_EQ(Direction::HEAT, rt->pid_direction());
+  EXPECT_NEAR(0.2f, rt->heat_duty(), 1e-4f) << "2 degrees at the heating relay's 0.1";
+
+  entities().room.publish_state(24.f);
+  call(entity, climate::CLIMATE_MODE_COOL);
+  tick(201000);
+  EXPECT_EQ(Direction::COOL, rt->pid_direction());
+  EXPECT_NEAR(0.2f, rt->cool_duty(), 1e-4f) << "4 degrees at the cooling relay's 0.05";
+  EXPECT_FLOAT_EQ(0.f, rt->heat_duty());
+
+  // A start in cool starts on the cooling relay's.
+  ASSERT_TRUE(hub().set_enabled(this->id_, false).ok);
+  ASSERT_TRUE(hub().set_enabled(this->id_, true).ok);
+  rt = hub().runtime_of(this->id_);
+  EXPECT_EQ(Direction::COOL, rt->pid_direction());
+}
+
+// The integral one relay learnt means nothing to the other: the first pass for the other relay
+// starts the PID over from the starting integral, on that relay's gains, either way round.
+TEST_F(ControlLoop, APassForTheOtherRelayStartsThePidOver) {
+  ClimateConfig config = with_cooling(this->base(ControlKind::PID), true);
+  config.mode = HubMode::HEAT;
+  config.setpoint = 25.f;
+  config.pid.heat = PidGains{0.f, 0.01f, 0.f};
+  config.pid.cool = PidGains{0.f, 0.02f, 0.f};
+  config.pid.starting_integral_term = 0.3f;
+  ControllerRuntime *rt = this->start(config, 20.f);
+  HubClimate *entity = hub().entity_of(this->id_);
+  tick(200000);
+  tick(201000);
+  ASSERT_NEAR(0.35f, rt->pid().integral_term(), 1e-5f) << "0.3, then 5 degrees for 1 s at 0.01";
+
+  entities().room.publish_state(27.f);
+  call(entity, climate::CLIMATE_MODE_COOL);
+  EXPECT_EQ(Direction::HEAT, rt->pid_direction()) << "until the next pass";
+  tick(202000);
+  EXPECT_EQ(Direction::COOL, rt->pid_direction());
+  EXPECT_NEAR(0.3f, rt->pid().integral_term(), 1e-5f) << "nothing integrated on the first pass";
+  tick(203000);
+  EXPECT_NEAR(0.26f, rt->pid().integral_term(), 1e-5f) << "-2 degrees for 1 s at the cooling relay's 0.02";
+
+  entities().room.publish_state(20.f);
+  call(entity, climate::CLIMATE_MODE_HEAT);
+  tick(204000);
+  EXPECT_EQ(Direction::HEAT, rt->pid_direction());
+  EXPECT_NEAR(0.3f, rt->pid().integral_term(), 1e-5f);
+
+  // A Save into the other mode does the same, at its next pass.
+  config.mode = HubMode::COOL;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  tick(205000);
+  EXPECT_EQ(Direction::COOL, rt->pid_direction());
+  EXPECT_NEAR(0.3f, rt->pid().integral_term(), 1e-5f);
+}
+
+// Mode off in between keeps what the PID learnt for the relay it comes back to, and only that.
+TEST_F(ControlLoop, OffInBetweenKeepsThePidOnlyForTheSameRelay) {
+  ClimateConfig config = with_cooling(this->base(ControlKind::PID), true);
+  config.mode = HubMode::HEAT;
+  config.setpoint = 25.f;
+  config.pid.heat = PidGains{0.f, 0.01f, 0.f};
+  config.pid.starting_integral_term = 0.3f;
+  ControllerRuntime *rt = this->start(config, 20.f);
+  HubClimate *entity = hub().entity_of(this->id_);
+  tick(200000);
+  tick(201000);
+  ASSERT_NEAR(0.35f, rt->pid().integral_term(), 1e-5f);
+
+  call(entity, climate::CLIMATE_MODE_OFF);
+  tick(300000);
+  call(entity, climate::CLIMATE_MODE_HEAT);
+  tick(301000);
+  EXPECT_NEAR(0.35f, rt->pid().integral_term(), 1e-5f) << "kept, and nothing integrated over the pause";
+
+  call(entity, climate::CLIMATE_MODE_OFF);
+  tick(302000);
+  call(entity, climate::CLIMATE_MODE_COOL);
+  tick(303000);
+  EXPECT_NEAR(0.3f, rt->pid().integral_term(), 1e-5f) << "the cooling relay starts over";
+}
+
+// A Save that moves only the idle relay's gains leaves the running PID as it was; the running
+// relay's own new gains apply from the next pass, as ASaveKeepsThePidState shows.
+TEST_F(ControlLoop, ASaveOfTheIdleRelaysGainsLeavesThePidAlone) {
+  ClimateConfig config = with_cooling(this->base(ControlKind::PID), true);
+  config.mode = HubMode::HEAT;
+  config.setpoint = 25.f;
+  config.pid.heat = PidGains{0.1f, 0.01f, 0.f};
+  config.pid.starting_integral_term = 0.02f;
+  ControllerRuntime *rt = this->start(config, 20.f);
+  tick(200000);
+  tick(201000);
+  tick(202000);
+  ASSERT_NEAR(0.12f, rt->pid().integral_term(), 1e-5f);
+
+  config.pid.cool = PidGains{5.f, 5.f, 5.f};
+  hub().ms = 202500;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  EXPECT_NEAR(0.12f, rt->pid().integral_term(), 1e-5f);
+  EXPECT_EQ(Direction::HEAT, rt->pid_direction());
+  tick(203000);
+  EXPECT_NEAR(0.17f, rt->pid().integral_term(), 1e-5f) << "1 s on from the pass at 202 s";
+  EXPECT_NEAR(5.f * 0.1f + 0.17f, rt->heat_duty(), 1e-4f) << "at the heating relay's kp";
+}
+
+// Nothing is integrated while the heating relay is full on or full off and the error pushes the
+// output further; once the output is back inside, it integrates again.
+TEST_F(ControlLoop, TheIntegralHoldsWhileTheHeatingRelayCannotFollow) {
+  ClimateConfig config = this->base(ControlKind::PID);
+  config.setpoint = 25.f;
+  config.pid.heat = PidGains{0.5f, 0.01f, 0.f};
+  ControllerRuntime *rt = this->start(config, 20.f);
+  tick(200000);
+  tick(201000);
+  EXPECT_FLOAT_EQ(1.f, rt->heat_duty());
+  EXPECT_FLOAT_EQ(0.f, rt->pid().integral_term()) << "full on";
+
+  entities().room.publish_state(26.f);
+  tick(202000);
+  EXPECT_FLOAT_EQ(0.f, rt->heat_duty());
+  EXPECT_FLOAT_EQ(0.f, rt->pid().integral_term()) << "full off";
+
+  entities().room.publish_state(24.f);
+  tick(203000);
+  EXPECT_NEAR(0.01f, rt->pid().integral_term(), 1e-6f) << "1 degree for 1 s at 0.01";
+  EXPECT_NEAR(0.51f, rt->heat_duty(), 1e-5f);
+}
+
+// The cooling relay's range runs from -1, full on, to 0.
+TEST_F(ControlLoop, TheIntegralHoldsWhileTheCoolingRelayCannotFollow) {
+  ClimateConfig config = with_cooling(this->base(ControlKind::PID), false);
+  config.setpoint = 20.f;
+  config.pid.cool = PidGains{0.5f, 0.01f, 0.f};
+  ControllerRuntime *rt = this->start(config, 25.f);
+  tick(200000);
+  tick(201000);
+  EXPECT_FLOAT_EQ(1.f, rt->cool_duty());
+  EXPECT_FLOAT_EQ(0.f, rt->pid().integral_term()) << "full on";
+
+  entities().room.publish_state(19.f);
+  tick(202000);
+  EXPECT_FLOAT_EQ(0.f, rt->cool_duty());
+  EXPECT_FLOAT_EQ(0.f, rt->pid().integral_term()) << "full off";
+
+  entities().room.publish_state(21.f);
+  tick(203000);
+  EXPECT_NEAR(-0.01f, rt->pid().integral_term(), 1e-6f) << "-1 degree for 1 s at 0.01";
+  EXPECT_NEAR(0.51f, rt->cool_duty(), 1e-5f);
+}
+
+// The range is that of the relay the PID runs for: the same error integrates on one and not on
+// the other, after a switch either way.
+TEST_F(ControlLoop, TheRangeFollowsTheRelayThePidRunsFor) {
+  ClimateConfig config = with_cooling(this->base(ControlKind::PID), true);
+  config.mode = HubMode::HEAT;
+  config.setpoint = 20.f;
+  config.pid.heat = PidGains{0.5f, 0.01f, 0.f};
+  config.pid.cool = PidGains{0.5f, 0.01f, 0.f};
+  ControllerRuntime *rt = this->start(config, 21.f);
+  HubClimate *entity = hub().entity_of(this->id_);
+  tick(200000);
+  tick(201000);
+  EXPECT_FLOAT_EQ(0.f, rt->pid().integral_term()) << "a degree too warm: the heater is off already";
+
+  call(entity, climate::CLIMATE_MODE_COOL);
+  tick(202000);
+  tick(203000);
+  EXPECT_NEAR(-0.01f, rt->pid().integral_term(), 1e-6f) << "the cooler is not full on";
+
+  entities().room.publish_state(19.f);
+  tick(204000);
+  EXPECT_NEAR(-0.01f, rt->pid().integral_term(), 1e-6f) << "a degree too cold: the cooler is off already";
+
+  call(entity, climate::CLIMATE_MODE_HEAT);
+  tick(205000);
+  tick(206000);
+  EXPECT_NEAR(0.01f, rt->pid().integral_term(), 1e-6f) << "the heater is not full on";
+}
+
+// A Save that keeps the PID keeps its range; one into the other mode gives it the other relay's
+// at the next pass.
+TEST_F(ControlLoop, ASaveKeepsTheRangeOfTheRelayItRunsFor) {
+  ClimateConfig config = with_cooling(this->base(ControlKind::PID), true);
+  config.mode = HubMode::HEAT;
+  config.setpoint = 25.f;
+  config.pid.heat = PidGains{0.5f, 0.01f, 0.f};
+  config.pid.cool = PidGains{0.5f, 0.01f, 0.f};
+  ControllerRuntime *rt = this->start(config, 20.f);
+  tick(200000);
+  tick(201000);
+  ASSERT_FLOAT_EQ(0.f, rt->pid().integral_term());
+
+  config.pid.heat.kp = 0.6f;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  tick(202000);
+  EXPECT_FLOAT_EQ(0.f, rt->pid().integral_term()) << "still full on";
+  entities().room.publish_state(24.5f);
+  tick(203000);
+  EXPECT_NEAR(0.005f, rt->pid().integral_term(), 1e-6f) << "half a degree for 1 s at 0.01";
+
+  config.mode = HubMode::COOL;
+  ASSERT_TRUE(hub().update(this->id_, config).ok);
+  tick(204000);
+  ASSERT_EQ(Direction::COOL, rt->pid_direction());
+  tick(205000);
+  EXPECT_FLOAT_EQ(0.f, rt->pid().integral_term()) << "half a degree too cold: the cooler is off already";
 }
 
 // A probe that last spoke a minute ago, beyond its timeout: its value is shown, not acted on.
@@ -1775,8 +2046,8 @@ TEST_F(ControlLoop, MinOnKeepsItHeatingUntilTheRelayOpens) {
 TEST_F(ControlLoop, APidIsIdleUntilAPulseClosesTheRelay) {
   ClimateConfig config = this->base(ControlKind::PID);
   config.setpoint = 25.f;
-  config.pid.kp = 0.1f;
-  config.pid.ki = 0.f;
+  config.pid.heat.kp = 0.1f;
+  config.pid.heat.ki = 0.f;
   config.heat.min_off_s = 60.f;
   ControllerRuntime *rt = this->start(config, 20.f);
   tick(200000);
@@ -1816,9 +2087,10 @@ TEST_F(ControlLoop, APidIsIdleUntilAPulseClosesTheRelay) {
 // that no longer does ends it at once, not at the next pass.
 TEST_F(ControlLoop, AModeThatStopsHeatingEndsAPidsGapAtOnce) {
   ClimateConfig config = with_cooling(this->base(ControlKind::PID), true);
+  config.mode = HubMode::HEAT;
   config.setpoint = 25.f;
-  config.pid.kp = 0.1f;
-  config.pid.ki = 0.f;
+  config.pid.heat.kp = 0.1f;
+  config.pid.heat.ki = 0.f;
   ControllerRuntime *rt = this->start(config, 20.f);
   HubClimate *entity = hub().entity_of(this->id_);
   tick(200000);
@@ -1831,36 +2103,160 @@ TEST_F(ControlLoop, AModeThatStopsHeatingEndsAPidsGapAtOnce) {
   EXPECT_EQ(Actions{climate::CLIMATE_ACTION_IDLE}, seen);
 }
 
-// Switching over from one relay to the other, min_on may hold the first closed while the second
-// closes: the action is the relay the thermostat drives now, either way round.
-TEST_F(ControlLoop, ASwitchOverShowsTheRelayItDrivesNow) {
+// Switched from heat to cool while min_on holds the heater closed, the cooler waits for it to
+// open, and says so: the two never run at once. The action is what the relays do, either way round.
+TEST_F(ControlLoop, ASwitchOverWaitsForTheOtherRelayToOpen) {
+  for (ControlKind kind : {ControlKind::BANG_BANG, ControlKind::PID}) {
+    SCOPED_TRACE(enums::control_kind_to_string(kind));
+    ClimateConfig config = with_cooling(this->base(kind), true);
+    config.mode = HubMode::HEAT;
+    config.heat.min_on_s = 60.f;
+    config.cool.min_on_s = 60.f;
+    // Full power either way: the PWM keeps its relay closed.
+    config.pid.heat = config.pid.cool = PidGains{1.f, 0.f, 0.f};
+    ControllerRuntime *rt = this->start(config, 18.f);
+    HubClimate *entity = hub().entity_of(this->id_);
+    tick(200000);
+    ASSERT_TRUE(entities().relay1.state);
+
+    entities().room.publish_state(25.f);
+    call(entity, climate::CLIMATE_MODE_COOL);
+    tick(201000);
+    EXPECT_TRUE(entities().relay1.state) << "min_on holds the heater until 260 s";
+    EXPECT_FALSE(entities().relay2.state) << "the cooler waits for it";
+    EXPECT_EQ(HubAction::HEATING, rt->action()) << "as the relays do";
+    EXPECT_EQ(RelayWait::MIN_ON, rt->heat_relay_wait());
+    EXPECT_EQ(RelayWait::OTHER_RELAY, rt->cool_relay_wait());
+    tick(259000);
+    EXPECT_FALSE(entities().relay2.state);
+    EXPECT_EQ(RelayWait::OTHER_RELAY, rt->cool_relay_wait());
+
+    tick(260000);
+    EXPECT_FALSE(entities().relay1.state);
+    EXPECT_TRUE(entities().relay2.state) << "on the pass the heater opened";
+    EXPECT_EQ(HubAction::COOLING, rt->action());
+    EXPECT_EQ(RelayWait::NONE, rt->heat_relay_wait());
+    EXPECT_EQ(RelayWait::NONE, rt->cool_relay_wait());
+
+    // And back: the heater waits out the cooler's min_on.
+    entities().room.publish_state(18.f);
+    call(entity, climate::CLIMATE_MODE_HEAT);
+    tick(261000);
+    EXPECT_TRUE(entities().relay2.state) << "min_on holds the cooler until 320 s";
+    EXPECT_FALSE(entities().relay1.state);
+    EXPECT_EQ(HubAction::COOLING, rt->action());
+    EXPECT_EQ(RelayWait::OTHER_RELAY, rt->heat_relay_wait());
+    EXPECT_EQ(RelayWait::MIN_ON, rt->cool_relay_wait());
+
+    tick(320000);
+    EXPECT_FALSE(entities().relay2.state);
+    EXPECT_TRUE(entities().relay1.state);
+    EXPECT_EQ(HubAction::HEATING, rt->action());
+    EXPECT_EQ(RelayWait::NONE, rt->heat_relay_wait());
+    ASSERT_TRUE(hub().remove(this->id_).ok);
+    reset_entities();
+    hub().ms = 100000;
+  }
+}
+
+// Mode off in between: the other relay opens with it, whatever its min_on, so the next mode's
+// relay waits for nothing.
+TEST_F(ControlLoop, ASwitchOverThroughOffWaitsForNothing) {
   ClimateConfig config = with_cooling(this->base(ControlKind::BANG_BANG), true);
+  config.mode = HubMode::HEAT;
   config.heat.min_on_s = 60.f;
-  config.cool.min_on_s = 60.f;
   ControllerRuntime *rt = this->start(config, 18.f);
+  HubClimate *entity = hub().entity_of(this->id_);
   tick(200000);
   ASSERT_TRUE(entities().relay1.state);
 
-  entities().room.publish_state(25.f);
+  call(entity, climate::CLIMATE_MODE_OFF);
   tick(201000);
-  EXPECT_TRUE(entities().relay1.state) << "min_on holds the heater until 260 s";
+  EXPECT_FALSE(entities().relay1.state);
+  entities().room.publish_state(25.f);
+  call(entity, climate::CLIMATE_MODE_COOL);
+  tick(202000);
   EXPECT_TRUE(entities().relay2.state);
-  EXPECT_EQ(HubAction::COOLING, rt->action());
-  EXPECT_EQ(RelayWait::MIN_ON, rt->heat_relay_wait());
   EXPECT_EQ(RelayWait::NONE, rt->cool_relay_wait());
+}
 
+// Closed from elsewhere, the other relay holds the driven one open too, until it is put back.
+TEST_F(ControlLoop, ARelayClosedFromElsewhereHoldsTheOtherOneOpen) {
+  ClimateConfig config = with_cooling(this->base(ControlKind::BANG_BANG), true);
+  config.mode = HubMode::HEAT;
+  ControllerRuntime *rt = this->start(config, 22.f);
+  tick(200000);
+  ASSERT_FALSE(entities().relay1.state);
+  entities().relay2.turn_on();
+  tick(201000);
+  ASSERT_FALSE(entities().relay2.state) << "the first close goes back at once";
+  entities().relay2.turn_on();
   entities().room.publish_state(18.f);
-  tick(230000);
-  EXPECT_TRUE(entities().relay1.state);
-  EXPECT_TRUE(entities().relay2.state) << "min_on holds the cooler until 261 s";
-  EXPECT_EQ(HubAction::HEATING, rt->action());
-  EXPECT_EQ(RelayWait::NONE, rt->heat_relay_wait());
-  EXPECT_EQ(RelayWait::MIN_ON, rt->cool_relay_wait());
-
-  tick(261000);
+  tick(202000);
+  ASSERT_TRUE(entities().relay2.state) << "the second waits the floor";
+  EXPECT_FALSE(entities().relay1.state);
+  EXPECT_EQ(RelayWait::OTHER_RELAY, rt->heat_relay_wait());
+  tick(202000 + PUT_BACK_FLOOR_MS);
   EXPECT_FALSE(entities().relay2.state);
-  EXPECT_EQ(HubAction::HEATING, rt->action());
-  EXPECT_EQ(RelayWait::NONE, rt->cool_relay_wait());
+  EXPECT_TRUE(entities().relay1.state) << "on the pass it was put back";
+  EXPECT_EQ(RelayWait::NONE, rt->heat_relay_wait());
+}
+
+// The relay the new mode drives, closed from elsewhere while it waits for the other one, is put
+// back as any close from elsewhere and not kept: it closes once the other relay has opened. Either
+// way round, after one close or two.
+TEST_F(ControlLoop, ARelayClosedFromElsewhereDuringASwitchOverStillWaitsForTheOtherOne) {
+  // An assertion ends its own run only, so each way round reports.
+  auto run = [this](bool to_heat, int closes) {
+    ClimateConfig config = with_cooling(this->base(ControlKind::BANG_BANG), true);
+    config.mode = to_heat ? HubMode::COOL : HubMode::HEAT;
+    (to_heat ? config.cool : config.heat).min_on_s = 120.f;
+    ControllerRuntime *rt = this->start(config, to_heat ? 25.f : 18.f);
+    HubClimate *entity = hub().entity_of(this->id_);
+    FakeSwitch &driven = to_heat ? entities().relay1 : entities().relay2;
+    FakeSwitch &other = to_heat ? entities().relay2 : entities().relay1;
+    auto wait = [&]() { return to_heat ? rt->heat_relay_wait() : rt->cool_relay_wait(); };
+    tick(200000);
+    ASSERT_TRUE(other.state);
+
+    entities().room.publish_state(to_heat ? 18.f : 25.f);
+    call(entity, to_heat ? climate::CLIMATE_MODE_HEAT : climate::CLIMATE_MODE_COOL);
+    tick(201000);
+    ASSERT_FALSE(driven.state);
+    ASSERT_EQ(RelayWait::OTHER_RELAY, wait());
+
+    driven.turn_on();
+    tick(202000);
+    EXPECT_FALSE(driven.state) << "the first close goes back at once";
+    EXPECT_EQ(RelayWait::OTHER_RELAY, wait());
+    uint64_t put_back = 202000;
+    if (closes == 2) {
+      driven.turn_on();
+      tick(203000);
+      EXPECT_TRUE(driven.state) << "the second waits the floor";
+      EXPECT_EQ(RelayWait::NONE, wait()) << "on the move, not on the other relay";
+      put_back = 203000 + PUT_BACK_FLOOR_MS;
+    }
+    for (uint64_t t = 204000; t < 320000; t += 1000) {
+      tick(t);
+      ASSERT_TRUE(other.state) << "min_on holds it until 320 s, at " << t;
+      ASSERT_EQ(t < put_back, driven.state) << "at " << t;
+      ASSERT_EQ(t < put_back ? RelayWait::NONE : RelayWait::OTHER_RELAY, wait()) << "at " << t;
+    }
+    tick(320000);
+    EXPECT_FALSE(other.state);
+    EXPECT_TRUE(driven.state) << "on the pass the other one opened";
+    EXPECT_EQ(RelayWait::NONE, wait());
+  };
+  for (bool to_heat : {true, false}) {
+    for (int closes : {1, 2}) {
+      SCOPED_TRACE(std::string(to_heat ? "cool to heat, " : "heat to cool, ") + std::to_string(closes) + " close(s)");
+      run(to_heat, closes);
+      ASSERT_TRUE(hub().remove(this->id_).ok);
+      reset_entities();
+      hub().ms = 100000;
+    }
+  }
 }
 
 // A relay closed from elsewhere heats, whoever closed it, until it is put back; the wait for the

@@ -22,7 +22,13 @@ enum class RouteId : uint8_t {
   ENABLE,
   SETPOINT,
   PRESET,
-  AUTOTUNE
+  AUTOTUNE,
+  GAINS,
+  GAINS_ADD,
+  GAINS_RENAME,
+  GAINS_DELETE,
+  GAINS_APPLY,
+  GAINS_DERIVE
 };
 
 struct Route {
@@ -32,6 +38,10 @@ struct Route {
   /// <img src> away from being fired by any page the browser opens.
   bool mutating;
 };
+
+/// The version in a Home Assistant API client's hello ("Home Assistant 2026.7.3" gives
+/// "2026.7.3"); "" for any other client.
+std::string home_assistant_version(const char *client_info);
 
 // JSON API for the climate_hub thermostats at <url_prefix>/api/*. The dashboard's editor is
 // its client; the TS contract lives in client/.
@@ -67,6 +77,11 @@ class WebClimateEditor : public AsyncWebHandler, public Component {
   bool read_slug_(AsyncWebServerRequest *request, const char *name, std::string &value);
   bool read_bool_(AsyncWebServerRequest *request, const char *name, bool &value);
   bool read_number_(AsyncWebServerRequest *request, float &value);
+  /// A plain decimal count within `min` and `max`, required.
+  bool read_count_(AsyncWebServerRequest *request, const char *name, uint32_t min, uint32_t max, uint32_t &value);
+  /// A gain set's `name` from the JSON body, "" when it brings none; `required` refuses an empty
+  /// body.
+  bool read_set_name_(AsyncWebServerRequest *request, bool required, std::string &name);
 
   void handle_list_(AsyncWebServerRequest *request);
   void handle_get_(AsyncWebServerRequest *request);
@@ -79,6 +94,14 @@ class WebClimateEditor : public AsyncWebHandler, public Component {
   void handle_setpoint_(AsyncWebServerRequest *request);
   void handle_preset_(AsyncWebServerRequest *request);
   void handle_autotune_(AsyncWebServerRequest *request);
+  void handle_gains_(AsyncWebServerRequest *request);
+  void handle_gains_add_(AsyncWebServerRequest *request);
+  void handle_gains_rename_(AsyncWebServerRequest *request);
+  void handle_gains_delete_(AsyncWebServerRequest *request);
+  void handle_gains_apply_(AsyncWebServerRequest *request);
+  void handle_gains_derive_(AsyncWebServerRequest *request);
+  /// The listing of `reader`'s sets, read here, on the web server's task, as it goes out.
+  void send_sets_(AsyncWebServerRequest *request, climate_hub::GainSetReader &reader, uint32_t after, uint32_t limit);
 
   /// Answers what a job decided: `json` when it ran and succeeded, the error it set when it
   /// ran and refused, 503 when the loop task never took it.

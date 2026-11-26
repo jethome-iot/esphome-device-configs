@@ -57,11 +57,10 @@ TEST(OnMode, IsTheModeWhileOnElseTheLastOneElseHeatOrCool) {
   EXPECT_EQ(HubMode::HEAT, heat.on_mode());
 
   ClimateConfig two = both();
-  two.set_mode(HubMode::HEAT_COOL);
   two.set_mode(HubMode::OFF);
-  EXPECT_EQ(HubMode::HEAT_COOL, two.on_mode());
+  EXPECT_EQ(HubMode::COOL, two.on_mode());
   two.set_mode(HubMode::OFF);
-  EXPECT_EQ(HubMode::HEAT_COOL, two.on_mode()) << "off twice is still the mode before off";
+  EXPECT_EQ(HubMode::COOL, two.on_mode()) << "off twice is still the mode before off";
   two.cool.relay_id = "";
   EXPECT_EQ(HubMode::HEAT, two.on_mode()) << "a mode the relays no longer serve gives way";
 
@@ -93,11 +92,11 @@ TEST(OnMode, AFileKeepsTheModeBeforeOff) {
   ClimateConfig parsed;
   std::string error;
   ASSERT_TRUE(from_json(R"({"name":"B","sensor_id":"s","heat":{"relay_id":"r"},"cool":{"relay_id":"c"},)"
-                        R"("mode":"off","last_on_mode":"heat_cool"})",
+                        R"("mode":"off","last_on_mode":"cool"})",
                         &parsed, &error, false))
       << error;
-  EXPECT_EQ(HubMode::HEAT_COOL, parsed.on_mode());
-  EXPECT_NE(std::string::npos, to_json(parsed).find(R"("mode":"off","last_on_mode":"heat_cool",)"));
+  EXPECT_EQ(HubMode::COOL, parsed.on_mode());
+  EXPECT_NE(std::string::npos, to_json(parsed).find(R"("mode":"off","last_on_mode":"cool",)"));
 }
 
 // State, not a rule: one the relays do not serve is no reason to refuse the thermostat.
@@ -113,14 +112,15 @@ TEST(OnMode, OneTheRelaysDoNotServeGivesWay) {
 }
 
 TEST(OnMode, AWordItDoesNotKnowIsRefused) {
-  for (const char *word : {R"("dry")", R"("off")", R"("")", "2"}) {
+  // heat_cool among them: gone, and a file from before is not migrated.
+  for (const char *word : {R"("dry")", R"("off")", R"("")", "2", R"("heat_cool")"}) {
     ClimateConfig parsed;
     std::string error;
     EXPECT_FALSE(from_json(std::string(R"({"name":"B","sensor_id":"s","heat":{"relay_id":"r"},"mode":"heat",)") +
                                R"("last_on_mode":)" + word + "}",
                            &parsed, &error, false))
         << word;
-    EXPECT_EQ("last_on_mode must be one of heat/cool/heat_cool", error) << word;
+    EXPECT_EQ("last_on_mode must be one of heat/cool", error) << word;
   }
 }
 
@@ -155,14 +155,14 @@ TEST_F(OnOff, TurnsARunningThermostatOffAndBackToItsMode) {
 // Home Assistant's mode off is a turn-off too: the mode before it comes back after a reboot.
 TEST_F(OnOff, TheModeBeforeOffSurvivesAReboot) {
   this->create(both());
-  mode(hub().entity_of("boiler"), climate::CLIMATE_MODE_HEAT_COOL);
+  mode(hub().entity_of("boiler"), climate::CLIMATE_MODE_HEAT);
   mode(hub().entity_of("boiler"), climate::CLIMATE_MODE_OFF);
   flush();
   this->reboot();
   ASSERT_EQ(HubMode::OFF, hub().store().get("boiler")->mode);
 
   ASSERT_TRUE(hub().turn_on("boiler").ok);
-  EXPECT_EQ(climate::CLIMATE_MODE_HEAT_COOL, hub().entity_of("boiler")->mode);
+  EXPECT_EQ(climate::CLIMATE_MODE_HEAT, hub().entity_of("boiler")->mode);
 }
 
 // Running or not, as a target is: a stopped thermostat starts in the mode it was given.
@@ -207,7 +207,7 @@ TEST_F(OnOff, AnUnknownThermostatIsNotFound) {
 // The mode to come back to is the thermostat's, not the form's.
 TEST_F(OnOff, ASaveAndACreateIgnoreTheDocumentsOwn) {
   ClimateConfig config = both();
-  config.last_on_mode = HubMode::HEAT_COOL;
+  config.last_on_mode = HubMode::HEAT;
   this->create(config);
   ASSERT_TRUE(hub().turn_off("boiler").ok);
   EXPECT_EQ(HubMode::COOL, hub().store().get("boiler")->on_mode()) << "the create started from its mode";
@@ -279,12 +279,12 @@ TEST_F(OnOff, ARestoreTakesTheBackupsModeToGoBackTo) {
   ClimateConfig doc = *hub().store().get("boiler");
   ASSERT_EQ(HubMode::COOL, doc.on_mode());
 
-  doc.last_on_mode = HubMode::HEAT_COOL;
+  doc.last_on_mode = HubMode::HEAT;
   ASSERT_TRUE(hub().restore(doc).ok);
-  EXPECT_EQ(HubMode::HEAT_COOL, hub().store().get("boiler")->on_mode());
-  EXPECT_NE(std::string::npos, read_file(this->file_of("boiler")).find(R"("mode":"off","last_on_mode":"heat_cool",)"));
+  EXPECT_EQ(HubMode::HEAT, hub().store().get("boiler")->on_mode());
+  EXPECT_NE(std::string::npos, read_file(this->file_of("boiler")).find(R"("mode":"off","last_on_mode":"heat",)"));
   ASSERT_TRUE(hub().turn_on("boiler").ok);
-  EXPECT_EQ(climate::CLIMATE_MODE_HEAT_COOL, hub().entity_of("boiler")->mode);
+  EXPECT_EQ(climate::CLIMATE_MODE_HEAT, hub().entity_of("boiler")->mode);
 
   // A backup from before the field reads as a file without one: heat, whatever the thermostat had.
   doc.last_on_mode = HubMode::OFF;

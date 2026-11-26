@@ -3,6 +3,7 @@
 #include "esphome/core/defines.h"
 #ifdef ENTITY_CONFIG_BINARY_SENSOR
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 #include <utility>
@@ -159,6 +160,8 @@ class BinarySensorSettingsJson
     auto inverted = settings["inverted"];
     if (!inverted.isNull() && !inverted.is<bool>())
       return nullptr;
+    if (this->is_label_only(sensor) && (inverted | false))
+      return nullptr;
     // Unlike `inverted`, left out keeps the current label.
     std::string label;
     const bool has_label = !settings["label"].isNull();
@@ -173,14 +176,34 @@ class BinarySensorSettingsJson
   // Display menu; applied at once, saved after the debounce. Runs on the loop task.
   bool is_inverted(binary_sensor::BinarySensor *sensor) {
     BinarySensorSettingsRecord record;
-    return this->get_record(sensor, record) && record.inverted;
+    return !this->is_label_only(sensor) && this->get_record(sensor, record) && record.inverted;
   }
 
   // As in the switch: nowhere to report a keeper that cannot write, so it only logs.
   void set_inverted(binary_sensor::BinarySensor *sensor, bool inverted) {
+    if (this->is_label_only(sensor))
+      return;
     this->apply_record_(this->make_record(sensor, inverted));
     if (config_json::global_config_json_keeper != nullptr)
       config_json::global_config_json_keeper->save(NAME);
+  }
+
+  // A sensor that takes a label and nothing else: a virtual input shows its source as it is, so
+  // `inverted` is refused for it and a stored one is not applied. Registered before the apply.
+  void set_label_only(binary_sensor::BinarySensor *sensor) { this->label_only_.push_back(sensor); }
+  bool is_label_only(const binary_sensor::BinarySensor *sensor) const {
+    return std::find(this->label_only_.begin(), this->label_only_.end(), sensor) != this->label_only_.end();
+  }
+
+  // Drops the record of an entity that is gone for good, its label with it; the caller saves.
+  bool remove_record(const std::string &object_id) {
+    auto **slot = this->find_slot_(object_id.c_str());
+    if (slot == nullptr)
+      return false;
+    delete *slot;  // NOLINT(cppcoreguidelines-owning-memory)
+    this->records_.erase(this->records_.begin() + (slot - this->records_.data()));
+    this->mark_dirty();
+    return true;
   }
 
   void write_settings_meta(JsonObject obj) override {
@@ -214,6 +237,13 @@ class BinarySensorSettingsJson
       ESP_LOGW(TAG, "Binary sensor not found for source_name '%s'", record->source_name());
       return;
     }
+    if (this->is_label_only(sensor)) {
+      // Only a hand-edited file holds one: update_record() refuses it.
+      if (record->inverted)
+        ESP_LOGW(TAG, "'%s' takes no inversion, ignoring it", record->source_name());
+      record->inverted = false;
+      return;
+    }
     auto *filter = this->filter_for_(sensor);
     // The re-emitted state is the same contact seen the other way round, not an edge.
     const bool reemits = filter->has_raw() && filter->is_inverted() != record->inverted;
@@ -230,6 +260,7 @@ class BinarySensorSettingsJson
   }
 
   std::vector<std::pair<binary_sensor::BinarySensor *, RuntimeInvertFilter *>> filters_;
+  std::vector<const binary_sensor::BinarySensor *> label_only_;
 };
 
 }  // namespace esphome::entity_config

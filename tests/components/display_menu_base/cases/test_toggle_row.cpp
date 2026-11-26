@@ -6,19 +6,23 @@ namespace esphome::display_menu_base::testing {
 
 // The Automations rows are MenuItemCustom two-state toggles: the flip is held in a pending
 // value and applied when the edit ends, because applying it per keypress would rewrite the
-// rule's file on every press. This pins that contract, not any one menu that uses it.
+// rule's file on every press. The pending value starts at the first flip, from the rule as it
+// is then, so an edit nobody flipped cannot undo a change the editor made over HTTP meanwhile.
+// This pins that contract, not any one menu that uses it.
 class ToggleRow : public ::testing::Test {
  protected:
   void SetUp() override {
     this->row_.set_text("Porch light");
     this->row_.set_value_lambda([this](const MenuItem *) {
-      const int state = this->pending_ >= 0 ? this->pending_ : this->state_of_();
+      const int live = this->state_of_();
+      const int state = live < 0 ? -1 : this->pending_ >= 0 ? this->pending_ : live;
       return std::string(state < 0 ? "--" : state > 0 ? "On" : "Off");
     });
-    this->row_.add_on_enter_callback([this]() { this->pending_ = this->state_of_(); });
+    this->row_.add_on_enter_callback([this]() { this->pending_ = -1; });
     auto flip = [this]() {
-      if (this->pending_ >= 0)
-        this->pending_ = 1 - this->pending_;
+      const int from = this->pending_ >= 0 ? this->pending_ : this->state_of_();
+      if (from >= 0)
+        this->pending_ = 1 - from;
     };
     this->row_.add_on_next_callback(flip);
     this->row_.add_on_prev_callback(flip);
@@ -141,6 +145,40 @@ TEST_F(ToggleRow, ARuleThatGoesMidEditIsNotWrittenBack) {
   this->menu_.enter();
 
   EXPECT_EQ(this->writes_, 0);
+}
+
+// The rule goes after the row was flipped: it reads `--`, not the choice it can no longer take.
+TEST_F(ToggleRow, ARuleThatGoesMidEditReadsAsGone) {
+  this->menu_.enter();
+  this->menu_.right();
+  this->gone_ = true;
+
+  EXPECT_EQ(this->value(), "--");
+}
+
+TEST_F(ToggleRow, AChangeMadeElsewhereBeforeTheFirstFlipIsNotUndone) {
+  this->menu_.enter();
+  this->stored_ = true;  // the editor enabled it over HTTP
+
+  EXPECT_EQ(this->value(), "On");
+
+  this->menu_.enter();
+
+  EXPECT_TRUE(this->stored_);
+  EXPECT_EQ(this->writes_, 0);
+}
+
+TEST_F(ToggleRow, TheFirstFlipStartsFromAChangeMadeElsewhere) {
+  this->menu_.enter();
+  this->stored_ = true;
+  this->menu_.right();
+
+  EXPECT_EQ(this->value(), "Off");
+
+  this->menu_.enter();
+
+  EXPECT_FALSE(this->stored_);
+  EXPECT_EQ(this->writes_, 1);
 }
 
 // A rule naming an entity that is gone is live-only: the engine refuses the file. The row has

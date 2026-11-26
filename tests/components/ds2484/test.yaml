@@ -1,0 +1,36 @@
+# Google Test binary for components/ds2484, built through esphome compile by tests/run.py.
+# Nothing declared here is set up: the tests drive the bus over a fake DS2484 themselves. The
+# i2c: and one_wire: blocks only make the component compile on the host; the device is never
+# opened.
+esphome:
+  name: ds2484-test
+  includes: [../../harness/main.cpp, ../../harness/environment.cpp, cases]
+  libraries: ["google/googletest@^1.15.2"]
+  platformio_options:
+    build_type: debug
+    build_unflags: [-Os]
+    build_flags:
+      - -Og
+      - -DESPHOME_DEBUG
+      - -fsanitize=address
+      - -fsanitize=undefined
+      - -fno-sanitize-recover=all
+      - -fno-omit-frame-pointer
+
+host:
+
+logger:
+  level: DEBUG
+
+external_components:
+  - source: ../../../components
+    components: [ds2484]
+
+i2c:
+  - id: bus
+    device: /dev/i2c-0
+
+one_wire:
+  - platform: ds2484
+    id: one_wire_bus
+    address: 0x18
