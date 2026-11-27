@@ -280,7 +280,7 @@ TEST_F(HubTest, TheSameNameComesBackOnTheSameSlot) {
 // #89: Home Assistant lists the entities while a thermostat runs, the thermostat is removed, and
 // another one is renamed onto its name before the listing goes out. The removed one's slot is in
 // the listing, so whatever name it has by then reaches Home Assistant; and it cannot keep the name,
-// since the web server answers the first climate by that name, hidden or not.
+// which the listing would then send twice.
 TEST_F(HubTest, ARenameOntoAHiddenSlotsNameSwapsTheNames) {
   this->create(draft("Room 1", "relay_1"));
   this->create(draft("Kettle", "relay_2"));
@@ -298,7 +298,7 @@ TEST_F(HubTest, ARenameOntoAHiddenSlotsNameSwapsTheNames) {
   EXPECT_TRUE(hidden->is_internal());
   EXPECT_TRUE(hidden->is_free());
   EXPECT_EQ(kettle, web_server_match("Room 1"));
-  EXPECT_EQ(hidden, web_server_match("Kettle")) << "a stopped state, as for a removed one's name";
+  EXPECT_EQ(nullptr, web_server_match("Kettle")) << "a hidden slot answers no URL";
   expect_names_unique("rename");
 
   // Back again: the names trade places once more.
@@ -323,7 +323,7 @@ TEST_F(HubTest, ARenameOntoAHiddenSlotsObjectIdLeavesThatSlotItsName) {
   EXPECT_EQ(fnv1_hash("room_1"), hidden->get_object_id_hash());
   EXPECT_EQ(fnv1_hash("climate_hub/kettle"), kettle->get_object_id_hash());
   EXPECT_EQ(kettle, web_server_match("Room_1"));
-  EXPECT_EQ(hidden, web_server_match("Room 1"));
+  EXPECT_EQ(nullptr, web_server_match("Room 1"));
 
   // Stopped and started again, it comes back on its own slot, under its key.
   ASSERT_TRUE(hub().set_enabled("kettle", false).ok);
@@ -432,7 +432,7 @@ TEST_F(HubTest, ARenameOntoAHiddenSlotsLookalikeLeavesThatSlotItsName) {
   EXPECT_STREQ("Café", hidden->get_name_progmem().ram_ref().c_str());
   EXPECT_TRUE(hidden->is_free());
   EXPECT_EQ(kettle, web_server_match("Caf_"));
-  EXPECT_EQ(hidden, web_server_match("Café"));
+  EXPECT_EQ(nullptr, web_server_match("Café"));
 }
 
 // A start under a name that differs from the hidden one's only in case and spacing has another

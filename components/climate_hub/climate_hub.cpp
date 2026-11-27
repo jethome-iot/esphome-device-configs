@@ -1429,7 +1429,7 @@ Result ClimateHub::relay_held_(const std::string &relay_id, const std::string &h
 }
 
 std::deque<ClimateHub::Slot *>::iterator ClimateHub::free_slot_like_(const std::string &name) {
-  // The web server matches the exact name, so no hidden slot is left answering it.
+  // The exact name: only a slot under that very name would go out twice in a listing in flight.
   return std::find_if(this->free_.begin(), this->free_.end(), [&name](const Slot *slot) {
     return slot->entity.is_named() && slot->entity.name_equals(StringRef(name));
   });

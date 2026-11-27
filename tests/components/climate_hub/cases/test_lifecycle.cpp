@@ -254,15 +254,16 @@ TEST_F(HubTest, DeleteRetiresTheEntityEverywhereItCanBeSeen) {
   EXPECT_EQ(404, hub().remove("boiler").code);
 }
 
-// The web server still answers a removed thermostat's name, as it does any internal entity: with
-// the traits it had and a stopped state, and without a document behind it.
+// A removed thermostat's slot keeps the traits it had and shows a stopped state, without a
+// document behind it, for an API client still encoding it; the web server no longer finds it by
+// name, as it finds no internal entity.
 TEST_F(HubTest, AFreedSlotStillAnswersTraits) {
   this->create(draft("Boiler"));
   HubClimate *entity = hub().entity_of("boiler");
   EXPECT_EQ(2u, entity->get_traits().get_supported_modes().size()) << "off + heat while running";
 
   ASSERT_TRUE(hub().remove("boiler").ok);
-  EXPECT_EQ(entity, web_server_match("Boiler"));
+  EXPECT_EQ(nullptr, web_server_match("Boiler"));
   auto freed = entity->get_traits();
   EXPECT_EQ(2u, freed.get_supported_modes().size()) << "the traits it had";
   EXPECT_EQ(climate::CLIMATE_MODE_OFF, entity->mode);

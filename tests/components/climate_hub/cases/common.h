@@ -384,10 +384,11 @@ inline std::string repeat(const std::string &text, size_t n) {
   return out;
 }
 
-// What web_server answers /climate/<name> with: the first climate by that name, hidden or not.
+// What web_server answers /climate/<name> with: the first climate by that name that is not
+// internal, as ESPHome 2026.11 matches; a hidden slot answers no URL.
 inline climate::Climate *web_server_match(const std::string &name) {
   for (auto *climate : App.get_climates()) {
-    if (name == climate->get_name_progmem().ram_ref().c_str())
+    if (!climate->is_internal() && climate->name_equals(StringRef(name)))
       return climate;
   }
   return nullptr;

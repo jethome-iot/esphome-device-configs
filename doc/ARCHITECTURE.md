@@ -351,8 +351,9 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
     encodes it, so hiding a slot changes the internal bit alone, and a slot once shown never
     goes back under the placeholder: a hidden one whose name a running thermostat is renamed to
     takes that thermostat's old name and key.
-  - `web_server` matching a climate by name on its own task, first match wins, hidden or not,
-    and a `/` never reaching a URL segment, which keeps an unused slot unaddressable. The name
+  - `web_server` matching a climate by name on its own task, the first one that is not
+    internal (since 2026.11; `include_internal`, which would change that, is refused), and a `/`
+    never reaching a URL segment: a hidden slot answers no URL. The name
     and the traits change only on the loop task, the panel's menu included, so that task may be
     mid-read: the slot keeps them in fixed buffers, and a rename writes the one not in use.
   - `StaticVector::capacity()` for the room check, and `ClimateTraits` built with no custom
@@ -374,8 +375,7 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
   `EntityBase::configure_entity_` again with the same name and hash 0, so it leans on
   `is_internal()` being read when the API and the web server list and push, as `climate_hub`
   does, and on the same reconnect to make Home Assistant list the change. `web_server`'s REST
-  matches a binary sensor by name, hidden or not, so a free slot still answers a read: `OFF`,
-  or no state.
+  matches no internal entity by URL since 2026.11, so a free slot answers `404`.
 - `components/timezone_settings` reads the zone Home Assistant sent one loop pass after the
   `homeassistant` clock's sync callback fires, in a named `defer`: upstream's
   `APIConnection::on_get_time_response` runs the sync callbacks (through `set_epoch_time()`)

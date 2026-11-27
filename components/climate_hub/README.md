@@ -351,11 +351,9 @@ is removed drops out of the entity lists, and so out of Home Assistant; one that
 its name gets that entity back there, with what was set for it in Home Assistant, and so does a
 new thermostat under the name of one removed.
 
-On the device, the entity of a thermostat that stops keeps its name, and the web server still
-answers that name with a stopped state, as it does for any `internal: true` entity, until
-another thermostat takes it. A running thermostat renamed onto that name leaves its old name
-answering so instead. A command sent to such a name is
-accepted and does nothing. One that starts again under that name gets its entity back.
+On the device, the entity of a thermostat that stops keeps its name, hidden, until another
+thermostat takes it; the web server's REST answers that name with `404`, as it does for any
+`internal: true` entity. One that starts again under that name gets its entity back.
 
 The device asks Home Assistant to reconnect, so that it lists the entities again, when a
 thermostat starts or stops (removing a running one stops it), and when a running one is
