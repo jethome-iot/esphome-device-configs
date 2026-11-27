@@ -498,7 +498,8 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
     included, comes back on the next loop pass, a state change in between does not.
 - `tests/harness/components/mqtt` stands in for upstream's `mqtt` on the host: its schema and
   codegen are upstream's own module, its C++ copies the client's setters, topic prefix rule,
-  discovery info and resend pass. A signature drift shows in the ESP32 builds; a behaviour drift
-  only by re-reading upstream's `mqtt_client.cpp` and `mqtt_component.cpp`.
+  topic matching, discovery info and resend pass. A signature drift shows in the ESP32 builds; a
+  behaviour drift only by re-reading upstream's `mqtt_client.cpp`, `mqtt_topic_match.h` and
+  `mqtt_component.cpp`.
 
 Re-check each of these on every ESPHome bump.
