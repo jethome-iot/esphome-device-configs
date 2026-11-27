@@ -107,7 +107,8 @@ the condition is a `turn_on` in one and a `turn_off` in the other, and a `follow
 the result. The engine watches every entity the condition reads, an input's first state and its
 loss included; an input with no state reads as off, and a sensor with no reading is outside
 every range. A rule with this trigger and no `condition` is not built (`Trigger 1: no condition
-to watch`). Give it `restart`: in `single`, a change that comes while a delay runs is ignored.
+to watch`). Give it `restart`: in `single`, a change that comes while the rule still runs, in a
+`delay` or with a thermostat action waiting for the next loop pass, is ignored.
 
 Run now plays the branch the condition gives at that moment. When a running thermostat lets a
 relay go, a watching rule sets it where its branch for the current result leaves it, the last

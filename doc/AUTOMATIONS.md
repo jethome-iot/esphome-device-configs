@@ -16,8 +16,10 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
   changes, running the actions on true and the `else` actions on false, and once with the
   current result when the rule starts watching: at boot, when it is added, changed or enabled,
   and when it is built again because an input or a thermostat it names came back. An input
-  with no state yet reads as off, and a sensor with no reading as outside every range. A rule with this trigger needs a
-  condition, and wants mode `restart`: in `single`, a change while a delay runs is ignored.
+  with no state yet reads as off, and a sensor with no reading as outside every range. A rule
+  with this trigger needs a condition, and wants mode `restart`: in `single`, a change that comes
+  while the rule still runs, in a delay or with a thermostat action waiting for the next loop
+  pass, is ignored.
 - **Condition** (optional): input is on/off, switch is on/off, a sensor above / below / in
   range (`above` and `below` are strict, a range includes both ends), and `and` / `or` / `xor`
   groups of those, nested. When false, the `else` actions run. A switch condition reads any
