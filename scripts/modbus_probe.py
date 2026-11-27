@@ -263,16 +263,22 @@ class ModbusTCP(Modbus):
         except OSError as err:
             raise ModbusError(f"connection lost sending the request: {err}") from None
 
-        head = self._read(7, "MBAP header")
-        transaction = int.from_bytes(head[0:2], "big")
-        protocol = int.from_bytes(head[2:4], "big")
-        length = int.from_bytes(head[4:6], "big")
-        if protocol != 0 or length < 3:
-            raise ModbusError(f"malformed MBAP header {head.hex(' ')}")
-        body = self._read(length - 1, "response PDU")
-        if self.verbose:
-            print(f"  <- {(head + body).hex(' ')}", file=sys.stderr)
-        if transaction != self.transaction:
+        while True:
+            head = self._read(7, "MBAP header")
+            transaction = int.from_bytes(head[0:2], "big")
+            protocol = int.from_bytes(head[2:4], "big")
+            length = int.from_bytes(head[4:6], "big")
+            if protocol != 0 or length < 3:
+                raise ModbusError(f"malformed MBAP header {head.hex(' ')}")
+            body = self._read(length - 1, "response PDU")
+            if self.verbose:
+                print(f"  <- {(head + body).hex(' ')}", file=sys.stderr)
+            if transaction == self.transaction:
+                break
+            # A late answer to an earlier request that timed out: skip it, or every request after
+            # it would read the answer to the one before.
+            if 0 < (self.transaction - transaction) & 0xFFFF < 0x8000:
+                continue
             raise ModbusError(
                 f"response to transaction {transaction}, expected {self.transaction}"
             )
