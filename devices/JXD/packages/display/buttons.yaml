@@ -115,7 +115,7 @@ binary_sensor:
               if (holder.empty()) {
                 relay->toggle();
               } else {
-                ESP_LOGI("status_page", "'%s' left alone: thermostat '%s' drives it", relay->get_name().c_str(),
+                ESP_LOGI("status_page", "'%s' left alone: thermostat '%s' drives it", LOG_STR_ARG(relay->get_log_name()),
                          holder.c_str());
               }
               id(display1).update();

@@ -13,7 +13,7 @@ TEST_F(HubTest, CreateAssignsASlugWritesAFileAndStartsTheEntity) {
   HubClimate *entity = hub().entity_of("living-room");
   ASSERT_NE(nullptr, entity);
   EXPECT_FALSE(entity->is_internal());
-  EXPECT_EQ("Living Room", std::string(entity->get_name().c_str()));
+  EXPECT_EQ("Living Room", std::string(entity->get_name_progmem().ram_ref().c_str()));
   EXPECT_TRUE(hub().is_running("living-room"));
 }
 
@@ -69,7 +69,7 @@ TEST_F(HubTest, RenameKeepsTheIdTheFileAndTheRelay) {
   EXPECT_TRUE(file_exists(this->file_of("boiler")));
   EXPECT_FALSE(file_exists(this->file_of("hot-water")));
   EXPECT_EQ(entity, hub().entity_of("boiler")) << "the same slot, renamed in place";
-  EXPECT_EQ("Hot Water", std::string(entity->get_name().c_str()));
+  EXPECT_EQ("Hot Water", std::string(entity->get_name_progmem().ram_ref().c_str()));
   EXPECT_EQ("hot_water", object_id(*entity));
   EXPECT_EQ(claim, hub().claim("relay_1"));
 }
@@ -152,7 +152,7 @@ TEST_F(HubTest, ANameInAnyScriptIsKeptWhole) {
   EXPECT_EQ("Кухня", hub().store().get("climate")->name);
   HubClimate *entity = hub().entity_of("climate");
   ASSERT_NE(nullptr, entity);
-  EXPECT_STREQ("Кухня", entity->get_name().c_str());
+  EXPECT_STREQ("Кухня", entity->get_name_progmem().ram_ref().c_str());
   EXPECT_EQ(fnv1_hash("__________"), entity->get_object_id_hash());
   EXPECT_NE(std::string::npos, read_file(this->file_of("climate")).find("\"name\":\"Кухня\""));
 
@@ -160,7 +160,7 @@ TEST_F(HubTest, ANameInAnyScriptIsKeptWhole) {
   const std::string longest = repeat("ж", NAME_MAX_LENGTH);
   Result hall = this->create(draft(longest, "relay_2"));
   ASSERT_EQ("climate-2", hall.id) << "two names with nothing to slugify get distinct ids";
-  EXPECT_EQ(longest, std::string(hub().entity_of("climate-2")->get_name().c_str()));
+  EXPECT_EQ(longest, std::string(hub().entity_of("climate-2")->get_name_progmem().ram_ref().c_str()));
 
   Result accents = this->create(draft("Café crème", "relay_3"));
   ASSERT_EQ("caf-cr-me", accents.id);
@@ -173,7 +173,7 @@ TEST_F(HubTest, ARenameToANameInAnyScriptKeepsTheId) {
   ASSERT_TRUE(hub().update("boiler", draft("Котёл")).ok);
   EXPECT_EQ("Котёл", hub().store().get("boiler")->name);
   EXPECT_EQ(entity, hub().entity_of("boiler"));
-  EXPECT_STREQ("Котёл", entity->get_name().c_str());
+  EXPECT_STREQ("Котёл", entity->get_name_progmem().ram_ref().c_str());
   EXPECT_EQ(fnv1_hash("__________"), entity->get_object_id_hash());
   EXPECT_FALSE(file_exists(this->file_of("climate")));
 }

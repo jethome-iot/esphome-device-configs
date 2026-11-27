@@ -224,7 +224,7 @@ switch_::Switch *BindingsManager::writable_output_(uint32_t output_key) {
   }
   const std::string holder = switch_hold::holder(output);
   if (!holder.empty()) {
-    ESP_LOGI(TAG, "'%s' left alone: thermostat '%s' drives it", output->get_name().c_str(), holder.c_str());
+    ESP_LOGI(TAG, "'%s' left alone: thermostat '%s' drives it", LOG_STR_ARG(output->get_log_name()), holder.c_str());
     return nullptr;
   }
   return output;

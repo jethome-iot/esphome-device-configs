@@ -481,7 +481,7 @@ void WebAutomationEditor::handle_entities_(AsyncWebServerRequest *request) {
       continue;
     JsonObject row = binary_sensors.add<JsonObject>();
     row["object_id"] = automations::object_id_of(*entity);
-    row["name"] = entity->get_name().c_str();
+    row["name"] = entity->get_name_progmem().ram_ref().c_str();
   }
 #endif
 #ifdef USE_SENSOR
@@ -490,7 +490,7 @@ void WebAutomationEditor::handle_entities_(AsyncWebServerRequest *request) {
       continue;
     JsonObject row = sensors.add<JsonObject>();
     row["object_id"] = automations::object_id_of(*entity);
-    row["name"] = entity->get_name().c_str();
+    row["name"] = entity->get_name_progmem().ram_ref().c_str();
     row["unit"] = entity->get_unit_of_measurement_ref().c_str();
   }
 #endif
@@ -500,7 +500,7 @@ void WebAutomationEditor::handle_entities_(AsyncWebServerRequest *request) {
       continue;
     JsonObject row = switches.add<JsonObject>();
     row["object_id"] = automations::object_id_of(*entity);
-    row["name"] = entity->get_name().c_str();
+    row["name"] = entity->get_name_progmem().ram_ref().c_str();
   }
 #endif
   std::string json;

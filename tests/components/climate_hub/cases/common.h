@@ -387,7 +387,7 @@ inline std::string repeat(const std::string &text, size_t n) {
 // What web_server answers /climate/<name> with: the first climate by that name, hidden or not.
 inline climate::Climate *web_server_match(const std::string &name) {
   for (auto *climate : App.get_climates()) {
-    if (name == climate->get_name().c_str())
+    if (name == climate->get_name_progmem().ram_ref().c_str())
       return climate;
   }
   return nullptr;
