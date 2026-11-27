@@ -142,7 +142,7 @@ def active_of(row: dict) -> str:
 
 
 class Emulator:
-    """scripts/qemu.sh for one device on one trio of ports."""
+    """scripts/qemu.sh for one device on its own set of forwarded ports."""
 
     def __init__(self, args: argparse.Namespace) -> None:
         self.device = args.device
@@ -153,6 +153,8 @@ class Emulator:
             str(args.api_port),
             "--ota-port",
             str(args.ota_port),
+            "--modbus-port",
+            str(args.modbus_port),
         ]
         self.verbose = args.verbose
         self.started = False
@@ -1045,6 +1047,13 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=3232,
         help="host port for OTA (default: %(default)s)",
+    )
+    # qemu.sh forwards it whether or not the check uses it, so a second instance needs its own.
+    parser.add_argument(
+        "--modbus-port",
+        type=int,
+        default=5020,
+        help="host port for Modbus TCP (default: %(default)s)",
     )
     parser.add_argument(
         "--boot-timeout",
