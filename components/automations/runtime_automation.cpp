@@ -193,6 +193,7 @@ bool compile_trigger(AutomationStorage *engine, const TriggerConfig &config, Com
       set_bits(out.days_of_week, config.cron_days_of_week);
       return true;
     case SourceTrigger::STARTUP:
+    case SourceTrigger::CONDITION:
       return true;
     default:
       return fail(error, "no source");
@@ -316,6 +317,12 @@ std::unique_ptr<RuntimeAutomation> RuntimeAutomation::build(AutomationStorage *e
       fail(error, "Trigger " + std::to_string(i + 1) + ": " + why);
       return nullptr;
     }
+    if (trigger.source == SourceTrigger::CONDITION && !config.condition.is_valid()) {
+      ESP_LOGE(TAG, "Automation '%s': a condition trigger needs a condition", config.name.c_str());
+      fail(error, "Trigger " + std::to_string(i + 1) + ": no condition to watch");
+      return nullptr;
+    }
+    automation->watches_condition_ = automation->watches_condition_ || trigger.source == SourceTrigger::CONDITION;
     automation->triggers_.push_back(trigger);
   }
   if (config.condition.is_valid()) {
@@ -337,9 +344,88 @@ std::unique_ptr<RuntimeAutomation> RuntimeAutomation::build(AutomationStorage *e
 }
 
 void RuntimeAutomation::set_enabled(bool enabled) {
-  if (!enabled)
+  if (!enabled) {
     this->stop();
+    this->result_.reset();
+  }
   this->enabled_ = enabled;
+}
+
+void RuntimeAutomation::watch_condition() {
+  if (!this->watches_condition_ || !this->enabled_)
+    return;
+  const bool result = this->condition_->check();
+  this->result_ = result;
+  this->fire_(true, result);
+}
+
+// Runs on every event the rule is handed: each state an entity the condition reads takes, an
+// input's first one and its loss included, but for an event dropped at the nesting bound.
+void RuntimeAutomation::recheck_condition() {
+  if (!this->result_.has_value())
+    return;
+  const bool result = this->condition_->check();
+  if (result == *this->result_)
+    return;
+  // Before the actions: one that drives a switch the condition reads calls back in here, and
+  // must find the result already moved.
+  this->result_ = result;
+  this->fire_(true, result);
+}
+
+void RuntimeAutomation::resync_condition() {
+  if (this->result_.has_value())
+    this->result_ = this->condition_->check();
+}
+
+// Where a switch step leaves its relay, after the steps before it left it at `on`: a toggle turns
+// a known state over and leaves an unknown one unknown; a follow with no state sets nothing.
+static optional<bool> after_step(optional<bool> on, const CompiledAction &action, bool has_state, bool state) {
+  switch (action.type) {
+    case TypeSwitchAction::TURN_ON:
+      return true;
+    case TypeSwitchAction::TURN_OFF:
+      return false;
+    case TypeSwitchAction::TOGGLE:
+      if (on.has_value())
+        return !*on;
+      return on;
+    case TypeSwitchAction::FOLLOW:
+      if (has_state)
+        return state != action.invert;
+      return on;
+    default:
+      return on;
+  }
+}
+
+void RuntimeAutomation::on_released(switch_::Switch *sw) {
+  // A change of the result still on its way plays the whole branch when it arrives.
+  if (!this->result_.has_value() || this->condition_->check() != *this->result_)
+    return;
+  // Where the rule has left the relay: while the run started last is under way, where its steps
+  // so far left it, its later steps setting it when it gets to them; otherwise the branch for the
+  // result played through, a follow copying the result. An older run still in a delay, as in
+  // parallel, does not count. With nothing to go by, the relay is left alone.
+  optional<bool> on;
+  if (!this->runs_.empty() && this->runs_.back()->token == this->next_token_) {
+    for (const auto &reached : this->runs_.back()->reached) {
+      if (reached.first == sw)
+        on = reached.second;
+    }
+  } else {
+    for (const CompiledAction &action : *this->result_ ? this->then_ : this->else_) {
+      if (action.source == SourceAction::SWITCH && action.target == sw)
+        on = after_step(on, action, true, *this->result_);
+    }
+  }
+  if (!on.has_value())
+    return;
+  CompiledAction set;
+  set.source = SourceAction::SWITCH;
+  set.target = sw;
+  set.type = *on ? TypeSwitchAction::TURN_ON : TypeSwitchAction::TURN_OFF;
+  this->play_switch_(set, Run{});
 }
 
 void RuntimeAutomation::stop() {
@@ -384,6 +470,8 @@ void RuntimeAutomation::on_binary_sensor(binary_sensor::BinarySensor *entity, bo
         break;
     }
   }
+  // A level too: the condition reads the state, whatever brought it.
+  this->recheck_condition();
 }
 
 void RuntimeAutomation::on_switch(switch_::Switch *entity, bool state) {
@@ -395,13 +483,13 @@ void RuntimeAutomation::on_switch(switch_::Switch *entity, bool state) {
       continue;
     this->fire_(true, state);
   }
+  this->recheck_condition();
 }
 
 void RuntimeAutomation::on_sensor(sensor::Sensor *entity, float value) {
-  if (std::isnan(value))
-    return;
   for (auto &trigger : this->triggers_) {
-    if (trigger.source != SourceTrigger::TEMPERATURE || trigger.sensor != entity)
+    // A lost reading is no crossing; a condition still sees it, as false.
+    if (std::isnan(value) || trigger.source != SourceTrigger::TEMPERATURE || trigger.sensor != entity)
       continue;
     bool crossed = false;
     bool rearm = false;
@@ -428,6 +516,7 @@ void RuntimeAutomation::on_sensor(sensor::Sensor *entity, float value) {
       trigger.armed = true;
     }
   }
+  this->recheck_condition();
 }
 
 bool RuntimeAutomation::on_time(const ESPTime &time, CronTriggers which) {
@@ -450,6 +539,8 @@ void RuntimeAutomation::on_startup() {
     if (trigger.source == SourceTrigger::STARTUP)
       this->fire_(false, false);
   }
+  if (!this->result_.has_value())
+    this->watch_condition();
 }
 
 void RuntimeAutomation::fire_(bool has_state, bool state) {
@@ -457,7 +548,11 @@ void RuntimeAutomation::fire_(bool has_state, bool state) {
     this->start_(has_state, state, false);
 }
 
-bool RuntimeAutomation::run_now() { return this->start_(false, false, true); }
+bool RuntimeAutomation::run_now() {
+  if (!this->watches_condition_)
+    return this->start_(false, false, true);
+  return this->start_(true, this->condition_->check(), true);
+}
 
 bool RuntimeAutomation::start_(bool has_state, bool state, bool forced) {
   if (!this->runs_.empty()) {
@@ -488,7 +583,9 @@ bool RuntimeAutomation::start_(bool has_state, bool state, bool forced) {
   run->has_state = has_state;
   run->state = state;
   run->branch = &this->then_;
-  if (!forced && this->condition_ != nullptr && !this->condition_->check())
+  // A run now skips the condition, unless the condition is what the rule follows.
+  const bool gated = !forced || this->watches_condition_;
+  if (gated && this->condition_ != nullptr && !this->condition_->check())
     run->branch = &this->else_;
   const uint32_t token = run->token;
   // Only a run that plays something has run. Before the first step: a run that ends inside it
@@ -520,6 +617,9 @@ void RuntimeAutomation::step_(uint32_t token, bool scheduled) {
     if (action.source == SourceAction::CLIMATE) {
       this->play_climate_(action, *run);
     } else {
+      // Noted before it plays: its callbacks may restart this run.
+      if (action.source == SourceAction::SWITCH)
+        note_reached_(*run, action);
       this->play_switch_(action, *run);
     }
     // The switch callback may have restarted or stopped this automation: then this run is gone
@@ -528,6 +628,18 @@ void RuntimeAutomation::step_(uint32_t token, bool scheduled) {
   }
   if (run != nullptr)
     this->finish_run_(token);
+}
+
+void RuntimeAutomation::note_reached_(Run &run, const CompiledAction &action) {
+  for (auto &reached : run.reached) {
+    if (reached.first == action.target) {
+      if (auto on = after_step(reached.second, action, run.has_state, run.state))
+        reached.second = *on;
+      return;
+    }
+  }
+  if (auto on = after_step(nullopt, action, run.has_state, run.state))
+    run.reached.emplace_back(action.target, *on);
 }
 
 void RuntimeAutomation::play_switch_(const CompiledAction &action, const Run &run) {

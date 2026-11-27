@@ -42,9 +42,10 @@ export interface AutomationApi {
   /** POST /delete?id= — delete an automation (no body). */
   remove(id: number): Promise<AutomationSaveResponse>
   /**
-   * POST /run?id= — play its actions now, skipping its triggers and its condition
-   * (no body). Throws with the device's reason on 409: not built, or its mode
-   * refuses another run while one is under way.
+   * POST /run?id= — play its actions now, skipping its triggers and its condition;
+   * a rule with a condition trigger plays the branch its condition gives (no body).
+   * Throws with the device's reason on 409: not built, or its mode refuses another
+   * run while one is under way.
    */
   run(id: number): Promise<AutomationSaveResponse>
   /** GET /entities — grouped object_id/name for editor dropdowns. */

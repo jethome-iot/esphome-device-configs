@@ -173,6 +173,8 @@ class TestEngine : public automations::AutomationStorage {
     return "no such rule";
   }
   size_t input_subscriptions() const { return this->binary_sensor_subs_.size(); }
+  // The startup event setup() defers.
+  void startup() { this->startup_(); }
 };
 
 // The physical inputs and the relays. Registered once, ahead of the pool, as codegen registers

@@ -454,7 +454,59 @@ TEST_F(Editor, SchemaOffersOnlyWhatTheEngineParses) {
     words++;
   }
   // Every word above was checked, not an empty schema.
-  EXPECT_EQ(words, 37);
+  EXPECT_EQ(words, 38);
+}
+
+// The issue's pump, with a switch in its condition: what goes in comes back, created and replaced,
+// and each save starts it with what its condition says.
+static const char *const PUMP =
+    R"({"name":"Pump","enabled":true,"mode":"restart","triggers":[{"source":"condition"}],)"
+    R"("condition":{"type":"or","conditions":[{"type":"input","object_id":"in_1","state":"true"},)"
+    R"({"type":"switch","object_id":"relay_1","state":"true"}]},)"
+    R"("actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],)"
+    R"("else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_1"}]})";
+
+TEST_F(Editor, SaveRoundTripsAConditionTrigger) {
+  entities().relay1.publish_state(false);
+  entities().in1.publish_state(false);
+  const uint32_t id = this->create(PUMP);
+  ASSERT_GT(id, 0u);
+  std::string expected = PUMP;
+  expected.replace(1, 0, "\"id\":" + std::to_string(id) + ",");
+  EXPECT_EQ(this->get("get?id=" + std::to_string(id)).body, expected);
+  EXPECT_FALSE(entities().relay1.state);
+
+  // NOT in_1 OR NOT relay_1: in_1 stays off, so the result holds at true and the update's start
+  // turns relay_1 on once. Flipping the switch alone would make relay_1 = NOT relay_1.
+  std::string flipped = expected;
+  flipped.replace(flipped.find(R"("object_id":"in_1","state":"true")"), 33, R"("object_id":"in_1","state":"false")");
+  flipped.replace(flipped.find(R"("object_id":"relay_1","state":"true")"), 36,
+                  R"("object_id":"relay_1","state":"false")");
+  Reply reply = this->post("save", flipped);
+  ASSERT_EQ(reply.code, 200) << reply.body;
+  EXPECT_EQ(reply.message(), "Automation updated");
+  EXPECT_EQ(this->get("get?id=" + std::to_string(id)).body, flipped);
+  EXPECT_TRUE(entities().relay1.state);
+  entities().relay1.publish_state(false);
+}
+
+TEST_F(Editor, SaveRefusesAConditionTriggerWithNoCondition) {
+  static const char *const BARE =
+      R"({"name":"Bare","triggers":[{"source":"condition"}],"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})";
+  Reply reply = this->post("save", BARE);
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "Trigger 1: no condition to watch");
+  EXPECT_TRUE(this->files().empty());
+
+  const uint32_t id = this->create(PUMP);
+  ASSERT_GT(id, 0u);
+  std::string stripped = BARE;
+  stripped.replace(1, 0, "\"id\":" + std::to_string(id) + ",");
+  reply = this->post("save", stripped);
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "Trigger 1: no condition to watch");
+  EXPECT_EQ(this->get("get?id=" + std::to_string(id))["name"].as<std::string>(), "Pump");
+  entities().relay1.publish_state(false);
 }
 
 // --- run now ---
@@ -499,6 +551,28 @@ TEST_F(Editor, RunPlaysTheActionsWhateverTheConditionAndTheListSaysSo) {
   EXPECT_EQ(reply.code, 409);
   EXPECT_EQ(reply.error(), "Automation is already running");
   EXPECT_EQ(this->get("list")["automations"][0]["last_run_s"].as<int>(), 65);
+}
+
+// A rule that follows its condition runs the branch the condition gives now, not its actions.
+TEST_F(Editor, RunPlaysTheBranchAConditionRuleFollows) {
+  entities().in1.publish_state(false);
+  const uint32_t id = this->create(
+      R"({"name":"Follow In 1","triggers":[{"source":"condition"}],"condition":{"type":"input","object_id":"in_1"},)"
+      R"("actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],)"
+      R"("else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_1"}]})");
+  ASSERT_GT(id, 0u);
+  const std::string run = "run?id=" + std::to_string(id);
+  entities().relay1.publish_state(true);  // moved from elsewhere
+  ASSERT_EQ(this->post(run).code, 200);
+  EXPECT_FALSE(entities().relay1.state);
+
+  entities().in1.publish_state(true);
+  EXPECT_TRUE(entities().relay1.state);
+  entities().relay1.publish_state(false);
+  ASSERT_EQ(this->post(run).code, 200);
+  EXPECT_TRUE(entities().relay1.state);
+  entities().in1.publish_state(false);
+  entities().relay1.publish_state(false);
 }
 
 TEST_F(Editor, ARunThatEndsAtOnceIsNotRunningButHasRun) {

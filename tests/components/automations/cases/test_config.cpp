@@ -60,8 +60,17 @@ TEST(TriggerConfig, StartupNeedsNothingElse) {
   EXPECT_EQ(dump(t), R"({"source":"startup"})");
 }
 
+TEST(TriggerConfig, ConditionNeedsNothingElse) {
+  TriggerConfig t;
+  ASSERT_TRUE(load(R"({"source":"condition"})", t));
+  EXPECT_EQ(t.source, SourceTrigger::CONDITION);
+  EXPECT_EQ(dump(t), R"({"source":"condition"})");
+}
+
 TEST(TriggerConfig, RefusesWordsItDoesNotKnow) {
   TriggerConfig t;
+  EXPECT_FALSE(load(R"({"source":"conditon"})", t));
+  EXPECT_FALSE(load(R"({"source":"Condition"})", t));
   EXPECT_FALSE(load(R"({"type":"press","object_id":"in_1"})", t));
   EXPECT_FALSE(load(R"({"source":"inupt","type":"press","object_id":"in_1"})", t));
   EXPECT_FALSE(load(R"({"source":"input","type":"pres","object_id":"in_1"})", t));
@@ -242,6 +251,29 @@ TEST(AutomationConfig, RoundTripsASwitchCondition) {
   ASSERT_TRUE(load(dump(c).c_str(), again));
   EXPECT_EQ(dump(again), dump(c));
   EXPECT_NE(dump(c).find(R"({"type":"switch","object_id":"relay_1","state":"false"})"), std::string::npos);
+}
+
+// The issue's example, with a switch read the way a latch reads the relay it drives.
+static const char *const PUMP = R"({"id":3,"name":"Pump","enabled":true,"mode":"restart",
+  "triggers":[{"source":"condition"}],
+  "condition":{"type":"or","conditions":[
+    {"type":"and","conditions":[{"type":"input","object_id":"in_1","state":"true"},
+                                {"type":"switch","object_id":"relay_1","state":"true"}]},
+    {"type":"input","object_id":"in_2","state":"false"}]},
+  "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}],
+  "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_1"}]})";
+
+TEST(AutomationConfig, RoundTripsAConditionTrigger) {
+  entities();
+  AutomationConfig c;
+  ASSERT_TRUE(load(PUMP, c));
+  ASSERT_EQ(c.triggers.size(), 1u);
+  EXPECT_EQ(c.triggers[0].source, SourceTrigger::CONDITION);
+
+  AutomationConfig again;
+  ASSERT_TRUE(load(dump(c).c_str(), again));
+  EXPECT_EQ(dump(again), dump(c));
+  EXPECT_NE(dump(c).find(R"("triggers":[{"source":"condition"}])"), std::string::npos);
 }
 
 TEST(AutomationConfig, AbsentFieldsTakeTheirDefaults) {

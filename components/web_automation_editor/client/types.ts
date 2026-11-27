@@ -25,7 +25,9 @@ export interface AutomationListResponse {
 }
 
 export interface AutomationTrigger {
-  source?: string
+  // 'condition' carries no other field: it fires when the rule's condition
+  // changes, and a rule with it and no condition is refused.
+  source?: string // 'input' | 'switch' | 'temperature' | 'cron' | 'startup' | 'condition'
   type?: string
   object_id?: string
   threshold?: number

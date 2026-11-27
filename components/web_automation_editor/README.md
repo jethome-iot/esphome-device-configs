@@ -62,7 +62,7 @@ simply be made again.
 | GET | `get?id=` | One rule, in the file format of [automations](../automations/README.md#a-rule) |
 | POST | `save` | A rule as a JSON body; `id` absent or `0` creates, an existing `id` replaces that rule, renamed or not. Answers `{"success": true, "message", "id"}` on create, without `id` on update |
 | POST | `delete?id=` | Removes the rule and its file; `Failed to delete automation` when the engine refuses |
-| POST | `run?id=` | Plays the rule's actions now, skipping its triggers and its condition, enabled or not. Answers `{"success": true, "message": "Automation started"}` once the run has started; `409` when it cannot |
+| POST | `run?id=` | Plays the rule's actions now, skipping its triggers and its condition, enabled or not; a rule with a `condition` trigger plays the branch its condition gives now. Answers `{"success": true, "message": "Automation started"}` once the run has started; `409` when it cannot |
 | GET | `export` | `{"version": 1, "automations": [...]}`, every rule as `get` returns it — the backup file a client re-imports rule by rule through `save`, with each `id` dropped so the rules are created |
 | GET | `entities` | `{"binary_sensors", "sensors", "switches"}`, each `[{"object_id", "name"}, ...]`, sensors with `"unit"`; internal entities and config switches are left out. `"climates"`: the thermostats, `[{"id", "name", "presets": [{"key", "name"}, ...]}, ...]`, by the id and keys a climate action names; empty on a firmware without them |
 | GET | `schema` | The trigger, condition and action types and subtypes and the cron presets the engine parses, for an editor's menus. The `climate` action only on a firmware with thermostats (`climate_hub`) |
@@ -75,12 +75,15 @@ simply be made again.
 name another rule already owns — names collide by the file name they spell before it is cut to
 fit, so `Porch light` and `porch-LIGHT` are one, and so are `Свет` and `СВЕТ` — is refused with the
 reason, and so is a name with a control character in it. So is a rule that names something the
-device does not have, an entity, a thermostat or a preset key: `Action 1: thermostat "attic" not found`. The engine's other refusals (a rule limit reached, a
+device does not have, an entity, a thermostat or a preset key: `Action 1: thermostat "attic" not found`,
+and one with a `condition` trigger and no condition: `Trigger 1: no condition to watch`. The
+engine's other refusals (a rule limit reached, a
 file the loader had refused under that name, a call from inside a running rule) come back as
 `Failed to create automation` / `Failed to update automation`.
 
 `run` is the editor's Run now. The run starts with no trigger state, so a `follow` has none to
-copy unless a trigger arrives while it plays, and the rule's mode decides as it does for a
+copy unless a trigger arrives while it plays; a rule with a `condition` trigger carries the
+result its condition gives now, as the trigger does. The rule's mode decides as it does for a
 trigger: `restart` starts over, `parallel` adds a copy,
 and `single` refuses while a run is under way — `409` with `Automation is already running`
 (`Automation is already running 8 copies` for a `parallel` rule at its limit). A rule that is

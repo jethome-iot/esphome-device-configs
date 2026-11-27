@@ -299,6 +299,58 @@ TEST_F(Pool, ARuleNamingAFreeSlotRunsOnceAVirtualInputIsSetUpThere) {
   EXPECT_EQ(e.relay2.writes, 2);
 }
 
+// A rule that follows a condition on the slot starts watching once it is built, with the level the
+// slot took, as it would have at boot.
+TEST_F(Pool, AConditionRuleNamingAFreeSlotStartsWatchingOnceAVirtualInputIsSetUpThere) {
+  static const char *const MIRROR = R"({"id":1,"name":"Mirror","mode":"restart","triggers":[{"source":"condition"}],)"
+                                    R"("condition":{"type":"input","object_id":"virtual_input_1","state":"false"},)"
+                                    R"("actions":[{"source":"switch","type":"turn_on","object_id":"relay_2"}],)"
+                                    R"("else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_2"}]})";
+  write_rule("mirror.json", MIRROR);
+  boot();
+  TestEngine &engine = new_engine();
+  engine.setup();
+  engine.startup();
+  ASSERT_EQ(engine.rule("Mirror"), nullptr);
+  EXPECT_EQ(engine.build_error("Mirror"), "Condition: input not found");
+  EXPECT_EQ(e.relay2.writes, 0);
+
+  ASSERT_TRUE(pool().save(0, follow_config("input_1")));
+  ASSERT_NE(engine.rule("Mirror"), nullptr);
+  EXPECT_TRUE(e.relay2.state);  // input_1 is off, so the slot is: the condition holds
+  EXPECT_EQ(e.relay2.writes, 1);
+  e.in1.publish_state(true);
+  EXPECT_FALSE(e.relay2.state);
+  e.in1.publish_state(false);
+  EXPECT_TRUE(e.relay2.state);
+  EXPECT_EQ(e.relay2.writes, 3);
+}
+
+// A deleted input is not one that went off: a rule that follows a condition on it stops without
+// playing the branch an off input would.
+TEST_F(Pool, ADeleteStopsAWatchingRuleWithoutPlayingItsOtherBranch) {
+  static const char *const MIRROR = R"({"name":"Mirror","mode":"restart","triggers":[{"source":"condition"}],)"
+                                    R"("condition":{"type":"input","object_id":"virtual_input_1"},)"
+                                    R"("actions":[{"source":"switch","type":"turn_on","object_id":"relay_2"}],)"
+                                    R"("else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_2"}]})";
+  boot();
+  TestEngine &engine = new_engine();
+  engine.setup();
+  engine.startup();
+  ASSERT_TRUE(pool().save(0, follow_config("input_1")));
+  ASSERT_NE(engine.add_automation(rule(MIRROR)), 0u);
+  e.in1.publish_state(true);
+  ASSERT_TRUE(e.relay2.state);
+  const int writes = e.relay2.writes;
+
+  ASSERT_TRUE(pool().remove(0));
+  EXPECT_EQ(engine.rule("Mirror"), nullptr);
+  EXPECT_EQ(engine.build_error("Mirror"), "Condition: input not found");
+  EXPECT_TRUE(e.relay2.state);
+  EXPECT_EQ(e.relay2.writes, writes);
+  store().keeper.cancel_pending_save();
+}
+
 // Built while the input was there, the rule stops with the delete and runs again on the next
 // input in the slot, once per change however often the slot comes and goes, as it was left.
 TEST_F(Pool, ADeleteStopsTheRulesNamingTheSlotAndTheNextInputThereRunsThemOnce) {

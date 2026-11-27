@@ -693,6 +693,24 @@ TEST_F(ClimateRules, ACreateBuildsTheRulesThatNamedIt) {
   EXPECT_EQ(stored("attic").active_preset, "eco");
 }
 
+// A rule that follows a condition and names the thermostat starts watching once the thermostat is
+// there, as it would have at boot.
+TEST_F(ClimateRules, ACreateStartsTheConditionRulesThatNamedIt) {
+  write("attic.json", R"({"id":1,"name":"Attic","triggers":[{"source":"condition"}],)"
+                      R"("condition":{"type":"input","object_id":"in_1","state":"false"},)"
+                      R"("actions":[{"source":"climate","type":"set_preset","climate":"attic","preset":"eco"}]})");
+  engine->setup();
+  engine->startup();
+  ASSERT_FALSE(built(0));
+
+  climate_hub::Result created = hub().create(thermostat("Attic", false));
+  ASSERT_TRUE(created.ok) << created.error;
+  ASSERT_TRUE(built(0));
+  ASSERT_TRUE(engine->rule(0)->is_watching());
+  ASSERT_TRUE(engine->fire_next());  // the step waits for the loop pass
+  EXPECT_EQ(stored("attic").active_preset, "eco");
+}
+
 // A restore from a backup that adds the thermostat is a create to the rules.
 TEST_F(ClimateRules, ARestoreBuildsTheRulesThatNamedIt) {
   write("attic.json", R"({"id":1,"name":"Attic","triggers":[{"source":"startup"}],)"

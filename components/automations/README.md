@@ -66,7 +66,7 @@ object id. Any trigger fires the rule; the condition, when there is one, picks `
 
 | Key                 | Values                                                                      |
 | ------------------- | --------------------------------------------------------------------------- |
-| `triggers[].source` | `input` (`press`, `release`, `click`, `state_change`), `switch` (`turn_on`, `turn_off`, `state_change`), `temperature` — any numeric sensor, despite the key (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`, in the sensor's unit), `cron`, `startup` |
+| `triggers[].source` | `input` (`press`, `release`, `click`, `state_change`), `switch` (`turn_on`, `turn_off`, `state_change`), `temperature` — any numeric sensor, despite the key (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`, in the sensor's unit), `cron`, `startup`, `condition` |
 | `condition.type`    | `input` and `switch` with `state` (`"true"` when absent), `temperature` with `temperature_type` — any numeric sensor, as for the trigger (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`), and `and` / `or` / `xor` over a `conditions` list, nested freely |
 | `actions[].source`  | `switch` (`turn_on`, `turn_off`, `toggle`, `follow` with `invert`), `delay` with `delay_ms`, `climate` with `climate` (`turn_on`, `turn_off`, `set_preset` with `preset`, `set_target` with `target`, `follow` with `on` and `off`) |
 | `mode`              | `single` ignores a trigger while the rule runs, `restart` starts over, `parallel` runs up to 8 copies |
@@ -79,8 +79,9 @@ for triggers and conditions alike. `follow` drives its target from the state the
 carried; in `single` mode a trigger ignored while the rule runs still hands its state to a
 `follow` that has not played yet. A `switch` condition reads the switch as it is when the rule
 fires, the one the rule drives included, so `"state": "false"` on another relay keeps the rule
-from driving its own while that one is on. It is read once, when the run starts, and holds back
-neither `run_automation()` nor any other writer of the relay. A `switch` action on a relay a running thermostat drives (a
+from driving its own while that one is on. Without a `condition` trigger it is read once, when
+the run starts, and `run_automation()` skips it; with one the rule follows it. Either way it holds
+back no other writer of the relay. A `switch` action on a relay a running thermostat drives (a
 [`switch_hold`](../switch_hold/switch_hold.h) holder) does nothing but log the rule and the
 thermostat, and the run goes on. `cron` is six fields, seconds first — `"*/2 * * * * *"`,
 `"0 30 6,18 1 * *"` — with `*`, `*/N`, `X-Y`, `X-Y/N` and lists; a field that matches nothing
@@ -95,6 +96,53 @@ passes. A rule's triggers at given hours run it once, at the switch, for the tim
 skip forward, and not again for the times they repeat going back. What has run is kept in one
 preference record, written when the clocks go back, so a restart inside the repeated hour keeps
 it; a device off at the switch has no record and runs the repeated times again.
+
+## Condition triggers
+
+A `condition` trigger takes no parameters and makes the rule a state rather than an event. It
+fires whenever the condition's result changes, and once with the current result when the rule
+starts watching: at the startup event, when it is added, updated or enabled after it, and when
+it is built again because an input or a thermostat it names came back. `actions` run on true and
+`else_actions` on false, the result being the state the run carries, so a switch that mirrors
+the condition is a `turn_on` in one and a `turn_off` in the other, and a `follow` in each copies
+the result. The engine watches every entity the condition reads, an input's first state and its
+loss included; an input with no state reads as off, and a sensor with no reading is outside
+every range. A rule with this trigger and no `condition` is not built (`Trigger 1: no condition
+to watch`). Give it `restart`: in `single`, a change that comes while the rule still runs, in a
+`delay` or with a thermostat action waiting for the next loop pass, is ignored.
+
+Run now plays the branch the condition gives at that moment. When a running thermostat lets a
+relay go, a watching rule sets it where its branch for the current result leaves it, as a
+binding's `follow` does: its `turn_on`, `turn_off`, `follow` and `toggle` steps on that relay
+played through, a `toggle` with no step before it setting nothing. The rest of the branch does
+not play again. While the run started last is under way, the relay goes where that run has got
+to, and the run's later steps on it play when it reaches them: a `delay` before them still holds.
+An older run still in a delay, as `parallel` can leave, does not count.
+
+A condition may read the switch the rule drives. Input 1, start, turns relay 1 on and the relay
+holds itself on; input 2, stop, turns it off, input 1 held or not, as a motor's stop button wins
+over its start button:
+
+```json
+{
+  "name": "Latch",
+  "mode": "restart",
+  "triggers": [{"source": "condition"}],
+  "condition": {"type": "and", "conditions": [
+    {"type": "or", "conditions": [
+      {"type": "input", "object_id": "input_1", "state": "true"},
+      {"type": "switch", "object_id": "relay_1", "state": "true"}
+    ]},
+    {"type": "input", "object_id": "input_2", "state": "false"}
+  ]},
+  "actions": [{"source": "switch", "type": "turn_on", "object_id": "relay_1"}],
+  "else_actions": [{"source": "switch", "type": "turn_off", "object_id": "relay_1"}]
+}
+```
+
+A rule whose result its own actions keep flipping, `relay_1 = NOT relay_1`, is cut at the
+nesting bound like any other loop; the rules on that chain take the result they stop at as seen,
+so only a real change sets the loop off again.
 
 ## Thermostat actions
 
@@ -181,7 +229,8 @@ callback, say) they refuse and return false.
 - `reset_all()`: remove every rule and its file
 - `run_automation(id)`: play the rule's actions now, skipping its triggers and its condition,
   enabled or not; the mode applies as for a trigger, and a `follow` has no state to copy unless
-  a trigger arrives while the run plays. `RunResult::STARTED`, else `NOT_FOUND`, `NOT_BUILT`,
+  a trigger arrives while the run plays. A rule with a `condition` trigger plays the branch its
+  condition gives, carrying that result. `RunResult::STARTED`, else `NOT_FOUND`, `NOT_BUILT`,
   `ALREADY_RUNNING` (single with a run under way, parallel at 8 copies) or `REFUSED` (the
   engine failed at boot, the loop never took it, or the call came from inside a rule's own
   action)
