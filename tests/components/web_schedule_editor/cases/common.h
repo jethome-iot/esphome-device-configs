@@ -450,6 +450,9 @@ inline std::string with(const std::string &json, const std::string &fields) {
 class Editor : public ::testing::Test {
  protected:
   void SetUp() override {
+    // web_origin_guard serves a Host only when it names this device, as device.local does (#107).
+    static const bool named = (App.pre_setup("device", 6, "", 0), true);
+    (void) named;
     entities();
     hub();
     LogCapture::instance().clear();

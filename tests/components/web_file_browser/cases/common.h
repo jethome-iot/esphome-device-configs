@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "esphome/core/application.h"
 #include "esphome/components/dir_storage/dir_storage.h"
 #include "esphome/components/web_file_browser/web_file_browser.h"
 
@@ -36,6 +37,9 @@ struct Reply {
 class Browser : public ::testing::Test {
  protected:
   void SetUp() override {
+    // web_origin_guard serves a Host only when it names this device, as device.local does (#107).
+    static const bool named = (App.pre_setup("device", 6, "", 0), true);
+    (void) named;
     mkdir(".storage", 0755);
     char folder[] = ".storage/XXXXXX";
     ASSERT_NE(mkdtemp(folder), nullptr);

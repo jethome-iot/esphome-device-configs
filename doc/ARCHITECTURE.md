@@ -313,7 +313,10 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
   not confirmed before it has booted.
 - `components/web_origin_guard` duplicates `web_server::WebServer::is_request_origin_allowed_`
   rather than calling it: the check is private to a component our handlers do not share, and it
-  would not cover `web_server`'s own OTA handler at `/update` in any case. Its catch-all sits in
+  would not cover `web_server`'s own OTA handler at `/update` in any case. Ahead of that rule it
+  refuses a `Host` that does not name the device (`host_names_device()`, against
+  `App.get_name()`), which upstream does not check, except for a `GET` that comes in on the
+  access point's address while `captive_portal` is active. Its catch-all sits in
   front of every handler only because it sets up at `setup_priority::WIFI`, above `web_server`
   and ours at `WIFI - 1` and above the web_server OTA platform at `AFTER_WIFI`, and it writes
   its `403` through `httpd_resp_*` because `AsyncWebServerRequest::send()` maps every status it

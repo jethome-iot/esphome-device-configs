@@ -447,7 +447,7 @@ class Dashboard : public ::testing::Test {
 
   // The Host every case is addressed to; a page on another site says so by carrying an Origin
   // that is not this.
-  static constexpr const char *HOST = "device.local";
+  static constexpr const char *HOST = "dashboard-test.local";
 
   // One request through the server, the way web_server_idf delivers it: a raw body in @p chunk
   // sized pieces through handleBody, then handleRequest. A form body never reaches handleBody.

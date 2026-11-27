@@ -2,23 +2,94 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string>
+#include <string_view>
 #include "esphome/components/web_server_base/web_server_base.h"
+#include "esphome/core/application.h"
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
 #include "esphome/core/optional.h"
 
+#ifdef USE_CAPTIVE_PORTAL
+#include "esphome/components/captive_portal/captive_portal.h"
+#include "esphome/components/wifi/wifi_component.h"
+#endif
+
 #ifdef USE_ESP32
 #include <esp_http_server.h>
+#include <lwip/sockets.h>
 #endif
 
 namespace esphome::web_origin_guard {
 
-/// Whether @p request may be served. The rule is web_server's own
+/// Whether a request's Host header names this device, whose node name is @p name: an IP literal
+/// (IPv4, or IPv6 in brackets), the name, `<name>.local` or any `<name>.<domain>`, each with or
+/// without a port, case aside. DNS rebinding needs a name the attacker controls, which no
+/// literal is and no name starting with this device's is unless the attacker knows it.
+/// Upstream's web_server checks no Host at all; keep this through an ESPHome bump (#107).
+bool host_names_device(std::string_view host, std::string_view name);
+
+/// Whether the captive portal runs: it answers every host then, since a phone looks for it by
+/// probing a host of its own vendor's. Its access point too: WiFi turned off (Network mode
+/// Ethernet) takes the access point down without ending the portal.
+inline bool captive_portal_active() {
+#ifdef USE_CAPTIVE_PORTAL
+  return captive_portal::global_captive_portal != nullptr && captive_portal::global_captive_portal->is_active() &&
+         wifi::global_wifi_component != nullptr && wifi::global_wifi_component->is_ap_active();
+#else
+  return false;
+#endif
+}
+
+/// Whether @p request came in on the access point's own address. In Network mode Auto with no
+/// WiFi credentials the access point runs beside Ethernet, where a rebound page reaches the
+/// device too: the portal's exemption is for the access point alone. False when unsure.
+inline bool arrived_on_access_point(AsyncWebServerRequest *request) {
+#if defined(USE_ESP32) && defined(USE_CAPTIVE_PORTAL)
+  httpd_req_t *req = *request;
+  const int fd = httpd_req_to_sockfd(req);
+  struct sockaddr_storage local {};
+  socklen_t len = sizeof(local);
+  if (fd < 0 || getsockname(fd, reinterpret_cast<struct sockaddr *>(&local), &len) != 0)
+    return false;
+  ip4_addr_t addr{};
+  if (local.ss_family == AF_INET) {
+    addr.addr = reinterpret_cast<const struct sockaddr_in *>(&local)->sin_addr.s_addr;
+#if LWIP_IPV6
+  } else if (local.ss_family == AF_INET6) {
+    // A dual-stack server socket gives an IPv4 peer's connection as ::ffff:a.b.c.d.
+    const uint8_t *bytes = reinterpret_cast<const struct sockaddr_in6 *>(&local)->sin6_addr.s6_addr;
+    static const uint8_t V4_MAPPED[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
+    if (memcmp(bytes, V4_MAPPED, sizeof(V4_MAPPED)) != 0)
+      return false;
+    memcpy(&addr.addr, bytes + 12, sizeof(addr.addr));
+#endif
+  } else {
+    return false;
+  }
+  return wifi::global_wifi_component != nullptr &&
+         network::IPAddress(&addr) == wifi::global_wifi_component->wifi_soft_ap_ip();
+#else
+  return false;
+#endif
+}
+
+/// Whether @p request may be served. A Host that names something else than this device is a
+/// page that rebound its own name to the device's address, refused whatever its Origin, except
+/// a GET while @p portal_active (the portal runs and the request came in on its access point),
+/// the one request the portal answers. Then web_server's own rule
 /// (WebServer::is_request_origin_allowed_): no Origin header passes, an Origin whose authority
 /// is the Host the request was sent to passes, everything else is cross-origin. There is no
 /// allow list -- one rule for every handler on the port.
-inline bool allowed(AsyncWebServerRequest *request) {
+inline bool allowed(AsyncWebServerRequest *request, bool portal_active) {
+  const optional<std::string> host = request->get_header("Host");
+  const bool portal_request = portal_active && request->method() == HTTP_GET;
+  if (!portal_request && host.has_value() && !host->empty()) {
+    const StringRef &name = App.get_name();
+    if (!host_names_device(*host, std::string_view(name.c_str(), name.size())))
+      return false;
+  }
   const optional<std::string> origin = request->get_header("Origin");
   // No Origin: not a browser cross-origin request -- curl, a script, the native API client.
   if (!origin.has_value() || origin->empty())
@@ -29,10 +100,13 @@ inline bool allowed(AsyncWebServerRequest *request) {
     return false;
   // The authority alone against the Host the request was sent to: the device is reached by
   // IP, by mDNS name and by DHCP name, and none of them is known at build time.
-  const optional<std::string> host = request->get_header("Host");
   if (!host.has_value() || host->empty())
     return false;
   return origin->compare(scheme_sep + 3, std::string::npos, *host) == 0;
+}
+
+inline bool allowed(AsyncWebServerRequest *request) {
+  return allowed(request, captive_portal_active() && arrived_on_access_point(request));
 }
 
 /// The one answer a refused request gets, from whichever of the two guards saw it.
