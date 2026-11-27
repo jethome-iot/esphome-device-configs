@@ -4,6 +4,7 @@
 #include <cstring>
 #include <string_view>
 #include <utility>
+#include "esphome/core/alloc_helpers.h"
 #include "esphome/core/application.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/helpers.h"
