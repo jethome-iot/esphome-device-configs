@@ -236,6 +236,12 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
 
 ## Coupled to upstream internals
 
+- `boards/jxd-cpu-e1eth.yaml` gives the loop task 12288 B (`loop_task_stack_size`) because
+  upstream's `web_server_idf` builds each state event for an `/events` client on the stack of
+  whatever changed the state (`AsyncEventSourceResponse::send_json_()` and `prepare_json_()`,
+  frames of 1072 B and 2448 B in 2026.10.2), and rules set each other off 8 deep before
+  `automations` cuts them: 8609 B at the deepest, in QEMU with an `/events` and an API client
+  (#345). A bump measures that peak again.
 - `boards/jxd-cpu-e1eth.yaml` marks `provisioning`'s source `0` provisioned at boot when the API
   key is there: that is the network source, which the manager registers in its constructor,
   before any other. Were it not, an added device would again close its window when no network
