@@ -16,7 +16,7 @@ void HoldAwareSwitch::setup() {
   this->subscribe(this->get_command_topic_(),
                   [this](const std::string & /*topic*/, const std::string &payload) { this->handle_command(payload); });
   this->switch_->add_on_state_callback(
-      [this](bool state) { this->defer("send", [this, state]() { this->publish_state(state); }); });
+      [this](bool state) { this->defer(SEND_DEFER_ID, [this, state]() { this->publish_state(state); }); });
 }
 
 void HoldAwareSwitch::dump_config() {

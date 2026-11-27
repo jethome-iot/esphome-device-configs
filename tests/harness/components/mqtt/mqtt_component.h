@@ -174,6 +174,9 @@ class MQTTComponent : public Component {
   }
 
  protected:
+  // Upstream's: the id its components defer a state publish under.
+  static constexpr uint32_t SEND_DEFER_ID = 0;
+
   virtual const EntityBase *get_entity() const = 0;
   std::string get_state_topic_() const { return this->state_topic(); }
   std::string get_command_topic_() const { return this->command_topic(); }
