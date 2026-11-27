@@ -74,31 +74,27 @@ class MQTTClientComponent;
 
 inline MQTTClientComponent *global_mqtt_client = nullptr;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
-// Upstream's topic_match (mqtt_client.cpp), in its order: `+` and `#` match, except at the top
-// level of a `$` topic, and an exhausted topic fails before `#` is looked at, so `a/#` misses
-// `a` there although MQTT 3.1.1 counts zero levels. The stand-in keeps that, as the device does.
-inline bool topic_match(const char *message, const char *subscription, bool is_normal, bool past_separator) {
-  if (*message == '\0' && *subscription == '\0')
-    return true;
-  if (*message == '\0' || *subscription == '\0')
-    return false;
-  const bool do_wildcards = is_normal || past_separator;
-  if (*subscription == '+' && do_wildcards) {
-    subscription++;
-    while (*message != '\0' && *message != '/')
-      message++;
-    return topic_match(message, subscription, is_normal, true);
-  }
-  if (*subscription == '#' && do_wildcards)
-    return true;
-  if (*message != *subscription)
-    return false;
-  past_separator = past_separator || *subscription == '/';
-  return topic_match(message + 1, subscription + 1, is_normal, past_separator);
-}
-
+// Upstream's topic_match (mqtt_topic_match.h): `+` and `#` match, except at the top level of a
+// `$` topic, and an exhausted topic fails before `#` is looked at, so `a/#` misses `a` there
+// although MQTT 3.1.1 counts zero levels. The stand-in keeps that, as the device does.
 inline bool topic_match(const char *message, const char *subscription) {
-  return topic_match(message, subscription, *message != '\0' && *message != '$', false);
+  bool wildcards = *message != '$';
+  while (*message != '\0' && *subscription != '\0') {
+    if (wildcards && *subscription == '#')
+      return true;
+    if (wildcards && *subscription == '+') {
+      subscription++;
+      while (*message != '\0' && *message != '/')
+        message++;
+      continue;
+    }
+    if (*message != *subscription)
+      return false;
+    wildcards |= *subscription == '/';
+    message++;
+    subscription++;
+  }
+  return *message == *subscription;
 }
 
 class MQTTClientComponent : public Component {
