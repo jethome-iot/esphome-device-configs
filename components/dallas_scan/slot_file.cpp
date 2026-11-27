@@ -7,6 +7,7 @@
 #include "dallas_scan.h"
 
 #include "esphome/components/panel_text/panel_text.h"
+#include "esphome/core/alloc_helpers.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 

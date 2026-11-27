@@ -1,6 +1,7 @@
 #include "ntp_servers.h"
 #include <algorithm>
 #include <cstring>
+#include "esphome/core/alloc_helpers.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
