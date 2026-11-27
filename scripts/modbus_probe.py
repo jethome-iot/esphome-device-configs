@@ -84,6 +84,9 @@ class Modbus:
             function, address.to_bytes(2, "big") + count.to_bytes(2, "big")
         )
         packed = body[1:]
+        # A short answer is the server's error to report, not a crash of the walk.
+        if len(packed) < (count + 7) // 8:
+            raise ModbusError(f"{len(packed)} bytes for {count} bits")
         return [bool(packed[i // 8] & (1 << (i % 8))) for i in range(count)]
 
     def _read_registers(self, function: int, address: int, count: int) -> list[int]:
@@ -91,6 +94,8 @@ class Modbus:
             function, address.to_bytes(2, "big") + count.to_bytes(2, "big")
         )
         raw = body[1:]
+        if len(raw) != count * 2:
+            raise ModbusError(f"{len(raw)} bytes for {count} registers")
         return [int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2)]
 
     def read_coils(self, address: int, count: int) -> list[bool]:
