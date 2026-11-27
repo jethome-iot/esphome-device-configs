@@ -43,11 +43,13 @@ MANIFEST_NAME = "firmwares.yaml"
 # `firmware_update` checks the version the firmware was built with, and a config built from
 # dist/ carries the placeholder version: it would offer JetHome's own build forever, and
 # installing that would replace the user's own firmware. `menu_firmware` and `firmware_page`
-# are that entity on the display, so they leave with it.
+# are that entity on the display, so they leave with it. `mqtt_firmware` keeps those entities
+# off MQTT and has nothing to extend without them.
 EXCLUDED_PACKAGES = {
     "firmware_update": ("fw_device",),
     "menu_firmware": (),
     "firmware_page": (),
+    "mqtt_firmware": (),
 }
 
 

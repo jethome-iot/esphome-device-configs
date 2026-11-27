@@ -49,11 +49,21 @@ script:
       - lambda: |-
           // The partition is wiped at the next boot; the record has to outlive
           // the preferences erase, which takes all of NVS.
-          global_preferences->reset();
-          if (!id(user_storage)->request_format()) {
-            ESP_LOGE("factory_reset", "The user partition was not wiped and will not be");
+          auto wipe = []() {
+            global_preferences->reset();
+            if (!id(user_storage)->request_format()) {
+              ESP_LOGE("factory_reset", "The user partition was not wiped and will not be");
+            }
+            App.safe_reboot();
+          };
+          #ifdef USE_MQTT_CONFIG
+          // Its Home Assistant entries leave the broker while the settings naming it exist.
+          if (mqtt_config::global_mqtt_config != nullptr) {
+            mqtt_config::global_mqtt_config->before_factory_reset(wipe);
+            return;
           }
-          App.safe_reboot();
+          #endif
+          wipe();
   - id: fn_factory_reset
     then:
       - logger.log:
@@ -297,6 +307,8 @@ switch:
       number: 5
       mode:
         output: true
+  - id: !extend 'esphome_ota_allowed'
+    state_topic: null
 preferences:
   flash_write_interval: 5s
 external_components:
@@ -377,6 +389,14 @@ external_components:
       path: components
     components:
       - modbus_map
+  - source:
+      type: git
+      url: https://github.com/jethome-iot/esphome-device-configs.git
+      ref: master
+      path: components
+    components:
+      - mqtt_config
+      - switch_hold
   - source:
       type: git
       url: https://github.com/jethome-iot/esphome-device-configs.git
@@ -646,7 +666,15 @@ binary_sensor:
   - platform: template
     id: reboot_required
     internal: true
-    lambda: return id(temps)->reboot_required();
+    lambda: |-
+      // Temperature slots assigned or forgotten since boot.
+      bool waits = id(temps)->reboot_required();
+      #ifdef USE_MQTT_CONFIG
+      // A saved MQTT setting, or MQTT held back after repeated crashes.
+      if (mqtt_config::global_mqtt_config != nullptr)
+        waits = waits || mqtt_config::global_mqtt_config->reboot_required();
+      #endif
+      return waits;
 status_indicator:
   id: red_led
   pin:
@@ -827,6 +855,8 @@ number:
     step: 1
     on_value:
       - lambda: id(modbus_server1).set_address((uint8_t) x);
+  - id: !extend 'modbus_address'
+    state_topic: null
 select:
   - platform: template
     name: Modbus baud rate
@@ -892,6 +922,14 @@ select:
             lambda: return id(modbus_bus_applied);
           then:
             - script.execute: apply_modbus_bus
+  - id: !extend 'network_mode'
+    state_topic: null
+  - id: !extend 'modbus_baud_rate'
+    state_topic: null
+  - id: !extend 'modbus_parity'
+    state_topic: null
+  - id: !extend 'modbus_stop_bits'
+    state_topic: null
   - platform: template
     name: Network mode
     id: network_mode
@@ -1109,6 +1147,20 @@ modbus_map:
       scale: 0.1
       unit: °C
       no_value: 32768
+mqtt:
+  id: mqtt_client
+  broker: ''
+  enable_on_boot: false
+  reboot_timeout: 0s
+  clean_session: true
+  discovery: true
+  discovery_retain: true
+  discovery_unique_id_generator: mac
+  discover_ip: false
+  log_topic: null
+  idf_send_async: true
+mqtt_config:
+  id: mqtt_settings
 network:
   priority:
     - ethernet

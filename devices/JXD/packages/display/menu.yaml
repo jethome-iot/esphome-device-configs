@@ -139,6 +139,13 @@ graphical_display_menu:
                     // on the old key, so they go first.
                     if (id(api_server)->clear_noise_psk(false)) {
                       id(drop_api_clients).execute("Forget HA");
+                      #ifdef USE_MQTT_CONFIG
+                      // A running Home Assistant cleanup gets to finish first, as on Reboot device.
+                      if (mqtt_config::global_mqtt_config != nullptr) {
+                        mqtt_config::global_mqtt_config->after_cleanup(mqtt_config::CLEANUP_WAIT_MS, []() { App.safe_reboot(); });
+                        return;
+                      }
+                      #endif
                       App.safe_reboot();
                       return;
                     }
@@ -165,7 +172,15 @@ graphical_display_menu:
           text: "Reboot device"
           weight: 30
           on_value:
-            - lambda: 'App.safe_reboot();'
+            - lambda: |-
+                #ifdef USE_MQTT_CONFIG
+                // A running Home Assistant cleanup gets to finish first.
+                if (mqtt_config::global_mqtt_config != nullptr) {
+                  mqtt_config::global_mqtt_config->after_cleanup(mqtt_config::CLEANUP_WAIT_MS, []() { App.safe_reboot(); });
+                  return;
+                }
+                #endif
+                App.safe_reboot();
 
 esphome:
   on_boot:

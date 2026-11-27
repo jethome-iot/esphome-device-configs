@@ -26,11 +26,21 @@ script:
       - lambda: |-
           // The partition is wiped at the next boot; the record has to outlive
           // the preferences erase, which takes all of NVS.
-          global_preferences->reset();
-          if (!id(user_storage)->request_format()) {
-            ESP_LOGE("factory_reset", "The user partition was not wiped and will not be");
+          auto wipe = []() {
+            global_preferences->reset();
+            if (!id(user_storage)->request_format()) {
+              ESP_LOGE("factory_reset", "The user partition was not wiped and will not be");
+            }
+            App.safe_reboot();
+          };
+          #ifdef USE_MQTT_CONFIG
+          // Its Home Assistant entries leave the broker while the settings naming it exist.
+          if (mqtt_config::global_mqtt_config != nullptr) {
+            mqtt_config::global_mqtt_config->before_factory_reset(wipe);
+            return;
           }
-          App.safe_reboot();
+          #endif
+          wipe();
 
   # The LED blinks fast while this runs (features/status-led.yaml): the only sign of it on
   # a device without a display.

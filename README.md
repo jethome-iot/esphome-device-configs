@@ -43,6 +43,9 @@ no recompile.
 - **Dallas sensors**: found at boot, numbered once and kept across reboots, with an offset and a
   label per slot ([1-Wire sensors](doc/ONEWIRE_WORKFLOW.md))
 - **Modbus RTU server**: relays, inputs and temperatures for a PLC or SCADA ([Modbus](doc/MODBUS.md))
+- **MQTT**: a client set up from the dashboard, idle until then, with Home Assistant discovery
+  off by default; what cuts the device off its network or installs firmware stays off MQTT
+  ([MQTT](doc/MQTT.md))
 - **Time**: the RTC set from Home Assistant, NTP or by hand ([Time](doc/TIME.md))
 - **Display**: status, clock and a settings menu on the LCD variant ([Display](doc/DISPLAY.md))
 - **Firmware updates**: the firmware checks fw.jethome.com for a newer build and installs it on
@@ -115,6 +118,7 @@ Using the device:
 - [Display](doc/DISPLAY.md): pages, menu and buttons
 - [Time](doc/TIME.md): timezone, NTP and setting the clock
 - [Modbus](doc/MODBUS.md): connecting a PLC or SCADA
+- [MQTT](doc/MQTT.md): connecting to a broker, Home Assistant discovery, what applies when
 - [Entity Settings](doc/ENTITY_SETTINGS.md): what a relay and an input remember, and virtual inputs
 - [OneWire Temperature Sensors](doc/ONEWIRE_WORKFLOW.md): how DS18B20 sensors get their slots
 - [Runtime Automations](doc/AUTOMATIONS.md), [Thermostats](doc/CLIMATE.md), [Schedules](doc/SCHEDULES.md)
