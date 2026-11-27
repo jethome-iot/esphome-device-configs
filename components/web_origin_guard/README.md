@@ -33,7 +33,10 @@ reach of a cross-site form. This does.
 
 ## Two mechanisms, two jobs
 
-Neither replaces the other; deleting either one opens a hole the other does not cover.
+Before ESPHome 2026.11 neither replaced the other. Since then upstream's own `add_handler()`
+guard applies the same rule to everything registered through it, our wrapped components
+included, so the wrapper repeats it, and only the catch-all covers what is registered without
+it (#348).
 
 **The wrapper.** Our three web components register a `WebOriginGuard` around themselves rather
 than registering themselves, so there is no way to reach their handlers that does not pass the
@@ -44,8 +47,9 @@ no bytes.
 **The catch-all.** `CrossOriginRefuser` is a component with no YAML of its own, registered ahead
 of every handler on the server, whose `canHandle` is exactly "this request is cross-origin". It
 claims a request only in order to refuse it, so an allowed request falls through to whatever
-would have served it. It covers what no wrapper of ours can: `web_server`'s REST routes, its OTA
-handler at `/update`, and anything a future component registers on the same server. It is
+would have served it. It covers what nothing else does: whatever is registered with
+`add_handler_without_auth()`, the captive portal among it; before 2026.11 that also took in
+`web_server`'s REST routes and its OTA handler at `/update`. It is
 registered without authentication on purpose — a request from another site should be refused
 outright, not answered with a challenge that makes the browser ask the person for credentials.
 

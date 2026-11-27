@@ -246,9 +246,10 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
   included; on 2026.11.0 Run now and the coil write took the same, and the REST chain reached
   the same depth. A bump measures those three again; #354 is to bring the means into the tree.
   The same 12288 B is `MIN_LOOP_TASK_STACK_SIZE` in `components/automations`, below which the
-  build warns, and the line `components/automations/README.md`,
-  `components/web_automation_editor/README.md` and `doc/DEVELOPMENT.md` tell users to add: a new
-  size goes into all of them.
+  build warns: its final validation reads `esp32: framework: advanced: loop_task_stack_size`
+  from the validated config and takes 8192, upstream's default for that key, when it is absent;
+  and the line `components/automations/README.md`, `components/web_automation_editor/README.md`
+  and `doc/DEVELOPMENT.md` tell users to add: a new size goes into all of them.
 - Our components read an entity's name through `get_name_progmem().ram_ref()` (and log it through
   `get_log_name()`), since ESPHome 2026.11 deprecates `get_name()`. `ram_ref()` exists only where
   entity names live in RAM, which is every platform but ESP8266; this firmware builds for ESP32
