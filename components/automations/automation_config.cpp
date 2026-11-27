@@ -378,6 +378,10 @@ void ConditionConfig::serialize(JsonObject &obj) const {
       obj["object_id"] = binary_sensor_object_id(sensor_id);
       obj["state"] = EnumUtils::input_condition_state_to_string(state);
       break;
+    case ConditionType::SWITCH:
+      obj["object_id"] = switch_object_id(sensor_id);
+      obj["state"] = EnumUtils::input_condition_state_to_string(state);
+      break;
     case ConditionType::TEMPERATURE:
       obj["object_id"] = sensor_object_id(sensor_id);
       obj["temperature_type"] = EnumUtils::temperature_condition_type_to_string(temperature_type);
@@ -421,7 +425,8 @@ bool ConditionConfig::deserialize(const JsonObject &obj) {
       }
       break;
     }
-    case ConditionType::INPUT: {
+    case ConditionType::INPUT:
+    case ConditionType::SWITCH: {
       std::string object_id = obj["object_id"].as<std::string>();
       sensor_id = fnv1_hash(object_id);
       if (!obj["state"].isNull() && !parse_enum(obj, "state", EnumUtils::string_to_input_condition_state,

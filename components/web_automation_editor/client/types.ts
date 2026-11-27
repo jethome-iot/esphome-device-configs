@@ -40,9 +40,9 @@ export interface AutomationTrigger {
 }
 
 export interface AutomationCondition {
-  type: string // 'input' | 'temperature' | 'and' | 'or' | 'xor'
+  type: string // 'input' | 'switch' | 'temperature' | 'and' | 'or' | 'xor'
   object_id?: string
-  state?: string
+  state?: string // 'true' | 'false', for 'input' and 'switch'
   temperature_type?: string
   threshold?: number
   min_threshold?: number

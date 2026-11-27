@@ -26,15 +26,23 @@ import type { FetchImpl } from '../automationApi'
 import { normalizeCron, validateCronExpression } from '../cron'
 import { isNameTaken, nameProblem } from '../naming'
 
-// The firmware does NOT store a posted cron string — it parses each field into an
-// integer set and RE-SERIALISES on every read, so `1,7` comes back as `*/6`.
-// Reproduce that here so the dev/QA loop sees the same round-trip the hardware
-// does. A cron the device would refuse is refused in /save before this runs.
-function normalizeStoredCron(cfg: AutomationConfig): AutomationConfig {
+// The firmware does NOT store what was posted — it parses the rule and RE-SERIALISES
+// it on every read, so a cron `1,7` comes back as `*/6` and an input or switch
+// condition's state always as the string "true" or "false". Reproduce that here so
+// the dev/QA loop sees the same round-trip the hardware does. What the device would
+// refuse is refused in /save before this runs.
+function normalizeStoredCondition(c: AutomationCondition): AutomationCondition {
+  if (c.type === 'input' || c.type === 'switch') return { ...c, state: String(c.state ?? true) }
+  // Only a group's members were checked; a leaf's stray `conditions` is ignored, as on the device.
+  const group = c.type === 'and' || c.type === 'or' || c.type === 'xor'
+  return group && Array.isArray(c.conditions) ? { ...c, conditions: c.conditions.map(normalizeStoredCondition) } : c
+}
+
+function normalizeStored(cfg: AutomationConfig): AutomationConfig {
   const triggers = cfg.triggers.map((t) =>
     t.source === 'cron' && typeof t.cron === 'string' ? { ...t, cron: normalizeCron(t.cron) } : t
   )
-  return { ...cfg, triggers }
+  return { ...cfg, triggers, ...(cfg.condition ? { condition: normalizeStoredCondition(cfg.condition) } : {}) }
 }
 
 // --- Seed data ---------------------------------------------------------------
@@ -93,6 +101,16 @@ export const seedAutomations: AutomationConfig[] = [
         off: { type: 'set_preset', preset: 'eco' }
       }
     ]
+  },
+  // An interlock: a condition reads a switch, so motion drives relay 3 only while the fan is off.
+  {
+    id: 5,
+    name: 'Relay 3 on motion while the fan is off',
+    enabled: true,
+    mode: 'single',
+    triggers: [{ source: 'input', type: 'press', object_id: 'motion' }],
+    condition: { type: 'switch', object_id: 'fan', state: 'false' },
+    actions: [{ source: 'switch', type: 'turn_on', object_id: 'relay_3' }]
   }
 ]
 
@@ -135,6 +153,7 @@ export const seedSchema: AutomationSchema = {
   ],
   conditions: [
     { type: 'input' },
+    { type: 'switch' },
     { type: 'temperature', subtypes: ['above', 'below', 'range'] },
     { type: 'and' },
     { type: 'or' },
@@ -210,8 +229,13 @@ function buildError(cfg: AutomationSaveInput): string {
   return ''
 }
 
+// Absent or null is true. The device reads a boolean as its JSON text, so true and false pass.
+function validState(state: unknown): boolean {
+  return state === undefined || state === null || state === 'true' || state === 'false' || typeof state === 'boolean'
+}
+
 function validCondition(c: AutomationCondition): boolean {
-  if (c.type === 'input') return typeof c.object_id === 'string'
+  if (c.type === 'input' || c.type === 'switch') return typeof c.object_id === 'string' && validState(c.state)
   if (c.type === 'temperature') {
     return knownType(seedSchema.conditions as Array<{ type: string; subtypes?: string[] }>, c.type, c.temperature_type)
   }
@@ -396,13 +420,13 @@ export function createAutomationMockStore(options: AutomationMockStoreOptions = 
         if (missing) return { status: 400, body: { success: false, error: missing } }
         if (cfg.id > 0) {
           const i = automations.findIndex((a) => a.id === cfg.id)
-          automations[i] = normalizeStoredCron({ ...cfg })
+          automations[i] = normalizeStored({ ...cfg })
           // The device rebuilds the rule: what it was running stops, when it last ran stays.
           runs.delete(cfg.id)
           return { status: 200, body: { success: true, message: 'Automation updated' } }
         }
         const id = nextId++
-        automations.push(normalizeStoredCron({ ...cfg, id }))
+        automations.push(normalizeStored({ ...cfg, id }))
         return { status: 200, body: { success: true, message: 'Automation created', id } }
       }
 

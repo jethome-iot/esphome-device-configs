@@ -206,6 +206,8 @@ const char *condition_type_to_string(ConditionType type) {
       return "input";
     case ConditionType::TEMPERATURE:
       return "temperature";
+    case ConditionType::SWITCH:
+      return "switch";
     default:
       return "none";
   }
@@ -222,6 +224,8 @@ ConditionType string_to_condition_type(const std::string &str) {
     return ConditionType::INPUT;
   if (str == "temperature")
     return ConditionType::TEMPERATURE;
+  if (str == "switch")
+    return ConditionType::SWITCH;
   return ConditionType::NONE;
 }
 

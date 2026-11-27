@@ -19,6 +19,7 @@ enum class CronTriggers : uint8_t { ALL, EVERY_HOUR, AT_HOURS };
 struct CompiledCondition {
   ConditionType type{ConditionType::NONE};
   binary_sensor::BinarySensor *binary_sensor{nullptr};
+  switch_::Switch *sw{nullptr};
   bool expected{true};
   sensor::Sensor *sensor{nullptr};
   float min{NAN};

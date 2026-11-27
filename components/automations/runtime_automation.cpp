@@ -31,6 +31,12 @@ bool CompiledCondition::check() const {
 #else
       return false;
 #endif
+    case ConditionType::SWITCH:
+#ifdef USE_SWITCH
+      return this->sw->state == this->expected;
+#else
+      return false;
+#endif
     case ConditionType::TEMPERATURE: {
 #ifdef USE_SENSOR
       const float value = this->sensor->state;
@@ -79,6 +85,13 @@ bool compile_condition(const ConditionConfig &config, CompiledCondition &out, st
         return true;
       ESP_LOGE(TAG, "Condition: binary sensor 0x%08X not found", static_cast<unsigned>(config.sensor_id));
       return fail(error, "input not found");
+    case ConditionType::SWITCH:
+      out.sw = find_switch(config.sensor_id);
+      out.expected = config.state == InputConditionState::TRUE;
+      if (out.sw != nullptr)
+        return true;
+      ESP_LOGE(TAG, "Condition: switch 0x%08X not found", static_cast<unsigned>(config.sensor_id));
+      return fail(error, "switch not found");
     case ConditionType::TEMPERATURE:
       out.sensor = find_sensor(config.sensor_id);
       if (out.sensor == nullptr) {

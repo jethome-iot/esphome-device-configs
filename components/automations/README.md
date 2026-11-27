@@ -67,7 +67,7 @@ object id. Any trigger fires the rule; the condition, when there is one, picks `
 | Key                 | Values                                                                      |
 | ------------------- | --------------------------------------------------------------------------- |
 | `triggers[].source` | `input` (`press`, `release`, `click`, `state_change`), `switch` (`turn_on`, `turn_off`, `state_change`), `temperature` — any numeric sensor, despite the key (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`, in the sensor's unit), `cron`, `startup` |
-| `condition.type`    | `input` with `state`, `temperature` with `temperature_type` — any numeric sensor, as for the trigger (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`), and `and` / `or` / `xor` over a `conditions` list, nested freely |
+| `condition.type`    | `input` and `switch` with `state` (`"true"` when absent), `temperature` with `temperature_type` — any numeric sensor, as for the trigger (`below` / `above` with `threshold`, `range` with `min_threshold` and `max_threshold`), and `and` / `or` / `xor` over a `conditions` list, nested freely |
 | `actions[].source`  | `switch` (`turn_on`, `turn_off`, `toggle`, `follow` with `invert`), `delay` with `delay_ms`, `climate` with `climate` (`turn_on`, `turn_off`, `set_preset` with `preset`, `set_target` with `target`, `follow` with `on` and `off`) |
 | `mode`              | `single` ignores a trigger while the rule runs, `restart` starts over, `parallel` runs up to 8 copies |
 | `enabled`           | `true` when absent; a disabled rule is loaded and listed but never fires |
@@ -77,7 +77,10 @@ A `click` is a press between 200 and 1000 ms. A `temperature` trigger fires on t
 arms again when the value goes back. `above` and `below` are strict, a range includes both ends,
 for triggers and conditions alike. `follow` drives its target from the state the trigger
 carried; in `single` mode a trigger ignored while the rule runs still hands its state to a
-`follow` that has not played yet. A `switch` action on a relay a running thermostat drives (a
+`follow` that has not played yet. A `switch` condition reads the switch as it is when the rule
+fires, the one the rule drives included, so `"state": "false"` on another relay keeps the rule
+from driving its own while that one is on. It is read once, when the run starts, and holds back
+neither `run_automation()` nor any other writer of the relay. A `switch` action on a relay a running thermostat drives (a
 [`switch_hold`](../switch_hold/switch_hold.h) holder) does nothing but log the rule and the
 thermostat, and the run goes on. `cron` is six fields, seconds first — `"*/2 * * * * *"`,
 `"0 30 6,18 1 * *"` — with `*`, `*/N`, `X-Y`, `X-Y/N` and lists; a field that matches nothing

@@ -245,6 +245,54 @@ TEST_F(Storage, LoadsTheFolderAndRepairsIt) {
   engine->dump_config();  // lists the rule that did not build without touching it
 }
 
+// serialize() would write a switch it cannot find as "": the file is the only record of which
+// one the rule read, so it stays as written.
+TEST_F(Storage, ARuleReadingASwitchThatIsNotThereKeepsItsFile) {
+  static const char *const GATE =
+      R"({"name":"Gate","triggers":[{"source":"startup"}],"condition":{"type":"switch","object_id":"no_such_relay","state":"false"},"actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"}]})";
+  write("gate.json", GATE);
+  boot();
+  ASSERT_NE(config("Gate"), nullptr);
+  EXPECT_FALSE(built("Gate"));
+  EXPECT_EQ(config("Gate")->build_error, "Condition: switch not found");
+  EXPECT_EQ(read("gate.json"), GATE);
+  EXPECT_TRUE(log().has(log().warnings, "Not writing 'Gate'"));
+  engine->dump_config();
+  EXPECT_TRUE(log().has(log().lines, "Condition: switch 0x"));
+}
+
+// Through the switch's own callback: the state is already the new one when the rule reads it.
+TEST_F(Storage, ASwitchConditionReadsTheStateItsOwnTriggerFiresOn) {
+  boot();
+  ASSERT_NE(engine->add_automation(rule(R"({"name":"Echo",
+      "triggers":[{"source":"switch","type":"state_change","object_id":"relay_1"}],
+      "condition":{"type":"switch","object_id":"relay_1"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_2"}],
+      "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_2"}]})")),
+            0u);
+  e.relay1.turn_on();
+  EXPECT_TRUE(e.relay2.state);
+  e.relay1.turn_off();
+  EXPECT_FALSE(e.relay2.state);
+  EXPECT_EQ(e.relay2.writes, 2);
+}
+
+TEST_F(Storage, AnInterlockReadsTheOtherRelay) {
+  boot();
+  ASSERT_GT(
+      engine->add_automation(rule(
+          R"({"name":"Interlock","triggers":[{"source":"input","type":"press","object_id":"in_1"}],"condition":{"type":"switch","object_id":"relay_1","state":"false"},"actions":[{"source":"switch","type":"turn_on","object_id":"relay_2"}]})")),
+      0u);
+  EXPECT_NE(read("interlock.json").find(R"({"type":"switch","object_id":"relay_1","state":"false"})"),
+            std::string::npos);
+  e.relay1.turn_on();
+  press(e.in1);
+  EXPECT_FALSE(e.relay2.state);
+  e.relay1.turn_off();
+  press(e.in1);
+  EXPECT_TRUE(e.relay2.state);
+}
+
 TEST_F(Storage, DuplicatesGetFreshIdsAndNames) {
   write("a.json", R"({"id":5,"name":"Same","triggers":[{"source":"startup"}]})");
   write("b.json", R"({"id":5,"name":"Same","triggers":[{"source":"startup"}]})");

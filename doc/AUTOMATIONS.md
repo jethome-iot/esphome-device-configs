@@ -11,9 +11,13 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
 - **Triggers** (any of them fires the rule): input press / release / click / state change,
   switch turn on / off / state change, a sensor above / below / in range (fires on the
   crossing, once), cron (six fields, seconds first), startup.
-- **Condition** (optional): input is on/off, a sensor above / below / in range (`above` and
-  `below` are strict, a range includes both ends), and `and` / `or` / `xor` groups of those,
-  nested. When false, the `else` actions run.
+- **Condition** (optional): input is on/off, switch is on/off, a sensor above / below / in
+  range (`above` and `below` are strict, a range includes both ends), and `and` / `or` / `xor`
+  groups of those, nested. When false, the `else` actions run. A switch condition reads any
+  switch a rule may name, the one the rule drives included: with "only while relay 1 is off",
+  the rule turns relay 2 on only while relay 1 is off. It is read once, when the rule starts:
+  Run now skips it, and Home Assistant, the panel, Modbus and other rules can still turn relay 2
+  on.
 - **Actions**: switch turn on / off / toggle / follow (copies the state the trigger
   carried, optionally inverted), delay. A switch action on a relay a running thermostat drives
   does nothing; the log names the rule and the thermostat, and the rest of the rule runs
@@ -38,8 +42,8 @@ switches stay where the loop left them until something sets it off again, which 
 way.
 
 A sensor is any numeric one that is not internal, not only a temperature, and its thresholds
-are in its own unit. A switch is any but the device's own settings, such as **Allow uploads
-from ESPHome**: a rule naming one is not built.
+are in its own unit. A switch is any that is not internal and not one of the device's own
+settings, such as **Allow uploads from ESPHome**: a rule naming one of those is not built.
 
 Cron follows the device's clock, wherever its time comes from. A jump forward of up to 15
 minutes fires every cron time it skipped at once, and a longer one skips them; a jump back of

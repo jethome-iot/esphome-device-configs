@@ -82,6 +82,36 @@ TEST(ConditionConfig, InputStateDefaultsToTrue) {
   EXPECT_EQ(c.state, InputConditionState::FALSE);
 }
 
+TEST(ConditionConfig, SwitchReadsLikeAnInput) {
+  entities();
+  ConditionConfig c;
+  ASSERT_TRUE(load(R"({"type":"switch","object_id":"relay_1"})", c));
+  EXPECT_EQ(c.type, ConditionType::SWITCH);
+  EXPECT_EQ(c.sensor_id, fnv1_hash("relay_1"));
+  EXPECT_EQ(c.state, InputConditionState::TRUE);
+  EXPECT_EQ(dump(c), R"({"type":"switch","object_id":"relay_1","state":"true"})");
+
+  ASSERT_TRUE(load(R"({"type":"switch","object_id":"relay_2","state":"false"})", c));
+  EXPECT_EQ(c.state, InputConditionState::FALSE);
+  EXPECT_EQ(dump(c), R"({"type":"switch","object_id":"relay_2","state":"false"})");
+}
+
+// A config switch is the device's own setting: no rule reads it, so it serializes as one that
+// is not there.
+TEST(ConditionConfig, SwitchSerializesAConfigSwitchAsEmpty) {
+  entities();
+  ConditionConfig c;
+  ASSERT_TRUE(load(R"({"type":"switch","object_id":"config_switch","state":"true"})", c));
+  EXPECT_EQ(dump(c), R"({"type":"switch","object_id":"","state":"true"})");
+}
+
+TEST(ConditionConfig, SwitchRefusesWordsItDoesNotKnow) {
+  ConditionConfig c;
+  EXPECT_FALSE(load(R"({"type":"swich","object_id":"relay_1","state":"true"})", c));
+  EXPECT_FALSE(load(R"({"type":"Switch","object_id":"relay_1","state":"true"})", c));
+  EXPECT_FALSE(load(R"({"type":"switch","object_id":"relay_1","state":"on"})", c));
+}
+
 TEST(ConditionConfig, GroupsNest) {
   ConditionConfig c;
   ASSERT_TRUE(load(R"({"type":"and","conditions":[
@@ -192,6 +222,26 @@ TEST(AutomationConfig, RoundTripsARule) {
   AutomationConfig again;
   ASSERT_TRUE(load(dump(c).c_str(), again));
   EXPECT_EQ(dump(again), dump(c));
+}
+
+// An interlock: In 1 turns relay 2 on only while relay 1 is off.
+static const char *const INTERLOCK = R"({"id":4,"name":"Interlock","enabled":true,"mode":"single",
+  "triggers":[{"source":"input","type":"press","object_id":"in_1"}],
+  "condition":{"type":"and","conditions":[{"type":"input","object_id":"in_2","state":"false"},
+                                          {"type":"switch","object_id":"relay_1","state":"false"}]},
+  "actions":[{"source":"switch","type":"turn_on","object_id":"relay_2"}]})";
+
+TEST(AutomationConfig, RoundTripsASwitchCondition) {
+  entities();
+  AutomationConfig c;
+  ASSERT_TRUE(load(INTERLOCK, c));
+  ASSERT_EQ(c.condition.sub_conditions.size(), 2u);
+  EXPECT_EQ(c.condition.sub_conditions[1].type, ConditionType::SWITCH);
+
+  AutomationConfig again;
+  ASSERT_TRUE(load(dump(c).c_str(), again));
+  EXPECT_EQ(dump(again), dump(c));
+  EXPECT_NE(dump(c).find(R"({"type":"switch","object_id":"relay_1","state":"false"})"), std::string::npos);
 }
 
 TEST(AutomationConfig, AbsentFieldsTakeTheirDefaults) {
