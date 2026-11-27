@@ -175,7 +175,16 @@ class ModbusRTU(Modbus):
 
         if func & 0x80:
             body = self._read(3, "exception response")
+            if self.verbose:
+                print(f"  <- {(head + body).hex(' ')}", file=sys.stderr)
             self._check(head + body)
+            # An exception counts only from this unit and for this request, like an answer.
+            if addr != self.unit:
+                raise ModbusError(f"exception from unit {addr}, expected {self.unit}")
+            if func != function | 0x80:
+                raise ModbusError(
+                    f"exception FC 0x{func:02X}, expected 0x{function | 0x80:02X}"
+                )
             raise ModbusException(function, body[0])
 
         if function in (0x01, 0x02, 0x03, 0x04):
@@ -266,6 +275,10 @@ class ModbusTCP(Modbus):
             raise ModbusError(f"response from unit {head[6]}, expected {self.unit}")
         func = body[0]
         if func & 0x80:
+            if func != function | 0x80:
+                raise ModbusError(
+                    f"exception FC 0x{func:02X}, expected 0x{function | 0x80:02X}"
+                )
             raise ModbusException(function, body[1])
         if func != function:
             raise ModbusError(f"response FC 0x{func:02X}, expected 0x{function:02X}")
