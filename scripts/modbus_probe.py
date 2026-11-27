@@ -219,8 +219,11 @@ class ModbusTCP(Modbus):
         self.unit = unit
         self.verbose = False
         self.address = f"{host}:{port}"
+        self.host, self.port, self.timeout = host, port, timeout
         self.transaction = 0
         self.sock = socket.create_connection((host, port), timeout=timeout)
+        # A reply cut off by a timeout leaves the rest of its frame in the stream.
+        self.out_of_step = False
 
     def describe(self) -> str:
         return f"unit 0x{self.unit:02X} at {self.address} (Modbus TCP)"
@@ -239,6 +242,8 @@ class ModbusTCP(Modbus):
                     )
                 data += chunk
         except TimeoutError:
+            if data:
+                self.out_of_step = True
             raise ModbusError(
                 f"timeout reading {what}: expected {count} bytes, got {len(data)}"
             ) from None
@@ -247,6 +252,18 @@ class ModbusTCP(Modbus):
         return data
 
     def request(self, function: int, payload: bytes) -> bytes:
+        if self.out_of_step:
+            # Frame boundaries are lost; only a new connection finds them again.
+            self.sock.close()
+            try:
+                self.sock = socket.create_connection(
+                    (self.host, self.port), timeout=self.timeout
+                )
+            except OSError as err:
+                raise ModbusError(
+                    f"cannot reconnect to {self.address}: {err}"
+                ) from None
+            self.out_of_step = False
         self.transaction = (self.transaction + 1) & 0xFFFF
         pdu = bytes([function]) + payload
         adu = (
