@@ -98,7 +98,7 @@ device by `packages/qemu/qemu-<device>.yaml`, together with a room for the therm
 
 | Overlay | |
 |---|---|
-| `board-d6-r6.yaml` | The six relays and six inputs become `template`, keeping every id, name and automation — a relay then toggles over REST and holds. A `template` input cannot change on its own, so six `internal:` switches publish onto them — unlisted, still drivable by name. With nothing left pointing at the expander it is removed too, which is where most of the log noise went. |
+| `board-d6-r6.yaml` | The six relays and six inputs become `template`, keeping every id, name and automation — a relay then toggles over REST and holds. A `template` input cannot change on its own, so six `Drive input N` switches publish onto them over REST. With nothing left pointing at the expander it is removed too, which is where most of the log noise went. |
 | `panel-jxd-display.yaml` | The panel becomes a [`virtual_display`](../components/virtual_display/README.md) and the joystick becomes `template` sensors the front panel publishes into. |
 | `climate-plant.yaml` | A room for the thermostats: the `QEMU Room Temperature` sensor warms while `Relay 1` is on and cools towards 15 °C otherwise, since no `Temp N` probe exists here. What the relay does reaches it ten seconds later, so a calibration has a delay to measure, and takes a few minutes. |
 
@@ -127,9 +127,9 @@ A device without an API key, a fresh image among them, turns every native API cl
 15 minutes after its boot, as stock `provisioning:` has it: attach Home Assistant or
 aioesphomeapi before then and set a key, or restart the emulator first.
 
-The `Drive input N` switches are deliberately `internal:`, so they are absent from the entity
-list and from the `/events` stream — but a command still reaches them, because the web server
-matches a request by name and the internal flag only gates listing and state pushes.
+The `Drive input N` switches are listed like any other entity, in the dashboard, in `/events`
+and among the switches the editors offer: `web_server` reaches no internal entity by URL, so
+they could not stay hidden and still take a command.
 
 ## The thermostat smoke check
 
