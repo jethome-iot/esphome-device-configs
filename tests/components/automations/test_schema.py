@@ -65,8 +65,8 @@ class LoopTaskStack(unittest.TestCase):
         self.assertEqual(config, {"kept": True})
         self.assertEqual(len(logs.output), 1)
         self.assertIn(
-            "need 'esp32: framework: advanced: loop_task_stack_size: 12288' or more: "
-            "rules nested 8 deep overflow a 8192 B loop task stack",
+            "need 'esp32: framework: advanced: loop_task_stack_size: 12288' or more, "
+            "not 8192: rules nested 8 deep can overflow a smaller loop task stack",
             logs.output[0],
         )
 

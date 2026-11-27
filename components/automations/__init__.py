@@ -61,8 +61,8 @@ def _validate_loop_task_stack(config):
     if size < MIN_LOOP_TASK_STACK_SIZE:
         _LOGGER.warning(
             "automations with web_server need 'esp32: framework: advanced: "
-            "loop_task_stack_size: %d' or more: rules nested 8 deep overflow a %d B loop task "
-            "stack while a client holds /events open",
+            "loop_task_stack_size: %d' or more, not %d: rules nested 8 deep can overflow a "
+            "smaller loop task stack while a client holds /events open",
             MIN_LOOP_TASK_STACK_SIZE,
             size,
         )
