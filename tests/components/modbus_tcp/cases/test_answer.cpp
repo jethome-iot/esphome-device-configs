@@ -1,0 +1,204 @@
+#include "common.h"
+
+namespace esphome::modbus_tcp::testing {
+
+// Each case is a request the relay board's map answers over RTU, with the answer it gives there.
+
+TEST_F(Server, ReadsTheRelaysAsCoils) {
+  this->relays = {true, false, true, false, false, true};
+  EXPECT_EQ(this->request({0x01, 0x00, 0x00, 0x00, 0x06}), (Bytes{0x01, 0x01, 0b100101}));
+}
+
+TEST_F(Server, ReadsTheInputsAsDiscreteInputs) {
+  this->inputs = {false, true, false, false, false, false};
+  EXPECT_EQ(this->request({0x02, 0x00, 0x10, 0x00, 0x06}), (Bytes{0x02, 0x01, 0b000010}));
+}
+
+// Coils and discrete inputs are one table: a read across the gap between them is refused.
+TEST_F(Server, RefusesABitOutsideTheMap) {
+  EXPECT_EQ(this->request({0x01, 0x00, 0x00, 0x00, 0x07}), (Bytes{0x81, 0x02}));
+  EXPECT_EQ(this->request({0x02, 0x00, 0x20, 0x00, 0x01}), (Bytes{0x82, 0x02}));
+}
+
+TEST_F(Server, ReadsTheTemperatures) {
+  this->temperatures[0] = 215;
+  this->temperatures[1] = -55;
+  this->temperatures[2] = static_cast<int16_t>(0x8000);
+  EXPECT_EQ(this->request({0x03, 0x00, 0x00, 0x00, 0x03}), (Bytes{0x03, 0x06, 0x00, 0xD7, 0xFF, 0xC9, 0x80, 0x00}));
+  EXPECT_EQ(this->request({0x04, 0x00, 0x01, 0x00, 0x01}), (Bytes{0x04, 0x02, 0xFF, 0xC9}));
+}
+
+TEST_F(Server, ReadsAnUnmappedRegisterAsZero) {
+  EXPECT_EQ(this->request({0x03, 0x00, 0x0F, 0x00, 0x02}), (Bytes{0x03, 0x04, 0x00, 0x00, 0x00, 0x00}));
+}
+
+TEST_F(Server, ReadsTheMostRegistersAllowed) {
+  const Bytes response = this->request({0x03, 0x00, 0x00, 0x00, 0x7D});
+  ASSERT_EQ(response.size(), 2u + 125 * 2);
+  EXPECT_EQ(response[1], 250);
+  EXPECT_EQ(this->request({0x03, 0x00, 0x00, 0x00, 0x7E}), (Bytes{0x83, 0x03}));
+  EXPECT_EQ(this->request({0x03, 0x00, 0x00, 0x00, 0x00}), (Bytes{0x83, 0x03}));
+}
+
+TEST_F(Server, RefusesAReadPastTheAddressSpace) {
+  EXPECT_EQ(this->request({0x03, 0xFF, 0xFF, 0x00, 0x02}), (Bytes{0x83, 0x02}));
+}
+
+TEST_F(Server, WritesARelay) {
+  EXPECT_EQ(this->request({0x05, 0x00, 0x02, 0xFF, 0x00}), (Bytes{0x05, 0x00, 0x02, 0xFF, 0x00}));
+  EXPECT_TRUE(this->relays[2]);
+  EXPECT_EQ(this->request({0x05, 0x00, 0x02, 0x00, 0x00}), (Bytes{0x05, 0x00, 0x02, 0x00, 0x00}));
+  EXPECT_FALSE(this->relays[2]);
+}
+
+TEST_F(Server, RefusesACoilValueOtherThanOnOrOff) {
+  EXPECT_EQ(this->request({0x05, 0x00, 0x02, 0x00, 0x01}), (Bytes{0x85, 0x03}));
+  EXPECT_FALSE(this->relays[2]);
+}
+
+TEST_F(Server, RefusesWritingAnInput) { EXPECT_EQ(this->request({0x05, 0x00, 0x10, 0xFF, 0x00}), (Bytes{0x85, 0x02})); }
+
+// A thermostat holds relay 1: moving it answers 0x04, writing the state it has is accepted.
+TEST_F(Server, RefusesMovingAHeldRelay) {
+  this->held_relay = 0;
+  EXPECT_EQ(this->request({0x05, 0x00, 0x00, 0xFF, 0x00}), (Bytes{0x85, 0x04}));
+  EXPECT_FALSE(this->relays[0]);
+  EXPECT_EQ(this->request({0x05, 0x00, 0x00, 0x00, 0x00}), (Bytes{0x05, 0x00, 0x00, 0x00, 0x00}));
+}
+
+TEST_F(Server, WritesSeveralRelays) {
+  EXPECT_EQ(this->request({0x0F, 0x00, 0x01, 0x00, 0x03, 0x01, 0b101}), (Bytes{0x0F, 0x00, 0x01, 0x00, 0x03}));
+  EXPECT_EQ(this->relays, (std::array<bool, 6>{false, true, false, true, false, false}));
+}
+
+// FC 0x0F stops at the held relay: the ones before it are written, the ones after it are not.
+TEST_F(Server, StopsAtAHeldRelay) {
+  this->held_relay = 2;
+  EXPECT_EQ(this->request({0x0F, 0x00, 0x00, 0x00, 0x05, 0x01, 0b11111}), (Bytes{0x8F, 0x04}));
+  EXPECT_EQ(this->relays, (std::array<bool, 6>{true, true, false, false, false, false}));
+}
+
+TEST_F(Server, RefusesACoilCountThatDisagreesWithTheBytes) {
+  EXPECT_EQ(this->request({0x0F, 0x00, 0x00, 0x00, 0x09, 0x01, 0xFF}), (Bytes{0x8F, 0x03}));
+}
+
+TEST_F(Server, RefusesWritingATemperature) {
+  EXPECT_EQ(this->request({0x06, 0x00, 0x00, 0x00, 0x01}), (Bytes{0x86, 0x02}));
+  EXPECT_EQ(this->request({0x10, 0x00, 0x00, 0x00, 0x01, 0x02, 0x00, 0x01}), (Bytes{0x90, 0x02}));
+}
+
+TEST_F(Server, WritesARegister) {
+  EXPECT_EQ(this->request({0x06, 0x00, 0x20, 0x12, 0x34}), (Bytes{0x06, 0x00, 0x20, 0x12, 0x34}));
+  EXPECT_EQ(this->setpoint, 0x1234);
+  EXPECT_EQ(this->request({0x10, 0x00, 0x20, 0x00, 0x01, 0x02, 0xAB, 0xCD}), (Bytes{0x10, 0x00, 0x20, 0x00, 0x01}));
+  EXPECT_EQ(this->setpoint, 0xABCD);
+}
+
+TEST_F(Server, RefusesARegisterCountThatDisagreesWithTheBytes) {
+  EXPECT_EQ(this->request({0x10, 0x00, 0x20, 0x00, 0x02, 0x02, 0xAB, 0xCD}), (Bytes{0x90, 0x03}));
+  EXPECT_EQ(this->setpoint, 0);
+}
+
+// The write goes before the read, so the read sees it.
+TEST_F(Server, WritesThenReads) {
+  EXPECT_EQ(this->request({0x17, 0x00, 0x20, 0x00, 0x01, 0x00, 0x20, 0x00, 0x01, 0x02, 0x00, 0x2A}),
+            (Bytes{0x17, 0x02, 0x00, 0x2A}));
+}
+
+// The length the header gives has to be the length the function code needs.
+TEST_F(Server, RefusesARequestOfTheWrongLength) {
+  EXPECT_EQ(this->request({0x01, 0x00, 0x00, 0x00}), (Bytes{0x81, 0x03}));
+  EXPECT_EQ(this->request({0x03, 0x00, 0x00, 0x00, 0x01, 0x00}), (Bytes{0x83, 0x03}));
+  EXPECT_EQ(this->request({0x10, 0x00, 0x20, 0x00, 0x01, 0x02, 0xAB}), (Bytes{0x90, 0x03}));
+}
+
+TEST_F(Server, RefusesAFunctionItDoesNotServe) {
+  EXPECT_EQ(this->request({0x2B, 0x0E, 0x01, 0x00}), (Bytes{0xAB, 0x01}));
+  EXPECT_EQ(this->request({0x08, 0x00, 0x00, 0x12, 0x34}), (Bytes{0x88, 0x01}));
+  EXPECT_EQ(this->request({0x16, 0x00, 0x20, 0xFF, 0xFF, 0x00, 0x00}), (Bytes{0x96, 0x01}));
+}
+
+TEST_F(Server, AnswersItsUnitAndTheDirectOnes) {
+  this->unit_id = 7;
+  for (uint8_t unit : {7, 0, 0xFF})
+    EXPECT_EQ(this->request({0x01, 0x00, 0x00, 0x00, 0x01}, unit), (Bytes{0x01, 0x01, 0x00})) << int(unit);
+}
+
+TEST_F(Server, AnswersAnotherUnitAsAGatewayWithNoTarget) {
+  this->unit_id = 7;
+  EXPECT_EQ(this->request({0x05, 0x00, 0x00, 0xFF, 0x00}, 1), (Bytes{0x85, 0x0B}));
+  EXPECT_FALSE(this->relays[0]);
+}
+
+}  // namespace esphome::modbus_tcp::testing
+
+namespace esphome::modbus_tcp::testing {
+
+// A refused write answers its exception, and the read after it is not made.
+TEST_F(Server, SkipsTheReadOfARefusedReadWrite) {
+  EXPECT_EQ(this->request({0x17, 0x00, 0x20, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x02, 0x00, 0x2A}),
+            (Bytes{0x97, 0x02}));
+}
+
+TEST_F(Server, RefusesReadWriteCountsOutOfRange) {
+  // No read, too long a read, no write, and a write count that disagrees with its bytes.
+  EXPECT_EQ(this->request({0x17, 0x00, 0x20, 0x00, 0x00, 0x00, 0x20, 0x00, 0x01, 0x02, 0x00, 0x2A}),
+            (Bytes{0x97, 0x03}));
+  EXPECT_EQ(this->request({0x17, 0x00, 0x20, 0x00, 0x7E, 0x00, 0x20, 0x00, 0x01, 0x02, 0x00, 0x2A}),
+            (Bytes{0x97, 0x03}));
+  EXPECT_EQ(this->request({0x17, 0x00, 0x20, 0x00, 0x01, 0x00, 0x20, 0x00, 0x00, 0x00}), (Bytes{0x97, 0x03}));
+  EXPECT_EQ(this->request({0x17, 0x00, 0x20, 0x00, 0x01, 0x00, 0x20, 0x00, 0x02, 0x02, 0x00, 0x2A}),
+            (Bytes{0x97, 0x03}));
+  EXPECT_EQ(this->setpoint, 0);
+}
+
+// The limits are the RTU hub's: up to them a request reaches the map, past them it is 03. The
+// relay board maps too little for the largest requests to succeed, so they end in 02 there.
+TEST_F(Server, TakesBitReadsUpTo2000) {
+  EXPECT_EQ(this->request({0x01, 0x00, 0x00, 0x07, 0xD0}), (Bytes{0x81, 0x02}));
+  EXPECT_EQ(this->request({0x01, 0x00, 0x00, 0x07, 0xD1}), (Bytes{0x81, 0x03}));
+}
+
+TEST_F(Server, TakesCoilWritesUpTo1968) {
+  Bytes most = {0x0F, 0x00, 0x00, 0x07, 0xB0, 246};
+  most.resize(most.size() + 246, 0x00);
+  EXPECT_EQ(this->request(most), (Bytes{0x8F, 0x02}));
+  Bytes over = {0x0F, 0x00, 0x00, 0x07, 0xB1, 247};
+  over.resize(over.size() + 247, 0x00);
+  EXPECT_EQ(this->request(over), (Bytes{0x8F, 0x03}));
+}
+
+TEST_F(Server, TakesRegisterWritesUpTo123) {
+  Bytes most = {0x10, 0x00, 0x00, 0x00, 0x7B, 246};
+  most.resize(most.size() + 246, 0x00);
+  EXPECT_EQ(this->request(most), (Bytes{0x90, 0x02}));
+  Bytes over = {0x10, 0x00, 0x00, 0x00, 0x7C, 248};
+  over.resize(over.size() + 248 - 1, 0x00);  // 253 bytes: the most a PDU holds
+  EXPECT_EQ(this->request(over), (Bytes{0x90, 0x03}));
+}
+
+// A device whose register read hands back fewer values than asked for: the hub answers 04.
+class ShortDevice : public modbus::ModbusServerDevice {
+ public:
+  modbus::ResponseStatus on_read_registers(uint16_t, uint16_t count, modbus::RegisterValues &registers) override {
+    for (uint16_t i = 0; i + 1 < count; i++)
+      registers.push_back(i);
+    return {};
+  }
+  modbus::ResponseStatus on_write_registers(uint16_t, const modbus::RegisterValues &) override { return {}; }
+};
+
+TEST(ShortRead, AnswersDeviceFailure) {
+  ShortDevice device;
+  std::array<uint8_t, modbus::MAX_PDU_SIZE> out{};
+  const Bytes read = {0x03, 0x00, 0x00, 0x00, 0x02};
+  ASSERT_EQ(answer_pdu(device, read, out), 2u);
+  EXPECT_EQ(out[0], 0x83);
+  EXPECT_EQ(out[1], 0x04);
+  const Bytes read_write = {0x17, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x02, 0x00, 0x01};
+  ASSERT_EQ(answer_pdu(device, read_write, out), 2u);
+  EXPECT_EQ(out[0], 0x97);
+  EXPECT_EQ(out[1], 0x04);
+}
+
+}  // namespace esphome::modbus_tcp::testing

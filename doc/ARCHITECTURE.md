@@ -234,6 +234,13 @@ at `0x0010`. A coil's `write_lambda` returns `false`, which `modbus_server` answ
 it: a range left unnamed, or a name on an address the server does not serve, fails the build. The
 dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step with the server.
 
+`modbus_tcp` (`features/modbus-tcp.yaml`) serves the same `modbus_server1` over Modbus TCP: it hands
+each request to the server's own handlers, so the map, the exceptions and the thermostat's `0x04`
+are the RTU ones. It is off until the `Modbus TCP` switch turns it on; the switch, port and unit ID
+apply at once, in the component's next `loop()`, so the entities restore in any order. Each client
+it allows is a socket it declares to ESPHome, which sizes `CONFIG_LWIP_MAX_SOCKETS` from that, and
+so are its listener and the one that turns away a client past the limit.
+
 ## Coupled to upstream internals
 
 - `boards/jxd-cpu-e1eth.yaml` gives the loop task 12288 B (`loop_task_stack_size`) because
@@ -302,6 +309,14 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
   `bits:` and `registers:` entry's `address`, `value_type` and whether it has a `write_lambda`,
   `courtesy_response`, and a value's width from `TYPE_REGISTER_MAP` in `modbus/helpers.py`. Final
   validation keeps nothing, so `to_code` derives them again out of `CORE.config`.
+- `components/modbus_tcp` calls `modbus_server`'s public handlers (`on_read_coils`,
+  `on_write_registers`, …) and restates for TCP the request parsing upstream's RTU hub keeps
+  protected (`ModbusServerHub::process_modbus_client_frame_`), with the hub's length rule
+  `client_pdu_length()`. On an ESPHome bump, diff that function: a function code, limit or
+  exception the hub changes has to change in `mbap.cpp` too. Its fallback-AP filter finds the
+  access point's subnet through ESP-IDF's default netif key `WIFI_AP_DEF`, and reads an IPv6
+  link-local peer off lwIP's `in6_addr` (`un.u8_addr`). On an ESP-IDF bump, check both: without
+  the key every client is refused while the access point is up.
 - `components/firmware_rollback`, behind the dashboard's `/api/device/system/rollback` and the
   display's Rollback row, reads otadata the way the bootloader does: the other slot is a target
   only when its entry is one `bootloader_common_ota_select_valid` would boot, so an entry marked

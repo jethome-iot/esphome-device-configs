@@ -1,0 +1,62 @@
+# The Modbus map of modbus-server.yaml over Modbus TCP as well. Off until switched on: Modbus has
+# no password, so whoever reaches the port moves the relays. On, it serves Ethernet and the WiFi
+# network, not the fallback access point. On/off, port and unit ID are settings kept in flash; a
+# change applies at once.
+external_components:
+  - source: ${components}
+    components: [modbus_tcp]
+
+modbus_tcp:
+  id: modbus_tcp_server
+  modbus_server_id: modbus_server1
+
+switch:
+  - platform: template
+    name: "Modbus TCP"
+    id: modbus_tcp_enabled
+    icon: mdi:lan-connect
+    web_server:
+      sorting_group_id: group_modbus_tcp
+      sorting_weight: 1
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    turn_on_action:
+      - lambda: 'id(modbus_tcp_server).set_enabled(true);'
+    turn_off_action:
+      - lambda: 'id(modbus_tcp_server).set_enabled(false);'
+
+number:
+  - platform: template
+    name: "Modbus TCP port"
+    id: modbus_tcp_port
+    web_server:
+      sorting_group_id: group_modbus_tcp
+      sorting_weight: 2
+    entity_category: config
+    mode: box
+    optimistic: true
+    restore_value: true
+    initial_value: 502
+    min_value: 1
+    max_value: 65535
+    step: 1
+    on_value:
+      - lambda: 'id(modbus_tcp_server).set_port((uint16_t) x);'
+
+  - platform: template
+    name: "Modbus TCP unit ID"
+    id: modbus_tcp_unit_id
+    web_server:
+      sorting_group_id: group_modbus_tcp
+      sorting_weight: 3
+    entity_category: config
+    mode: box
+    optimistic: true
+    restore_value: true
+    initial_value: 1
+    min_value: 1
+    max_value: 247
+    step: 1
+    on_value:
+      - lambda: 'id(modbus_tcp_server).set_unit_id((uint8_t) x);'

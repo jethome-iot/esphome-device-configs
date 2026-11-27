@@ -36,7 +36,9 @@ SKIP=build-dist pre-commit run --all-files # what the CI lint job runs
 ./scripts/qemu.sh stop                                            # and shut it down again
 .venv/bin/python scripts/qemu-climate-smoke.py                    # the thermostats in QEMU, before a thermostat PR
 
-.venv/bin/python scripts/modbus_probe.py --port /dev/ttyUSB2 probe   # walk the Modbus map over RS485
+ls -l /dev/serial/by-id/   # the RS485 adapter; opening a board's console port resets the board
+.venv/bin/python scripts/modbus_probe.py --port /dev/serial/by-id/<adapter> probe   # the Modbus map over RS485
+.venv/bin/python scripts/modbus_probe.py --tcp <device-ip> probe                    # the same over Modbus TCP
 ```
 
 Build output lands next to the config:

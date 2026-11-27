@@ -57,6 +57,9 @@ tests/
     loop_job/
     modbus_map/               # test_schema.py alone: the class only holds what the build derived,
                               # and web_device_dashboard's suite reads one
+    modbus_tcp/               # MBAP framing, requests answered by a server built like the relay
+                              # board's, and the server on loopback sockets, pumped through the
+                              # host's select() the way the main loop runs it
     ntp_servers/
     panel_text/
     schedules/

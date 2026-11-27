@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-"""Minimal Modbus RTU client for probing a JXD device over RS485.
+"""Minimal Modbus client for probing a JXD device over RS485 (RTU) or the network (TCP).
 
 Speaks just enough Modbus to exercise the register map that
 `devices/JXD/packages/features/modbus-server.yaml` exposes. Needs only pyserial, which ESPHome
 already pulls in, so `.venv/bin/python scripts/modbus_probe.py` works as is.
 
-  .venv/bin/python scripts/modbus_probe.py --port /dev/ttyUSB2 probe
-  .venv/bin/python scripts/modbus_probe.py --port /dev/ttyUSB2 read-coils 0x0000 6
-  .venv/bin/python scripts/modbus_probe.py --port /dev/ttyUSB2 write-coil 0x0000 1
+  .venv/bin/python scripts/modbus_probe.py --port /dev/serial/by-id/<adapter> probe
+  .venv/bin/python scripts/modbus_probe.py --port /dev/serial/by-id/<adapter> read-coils 0x0000 6
+  .venv/bin/python scripts/modbus_probe.py --tcp 192.168.1.50 write-coil 0x0000 1
+  .venv/bin/python scripts/modbus_probe.py --tcp 127.0.0.1:5020 probe     # QEMU
 """
 
 from __future__ import annotations
 
 import argparse
+import socket
 import sys
 import time
 
@@ -62,7 +64,82 @@ def crc16(data: bytes) -> int:
     return crc
 
 
-class ModbusRTU:
+class Modbus:
+    """The requests the probe makes; a transport supplies request()."""
+
+    unit: int
+
+    def describe(self) -> str:
+        raise NotImplementedError
+
+    def close(self) -> None:
+        raise NotImplementedError
+
+    def request(self, function: int, payload: bytes) -> bytes:
+        """The response PDU after the function code; raises ModbusException on an exception."""
+        raise NotImplementedError
+
+    def _read_bits(self, function: int, address: int, count: int) -> list[bool]:
+        body = self.request(
+            function, address.to_bytes(2, "big") + count.to_bytes(2, "big")
+        )
+        packed = body[1:]
+        # A malformed answer is the server's error to report, not a crash or a pass.
+        if not body or body[0] != len(packed) or len(packed) != (count + 7) // 8:
+            raise ModbusError(f"{len(packed)} bytes for {count} bits: {body.hex(' ')}")
+        return [bool(packed[i // 8] & (1 << (i % 8))) for i in range(count)]
+
+    def _read_registers(self, function: int, address: int, count: int) -> list[int]:
+        body = self.request(
+            function, address.to_bytes(2, "big") + count.to_bytes(2, "big")
+        )
+        raw = body[1:]
+        if not body or body[0] != len(raw) or len(raw) != count * 2:
+            raise ModbusError(
+                f"{len(raw)} bytes for {count} registers: {body.hex(' ')}"
+            )
+        return [int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2)]
+
+    def read_coils(self, address: int, count: int) -> list[bool]:
+        return self._read_bits(0x01, address, count)
+
+    def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
+        return self._read_bits(0x02, address, count)
+
+    def read_holding_registers(self, address: int, count: int) -> list[int]:
+        return self._read_registers(0x03, address, count)
+
+    def read_input_registers(self, address: int, count: int) -> list[int]:
+        return self._read_registers(0x04, address, count)
+
+    def _write(self, function: int, payload: bytes) -> None:
+        # A write answers with the first four bytes of its request; anything else did not take.
+        body = self.request(function, payload)
+        if body != payload[:4]:
+            raise ModbusError(
+                f"write echo {body.hex(' ')}, expected {payload[:4].hex(' ')}"
+            )
+
+    def write_coil(self, address: int, value: bool) -> None:
+        self._write(
+            0x05, address.to_bytes(2, "big") + (b"\xff\x00" if value else b"\x00\x00")
+        )
+
+    def write_coils(self, address: int, values: list[bool]) -> None:
+        packed = bytearray((len(values) + 7) // 8)
+        for i, value in enumerate(values):
+            if value:
+                packed[i // 8] |= 1 << (i % 8)
+        payload = (
+            address.to_bytes(2, "big")
+            + len(values).to_bytes(2, "big")
+            + bytes([len(packed)])
+            + bytes(packed)
+        )
+        self._write(0x0F, payload)
+
+
+class ModbusRTU(Modbus):
     def __init__(
         self,
         port: str,
@@ -82,6 +159,9 @@ class ModbusRTU:
         # fixes for baud rates above 19200.
         char_bits = 9 + (parity != "N") + stop_bits
         self.frame_gap = max(3.5 * char_bits / baud, 0.00175)
+
+    def describe(self) -> str:
+        return f"unit 0x{self.unit:02X} on {self.ser.port} @ {self.ser.baudrate} {self.framing}"
 
     def close(self) -> None:
         self.ser.close()
@@ -110,7 +190,16 @@ class ModbusRTU:
 
         if func & 0x80:
             body = self._read(3, "exception response")
+            if self.verbose:
+                print(f"  <- {(head + body).hex(' ')}", file=sys.stderr)
             self._check(head + body)
+            # An exception counts only from this unit and for this request, like an answer.
+            if addr != self.unit:
+                raise ModbusError(f"exception from unit {addr}, expected {self.unit}")
+            if func != function | 0x80:
+                raise ModbusError(
+                    f"exception FC 0x{func:02X}, expected 0x{function | 0x80:02X}"
+                )
             raise ModbusException(function, body[0])
 
         if function in (0x01, 0x02, 0x03, 0x04):
@@ -134,49 +223,110 @@ class ModbusRTU:
         if crc16(frame) != 0:
             raise ModbusError(f"CRC mismatch in {frame.hex(' ')}")
 
-    def _read_bits(self, function: int, address: int, count: int) -> list[bool]:
-        body = self.request(
-            function, address.to_bytes(2, "big") + count.to_bytes(2, "big")
+
+class ModbusTCP(Modbus):
+    def __init__(self, host: str, port: int, unit: int, timeout: float) -> None:
+        self.unit = unit
+        self.verbose = False
+        self.address = f"{host}:{port}"
+        self.host, self.port, self.timeout = host, port, timeout
+        self.transaction = 0
+        self.sock = socket.create_connection((host, port), timeout=timeout)
+        # A reply cut off midway, by a timeout or a header that is not Modbus, leaves the rest
+        # of its frame in the stream.
+        self.out_of_step = False
+
+    def describe(self) -> str:
+        return f"unit 0x{self.unit:02X} at {self.address} (Modbus TCP)"
+
+    def close(self) -> None:
+        self.sock.close()
+
+    def _read(self, count: int, what: str) -> bytes:
+        data = b""
+        try:
+            while len(data) < count:
+                chunk = self.sock.recv(count - len(data))
+                if not chunk:
+                    raise ModbusError(
+                        f"connection closed reading {what} after {len(data)} bytes"
+                    )
+                data += chunk
+        except TimeoutError:
+            if data:
+                self.out_of_step = True
+            raise ModbusError(
+                f"timeout reading {what}: expected {count} bytes, got {len(data)}"
+            ) from None
+        except OSError as err:
+            raise ModbusError(f"connection lost reading {what}: {err}") from None
+        return data
+
+    def request(self, function: int, payload: bytes) -> bytes:
+        if self.out_of_step:
+            # Frame boundaries are lost; only a new connection finds them again.
+            self.sock.close()
+            try:
+                self.sock = socket.create_connection(
+                    (self.host, self.port), timeout=self.timeout
+                )
+            except OSError as err:
+                raise ModbusError(
+                    f"cannot reconnect to {self.address}: {err}"
+                ) from None
+            self.out_of_step = False
+        self.transaction = (self.transaction + 1) & 0xFFFF
+        pdu = bytes([function]) + payload
+        adu = (
+            self.transaction.to_bytes(2, "big")
+            + b"\x00\x00"
+            + (len(pdu) + 1).to_bytes(2, "big")
+            + bytes([self.unit])
+            + pdu
         )
-        packed = body[1:]
-        return [bool(packed[i // 8] & (1 << (i % 8))) for i in range(count)]
+        if self.verbose:
+            print(f"  -> {adu.hex(' ')}", file=sys.stderr)
+        try:
+            self.sock.sendall(adu)
+        except OSError as err:
+            raise ModbusError(f"connection lost sending the request: {err}") from None
 
-    def _read_registers(self, function: int, address: int, count: int) -> list[int]:
-        body = self.request(
-            function, address.to_bytes(2, "big") + count.to_bytes(2, "big")
-        )
-        raw = body[1:]
-        return [int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2)]
-
-    def read_coils(self, address: int, count: int) -> list[bool]:
-        return self._read_bits(0x01, address, count)
-
-    def read_discrete_inputs(self, address: int, count: int) -> list[bool]:
-        return self._read_bits(0x02, address, count)
-
-    def read_holding_registers(self, address: int, count: int) -> list[int]:
-        return self._read_registers(0x03, address, count)
-
-    def read_input_registers(self, address: int, count: int) -> list[int]:
-        return self._read_registers(0x04, address, count)
-
-    def write_coil(self, address: int, value: bool) -> None:
-        self.request(
-            0x05, address.to_bytes(2, "big") + (b"\xff\x00" if value else b"\x00\x00")
-        )
-
-    def write_coils(self, address: int, values: list[bool]) -> None:
-        packed = bytearray((len(values) + 7) // 8)
-        for i, value in enumerate(values):
-            if value:
-                packed[i // 8] |= 1 << (i % 8)
-        payload = (
-            address.to_bytes(2, "big")
-            + len(values).to_bytes(2, "big")
-            + bytes([len(packed)])
-            + bytes(packed)
-        )
-        self.request(0x0F, payload)
+        while True:
+            head = self._read(7, "MBAP header")
+            # Inside a frame from here until its PDU is read: leaving early loses its end.
+            self.out_of_step = True
+            transaction = int.from_bytes(head[0:2], "big")
+            protocol = int.from_bytes(head[2:4], "big")
+            length = int.from_bytes(head[4:6], "big")
+            if protocol != 0 or length < 3:
+                raise ModbusError(f"malformed MBAP header {head.hex(' ')}")
+            body = self._read(length - 1, "response PDU")
+            self.out_of_step = False
+            if self.verbose:
+                print(f"  <- {(head + body).hex(' ')}", file=sys.stderr)
+            if transaction == self.transaction:
+                break
+            # A late answer to an earlier request that timed out: skip it, or every request after
+            # it would read the answer to the one before.
+            if 0 < (self.transaction - transaction) & 0xFFFF < 0x8000:
+                continue
+            raise ModbusError(
+                f"response to transaction {transaction}, expected {self.transaction}"
+            )
+        if head[6] != self.unit:
+            raise ModbusError(f"response from unit {head[6]}, expected {self.unit}")
+        func = body[0]
+        if func & 0x80:
+            if func != function | 0x80:
+                raise ModbusError(
+                    f"exception FC 0x{func:02X}, expected 0x{function | 0x80:02X}"
+                )
+            if len(body) != 2:
+                raise ModbusError(f"malformed exception reply {body.hex(' ')}")
+            raise ModbusException(function, body[1])
+        if func != function:
+            raise ModbusError(f"response FC 0x{func:02X}, expected 0x{function:02X}")
+        return body[1:]
 
 
 def fmt_bits(bits: list[bool]) -> str:
@@ -193,21 +343,32 @@ def fmt_temps(registers: list[int]) -> str:
     return " ".join(one(raw) for raw in registers)
 
 
-def probe(bus: ModbusRTU) -> int:
+def probe(bus: Modbus) -> int:
     """Walk the whole documented map, reporting each step independently."""
     failures = 0
 
-    def step(label: str, fn):
+    def step(label: str, fn, exception: int | None = None):
         nonlocal failures
         try:
-            print(f"{label:<44} {fn()}")
+            result = fn()
+        except ModbusException as err:
+            if err.code == exception:
+                print(f"{label:<44} exception 0x{err.code:02X}, as expected")
+                return
+            failures += 1
+            print(f"{label:<44} FAIL: {err}")
+            return
         except ModbusError as err:
             failures += 1
             print(f"{label:<44} FAIL: {err}")
+            return
+        if exception is not None:
+            failures += 1
+            print(f"{label:<44} FAIL: {result}, expected exception 0x{exception:02X}")
+            return
+        print(f"{label:<44} {result}")
 
-    print(
-        f"unit 0x{bus.unit:02X} on {bus.ser.port} @ {bus.ser.baudrate} {bus.framing}\n"
-    )
+    print(bus.describe() + "\n")
 
     step(
         f"relays           FC 0x01 @ 0x{COILS_BASE:04X} x6",
@@ -229,14 +390,16 @@ def probe(bus: ModbusRTU) -> int:
         "courtesy regs    FC 0x03 @ 0x0100 x2",
         lambda: bus.read_holding_registers(0x0100, 2),
     )
+    # A bit outside the map answers exception 0x02, unlike a register.
     step(
         "unmapped bit     FC 0x01 @ 0x0100",
         lambda: fmt_bits(bus.read_coils(0x0100, 1)),
+        exception=0x02,
     )
     return failures
 
 
-def toggle(bus: ModbusRTU, index: int) -> int:
+def toggle(bus: Modbus, index: int) -> int:
     """Flip one relay and read it back, then restore it."""
     address = COILS_BASE + index
     before = bus.read_coils(address, 1)[0]
@@ -268,7 +431,10 @@ def auto_int(value: str) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", default="/dev/ttyUSB2")
+    parser.add_argument("--port", help="serial port for Modbus RTU")
+    parser.add_argument(
+        "--tcp", metavar="HOST[:PORT]", help="Modbus TCP server instead (port 502)"
+    )
     parser.add_argument("--baud", type=int, default=9600)
     parser.add_argument("--parity", choices=["N", "E", "O"], default="N")
     parser.add_argument("--stop-bits", type=int, choices=[1, 2], default=1)
@@ -299,13 +465,31 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    try:
-        bus = ModbusRTU(
-            args.port, args.baud, args.unit, args.timeout, args.parity, args.stop_bits
+    if (args.port is None) == (args.tcp is None):
+        parser.error("give one of --port and --tcp")
+    bus: Modbus
+    if args.tcp is not None:
+        host, _, port = (
+            args.tcp.rpartition(":") if ":" in args.tcp else (args.tcp, "", "502")
         )
-    except serial.SerialException as err:
-        print(f"cannot open {args.port}: {err}", file=sys.stderr)
-        return 2
+        try:
+            bus = ModbusTCP(host, int(port), args.unit, args.timeout)
+        except (OSError, ValueError) as err:
+            print(f"cannot connect to {args.tcp}: {err}", file=sys.stderr)
+            return 2
+    else:
+        try:
+            bus = ModbusRTU(
+                args.port,
+                args.baud,
+                args.unit,
+                args.timeout,
+                args.parity,
+                args.stop_bits,
+            )
+        except serial.SerialException as err:
+            print(f"cannot open {args.port}: {err}", file=sys.stderr)
+            return 2
     bus.verbose = args.verbose
 
     try:

@@ -32,6 +32,7 @@
 #   --http-port <p>    host port forwarded to the device's web server  (default 8080)
 #   --api-port <p>     host port forwarded to the native API 6053      (default 6053)
 #   --ota-port <p>     host port forwarded to the OTA listener 3232    (default 3232)
+#   --modbus-port <p>  host port forwarded to Modbus TCP 502           (default 5020)
 #   --psram <size>     PSRAM given to the machine: 2M|4M|none          (default 4M)
 #   --eeprom <file>    attach the CPU-board EEPROM (0x54) backed by this file, so the
 #                      device reports the identity the file carries; needs the JetHome
@@ -77,6 +78,8 @@ OVERLAY="packages/qemu/qemu.yaml"
 HTTP_PORT=8080
 API_PORT=6053
 OTA_PORT=3232
+# 502 itself is a privileged port on the host.
+MODBUS_PORT=5020
 PSRAM=4M
 FRESH=0
 DO_BUILD=1
@@ -113,6 +116,7 @@ while [ $# -gt 0 ]; do
     --http-port) opt_port "$1" "${2:-}"; HTTP_PORT=$OPT_VALUE; shift 2 ;;
     --api-port)  opt_port "$1" "${2:-}"; API_PORT=$OPT_VALUE;  shift 2 ;;
     --ota-port)  opt_port "$1" "${2:-}"; OTA_PORT=$OPT_VALUE;  shift 2 ;;
+    --modbus-port) opt_port "$1" "${2:-}"; MODBUS_PORT=$OPT_VALUE; shift 2 ;;
     --wait-http) opt_uint "$1" "${2:-}"; WAIT_HTTP=$OPT_VALUE; shift 2 ;;
     --psram)     opt_arg  "$1" "${2:-}"; PSRAM=$OPT_VALUE;     shift 2 ;;
     --eeprom)    opt_arg  "$1" "${2:-}"; EEPROM=$OPT_VALUE;    shift 2 ;;
@@ -406,12 +410,12 @@ check_ports_free() {
   local port
   # Two of ours on the same host port is the one clash a probe cannot see: nothing is
   # listening yet, and QEMU still refuses.
-  if [ "$(printf '%s\n' "$HTTP_PORT" "$API_PORT" "$OTA_PORT" | sort -u | wc -l)" -ne 3 ]; then
-    die "--http-port/--api-port/--ota-port must differ, got $HTTP_PORT/$API_PORT/$OTA_PORT"
+  if [ "$(printf '%s\n' "$HTTP_PORT" "$API_PORT" "$OTA_PORT" "$MODBUS_PORT" | sort -u | wc -l)" -ne 4 ]; then
+    die "--http-port/--api-port/--ota-port/--modbus-port must differ, got $HTTP_PORT/$API_PORT/$OTA_PORT/$MODBUS_PORT"
   fi
-  for port in "$HTTP_PORT" "$API_PORT" "$OTA_PORT"; do
+  for port in "$HTTP_PORT" "$API_PORT" "$OTA_PORT" "$MODBUS_PORT"; do
     if port_listening "$port"; then
-      die "port $port is already in use — another device is likely running (see: scripts/qemu.sh list), or pass --http-port/--api-port/--ota-port"
+      die "port $port is already in use — another device is likely running (see: scripts/qemu.sh list), or pass --http-port/--api-port/--ota-port/--modbus-port"
     fi
   done
 }
@@ -440,7 +444,7 @@ do_run() {
   # the machine.
   args=(-nographic -machine esp32
         -drive "file=$image,if=mtd,format=raw"
-        -nic "user,model=open_eth,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80,hostfwd=tcp:127.0.0.1:$API_PORT-:6053,hostfwd=tcp:127.0.0.1:$OTA_PORT-:3232")
+        -nic "user,model=open_eth,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80,hostfwd=tcp:127.0.0.1:$API_PORT-:6053,hostfwd=tcp:127.0.0.1:$OTA_PORT-:3232,hostfwd=tcp:127.0.0.1:$MODBUS_PORT-:502")
   [ "$PSRAM" != "none" ] && args+=(-m "$PSRAM")
   [ "$NO_WDT" -eq 1 ] && args+=(-global driver=timer.esp32.timg,property=wdt_disable,value=true)
   # The CPU-board part at 0x54, on the controller ESPHome's bus takes (i2c0).
@@ -450,6 +454,7 @@ do_run() {
   info "==> $device on QEMU"
   info "    web    http://127.0.0.1:$HTTP_PORT"
   info "    api    127.0.0.1:$API_PORT   (esphome logs <config> --device 127.0.0.1)"
+  info "    modbus 127.0.0.1:$MODBUS_PORT   (Modbus TCP, once switched on)"
   info "    flash  $image"
   if [ "$DAEMON" -eq 1 ]; then
     nohup "$QEMU_BIN" "${args[@]}" >"$logfile" 2>&1 &
@@ -514,7 +519,7 @@ hostfwd_port() {
 }
 
 do_list() {
-  local d pid pids cmdline http api ota devices=()
+  local d pid pids cmdline http api ota modbus devices=()
   while IFS= read -r d; do devices+=("$d"); done < <(list_devices)
   for d in ${devices[@]+"${devices[@]}"}; do
     # No `| head -1`: under pipefail its SIGPIPE on a device with two instances
@@ -530,7 +535,8 @@ do_list() {
     http=$(hostfwd_port "$cmdline" 80)
     api=$(hostfwd_port "$cmdline" 6053)
     ota=$(hostfwd_port "$cmdline" 3232)
-    info "$d — running (pid $pid)${http:+  web http://127.0.0.1:$http}${api:+  api $api}${ota:+  ota $ota}"
+    modbus=$(hostfwd_port "$cmdline" 502)
+    info "$d — running (pid $pid)${http:+  web http://127.0.0.1:$http}${api:+  api $api}${ota:+  ota $ota}${modbus:+  modbus $modbus}"
   done
 }
 

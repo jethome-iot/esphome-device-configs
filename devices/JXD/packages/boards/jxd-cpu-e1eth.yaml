@@ -169,6 +169,9 @@ web_server:
     - id: group_modbus
       name: "Modbus"
       sorting_weight: 40
+    - id: group_modbus_tcp
+      name: "Modbus TCP"
+      sorting_weight: 45
     - id: group_network
       name: "Network"
       sorting_weight: 50

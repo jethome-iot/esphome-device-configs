@@ -30,6 +30,7 @@ packages:
   firmware_update: !include ${features}/firmware-update.yaml
   i2c: !include ${features}/i2c.yaml
   modbus: !include ${features}/modbus-server.yaml
+  modbus_tcp: !include ${features}/modbus-tcp.yaml
   network: !include ${features}/network.yaml
   reboot_required: !include ${features}/reboot-required.yaml
   rtc_time: !include ${features}/rtc-time.yaml
