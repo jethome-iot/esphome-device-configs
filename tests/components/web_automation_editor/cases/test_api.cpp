@@ -269,6 +269,12 @@ TEST_F(Editor, AConfigSwitchIsNeitherListedNorTaken) {
       R"({"name":"Peek","triggers":[{"source":"startup"}],"condition":{"type":"switch","object_id":"config_switch"},"actions":[]})");
   EXPECT_EQ(reply.code, 400);
   EXPECT_EQ(reply.error(), "Condition: switch not found");
+  // An internal switch is neither listed nor readable either.
+  reply = this->post(
+      "save",
+      R"({"name":"Hidden","triggers":[{"source":"startup"}],"condition":{"type":"switch","object_id":"hidden"},"actions":[]})");
+  EXPECT_EQ(reply.code, 400);
+  EXPECT_EQ(reply.error(), "Condition: switch not found");
   EXPECT_TRUE(this->files().empty());
 }
 
