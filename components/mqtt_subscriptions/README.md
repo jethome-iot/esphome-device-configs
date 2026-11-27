@@ -38,7 +38,7 @@ mqtt_subscriptions:
 | `storage`        | required | The filesystem storage the slots are saved on |
 | `folder_path`    | `mqtt`  | One folder name below the storage. Not a folder another component keeps on the same storage (`automations`, `climate_hub`, `schedules`, `crash_report`, `config_json`) |
 | `max_slots`      | `16`    | 1 to 16 |
-| `units`          | 27 common units (`°C`, `%`, `W`, `kWh`, `ppm`, `µg/m³`, …) | What a Number slot may show: up to 32, each 1 to 16 bytes, none twice |
+| `units`          | 27 common units (`°C`, `%`, `W`, `kWh`, `ppm`, `µg/m³`, …) | What a Number slot may show: up to 32, each 1 to 16 bytes without a NUL, none twice |
 | `web_server`     |         | The sorting group and weight of the slots' entities; slot N sorts at weight + N − 1 |
 | `mqtt_config_id` | the one `mqtt_config` | The MQTT settings whose client it subscribes through |
 

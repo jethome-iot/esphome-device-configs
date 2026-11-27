@@ -87,6 +87,10 @@ class Schema(unittest.TestCase):
         self.assert_units_refused(["°" * 9], f"unit '{'°' * 9}' must be 1 to 16 bytes")
         self.assertEqual(validate(units=["x" * 16])["units"], ["x" * 16])
 
+    def test_a_unit_cannot_carry_a_nul(self):
+        # Both would be "W" on the device, which takes each unit as a C string.
+        self.assert_units_refused(["W", "W\0h"], "a unit cannot contain a NUL")
+
     def test_at_most_thirty_two_units(self):
         self.assert_units_refused([f"u{i}" for i in range(33)], "at most 32 units")
         self.assertEqual(len(validate(units=[f"u{i}" for i in range(32)])["units"]), 32)

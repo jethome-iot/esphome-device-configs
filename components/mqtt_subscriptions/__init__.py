@@ -103,6 +103,9 @@ def unit_list(value):
         raise cv.Invalid(f"at most {MAX_UNITS} units")
     seen = set()
     for unit in units:
+        # add_unit() takes a C string: a NUL would cut the unit the device offers.
+        if "\0" in unit:
+            raise cv.Invalid("a unit cannot contain a NUL")
         if not 1 <= len(unit.encode("utf-8")) <= UNIT_MAX_BYTES:
             raise cv.Invalid(f"unit '{unit}' must be 1 to {UNIT_MAX_BYTES} bytes")
         if unit in seen:
