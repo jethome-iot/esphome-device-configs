@@ -106,6 +106,12 @@ TEST(SlotRules, PayloadsBindOnlyAnOnOff) {
   EXPECT_EQ(check([](SlotConfig &s) { s.payload_off = ""; }, binary), "'payload_off' must be 1 to 32 bytes");
   EXPECT_EQ(check([](SlotConfig &s) { s.payload_off = std::string(33, 'x'); }, binary),
             "'payload_off' must be 1 to 32 bytes");
+  // A whole message is read trimmed, so a literal with a space at an end could never match.
+  EXPECT_EQ(check([](SlotConfig &s) { s.payload_on = " ON"; }, binary),
+            "'payload_on' cannot start or end with a space");
+  EXPECT_EQ(check([](SlotConfig &s) { s.payload_off = "OFF "; }, binary),
+            "'payload_off' cannot start or end with a space");
+  EXPECT_EQ(check([](SlotConfig &s) { s.payload_on = "is on"; }, binary), "");
   EXPECT_EQ(check(
                 [](SlotConfig &s) {
                   s.payload_on = "Open";
