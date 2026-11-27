@@ -304,6 +304,30 @@ TEST_F(Runtime, ARelayLetGoDuringASingleRunKeepsWhatItsPassedFollowsSet) {
   EXPECT_FALSE(e.relay1.state);
 }
 
+// Steps the run has passed on one relay add up: a toggle turns over the step before it, and one
+// with nothing before it leaves the relay alone.
+TEST_F(Runtime, ARelayLetGoDuringARunAddsUpItsPassedSteps) {
+  auto rule = build_rule(engine, R"({"name":"Steps","triggers":[{"source":"condition"}],
+      "condition":{"type":"input","object_id":"in_1"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"},
+                 {"source":"switch","type":"toggle","object_id":"relay_1"},
+                 {"source":"switch","type":"toggle","object_id":"relay_2"},
+                 {"source":"delay","delay_ms":500},
+                 {"source":"switch","type":"turn_on","object_id":"relay_1"}]})");
+  ASSERT_NE(rule, nullptr);
+  rule->watch_condition();
+  e.in1.publish_state(true);
+  rule->on_binary_sensor(&e.in1, true);
+  e.relay1.turn_on();  // where a thermostat left it
+  rule->on_released(&e.relay1);
+  EXPECT_FALSE(e.relay1.state);  // turned on, then over
+  const int relay2_writes = e.relay2.writes;
+  rule->on_released(&e.relay2);  // a toggle with nothing before it
+  EXPECT_EQ(e.relay2.writes, relay2_writes);
+  ASSERT_TRUE(engine.fire_next());
+  EXPECT_TRUE(e.relay1.state);
+}
+
 // In parallel the run for the result may have ended while an older one waits in a delay: the
 // relay goes where the branch for the result leaves it, not where the older run has got to.
 TEST_F(Runtime, ARelayLetGoInParallelFollowsTheResultNotAnOlderRun) {
