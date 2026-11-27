@@ -26,6 +26,9 @@ automations:
 web_automation_editor:
 ```
 
+With `web_server`, the loop task needs `esp32: framework: advanced: loop_task_stack_size:
+12288`, as [automations](../automations/README.md) says; the build warns below it.
+
 ## Options
 
 | Option           | Default              | Meaning                                                                  |

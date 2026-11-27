@@ -1,7 +1,10 @@
 """Runtime automations: rules stored as JSON files on a filesystem storage, built at boot and editable at run time."""
 
+import logging
+
 import esphome.codegen as cg
 import esphome.config_validation as cv
+import esphome.final_validate as fv
 from esphome.components import filesystem_storage_abstract
 from esphome.core import CORE
 from esphome.components import time as time_
@@ -39,6 +42,34 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_FOLDER_PATH, default="automations"): folder_name,
     }
 ).extend(cv.COMPONENT_SCHEMA)
+
+
+# Rules nest up to 8 events deep on the loop task, and on ESP32 web_server builds each state
+# event for an /events client on that stack too: ESPHome's default 8192 B overflow (#345).
+MIN_LOOP_TASK_STACK_SIZE = 12288
+_LOGGER = logging.getLogger(__name__)
+
+
+def _validate_loop_task_stack(config):
+    if not CORE.is_esp32:
+        return config
+    full = fv.full_config.get()
+    if "web_server" not in full:
+        return config
+    advanced = full.get("esp32", {}).get("framework", {}).get("advanced", {})
+    size = advanced.get("loop_task_stack_size", 8192)
+    if size < MIN_LOOP_TASK_STACK_SIZE:
+        _LOGGER.warning(
+            "automations with web_server need 'esp32: framework: advanced: "
+            "loop_task_stack_size: %d' or more, not %d: rules nested 8 deep can overflow a "
+            "smaller loop task stack while a client holds /events open",
+            MIN_LOOP_TASK_STACK_SIZE,
+            size,
+        )
+    return config
+
+
+FINAL_VALIDATE_SCHEMA = _validate_loop_task_stack
 
 
 async def to_code(config):
