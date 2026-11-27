@@ -1,5 +1,6 @@
 """The component's YAML schema: what it refuses, and with which message."""
 
+import re
 import unittest
 from pathlib import Path
 
@@ -88,6 +89,23 @@ class LoopTaskStack(unittest.TestCase):
         CORE.data[KEY_CORE] = {KEY_TARGET_PLATFORM: "host"}
         with self.assertNoLogs(automations.__name__, level="WARNING"):
             self.validate({"web_server": {}})
+
+
+class OurBoardMeetsTheFloor(unittest.TestCase):
+    """The warning does not fail CI: our own firmwares are held to the floor here."""
+
+    def test_the_cpu_board_package_gives_the_loop_task_the_floor(self):
+        board = (
+            Path(__file__).resolve().parents[3]
+            / "devices/JXD/packages/boards/jxd-cpu-e1eth.yaml"
+        ).read_text()
+        found = re.findall(
+            r"^\s+loop_task_stack_size:\s*(\d+)\s*$", board, re.MULTILINE
+        )
+        self.assertEqual(
+            len(found), 1, "one loop_task_stack_size in the CPU board package"
+        )
+        self.assertGreaterEqual(int(found[0]), automations.MIN_LOOP_TASK_STACK_SIZE)
 
 
 if __name__ == "__main__":
