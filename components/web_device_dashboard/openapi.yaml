@@ -2590,8 +2590,9 @@ components:
           type: [string, "null"]
           pattern: "^(newer_firmware|invalid: .+)$"
           description: >-
-            `newer_firmware`: newer firmware wrote the stored settings, so the
-            fields show the defaults, MQTT is off, and a save replaces them.
+            `newer_firmware`: newer firmware stored the settings in a form this
+            one cannot read, so the fields show the defaults, MQTT is off, and a
+            save replaces them.
             `invalid: <message>`: the stored settings break a rule of this
             firmware; they run anyway, and the next save must fix what the
             message names.

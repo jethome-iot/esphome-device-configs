@@ -39,9 +39,9 @@ curl --digest -u admin:admin -H 'Content-Type: application/json' \
   client is not connected when the device can tell: the broker name was not found, the broker
   cannot be reached, the connection was lost, or the broker refused the protocol version, the
   client ID, the service, or the username and password.
-- A firmware update keeps the settings. After a rollback to firmware older than the one that
-  saved them, MQTT stays off until they are saved again, and the Home Assistant entries the
-  newer firmware announced stay on the broker.
+- A firmware update keeps the settings, and so does a rollback, unless the newer firmware saved
+  them in a form the older one cannot read: then MQTT stays off until they are saved again, and
+  the Home Assistant entries the newer firmware announced stay on the broker.
 
 ## Topics
 
