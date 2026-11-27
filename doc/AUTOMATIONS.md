@@ -24,9 +24,9 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
   range (`above` and `below` are strict, a range includes both ends), and `and` / `or` / `xor`
   groups of those, nested. When false, the `else` actions run. A switch condition reads any
   switch a rule may name, the one the rule drives included: with "only while relay 1 is off",
-  the rule turns relay 2 on only while relay 1 is off. It is read once, when the rule starts:
-  Run now skips it, and Home Assistant, the panel, Modbus and other rules can still turn relay 2
-  on.
+  the rule turns relay 2 on only while relay 1 is off. Without a condition change trigger it is
+  read once, when the rule starts, and Run now skips it; with one the rule follows it. Either way
+  Home Assistant, the panel, Modbus and other rules can still turn relay 2 on.
 - **Actions**: switch turn on / off / toggle / follow (copies the state the trigger
   carried, optionally inverted), delay. A switch action on a relay a running thermostat drives
   does nothing; the log names the rule and the thermostat, and the rest of the rule runs

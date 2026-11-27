@@ -414,9 +414,9 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
 - `components/automations` names entities by `fnv1_hash` of their object id and walks
   `App.get_binary_sensors()` / `get_sensors()` / `get_switches()` itself, so the hash and
   `EntityBase::get_object_id_to` are part of the on-disk rule format.
-- `components/automations` conditions read a switch's state from inside that switch's own
-  callback, when a rule a switch fires has a condition on that switch, taking upstream at its word
-  that `Switch::publish_state` stores the state before the callbacks run.
+- `components/automations` conditions read an input's, a switch's or a sensor's state from inside
+  that entity's own callback, when a rule it fires or a condition trigger watching it reads it,
+  taking upstream at its word that the state is stored before the callbacks run.
 - `tests/harness/main.cpp` is upstream's `tests/components/main.cpp`: the writer keeps what is
   outside its marker comments and puts the generated setup code into `original_setup()`, which
   is never called. `App` sizes its entity lists from the YAML and drops a registration past
@@ -437,9 +437,7 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
   unsubscribes: upstream has no callback removal, so rebinding goes through its own table.
 - `components/automations` adds `add_full_state_callback` to the inputs a condition trigger reads,
   because the plain state callback is called neither for an input's first state when it does not
-  trigger on it nor for a lost state; and its conditions read an input's, a switch's or a sensor's
-  state from inside that entity's own callback, taking upstream at its word that the state is
-  stored before the callbacks run.
+  trigger on it nor for a lost state.
 - `components/crash_report` takes the crash record the one way upstream hands it out, as log
   lines: it checks `esp32::crash_handler_has_data()`, catches what `esp32::crash_handler_log()`
   prints through a logger listener (`logger.request_log_listener()`, `add_log_callback`), then

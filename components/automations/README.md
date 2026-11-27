@@ -79,8 +79,9 @@ for triggers and conditions alike. `follow` drives its target from the state the
 carried; in `single` mode a trigger ignored while the rule runs still hands its state to a
 `follow` that has not played yet. A `switch` condition reads the switch as it is when the rule
 fires, the one the rule drives included, so `"state": "false"` on another relay keeps the rule
-from driving its own while that one is on. It is read once, when the run starts, and holds back
-neither `run_automation()` nor any other writer of the relay. A `switch` action on a relay a running thermostat drives (a
+from driving its own while that one is on. Without a `condition` trigger it is read once, when
+the run starts, and `run_automation()` skips it; with one the rule follows it. Either way it holds
+back no other writer of the relay. A `switch` action on a relay a running thermostat drives (a
 [`switch_hold`](../switch_hold/switch_hold.h) holder) does nothing but log the rule and the
 thermostat, and the run goes on. `cron` is six fields, seconds first — `"*/2 * * * * *"`,
 `"0 30 6,18 1 * *"` — with `*`, `*/N`, `X-Y`, `X-Y/N` and lists; a field that matches nothing
