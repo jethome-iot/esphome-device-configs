@@ -243,7 +243,9 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
   `automations` cuts them. In QEMU with an `/events` and an API client that takes 8401 B from a
   REST switch request, 8609 B from Run now and 9441 B from a Modbus coil write (#345), the
   deepest of the entries #328 measured, the panel, the menu, bindings and virtual inputs
-  included. A bump measures those three again; #354 is to bring the means into the tree.
+  included. A bump measures those three again; #354 is to bring the means into the tree. The
+  same 12288 B is `MIN_LOOP_TASK_STACK_SIZE` in `components/automations`, below which the build
+  warns: a new size goes into both.
 - `boards/jxd-cpu-e1eth.yaml` marks `provisioning`'s source `0` provisioned at boot when the API
   key is there: that is the network source, which the manager registers in its constructor,
   before any other. Were it not, an added device would again close its window when no network
