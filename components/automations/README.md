@@ -115,9 +115,9 @@ Run now plays the branch the condition gives at that moment. When a running ther
 relay go, a watching rule sets it where its branch for the current result leaves it, as a
 binding's `follow` does: its `turn_on`, `turn_off`, `follow` and `toggle` steps on that relay
 played through, a `toggle` with no step before it setting nothing. The rest of the branch does
-not play again. While a run is under way, the relay goes
-where the run has got to, and the run's later steps on it play when it reaches them: a
-`delay` before them still holds.
+not play again. While the run started last is under way, the relay goes where that run has got
+to, and the run's later steps on it play when it reaches them: a `delay` before them still holds.
+An older run still in a delay, as `parallel` can leave, does not count.
 
 A condition may read the switch the rule drives. Input 1, start, turns relay 1 on and the relay
 holds itself on; input 2, stop, turns it off, input 1 held or not, as a motor's stop button wins

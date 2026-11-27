@@ -34,9 +34,9 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
   go, a rule with a condition trigger sets it where its branch for the current result leaves
   it (its steps on that relay played through: a toggle turns over the step before it, and one
   with no step before it sets nothing), so the relay goes where the condition says; nothing
-  else in the rule plays again. While a run is under way, the
-  relay goes where the run has got to, and the run sets it further when it reaches its next step
-  on it, after its delays.
+  else in the rule plays again. While the run started last is under way, the relay goes where
+  that run has got to, and the run sets it further when it reaches its next step on it, after its
+  delays.
 - **Thermostat actions**: turn off, turn on (back in the mode it was in before it went off),
   pick a preset, set the target, and follow: one preset or on/off while the trigger's state is
   on, another while it is off. A preset that keeps the mode does not turn an off thermostat on:
