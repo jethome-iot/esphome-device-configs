@@ -850,7 +850,7 @@ export interface MqttSlotFields {
   json_path: string
   /** One of `MqttSubscriptions.units`, or ''. */
   unit: string
-  /** 0–4. */
+  /** 0–4 on a save; a slot read from a restored file keeps what the file holds. */
   decimals: number
   payload_on: string
   payload_off: string

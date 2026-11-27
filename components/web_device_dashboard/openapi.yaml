@@ -2912,8 +2912,10 @@ components:
           description: One of `units`, or `""`.
         decimals:
           type: integer
-          minimum: 0
-          maximum: 4
+          description: >-
+            0 to 4 on a save. A slot read from a restored file keeps what the
+            file holds; an enabled one's `status.error` then names the rule it
+            breaks.
         payload_on:
           type: string
           description: >-
@@ -2935,6 +2937,10 @@ components:
               type: integer
               minimum: 1
               description: 1 to `max_slots`.
+            decimals:
+              type: integer
+              minimum: 0
+              maximum: 4
       example:
         slot: 3
         enabled: true
