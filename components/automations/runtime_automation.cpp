@@ -378,42 +378,44 @@ void RuntimeAutomation::resync_condition() {
     this->result_ = this->condition_->check();
 }
 
+// Where a switch step leaves its relay, after the steps before it left it at `on`: a toggle turns
+// a known state over and leaves an unknown one unknown; a follow with no state sets nothing.
+static optional<bool> after_step(optional<bool> on, const CompiledAction &action, bool has_state, bool state) {
+  switch (action.type) {
+    case TypeSwitchAction::TURN_ON:
+      return true;
+    case TypeSwitchAction::TURN_OFF:
+      return false;
+    case TypeSwitchAction::TOGGLE:
+      if (on.has_value())
+        return !*on;
+      return on;
+    case TypeSwitchAction::FOLLOW:
+      if (has_state)
+        return state != action.invert;
+      return on;
+    default:
+      return on;
+  }
+}
+
 void RuntimeAutomation::on_released(switch_::Switch *sw) {
   // A change of the result still on its way plays the whole branch when it arrives.
   if (!this->result_.has_value() || this->condition_->check() != *this->result_)
     return;
-  // Where the rule has left the relay: its steps on it in the branch for the result, played
-  // through, or, while a run is under way, those the newest run has played; its later steps set
-  // the relay when it gets to them. A toggle turns over what came before it, and with nothing
-  // before it to turn over the rule leaves the relay alone.
-  Run idle{};
-  idle.branch = *this->result_ ? &this->then_ : &this->else_;
-  idle.cursor = idle.branch->size();
-  idle.has_state = true;  // a follow copies the result, as the trigger hands it
-  idle.state = *this->result_;
-  const Run &run = this->runs_.empty() ? idle : *this->runs_.back();
+  // Where the rule has left the relay: while a run is under way, where the newest run's steps so
+  // far left it, its later steps setting it when it gets to them; otherwise the branch for the
+  // result played through, a follow copying the result. With nothing to go by, it is left alone.
   optional<bool> on;
-  for (size_t i = 0; i < run.cursor; i++) {
-    const CompiledAction &action = (*run.branch)[i];
-    if (action.source != SourceAction::SWITCH || action.target != sw)
-      continue;
-    switch (action.type) {
-      case TypeSwitchAction::TURN_ON:
-        on = true;
-        break;
-      case TypeSwitchAction::TURN_OFF:
-        on = false;
-        break;
-      case TypeSwitchAction::TOGGLE:
-        if (on.has_value())
-          on = !*on;
-        break;
-      case TypeSwitchAction::FOLLOW:
-        if (run.has_state)
-          on = run.state != action.invert;
-        break;
-      default:
-        break;
+  if (!this->runs_.empty()) {
+    for (const auto &reached : this->runs_.back()->reached) {
+      if (reached.first == sw)
+        on = reached.second;
+    }
+  } else {
+    for (const CompiledAction &action : *this->result_ ? this->then_ : this->else_) {
+      if (action.source == SourceAction::SWITCH && action.target == sw)
+        on = after_step(on, action, true, *this->result_);
     }
   }
   if (!on.has_value())
@@ -422,7 +424,7 @@ void RuntimeAutomation::on_released(switch_::Switch *sw) {
   set.source = SourceAction::SWITCH;
   set.target = sw;
   set.type = *on ? TypeSwitchAction::TURN_ON : TypeSwitchAction::TURN_OFF;
-  this->play_switch_(set, run);
+  this->play_switch_(set, Run{});
 }
 
 void RuntimeAutomation::stop() {
@@ -614,6 +616,9 @@ void RuntimeAutomation::step_(uint32_t token, bool scheduled) {
     if (action.source == SourceAction::CLIMATE) {
       this->play_climate_(action, *run);
     } else {
+      // Noted before it plays: its callbacks may restart this run.
+      if (action.source == SourceAction::SWITCH)
+        note_reached_(*run, action);
       this->play_switch_(action, *run);
     }
     // The switch callback may have restarted or stopped this automation: then this run is gone
@@ -622,6 +627,18 @@ void RuntimeAutomation::step_(uint32_t token, bool scheduled) {
   }
   if (run != nullptr)
     this->finish_run_(token);
+}
+
+void RuntimeAutomation::note_reached_(Run &run, const CompiledAction &action) {
+  for (auto &reached : run.reached) {
+    if (reached.first == action.target) {
+      if (auto on = after_step(reached.second, action, run.has_state, run.state))
+        reached.second = *on;
+      return;
+    }
+  }
+  if (auto on = after_step(nullopt, action, run.has_state, run.state))
+    run.reached.emplace_back(action.target, *on);
 }
 
 void RuntimeAutomation::play_switch_(const CompiledAction &action, const Run &run) {

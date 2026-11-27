@@ -136,6 +136,9 @@ class RuntimeAutomation {
     const std::vector<CompiledAction> *branch;
     bool has_state{false};
     bool state{false};
+    // Where the steps passed so far left each relay, each with the state it played with: a later
+    // trigger single ignores changes `state` for the steps still to play, not for these.
+    std::vector<std::pair<switch_::Switch *, bool>> reached;
   };
 
   RuntimeAutomation(AutomationStorage *engine, const AutomationConfig &config);
@@ -152,6 +155,7 @@ class RuntimeAutomation {
   uint8_t free_seq_() const;
   uint32_t timer_id_(uint8_t seq) const { return (this->id_ << 4) | seq; }
   void play_switch_(const CompiledAction &action, const Run &run);
+  static void note_reached_(Run &run, const CompiledAction &action);
   void play_climate_(const CompiledAction &action, const Run &run);
 
   AutomationStorage *engine_;

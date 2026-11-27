@@ -281,6 +281,29 @@ TEST_F(Runtime, ARelayLetGoDuringARunKeepsWhatTheRunSet) {
   EXPECT_EQ(e.relay2.writes, 1);
 }
 
+// In single, a change during the run is handed to the follows still to play; the ones the run has
+// passed keep the state they played with, and a relay let go meanwhile goes where they left it.
+TEST_F(Runtime, ARelayLetGoDuringASingleRunKeepsWhatItsPassedFollowsSet) {
+  auto rule = build_rule(engine, R"({"name":"Hold","mode":"single","triggers":[{"source":"condition"}],
+      "condition":{"type":"input","object_id":"in_1"},
+      "actions":[{"source":"switch","type":"follow","object_id":"relay_1"},
+                 {"source":"delay","delay_ms":500},
+                 {"source":"switch","type":"follow","object_id":"relay_1"}],
+      "else_actions":[{"source":"switch","type":"follow","object_id":"relay_1"}]})");
+  ASSERT_NE(rule, nullptr);
+  rule->watch_condition();
+  e.in1.publish_state(true);
+  rule->on_binary_sensor(&e.in1, true);
+  EXPECT_TRUE(e.relay1.state);
+  e.in1.publish_state(false);
+  rule->on_binary_sensor(&e.in1, false);  // single: the run goes on, its last follow copies false
+  e.relay1.turn_off();                    // where a thermostat left it
+  rule->on_released(&e.relay1);
+  EXPECT_TRUE(e.relay1.state);  // the first follow played with true
+  ASSERT_TRUE(engine.fire_next());
+  EXPECT_FALSE(e.relay1.state);
+}
+
 // A change of the condition the rule has not been handed yet is not taken as acted on when a
 // relay is let go: it fires when it arrives.
 TEST_F(Runtime, ARelayLetGoLeavesAChangeOnItsWayToTheRule) {
