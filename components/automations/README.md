@@ -111,9 +111,10 @@ to watch`). Give it `restart`: in `single`, a change that comes while the rule s
 `delay` or with a thermostat action waiting for the next loop pass, is ignored.
 
 Run now plays the branch the condition gives at that moment. When a running thermostat lets a
-relay go, a watching rule sets it where its branch for the current result leaves it, the last
-`turn_on`, `turn_off` or `follow` on that relay, as a binding's `follow` does; a `toggle` sets
-nothing, and the rest of the branch does not play again. While a run is under way, the relay goes
+relay go, a watching rule sets it where its branch for the current result leaves it, as a
+binding's `follow` does: its `turn_on`, `turn_off`, `follow` and `toggle` steps on that relay
+played through, a `toggle` with no step before it setting nothing. The rest of the branch does
+not play again. While a run is under way, the relay goes
 where the run has got to, and the run's later steps on it play when it reaches them: a
 `delay` before them still holds.
 

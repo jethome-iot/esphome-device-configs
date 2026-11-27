@@ -114,8 +114,8 @@ class RuntimeAutomation {
   /// Takes the current result as acted on, without firing.
   void resync_condition();
   /// A thermostat let go of `sw`: a watching condition trigger sets it where its branch for the
-  /// current result leaves it (the last turn_on, turn_off or follow on it), as a binding's follow
-  /// does; while a run is under way, where the run has got to.
+  /// current result leaves it (its steps on it played through), as a binding's follow does; while
+  /// a run is under way, where the run has got to.
   void on_released(switch_::Switch *sw);
 
   void on_binary_sensor(binary_sensor::BinarySensor *entity, bool state, bool level = false);

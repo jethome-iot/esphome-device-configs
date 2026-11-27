@@ -382,23 +382,47 @@ void RuntimeAutomation::on_released(switch_::Switch *sw) {
   // A change of the result still on its way plays the whole branch when it arrives.
   if (!this->result_.has_value() || this->condition_->check() != *this->result_)
     return;
-  // Where the rule has left the relay: the last step that sets it in the branch for the result,
-  // or, while a run is under way, in what the newest run has played so far; its later steps set
-  // the relay when it gets to them. A toggle sets nothing of its own.
+  // Where the rule has left the relay: its steps on it in the branch for the result, played
+  // through, or, while a run is under way, those the newest run has played; its later steps set
+  // the relay when it gets to them. A toggle turns over what came before it, and with nothing
+  // before it to turn over the rule leaves the relay alone.
   Run idle{};
   idle.branch = *this->result_ ? &this->then_ : &this->else_;
   idle.cursor = idle.branch->size();
   idle.has_state = true;  // a follow copies the result, as the trigger hands it
   idle.state = *this->result_;
   const Run &run = this->runs_.empty() ? idle : *this->runs_.back();
-  const CompiledAction *last = nullptr;
+  optional<bool> on;
   for (size_t i = 0; i < run.cursor; i++) {
     const CompiledAction &action = (*run.branch)[i];
-    if (action.source == SourceAction::SWITCH && action.target == sw && action.type != TypeSwitchAction::TOGGLE)
-      last = &action;
+    if (action.source != SourceAction::SWITCH || action.target != sw)
+      continue;
+    switch (action.type) {
+      case TypeSwitchAction::TURN_ON:
+        on = true;
+        break;
+      case TypeSwitchAction::TURN_OFF:
+        on = false;
+        break;
+      case TypeSwitchAction::TOGGLE:
+        if (on.has_value())
+          on = !*on;
+        break;
+      case TypeSwitchAction::FOLLOW:
+        if (run.has_state)
+          on = run.state != action.invert;
+        break;
+      default:
+        break;
+    }
   }
-  if (last != nullptr)
-    this->play_switch_(*last, run);
+  if (!on.has_value())
+    return;
+  CompiledAction set;
+  set.source = SourceAction::SWITCH;
+  set.target = sw;
+  set.type = *on ? TypeSwitchAction::TURN_ON : TypeSwitchAction::TURN_OFF;
+  this->play_switch_(set, run);
 }
 
 void RuntimeAutomation::stop() {

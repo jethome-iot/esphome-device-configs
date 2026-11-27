@@ -32,8 +32,9 @@ from a lambda, or by writing into the folder by hand. The file format and the C+
   does nothing; the log names the rule and the thermostat, and the rest of the rule runs
   ([Thermostats](CLIMATE.md#a-running-thermostats-relays)). When the thermostat lets the relay
   go, a rule with a condition trigger sets it where its branch for the current result leaves
-  it (the last turn on, turn off or follow on it; a toggle sets nothing), so the relay goes
-  where the condition says; nothing else in the rule plays again. While a run is under way, the
+  it (its steps on that relay played through: a toggle turns over the step before it, and one
+  with no step before it sets nothing), so the relay goes where the condition says; nothing
+  else in the rule plays again. While a run is under way, the
   relay goes where the run has got to, and the run sets it further when it reaches its next step
   on it, after its delays.
 - **Thermostat actions**: turn off, turn on (back in the mode it was in before it went off),

@@ -219,6 +219,28 @@ TEST_F(Runtime, ARelayLetGoGoesWhereTheBranchLeavesIt) {
   EXPECT_TRUE(engine.delays.empty());
 }
 
+// A toggle after a step that sets the relay turns that over: the relay goes where the branch,
+// played through, leaves it, during the run and after it.
+TEST_F(Runtime, ARelayLetGoTakesAToggleAfterASetStep) {
+  auto rule = build_rule(engine, R"({"name":"Blink","triggers":[{"source":"condition"}],
+      "condition":{"type":"input","object_id":"in_1"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"},
+                 {"source":"delay","delay_ms":500},
+                 {"source":"switch","type":"toggle","object_id":"relay_1"}]})");
+  ASSERT_NE(rule, nullptr);
+  rule->watch_condition();
+  e.in1.publish_state(true);
+  rule->on_binary_sensor(&e.in1, true);
+  e.relay1.turn_off();  // where a thermostat left it, the delay still running
+  rule->on_released(&e.relay1);
+  EXPECT_TRUE(e.relay1.state);
+  ASSERT_TRUE(engine.fire_next());
+  EXPECT_FALSE(e.relay1.state);
+  e.relay1.turn_on();
+  rule->on_released(&e.relay1);
+  EXPECT_FALSE(e.relay1.state);
+}
+
 // While a run is under way the relay goes where the run has got to: a delay before its step on
 // the relay still holds, and what the run set before the delay is set again.
 TEST_F(Runtime, ARelayLetGoDuringARunGoesWhereTheRunHasGot) {
