@@ -55,6 +55,10 @@ A config without `password: ""` under `ota: - platform: esphome`, such as one im
 Builder from an older `dist/`, stops at `ESP requests password, but no password given!`, switch
 or not: add the line.
 
+A config imported from a `dist/` older than #345 has no `loop_task_stack_size: 12288` under
+`esp32: framework: advanced:`: it builds, but rules nested 8 deep overflow its loop task's stack
+while the web UI is open, and `automations` warns at build time, naming the line: add it.
+
 CI compiles with `TZ=Etc/UTC`: the `homeassistant` time platform bakes the build host's zone into
 the firmware.
 

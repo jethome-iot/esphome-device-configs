@@ -10,6 +10,10 @@ esp32:
       CONFIG_D0WD_PSRAM_CLK_IO: "6"
       # ESP-IDF's default of one drops all but the first SNTP server rtc-time.yaml lists.
       CONFIG_LWIP_SNTP_MAX_SERVERS: "3"
+    advanced:
+      # The default 8192 B overflow when rules nest 8 deep while a client holds /events open:
+      # each relay's state event is built on this stack (#345).
+      loop_task_stack_size: 12288
 
 psram:
   mode: quad
