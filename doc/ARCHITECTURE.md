@@ -245,7 +245,9 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
   deepest of the entries #328 measured, the panel, the menu, bindings and virtual inputs
   included. A bump measures those three again; #354 is to bring the means into the tree. The
   same 12288 B is `MIN_LOOP_TASK_STACK_SIZE` in `components/automations`, below which the build
-  warns: a new size goes into both.
+  warns, and the line `components/automations/README.md`,
+  `components/web_automation_editor/README.md` and `doc/DEVELOPMENT.md` tell users to add: a new
+  size goes into all of them.
 - `boards/jxd-cpu-e1eth.yaml` marks `provisioning`'s source `0` provisioned at boot when the API
   key is there: that is the network source, which the manager registers in its constructor,
   before any other. Were it not, an added device would again close its window when no network
