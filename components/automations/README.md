@@ -29,6 +29,11 @@ automations:
   time_id: pcf8563_time
 ```
 
+With `web_server` on ESP32, give the loop task 12288 B, `esp32: framework: advanced:
+loop_task_stack_size: 12288`: rules that set each other off nest 8 deep on that stack, and while
+a client holds `/events` open each relay state they change is sent from there too, which
+overflows ESPHome's default 8192 B (#345). Below 12288 B the build warns.
+
 ## Options
 
 | Option        | Default       | Meaning                                                                    |
