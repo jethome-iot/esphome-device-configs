@@ -276,6 +276,9 @@ function readSlot(slot: MqttSlotFields, payload: string): SlotReading {
   }
   if (slot.kind === 'binary_sensor') {
     if (at.json && v === null) return { value: null, error: null }
+    // A whole message as sent first, as the device: a payload with a space at an end matches only so.
+    if (!at.json && lowerAscii(payload) === lowerAscii(slot.payload_on)) return { value: true, error: null }
+    if (!at.json && lowerAscii(payload) === lowerAscii(slot.payload_off)) return { value: false, error: null }
     const text = typeof v === 'string' ? v : JSON.stringify(v)
     if (lowerAscii(text) === lowerAscii(slot.payload_on)) return { value: true, error: null }
     if (lowerAscii(text) === lowerAscii(slot.payload_off)) return { value: false, error: null }

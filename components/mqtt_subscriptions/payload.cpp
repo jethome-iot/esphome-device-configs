@@ -192,6 +192,11 @@ BinaryReading read_binary(Message &message, const std::string &json_path, const 
         literal = at.value.as<bool>();
     }
   } else {
+    // The message as sent first: a payload with a space at an end matches only so. Then trimmed.
+    if (equal_ignoring_case(message.payload(), payload_on))
+      return {true, ""};
+    if (equal_ignoring_case(message.payload(), payload_off))
+      return {false, ""};
     text = at.text;
     // A payload of just `true` or `false` is a JSON bool as well.
     if (text == "true") {

@@ -111,6 +111,19 @@ TEST(BinaryPayload, ThePayloadsWithoutCase) {
   EXPECT_EQ(neither.error, "neither ON nor OFF");
 }
 
+// A whole message is compared as sent before it is trimmed, so a payload with a space at an end
+// still matches its own message, and a plain one still matches with spaces around it.
+TEST(BinaryPayload, TheMessageAsSentComesBeforeTheTrimmedOne) {
+  EXPECT_EQ(binary(" ON ", "", " ON ", "OFF").value, optional<bool>(true));
+  EXPECT_EQ(binary(" on ", "", " ON ", "OFF").value, optional<bool>(true));
+  EXPECT_EQ(binary(" ON \n", "", "ON", "OFF").value, optional<bool>(true));
+  // Exactly the other payload wins over a trimmed match of this one.
+  EXPECT_EQ(binary(" ON ", "", "ON", " ON ").value, optional<bool>(false));
+  // A JSON path's string is compared as it is, untrimmed.
+  EXPECT_EQ(binary(R"({"s":" ON "})", "s", " ON ", "OFF").value, optional<bool>(true));
+  EXPECT_EQ(binary(R"({"s":" ON "})", "s", "ON", "OFF").error, "neither ON nor OFF");
+}
+
 TEST(BinaryPayload, AJsonBoolIsTheFallback) {
   EXPECT_EQ(binary("true").value, optional<bool>(true));
   EXPECT_EQ(binary("false").value, optional<bool>(false));
