@@ -277,21 +277,21 @@ TEST_F(Contract, TheContractsDeviceIsThisSuites) {
   for (JsonVariantConst name : environment["climates"].as<JsonArrayConst>()) {
     const auto &climates = App.get_climates();
     EXPECT_TRUE(std::any_of(climates.begin(), climates.end(), [&name](climate::Climate *c) {
-      return name.as<std::string>() == c->get_name().c_str();
+      return name.as<std::string>() == c->get_name_progmem().ram_ref().c_str();
     })) << name.as<std::string>();
   }
   for (JsonObjectConst want : environment["sensors"].as<JsonArrayConst>()) {
     const std::string id = want["object_id"].as<std::string>();
     sensor::Sensor *sensor = climate_hub::find_sensor(id);
     ASSERT_NE(sensor, nullptr) << id;
-    EXPECT_EQ(want["name"].as<std::string>(), sensor->get_name().c_str()) << id;
+    EXPECT_EQ(want["name"].as<std::string>(), sensor->get_name_progmem().ram_ref().c_str()) << id;
     EXPECT_EQ(want["unit"].as<std::string>(), sensor->get_unit_of_measurement_ref().c_str()) << id;
   }
   for (JsonObjectConst want : environment["switches"].as<JsonArrayConst>()) {
     const std::string id = want["object_id"].as<std::string>();
     switch_::Switch *relay = climate_hub::find_switch(id);
     ASSERT_NE(relay, nullptr) << id;
-    EXPECT_EQ(want["name"].as<std::string>(), relay->get_name().c_str()) << id;
+    EXPECT_EQ(want["name"].as<std::string>(), relay->get_name_progmem().ram_ref().c_str()) << id;
   }
   for (JsonVariantConst id : environment["missing"].as<JsonArrayConst>()) {
     EXPECT_EQ(climate_hub::find_sensor(id.as<std::string>()), nullptr) << id.as<std::string>();

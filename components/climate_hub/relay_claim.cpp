@@ -89,10 +89,11 @@ void RelayClaim::count_move_(uint32_t wait_ms) {
 #ifdef USE_SWITCH
   if (wait_ms == 0) {
     ESP_LOGI(TAG, "'%s': relay '%s' moved from elsewhere (%u), put back", this->owner_.c_str(),
-             this->sw_->get_name().c_str(), static_cast<unsigned>(this->moves_));
+             LOG_STR_ARG(this->sw_->get_log_name()), static_cast<unsigned>(this->moves_));
   } else {
     ESP_LOGI(TAG, "'%s': relay '%s' moved from elsewhere (%u), put back in %u s", this->owner_.c_str(),
-             this->sw_->get_name().c_str(), static_cast<unsigned>(this->moves_), static_cast<unsigned>(wait_ms / 1000));
+             LOG_STR_ARG(this->sw_->get_log_name()), static_cast<unsigned>(this->moves_),
+             static_cast<unsigned>(wait_ms / 1000));
   }
 #endif
 }

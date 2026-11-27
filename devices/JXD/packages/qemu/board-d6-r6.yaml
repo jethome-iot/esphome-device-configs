@@ -28,16 +28,15 @@ switch:
     pin: !remove
     optimistic: true
 
-  # A `template` input cannot change on its own, so one internal switch per input
-  # publishes onto it: POST /switch/Drive%20input%203/turn_on raises Input 3.
-  # `internal:` costs them the entity list and its SSE stream, not the command —
-  # web_server matches a POST by name and never looks at the flag.
+  # A `template` input cannot change on its own, so one switch per input publishes
+  # onto it: POST /switch/Drive%20input%203/turn_on raises Input 3. They are not
+  # `internal:`: since ESPHome 2026.11 web_server answers no internal entity by URL,
+  # and climate_hub and virtual_inputs refuse the include_internal that would.
   # Their ALWAYS_OFF restore also gives the inputs a boot state, which `template`
   # otherwise never publishes.
   - platform: template
     id: drive_input_1
     name: "Drive input 1"
-    internal: true
     optimistic: true
     restore_mode: ALWAYS_OFF
     turn_on_action:
@@ -51,7 +50,6 @@ switch:
   - platform: template
     id: drive_input_2
     name: "Drive input 2"
-    internal: true
     optimistic: true
     restore_mode: ALWAYS_OFF
     turn_on_action:
@@ -65,7 +63,6 @@ switch:
   - platform: template
     id: drive_input_3
     name: "Drive input 3"
-    internal: true
     optimistic: true
     restore_mode: ALWAYS_OFF
     turn_on_action:
@@ -79,7 +76,6 @@ switch:
   - platform: template
     id: drive_input_4
     name: "Drive input 4"
-    internal: true
     optimistic: true
     restore_mode: ALWAYS_OFF
     turn_on_action:
@@ -93,7 +89,6 @@ switch:
   - platform: template
     id: drive_input_5
     name: "Drive input 5"
-    internal: true
     optimistic: true
     restore_mode: ALWAYS_OFF
     turn_on_action:
@@ -107,7 +102,6 @@ switch:
   - platform: template
     id: drive_input_6
     name: "Drive input 6"
-    internal: true
     optimistic: true
     restore_mode: ALWAYS_OFF
     turn_on_action:

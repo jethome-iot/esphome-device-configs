@@ -389,7 +389,8 @@ class Generated(unittest.TestCase):
         automations = [s for s in statements if "get_clock_set_trigger()" in s]
         self.assertEqual(len(automations), 1, statements)
         self.assertIn("Automation<>(tz->get_clock_set_trigger())", automations[0])
-        self.assertTrue([s for s in statements if "add_actions(" in s], statements)
+        # The actions go onto that automation one add_action() each since ESPHome 2026.11.
+        self.assertTrue([s for s in statements if "add_action(" in s], statements)
 
     def test_no_on_clock_set_builds_no_automation(self):
         _, statements = self.generate(validate(id="tz"))

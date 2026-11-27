@@ -14,10 +14,10 @@
 
 namespace esphome::web_origin_guard {
 
-/// Whether @p request may be served. The rule is web_server's own
-/// (WebServer::is_request_origin_allowed_): no Origin header passes, an Origin whose authority
-/// is the Host the request was sent to passes, everything else is cross-origin. There is no
-/// allow list -- one rule for every handler on the port.
+/// Whether @p request may be served. The rule is the one web_server_base's guard applies to the
+/// handlers it wraps (is_origin_allowed() in web_server_base/origin.cpp) with no allowed_origins:
+/// no Origin header passes, an Origin whose authority is the Host the request was sent to passes,
+/// everything else is cross-origin. There is no allow list -- one rule for every handler on the port.
 inline bool allowed(AsyncWebServerRequest *request) {
   const optional<std::string> origin = request->get_header("Origin");
   // No Origin: not a browser cross-origin request -- curl, a script, the native API client.
@@ -38,8 +38,8 @@ inline bool allowed(AsyncWebServerRequest *request) {
 /// The one answer a refused request gets, from whichever of the two guards saw it.
 inline void send_refusal(AsyncWebServerRequest *request) {
 #ifdef USE_ESP32
-  // By hand because AsyncWebServerRequest::send() turns every status it does not know --
-  // 403 among them -- into a 500.
+  // By hand: AsyncWebServerRequest::send() turned 403 into a 500 before ESPHome 2026.11; #348
+  // reworks the guard.
   httpd_req_t *req = *request;
   httpd_resp_set_status(req, "403 Forbidden");
   httpd_resp_set_type(req, "text/plain");
@@ -108,8 +108,8 @@ class WebOriginGuard : public AsyncWebHandler {
 
 // Claims a request only in order to refuse it: an allowed request is not claimed and falls
 // through to the handler that would have served it. Registered ahead of every other handler,
-// so it covers what no wrapper reaches -- upstream's REST routes, its OTA handler at /update,
-// anything a future component adds to the shared server.
+// so it covers what neither our wrapper nor upstream's add_handler() guard reaches: whatever is
+// registered with add_handler_without_auth(), the captive portal among it.
 class CrossOriginRefuser : public AsyncWebHandler, public Component {
  public:
   explicit CrossOriginRefuser(web_server_base::WebServerBase *base) : base_(base) {}

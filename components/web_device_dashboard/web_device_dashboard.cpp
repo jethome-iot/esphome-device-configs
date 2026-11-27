@@ -1630,7 +1630,7 @@ void WebDeviceDashboard::write_virtual_input_(JsonObject entry, virtual_inputs::
   char buf[OBJECT_ID_MAX_LEN];
   entry["slot"] = slot + 1;
   entry["object_id"] = sensor->get_object_id_to(buf).str();
-  entry["name"] = sensor->get_name().str();
+  entry["name"] = sensor->get_name_progmem().ram_ref().str();
   entry["label"] = input_label(*sensor);
   entry["source"] = config.source;
   entry["on_delay"] = config.on_delay;
@@ -1676,7 +1676,7 @@ void WebDeviceDashboard::handle_virtual_inputs_(AsyncWebServerRequest *request) 
         JsonObject entry = sources.add<JsonObject>();
         char buf[OBJECT_ID_MAX_LEN];
         entry["object_id"] = sensor->get_object_id_to(buf).str();
-        entry["name"] = sensor->get_name().str();
+        entry["name"] = sensor->get_name_progmem().ram_ref().str();
         entry["label"] = input_label(*sensor);
       }
     });
@@ -1863,7 +1863,7 @@ static void write_entity_index(JsonObject root, config_json::SettingsBaseJson *s
     const StringRef object_id = obj->get_object_id_to(buf);
     JsonObject entry = list.add<JsonObject>();
     entry["source_name"] = object_id.str();
-    entry["name"] = obj->get_name().str();
+    entry["name"] = obj->get_name_progmem().ram_ref().str();
     entry["label"] = settings->get_label(object_id.c_str());
     extra(entry, obj);
   }

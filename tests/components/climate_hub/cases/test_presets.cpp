@@ -142,7 +142,7 @@ TEST_F(Presets, TheCustomNamesStayInTheSlotsBuffers) {
   this->create(config);
   HubClimate *entity = hub().entity_of("boiler");
   ASSERT_NE(nullptr, entity);
-  const std::vector<const char *> &list = entity->get_traits().get_supported_custom_presets();
+  const climate::ClimateCustomModes &list = entity->get_traits().get_supported_custom_presets();
   const char *const *storage = list.data();
   const char *first = list[0];
   EXPECT_EQ(repeat("д", NAME_MAX_LENGTH), list[1]) << "the longest name, 96 bytes, whole";
@@ -154,7 +154,7 @@ TEST_F(Presets, TheCustomNamesStayInTheSlotsBuffers) {
   for (int i = 0; i < 6; i++)
     config.presets.push_back(preset(("Extra " + std::to_string(i)).c_str(), 20.f));
   ASSERT_TRUE(hub().update("boiler", config).ok);
-  const std::vector<const char *> &after = entity->get_traits().get_supported_custom_presets();
+  const climate::ClimateCustomModes &after = entity->get_traits().get_supported_custom_presets();
   EXPECT_EQ(&list, &after);
   ASSERT_EQ(PRESET_MAX_COUNT, after.size());
   EXPECT_EQ(storage, after.data()) << "eight names fit the room the slot set aside";

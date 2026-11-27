@@ -111,7 +111,7 @@ static std::string not_celsius(const std::string &who, const sensor::Sensor &sen
 static std::string unit_refusal(const sensor::Sensor *sensor) {
 #ifdef USE_SENSOR
   if (sensor != nullptr && !reports_celsius(*sensor))
-    return not_celsius("\"" + std::string(sensor->get_name().c_str()) + "\"", *sensor);
+    return not_celsius("\"" + sensor->get_name_progmem().ram_ref().str() + "\"", *sensor);
 #else
   (void) sensor;
 #endif
@@ -450,8 +450,9 @@ float ClimateHub::sensor_reading(const std::string &sensor_object_id) const {
 }
 
 bool ClimateHub::is_name_taken(const std::string &name, const std::string &exclude_id, std::string *error) const {
-  // Every name another climate answers to: the other thermostats, then the YAML climates,
-  // internal ones too, since the web server matches a name whatever the flag.
+  // Every name another climate has: the other thermostats, then the YAML climates, internal
+  // ones too. Those were refused while the web server matched a name whatever the flag; since
+  // ESPHome 2026.11 it reaches no internal entity, and whether to allow them is #351.
   std::vector<std::string> others;
   for (const auto &config : this->store_.all()) {
     if (config->id != exclude_id)
@@ -463,7 +464,7 @@ bool ClimateHub::is_name_taken(const std::string &name, const std::string &exclu
     const bool ours = std::any_of(this->slots_.begin(), this->slots_.end(),
                                   [climate](const Slot *slot) { return &slot->entity == climate; });
     if (!ours)
-      others.emplace_back(climate->get_name().c_str());
+      others.emplace_back(climate->get_name_progmem().ram_ref().c_str());
   }
 #endif
   const std::string key = name_key(name);
@@ -1417,7 +1418,7 @@ Result ClimateHub::relay_held_(const std::string &relay_id, const std::string &h
   std::string relay_name = relay_id;
 #ifdef USE_SWITCH
   if (switch_::Switch *sw = find_switch(relay_id))
-    relay_name = sw->get_name().c_str();
+    relay_name = sw->get_name_progmem().ram_ref().c_str();
 #endif
   const ClimateConfig *held_by = this->store_.get(holder);
   const std::string who = "\"" + (held_by != nullptr ? held_by->name : holder) + "\"";
@@ -1429,9 +1430,9 @@ Result ClimateHub::relay_held_(const std::string &relay_id, const std::string &h
 }
 
 std::deque<ClimateHub::Slot *>::iterator ClimateHub::free_slot_like_(const std::string &name) {
-  // The web server matches the exact name, so no hidden slot is left answering it.
+  // The exact name: only a slot under that very name would go out twice in a listing in flight.
   return std::find_if(this->free_.begin(), this->free_.end(), [&name](const Slot *slot) {
-    return slot->entity.is_named() && name == slot->entity.get_name().c_str();
+    return slot->entity.is_named() && slot->entity.name_equals(StringRef(name));
   });
 }
 
@@ -1448,7 +1449,8 @@ bool ClimateHub::give_way_(const std::string &name, const Slot *renamed) {
   auto it = this->free_slot_like_(name);
   if (it == this->free_.end())
     return false;
-  (*it)->entity.hide_as(renamed->entity.get_name().c_str(), renamed->entity.get_object_id_hash(), this->entity_fields_);
+  (*it)->entity.hide_as(renamed->entity.get_name_progmem().ram_ref().c_str(), renamed->entity.get_object_id_hash(),
+                        this->entity_fields_);
   return true;
 }
 

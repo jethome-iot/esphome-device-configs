@@ -168,7 +168,7 @@ void VirtualDisplay::dump_config() {
   ESP_LOGCONFIG(TAG, "  Front panel: %s", this->url_prefix_.c_str());
 #ifdef USE_BINARY_SENSOR
   for (const auto &key : this->keys_)
-    ESP_LOGCONFIG(TAG, "  Key '%s' -> %s", key.name.c_str(), key.sensor->get_name().c_str());
+    ESP_LOGCONFIG(TAG, "  Key '%s' -> %s", key.name.c_str(), LOG_STR_ARG(key.sensor->get_log_name()));
 #endif
   LOG_UPDATE_INTERVAL(this);
 }

@@ -386,10 +386,10 @@ void ScheduleEngine::apply_relay_(Entry &entry, const Action &action) {
   const std::string holder = switch_hold::holder(sw);
   if (!holder.empty()) {
     ESP_LOGI(TAG, "Schedule '%s' left '%s' alone: thermostat '%s' drives it", entry.config.name.c_str(),
-             sw->get_name().c_str(), holder.c_str());
+             LOG_STR_ARG(sw->get_log_name()), holder.c_str());
     return;
   }
-  ESP_LOGI(TAG, "Schedule '%s': '%s' %s", entry.config.name.c_str(), sw->get_name().c_str(),
+  ESP_LOGI(TAG, "Schedule '%s': '%s' %s", entry.config.name.c_str(), LOG_STR_ARG(sw->get_log_name()),
            describe(entry.config, action).c_str());
   // Last: the switch's callbacks may change anything, `entry` included.
   if (action.value == ValueType::ON) {
@@ -865,7 +865,7 @@ std::vector<Issue> ScheduleEngine::issues_(const ScheduleConfig &config,
         issue.held_by = switch_hold::holder(sw);
         if (!issue.held_by.empty()) {
           issue.kind = IssueKind::HELD;
-          issue.text = "Thermostat \"" + issue.held_by + "\" drives " + sw->get_name().c_str();
+          issue.text = "Thermostat \"" + issue.held_by + "\" drives " + sw->get_name_progmem().ram_ref().c_str();
           issues.push_back(std::move(issue));
         }
 #endif
@@ -958,7 +958,7 @@ std::string ScheduleEngine::target_name(const Target &target) const {
 #ifdef USE_SWITCH
     const switch_::Switch *sw = find_switch(std::string(target.id));
     if (sw != nullptr)
-      return sw->get_name().c_str();
+      return sw->get_name_progmem().ram_ref().c_str();
 #endif
     return std::string(target.id);
   }
@@ -1023,7 +1023,7 @@ std::vector<RelayTarget> ScheduleEngine::relay_targets() const {
     char buf[OBJECT_ID_MAX_LEN];
     RelayTarget row;
     row.object_id = sw->get_object_id_to(buf).c_str();
-    row.name = sw->get_name().c_str();
+    row.name = sw->get_name_progmem().ram_ref().c_str();
     row.held_by = switch_hold::holder(sw);
     row.scheduled_by = this->scheduled_by(TargetType::RELAY, row.object_id);
     out.push_back(std::move(row));

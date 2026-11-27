@@ -51,7 +51,7 @@ TEST_F(Restore, CreatesTheThermostatUnderTheIdItBrings) {
   EXPECT_EQ("", result.warning);
   EXPECT_EQ(std::vector<std::string>{"lounge.json"}, list_dir(this->folder()));
   ASSERT_TRUE(hub().is_running("lounge"));
-  EXPECT_EQ("Living Room", std::string(hub().entity_of("lounge")->get_name().c_str()));
+  EXPECT_EQ("Living Room", std::string(hub().entity_of("lounge")->get_name_progmem().ram_ref().c_str()));
   EXPECT_EQ("lounge", hub().claimed_by("relay_1"));
   pass_resync_delay();
   EXPECT_EQ(1, hub().resyncs) << "a new entity for Home Assistant to list";

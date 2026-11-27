@@ -525,7 +525,7 @@ void RuntimeAutomation::play_switch_(const CompiledAction &action, const Run &ru
   const std::string holder = switch_hold::holder(action.target);
   if (!holder.empty()) {
     ESP_LOGI(TAG, "Automation '%s' left '%s' alone: thermostat '%s' drives it", this->name_.c_str(),
-             action.target->get_name().c_str(), holder.c_str());
+             LOG_STR_ARG(action.target->get_log_name()), holder.c_str());
     return;
   }
   switch (action.type) {

@@ -518,7 +518,7 @@ TEST_F(Editor, DeleteEmptiesAFileItCannotRemove) {
   Reply reply = this->post("delete?id=living-room");
   ASSERT_EQ(reply.code, 200) << reply.body;
   EXPECT_EQ(reply.body, R"({"success":true,"message":"Thermostat deleted","persisted":true})");
-  struct stat info {};
+  struct stat info{};
   ASSERT_EQ(stat((this->folder() + "/living-room.json").c_str(), &info), 0);
   EXPECT_EQ(info.st_size, 0);
   EXPECT_EQ(hub().store().get("living-room"), nullptr);

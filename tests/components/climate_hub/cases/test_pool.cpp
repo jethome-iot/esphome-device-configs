@@ -35,7 +35,7 @@ class ApiListing : public ComponentIterator {
   std::vector<std::string> encode() const {
     std::vector<std::string> names;
     for (const climate::Climate *climate : this->climates_)
-      names.emplace_back(climate->get_name().c_str());
+      names.emplace_back(climate->get_name_progmem().ram_ref().c_str());
     return names;
   }
   // The keys it receives with them: two alike are one entity listed twice.
@@ -60,7 +60,7 @@ class ApiListing : public ComponentIterator {
 void expect_names_unique(const char *step) {
   std::set<std::string> seen;
   for (auto *climate : App.get_climates()) {
-    const std::string name = climate->get_name().c_str();
+    const std::string name = climate->get_name_progmem().ram_ref().c_str();
     if (name != FREE_SLOT_NAME)
       EXPECT_TRUE(seen.insert(name).second) << step << ": two climates are \"" << name << "\"";
   }
@@ -129,7 +129,7 @@ TEST_F(HubTest, EverySlotIsRegisteredAtSetupAndHiddenUnderThePlaceholder) {
     HubClimate *slot = hub().slot_entity(i);
     EXPECT_NE(climates.end(), std::find(climates.begin(), climates.end(), slot)) << i;
     EXPECT_TRUE(slot->is_internal()) << i;
-    EXPECT_STREQ(FREE_SLOT_NAME, slot->get_name().c_str()) << i;
+    EXPECT_STREQ(FREE_SLOT_NAME, slot->get_name_progmem().ram_ref().c_str()) << i;
   }
 }
 
@@ -140,7 +140,7 @@ TEST_F(HubTest, ThePlaceholderSitsInABufferAsLongAsAName) {
   ASSERT_TRUE(hub().remove("room-1").ok);
   hub().slot_entity(0)->park(0);  // as a hub starting over does
   for (size_t index : {size_t{0}, hub().slot_count() - 1}) {
-    const char *name = hub().slot_entity(index)->get_name().c_str();
+    const char *name = hub().slot_entity(index)->get_name_progmem().ram_ref().c_str();
     ASSERT_STREQ(FREE_SLOT_NAME, name) << index;
     for (size_t i = std::strlen(name); i <= NAME_MAX_BYTES; i++)
       EXPECT_EQ('\0', name[i]) << index << ", byte " << i;
@@ -161,10 +161,10 @@ TEST_F(HubTest, AStartedSlotIsVisibleWithTheNameDerivedHash) {
 TEST_F(HubTest, ARenameSwapsTheNameBuffer) {
   this->create(draft("Boiler"));
   HubClimate *entity = hub().entity_of("boiler");
-  const char *before = entity->get_name().c_str();
+  const char *before = entity->get_name_progmem().ram_ref().c_str();
 
   ASSERT_TRUE(hub().update("boiler", draft("Hot Water")).ok);
-  const char *after = entity->get_name().c_str();
+  const char *after = entity->get_name_progmem().ram_ref().c_str();
   EXPECT_NE(before, after);
   EXPECT_STREQ("Boiler", before);
   EXPECT_STREQ("Hot Water", after);
@@ -202,14 +202,14 @@ TEST_F(HubTest, HidingKeepsTheNameAndTheKey) {
   this->create(draft("Boiler"));
   HubClimate *entity = hub().entity_of("boiler");
   const uint32_t key = entity->get_object_id_hash();
-  const char *name = entity->get_name().c_str();
+  const char *name = entity->get_name_progmem().ram_ref().c_str();
 
   ASSERT_TRUE(hub().set_enabled("boiler", false).ok);
   EXPECT_TRUE(entity->is_internal());
   EXPECT_TRUE(entity->is_free());
   EXPECT_TRUE(entity->is_named());
-  EXPECT_EQ(name, entity->get_name().c_str()) << "the same bytes";
-  EXPECT_STREQ("Boiler", entity->get_name().c_str());
+  EXPECT_EQ(name, entity->get_name_progmem().ram_ref().c_str()) << "the same bytes";
+  EXPECT_STREQ("Boiler", entity->get_name_progmem().ram_ref().c_str());
   EXPECT_EQ(key, entity->get_object_id_hash());
   EXPECT_EQ(nullptr, App.get_climate_by_key(key)) << "internal: the API cannot address it";
   EXPECT_EQ(entity, App.get_climate_by_key(key, true));
@@ -273,14 +273,14 @@ TEST_F(HubTest, TheSameNameComesBackOnTheSameSlot) {
   ASSERT_TRUE(hub().remove("boiler").ok);
   this->create(draft("BOILER", "relay_1"));
   EXPECT_NE(boiler, hub().entity_of("boiler"));
-  EXPECT_STREQ("Boiler", boiler->get_name().c_str());
+  EXPECT_STREQ("Boiler", boiler->get_name_progmem().ram_ref().c_str());
   EXPECT_EQ(fnv1_hash("climate_hub/boiler"), hub().entity_of("boiler")->get_object_id_hash());
 }
 
 // #89: Home Assistant lists the entities while a thermostat runs, the thermostat is removed, and
 // another one is renamed onto its name before the listing goes out. The removed one's slot is in
 // the listing, so whatever name it has by then reaches Home Assistant; and it cannot keep the name,
-// since the web server answers the first climate by that name, hidden or not.
+// which the listing would then send twice.
 TEST_F(HubTest, ARenameOntoAHiddenSlotsNameSwapsTheNames) {
   this->create(draft("Room 1", "relay_1"));
   this->create(draft("Kettle", "relay_2"));
@@ -293,17 +293,17 @@ TEST_F(HubTest, ARenameOntoAHiddenSlotsNameSwapsTheNames) {
   ASSERT_TRUE(hub().update("kettle", draft("Room 1", "relay_2")).ok);
   expect_listing_sound(listing, "rename");
   EXPECT_EQ(kettle, hub().entity_of("kettle")) << "a rename stays on its own slot";
-  EXPECT_STREQ("Kettle", hidden->get_name().c_str()) << "the name the rename let go of";
+  EXPECT_STREQ("Kettle", hidden->get_name_progmem().ram_ref().c_str()) << "the name the rename let go of";
   EXPECT_EQ(fnv1_hash("kettle"), hidden->get_object_id_hash());
   EXPECT_TRUE(hidden->is_internal());
   EXPECT_TRUE(hidden->is_free());
   EXPECT_EQ(kettle, web_server_match("Room 1"));
-  EXPECT_EQ(hidden, web_server_match("Kettle")) << "a stopped state, as for a removed one's name";
+  EXPECT_EQ(nullptr, web_server_match("Kettle")) << "a hidden slot answers no URL";
   expect_names_unique("rename");
 
   // Back again: the names trade places once more.
   ASSERT_TRUE(hub().update("kettle", draft("Kettle", "relay_2")).ok);
-  EXPECT_STREQ("Room 1", hidden->get_name().c_str());
+  EXPECT_STREQ("Room 1", hidden->get_name_progmem().ram_ref().c_str());
   EXPECT_EQ(kettle, web_server_match("Kettle"));
 }
 
@@ -319,11 +319,11 @@ TEST_F(HubTest, ARenameOntoAHiddenSlotsObjectIdLeavesThatSlotItsName) {
   ASSERT_TRUE(hub().remove("room-1").ok);
   ASSERT_TRUE(hub().update("kettle", draft("Room_1", "relay_2")).ok);
   expect_listing_sound(listing, "rename");
-  EXPECT_STREQ("Room 1", hidden->get_name().c_str());
+  EXPECT_STREQ("Room 1", hidden->get_name_progmem().ram_ref().c_str());
   EXPECT_EQ(fnv1_hash("room_1"), hidden->get_object_id_hash());
   EXPECT_EQ(fnv1_hash("climate_hub/kettle"), kettle->get_object_id_hash());
   EXPECT_EQ(kettle, web_server_match("Room_1"));
-  EXPECT_EQ(hidden, web_server_match("Room 1"));
+  EXPECT_EQ(nullptr, web_server_match("Room 1"));
 
   // Stopped and started again, it comes back on its own slot, under its key.
   ASSERT_TRUE(hub().set_enabled("kettle", false).ok);
@@ -389,7 +389,7 @@ TEST_F(HubTest, ARenameWithinOneObjectIdKeepsTheKey) {
   ASSERT_TRUE(hub().update("climate-2", draft("Кухня", "relay_3")).ok);
   expect_listing_sound(listing, "rename onto a hidden name");
   HubClimate *hidden = hub().slot_entity(1);
-  EXPECT_STREQ("Сауна", hidden->get_name().c_str());
+  EXPECT_STREQ("Сауна", hidden->get_name_progmem().ram_ref().c_str());
   EXPECT_EQ(from_id, hidden->get_object_id_hash());
   EXPECT_EQ(fnv1_hash("__________"), bathroom->get_object_id_hash()) << "the key that went to that name";
 }
@@ -410,7 +410,7 @@ TEST_F(HubTest, ASlotThatGivesWayTakesTheKeyTheRenameLeaves) {
   ASSERT_TRUE(hub().remove("kettle").ok);
   ASSERT_TRUE(hub().update("climate-2", draft("Kettle", "relay_2")).ok);
   expect_listing_sound(listing, "rename");
-  EXPECT_STREQ("Ванна", hidden->get_name().c_str());
+  EXPECT_STREQ("Ванна", hidden->get_name_progmem().ram_ref().c_str());
   EXPECT_EQ(left, hidden->get_object_id_hash());
   EXPECT_EQ(fnv1_hash("kettle"), bathroom->get_object_id_hash());
   EXPECT_EQ(fnv1_hash("__________"), kitchen->get_object_id_hash());
@@ -429,10 +429,10 @@ TEST_F(HubTest, ARenameOntoAHiddenSlotsLookalikeLeavesThatSlotItsName) {
   ASSERT_TRUE(hub().remove("caf").ok);
   ASSERT_TRUE(hub().update("kettle", draft("Caf_", "relay_2")).ok);
   expect_listing_sound(listing, "rename");
-  EXPECT_STREQ("Café", hidden->get_name().c_str());
+  EXPECT_STREQ("Café", hidden->get_name_progmem().ram_ref().c_str());
   EXPECT_TRUE(hidden->is_free());
   EXPECT_EQ(kettle, web_server_match("Caf_"));
-  EXPECT_EQ(hidden, web_server_match("Café"));
+  EXPECT_EQ(nullptr, web_server_match("Café"));
 }
 
 // A start under a name that differs from the hidden one's only in case and spacing has another
@@ -447,8 +447,8 @@ TEST_F(HubTest, AStartUnderAHiddenSlotsNameInOtherSpacingLeavesThatSlotItsName) 
   expect_listing_sound(listing, "start");
   HubClimate *started = hub().entity_of("room-1");
   EXPECT_NE(hidden, started) << "room__1 is not room_1";
-  EXPECT_STREQ("Room 1", hidden->get_name().c_str());
-  EXPECT_STREQ("room  1", started->get_name().c_str());
+  EXPECT_STREQ("Room 1", hidden->get_name_progmem().ram_ref().c_str());
+  EXPECT_STREQ("room  1", started->get_name_progmem().ram_ref().c_str());
   expect_names_unique("start");
 }
 
@@ -506,8 +506,9 @@ TEST_F(HubTest, NoListingSendsThePlaceholderWhateverTheThermostatsDo) {
     // Hidden ones too: a listing queued before one was hidden sends its key.
     std::set<uint32_t> keys;
     for (auto *climate : App.get_climates()) {
-      if (std::string(FREE_SLOT_NAME) != climate->get_name().c_str())
-        ASSERT_TRUE(keys.insert(climate->get_object_id_hash()).second) << at << ", " << climate->get_name().c_str();
+      if (std::string(FREE_SLOT_NAME) != climate->get_name_progmem().ram_ref().c_str())
+        ASSERT_TRUE(keys.insert(climate->get_object_id_hash()).second)
+            << at << ", " << climate->get_name_progmem().ram_ref().c_str();
     }
   }
 }
@@ -524,7 +525,7 @@ TEST_F(HubTest, ThePlaceholderIsOnlyForSlotsNeverUsed) {
     for (size_t i = 0; i < hub().slot_count(); i++) {
       const HubClimate *slot = hub().slot_entity(i);
       EXPECT_EQ(used.count(slot) != 0, slot->is_named()) << step << ", slot " << i;
-      EXPECT_EQ(used.count(slot) == 0, std::string(FREE_SLOT_NAME) == slot->get_name().c_str())
+      EXPECT_EQ(used.count(slot) == 0, std::string(FREE_SLOT_NAME) == slot->get_name_progmem().ram_ref().c_str())
           << step << ", slot " << i;
     }
   };

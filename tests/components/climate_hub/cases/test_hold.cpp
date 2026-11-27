@@ -13,9 +13,8 @@ struct Release {
 inline std::vector<Release> &releases() {
   static std::vector<Release> *heard = [] {
     auto *list = new std::vector<Release>();
-    switch_hold::add_on_release_callback([list](switch_::Switch *sw) {
-      list->push_back({sw, switch_hold::holder(sw)});
-    });
+    switch_hold::add_on_release_callback(
+        [list](switch_::Switch *sw) { list->push_back({sw, switch_hold::holder(sw)}); });
     return list;
   }();
   return *heard;

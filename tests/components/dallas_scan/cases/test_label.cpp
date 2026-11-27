@@ -76,7 +76,7 @@ TEST_F(Labels, ALabelIsWrittenAndShownAtOnce) {
   EXPECT_EQ(scan.label(1), "Подача");
   EXPECT_EQ(scan.display_name(1), "Подача");
   EXPECT_EQ(scan.slot_name(1), "Temp 2");  // the entity keeps its name
-  EXPECT_EQ(scan.sensor(1)->get_name(), "Temp 2");
+  EXPECT_EQ(scan.sensor(1)->get_name_progmem().ram_ref(), "Temp 2");
   EXPECT_TRUE(this->log().has(this->log().infos, "Temp 2: label \"Подача\""));
   EXPECT_EQ(this->read(), with_labels(slot_file({{1, LABEL_HEX_A}, {2, LABEL_HEX_B}}), {{2, "Подача"}}));
   EXPECT_EQ(this->boot({ROM_A, ROM_B}).label(1), "Подача");

@@ -239,15 +239,21 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
 - `boards/jxd-cpu-e1eth.yaml` gives the loop task 12288 B (`loop_task_stack_size`) because
   upstream's `web_server_idf` builds each state event for an `/events` client on the stack of
   whatever changed the state (`AsyncEventSourceResponse::send_json_()` and `prepare_json_()`,
-  frames of 1072 B and 2448 B in 2026.10.2), and rules set each other off 8 deep before
-  `automations` cuts them. In QEMU with an `/events` and an API client that takes 8401 B from a
-  REST switch request, 8609 B from Run now and 9441 B from a Modbus coil write (#345), the
-  deepest of the entries #328 measured, the panel, the menu, bindings and virtual inputs
-  included. A bump measures those three again; #354 is to bring the means into the tree. The
-  same 12288 B is `MIN_LOOP_TASK_STACK_SIZE` in `components/automations`, below which the build
-  warns, and the line `components/automations/README.md`,
-  `components/web_automation_editor/README.md` and `doc/DEVELOPMENT.md` tell users to add: a new
-  size goes into all of them.
+  frames of 1072 B and 2448 B in 2026.10.2 and 2026.11.0), and rules set each other off 8 deep
+  before `automations` cuts them. In QEMU with an `/events` and an API client that takes 8401 B
+  from a REST switch request, 8609 B from Run now and 9441 B from a Modbus coil write (#345),
+  the deepest of the entries #328 measured, the panel, the menu, bindings and virtual inputs
+  included; on 2026.11.0 Run now and the coil write took the same, and the REST chain reached
+  the same depth. A bump measures those three again; #354 is to bring the means into the tree.
+  The same 12288 B is `MIN_LOOP_TASK_STACK_SIZE` in `components/automations`, below which the
+  build warns: its final validation reads `esp32: framework: advanced: loop_task_stack_size`
+  from the validated config and takes 8192, upstream's default for that key, when it is absent;
+  and the line `components/automations/README.md`, `components/web_automation_editor/README.md`
+  and `doc/DEVELOPMENT.md` tell users to add: a new size goes into all of them.
+- Our components read an entity's name through `get_name_progmem().ram_ref()` (and log it through
+  `get_log_name()`), since ESPHome 2026.11 deprecates `get_name()`. `ram_ref()` exists only where
+  entity names live in RAM, which is every platform but ESP8266; this firmware builds for ESP32
+  and the host.
 - `boards/jxd-cpu-e1eth.yaml` marks `provisioning`'s source `0` provisioned at boot when the API
   key is there: that is the network source, which the manager registers in its constructor,
   before any other. Were it not, an added device would again close its window when no network
@@ -311,20 +317,26 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
   defaults on wherever `ota:` and `safe_mode` are present, and `safe_mode` marks a boot good only
   when the running firmware is also the boot partition, so the firmware a rollback switched to is
   not confirmed before it has booted.
-- `components/web_origin_guard` duplicates `web_server::WebServer::is_request_origin_allowed_`
-  rather than calling it: the check is private to a component our handlers do not share, and it
-  would not cover `web_server`'s own OTA handler at `/update` in any case. Its catch-all sits in
-  front of every handler only because it sets up at `setup_priority::WIFI`, above `web_server`
-  and ours at `WIFI - 1` and above the web_server OTA platform at `AFTER_WIFI`, and it writes
-  its `403` through `httpd_resp_*` because `AsyncWebServerRequest::send()` maps every status it
-  does not know to a 500. That last coupling is `web_device_dashboard`'s, `web_file_browser`'s
-  and the three editors' too, and it is why each carries a `send_status_` of its own.
+- `components/web_origin_guard` applies the rule upstream's `web_server_base` applies, since
+  2026.11, to every handler `WebServerBase::add_handler()` registers (its
+  `GuardMiddlewareHandler`), as it stands with no `allowed_origins` and no allow-any-origin build:
+  no `Origin` passes, an `Origin` whose authority is the `Host` passes, anything else gets a
+  `403`. Upstream does not wrap what `add_handler_without_auth()` registers,
+  `captive_portal` among it, so only the catch-all covers that; for everything else the two
+  checks run one after the other (#348). The catch-all sits in front of every handler only
+  because it sets up at `setup_priority::WIFI`, above `web_server` and ours at `WIFI - 1` and
+  above the web_server OTA platform at `AFTER_WIFI`, and registers without auth, so it answers
+  before upstream's wrapper of the handler behind it. It writes its `403` through `httpd_resp_*`,
+  as it did when `AsyncWebServerRequest::send()` mapped `403` to a 500. `send()` still maps every
+  status outside 200, 204, 400, 401, 403, 404, 409 and 422 to a 500, which is why
+  `web_device_dashboard` and the three editors each carry a `send_status_` of their own and
+  `web_file_browser` writes its `405` through `httpd_resp_set_status`.
 - `components/web_auth` replaces the two `const char *` upstream's `WebServerBase` keeps and
   never copies, so the strings it hands over must outlive every request and the setters are
-  called again after each change. It also needs a compiled `auth:` block to exist at all:
-  `add_handler()` decides once, at registration, whether a handler gets the authentication
-  middleware, and without credentials at that moment none is installed. A final-validate check
-  in the component insists on the block.
+  called again after each change. Upstream reads them on every request (an unset pair lets the
+  request through), but only a compiled `auth:` block defines `USE_WEBSERVER_AUTH`, without
+  which there is no check and no setters at all; the block also carries the factory default. A
+  final-validate check in the component insists on it.
 - `components/virtual_display` (emulator only, see [QEMU.md](QEMU.md)) renders through
   `DisplayBuffer`'s protected `init_internal_` / `do_update_` and serves its endpoints as a
   `web_server_base` handler, setting the 405 status line through ESP-IDF's
@@ -351,16 +363,19 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
     encodes it, so hiding a slot changes the internal bit alone, and a slot once shown never
     goes back under the placeholder: a hidden one whose name a running thermostat is renamed to
     takes that thermostat's old name and key.
-  - `web_server` matching a climate by name on its own task, first match wins, hidden or not,
-    and a `/` never reaching a URL segment, which keeps an unused slot unaddressable. The name
+  - `web_server` matching a climate by name on its own task, the first one that is not
+    internal (since 2026.11; `include_internal`, which would change that, is refused), and a `/`
+    never reaching a URL segment: a hidden slot answers no URL. The name
     and the traits change only on the loop task, the panel's menu included, so that task may be
     mid-read: the slot keeps them in fixed buffers, and a rename writes the one not in use.
   - `StaticVector::capacity()` for the room check, and `ClimateTraits` built with no custom
     modes: `get_traits()` adds the custom presets as a pointer to the slot's own list, so a copy
-    owns no vector. That list (`Climate::set_supported_custom_presets`) has room for 8 from the
-    slot's constructor and never reallocates, and its pointers are the slot's fixed name
-    buffers, rewritten in place, so `web_server` reading it on its own task never follows a
-    freed pointer.
+    owns none. The slot sets that list only through `set_supported_custom_presets_static()`,
+    which points upstream's `ConstVector` at a table of the slot's, eight pointers to its fixed
+    name buffers, and changes nothing but the length; the copying setter would allocate a new
+    array and free the old one on every call. The names are rewritten in place, so `web_server`
+    reading the list on its own task never follows a freed pointer. The static setter is meant
+    for codegen and does not free an earlier copy, which holds because the slot never makes one.
   - `api::APIServer::active_clients()`, `APIConnection::send_message(DisconnectRequest)` and
     `on_fatal_error()`: after a structural change the component asks Home Assistant to
     reconnect with the request upstream sends when the provisioning window closes, and drops a
@@ -372,8 +387,7 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
   `EntityBase::configure_entity_` again with the same name and hash 0, so it leans on
   `is_internal()` being read when the API and the web server list and push, as `climate_hub`
   does, and on the same reconnect to make Home Assistant list the change. `web_server`'s REST
-  matches a binary sensor by name, hidden or not, so a free slot still answers a read: `OFF`,
-  or no state.
+  matches no internal entity by URL since 2026.11, so a free slot answers `404`.
 - `components/timezone_settings` reads the zone Home Assistant sent one loop pass after the
   `homeassistant` clock's sync callback fires, in a named `defer`: upstream's
   `APIConnection::on_get_time_response` runs the sync callbacks (through `set_epoch_time()`)

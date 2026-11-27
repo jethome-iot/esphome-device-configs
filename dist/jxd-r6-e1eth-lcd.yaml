@@ -248,7 +248,7 @@ esphome:
                 if (holder.empty()) {
                   sw->toggle();
                 } else {
-                  ESP_LOGI("menu", "'%s' left alone: thermostat '%s' drives it", sw->get_name().c_str(), holder.c_str());
+                  ESP_LOGI("menu", "'%s' left alone: thermostat '%s' drives it", LOG_STR_ARG(sw->get_log_name()), holder.c_str());
                 }
               };
               state_row->add_on_next_callback(toggle);
@@ -268,9 +268,9 @@ esphome:
                             return;
                           if (field == Field::INVERTED)
                             ESP_LOGI("menu", "'%s' Inverted left alone: thermostat '%s' drives it",
-                                     sw->get_name().c_str(), switch_hold::holder(sw).c_str());
+                                     LOG_STR_ARG(sw->get_log_name()), switch_hold::holder(sw).c_str());
                           else
-                            ESP_LOGI("menu", "'%s' %s left alone: that choice is gone", sw->get_name().c_str(), text);
+                            ESP_LOGI("menu", "'%s' %s left alone: that choice is gone", LOG_STR_ARG(sw->get_log_name()), text);
                         });
               };
               field_row("Inverted", Field::INVERTED);
@@ -1418,7 +1418,7 @@ binary_sensor:
               if (holder.empty()) {
                 relay->toggle();
               } else {
-                ESP_LOGI("status_page", "'%s' left alone: thermostat '%s' drives it", relay->get_name().c_str(),
+                ESP_LOGI("status_page", "'%s' left alone: thermostat '%s' drives it", LOG_STR_ARG(relay->get_log_name()),
                          holder.c_str());
               }
               id(display1).update();
@@ -2274,8 +2274,8 @@ graphical_display_menu:
           text: !lambda |-
             auto *s = id(pcb_temp);
             if (std::isnan(s->state))
-              return str_sprintf("%s: --", s->get_name().c_str());
-            return str_sprintf("%s: %.1f°C", s->get_name().c_str(), s->state);
+              return str_sprintf("%s: --", s->get_name_progmem().ram_ref().c_str());
+            return str_sprintf("%s: %.1f°C", s->get_name_progmem().ram_ref().c_str(), s->state);
     - type: menu
       text: Automations
       id: automations_menu

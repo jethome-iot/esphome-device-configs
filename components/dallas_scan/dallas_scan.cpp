@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "esphome/core/alloc_helpers.h"
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
@@ -95,7 +96,7 @@ void DallasScan::setup() {
     this->bound_.push_back(sensor);
     this->automatic_++;
     if (std::find(devices.begin(), devices.end(), address) == devices.end()) {
-      ESP_LOGW(TAG, "%s: 0x%016" PRIx64 " is not on the bus", sensor->get_name().c_str(), address);
+      ESP_LOGW(TAG, "%s: 0x%016" PRIx64 " is not on the bus", LOG_STR_ARG(sensor->get_log_name()), address);
       this->missing_[slot] = true;
       continue;
     }
@@ -259,14 +260,14 @@ void DallasScan::read_slot_(size_t slot) {
   // A sensor that stops answering is logged once, not on every read.
   if (!this->read_scratch_pad_(address, scratch_pad)) {
     if (!this->missing_[slot]) {
-      ESP_LOGW(TAG, "%s: 0x%016" PRIx64 " does not answer", sensor->get_name().c_str(), address);
+      ESP_LOGW(TAG, "%s: 0x%016" PRIx64 " does not answer", LOG_STR_ARG(sensor->get_log_name()), address);
       this->missing_[slot] = true;
       this->raw_[slot] = NAN;
       sensor->publish_state(NAN);
     }
   } else {
     if (this->missing_[slot]) {
-      ESP_LOGI(TAG, "%s: 0x%016" PRIx64 " answers again", sensor->get_name().c_str(), address);
+      ESP_LOGI(TAG, "%s: 0x%016" PRIx64 " answers again", LOG_STR_ARG(sensor->get_log_name()), address);
       this->missing_[slot] = false;
       this->write_resolution_(address);
     }
@@ -340,7 +341,7 @@ size_t DallasScan::saved_slots() const {
 
 std::string DallasScan::slot_name(size_t slot) const {
   if (auto *sensor = this->sensor(slot); sensor != nullptr)
-    return sensor->get_name().c_str();
+    return sensor->get_name_progmem().ram_ref().c_str();
   return str_sprintf("%s %u", this->name_prefix_, (unsigned) slot + 1);
 }
 
@@ -660,10 +661,10 @@ void DallasScan::dump_config() {
     if (sensor == nullptr)
       continue;
     if (this->given_[slot] != nullptr) {
-      ESP_LOGCONFIG(TAG, "  %s: YAML sensor in slot %u", sensor->get_name().c_str(), (unsigned) slot + 1);
+      ESP_LOGCONFIG(TAG, "  %s: YAML sensor in slot %u", LOG_STR_ARG(sensor->get_log_name()), (unsigned) slot + 1);
       continue;
     }
-    ESP_LOGCONFIG(TAG, "  %s: 0x%016" PRIx64 " (%s)", sensor->get_name().c_str(), this->booted_[slot],
+    ESP_LOGCONFIG(TAG, "  %s: 0x%016" PRIx64 " (%s)", LOG_STR_ARG(sensor->get_log_name()), this->booted_[slot],
                   LOG_STR_ARG(this->bus_->get_model_str(this->booted_[slot] & 0xff)));
   }
   for (size_t slot = 0; slot < this->offsets_.size(); slot++) {

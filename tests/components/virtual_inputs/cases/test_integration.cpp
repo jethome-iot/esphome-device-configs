@@ -426,7 +426,7 @@ TEST_F(Pool, ALabelIsTheEntitySettingsRecordsAndAnInversionIsRefused) {
   JsonDocument labelled = body(R"({"source_name":"virtual_input_1","settings":{"label":"Someone home"}})");
   ASSERT_NE(store().inputs.update_record(labelled.as<JsonObject>()), nullptr);
   EXPECT_EQ(store().inputs.display_name(input), "Someone home");
-  EXPECT_EQ(input->get_name().str(), "Virtual input 1");  // the name and the object id stay
+  EXPECT_EQ(input->get_name_progmem().ram_ref().str(), "Virtual input 1");  // the name and the object id stay
 
   JsonDocument inverted = body(R"({"source_name":"virtual_input_1","settings":{"inverted":true}})");
   EXPECT_EQ(store().inputs.update_record(inverted.as<JsonObject>()), nullptr);

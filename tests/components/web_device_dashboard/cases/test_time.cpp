@@ -3,6 +3,7 @@
 #include "esphome/components/time/real_time_clock.h"
 #include "esphome/components/timezone_settings/posix_tz_parse.h"
 #include "esphome/components/timezone_settings/timezone_settings.h"
+#include "esphome/core/alloc_helpers.h"
 
 namespace esphome::web_device_dashboard::testing {
 

@@ -73,9 +73,12 @@ class HubClimate final : public climate::Climate {
   float step_{0.5f};
   climate::ClimatePresetMask standard_presets_;
   // Upstream keeps const char * into these, as the custom preset list and as the active one, and
-  // the web server reads them on its task: they live as long as the slot, and the list never
-  // outgrows the room the constructor gave it. Byte NAME_MAX_BYTES is never written.
+  // the web server reads them on its task: they live as long as the slot. Byte NAME_MAX_BYTES is
+  // never written.
   char custom_presets_[PRESET_MAX_COUNT][NAME_MAX_BYTES + 1]{};
+  // The custom preset list upstream walks: a table of this slot's, never reallocated, whose
+  // entries point at custom_presets_ for good; only its length changes.
+  const char *custom_preset_names_[PRESET_MAX_COUNT]{};
 };
 
 }  // namespace esphome::climate_hub

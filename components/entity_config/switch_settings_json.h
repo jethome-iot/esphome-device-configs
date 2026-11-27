@@ -68,7 +68,7 @@ inline std::string inverted_refusal(const switch_::Switch *sw, const std::string
   const std::string holder = switch_hold::holder(sw);
   if (holder.empty())
     return "";
-  return "\"" + (shown.empty() ? std::string(sw->get_name().c_str()) : shown) + "\" is driven by \"" + holder +
+  return "\"" + (shown.empty() ? sw->get_name_progmem().ram_ref().str() : shown) + "\" is driven by \"" + holder +
          "\": stop that thermostat to change Inverted";
 }
 
@@ -243,7 +243,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
   // replaced later cannot pull it from under the caller.
   std::string display_name(switch_::Switch *sw) {
     const std::string label = this->get_label(object_id_of(*sw).c_str());
-    return label.empty() ? sw->get_name().str() : label;
+    return label.empty() ? sw->get_name_progmem().ram_ref().str() : label;
   }
 
   // REST: {"source_name": ..., "settings": {"restore_mode", "inverted", "binding_input", "binding_mode", "label"}}.
@@ -458,7 +458,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
           continue;
         JsonObject opt = input_options.add<JsonObject>();
         opt["value"] = object_id_of(*sensor);
-        opt["label"] = sensor->get_name().str();
+        opt["label"] = sensor->get_name_progmem().ram_ref().str();
       }
 
       JsonObject mode_field = obj["binding_mode"].to<JsonObject>();
@@ -511,7 +511,7 @@ class SwitchSettingsJson : public config_json::SettingsBaseJsonTyped<SwitchSetti
     if (this->inputs_ != nullptr)
       return this->inputs_->display_name(sensor);
 #endif
-    return sensor->get_name().str();
+    return sensor->get_name_progmem().ram_ref().str();
   }
 #endif
 

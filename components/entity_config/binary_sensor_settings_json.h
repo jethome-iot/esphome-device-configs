@@ -144,7 +144,7 @@ class BinarySensorSettingsJson
   // replaced later cannot pull it from under the caller.
   std::string display_name(binary_sensor::BinarySensor *sensor) {
     const std::string label = this->get_label(object_id_of(*sensor).c_str());
-    return label.empty() ? sensor->get_name().str() : label;
+    return label.empty() ? sensor->get_name_progmem().ram_ref().str() : label;
   }
 
   // REST: {"source_name": ..., "settings": {"inverted": bool, "label": string}}.

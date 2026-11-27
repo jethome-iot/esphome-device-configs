@@ -292,9 +292,9 @@ class ClimateHub : public Component, public switch_hold::SwitchHolder {
   /// one freed longest ago. Only while one is free.
   Slot *take_free_slot_(const std::string &name);
   /// Before `renamed`, running, shows `name`: free_slot_like_() takes the name and the key
-  /// `renamed` leaves, and the answer is whether one did. The web server answers the first climate
-  /// by a name, so the hidden slot may not keep it. Never the placeholder: an API client may still
-  /// be encoding that slot.
+  /// `renamed` leaves, and the answer is whether one did. A listing still in flight may send the
+  /// hidden slot beside `renamed`, so it may not keep the name. Never the placeholder: an API client
+  /// may still be encoding that slot.
   bool give_way_(const std::string &name, const Slot *renamed);
   /// The API key thermostat `id` shows under `name` on `self`: the name's, as codegen's, while
   /// no other thermostat's name gives it, else one from the id, so no two climates share a key and

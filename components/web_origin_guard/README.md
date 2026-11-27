@@ -33,7 +33,10 @@ reach of a cross-site form. This does.
 
 ## Two mechanisms, two jobs
 
-Neither replaces the other; deleting either one opens a hole the other does not cover.
+Before ESPHome 2026.11 neither replaced the other. Since then upstream's own `add_handler()`
+guard applies the same rule to everything registered through it, our wrapped components
+included, so the wrapper repeats it, and only the catch-all covers what is registered without
+it (#348).
 
 **The wrapper.** Our three web components register a `WebOriginGuard` around themselves rather
 than registering themselves, so there is no way to reach their handlers that does not pass the
@@ -44,22 +47,26 @@ no bytes.
 **The catch-all.** `CrossOriginRefuser` is a component with no YAML of its own, registered ahead
 of every handler on the server, whose `canHandle` is exactly "this request is cross-origin". It
 claims a request only in order to refuse it, so an allowed request falls through to whatever
-would have served it. It covers what no wrapper of ours can: `web_server`'s REST routes, its OTA
-handler at `/update`, and anything a future component registers on the same server. It is
+would have served it. It covers what nothing else does: whatever is registered with
+`add_handler_without_auth()`, the captive portal among it; before 2026.11 that also took in
+`web_server`'s REST routes and its OTA handler at `/update`. It is
 registered without authentication on purpose — a request from another site should be refused
 outright, not answered with a challenge that makes the browser ask the person for credentials.
 
 ## Where this differs from `web_server`'s own check
 
+Since ESPHome 2026.11 `web_server_base` applies the same rule to every handler registered with
+`add_handler()`; this component still covers what is registered without it, the captive portal
+among it (#348).
+
 - **`allowed_origins` is not consulted.** Upstream's rule also accepts any origin listed in the
-  `web_server:` `allowed_origins:` option. This does not read it, so a firmware that ever sets
-  that option would have upstream's routes honour the list and these refuse it.
-- **`GET /` is not exempt.** Upstream serves its index page before running the origin check;
-  here a cross-origin `GET /` is refused like anything else. A browser navigating to a page
-  sends no `Origin`, so this is invisible in normal use.
-- **The `403` is written out by hand.** `AsyncWebServerRequest::send()` maps every status it does
-  not know — 403 among them — to a 500, so the status line and the `text/plain` body are set
-  through `httpd_resp_*` directly.
+  `web_server:` `allowed_origins:` option, and a build that allows any origin skips it. This
+  does not read either, and the catch-all answers before every other handler, so a firmware that
+  ever sets that option would have cross-origin requests refused on upstream's routes as well as
+  ours.
+- **The `403` is written out by hand.** `AsyncWebServerRequest::send()` turned 403 into a 500
+  before ESPHome 2026.11, so the status line and the `text/plain` body are set through
+  `httpd_resp_*` directly.
 
 ## What this breaks
 

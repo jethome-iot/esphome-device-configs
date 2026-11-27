@@ -674,7 +674,7 @@ void WebClimateEditor::handle_entities_(AsyncWebServerRequest *request) {
         continue;
       JsonObject row = sensors.add<JsonObject>();
       row["object_id"] = climate_hub::object_id_of(*entity);
-      row["name"] = entity->get_name().c_str();
+      row["name"] = entity->get_name_progmem().ram_ref().c_str();
       row["unit"] = entity->get_unit_of_measurement_ref().c_str();
     }
 #endif
@@ -685,7 +685,7 @@ void WebClimateEditor::handle_entities_(AsyncWebServerRequest *request) {
       const std::string object_id = climate_hub::object_id_of(*entity);
       JsonObject row = switches.add<JsonObject>();
       row["object_id"] = object_id;
-      row["name"] = entity->get_name().c_str();
+      row["name"] = entity->get_name_progmem().ram_ref().c_str();
       row["claimed_by"] = this->hub_->claimed_by(object_id);
     }
 #endif

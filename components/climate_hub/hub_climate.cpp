@@ -10,12 +10,9 @@ namespace esphome::climate_hub {
 static constexpr uint32_t INTERNAL_BIT = 1u << ENTITY_FIELD_INTERNAL_SHIFT;
 
 HubClimate::HubClimate(ClimateHub *hub, uint8_t index) : hub_(hub), index_(index) {
-  // Full once, then empty: the list keeps the capacity, so no later one reallocates it.
-  std::vector<const char *> all;
-  for (char *buffer : this->custom_presets_)
-    all.push_back(buffer);
-  this->set_supported_custom_presets(all);
-  this->set_supported_custom_presets(std::vector<const char *>{});
+  for (size_t i = 0; i < PRESET_MAX_COUNT; i++)
+    this->custom_preset_names_[i] = this->custom_presets_[i];
+  this->set_supported_custom_presets_static(this->custom_preset_names_, 0);
 }
 
 void HubClimate::show(const std::string &name, uint32_t key, uint32_t entity_fields) {
@@ -66,7 +63,7 @@ void HubClimate::set_traits(bool heat, bool cool, float min_temperature, float m
 
 void HubClimate::set_presets(const std::vector<PresetConfig> &presets) {
   climate::ClimatePresetMask standard_presets;
-  std::vector<const char *> custom;
+  size_t custom = 0;
   for (const PresetConfig &preset : presets) {
     climate::ClimatePreset standard;
     if (standard_preset(preset.name, &standard)) {
@@ -74,17 +71,18 @@ void HubClimate::set_presets(const std::vector<PresetConfig> &presets) {
       continue;
     }
     // The document rules keep it under; the buffers are what must never overflow.
-    if (custom.size() >= PRESET_MAX_COUNT)
+    if (custom >= PRESET_MAX_COUNT)
       continue;
     // In place, the terminator untouched: a reader mid-copy sees a mix of names, never past the end.
-    char *buffer = this->custom_presets_[custom.size()];
+    char *buffer = this->custom_presets_[custom++];
     const size_t length = std::min(preset.name.size(), NAME_MAX_BYTES);
     std::memcpy(buffer, preset.name.data(), length);
     std::memset(buffer + length, 0, NAME_MAX_BYTES - length);
-    custom.push_back(buffer);
   }
   this->standard_presets_ = standard_presets;
-  this->set_supported_custom_presets(custom);
+  // The static setter only repoints the list at the slot's own table; the copying one would
+  // free the table the web server may be walking on its task.
+  this->set_supported_custom_presets_static(this->custom_preset_names_, custom);
 }
 
 void HubClimate::show_preset(const PresetConfig *preset) {
@@ -101,7 +99,7 @@ void HubClimate::show_preset(const PresetConfig *preset) {
 }
 
 // Built from scalars on every call; get_traits() adds the custom presets as a pointer to this
-// slot's own list, so a copy owns no vector.
+// slot's own list, so a copy owns none.
 climate::ClimateTraits HubClimate::traits() {
   climate::ClimateTraits traits;
   traits.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE | climate::CLIMATE_SUPPORTS_ACTION);

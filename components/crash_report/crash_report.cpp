@@ -158,7 +158,7 @@ bool CrashReport::rotate_() {
 
 bool CrashReport::write_report_() {
   const std::string dir = this->dir_path_();
-  struct stat st {};
+  struct stat st{};
   if (::stat(dir.c_str(), &st) != 0 && ::mkdir(dir.c_str(), 0777) != 0) {
     ESP_LOGE(TAG, "Cannot create '%s'", dir.c_str());
     return false;

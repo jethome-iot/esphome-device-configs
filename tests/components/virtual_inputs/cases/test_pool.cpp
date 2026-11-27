@@ -16,7 +16,7 @@ TEST_F(Pool, EverySlotIsRegisteredOnceUnderItsFixedNameAndHidden) {
   EXPECT_EQ(pool().max_inputs(), 4u);
   for (size_t slot = 0; slot < 4; slot++) {
     const VirtualInput &entity = pool().entity(slot);
-    EXPECT_EQ(entity.get_name().str(), "Virtual input " + std::to_string(slot + 1));
+    EXPECT_EQ(entity.get_name_progmem().ram_ref().str(), "Virtual input " + std::to_string(slot + 1));
     EXPECT_EQ(object_id(entity), "virtual_input_" + std::to_string(slot + 1));
     EXPECT_TRUE(entity.is_internal());
     EXPECT_FALSE(entity.has_state());

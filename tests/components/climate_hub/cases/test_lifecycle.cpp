@@ -13,7 +13,7 @@ TEST_F(HubTest, CreateAssignsASlugWritesAFileAndStartsTheEntity) {
   HubClimate *entity = hub().entity_of("living-room");
   ASSERT_NE(nullptr, entity);
   EXPECT_FALSE(entity->is_internal());
-  EXPECT_EQ("Living Room", std::string(entity->get_name().c_str()));
+  EXPECT_EQ("Living Room", std::string(entity->get_name_progmem().ram_ref().c_str()));
   EXPECT_TRUE(hub().is_running("living-room"));
 }
 
@@ -69,7 +69,7 @@ TEST_F(HubTest, RenameKeepsTheIdTheFileAndTheRelay) {
   EXPECT_TRUE(file_exists(this->file_of("boiler")));
   EXPECT_FALSE(file_exists(this->file_of("hot-water")));
   EXPECT_EQ(entity, hub().entity_of("boiler")) << "the same slot, renamed in place";
-  EXPECT_EQ("Hot Water", std::string(entity->get_name().c_str()));
+  EXPECT_EQ("Hot Water", std::string(entity->get_name_progmem().ram_ref().c_str()));
   EXPECT_EQ("hot_water", object_id(*entity));
   EXPECT_EQ(claim, hub().claim("relay_1"));
 }
@@ -129,7 +129,8 @@ TEST_F(HubTest, AYamlClimatesNameIsRefused) {
   EXPECT_EQ(409, hub().create(draft("HALL")).code) << "in any case";
 }
 
-// internal: true hides a climate from the lists, not from the web server's name match.
+// An internal YAML climate's name is refused as well, as it was while the web server matched it
+// by name; since ESPHome 2026.11 nothing reaches it by name, and allowing it is #351.
 TEST_F(HubTest, AnInternalYamlClimatesNameIsRefusedToo) {
   Result result = hub().create(draft("Cellar"));
   EXPECT_EQ(409, result.code);
@@ -152,7 +153,7 @@ TEST_F(HubTest, ANameInAnyScriptIsKeptWhole) {
   EXPECT_EQ("Кухня", hub().store().get("climate")->name);
   HubClimate *entity = hub().entity_of("climate");
   ASSERT_NE(nullptr, entity);
-  EXPECT_STREQ("Кухня", entity->get_name().c_str());
+  EXPECT_STREQ("Кухня", entity->get_name_progmem().ram_ref().c_str());
   EXPECT_EQ(fnv1_hash("__________"), entity->get_object_id_hash());
   EXPECT_NE(std::string::npos, read_file(this->file_of("climate")).find("\"name\":\"Кухня\""));
 
@@ -160,7 +161,7 @@ TEST_F(HubTest, ANameInAnyScriptIsKeptWhole) {
   const std::string longest = repeat("ж", NAME_MAX_LENGTH);
   Result hall = this->create(draft(longest, "relay_2"));
   ASSERT_EQ("climate-2", hall.id) << "two names with nothing to slugify get distinct ids";
-  EXPECT_EQ(longest, std::string(hub().entity_of("climate-2")->get_name().c_str()));
+  EXPECT_EQ(longest, std::string(hub().entity_of("climate-2")->get_name_progmem().ram_ref().c_str()));
 
   Result accents = this->create(draft("Café crème", "relay_3"));
   ASSERT_EQ("caf-cr-me", accents.id);
@@ -173,7 +174,7 @@ TEST_F(HubTest, ARenameToANameInAnyScriptKeepsTheId) {
   ASSERT_TRUE(hub().update("boiler", draft("Котёл")).ok);
   EXPECT_EQ("Котёл", hub().store().get("boiler")->name);
   EXPECT_EQ(entity, hub().entity_of("boiler"));
-  EXPECT_STREQ("Котёл", entity->get_name().c_str());
+  EXPECT_STREQ("Котёл", entity->get_name_progmem().ram_ref().c_str());
   EXPECT_EQ(fnv1_hash("__________"), entity->get_object_id_hash());
   EXPECT_FALSE(file_exists(this->file_of("climate")));
 }
@@ -254,15 +255,16 @@ TEST_F(HubTest, DeleteRetiresTheEntityEverywhereItCanBeSeen) {
   EXPECT_EQ(404, hub().remove("boiler").code);
 }
 
-// The web server still answers a removed thermostat's name, as it does any internal entity: with
-// the traits it had and a stopped state, and without a document behind it.
+// A removed thermostat's slot keeps the traits it had and shows a stopped state, without a
+// document behind it, for an API client still encoding it; the web server no longer finds it by
+// name, as it finds no internal entity.
 TEST_F(HubTest, AFreedSlotStillAnswersTraits) {
   this->create(draft("Boiler"));
   HubClimate *entity = hub().entity_of("boiler");
   EXPECT_EQ(2u, entity->get_traits().get_supported_modes().size()) << "off + heat while running";
 
   ASSERT_TRUE(hub().remove("boiler").ok);
-  EXPECT_EQ(entity, web_server_match("Boiler"));
+  EXPECT_EQ(nullptr, web_server_match("Boiler"));
   auto freed = entity->get_traits();
   EXPECT_EQ(2u, freed.get_supported_modes().size()) << "the traits it had";
   EXPECT_EQ(climate::CLIMATE_MODE_OFF, entity->mode);

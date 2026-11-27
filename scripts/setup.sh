@@ -26,7 +26,7 @@ echo "Found Python $PYTHON_VERSION"
 PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
 PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
 
-# ESPHome 2026.10.2 declares Requires-Python >=3.12,<3.15
+# ESPHome 2026.11.0 declares Requires-Python >=3.12,<3.16
 if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 12 ]); then
     echo ""
     echo "ERROR: ESPHome requires Python 3.12 or newer"
@@ -36,10 +36,10 @@ if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" 
     exit 1
 fi
 
-if [ "$PYTHON_MAJOR" -gt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -ge 15 ]); then
+if [ "$PYTHON_MAJOR" -gt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -ge 16 ]); then
     echo ""
-    echo "ERROR: ESPHome does not support Python $PYTHON_VERSION yet (needs < 3.15)"
-    echo "Please use Python 3.12, 3.13 or 3.14"
+    echo "ERROR: ESPHome does not support Python $PYTHON_VERSION yet (needs < 3.16)"
+    echo "Please use Python 3.12, 3.13, 3.14 or 3.15"
     exit 1
 fi
 

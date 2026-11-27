@@ -265,7 +265,7 @@ TEST_F(Report, AWriteThatFailsAtCloseLeavesNoFileAndKeepsTheRecord) {
     write_file(file(i), "older " + std::to_string(i) + "\n");
     kept.push_back("crash" + std::to_string(i) + ".txt");
   }
-  struct rlimit saved {};
+  struct rlimit saved{};
   ASSERT_EQ(getrlimit(RLIMIT_FSIZE, &saved), 0);
   auto *previous = signal(SIGXFSZ, SIG_IGN);
   struct rlimit tiny = saved;

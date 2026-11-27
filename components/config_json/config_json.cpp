@@ -55,7 +55,7 @@ bool ConfigJsonKeeper::ensure_directory_exists_() {
   if (this->storage_backend_ == nullptr)
     return false;
   std::string full_dir = this->storage_backend_->get_base_path() + "/" + this->config_dir_;
-  struct stat st {};
+  struct stat st{};
   if (stat(full_dir.c_str(), &st) == 0) {
     if (S_ISDIR(st.st_mode))
       return true;

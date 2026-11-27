@@ -29,7 +29,7 @@ for /f "tokens=1,2 delims=." %%a in ("!PYTHON_VERSION!") do (
     set PYTHON_MINOR=%%b
 )
 
-REM ESPHome 2026.10.2 declares Requires-Python >=3.12,<3.15
+REM ESPHome 2026.11.0 declares Requires-Python >=3.12,<3.16
 if !PYTHON_MAJOR! LSS 3 (
     echo.
     echo ERROR: ESPHome requires Python 3.12 or newer
@@ -48,10 +48,10 @@ if !PYTHON_MAJOR! EQU 3 if !PYTHON_MINOR! LSS 12 (
     pause
     exit /b 1
 )
-if !PYTHON_MAJOR! EQU 3 if !PYTHON_MINOR! GEQ 15 (
+if !PYTHON_MAJOR! EQU 3 if !PYTHON_MINOR! GEQ 16 (
     echo.
-    echo ERROR: ESPHome does not support Python !PYTHON_VERSION! yet ^(needs ^< 3.15^)
-    echo Please use Python 3.12, 3.13 or 3.14
+    echo ERROR: ESPHome does not support Python !PYTHON_VERSION! yet ^(needs ^< 3.16^)
+    echo Please use Python 3.12, 3.13, 3.14 or 3.15
     pause
     exit /b 1
 )
