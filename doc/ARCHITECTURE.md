@@ -311,20 +311,25 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
   defaults on wherever `ota:` and `safe_mode` are present, and `safe_mode` marks a boot good only
   when the running firmware is also the boot partition, so the firmware a rollback switched to is
   not confirmed before it has booted.
-- `components/web_origin_guard` duplicates `web_server::WebServer::is_request_origin_allowed_`
-  rather than calling it: the check is private to a component our handlers do not share, and it
-  would not cover `web_server`'s own OTA handler at `/update` in any case. Its catch-all sits in
-  front of every handler only because it sets up at `setup_priority::WIFI`, above `web_server`
-  and ours at `WIFI - 1` and above the web_server OTA platform at `AFTER_WIFI`, and it writes
-  its `403` through `httpd_resp_*` because `AsyncWebServerRequest::send()` maps every status it
-  does not know to a 500. That last coupling is `web_device_dashboard`'s, `web_file_browser`'s
-  and the three editors' too, and it is why each carries a `send_status_` of its own.
+- `components/web_origin_guard` applies the rule upstream's `web_server_base` applies, since
+  2026.11, to every handler `WebServerBase::add_handler()` registers (its
+  `GuardMiddlewareHandler`): no `Origin` passes, an `Origin` whose authority is the `Host` passes,
+  anything else gets a `403`. Upstream does not wrap what `add_handler_without_auth()` registers,
+  `captive_portal` among it, so only the catch-all covers that; for everything else the two
+  checks run one after the other (#348). The catch-all sits in front of every handler only
+  because it sets up at `setup_priority::WIFI`, above `web_server` and ours at `WIFI - 1` and
+  above the web_server OTA platform at `AFTER_WIFI`, and registers without auth, so it answers
+  before upstream's wrapper of the handler behind it. It writes its `403` through `httpd_resp_*`,
+  as it did when `AsyncWebServerRequest::send()` mapped `403` to a 500. `send()` still maps every
+  status outside 200, 204, 400, 401, 403, 404, 409 and 422 to a 500, which is why
+  `web_device_dashboard`, `web_file_browser` and the three editors each carry a `send_status_` of
+  their own.
 - `components/web_auth` replaces the two `const char *` upstream's `WebServerBase` keeps and
   never copies, so the strings it hands over must outlive every request and the setters are
-  called again after each change. It also needs a compiled `auth:` block to exist at all:
-  `add_handler()` decides once, at registration, whether a handler gets the authentication
-  middleware, and without credentials at that moment none is installed. A final-validate check
-  in the component insists on the block.
+  called again after each change. Upstream reads them on every request (an unset pair lets the
+  request through), but only a compiled `auth:` block defines `USE_WEBSERVER_AUTH`, without
+  which there is no check and no setters at all; the block also carries the factory default. A
+  final-validate check in the component insists on it.
 - `components/virtual_display` (emulator only, see [QEMU.md](QEMU.md)) renders through
   `DisplayBuffer`'s protected `init_internal_` / `do_update_` and serves its endpoints as a
   `web_server_base` handler, setting the 405 status line through ESP-IDF's
