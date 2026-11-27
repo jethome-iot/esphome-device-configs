@@ -83,9 +83,16 @@ MqttSubscriptions = mqtt_subscriptions_ns.class_("MqttSubscriptions", cg.Compone
 
 
 def folder_name(value):
-    # One folder below the storage: a path would put the file, and the mkdir, elsewhere.
+    # One folder below the storage: a path would put the file, and the mkdir, elsewhere. A NUL
+    # would cut the C string, and the folder checked here would not be the one used.
     value = cv.string_strict(value)
-    if not value or "/" in value or "\\" in value or value in (".", ".."):
+    if (
+        not value
+        or "/" in value
+        or "\\" in value
+        or "\0" in value
+        or value in (".", "..")
+    ):
         raise cv.Invalid("folder_path must be a single folder name")
     return value
 

@@ -62,7 +62,7 @@ class Schema(unittest.TestCase):
 
     def test_the_folder_is_one_name(self):
         self.assertEqual(validate(folder_path="slots")["folder_path"], "slots")
-        for bad in ("", "a/b", "a\\b", ".", ".."):
+        for bad in ("", "a/b", "a\\b", ".", "..", "climates\0slots"):
             with self.subTest(folder_path=bad):
                 with self.assertRaises(cv.Invalid) as refused:
                     validate(folder_path=bad)
