@@ -207,16 +207,10 @@ std::string validate_slot(const SlotConfig &slot, const std::vector<std::string>
       return "'payload_on' must be 1 to 32 bytes";
     if (!mqtt_config::is_text(slot.payload_on))
       return "'payload_on' must be text without control characters";
-    // A whole message is read trimmed, where such a literal would never match; refused for a
-    // JSON path too, as a topic with a space at an end is, so the rule is one.
-    if (slot.payload_on.front() == ' ' || slot.payload_on.back() == ' ')
-      return "'payload_on' cannot start or end with a space";
     if (!payload_state_fits(slot.payload_off))
       return "'payload_off' must be 1 to 32 bytes";
     if (!mqtt_config::is_text(slot.payload_off))
       return "'payload_off' must be text without control characters";
-    if (slot.payload_off.front() == ' ' || slot.payload_off.back() == ' ')
-      return "'payload_off' cannot start or end with a space";
     if (equal_ignoring_case(slot.payload_on, slot.payload_off))
       return "'payload_on' and 'payload_off' must differ";
   }

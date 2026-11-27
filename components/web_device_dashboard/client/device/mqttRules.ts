@@ -224,10 +224,8 @@ export const SLOT_MESSAGES = {
   decimalsRange: "'decimals' must be a whole number from 0 to 4",
   payloadOnLength: "'payload_on' must be 1 to 32 bytes",
   payloadOnText: "'payload_on' must be text without control characters",
-  payloadOnSpace: "'payload_on' cannot start or end with a space",
   payloadOffLength: "'payload_off' must be 1 to 32 bytes",
   payloadOffText: "'payload_off' must be text without control characters",
-  payloadOffSpace: "'payload_off' cannot start or end with a space",
   payloadsEqual: "'payload_on' and 'payload_off' must differ"
 } as const
 
@@ -319,14 +317,13 @@ export function validateSlot(slot: MqttSlotFields, units: readonly string[]): st
     if (!isWhole(slot.decimals) || slot.decimals < 0 || slot.decimals > SLOT_LIMITS.decimals) return SM.decimalsRange
   }
   if (slot.kind === 'binary_sensor') {
-    for (const [key, length, text, space] of [
-      ['payload_on', SM.payloadOnLength, SM.payloadOnText, SM.payloadOnSpace],
-      ['payload_off', SM.payloadOffLength, SM.payloadOffText, SM.payloadOffSpace]
+    for (const [key, length, text] of [
+      ['payload_on', SM.payloadOnLength, SM.payloadOnText],
+      ['payload_off', SM.payloadOffLength, SM.payloadOffText]
     ] as const) {
       const bytes = utf8Bytes(slot[key])
       if (bytes === 0 || bytes > SLOT_LIMITS.payload) return length
       if (!isText(slot[key])) return text
-      if (slot[key].startsWith(' ') || slot[key].endsWith(' ')) return space
     }
     if (asciiLower(slot.payload_on) === asciiLower(slot.payload_off)) return SM.payloadsEqual
   }

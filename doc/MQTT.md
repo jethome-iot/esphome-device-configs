@@ -104,7 +104,7 @@ subscriptions, each reading one topic into one entity.
 | Kind | Number, On/Off or Text |
 | JSON path | Optional: where the value sits in a JSON message, up to 6 keys separated by `.`, e.g. `temperature` or `sensors.0.value`; a number picks an element of a list |
 | Unit, Decimals | Number only: a unit from the list the firmware offers, and 0 to 4 decimals (1 by default) |
-| Payload on, Payload off | On/Off only: the texts meaning On and Off, `ON` and `OFF` by default, compared ignoring the case of Latin letters, up to 32 bytes each, no space at either end |
+| Payload on, Payload off | On/Off only: the texts meaning On and Off, `ON` and `OFF` by default, compared ignoring the case of Latin letters, up to 32 bytes each |
 
 How a message is read:
 
