@@ -357,10 +357,12 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
     mid-read: the slot keeps them in fixed buffers, and a rename writes the one not in use.
   - `StaticVector::capacity()` for the room check, and `ClimateTraits` built with no custom
     modes: `get_traits()` adds the custom presets as a pointer to the slot's own list, so a copy
-    owns no vector. That list (`Climate::set_supported_custom_presets`) has room for 8 from the
-    slot's constructor and never reallocates, and its pointers are the slot's fixed name
-    buffers, rewritten in place, so `web_server` reading it on its own task never follows a
-    freed pointer.
+    owns none. The slot sets that list only through `set_supported_custom_presets_static()`,
+    which points upstream's `ConstVector` at a table of the slot's, eight pointers to its fixed
+    name buffers, and changes nothing but the length; the copying setter would allocate a new
+    array and free the old one on every call. The names are rewritten in place, so `web_server`
+    reading the list on its own task never follows a freed pointer. The static setter is meant
+    for codegen and does not free an earlier copy, which holds because the slot never makes one.
   - `api::APIServer::active_clients()`, `APIConnection::send_message(DisconnectRequest)` and
     `on_fatal_error()`: after a structural change the component asks Home Assistant to
     reconnect with the request upstream sends when the provisioning window closes, and drops a
