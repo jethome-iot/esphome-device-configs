@@ -49,12 +49,12 @@ class ValueRows : public ::testing::Test {
   void SetUp() override {
     this->select_.publish_state(size_t{1});  // Ethernet
     this->select_row_.set_text("Network");
-    this->select_row_.set_select_variable(&this->select_);
+    this->select_row_.set_variable_select(&this->select_);
     this->select_row_.add_on_value_callback([this]() { this->select_on_value_++; });
 
     this->number_.publish_state(1);
     this->number_row_.set_text("Address");
-    this->number_row_.set_number_variable(&this->number_);
+    this->number_row_.set_variable_number(&this->number_);
     this->number_row_.set_format("%.0f");
     this->number_row_.add_on_value_callback([this]() { this->number_on_value_++; });
 
@@ -245,7 +245,7 @@ TEST_F(ValueRows, AnImmediateSelectRowAppliesEveryStep) {
 // Without a state SelectCall's first step lands on an end; the pending one does the same.
 TEST_F(ValueRows, ASelectWithoutAStateStartsAtAnEnd) {
   FakeSelect left;
-  this->select_row_.set_select_variable(&left);
+  this->select_row_.set_variable_select(&left);
   this->menu_.enter();
   this->menu_.left();
 
@@ -257,7 +257,7 @@ TEST_F(ValueRows, ASelectWithoutAStateStartsAtAnEnd) {
   EXPECT_EQ(left.writes, 1);
 
   FakeSelect right;
-  this->select_row_.set_select_variable(&right);
+  this->select_row_.set_variable_select(&right);
   this->menu_.enter();
   this->menu_.right();
 
@@ -267,7 +267,7 @@ TEST_F(ValueRows, ASelectWithoutAStateStartsAtAnEnd) {
 TEST_F(ValueRows, ASelectWithoutOptionsIsInert) {
   FakeSelect empty;
   empty.traits.set_options({});
-  this->select_row_.set_select_variable(&empty);
+  this->select_row_.set_variable_select(&empty);
 
   this->menu_.enter();
   this->menu_.right();
@@ -360,7 +360,7 @@ TEST_F(ValueRows, ANumberWithoutAStepStepsByOne) {
 // No state, nothing to step from: the row reads the minimum and every step is inert.
 TEST_F(ValueRows, ANumberWithoutAStateIsInert) {
   FakeNumber fresh;
-  this->number_row_.set_number_variable(&fresh);
+  this->number_row_.set_variable_number(&fresh);
 
   this->on_number_row();
   this->menu_.enter();

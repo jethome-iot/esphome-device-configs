@@ -41,11 +41,12 @@ std::string MenuItemSelect::get_value_text() const {
 
   if (this->value_getter_.has_value()) {
     result = this->value_getter_.value()(this);
-  } else if (this->pending_.has_value() && this->select_var_->has_index(*this->pending_)) {  // JetHome: apply on leave
-    result = this->select_var_->option_at(*this->pending_);
+  } else if (this->pending_.has_value() &&
+             this->variable_select_->has_index(*this->pending_)) {  // JetHome: apply on leave
+    result = this->variable_select_->option_at(*this->pending_);
   } else {
-    if (this->select_var_ != nullptr) {
-      auto option = this->select_var_->current_option();
+    if (this->variable_select_ != nullptr) {
+      auto option = this->variable_select_->current_option();
       result.assign(option.c_str(), option.size());
     }
   }
@@ -60,8 +61,8 @@ bool MenuItemSelect::select_next() {
 
   bool changed = false;
 
-  if (this->select_var_ != nullptr) {
-    this->select_var_->make_call().select_next(true).perform();
+  if (this->variable_select_ != nullptr) {
+    this->variable_select_->make_call().select_next(true).perform();
     this->on_value_();
     changed = true;
   }
@@ -76,8 +77,8 @@ bool MenuItemSelect::select_prev() {
 
   bool changed = false;
 
-  if (this->select_var_ != nullptr) {
-    this->select_var_->make_call().select_previous(true).perform();
+  if (this->variable_select_ != nullptr) {
+    this->variable_select_->make_call().select_previous(true).perform();
     this->on_value_();
     changed = true;
   }
@@ -96,10 +97,10 @@ void MenuItemSelect::on_leave() {
   const optional<size_t> picked = this->pending_;
   this->editing_ = false;
   this->pending_.reset();
-  if (picked.has_value() && this->select_var_->has_index(*picked)) {
-    const optional<size_t> active = this->select_var_->active_index();
+  if (picked.has_value() && this->variable_select_->has_index(*picked)) {
+    const optional<size_t> active = this->variable_select_->active_index();
     if (!active.has_value() || *active != *picked) {
-      this->select_var_->make_call().set_index(*picked).perform();
+      this->variable_select_->make_call().set_index(*picked).perform();
       this->on_value_();
     }
   }
@@ -107,12 +108,12 @@ void MenuItemSelect::on_leave() {
 }
 
 bool MenuItemSelect::step_pending_(bool next) {
-  const size_t size = this->select_var_ != nullptr ? this->select_var_->size() : 0;
+  const size_t size = this->variable_select_ != nullptr ? this->variable_select_->size() : 0;
   if (size == 0)
     return false;
   // The first step starts from the select's option, so a change made elsewhere while the row
   // was open is not written back; with no option it lands on an end, as SelectCall's does.
-  const optional<size_t> from = this->pending_.has_value() ? this->pending_ : this->select_var_->active_index();
+  const optional<size_t> from = this->pending_.has_value() ? this->pending_ : this->variable_select_->active_index();
   if (!from.has_value()) {
     this->pending_ = next ? 0 : size - 1;
   } else {
@@ -130,7 +131,7 @@ std::string MenuItemNumber::get_value_text() const {
     result = this->value_getter_.value()(this);
   } else {
     char data[32];
-    snprintf(data, sizeof(data), this->format_.c_str(), get_number_value_());
+    snprintf(data, sizeof(data), this->format_, get_number_value_());
     result = data;
   }
 
@@ -144,11 +145,11 @@ bool MenuItemNumber::select_next() {
 
   bool changed = false;
 
-  if (this->number_var_ != nullptr) {
-    float last = this->number_var_->state;
-    this->number_var_->make_call().number_increment(false).perform();
+  if (this->variable_number_ != nullptr) {
+    float last = this->variable_number_->state;
+    this->variable_number_->make_call().number_increment(false).perform();
 
-    if (this->number_var_->state != last) {
+    if (this->variable_number_->state != last) {
       this->on_value_();
       changed = true;
     }
@@ -164,11 +165,11 @@ bool MenuItemNumber::select_prev() {
 
   bool changed = false;
 
-  if (this->number_var_ != nullptr) {
-    float last = this->number_var_->state;
-    this->number_var_->make_call().number_decrement(false).perform();
+  if (this->variable_number_ != nullptr) {
+    float last = this->variable_number_->state;
+    this->variable_number_->make_call().number_decrement(false).perform();
 
-    if (this->number_var_->state != last) {
+    if (this->variable_number_->state != last) {
       this->on_value_();
       changed = true;
     }
@@ -180,13 +181,13 @@ bool MenuItemNumber::select_prev() {
 float MenuItemNumber::get_number_value_() const {
   float result = 0.0;
 
-  if (this->number_var_ != nullptr) {
+  if (this->variable_number_ != nullptr) {
     // JetHome: apply on leave. An open edit shows the value being picked.
-    const float value = this->pending_.value_or(this->number_var_->state);
-    if (!this->number_var_->has_state() || value < this->number_var_->traits.get_min_value()) {
-      result = this->number_var_->traits.get_min_value();
-    } else if (value > this->number_var_->traits.get_max_value()) {
-      result = this->number_var_->traits.get_max_value();
+    const float value = this->pending_.value_or(this->variable_number_->state);
+    if (!this->variable_number_->has_state() || value < this->variable_number_->traits.get_min_value()) {
+      result = this->variable_number_->traits.get_min_value();
+    } else if (value > this->variable_number_->traits.get_max_value()) {
+      result = this->variable_number_->traits.get_max_value();
     } else {
       result = value;
     }
@@ -207,23 +208,23 @@ void MenuItemNumber::on_leave() {
   const optional<float> picked = this->pending_;
   this->editing_ = false;
   this->pending_.reset();
-  if (picked.has_value() && *picked != this->number_var_->state) {
-    this->number_var_->make_call().set_value(*picked).perform();
+  if (picked.has_value() && *picked != this->variable_number_->state) {
+    this->variable_number_->make_call().set_value(*picked).perform();
     this->on_value_();
   }
   MenuItem::on_leave();
 }
 
 bool MenuItemNumber::step_pending_(bool up) {
-  if (this->number_var_ == nullptr)
+  if (this->variable_number_ == nullptr)
     return false;
-  const auto &traits = this->number_var_->traits;
+  const auto &traits = this->variable_number_->traits;
   // The first step starts from the state the row shows, as for a select; with none there is
   // nothing to step from, and NumberCall refuses the same.
   if (!this->pending_.has_value()) {
-    if (!this->number_var_->has_state())
+    if (!this->variable_number_->has_state())
       return false;
-    this->origin_ = std::clamp(this->number_var_->state, traits.get_min_value(), traits.get_max_value());
+    this->origin_ = std::clamp(this->variable_number_->state, traits.get_min_value(), traits.get_max_value());
     this->steps_ = 0;
   }
   // Counted steps, not a running sum, so stepping back lands on the origin exactly.
@@ -262,13 +263,15 @@ bool MenuItemSwitch::select_next() { return this->toggle_switch_(); }
 
 bool MenuItemSwitch::select_prev() { return this->toggle_switch_(); }
 
-bool MenuItemSwitch::get_switch_state_() const { return (this->switch_var_ != nullptr && this->switch_var_->state); }
+bool MenuItemSwitch::get_switch_state_() const {
+  return (this->variable_switch_ != nullptr && this->variable_switch_->state);
+}
 
 bool MenuItemSwitch::toggle_switch_() {
   bool changed = false;
 
-  if (this->switch_var_ != nullptr) {
-    this->switch_var_->toggle();
+  if (this->variable_switch_ != nullptr) {
+    this->variable_switch_->toggle();
     this->on_value_();
     changed = true;
   }
