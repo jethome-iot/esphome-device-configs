@@ -35,7 +35,8 @@ static const time_t MAX_TIMESTAMP_DRIFT = 900;
 // DST switch; a larger move is a new zone and is taken as a jump.
 static const int64_t MAX_DST_SHIFT = 3600;
 // A switch an action drives calls back in synchronously: rules that trigger each other would
-// otherwise recurse until the loop task's stack runs out. Eight levels fit its 8 KiB.
+// otherwise recurse until the loop task's stack runs out. Eight levels fit it as
+// boards/jxd-cpu-e1eth.yaml sizes it, an /events state event at the deepest included (#345).
 static const uint8_t MAX_DISPATCH_DEPTH = 8;
 
 // The code point at `i`, moving past it; false where the bytes are not UTF-8.
