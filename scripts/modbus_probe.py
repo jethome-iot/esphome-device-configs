@@ -222,7 +222,8 @@ class ModbusTCP(Modbus):
         self.host, self.port, self.timeout = host, port, timeout
         self.transaction = 0
         self.sock = socket.create_connection((host, port), timeout=timeout)
-        # A reply cut off by a timeout leaves the rest of its frame in the stream.
+        # A reply cut off midway, by a timeout or a header that is not Modbus, leaves the rest
+        # of its frame in the stream.
         self.out_of_step = False
 
     def describe(self) -> str:
@@ -282,12 +283,15 @@ class ModbusTCP(Modbus):
 
         while True:
             head = self._read(7, "MBAP header")
+            # Inside a frame from here until its PDU is read: leaving early loses its end.
+            self.out_of_step = True
             transaction = int.from_bytes(head[0:2], "big")
             protocol = int.from_bytes(head[2:4], "big")
             length = int.from_bytes(head[4:6], "big")
             if protocol != 0 or length < 3:
                 raise ModbusError(f"malformed MBAP header {head.hex(' ')}")
             body = self._read(length - 1, "response PDU")
+            self.out_of_step = False
             if self.verbose:
                 print(f"  <- {(head + body).hex(' ')}", file=sys.stderr)
             if transaction == self.transaction:
