@@ -27,7 +27,7 @@ modbus_tcp:
 | `unit_id` | `1` | the unit it answers as, 1–247 |
 | `max_clients` | `2` | clients at a time, 1–8; one more is accepted and closed at once |
 | `idle_timeout` | `60s` | a client that sends nothing this long is disconnected |
-| `serve_wifi_ap` | `false` | answer clients on the WiFi fallback access point's subnet (ESP32), whichever of the device's addresses they connect to |
+| `serve_wifi_ap` | `false` | answer clients of the WiFi fallback access point (ESP32): those on its subnet, whichever of the device's addresses they connect to, and, with IPv6 on, IPv6 link-local clients while it is up |
 
 Each client counts towards the sockets ESPHome reserves (`CONFIG_LWIP_MAX_SOCKETS`), as do the
 listener and one more socket, which takes a connection past the limit just long enough to close it.

@@ -177,9 +177,18 @@ bool ModbusTcpServer::through_wifi_ap_(const struct sockaddr_storage &peer) {
     return true;  // the access point is up and its subnet unknown: refuse rather than guess
   // An IPv4 client of an IPv6 listener shows up as ::ffff:a.b.c.d, which this reads as well.
   uint32_t address;
-  if (!socket::sockaddr_to_ipv4(reinterpret_cast<const struct sockaddr *>(&peer), &address))
-    return false;
-  return (address & info.netmask.addr) == (info.ip.addr & info.netmask.addr);
+  if (socket::sockaddr_to_ipv4(reinterpret_cast<const struct sockaddr *>(&peer), &address))
+    return (address & info.netmask.addr) == (info.ip.addr & info.netmask.addr);
+#if USE_NETWORK_IPV6
+  // The access point gives out no IPv6 prefix, so only a link-local client can come through it
+  // over IPv6; which interface one came in on is not told here, so refuse rather than guess. A
+  // global address came in over Ethernet or the WiFi network.
+  if (peer.ss_family == AF_INET6) {
+    const auto &in6 = reinterpret_cast<const struct sockaddr_in6 &>(peer).sin6_addr;
+    return in6.un.u8_addr[0] == 0xFE && (in6.un.u8_addr[1] & 0xC0) == 0x80;  // fe80::/10, lwIP's layout
+  }
+#endif
+  return false;
 #else
   return false;
 #endif
