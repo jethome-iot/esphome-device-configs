@@ -414,6 +414,9 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
 - `components/automations` names entities by `fnv1_hash` of their object id and walks
   `App.get_binary_sensors()` / `get_sensors()` / `get_switches()` itself, so the hash and
   `EntityBase::get_object_id_to` are part of the on-disk rule format.
+- `components/automations` conditions read a switch's state from inside that switch's own
+  callback, when a rule a switch fires has a condition on that switch, taking upstream at its word
+  that `Switch::publish_state` stores the state before the callbacks run.
 - `tests/harness/main.cpp` is upstream's `tests/components/main.cpp`: the writer keeps what is
   outside its marker comments and puts the generated setup code into `original_setup()`, which
   is never called. `App` sizes its entity lists from the YAML and drops a registration past
