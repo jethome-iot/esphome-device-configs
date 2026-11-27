@@ -437,9 +437,9 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
   unsubscribes: upstream has no callback removal, so rebinding goes through its own table.
 - `components/automations` adds `add_full_state_callback` to the inputs a condition trigger reads,
   because the plain state callback is called neither for an input's first state when it does not
-  trigger on it nor for a lost state; and its conditions read an input's or a switch's state from
-  inside that entity's own callback, taking upstream at its word that the state is stored before
-  the callbacks run.
+  trigger on it nor for a lost state; and its conditions read an input's, a switch's or a sensor's
+  state from inside that entity's own callback, taking upstream at its word that the state is
+  stored before the callbacks run.
 - `components/crash_report` takes the crash record the one way upstream hands it out, as log
   lines: it checks `esp32::crash_handler_has_data()`, catches what `esp32::crash_handler_log()`
   prints through a logger listener (`logger.request_log_listener()`, `add_log_callback`), then
