@@ -2932,6 +2932,9 @@ components:
         - $ref: "#/components/schemas/MqttSlotFields"
         - type: object
           required: [slot, enabled, name, topic, kind]
+          # A body naming `action` is a clear, whatever else it carries.
+          not:
+            required: [action]
           properties:
             slot:
               type: integer
