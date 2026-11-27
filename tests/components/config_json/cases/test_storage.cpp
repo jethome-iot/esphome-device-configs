@@ -84,7 +84,7 @@ class Storage : public ::testing::Test {
     return text.str();
   }
   long size() const {
-    struct stat st {};
+    struct stat st{};
     return stat(this->file().c_str(), &st) == 0 ? st.st_size : -1;
   }
   std::vector<std::string> files() const {

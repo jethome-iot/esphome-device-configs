@@ -207,8 +207,8 @@ TEST(GainSetCodec, ANameIsUpTo48CharactersOfAnyScript) {
     cyrillic += "я";
     clef += "𝄞";
   }
-  for (const std::string &name : {std::string("Winter"), std::string(48, 'a'), cyrillic, clef,
-                                  std::string("Зима 🌨 2026 / \"floor\" \\ eco")}) {
+  for (const std::string &name :
+       {std::string("Winter"), std::string(48, 'a'), cyrillic, clef, std::string("Зима 🌨 2026 / \"floor\" \\ eco")}) {
     EXPECT_TRUE(validate_set_name(name, &error)) << name << ": " << error;
   }
   struct Refusal {

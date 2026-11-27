@@ -7,7 +7,7 @@ namespace esphome::schedules::testing {
 
 // timegm() is the host's own count of a civil date as UTC: the same arithmetic, independently.
 static int64_t civil(int year, int month, int day, int hour = 0, int minute = 0, int second = 0) {
-  struct tm tm {};
+  struct tm tm{};
   tm.tm_year = year - 1900;
   tm.tm_mon = month - 1;
   tm.tm_mday = day;

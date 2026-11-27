@@ -138,9 +138,8 @@ struct Device {
   };
   std::vector<Run> clock_set_runs;
   Automation<> on_clock_set{this->settings.get_clock_set_trigger()};
-  LambdaAction<> record{[this]() {
-    this->clock_set_runs.push_back({this->settings.now, this->settings.clock_source()});
-  }};
+  LambdaAction<> record{
+      [this]() { this->clock_set_runs.push_back({this->settings.now, this->settings.clock_source()}); }};
   Device() { this->on_clock_set.add_actions({&this->record}); }
 };
 
