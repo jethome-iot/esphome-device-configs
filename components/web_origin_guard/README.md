@@ -51,15 +51,18 @@ outright, not answered with a challenge that makes the browser ask the person fo
 
 ## Where this differs from `web_server`'s own check
 
+Since ESPHome 2026.11 `web_server_base` applies the same rule to every handler registered with
+`add_handler()`; this component still covers what is registered without it, the captive portal
+among it (#348).
+
 - **`allowed_origins` is not consulted.** Upstream's rule also accepts any origin listed in the
-  `web_server:` `allowed_origins:` option. This does not read it, so a firmware that ever sets
-  that option would have upstream's routes honour the list and these refuse it.
-- **`GET /` is not exempt.** Upstream serves its index page before running the origin check;
-  here a cross-origin `GET /` is refused like anything else. A browser navigating to a page
-  sends no `Origin`, so this is invisible in normal use.
-- **The `403` is written out by hand.** `AsyncWebServerRequest::send()` maps every status it does
-  not know — 403 among them — to a 500, so the status line and the `text/plain` body are set
-  through `httpd_resp_*` directly.
+  `web_server:` `allowed_origins:` option, and a build that allows any origin skips it. This
+  does not read either, and the catch-all answers before every other handler, so a firmware that
+  ever sets that option would have cross-origin requests refused on upstream's routes as well as
+  ours.
+- **The `403` is written out by hand.** `AsyncWebServerRequest::send()` turned 403 into a 500
+  before ESPHome 2026.11, so the status line and the `text/plain` body are set through
+  `httpd_resp_*` directly.
 
 ## What this breaks
 

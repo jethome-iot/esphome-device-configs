@@ -248,6 +248,10 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
   warns, and the line `components/automations/README.md`,
   `components/web_automation_editor/README.md` and `doc/DEVELOPMENT.md` tell users to add: a new
   size goes into all of them.
+- Our components read an entity's name through `get_name_progmem().ram_ref()` (and log it through
+  `get_log_name()`), since ESPHome 2026.11 deprecates `get_name()`. `ram_ref()` exists only where
+  entity names live in RAM, which is every platform but ESP8266; this firmware builds for ESP32
+  and the host.
 - `boards/jxd-cpu-e1eth.yaml` marks `provisioning`'s source `0` provisioned at boot when the API
   key is there: that is the network source, which the manager registers in its constructor,
   before any other. Were it not, an added device would again close its window when no network
@@ -313,8 +317,9 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
   not confirmed before it has booted.
 - `components/web_origin_guard` applies the rule upstream's `web_server_base` applies, since
   2026.11, to every handler `WebServerBase::add_handler()` registers (its
-  `GuardMiddlewareHandler`): no `Origin` passes, an `Origin` whose authority is the `Host` passes,
-  anything else gets a `403`. Upstream does not wrap what `add_handler_without_auth()` registers,
+  `GuardMiddlewareHandler`), as it stands with no `allowed_origins` and no allow-any-origin build:
+  no `Origin` passes, an `Origin` whose authority is the `Host` passes, anything else gets a
+  `403`. Upstream does not wrap what `add_handler_without_auth()` registers,
   `captive_portal` among it, so only the catch-all covers that; for everything else the two
   checks run one after the other (#348). The catch-all sits in front of every handler only
   because it sets up at `setup_priority::WIFI`, above `web_server` and ours at `WIFI - 1` and
