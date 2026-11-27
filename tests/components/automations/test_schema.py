@@ -36,7 +36,7 @@ class FolderPath(unittest.TestCase):
 
 
 class LoopTaskStack(unittest.TestCase):
-    """A config imported before #345 keeps the 8192 B stack: the build refuses it."""
+    """A config imported before #345 keeps the 8192 B stack: the build warns and goes on."""
 
     def setUp(self):
         self.saved = CORE.data.get(KEY_CORE)
@@ -51,7 +51,7 @@ class LoopTaskStack(unittest.TestCase):
     def validate(self, full):
         token = fv.full_config.set(full)
         try:
-            return automations._validate_loop_task_stack({})
+            return automations._validate_loop_task_stack({"kept": True})
         finally:
             fv.full_config.reset(token)
 
@@ -59,29 +59,35 @@ class LoopTaskStack(unittest.TestCase):
     def esp32(size):
         return {"framework": {"advanced": {"loop_task_stack_size": size}}}
 
-    def test_the_default_stack_with_web_server_is_refused(self):
-        with self.assertRaisesRegex(
-            cv.Invalid,
+    def test_the_default_stack_with_web_server_warns_and_passes(self):
+        with self.assertLogs(automations.__name__, level="WARNING") as logs:
+            config = self.validate({"web_server": {}, "esp32": self.esp32(8192)})
+        self.assertEqual(config, {"kept": True})
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn(
             "need 'esp32: framework: advanced: loop_task_stack_size: 12288' or more: "
             "rules nested 8 deep overflow a 8192 B loop task stack",
-        ):
-            self.validate({"web_server": {}, "esp32": self.esp32(8192)})
-
-    def test_a_config_with_no_advanced_block_is_refused(self):
-        with self.assertRaisesRegex(cv.Invalid, "loop_task_stack_size: 12288"):
-            self.validate({"web_server": {}, "esp32": {"framework": {}}})
-
-    def test_12288_passes(self):
-        self.assertEqual(
-            self.validate({"web_server": {}, "esp32": self.esp32(12288)}), {}
+            logs.output[0],
         )
 
-    def test_without_web_server_the_default_passes(self):
-        self.assertEqual(self.validate({"esp32": self.esp32(8192)}), {})
+    def test_a_config_with_no_advanced_block_warns(self):
+        with self.assertLogs(automations.__name__, level="WARNING") as logs:
+            self.validate({"web_server": {}, "esp32": {"framework": {}}})
+        self.assertIn("loop_task_stack_size: 12288", logs.output[0])
+
+    def test_12288_is_quiet(self):
+        with self.assertNoLogs(automations.__name__, level="WARNING"):
+            config = self.validate({"web_server": {}, "esp32": self.esp32(12288)})
+        self.assertEqual(config, {"kept": True})
+
+    def test_without_web_server_the_default_is_quiet(self):
+        with self.assertNoLogs(automations.__name__, level="WARNING"):
+            self.validate({"esp32": self.esp32(8192)})
 
     def test_another_platform_is_not_checked(self):
         CORE.data[KEY_CORE] = {KEY_TARGET_PLATFORM: "host"}
-        self.assertEqual(self.validate({"web_server": {}}), {})
+        with self.assertNoLogs(automations.__name__, level="WARNING"):
+            self.validate({"web_server": {}})
 
 
 if __name__ == "__main__":
