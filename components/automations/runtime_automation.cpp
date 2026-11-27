@@ -403,11 +403,12 @@ void RuntimeAutomation::on_released(switch_::Switch *sw) {
   // A change of the result still on its way plays the whole branch when it arrives.
   if (!this->result_.has_value() || this->condition_->check() != *this->result_)
     return;
-  // Where the rule has left the relay: while a run is under way, where the newest run's steps so
-  // far left it, its later steps setting it when it gets to them; otherwise the branch for the
-  // result played through, a follow copying the result. With nothing to go by, it is left alone.
+  // Where the rule has left the relay: while the run started last is under way, where its steps
+  // so far left it, its later steps setting it when it gets to them; otherwise the branch for the
+  // result played through, a follow copying the result. An older run still in a delay, as in
+  // parallel, does not count. With nothing to go by, the relay is left alone.
   optional<bool> on;
-  if (!this->runs_.empty()) {
+  if (!this->runs_.empty() && this->runs_.back()->token == this->next_token_) {
     for (const auto &reached : this->runs_.back()->reached) {
       if (reached.first == sw)
         on = reached.second;
