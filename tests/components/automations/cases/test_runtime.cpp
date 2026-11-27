@@ -351,6 +351,28 @@ TEST_F(Runtime, ARelayLetGoInParallelFollowsTheResultNotAnOlderRun) {
   EXPECT_TRUE(e.relay2.state);
 }
 
+// In parallel two runs can wait in their delays at once: the relay goes where the one started last
+// has got to.
+TEST_F(Runtime, ARelayLetGoInParallelTakesTheRunStartedLast) {
+  auto rule = build_rule(engine, R"({"name":"Both","mode":"parallel","triggers":[{"source":"condition"}],
+      "condition":{"type":"input","object_id":"in_1"},
+      "actions":[{"source":"switch","type":"turn_on","object_id":"relay_1"},
+                 {"source":"delay","delay_ms":500},
+                 {"source":"switch","type":"turn_off","object_id":"relay_1"}],
+      "else_actions":[{"source":"switch","type":"turn_off","object_id":"relay_1"},
+                      {"source":"delay","delay_ms":500},
+                      {"source":"switch","type":"turn_on","object_id":"relay_1"}]})");
+  ASSERT_NE(rule, nullptr);
+  e.in1.publish_state(true);
+  rule->watch_condition();  // the then run waits in its delay, relay_1 on
+  e.in1.publish_state(false);
+  rule->on_binary_sensor(&e.in1, false);  // the else run waits in its delay too, relay_1 off
+  EXPECT_EQ(engine.delays.size(), 2u);
+  e.relay1.turn_on();  // where a thermostat left it
+  rule->on_released(&e.relay1);
+  EXPECT_FALSE(e.relay1.state);
+}
+
 // A change of the condition the rule has not been handed yet is not taken as acted on when a
 // relay is let go: it fires when it arrives.
 TEST_F(Runtime, ARelayLetGoLeavesAChangeOnItsWayToTheRule) {
