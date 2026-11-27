@@ -27,7 +27,7 @@ generated files and runs the pre-commit hooks.
 | change what a relay or an input remembers across reboots | [doc/ENTITY_SETTINGS.md](doc/ENTITY_SETTINGS.md) |
 | touch the virtual inputs: their delays, their file or their HTTP API | [doc/ENTITY_SETTINGS.md](doc/ENTITY_SETTINGS.md#virtual-inputs), [components/virtual_inputs/README.md](components/virtual_inputs/README.md) |
 | change WiFi provisioning | [doc/WIFI_SETUP.md](doc/WIFI_SETUP.md) |
-| set up MQTT, or change what an entity exposes over MQTT | [doc/MQTT.md](doc/MQTT.md) |
+| set up MQTT or its subscription slots, or change what an entity exposes over MQTT | [doc/MQTT.md](doc/MQTT.md) |
 
 The tree itself is in the README, "Repository Layout".
 

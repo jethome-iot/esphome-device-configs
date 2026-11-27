@@ -29,41 +29,46 @@ void MqttPatch::apply_to(MqttRecord &record) const {
     record.topic_prefix = *this->topic_prefix;
 }
 
+size_t utf8_sequence(const uint8_t *p, const uint8_t *end, uint32_t &cp) {
+  const uint8_t lead = *p;
+  size_t extra;
+  if (lead < 0x80) {
+    cp = lead;
+    return 1;
+  } else if (lead >= 0xC2 && lead <= 0xDF) {
+    cp = lead & 0x1F;
+    extra = 1;
+  } else if (lead >= 0xE0 && lead <= 0xEF) {
+    cp = lead & 0x0F;
+    extra = 2;
+  } else if (lead >= 0xF0 && lead <= 0xF4) {
+    cp = lead & 0x07;
+    extra = 3;
+  } else {
+    return 0;  // a stray continuation byte, an overlong lead (C0, C1) or past F4
+  }
+  if (static_cast<size_t>(end - p) <= extra)
+    return 0;
+  for (size_t i = 1; i <= extra; i++) {
+    if ((p[i] & 0xC0) != 0x80)
+      return 0;
+    cp = (cp << 6) | (p[i] & 0x3F);
+  }
+  // Overlong three- and four-byte forms, surrogates, and past U+10FFFF.
+  if ((extra == 2 && cp < 0x800) || (extra == 3 && (cp < 0x10000 || cp > 0x10FFFF)) || (cp >= 0xD800 && cp <= 0xDFFF))
+    return 0;
+  return extra + 1;
+}
+
 bool is_text(const std::string &value) {
   const auto *p = reinterpret_cast<const uint8_t *>(value.data());
   const auto *end = p + value.size();
   while (p < end) {
-    const uint8_t lead = *p;
     uint32_t cp;
-    size_t extra;
-    if (lead < 0x80) {
-      cp = lead;
-      extra = 0;
-    } else if (lead >= 0xC2 && lead <= 0xDF) {
-      cp = lead & 0x1F;
-      extra = 1;
-    } else if (lead >= 0xE0 && lead <= 0xEF) {
-      cp = lead & 0x0F;
-      extra = 2;
-    } else if (lead >= 0xF0 && lead <= 0xF4) {
-      cp = lead & 0x07;
-      extra = 3;
-    } else {
-      return false;  // a stray continuation byte, an overlong lead (C0, C1) or past F4
-    }
-    if (static_cast<size_t>(end - p) <= extra)
+    const size_t len = utf8_sequence(p, end, cp);
+    if (len == 0 || cp <= 0x1F || (cp >= 0x7F && cp <= 0x9F))
       return false;
-    for (size_t i = 1; i <= extra; i++) {
-      if ((p[i] & 0xC0) != 0x80)
-        return false;
-      cp = (cp << 6) | (p[i] & 0x3F);
-    }
-    // Overlong three- and four-byte forms, surrogates, and past U+10FFFF.
-    if ((extra == 2 && cp < 0x800) || (extra == 3 && (cp < 0x10000 || cp > 0x10FFFF)) || (cp >= 0xD800 && cp <= 0xDFFF))
-      return false;
-    if (cp <= 0x1F || (cp >= 0x7F && cp <= 0x9F))
-      return false;
-    p += extra + 1;
+    p += len;
   }
   return true;
 }

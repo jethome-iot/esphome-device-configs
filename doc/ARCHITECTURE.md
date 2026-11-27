@@ -20,7 +20,7 @@ role:
 | Directory            | Contents |
 | -------------------- | -------- |
 | `packages/boards/`   | Platform and the chips sitting on each board — `jxd-cpu-e1eth.yaml` (ESP32, api/provisioning/ota/logger/web_server, TMP102, LED, FN button, the identity EEPROM) and `jxd-d6-r6-rev1.2.yaml` (PCA9554 expander, 6 relays, 6 inputs, DS2484 1-Wire bridge) |
-| `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `entity-settings`, `factory-reset`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network`, `reboot-required`, `status-led`, `web-auth`, `web-device-dashboard`, `web-file-browser`, `automations`, `automation-editor`, `climates`, `climate-editor`, `schedules`, `schedule-editor`, `virtual-inputs`, `crash-report`, `firmware-update`, `mqtt`, `mqtt-firmware` |
+| `packages/features/` | SoC buses (`i2c.yaml`, `uarts.yaml`) and functionality — `storage`, `entity-settings`, `factory-reset`, `temperature`, `rtc-time`, `vin-measure`, `modbus-server`, `display-off`, `network`, `reboot-required`, `status-led`, `web-auth`, `web-device-dashboard`, `web-file-browser`, `automations`, `automation-editor`, `climates`, `climate-editor`, `schedules`, `schedule-editor`, `virtual-inputs`, `crash-report`, `firmware-update`, `mqtt`, `mqtt-firmware`, `mqtt-subscriptions` |
 | `packages/display/`  | Display, pages, menu and buttons — `display.yaml`, `menu.yaml`, `buttons.yaml`, `menu-items-network.yaml`, `menu-serial.yaml`, `menu-timezone.yaml`, `menu-firmware.yaml`, `firmware-page.yaml`, `status-page.yaml`, `time-page.yaml`, `blank-page.yaml`, `network-icons.yaml` |
 | `packages/qemu/`     | Overlays that `scripts/qemu.sh` layers over the real config to run it in the emulator — never part of a firmware build |
 
@@ -28,7 +28,7 @@ Shared code and tooling stay at the repository root:
 
 | Directory  | Contents |
 | ---------- | -------- |
-| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `climate_hub` (the thermostats, each a climate entity), `schedules` (the weekly schedules whose modes run lists of relay and thermostat actions), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `web_climate_editor` (the thermostat API of `climate_hub`), `web_schedule_editor` (the schedule API of `schedules`), `crash_report` (the last panic's record, written to that partition at the next boot), `web_device_dashboard` (the web UI at `/` and its device API), `modbus_map` (the Modbus ranges' names that the dashboard lists, checked against the server at build time), `web_auth` (the web server's credentials, changeable at runtime), `mqtt_config` (the MQTT client's settings, set from the dashboard), `web_origin_guard` (the cross-origin refusal every handler on that server answers with), `loop_job` (what a web handler hands the loop task so it does not edit its state from the server's), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), `entity_config` (the per-entity settings) with the `config_base` / `config_json` it is built on, `bindings` (an input driving a relay), `virtual_inputs` (inputs that follow a physical one through an on and an off delay, set up at run time), `switch_hold` (who holds a relay, a running thermostat; the panel, Modbus, the rules, the bindings, the schedules and the relay settings ask it before they move one), `jethome_update` (the firmware update entity) over the `jethome_manifest` parser of the firmware server's answer, `firmware_rollback` (booting the firmware in the other app slot, for the dashboard and the display menu), `status_indicator` (the CPU board's LED: on, off, blinking, pulses, and signals that pick one by condition or take turns), `timezone_settings` (the zone in effect: Home Assistant's, the compiled one or one set on the dashboard), `ntp_servers` (the NTP servers the device asks, set on the dashboard), `panel_text` (text fitted to a row of the display menu, and the rules a label follows), `case_fold` (how the thermostats, the schedules and the rules compare names without case, the same table the dashboard's editors use), `display_menu_base` with `graphical_display_menu` (upstream's, with the menu options `packages/display/menu.yaml` needs), and `ds2484` (upstream's 1-Wire bus, with a status wait that outlasts a 1-Wire reset) |
+| `components/` | External components: `dallas_scan` (the DS18B20 sensors, created at boot), `automations` (the runtime rule engine), `climate_hub` (the thermostats, each a climate entity), `schedules` (the weekly schedules whose modes run lists of relay and thermostat actions), `littlefs_storage` (the LittleFS partition of `packages/features/storage.yaml`) with its `filesystem_storage_abstract` base, `web_file_browser` (the file API over that partition), `web_automation_editor` (the rule API of `automations`), `web_climate_editor` (the thermostat API of `climate_hub`), `web_schedule_editor` (the schedule API of `schedules`), `crash_report` (the last panic's record, written to that partition at the next boot), `web_device_dashboard` (the web UI at `/` and its device API), `modbus_map` (the Modbus ranges' names that the dashboard lists, checked against the server at build time), `web_auth` (the web server's credentials, changeable at runtime), `mqtt_config` (the MQTT client's settings, set from the dashboard), `mqtt_subscriptions` (the MQTT topics the user subscribes to, each an entity, kept on that partition), `web_origin_guard` (the cross-origin refusal every handler on that server answers with), `loop_job` (what a web handler hands the loop task so it does not edit its state from the server's), `jethome_board_info` (the board identity from the CPU board's EEPROM) over `i2c_eeprom`, `virtual_display` (the emulator's front panel), `entity_config` (the per-entity settings) with the `config_base` / `config_json` it is built on, `bindings` (an input driving a relay), `virtual_inputs` (inputs that follow a physical one through an on and an off delay, set up at run time), `switch_hold` (who holds a relay, a running thermostat; the panel, Modbus, the rules, the bindings, the schedules and the relay settings ask it before they move one), `jethome_update` (the firmware update entity) over the `jethome_manifest` parser of the firmware server's answer, `firmware_rollback` (booting the firmware in the other app slot, for the dashboard and the display menu), `status_indicator` (the CPU board's LED: on, off, blinking, pulses, and signals that pick one by condition or take turns), `timezone_settings` (the zone in effect: Home Assistant's, the compiled one or one set on the dashboard), `ntp_servers` (the NTP servers the device asks, set on the dashboard), `panel_text` (text fitted to a row of the display menu, and the rules a label follows), `case_fold` (how the thermostats, the schedules and the rules compare names without case, the same table the dashboard's editors use), `display_menu_base` with `graphical_display_menu` (upstream's, with the menu options `packages/display/menu.yaml` needs), and `ds2484` (upstream's 1-Wire bus, with a status wait that outlasts a 1-Wire reset) |
 | `scripts/` | Generators and tools: `build-dist.py`, `build-icons.py`, `build-timezones.py`, `build-case-fold.py`, `firmware-matrix.py`, `release-version.py`, `vendored-diff.py`, `modbus_probe.py`, `device-files.py` (the `web_file_browser` API from a terminal), `qemu.sh` (the emulator), `mqtt-sink.py` (an MQTT broker for it), `qemu-climate-smoke.py` (the thermostats checked in it), `setup.sh` / `setup.bat` |
 | `dist/`    | Generated self-contained configs the ESPHome Builder imports |
 | `doc/`     | Guides, and their images in `doc/images/` |
@@ -133,6 +133,10 @@ Shared code and tooling stay at the repository root:
   (`features/factory-reset.yaml`) reach `mqtt_config` through `mqtt_config::global_mqtt_config`
   under `#ifdef USE_MQTT_CONFIG`, not `id()`, which a build without the component could not
   resolve.
+- `mqtt_subs` (`features/mqtt-subscriptions.yaml`) is the `mqtt_subscriptions` component, the
+  slots that read MQTT topics into entities; it keeps them in `mqtt/` on `user_storage` and
+  subscribes through `mqtt_client`. The same package adds the `group_mqtt` sorting group its
+  entities sit in.
 - `web_auth_credentials` (`features/web-auth.yaml`) holds the credentials the web server checks.
   The `auth:` block in the same file is the factory pair; a pair set through the dashboard is
   kept in the device's flash preferences and replaces it from the next request on, so a factory
@@ -215,6 +219,12 @@ stays closed until its thermostat's first loop pass. See [ENTITY_SETTINGS.md](EN
 Assistant's zone at `HARDWARE`, and puts the zone in effect before anything that reads the local
 time sets up. `ntp_servers` sets up at `BEFORE_CONNECTION - 1`, right after `sntp_time` has
 started lwIP's client on its own servers, and restarts it on the first server to ask.
+
+`mqtt_subscriptions` sets up at `HARDWARE + 3`: after the mount, and before the entity settings
+apply at `HARDWARE + 1`, which is what lets a relay's Bound input be a slot's entity. It is also
+ahead of `dallas_scan` at `DATA`, so the `Temp N` names are kept free by reservation, since no
+probe exists yet, and ahead of the MQTT client, so the connect callback that subscribes the
+slots' topics is in place before the first connect. It is the first to ask `mqtt_config` for the crash streak.
 
 ## Settings
 
@@ -496,10 +506,28 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
     task of its own through a queue of 29, so a broker that stops reading blocks that task, not
     the loop. A publish that finds the queue full is dropped; a component's resend, discovery
     included, comes back on the next loop pass, a state change in between does not.
+- `components/mqtt_subscriptions` creates its entities at run time the way `dallas_scan` does
+  (reserved table places, the four-argument `App.register_*` with hash 0, `add_entity_config`),
+  and gives them no MQTT component, so they never reach the broker. Its name check builds object
+  ids with `EntityBase`'s per-byte rule (`to_snake_case_char`, then `to_sanitized_char`). An
+  On/Off slot is a level on its first value because of `set_trigger_on_initial_state(false)`:
+  `StatefulEntityBase` skips the plain callbacks on a first state, also the first after
+  `invalidate_state()`, and always calls the full-state ones. It relies on the client calling
+  subscription callbacks on the loop task with the whole payload; the client reserves the
+  announced length first, which is the abort the crash guard's suspension stage answers.
+  - The client sends its whole subscription list at once on every connect, and the ESP32
+    backend queues inbound events in a pool of 31 that the loop drains one per pass: 16 retained
+    values on top of the command topics overflowed it. So the slots' topics enter the list only
+    once the client is connected, four at a time, the next four once each has had its message
+    or none has come for a second, and leave it on every disconnect.
+  - Leaving means erasing our entries from the client's protected list, reached through an
+    explicit template instantiation (which may name a protected member; the class is `final`)
+    and told apart by their callback's type. The client's `unsubscribe()` would ask the broker,
+    an error while disconnected, and drop a command topic of the same name too.
 - `tests/harness/components/mqtt` stands in for upstream's `mqtt` on the host: its schema and
   codegen are upstream's own module, its C++ copies the client's setters, topic prefix rule,
-  topic matching, discovery info and resend pass. A signature drift shows in the ESP32 builds; a
-  behaviour drift only by re-reading upstream's `mqtt_client.cpp`, `mqtt_topic_match.h` and
-  `mqtt_component.cpp`.
+  topic matching, discovery info, resend pass and when a subscription goes out. A signature drift
+  shows in the ESP32 builds; a behaviour drift only by re-reading upstream's `mqtt_client.cpp`,
+  `mqtt_topic_match.h` and `mqtt_component.cpp`.
 
 Re-check each of these on every ESPHome bump.

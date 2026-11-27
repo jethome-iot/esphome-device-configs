@@ -44,8 +44,9 @@ no recompile.
   label per slot ([1-Wire sensors](doc/ONEWIRE_WORKFLOW.md))
 - **Modbus RTU server**: relays, inputs and temperatures for a PLC or SCADA ([Modbus](doc/MODBUS.md))
 - **MQTT**: a client set up from the dashboard, idle until then, with Home Assistant discovery
-  off by default; what cuts the device off its network or installs firmware stays off MQTT
-  ([MQTT](doc/MQTT.md))
+  off by default; what cuts the device off its network or installs firmware stays off MQTT.
+  Up to 16 subscribed topics show as entities of the device, for automations and relay bindings
+  too ([MQTT](doc/MQTT.md))
 - **Time**: the RTC set from Home Assistant, NTP or by hand ([Time](doc/TIME.md))
 - **Display**: status, clock and a settings menu on the LCD variant ([Display](doc/DISPLAY.md))
 - **Firmware updates**: the firmware checks fw.jethome.com for a newer build and installs it on
