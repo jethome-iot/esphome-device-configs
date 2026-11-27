@@ -327,8 +327,8 @@ dashboard's Modbus tab lists that map. Keep `scripts/modbus_probe.py` in step wi
   before upstream's wrapper of the handler behind it. It writes its `403` through `httpd_resp_*`,
   as it did when `AsyncWebServerRequest::send()` mapped `403` to a 500. `send()` still maps every
   status outside 200, 204, 400, 401, 403, 404, 409 and 422 to a 500, which is why
-  `web_device_dashboard`, `web_file_browser` and the three editors each carry a `send_status_` of
-  their own.
+  `web_device_dashboard` and the three editors each carry a `send_status_` of their own and
+  `web_file_browser` writes its `405` through `httpd_resp_set_status`.
 - `components/web_auth` replaces the two `const char *` upstream's `WebServerBase` keeps and
   never copies, so the strings it hands over must outlive every request and the setters are
   called again after each change. Upstream reads them on every request (an unset pair lets the

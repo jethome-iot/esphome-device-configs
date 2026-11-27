@@ -108,8 +108,8 @@ class WebOriginGuard : public AsyncWebHandler {
 
 // Claims a request only in order to refuse it: an allowed request is not claimed and falls
 // through to the handler that would have served it. Registered ahead of every other handler,
-// so it covers what no wrapper reaches -- upstream's REST routes, its OTA handler at /update,
-// anything a future component adds to the shared server.
+// so it covers what neither our wrapper nor upstream's add_handler() guard reaches: whatever is
+// registered with add_handler_without_auth(), the captive portal among it.
 class CrossOriginRefuser : public AsyncWebHandler, public Component {
  public:
   explicit CrossOriginRefuser(web_server_base::WebServerBase *base) : base_(base) {}
