@@ -790,20 +790,12 @@ void WebDeviceDashboard::handle_mqtt_subscriptions_get_(AsyncWebServerRequest *r
 // POST /api/device/mqtt/subscriptions: saves or clears one slot. Read, judge and write are one
 // job on the loop task, so a file restored meanwhile is what the change applies to.
 void WebDeviceDashboard::handle_mqtt_subscriptions_set_(AsyncWebServerRequest *request) {
-  if (!this->require_json_(request))
+  JsonDocument doc;
+  if (!this->read_json_body_(request, doc))
     return;
-  if (this->body_too_large_) {
-    this->send_error_(request, 413, "Request body over 4 KiB");
-    return;
-  }
   auto *subs = mqtt_subscriptions::global_mqtt_subscriptions;
   if (subs == nullptr) {
     this->send_error_(request, 503, "MQTT subscriptions not available");
-    return;
-  }
-  JsonDocument doc = json::parse_json(this->body_);
-  if (doc.isNull() || !doc.is<JsonObject>()) {
-    this->send_error_(request, 400, "Invalid JSON");
     return;
   }
   using Result = mqtt_subscriptions::MqttSubscriptions::Result;
