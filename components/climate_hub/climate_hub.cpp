@@ -450,8 +450,9 @@ float ClimateHub::sensor_reading(const std::string &sensor_object_id) const {
 }
 
 bool ClimateHub::is_name_taken(const std::string &name, const std::string &exclude_id, std::string *error) const {
-  // Every name another climate answers to: the other thermostats, then the YAML climates,
-  // internal ones too, since the web server matches a name whatever the flag.
+  // Every name another climate has: the other thermostats, then the YAML climates, internal
+  // ones too. Those were refused while the web server matched a name whatever the flag; since
+  // ESPHome 2026.11 it reaches no internal entity, and whether to allow them is #351.
   std::vector<std::string> others;
   for (const auto &config : this->store_.all()) {
     if (config->id != exclude_id)

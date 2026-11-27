@@ -129,7 +129,8 @@ TEST_F(HubTest, AYamlClimatesNameIsRefused) {
   EXPECT_EQ(409, hub().create(draft("HALL")).code) << "in any case";
 }
 
-// internal: true hides a climate from the lists, not from the web server's name match.
+// An internal YAML climate's name is refused as well, as it was while the web server matched it
+// by name; since ESPHome 2026.11 nothing reaches it by name, and allowing it is #351.
 TEST_F(HubTest, AnInternalYamlClimatesNameIsRefusedToo) {
   Result result = hub().create(draft("Cellar"));
   EXPECT_EQ(409, result.code);
