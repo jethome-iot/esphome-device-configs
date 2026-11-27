@@ -313,7 +313,10 @@ so are its listener and the one that turns away a client past the limit.
   `on_write_registers`, …) and restates for TCP the request parsing upstream's RTU hub keeps
   protected (`ModbusServerHub::process_modbus_client_frame_`), with the hub's length rule
   `client_pdu_length()`. On an ESPHome bump, diff that function: a function code, limit or
-  exception the hub changes has to change in `mbap.cpp` too.
+  exception the hub changes has to change in `mbap.cpp` too. Its fallback-AP filter finds the
+  access point's subnet through ESP-IDF's default netif key `WIFI_AP_DEF`, and reads an IPv6
+  link-local peer off lwIP's `in6_addr` (`un.u8_addr`). On an ESP-IDF bump, check both: without
+  the key every client is refused while the access point is up.
 - `components/firmware_rollback`, behind the dashboard's `/api/device/system/rollback` and the
   display's Rollback row, reads otadata the way the bootloader does: the other slot is a target
   only when its entry is one `bootloader_common_ota_select_valid` would boot, so an entry marked
