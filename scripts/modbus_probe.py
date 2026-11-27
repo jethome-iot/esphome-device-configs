@@ -84,9 +84,9 @@ class Modbus:
             function, address.to_bytes(2, "big") + count.to_bytes(2, "big")
         )
         packed = body[1:]
-        # A short answer is the server's error to report, not a crash of the walk.
-        if len(packed) < (count + 7) // 8:
-            raise ModbusError(f"{len(packed)} bytes for {count} bits")
+        # A malformed answer is the server's error to report, not a crash or a pass.
+        if not body or body[0] != len(packed) or len(packed) != (count + 7) // 8:
+            raise ModbusError(f"{len(packed)} bytes for {count} bits: {body.hex(' ')}")
         return [bool(packed[i // 8] & (1 << (i % 8))) for i in range(count)]
 
     def _read_registers(self, function: int, address: int, count: int) -> list[int]:
@@ -94,8 +94,10 @@ class Modbus:
             function, address.to_bytes(2, "big") + count.to_bytes(2, "big")
         )
         raw = body[1:]
-        if len(raw) != count * 2:
-            raise ModbusError(f"{len(raw)} bytes for {count} registers")
+        if not body or body[0] != len(raw) or len(raw) != count * 2:
+            raise ModbusError(
+                f"{len(raw)} bytes for {count} registers: {body.hex(' ')}"
+            )
         return [int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2)]
 
     def read_coils(self, address: int, count: int) -> list[bool]:
@@ -110,8 +112,16 @@ class Modbus:
     def read_input_registers(self, address: int, count: int) -> list[int]:
         return self._read_registers(0x04, address, count)
 
+    def _write(self, function: int, payload: bytes) -> None:
+        # A write answers with the first four bytes of its request; anything else did not take.
+        body = self.request(function, payload)
+        if body != payload[:4]:
+            raise ModbusError(
+                f"write echo {body.hex(' ')}, expected {payload[:4].hex(' ')}"
+            )
+
     def write_coil(self, address: int, value: bool) -> None:
-        self.request(
+        self._write(
             0x05, address.to_bytes(2, "big") + (b"\xff\x00" if value else b"\x00\x00")
         )
 
@@ -126,7 +136,7 @@ class Modbus:
             + bytes([len(packed)])
             + bytes(packed)
         )
-        self.request(0x0F, payload)
+        self._write(0x0F, payload)
 
 
 class ModbusRTU(Modbus):
@@ -311,6 +321,8 @@ class ModbusTCP(Modbus):
                 raise ModbusError(
                     f"exception FC 0x{func:02X}, expected 0x{function | 0x80:02X}"
                 )
+            if len(body) != 2:
+                raise ModbusError(f"malformed exception reply {body.hex(' ')}")
             raise ModbusException(function, body[1])
         if func != function:
             raise ModbusError(f"response FC 0x{func:02X}, expected 0x{function:02X}")
